@@ -192,11 +192,32 @@ system FieldOps {
     expect(byClaim.get("permissions")!.multivalued).toBe("true");
     expect(byClaim.get("role")!.multivalued).toBeUndefined();
 
-    // The seeded values have to be USABLE, not merely present: the permission
-    // attribute carries the real runtime strings the gates compare against.
-    expect(attrs.permissions).toEqual(["ops.workOrderWrite"]);
-    expect(attrs.role).toEqual(["admin"]);
+    // IDENTITY claims are seeded with stable synthetic values — a tenant id
+    // that is the same on every boot is what makes tenant-scoped reads return
+    // rows, which is the half of F-022 that made multi-tenancy undemonstrable.
     expect(attrs.tenantId).toEqual(["demo-tenant-id"]);
+
+    // AUTHORITY claims are NOT seeded with the widest value the realm knows.
+    // My first version of this fix seeded `permissions` with every declared
+    // permission and `role` with `admin`, on the reasoning that a demo user
+    // denied everything demonstrates nothing.  That made the shipped dev
+    // principal a SUPERUSER, and the cross-backend runtime-authorization gate
+    // caught it: showcase's `registerProject` guards on
+    // `permissions.contains(manageProjects)`, the demo user held it, and
+    // node/.NET/python answered 204 where that gate exists to prove 403.
+    //
+    // A seed that grants every permission cannot demonstrate DENIAL — the
+    // property an authorization model exists to provide.  The demo user's
+    // authority is now exactly what its realm roles give it.
+    expect(attrs.permissions, "the demo user must not be seeded a permission").toBeUndefined();
+    expect(attrs.role, "`admin` is not a role the demo user holds").toEqual(["user"]);
+    expect(realm.users[0]!.realmRoles).not.toContain("admin");
+
+    // …and the MAPPER is still emitted for the unseeded claim: an absent
+    // mapper is the original F-022 defect (the claim never appears at all, so
+    // a backend reading it sees `null` rather than an empty list).  Present
+    // mapper + no grant is a clean denial; no mapper is a silent one.
+    expect(byClaim.has("permissions")).toBe(true);
   });
 
   it("the realm names the same claim the backends read", async () => {

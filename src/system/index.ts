@@ -992,19 +992,38 @@ function renderKeycloakRealm(sys: SystemIR): string {
       },
     };
   });
-  // Seeded demo values.  `role`/`permissions` get the widest values the realm
-  // knows about so role- and permission-gated operations are EXERCISABLE out of
-  // the box — a demo user who is denied everything demonstrates nothing.  Every
-  // other claim gets a stable, obviously-synthetic value: a tenant id that is
-  // the same on every boot is what makes tenant-scoped reads return rows.
+  // Seeded demo values — IDENTITY claims only.
+  //
+  // A tenant id that is the same on every boot is what makes tenant-scoped
+  // reads return rows, which is the half of F-022 that made multi-tenancy
+  // undemonstrable.  Every non-authority claim gets a stable, obviously
+  // synthetic value.
+  //
+  // AUTHORITY claims (`role`, and any permission ARRAY) are deliberately NOT
+  // seeded with the widest value the realm knows.  My first version of this
+  // fix did exactly that, reasoning that "a demo user who is denied everything
+  // demonstrates nothing" — and it made the shipped dev principal a superuser.
+  // The cross-backend runtime-authorization gate caught it: showcase's
+  // `registerProject` guards on
+  // `currentUser.permissions.contains(permissions.manageProjects)`, the demo
+  // user now HELD manageProjects, and node/.NET/python answered 204 where the
+  // whole point of the gate is 403 (`e2e.test.ts`, "a guarded workflow denies
+  // with 403").  A seed that grants every permission cannot demonstrate denial
+  // — and denial is the property an authorization model exists to provide.
+  //
+  // So the demo user's authority stays exactly what its realm roles give it
+  // (`user`, `agent`).  `role` is seeded to `user`, matching a role it really
+  // holds rather than inventing `admin`.  To exercise an allow-path, grant the
+  // permission in the admin console or seed a second user — both of which are
+  // the operator's call, not a default the generator makes for them.
+  const AUTHORITY_CLAIMS = new Set(["role", "permissions"]);
   const demoAttributes: Record<string, string[]> = {};
   for (const f of claimFields) {
+    if (f.type.kind === "array" && AUTHORITY_CLAIMS.has(f.name)) continue;
     demoAttributes[f.name] =
       f.name === "role"
-        ? ["admin"]
-        : f.type.kind === "array"
-          ? [...permissionRuntimeStrings(sys)]
-          : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+        ? ["user"]
+        : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
   }
 
   const clientMappers = [...audienceMappers, ...claimMappers];
@@ -1407,15 +1426,4 @@ function keycloakJsonType(t: TypeIR): string {
     if (inner.name === "bool") return "boolean";
   }
   return "String";
-}
-
-/** Every permission's runtime string in the system — the values a `permissions`
- *  claim has to carry for `currentUser.permissions.contains(permissions.X)` to
- *  be satisfiable at all.  Seeding the demo user with the full set is
- *  deliberate: the dev realm's job is to let you EXERCISE the authorization
- *  model, and a demo principal holding nothing can only demonstrate denial.
- *  (Denial is still demonstrable — revoke one in the admin console, or use a
- *  second user.) */
-function permissionRuntimeStrings(sys: SystemIR): string[] {
-  return sys.subdomains.flatMap((m) => m.permissions.map((p) => p.runtimeString));
 }
