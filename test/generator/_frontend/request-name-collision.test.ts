@@ -183,31 +183,6 @@ describe("F-023: an operation and a workflow that share a name", () => {
     }
   });
 
-  it("never declares one class member twice in an emitted Angular component", async () => {
-    const files = await generateSystemFiles(COLLIDING);
-    const components = [...files.keys()].filter((p) => /^weba\/.*\.component\.ts$/.test(p));
-    expect(components.length).toBeGreaterThan(0);
-
-    // Non-vacuity: the page under test really does host BOTH forms as class
-    // members, so the assertion below is reading the colliding pair and not an
-    // empty/unparsed class body.  Without this, a `classMemberNames` that
-    // silently matched nothing would pass forever.
-    const sched = files.get("weba/src/app/pages/sched.component.ts");
-    expect(sched).toBeDefined();
-    const schedMembers = classMemberNames(sched!);
-    expect(schedMembers.filter((n) => n.endsWith("Form")).length).toBe(2);
-
-    const offenders: string[] = [];
-    for (const path of components) {
-      const counts = new Map<string, number>();
-      for (const name of classMemberNames(files.get(path)!))
-        counts.set(name, (counts.get(name) ?? 0) + 1);
-      for (const [name, n] of counts)
-        if (n > 1) offenders.push(`${path}: '${name}' declared ${n}×`);
-    }
-    expect(offenders).toEqual([]);
-  });
-
   it("leaves a collision-free model's names exactly as they were", async () => {
     const files = await generateSystemFiles(CLEAN);
     const react = files.get("web/src/api/workflows.ts");
@@ -240,5 +215,30 @@ describe("F-023: an operation and a workflow that share a name", () => {
     expect(ngPage).toContain("  readonly dispatchRunRun = useDispatchRunWorkflow();");
     expect(ngPage).toContain("  async onRunDispatchRun(): Promise<void> {");
     expect(ngPage).not.toContain("WorkflowDispatchRun");
+  });
+
+  it("never declares one class member twice in an emitted Angular component", async () => {
+    const files = await generateSystemFiles(COLLIDING);
+    const components = [...files.keys()].filter((p) => /^weba\/.*\.component\.ts$/.test(p));
+    expect(components.length).toBeGreaterThan(0);
+
+    // Non-vacuity: the page under test really does host BOTH forms as class
+    // members, so the assertion below is reading the colliding pair and not an
+    // empty/unparsed class body.  Without this, a `classMemberNames` that
+    // silently matched nothing would pass forever.
+    const sched = files.get("weba/src/app/pages/sched.component.ts");
+    expect(sched).toBeDefined();
+    const schedMembers = classMemberNames(sched!);
+    expect(schedMembers.filter((n) => n.endsWith("Form")).length).toBe(2);
+
+    const offenders: string[] = [];
+    for (const path of components) {
+      const counts = new Map<string, number>();
+      for (const name of classMemberNames(files.get(path)!))
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      for (const [name, n] of counts)
+        if (n > 1) offenders.push(`${path}: '${name}' declared ${n}×`);
+    }
+    expect(offenders).toEqual([]);
   });
 });
