@@ -245,4 +245,13 @@ export interface FormFieldVM {
    *  `{ valueAsNumber: true }` (RHF coerces the string input to a number, so a
    *  `z.number()` schema validates). */
   valueAsNumber?: boolean;
+  /** Set on a row sub-field: the RHF error access for THAT row, index-spliced
+   *  (`errors.legs?.[index]?.voyage?.message`).  A row sub-field's own
+   *  `errorExpr` is built from its BARE sub-path (`errors.voyage?.message`) and
+   *  so points at nothing — the errors object is shaped like the form values,
+   *  where the sub-field lives under the array element.  Computed here rather
+   *  than string-built per pack because only this preparer knows both halves
+   *  (the array's dotted path and the sub-field's name); `index` is the row
+   *  template's own loop variable, spliced by the template. */
+  rowErrorExpr?: string;
 }

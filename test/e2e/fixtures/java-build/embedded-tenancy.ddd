@@ -3,7 +3,7 @@
 // aggregate, on the JAVA (Spring Boot + JPA/Hibernate) backend.  An embedded
 // aggregate's root scalars (`tenantId`, `code`) are real JPA columns; only the
 // `contains` parts ride a jsonb column.  Previously this combination was GATED
-// by `loom.context-filter-unsupported`; Slice A lifts the gate and reuses the
+// by `loom.context-filter-no-principal`; Slice A lifts the gate and reuses the
 // relational-principal path — the `<Agg>JpaRepository` gets scoped
 // `findAll`/`findById` overrides carrying a `@Query` with the SpEL-principal
 // JPQL clause (`:#{@currentUserAccessor.user()?.tenantId()}`), the JPA analogue
