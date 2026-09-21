@@ -1,4 +1,5 @@
 import type {
+  AggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
   ProjectionAggregateIR,
@@ -17,6 +18,7 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../ir/util/projection-aggregate.js";
+import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -460,7 +462,7 @@ function aggregateProjectionRoute(
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
   const sig = [...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(", ");
-  const cols = aggregates.map((s) => pyAggregate(s.aggregate, row)).join(", ");
+  const cols = aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)).join(", ");
   const where = pred ? `.where(${pred.expr})` : "";
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
@@ -483,15 +485,18 @@ function aggregateProjectionRoute(
 /** The SQLAlchemy aggregate call for one `select`.  `count` counts ROWS (no
  *  column — `COUNT(*)`); the rest take the aggregated column, which is
  *  source-row-rooted so it names the ORM row class's attribute. */
-function pyAggregate(agg: ProjectionAggregateIR, row: string): string {
+function pyAggregate(
+  agg: ProjectionAggregateIR,
+  row: string,
+  src: AggregateIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+): string {
   if (agg.op === "count" || !agg.arg) return "func.count()";
-  const arg = agg.arg;
-  if (arg.kind !== "member") {
-    throw new Error(
-      "internal: a whole-table aggregation argument must be a source column reference",
-    );
-  }
-  return `func.${agg.op}(${row}.${snake(arg.member)})`;
+  // A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) is ONE flattened column on the
+  // row class — `amount_amount`, which is what `mapped_column` declared — not
+  // the outermost member.  Emitting `arg.member` named an attribute the row
+  // class does not have.
+  return `func.${agg.op}(${row}.${sqlColumnName(aggregateArgColumn(agg.arg, src, ctx))})`;
 }
 
 /** Coerce one aggregate result to the projection row's declared wire type.
@@ -573,7 +578,7 @@ function groupedProjectionRoute(
   };
   const cols = [
     ...grouped.keys.map((k) => keyCol(k.expr)),
-    ...grouped.aggregates.map((s) => pyAggregate(s.aggregate, row)),
+    ...grouped.aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)),
   ].join(", ");
   // GROUP BY and ORDER BY exactly the declared grouping columns — a superset of
   // the selected keys (a column may be grouped without being selected).
