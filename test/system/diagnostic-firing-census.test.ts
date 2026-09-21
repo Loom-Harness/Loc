@@ -2027,6 +2027,26 @@ system S {
   "loom.throw-kind-outside-tothrow": throwKindProbe({
     unitBody: `          expect(wo.reference).toBe(invariant)`,
   }),
+  // --- M-T5.36 / P11b: the absence pair + containment ----------------------
+  // `toBeAbsent()` is a claim about a SERIALIZED PAYLOAD, so it is e2e-only:
+  // a unit `test` asserts against an in-memory aggregate whose declared fields
+  // always exist.  Fire it from the unit tier, which is the refusal.
+  "loom.unit-absent-invalid": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBeAbsent()`,
+  }),
+  // `toContain` has exactly two lowerings, picked by the subject's type
+  // (collection membership / string substring).  An ENUM subject is neither,
+  // so it has no lowering and is refused at the IR, where the resolved type is
+  // available.
+  "loom.contain-receiver-invalid": throwKindProbe({
+    unitBody: `          expect(wo.status).toContain("Draft")`,
+  }),
+  // `toBeAbsent()` rewrites onto the receiver (`"<key>" in <obj>`), so it needs
+  // a FIELD READ to name a key.  A bare let-bound name supplies none — and in
+  // the e2e tier, which is the only one where the matcher is legal at all.
+  "loom.absent-receiver-invalid": throwKindProbe({
+    e2eTest: `    expect(wo).toBeAbsent()`,
+  }),
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }

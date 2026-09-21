@@ -1505,3 +1505,62 @@ nothing and the test passes vacuously.
   `examples/**` and `web/src/examples/**`), so this rule's coverage is
   entirely the dedicated fixture tests named above, not the corpus/behavioral
   legs.
+
+### RS-35 · An absent optional is `null` on the wire, never an omitted key
+- **Guarantee.** An optional scalar (`estimate: int?`) that a create body
+  **omitted** reads back as the key CARRYING an explicit null —
+  `{"estimate": null}` — on every backend and every persistence adapter. The
+  key is never dropped from the payload, so a client can tell "declared but
+  unset" from "not a field of this resource" without consulting the schema.
+- **Trigger.** `absent-optional.ddd`: an aggregate with an optional scalar and
+  a null-guard invariant over it (`estimate == null || estimate >= 0`), created
+  by a body that omits the field entirely, then read back by id and by list.
+- **Why the structural gate can't see it.** Both spellings satisfy the same
+  emitted schema — an `estimate?: number` member is happy with a null and
+  equally happy with nothing. Loom has **one** absence value; JSON has **two**
+  spellings of it; nothing in the OpenAPI diff chooses between them.
+- **Why this is documented rather than established.** Unlike most rules here,
+  RS-35 records a contract the tier **already enforced** — the M-T5.36 packet
+  that added the `toBeNull()` / `toBeAbsent()` matchers verified the gate
+  rather than building one. Three things have to hold, and all three were
+  checked at the code face:
+
+  1. **Normalization keeps the evidence.** `normalizeBody`
+     (`test/_helpers/response-diff.ts`) collapses volatile *values* to tokens
+     but never drops *keys*, and returns `null` unchanged. Absent and null stay
+     distinguishable through it — as its own comment puts it, "absence is
+     contract, so it must remain visible to `diffBodies`".
+  2. **The differ raises on it.** `diffBodies` unions both sides' key sets and
+     raises a **`key-set`** divergence when a key is on one side only;
+     `null-vs-empty` is a separate kind, covering `[]`/`{}` against null.
+  3. **The subject is actually compared.** `wire-golden/absent-optional.json`
+     records `"estimate": null` on both read bodies — the golden CARRIES the
+     optional key, rather than only the fields a non-conforming backend would
+     also have sent. (This is the "make the fixture able to falsify the rule"
+     test above: a golden that omitted `estimate` could not fail on it.)
+- **Reach, confirmed by derivation rather than assumed.** The recurring failure
+  shape in this repo is a check that never reaches the thing it names, so the
+  case-to-leg mapping was *derived*, not read: `requiredGoldenCases()` lists
+  **all seven wire-gated legs** — `run.mjs` (node), `run-mikroorm.mjs`,
+  `run-dotnet.mjs`, `run-dapper.mjs`, `run-java.mjs`, `run-python.mjs`,
+  `run-elixir.mjs` — as recorders of `absent-optional`, and none of the three
+  escape hatches covers it: `WIRE_WAIVERS` is empty, `GOLDEN_OPT_OUT` is empty,
+  and `BEHAVIOURAL_SKIP` is drained for every platform clause. Four sibling
+  optional-carrying cases (`embedded-optional`, `optional-reference`,
+  `optional-valueobject`, `union-find-absence`) derive the same seven legs.
+- **The shape of the guarantee, stated plainly.** Each leg is diffed against
+  the committed **node-oracle** golden, so what is enforced is "all five agree
+  with the reviewed recording", not "all five were compared to each other".
+  Moving the contract means rebaselining a checked-in file
+  (`LOOM_WIRE_UPDATE=1`), which lands as a visible diff a human approves —
+  deliberate, not silent.
+- **The DSL surface.** The absence **pair** (`docs/language.md`):
+  `expect(<read>.<field>).toBeNull()` asserts the spelling above;
+  `expect(<read>.<field>).toBeAbsent()` asserts the other one and therefore has
+  **no passing subject on any backend today**. That is intentional — it is not
+  special-cased into passing, so a backend that starts omitting a key turns a
+  test red instead of drifting silently. `toBeAbsent()` is e2e-only
+  (`loom.unit-absent-invalid`): in-process a declared field always exists.
+- **Conforms.** node, dotnet, java, python, elixir (all adapters).
+- **Provenance.** Contract enforced since #2577 / M-T9.11 (the per-PR wire
+  differential); named and written down by M-T5.36/P11b. Tier: **behavioral**.

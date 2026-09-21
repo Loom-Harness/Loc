@@ -64,6 +64,45 @@ const INTRINSIC_MATCHER_SIGNATURES: ReadonlyArray<MatcherSig> = [
   // meant something weaker.  So a `test e2e` body keeps `toThrow(<status>)`
   // and refuses the kind form (`loom.e2e-throw-kind-invalid`).
   { name: "toThrow", arity: 0, on: "value", negatable: false },
+  // ── absence: ONE language value, TWO wire spellings ──────────────────────
+  //
+  // Loom has a single absence value (`int?` holding nothing).  The wire has
+  // two ways to say it — `"estimate": null` and no `estimate` key at all —
+  // and the five backends have genuinely disagreed about which they send
+  // (that disagreement is why `test/fixtures/corpus/absent-optional.ddd`
+  // exists).  One matcher covering both would make it two strengths of claim
+  // under one name, the defect #2959 fixed on the ui side, so the pair is
+  // deliberately two matchers and an author pins the spelling on purpose.
+  //
+  // What holds them apart is not the author's care but the CONFORMANCE GATE:
+  // `diffBodies` (test/_helpers/response-diff.ts) unions both key sets and
+  // raises a `key-set` divergence, so a backend that changed spelling fails
+  // its behavioural leg against the committed wire golden.  Today's enforced
+  // contract is EXPLICIT NULL on all five backends — see RS-35 in
+  // docs/conformance-semantics.md.
+  { name: "toBeNull", arity: 0, on: "value", negatable: true },
+  // `toBeAbsent()` — E2E ONLY, and deliberately so.  "The key is not in the
+  // payload" is a statement about a serialized body; it needs a payload to be
+  // about.  In the unit tier the subject is an aggregate STRUCT, where a
+  // declared field always exists: C#'s `int?`, Java's `Integer` and an Elixir
+  // struct's `nil` default have no "absent" to observe at all.  Lowering it
+  // in-process would therefore leave only two options, and both are the
+  // defect this pair exists to avoid — degrade it to a null check (making it
+  // a silent synonym for `toBeNull`, one matcher meaning two strengths) or
+  // emit an assertion that can never pass.  `checkExpectMatcher` refuses it
+  // in a unit `test` and names `toBeNull()` instead.
+  //
+  // In e2e it is allowed to FAIL HONESTLY: no backend omits a key today, so
+  // it has no passing subject — and a matcher that says "this backend
+  // omitted the key" is exactly how the next divergence gets caught.  It is
+  // NOT special-cased into always passing.
+  { name: "toBeAbsent", arity: 0, on: "value", negatable: true },
+  // `toContain(x)` — ONE matcher, TWO lowerings, chosen by the SUBJECT'S
+  // TYPE: membership for a collection (`array`), substring for a `string`.
+  // The dispatch reads `receiverType` off the IR (already fully resolved by
+  // phase 5, so no backend re-resolves it) and `checkContainReceiver`
+  // rejects every other subject type at the author's own source span.
+  { name: "toContain", arity: 1, on: "value", negatable: true },
 ];
 
 /** The failure RUNGS `toThrow(<kind>)` can pin — a closed, compiler-known set

@@ -179,6 +179,29 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       }
       continue;
     }
+    // `toBeAbsent()` — E2E ONLY, the same tier split `toBeSameInstant` above
+    // takes and for the same underlying reason: it is a claim about a
+    // SERIALIZED PAYLOAD.  "The key is not in the body" needs a body; a unit
+    // `test` asserts against an in-memory aggregate whose declared fields
+    // always exist, and on three of the five backends (C# `int?`, Java
+    // `Integer`, an Elixir struct's `nil` default) in-process absence is not
+    // observable even in principle.  Lowering it there could only degrade it
+    // to a null check — making it a silent synonym for `toBeNull()`, one name
+    // carrying two strengths of claim, which is the #2959 defect — or emit an
+    // assertion that can never pass.  Refuse at the author's own span.
+    //
+    // `toBeNull()` and `toContain()` are legal in BOTH tiers; only the
+    // wire-spelling half of the absence pair is split.
+    if (matcher.member === "toBeAbsent") {
+      if (!isTestE2E(stmt.$container)) {
+        accept("error", diagMessage("loom.unit-absent-invalid", {}), {
+          node: matcher,
+          property: "member",
+          code: "loom.unit-absent-invalid",
+        });
+      }
+      continue;
+    }
     if (matcher.member !== "toThrow") continue;
     // `toThrow(<kind>)` — the failure RUNG (`precondition` / `invariant`).
     // UNIT TIER ONLY.  In-process the rung is observable: elixir carries a

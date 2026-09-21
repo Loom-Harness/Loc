@@ -636,6 +636,38 @@ export const DIAGNOSTIC_MESSAGES = {
     "dropped and the test would quietly assert only that something threw. Use a bare " +
     `\`toThrow()\` here, and assert the rung in a unit \`test\` nested in the aggregate, ` +
     `where \`toThrow(${p.kind})\` reads the real domain error.`,
+  // `toBeAbsent()` in a unit `test` body.  Absence-vs-null is a statement about
+  // a SERIALIZED PAYLOAD, and the unit tier has none: the subject is an
+  // aggregate struct where a declared field always exists.  Three of the five
+  // backends could not observe "absent" in-process even in principle (C#
+  // `int?`, Java `Integer`, an Elixir struct's `nil` default), so the matcher
+  // would either degrade to a null check — a silent synonym for `toBeNull`,
+  // one name meaning two strengths of claim, the #2959 defect — or emit an
+  // assertion that can never pass.  Name the tier and the alternative.
+  "loom.unit-absent-invalid": () =>
+    "'toBeAbsent()' asserts that a key is MISSING FROM THE PAYLOAD, which only means " +
+    "something once a value has been serialized \u2014 so it is valid in a `test e2e` block " +
+    "only. A unit `test` asserts against an in-memory aggregate, where a declared field " +
+    "always exists (C# `int?`, Java `Integer` and an Elixir struct's `nil` default have no " +
+    "absent form at all). Use `toBeNull()` here \u2014 Loom has ONE absence value, and in-process " +
+    "that is the whole of it. To pin the WIRE spelling, move the assertion to a `test e2e` " +
+    "block, where `toBeAbsent()` and `toBeNull()` are two different claims.",
+  // `toContain` dispatches on the SUBJECT's type \u2014 membership for a collection,
+  // substring for a string.  Any other subject has no third lowering, and the
+  // IR is where the resolved type is available to say so.
+  "loom.contain-receiver-invalid": (p: { actual: unknown; type: unknown }) =>
+    `'toContain' asserts membership in a COLLECTION or a SUBSTRING of a string, chosen by ` +
+    `the type of the subject \u2014 but '${p.actual}' is \`${p.type}\`, which is neither. ` +
+    "For a scalar, assert it directly with `toBe(...)`; for an optional, `toBeNull()`.",
+  // `toBeAbsent()` on something that is not a field read.  The matcher rewrites
+  // its assertion onto the receiver (`"estimate" in read`), so it needs an
+  // object and a key; without them the e2e renderer hits its compiler-invariant
+  // throw and `generate system` dies with a stack trace instead of a message.
+  "loom.absent-receiver-invalid": (p: { actual: unknown }) =>
+    `'toBeAbsent()' asks whether a KEY is missing from a payload, so it has to be applied ` +
+    `to a field read \u2014 \`expect(<read>.<field>).toBeAbsent()\`. Here the subject is ` +
+    `'${p.actual}', which names no key to look for. If you meant "this value is null", ` +
+    "that is `toBeNull()`.",
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +
