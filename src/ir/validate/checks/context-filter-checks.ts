@@ -90,8 +90,8 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
         if (!filters.some((p) => exprUsesCurrentUser(p))) continue;
         diags.push({
           severity: "error",
-          code: "loom.context-filter-unsupported",
-          message: diagMessage("loom.context-filter-unsupported#no-auth-user", {
+          code: "loom.context-filter-no-principal",
+          message: diagMessage("loom.context-filter-no-principal", {
             name: dep.name,
             platform: dep.platform,
             ctxName,

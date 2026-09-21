@@ -57,6 +57,7 @@ import {
   type BodyLine,
   collectParamRefs,
   collectWorkflowStmtParamRefs,
+  lookupServiceTier,
   lowerStatements,
 } from "./workflow-execution-emit.js";
 
@@ -362,6 +363,19 @@ function renderHandlerModule(
     contextModule: contextModuleFq,
     resourceModules,
     recordParams: records,
+    // Domain-service call wiring (domain-services.md rev. 4, Elixir decision B)
+    // — the same two fields the workflow emitter threads, and for the same
+    // reason.  Without them the `domain-service` render arm falls through to the
+    // PURE shape and emits `D.Domain.Services.Registration.is_holder_free(...)`
+    // for a READING op, whose fn is not on a `Domain.Services` module at all: it
+    // is a context function on `D.<Ctx>` (the ambient `Repo` is what a reading
+    // op needs, so there is no port to thread).  That module does not exist, so
+    // the handler raised `UndefinedFunctionError` at the first call — a runtime
+    // fault out of code that compiles (ledger
+    // `M-T5.14-reading-service-readport-not-threaded`).  A PURE call still
+    // resolves to `undefined` here and keeps the module shape, byte-identical.
+    domainServiceTier: (service, opName) => lookupServiceTier(ctx, service, opName),
+    readingServiceModule: contextModuleFq,
   };
 
   // The `return <expr>` is rendered into the with-chain's do-branch by

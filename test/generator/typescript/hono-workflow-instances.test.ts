@@ -85,7 +85,7 @@ describe("Hono workflow instance routes", () => {
     // The param carries the uuid format every backend declares on `/{id}`
     // (paramTypeDiffs parity — .NET `Guid id`, Java `UUID id`, Python Path()).
     expect(wf).toContain('path: "/order_fulfillment/instances/{id}",');
-    expect(wf).toContain("request: { params: z.object({ id: z.string().uuid() }) },");
+    expect(wf).toContain("request: { params: z.object({ id: UuidString }) },");
     expect(wf).toMatch(/eq\(schema\.orderFulfillments\.orderId, id\)/);
     // RS-28 — the 404 detail names the resource, not the machine token.
     expect(wf).toContain(
@@ -105,7 +105,7 @@ describe("Hono workflow instance routes", () => {
 
   it("declares the byId param as a uuid (aggregate ids are always guid)", async () => {
     const wf = await workflowsFile("test/fixtures/dispatch-sample.ddd");
-    expect(wf).toContain("request: { params: z.object({ id: z.string().uuid() }) },");
+    expect(wf).toContain("request: { params: z.object({ id: UuidString }) },");
   });
 });
 

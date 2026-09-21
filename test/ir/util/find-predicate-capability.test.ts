@@ -5,6 +5,10 @@ import {
   firstUnlowerableForAdapter,
   isFindPredicateAdapter,
 } from "../../../src/ir/util/find-predicate-capability.js";
+// The target-NEUTRAL gate this table's last narrowing moved into.  Imported
+// here on purpose: "the adapter no longer narrows it" is only half a claim, and
+// the other half lives one module over.
+import { firstNonQueryableNode } from "../../../src/ir/validate/checks/shared.js";
 
 // The per-persistence-adapter narrowing of the queryable predicate subset.
 // M-T9.17 slice 3 — no test imports this module directly.
@@ -23,8 +27,9 @@ import {
 //     is told to remove.
 //
 // The tests pin the SHAPE OF THE NARROWING, not the message wording: which
-// adapters are at the EF Core baseline, and the one shape MikroORM still
-// cannot reach.  THREE of the narrowings this table used to carry are gone
+// adapters are at the EF Core baseline, and what MikroORM — the one adapter
+// with a table of its own — still refuses.  FOUR of the narrowings this table
+// used to carry are gone
 // (`currentUser.<field>`, whose real defect was a missing method parameter one
 // layer out; Dapper's whole subset, now the full baseline; and — C2/2c —
 // `this.<refColl>.contains(x)` membership, whose recorded reason, "needs a
@@ -35,19 +40,29 @@ import {
 // re-adding a narrowing that was diagnosed as belonging elsewhere fails rather
 // than quietly returning.
 //
-// What survives of the membership narrowing is strictly smaller and TRUE: a
-// membership whose ARGUMENT is a column rather than a bindable value.  That is
-// the shape the three ex-membership pins below now hold from the other side —
-// each asserts the general shape lowers AND that the column-argument twin in
-// the same position still does not, so neither half can rot into a vacuous
-// `toBeNull()`.
+// The FOURTH is the one that survived the C2/2c pass and has now moved rather
+// than been deleted: a membership whose ARGUMENT is a column rather than a
+// bindable value.  The join subquery binds its target as a parameter on EVERY
+// adapter, so the refusal is target-neutral and belongs in
+// `firstNonQueryableNode` — where a deployable on the DEFAULT adapter (which
+// carries no `persistence:` selector, and so never reached this table at all)
+// also meets it, instead of crashing drizzle codegen.  The ex-membership pins
+// below therefore assert BOTH halves: null here, named there.  Asserting only
+// the first half would read the same whether the rule moved or was dropped.
 
 const thisRecv = { kind: "this" } as unknown as ExprIR;
+
+/** The row the `this.<field>` members hang off.  The adapter table never reads
+ *  a member's RECEIVER type — but `firstNonQueryableNode`, which these fixtures
+ *  are now also fed through, rejects a member whose receiver is a collection,
+ *  so the fixtures carry the field a real lowering always stamps. */
+const rowType = { kind: "entity", name: "Row" };
 
 const boolMember = (member: string): ExprIR =>
   ({
     kind: "member",
     receiver: thisRecv,
+    receiverType: rowType,
     member,
     memberType: { kind: "primitive", name: "bool" },
   }) as unknown as ExprIR;
@@ -56,11 +71,16 @@ const strMember = (member: string): ExprIR =>
   ({
     kind: "member",
     receiver: thisRecv,
+    receiverType: rowType,
     member,
     memberType: { kind: "primitive", name: "string" },
   }) as unknown as ExprIR;
 
-const strLit = (value: string): ExprIR => ({ kind: "string", value }) as unknown as ExprIR;
+/** A bound string literal.  `kind: "literal"` is the real spelling (the
+ *  adapter table never looks, but `firstNonQueryableNode` does — and a fixture
+ *  that is not a literal there would be rejected for the wrong reason). */
+const strLit = (value: string): ExprIR =>
+  ({ kind: "literal", lit: "string", value }) as unknown as ExprIR;
 
 const binary = (op: string, left: ExprIR, right: ExprIR): ExprIR =>
   ({ kind: "binary", op, left, right }) as unknown as ExprIR;
@@ -83,9 +103,8 @@ const containsMembership = (): ExprIR =>
 /** `this.<refColl>.contains(this.<field>)` — membership whose ARGUMENT is a
  *  COLUMN of the same row rather than a bindable value.  The join-table
  *  subquery binds its target as a parameter on every adapter, so a column
- *  there has nowhere to go.  This is the whole of what is left of the
- *  membership narrowing, and it is the control that keeps the positive pins
- *  below non-vacuous. */
+ *  there has nowhere to go — which is why it is no longer an ADAPTER narrowing
+ *  at all, but a target-neutral refusal in `firstNonQueryableNode`. */
 const columnArgMembership = (): ExprIR =>
   ({
     kind: "method-call",
@@ -152,8 +171,31 @@ describe("the EF Core baseline — efcore, drizzle and dapper narrow NOTHING", (
   }
 });
 
-describe("MikroORM — the one remaining narrowing (a COLUMN membership argument)", () => {
-  it("LOWERS `this.<refColl>.contains(x)` membership — but not a COLUMN argument", () => {
+describe("MikroORM — the last narrowing MOVED to the target-neutral gate", () => {
+  // The column-argument membership (`where o.tags.contains(o.id)`) used to be
+  // MikroORM's one remaining narrowing.  It was never this adapter's: the
+  // join-table subquery binds its target as a PARAMETER on every adapter, so a
+  // column there has nowhere to go on all four.  Keeping it here made the
+  // refusal depend on the `persistence:` selector — which a deployable on the
+  // DEFAULT adapter does not carry — so the identical shape CRASHED codegen on
+  // drizzle while MikroORM refused it honestly.
+  //
+  // So these pins assert the move in BOTH halves: gone from the adapter table,
+  // and PRESENT in `firstNonQueryableNode`.  Asserting only the first half
+  // would read the same whether the rule moved or was simply deleted.
+
+  it("no longer narrows a COLUMN membership argument — the refusal moved, it did not vanish", () => {
+    expect(firstUnlowerableForAdapter(columnArgMembership(), "mikroorm")).toBeNull();
+    // …and the neutral gate every site and every backend consults still names
+    // it.  This is the half that makes the `toBeNull()` above a MOVE rather
+    // than a hole.
+    expect(firstNonQueryableNode(columnArgMembership())).toContain("<column>");
+    // The plain membership stays admitted at both, or the line above would be
+    // refusing the whole shape rather than its argument.
+    expect(firstNonQueryableNode(containsMembership())).toBeNull();
+  });
+
+  it("LOWERS `this.<refColl>.contains(x)` membership", () => {
     // Was "REJECTS …", on the reason "the correlated EXISTS subquery the
     // adapter emits nowhere".  The EXISTS form indeed could not have worked —
     // MikroORM names the root table `e0` in the SQL it builds, so a fragment
@@ -162,32 +204,32 @@ describe("MikroORM — the one remaining narrowing (a COLUMN membership argument
     // from <join> __j where __j.<targetFk> = ?)` says the same thing with no
     // outer alias, and is what `containsMembershipFragment` now emits.
     expect(firstUnlowerableForAdapter(containsMembership(), "mikroorm")).toBeNull();
-    // The control, so the line above cannot rot into a vacuous pass: the one
-    // membership shape that is still out of reach must still be named.
-    expect(firstUnlowerableForAdapter(columnArgMembership(), "mikroorm")).toContain("<column>");
   });
 
-  it("judges membership in a comparison OPERAND the same way it does at the root", () => {
-    // `walkValue` still exists for this: a comparison's operands are values,
-    // and the adapter-wide rejected shapes can hide there.  A root-only check
-    // would pass the column-argument shape straight through to a generate-time
-    // throw — so the two positions must agree, in BOTH directions.
+  it("admits membership in a comparison OPERAND the same way it does at the root", () => {
+    // A comparison's operands are values, and a value position must not judge
+    // membership differently from a predicate position — on either side of the
+    // move.  The neutral gate is asserted in the same two positions, since it
+    // is now the only thing that can refuse the column-argument twin.
     expect(
       firstUnlowerableForAdapter(binary("==", containsMembership(), strLit("x")), "mikroorm"),
     ).toBeNull();
     expect(
       firstUnlowerableForAdapter(binary("==", columnArgMembership(), strLit("x")), "mikroorm"),
-    ).toContain("<column>");
-  });
-
-  it("reaches membership nested under an && / ! / parens, in both directions", () => {
-    const bury = (m: ExprIR): ExprIR => not(paren(binary("&&", boolMember("active"), m)));
-    expect(firstUnlowerableForAdapter(bury(containsMembership()), "mikroorm")).toBeNull();
-    // The structural walk must still DESCEND to it — a walk that stopped at the
-    // `!` would return null here for the wrong reason and read as a pass.
-    expect(firstUnlowerableForAdapter(bury(columnArgMembership()), "mikroorm")).toContain(
+    ).toBeNull();
+    expect(firstNonQueryableNode(binary("==", columnArgMembership(), strLit("x")))).toContain(
       "<column>",
     );
+  });
+
+  it("reaches membership nested under an && / ! / parens, at both gates", () => {
+    const bury = (m: ExprIR): ExprIR => not(paren(binary("&&", boolMember("active"), m)));
+    expect(firstUnlowerableForAdapter(bury(containsMembership()), "mikroorm")).toBeNull();
+    expect(firstUnlowerableForAdapter(bury(columnArgMembership()), "mikroorm")).toBeNull();
+    // The neutral gate's structural walk must still DESCEND to it — a walk that
+    // stopped at the `!` would return null here for the wrong reason and read
+    // as a pass.
+    expect(firstNonQueryableNode(bury(columnArgMembership()))).toContain("<column>");
   });
 
   it("still lowers a bare boolean column", () => {
@@ -225,16 +267,26 @@ describe("MikroORM — the one remaining narrowing (a COLUMN membership argument
     // points the author at one site, so which one it picks is part of the
     // behaviour, not an accident of traversal.
     // The right branch must ALSO be unlowerable, or "left before right" is not
-    // what the assertion measures — plain membership lowers now, so the column
-    // -argument twin is what keeps this honest.
+    // what the assertion measures.  With the column-argument narrowing moved to
+    // the neutral gate, the only shapes left here are the arithmetic ones, so
+    // the two branches are told apart by their OPERATOR.
     const reason = firstUnlowerableForAdapter(
-      binary("&&", binary("+", strMember("a"), strLit("b")), columnArgMembership()),
+      binary(
+        "&&",
+        binary("+", strMember("a"), strLit("b")),
+        binary("-", strMember("c"), strLit("d")),
+      ),
       "mikroorm",
     );
     expect(reason).toContain("arithmetic '+'");
-    // …and the right branch really is a finding, not a null that would make the
-    // line above pass for free.
-    expect(firstUnlowerableForAdapter(columnArgMembership(), "mikroorm")).toContain("<column>");
+    expect(reason, "the RIGHT branch was reported, so the walk is not left-first").not.toContain(
+      "arithmetic '-'",
+    );
+    // …and the right branch really is a finding on its own, not a null that
+    // would make the lines above pass for free.
+    expect(
+      firstUnlowerableForAdapter(binary("-", strMember("c"), strLit("d")), "mikroorm"),
+    ).toContain("arithmetic '-'");
   });
 
   it("peels parens before judging — `(this.active)` is still a bare boolean column", () => {

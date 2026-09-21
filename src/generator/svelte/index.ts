@@ -40,6 +40,11 @@ import {
 } from "../_frontend/shell-chrome.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
+import {
+  DOM_TOAST_SOURCE,
+  SVELTE_LIB_TOAST_EFFECT_PATH,
+  uiUsesToastEffect,
+} from "../_frontend/toast-effect.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -262,6 +267,13 @@ export function generateSvelteForContexts(
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
   out.set("src/lib/forms.svelte.ts", SVELTE_LIB_FORMS);
   out.set("src/lib/toast.svelte.ts", SVELTE_LIB_TOAST);
+  // The page-effect `toast(<msg>)` module, beside the runes store above — a
+  // callable the pack chrome does not own, emitted only when a page or
+  // component body actually reaches the effect (F50; react's
+  // `src/lib/toast.ts` is the same module under a different path).
+  if (uiUsesToastEffect(ui)) {
+    out.set(SVELTE_LIB_TOAST_EFFECT_PATH, DOM_TOAST_SOURCE);
+  }
   // Realtime SSE client + live-event handlers (channels.md Part I):
   // mirrors the react wiring — the client emits when the targeted
   // backend exposes the realtime wire (Hono is the only backend

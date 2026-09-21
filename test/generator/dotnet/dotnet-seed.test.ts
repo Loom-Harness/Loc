@@ -195,7 +195,7 @@ describe("dotnet seeding — raw explicit-id path", () => {
   // java qualified theirs from the start; the .NET and node halves are fixed
   // together in #2517.  The fixture above used to skip the binding and pin the
   // unqualified SQL — but a backend deployable hosting a context MUST bind a
-  // dataSource (`loom.persistence-mode-unsupported`), so the unqualified shape
+  // dataSource (`loom.datasource-binding-missing`), so the unqualified shape
   // is unreachable in the product and both fixtures now bind one (M-T9.35).
   const RAW_WITH_SCHEMA = `system S {
     subdomain Sales { context Sales {

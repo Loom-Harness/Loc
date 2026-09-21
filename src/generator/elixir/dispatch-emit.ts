@@ -150,11 +150,12 @@ function resolveProjectionSubs(ctx: EnrichedBoundedContextIR): ProjectionSub[] {
   const out: ProjectionSub[] = [];
   for (const proj of ctx.projections) {
     for (const on of proj.handlers) {
-      // Only folds whose event is carried by a channel in this context route
-      // (matches `deriveEventSubscriptions`); a fold on an uncarried event is
-      // unreachable and silently skipped (parity with the saga derivation).
-      const carried = ctx.channels.some((ch) => ch.carries.includes(on.event));
-      if (carried) out.push({ event: on.event, param: on.param, projection: proj, on });
+      // EVERY fold routes, carried or not (D-PROJECTION-IMPLICIT-SUB): `on(e: E)`
+      // IS the subscription and a `channel` only decides cross-deployable
+      // delivery / durability.  This mirrored the old `deriveEventSubscriptions`
+      // carriage filter, which meant an uncarried fold was silently skipped here
+      // AND produced no subscription there — a read model no backend ever wrote.
+      out.push({ event: on.event, param: on.param, projection: proj, on });
     }
   }
   return out;
