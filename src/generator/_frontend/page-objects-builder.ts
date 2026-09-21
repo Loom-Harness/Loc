@@ -1,5 +1,6 @@
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { unwrapOpt } from "./form-helpers.js";
 
@@ -288,7 +289,7 @@ export function fillBlock(
   const accessor = `${inputVar}.${path}`;
 
   if (inner.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+    const vo = findValueObjectInScope(ctx, inner.name);
     if (vo) {
       lines.push(`if (${accessor} !== undefined) {`);
       for (const vf of vo.fields) {

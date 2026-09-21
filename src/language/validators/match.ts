@@ -3,6 +3,8 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import type { Platform } from "../../ir/types/loom-ir.js";
+import { descriptorFor, parseBuiltinPlatformRef } from "../../platform/metadata.js";
 import { intrinsicMatcherSig } from "../../util/intrinsic-matchers.js";
 import {
   type CallSuffix,
@@ -21,6 +23,7 @@ import {
   type MemberSuffix,
   type Model,
   type StringLit,
+  type TestE2E,
 } from "../generated/ast.js";
 
 export function checkMatchExpressions(model: Model, accept: ValidationAcceptor): void {
@@ -177,8 +180,30 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
         `'toThrow' takes at most one argument (an HTTP status), got ${matcher.args.length}.`,
         { node: matcher, property: "args" },
       );
-    } else if (matcher.args.length === 1) {
-      if (!isTestE2E(stmt.$container)) {
+      continue;
+    }
+    // A `test e2e` block that lowers to the UI renderer has no HTTP response
+    // to assert against, so NEITHER form of `toThrow` is runnable there.  Refuse
+    // both at the source span rather than emitting a weaker assertion: the
+    // status argument used to be dropped silently by `ui-e2e-render.ts`, and
+    // the bare form only ever settles on a Playwright timeout.  (Audit
+    // 2026-09-13 F7 / fleet decision D-3.)
+    const container = stmt.$container;
+    if (isTestE2E(container) && lowersToUiSpec(container)) {
+      const arg = matcher.args[0]?.value;
+      accept(
+        "error",
+        arg
+          ? diagMessage("loom.e2e-ui-throw-invalid#status", {
+              status: arg.$cstNode?.text ?? "<status>",
+            })
+          : diagMessage("loom.e2e-ui-throw-invalid#bare"),
+        { node: matcher, property: "member", code: "loom.e2e-ui-throw-invalid" },
+      );
+      continue;
+    }
+    if (matcher.args.length === 1) {
+      if (!isTestE2E(container)) {
         accept(
           "error",
           `'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.`,
@@ -203,6 +228,46 @@ function assertedExpr(stmt: ExpectStmt): Expression | undefined {
   if (!isPostfixChain(stmt.expr)) return undefined;
   const head = stmt.expr.head;
   return isParenExpr(head) ? head.inner : head;
+}
+
+/** Does this `test e2e` block lower to the Playwright (`.ui.spec.ts`) renderer
+ *  rather than the vitest+fetch one?
+ *
+ *  Mirrors `lowerE2E`'s kind dispatch in `src/ir/lower/lower.ts` — kept in step
+ *  by `test/language/validation/e2e-ui-throw-invalid.test.ts`, which drives
+ *  both branches:
+ *
+ *    - a FRONTEND-only platform (react / static / svelte / vue / angular /
+ *      feliz / flutter) can only carry a ui body;
+ *    - `elixir` (phoenixLiveView) is fullstack and carries EITHER kind, so the
+ *      body's own call ROOT decides — a body reaching `ui.…` produces a ui
+ *      spec, one reaching only `api.…` does not;
+ *    - every other platform lowers to the api renderer, `mountsUi` or not
+ *      (`renderUIE2EFile` filters on `kind === "ui"`, which such a block
+ *      never has).
+ *
+ *  Deliberately reads the AST rather than the IR: the whole point is to report
+ *  at the author's own source span, before lowering runs. */
+function lowersToUiSpec(block: TestE2E): boolean {
+  const declared = block.deployable?.ref?.platform;
+  if (declared == null) return false;
+  // A backend may be written `family@version` (`hono@v5`); frontends and
+  // `elixir` are always barewords, so the family alone decides.
+  const platform = parseBuiltinPlatformRef(declared)?.family ?? declared;
+  let isFrontend: boolean;
+  try {
+    isFrontend = descriptorFor(platform as Platform).isFrontend;
+  } catch {
+    // Unknown / typo'd platform — `checkDeployablePlatform` reports that
+    // separately; say nothing extra here.
+    return false;
+  }
+  if (isFrontend) return true;
+  if (platform !== "elixir") return false;
+  // Fullstack: `fullstackE2EKinds` emits a ui spec whenever the body reaches
+  // the `ui` root at all (a mixed-root body lowers to BOTH kinds), so follow
+  // the root, not the platform.
+  return AstUtils.streamAllContents(block).some((n) => isNameRef(n) && n.name === "ui");
 }
 
 /** `<local>.<field>` where `<local>` is bound in the same `test e2e` body to a

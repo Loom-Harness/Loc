@@ -56,10 +56,16 @@ plus the system-level heads — `system`, `subdomain`, `deployable`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
 `criterion`, `domainService`, `commandHandler`, `queryHandler`, `channel`,
 `channelSource`, `timerSource`, `requirement`, `solution`, `testCase`,
-`layout`, `import`).  None of these can name a **field**; a handful
-(`api`, `ui`, `component`, `policy`, `id`, `contains`, `permissions`,
-`create`, `destroy`) are nonetheless admitted as parameter / argument
-names or bare expression refs by the per-rule extras described next.
+`layout`, `import`).  None of these can name a **field**, and none can name
+a **declaration** either — `command File { … }` is a parse error for the same
+reason `File: string` is.  Both now say so: a keyword in a name
+position reports `'File' is a Loom keyword, so it cannot be used as a name
+here`, rather than Chevrotain's `Expecting token of type 'ID'` (audit #2864).
+The wording says "here" because most of Loom's keywords are soft — `page` is a
+field name but not a `derived` name — so the bar is positional, not global.
+A handful (`api`, `ui`, `component`, `policy`, `id`, `contains`,
+`permissions`, `create`, `destroy`) are nonetheless admitted as parameter /
+argument names or bare expression refs by the per-rule extras described next.
 
 Everything else that acts as a keyword *somewhere* is a **soft keyword** —
 reserved only where its own rule begins, and admitted as an ordinary
@@ -67,8 +73,8 @@ identifier elsewhere.  The grammar factors the shared set into one rule,
 `CommonSoftKeywords` (`state`, `kind`, `payload`, `command`, `query`,
 `response`, `error`, `paged`, `envelope`, `option`, `or`, `money`,
 `parent`, `title`, `body`, `sort`, `select`, `join`, `key`, `group`, `filter`,
-`stamp`, `store`, `schema`, `ttl`, `use`, `write`, `migration`, `tenancy`,
-`immutable` / `managed` / `token` / `internal` / `secret`, …), composed
+`stamp`, `store`, `schema`, `slot`, `ttl`, `use`, `write`, `migration`,
+`tenancy`, `immutable` / `managed` / `token` / `internal` / `secret`, …), composed
 into every *value* position: a field name (`Property.name`), a parameter /
 argument / clause name (`LooseName`), a bare reference in an expression
 (`NameRefIdent`), an assignment target (`LValueIdent`) and a member name
@@ -78,10 +84,16 @@ bare expression ref (it is the `match await` marker there); `api`, `route`,
 `component`, `menu`, `section`, `link`, `targets`, `framework`, `design`,
 `ui`, `page` … are admissible as parameter / argument names and expression
 refs but — apart from `page` — **not** as field names (`aggregate Order {
-route: string }` is a parse error); `of`, `allow`, `deep`, `global`,
-`policy`, `persistence` are soft only as parameter / clause names.  The source of
-truth is the rule set in `src/language/ddd.langium`, pinned by
-`test/language/keyword-identifier-completeness.test.ts`.
+route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
+`global`, `policy` and `persistence` were soft only as parameter / clause
+names until
+audit finding D4; they are now in the shared set, so `aggregate Claim { policy:
+Policy id }` parses.  `slot` joined them for #2864: its only hard position is
+the `component` element-param type, exactly the shape `money` and `action`
+already had, so `valueobject Berth { slot: int }` parses now.  The source of truth is the rule set in
+`src/language/ddd.langium`, pinned by
+`test/language/parsing/keyword-identifier-completeness.test.ts` and
+`test/language/parsing/reserved-field-name-widening.test.ts`.
 
 ```ddd
 context Orders {
@@ -232,7 +244,7 @@ preserved at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
 | `tenancy by user.<claim> of <RegistryAggregate>` | Multi-tenant partitioning: names the claim that partitions data and the aggregate that is the tenant registry.  Pairs with the `tenantOwned` / `tenantRegistry` capabilities, the per-aggregate `crossTenant` marker and the `policy { allow deep\|global … }` ladder; every aggregate must take an explicit stance (`loom.tenancy-stance-unmarked`).  See [`tenancy.md`](tenancy.md). |
 | `theme { primary: "#…", radius: "md", … }` | System-wide visual identity — design tokens consumed by the react / vue / svelte / angular frontends and the Phoenix LiveView shell (feliz and flutter render their own toolkit defaults and ignore it).  At most one per system.  Colour properties (`primary`, `secondary`, `accent`, `success`, `warning`, `error`, `neutral`) accept CSS hex values (`#RGB` / `#RRGGBB` / `#RRGGBBAA`).  `radius` is one of `none / sm / md / lg / xl`.  `fontFamily` and `fontFamilyMono` are free-form strings.  `colorScheme` is `light / dark / auto`.  Unknown property names and invalid values are validator errors. |
 | `api Name [with …] from <Subdomain> [{ urlStyle: literal\|resource, <statuses>, <routes> }]` | First-class API contract derived from a subdomain's domain (aggregates expose `all / byId / create / update / delete`, repositories expose their finds, workflows expose mutations).  Backend deployables `serves:` an api; UIs reference one via `api X: <ApiName>` parameters; the optional body adds `httpStatus <Error> -> <code>` mappings and hand-written routes (`route GET\|POST\|PUT\|PATCH\|DELETE "/path" -> <handler>`) over `commandHandler` / `queryHandler` declarations.  See [`architecture.md`](architecture.md). |
-| `storage Name { type: <sourceType>, connection: env("…")\|service(x)\|secret(x)\|literal("…"), config: { k: v } }` | Typed physical store / service reusable across deployables.  `type:` names the built-in **sourceType**: relational `postgres` / `mysql` / `sqlite` / `inMemory`, `redis`, search `elastic` / `meilisearch`, `kafka`, `clickhouse` / `bigquery`, object stores `s3` / `localDisk`, queues `rabbitmq` / `nats`, `restApi`, mailers `smtp` / `ses` / `sendgrid`.  `postgres` is the fully-supported state store; the others activate dev-compose sidecars + client emission per the kind × sourceType matrix in [`resources.md`](resources.md). |
+| `storage Name { type: <sourceType>, connection: env("…")\|service(x)\|secret(x)\|literal("…"), config: { k: v } }` | Typed physical store / service reusable across deployables.  `type:` names the built-in **sourceType**: relational `postgres` / `mysql` / `sqlite` / `inMemory`, `redis`, `kafka`, object stores `s3` / `localDisk`, queue `rabbitmq`, `restApi`, mailers `smtp` / `ses` / `sendgrid` — these bind to a `resource kind:` and activate dev-compose sidecars + client emission per the kind × sourceType matrix in [`resources.md`](resources.md#kinds) (`postgres` is the fully-supported state store).  Five further literals **parse but bind to nothing**: `elastic` / `meilisearch` (search), `clickhouse` / `bigquery` (analytics) and `nats` — there is no search or analytics `kind`, and `queue` admits `rabbitmq` only, so a `resource` over one of these is refused by `loom.kind-incompatible` and nothing is emitted ([`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet)). |
 | `resource Name { for: <Ctx>, kind: <k>, use: <storage>\|<api>, … }` | The configured binding (renamed from `dataSource`) from a bounded context's data of kind `state` / `eventLog` / `snapshot` / `cache` / `replica` / `objectStore` / `queue` / `api` / `mailer` to a physical `storage` (or, for `kind: api`, a sibling `api` served in the same system — a typed client).  Optional knobs: `schema`, `tablePrefix`, `keyPrefix`, `ttl`, `every`, `retain`, `isolationLevel`, `readonly`, `shape`, `index: [Entity.col, Entity.(a, b)]`, `config { … }`.  Every backend deployable hosting an aggregate must list a matching `resource` under its `dataSources:` field.  See [`resources.md`](resources.md) for the full model (sourceTypes, kinds, capabilities, interfaces) and workflow-level consumption. |
 | `channelSource Name { for: <channel>, use: <storage> }` / `timerSource Name { for: <Event>, cron: "…" \| every: 15s, in: "<tz>", overlap: allow }` | System-scope transports: a `channelSource` binds a context `channel` to a broker `storage` (redis / rabbitmq / kafka) and is attached to deployables via `channels:` ([`channels.md`](channels.md)); a `timerSource` is a cron / cadence tick that raises the named event into a context (`loom.timer-*`; the target aggregate must be state-based — `loom.timer-needs-state`). |
 | `ui Name [with scaffold(...)] { framework: react\|vue\|svelte\|angular\|feliz\|flutter\|phoenixLiveView, … }` | Block of pages, components, stores, areas, menu, and api / channel parameters that a deployable binds via `ui:`.  See [`page-metamodel.md`](page-metamodel.md). |
@@ -317,12 +329,12 @@ order:
 | `event Name { field: Type, … }` | Flat record raised via `emit`. |
 | `payload Name { … }` / `command` / `query` / `response` / `error` / `payload U = A \| B` | Transport records and discriminated unions — the workflow / handler command surface and `or`-union return arms.  See [`payloads.md`](payloads.md). |
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
-| `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: …, sort: […], loads: […] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.run(...)` consumes.  See [`criterion.md`](criterion.md). |
+| `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.run(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
 | `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
 | `workflow Name { create(...) …, handle …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` / `handle` / `on` reactors and workflow-local state.  See [`workflow.md`](workflow.md). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
-| `channel Name { carries: [Event, …], delivery: broadcast\|queue, retention: ephemeral\|log\|work, key: field }` | Publisher-side contract for how a context's events are transported (paired with a system `channelSource`).  See [`channels.md`](channels.md). |
+| `channel Name { carries: EventA, EventB, delivery: broadcast\|queue, retention: ephemeral\|log\|work, key: field }` | Publisher-side contract for how a context's events are transported (paired with a system `channelSource`).  **`carries:` takes a bare comma-separated event list — no `[ ]`** (unlike `contexts:` / `dataSources:` on a deployable, which do take brackets).  See [`channels.md`](channels.md). |
 | `seed [dataset] [raw] { Aggregate { field: value, … } … }` | Declarative first-boot rows (one `Aggregate { … }` object literal per row; `raw` writes table-level inserts).  `loom.seed-*`.  See [`language-reference/23-domain-services-and-seeds.md`](language-reference/23-domain-services-and-seeds.md). |
 | `filter … ` / `stamp … ` / `implements Cap` | Context-level capability contributions (a query filter, a write stamp, a typed capability application) propagated to every aggregate in the context.  See [`capabilities.md`](capabilities.md). |
 | `test "name" for <Aggregate\|ValueObject\|DomainService\|Context> { … }` | A unit test hoisted beside its subject (`for` names the home; a test nested inside its subject needs no `for` — `loom.test-redundant-for` / `loom.test-needs-target`). |
@@ -428,11 +440,11 @@ Inside an aggregate or an `entity` part:
 | `[private] invariant Expression [when Expression] [message "…"]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; `message` is the user-facing text (also the i18n key). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`). |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
-| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`) + bug-regime `precondition`/`requires`, ending in `return` (`loom.function-block-no-return`). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
+| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the body populates a fresh `this`; the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params). See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  **On a state-based aggregate (the default) the body is INERT** — every `precondition`, `emit` and assignment in it is dropped and raises `loom.lifecycle-body-dropped`, so the aggregate cannot guard its own construction or raise a creation event; put that logic in a `workflow` or an `operation`.  The body runs only on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  Closing the gap is M-T3.16.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
@@ -1156,7 +1168,10 @@ compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
 assertions the compiler type-checks and lowers per backend.  Two are context-
 restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body — the first pins an HTTP status, the second
+only valid in a `test e2e` body — and `toThrow` in *either* form is rejected in
+a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
+exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
+first pins an HTTP status, the second
 compares two ISO-8601 timestamps as *instants* (so a backend that serializes a
 datetime as `…00.0000000Z` still equals the canonical `…00Z` on the wire, while
 a real difference in time still fails).  Inside a test body the standard
@@ -1166,7 +1181,7 @@ operation statements are allowed plus:
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
-| `expect(<api-call>).toThrow(<status>)` | e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status). |
+| `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 
 Test blocks emit one file per subject on every backend:
 - TS: `domain/<aggregate>.test.ts` (vitest).
@@ -1224,6 +1239,28 @@ The projection verbs read a folded `projection`'s read model (see
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
 
+**Every verb must resolve to a route this same compilation emits.**  The
+table above is what a verb *lowers to*, not a promise that the route is
+there: `POST /<plural>` appears only when the aggregate declares a
+canonical `create` (by hand or via `with crudish`), `DELETE /{id}` only
+when it declares an unnamed `destroy`, `GET /<plural>/{id}/history` only
+when it is `auditable`, and a find route only for a *declared* find (a
+compiler-synthesized retrieval has none).  Calling a verb whose route the
+model does not emit is `loom.e2e-unrouted-verb` — a phase-⑦ error naming
+the aggregate, the verb and the fix.  The check resolves each verb against
+`deriveAggregateOperations`, the same derivation every backend's route
+builder renders from, so it cannot drift from what the backends mount.
+Before it existed, `api.products.create({…})` on an aggregate with no
+`create` compiled with **0 errors** and shipped a suite that answered
+`405 Method Not Allowed` against the very backend the same run generated.
+
+On the `ui` side the harness drives page objects rather than routes, and
+addresses exactly three shapes — the New-page `create` flow (present only
+when the aggregate has a create surface, the same gate that drops the
+scaffolded `New` page), the Detail-page `getById`, and a public
+`operation`'s detail-page action.  A `ui.<agg>.<find>(…)` has no page
+object and raises the same code.
+
 An e2e body speaks **wire, not domain**: it sends JSON and reads JSON
 back, and it resolves no context-scoped names (one body may drive several
 contexts, so there is no single scope to resolve against).  The only
@@ -1267,6 +1304,18 @@ rejects with **422** (DomainError — RS-15; 400 stays for a malformed body), a 
 every `test e2e` block replays against each backend serving the referenced
 module, `toThrow(N)` asserts they all reject with the same status — the
 behavioral complement to the static OpenAPI `errorResponseDiffs` parity gate.
+
+**`toThrow` is rejected outright in a UI e2e body** — a `test e2e` block whose
+target is a frontend deployable, which lowers to a Playwright spec rather than a
+fetch suite (`loom.e2e-ui-throw-invalid`).  There is no response to read a
+status from: the emitted form validates *client-side* against a schema derived
+from the aggregate's own invariants, so an invalid submit issues no request at
+all, and the page object's `submit()` awaits a detail-page testid an invalid
+form never renders.  A permanent refusal rather than a gap — an HTTP status and
+a form-error DOM state are different assertions, and `toThrow` names the first.
+Assert the UI's negative path with the locator matchers (`toHaveText` /
+`toHaveCount` / `toBeVisible`) on a row the test has on screen, or put the
+status assertion in a block written `against <backend-deployable>`.
 
 The generated vitest file lives at `<system>/e2e/<SystemName>.e2e.test.ts`
 in the output directory.  Endpoints default to the docker-compose ports;
@@ -1388,6 +1437,13 @@ The validator runs after parsing and reports errors for:
   parts, value objects, events / payloads, and `X id` references; it does
   not fire on collection ops (`lines.first`), string members (`s.length`),
   or receivers whose type couldn't be resolved.
+- Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
+  where the system's `user { … }` block never declares it
+  (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
+  emitted from exactly that block, so an undeclared claim otherwise reaches
+  it verbatim and breaks the generated project's own compile. The derived
+  tenancy members `currentUser.orgPath` / `.rootOrg` are always valid (using
+  them without a `tenancy by` line is `loom.orgpath-without-tenancy`).
 - Assignment to a derived property.
 - `emit` payloads that don't match the event's declared shape.
 - **Record construction** (`X { field: value }` for a value object, entity part,
@@ -1452,14 +1508,6 @@ Warnings (non-fatal):
 
 - Self-recursive operation calls (often unintentional).
 - `emit` payloads missing optional fields.
-- A workflow `on(e: Event)` reactor or event-triggered `create(e: Event) by`
-  starter whose event no `channel` carries (`loom.reactor-event-uncarried`):
-  in-process dispatch is channel-routed, so the consumer would never fire —
-  declare a `channel { carries: … }` for the event.
-- A `projection` `on(e: Event)` fold whose event no `channel` carries
-  (`loom.projection-event-uncarried`): the projection twin of the reactor rule —
-  the fold never runs and the read-model row is never written, so declare a
-  `channel { carries: … }` for the folded event.
 - A reactor / event-create whose event is carried by **more than one** channel
   in its context (`loom.reactor-channel-ambiguous`): in-process dispatch records
   the first channel by declaration order, so the binding is ambiguous — carry

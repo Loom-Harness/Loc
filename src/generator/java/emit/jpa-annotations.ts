@@ -7,6 +7,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
+import { jid } from "../java-ident.js";
 import { hbIdent } from "../sql-ident.js";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,12 @@ export interface JpaOpts {
    *  the entity emitter) fold into jsonb columns instead of join /
    *  part tables (the EF owned-types `.ToJson()` analog). */
   embedded?: boolean;
+  /** M-T6.36 — enums with at least one Java-reserved-word VALUE, whose java
+   *  constants are therefore mangled.  Their columns map through the generated
+   *  `<Enum>.Codec` `AttributeConverter` instead of `@Enumerated(STRING)`, so
+   *  the stored value keeps the `.ddd` spelling.  Absent/empty ⇒ every enum
+   *  column stays `@Enumerated`, byte-identical. */
+  mangledEnums?: ReadonlySet<string>;
 }
 
 const schemaAttr = (schema: string | undefined): string => (schema ? `, schema = "${schema}"` : "");
@@ -102,7 +109,7 @@ function voOverrides(
 ): string[] {
   const fields = voLookup.get(voName) ?? [];
   return fields.flatMap((vf) => {
-    const path = pathPrefix ? `${pathPrefix}.${vf.name}` : vf.name;
+    const path = pathPrefix ? `${pathPrefix}.${jid(vf.name)}` : jid(vf.name);
     const column = `${columnPrefix}_${snake(vf.name)}`;
     const base = vf.type.kind === "optional" ? vf.type.inner : vf.type;
     if (base.kind === "valueobject") {
@@ -119,10 +126,10 @@ function voElementOverrides(voName: string, voLookup: JpaOpts["voLookup"]): stri
   return fields.flatMap((vf) => {
     const base = vf.type.kind === "optional" ? vf.type.inner : vf.type;
     if (base.kind === "valueobject") {
-      return voOverrides(vf.name, snake(vf.name), base.name, voLookup);
+      return voOverrides(jid(vf.name), snake(vf.name), base.name, voLookup);
     }
     return [
-      `    @AttributeOverride(name = "${vf.name}", column = @Column(name = "${hbIdent(snake(vf.name))}"))`,
+      `    @AttributeOverride(name = "${jid(vf.name)}", column = @Column(name = "${hbIdent(snake(vf.name))}"))`,
     ];
   });
 }
@@ -208,6 +215,15 @@ export function jpaFieldAnnotations(
   }
 
   if (t.kind === "enum") {
+    // `@Enumerated(STRING)` writes `Enum.name()`, which is the MANGLED constant
+    // when a `.ddd` value is a Java reserved word — so those enums persist
+    // through their generated codec instead (M-T6.36).
+    if (opts.mangledEnums?.has(t.name)) {
+      return [
+        `    @Convert(converter = ${t.name}.Codec.class)`,
+        `    @Column(name = "${hbIdent(col)}")`,
+      ];
+    }
     return [`    @Enumerated(EnumType.STRING)`, `    @Column(name = "${hbIdent(col)}")`];
   }
 

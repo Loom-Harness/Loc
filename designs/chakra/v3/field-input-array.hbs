@@ -2,8 +2,26 @@
           <Text fontWeight="medium">{{label}}</Text>
           { {{path}}Fields.map((field, index) => (
             <HStack key={field.id} align="flex-end">
-{{#each rowFields}}              <Input placeholder="{{label}}" {...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
-{{/each}}              <Button colorPalette="red" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
+{{#each rowFields}}{{#if (eq template "field-input-id-select")}}              <Controller control={control} name={`{{../path}}.${index}.{{path}}`} render={({ field, fieldState }) => (
+                <Field.Root invalid={!!fieldState.error}>
+                  <Field.Label>{{label}}</Field.Label>
+                  <NativeSelect.Root data-testid={`{{../testId}}-${index}-{{path}}`}>
+                    <NativeSelect.Field value={field.value as string ?? ""} onChange={(e) => field.onChange(e.target.value)}>
+                      <option value="">{{{chrome "selectEmptyOption"}}}</option>
+                      {({{{hookVar}}}.data?.items ?? []).map((__o) => (
+                        <option key={__o.id} value={__o.id} data-testid={`{{../testId}}-${index}-{{path}}-option-${__o.id}`}>{__o["{{displayField}}"]}</option>
+                      ))}
+                    </NativeSelect.Field>
+                    <NativeSelect.Indicator />
+                  </NativeSelect.Root>
+                  <Field.ErrorText>{fieldState.error?.message}</Field.ErrorText>
+                </Field.Root>
+              )} />
+{{else}}              <Field.Root invalid={!!({{rowErrorExpr}})}>
+                <Input placeholder="{{label}}"{{#if (eq template "field-input-money")}} inputMode="decimal"{{/if}} {{#if (eq template "field-input-datetime")}}type="datetime-local" {{/if}}{...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}}{{#if (eq template "field-input-money")}}, { setValueAs: (v: string) => { try { return new Decimal(v || "0"); } catch { return new Decimal("0"); } } }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
+                <Field.ErrorText>{ {{rowErrorExpr}} }</Field.ErrorText>
+              </Field.Root>
+{{/if}}{{/each}}              <Button colorPalette="red" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </HStack>
           )) }
           <Button size="sm" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{chrome "addItem" item=elementLabel}}}</Button>

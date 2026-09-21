@@ -23,7 +23,10 @@ import {
   WALKER_LAYOUT_PRIMITIVES,
   WALKER_SUB_PRIMITIVES,
 } from "../../../src/language/walker-stdlib.js";
-import { WALKER_SUB_PRIMITIVE_PARENTS } from "../../../src/util/walker-primitive-names.js";
+import {
+  WALKER_READ_PRIMITIVES,
+  WALKER_SUB_PRIMITIVE_PARENTS,
+} from "../../../src/util/walker-primitive-names.js";
 
 describe("walker stdlib language↔generator alignment", () => {
   it("WALKER_LAYOUT_PRIMITIVES matches the registry's layout group", () => {
@@ -44,6 +47,20 @@ describe("walker stdlib language↔generator alignment", () => {
   // that will silently degrade to a comment.  Both directions are pinned:
   // every sub-primitive names its parents, and those parents are exactly the
   // registry entries whose `a11y.owns` claims it.
+  // The READ half of the same contract (`loom.ui-read-unresolved`).  The IR
+  // validator has to know which primitives carry an `of:` read so it can gate
+  // the operation they name, and `ir/` may not import the registry — so the set
+  // is hand-listed in `util/` and pinned here.  A new read-bearing primitive
+  // that skips the list is one whose `of:` nothing checks: on Phoenix that used
+  // to mean silently loading the whole table.
+  it("WALKER_READ_PRIMITIVES matches the registry's `readsOf` entries", () => {
+    const fromRegistry = Object.entries(WALKER_PRIMITIVES)
+      .filter(([, def]) => def.readsOf === true)
+      .map(([name]) => name)
+      .sort();
+    expect([...WALKER_READ_PRIMITIVES].sort()).toEqual(fromRegistry);
+  });
+
   it("every sub primitive declares its legal parents", () => {
     expect([...WALKER_SUB_PRIMITIVE_PARENTS.keys()].sort()).toEqual(namesInGroup("sub"));
   });

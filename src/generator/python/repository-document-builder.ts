@@ -11,6 +11,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -261,7 +262,7 @@ export function buildPyDocumentRepositoryFile(
   ]
     .filter(refersTo)
     .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const domainNames = [agg.name, ...parts.map((p) => p.name)].filter(refersTo);
@@ -563,7 +564,7 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
   if (t.kind === "id") return `str(${acc})`;
   if (t.kind === "enum") return `${acc}.value`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
     const fields = vo.fields
       .map((vf) => `"${snake(vf.name)}": ${serialize(vf.type, `${acc}.${snake(vf.name)}`, ctx)}`)
@@ -590,7 +591,7 @@ function deserialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): str
   if (t.kind === "id") return `${t.targetName}Id(cast(str, ${acc}))`;
   if (t.kind === "enum") return `${t.name}(cast(str, ${acc}))`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
     const m = `cast(dict[str, object], ${acc})`;
     const args = vo.fields

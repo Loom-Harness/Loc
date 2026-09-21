@@ -70,10 +70,21 @@ const MINIMAL: Case = {
 /** Scaffolded ui — exercises the router emitters across the
  *  scaffold-synthesised page set (list / new / detail / home).  Every page
  *  now renders a real body: the detail page's op-forms (#1457), the list
- *  (QueryView), and the new (CreateForm) — no page stubs in this set. */
+ *  (QueryView), and the new (CreateForm) — no page stubs in this set.
+ *
+ *  `LineItem.price: money` is the money-in-a-ROW witness (2026-09-10 e-shop
+ *  audit, P8).  Angular builds its row controls from its OWN `form-fields.ts`
+ *  rather than the shared `_walker/form-fields-vm.ts` the JSX/markup frontends
+ *  use, so it did NOT carry that defect — and nothing in this corpus proved it,
+ *  because `items: LineItem[]` had no money sub-field.  `mustEmit` pins the row
+ *  control's seed, the Angular twin of SHOWCASE's single-field pin: Angular maps
+ *  wire `money` to `string`, so a future row that reached for a `Decimal` (or
+ *  for `FormControl(0)`) is a `ng build` TS2345 rather than a silent divergence
+ *  from the other five frontends. */
 const SCAFFOLD: Case = {
   name: "scaffold",
   angularDir: "web",
+  mustEmit: ['price: new FormControl("0"', 'inputmode="decimal"'],
   source: `
     system Shop {
       subdomain Sales {
@@ -82,7 +93,7 @@ const SCAFFOLD: Case = {
             name: string
             email: string
           }
-          valueobject LineItem { sku: string  qty: int }
+          valueobject LineItem { sku: string  qty: int  price: money }
           aggregate Order with crudish {
             total: int
             items: LineItem[]
@@ -109,7 +120,25 @@ const SHOWCASE: Case = {
   // for M-T1.24: a `FormControl(0)` behind the `price: string` request field is
   // exactly the TS2345 `ng build` catches.  Pinning both halves (the string seed
   // and the non-numeric input) keeps a green build honest.
-  mustEmit: ['price: new FormControl("0"', 'inputmode="decimal"'],
+  //
+  // The last two pins are wave C2 packet 2h's: a walked component is invoked by
+  // its own TAG, and the children passed at the call site are really IN the
+  // page's template (they used to be dropped with a comment).  A green build
+  // alone would not say that — the outlet form also builds.
+  mustEmit: [
+    'price: new FormControl("0"',
+    'inputmode="decimal"',
+    `<app-panel [label]='"Summary"'>`,
+    "projected child",
+    // The Angular validation fork (M-T1.12 slice 6).  Pack-NEUTRAL on purpose:
+    // the message carries an id a screen reader can be pointed at, under both
+    // shapes the fork emits — a `<mat-error>` inside the form field on
+    // angularMaterial (`MatFormField` derives `aria-describedby` from it), a
+    // trailing `<p>` plus explicit `[attr.aria-*]` on the raw packs.  A pin on
+    // either spelling would fail on two thirds of this matrix.
+    `id="orders-new-error-customerId"`,
+    "@if (orderForm.controls.customerId.invalid && orderForm.controls.customerId.touched)",
+  ],
   source: `
     system Shop {
       api SalesApi from Sales
@@ -128,6 +157,15 @@ const SHOWCASE: Case = {
             // it never proved the string seed.
             price: money
             total: money?
+            // Wire-translatable invariants — the only shape that reaches
+            // \`angularValidatorMap\`, and with it the inline \`ValidatorFn\`
+            // (an \`AbstractControl\` arrow) and the two \`[attr.aria-*]\`
+            // bindings on the control (M-T1.12 slice 6).  Nothing in this
+            // matrix carried an invariant before, so the whole Angular
+            // validation fork — a TEMPLATE expression on a typed
+            // \`FormGroup\`, which only \`ng build\` checks — was never compiled.
+            invariant customerId.length >= 1
+            invariant priority >= 1
             operation confirm() { }
           }
           repository Orders for Order { }
@@ -187,12 +225,23 @@ const SHOWCASE: Case = {
             Button { "more", onClick: bump }
           }
         }
+        // A component that RECEIVES CHILDREN (wave C2 packet 2h).  Its call
+        // site is \`<app-panel [label]='…'>…</app-panel>\` — a real element tag,
+        // which only \`ng build\` can prove resolves: an unknown element under
+        // strictTemplates is NG8001, and a class missing from the standalone
+        // \`imports: []\` is exactly what produces one.  The old
+        // \`ngComponentOutlet\` form could never fail that way (the outlet is
+        // selector-free), so this shape is the one the build gate gained.
+        component Panel(label: string) {
+          body: Card { Heading { label, level: 3 }, Slot { } }
+        }
         page OrderList {
           route: "/"
           body: Stack {
             Heading { "Orders" },
             TierBadge { label: "gold", level: 3 },
             Ticker { caption: "hits" },
+            Panel("Summary", Text { "projected child" }),
             OrderCount { },
             QueryView {
               of: Sales.Order.all,

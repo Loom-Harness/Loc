@@ -6,9 +6,10 @@
 // mikroorm.ts by packet 2.6 (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
+import type { AssociationIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
+import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import {
   DATA_KEY_PATH_DELIMITER,
   deepScopeAnchorClaim,
@@ -391,7 +392,7 @@ function booleanColumnName(e: ExprIR): string | null {
  *  `active: true`), negated boolean columns (`!this.active` → `active:
  *  false`), and a general `!<compound>` (→ `$not: {...}`). */
 
-function predicateEntry(e: ExprIR, acc: string): string {
+function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[] = []): string {
   const inner = e.kind === "paren" ? e.inner : e;
   // Registry self-scope against a `string` tenancy claim (M-T3.7(c)) — the
   // MikroORM twin of the drizzle guard.  Binding the raw claim to a `uuid`
@@ -415,8 +416,21 @@ function predicateEntry(e: ExprIR, acc: string): string {
   if (inner.kind === "unary" && inner.op === "!") {
     const negCol = booleanColumnName(inner.operand);
     if (negCol) return `${negCol}: false`;
-    return `$not: ${whereToMikroFilter(inner.operand, acc)}`;
+    return `$not: ${whereToMikroFilter(inner.operand, acc, assocs)}`;
   }
+  // `this.<refColl>.contains(x)` — membership over an `X id[]` reference
+  // collection, which persists as a join TABLE rather than a column, so it is
+  // the one queryable shape with no FilterQuery spelling at all.  It was the
+  // last `MIKROORM_SUBSET` narrowing (`loom.find-predicate-unsupported`), and
+  // the reason recorded for it — "needs a correlated join the adapter emits
+  // nowhere" — held only for the EXISTS spelling.  An UNCORRELATED `id in
+  // (select …)` says the same thing and needs no outer alias: MikroORM names
+  // the root table `e0` in the SQL it builds, so an EXISTS fragment correlating
+  // on `<table>.id` would fail with "missing FROM-clause entry", while a bare
+  // `id` resolves in the outer scope exactly like every other unqualified
+  // column this file emits (the deep-scope sentinel's own note).
+  const membership = containsMembershipFragment(inner, acc, assocs);
+  if (membership) return rawEntry(membership, "[]");
   if (inner.kind === "binary" && (inner.op === "==" || FILTER_OP[inner.op] !== undefined)) {
     return comparisonEntry(inner, acc);
   }
@@ -430,6 +444,41 @@ function predicateEntry(e: ExprIR, acc: string): string {
   const boolFrag = boolIntrinsicFragment(inner, acc);
   if (boolFrag) return rawEntry(boolFrag, "[]");
   throw new Error(`mikroorm: unsupported find predicate '${inner.kind}'`);
+}
+
+/** `this.<refColl>.contains(x)` → an `id in (select <ownerFk> from <joinTable>
+ *  where <targetFk> = ?)` raw fragment, the FilterQuery mirror of Dapper's
+ *  EXISTS subquery and EF's `_db.<JoinDbSet>.Any(...)`.
+ *
+ *  Detection is structural (a `contains` method call whose receiver type is
+ *  `array<id>` and whose receiver resolves to a field with an `AssociationIR`),
+ *  so an ordinary collection `.contains` cannot reach here — those are not
+ *  queryable predicates and never survive `firstNonQueryableNode`.
+ *
+ *  Null when the shape is not a membership test, or when the owning aggregate's
+ *  associations were not threaded to this call site, leaving the ordinary path
+ *  (and, ultimately, the throw) to run. */
+
+function containsMembershipFragment(
+  e: ExprIR,
+  acc: string,
+  assocs: readonly AssociationIR[],
+): MikroRawFragment | null {
+  if (
+    e.kind !== "method-call" ||
+    e.member !== "contains" ||
+    e.receiverType.kind !== "array" ||
+    e.receiverType.element.kind !== "id" ||
+    e.args.length !== 1
+  )
+    return null;
+  const fieldName = refCollectionFieldName(e.receiver);
+  const assoc = fieldName ? assocs.find((a) => a.fieldName === fieldName) : undefined;
+  if (!assoc) return null;
+  const sql =
+    `id in (select __j.${assoc.ownerFk} from ${assoc.joinTable} __j ` +
+    `where __j.${assoc.targetFk} = ?)`;
+  return { sql, params: [filterValue(e.args[0]!, acc)] };
 }
 
 /** The `authz-filter` sentinels as a MikroORM FilterQuery ENTRY (a `key: value`
@@ -518,18 +567,25 @@ function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>, acc: str
  *  FilterQuery subset, which the caller turns into the adapter's usual
  *  runtime-throwing stub. */
 
-export function whereToMikroFilter(e: ExprIR, acc: string = AMBIENT_PRINCIPAL): string {
+export function whereToMikroFilter(
+  e: ExprIR,
+  acc: string = AMBIENT_PRINCIPAL,
+  /** The owning aggregate's reference-collection associations — needed only to
+   *  resolve a `this.<refColl>.contains(x)` membership predicate to its join
+   *  table.  Omitted by callers whose subject owns none (byte-identical). */
+  assocs: readonly AssociationIR[] = [],
+): string {
   const inner = e.kind === "paren" ? e.inner : e;
   if (inner.kind === "binary" && inner.op === "&&") {
-    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc));
+    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc, assocs));
     return `{ ${entries.join(", ")} }`;
   }
   if (inner.kind === "binary" && inner.op === "||") {
     return `{ $or: [${orBranches(inner)
-      .map((b) => whereToMikroFilter(b, acc))
+      .map((b) => whereToMikroFilter(b, acc, assocs))
       .join(", ")}] }`;
   }
-  return `{ ${predicateEntry(inner, acc)} }`;
+  return `{ ${predicateEntry(inner, acc, assocs)} }`;
 }
 
 /** Split a `&&` chain into its conjuncts (each rendered by `predicateEntry`). */

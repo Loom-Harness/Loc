@@ -54,12 +54,14 @@ import type {
   TypeIR,
   UiIR,
   ValueObjectIR,
+  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
 } from "../../ir/util/projection-read.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
@@ -221,17 +223,21 @@ export interface QueryBinding {
    *  way to reach row 11.  Empty/undefined for a bare `all` → `list_<agg>s()`,
    *  byte-identical to before. */
   listArgs?: string[];
-  /** kind:"list", source:"aggregate" only — WHICH repository read the `of:`
-   *  call named, when it is not the auto-`findAll`.  `undefined` / `"all"` →
-   *  the paged `list_<agg>s`; anything else is a declared `find`, whose context
-   *  function is `<find>_<agg>` (`context-emit.ts`).
+  /** `source: "aggregate"` only — the CONTEXT-MODULE FUNCTION this read calls,
+   *  resolved from the `of:` call's operation via `resolveAggregateRead`
+   *  (`src/ir/util/page-read.ts`): `list_<agg>s` for the auto-`findAll`,
+   *  `get_<agg>` for `byId`, `<find>_<agg>` for a declared or synthesized
+   *  repository find — the `defdelegate` the context module emits for each.
    *
-   *  Before this the emitter called `list_<agg>s(<the find's args>)` for EVERY
-   *  list binding, so a filter find's argument landed in the paged list's
-   *  `page` slot: `list_wallets("")` → `offset = ("" - 1) * page_size` →
-   *  `ArithmeticError :erlang.-("", 1)`, a 500 on every load of a scaffolded
-   *  Phoenix list page with a filter bar (schemathesis elixir cell, E5). */
-  retrieval?: string;
+   *  It exists because the emitter used to HARD-CODE `list_<agg>s` for every
+   *  list-shaped read and `get_<agg>` for every single-shaped one, so a page
+   *  naming a FILTERED read (`Product.findAllBySellable()`, `Item.byState(Live)`)
+   *  silently loaded the unfiltered list — the right rows on the JSX frontends,
+   *  every row on Phoenix, with no diagnostic.  Undefined ⇒ the operation named
+   *  no declaration at all; the emitter then REFUSES the read rather than
+   *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
+   *  the refusal is a backstop, not the user-facing message). */
+  readFn?: string;
   /** kind:"list" only — the enclosing `match` arm's condition (handler-position
    *  Elixir), when the `QueryView` sits inside one.  The load runs under
    *  `if <gate> do … else socket end`, so only the arm the template actually
@@ -292,6 +298,15 @@ export interface WalkContext {
    *  flags alone gets them wrong whenever the flags are absent.  Empty
    *  default ⇒ the collection shape. */
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  /** Workflow PascalCase name → its `WorkflowIR`, so `WorkflowForm { runs: W }`
+   *  can emit one `<.input>` per the workflow's command-triggered `create`
+   *  params instead of a single `_placeholder` (M-T6.56 F61).  Derived at
+   *  walker entry from `bcByAggregate` — the same source
+   *  `projectionsByName` is derived from, so no caller has to thread a second
+   *  registry.  A context that declares a workflow but NO aggregate is absent
+   *  from `bcByAggregate` and therefore invisible here; the form then falls
+   *  back to the placeholder it always emitted rather than guessing. */
+  workflowsByName: ReadonlyMap<string, WorkflowIR>;
   /** Frontend-readable projection names (M-T1.3) — the detector's
    *  Pattern H set, so `QueryView { of: <api>.<Projection> }` resolves to the
    *  projection's own read instead of falling through to the aggregate arms.
@@ -529,6 +544,11 @@ export function walkBodyToHeex(
     // exists to prevent.
     projectionsByName: readableProjectionNames(new Set(bcByAggregate.values())),
     listShapedProjections: listShapedProjectionNames(new Set(bcByAggregate.values())),
+    workflowsByName: new Map(
+      [...new Set(bcByAggregate.values())].flatMap((bc) =>
+        (bc.workflows ?? []).map((w) => [w.name, w] as const),
+      ),
+    ),
     enumsByName,
     valueObjectsByName,
     idOptionsBindings: new Set(),
@@ -1273,6 +1293,42 @@ function armRendersMarkup(value: ExprIR, ctx: WalkContext): boolean {
   return value.kind === "match";
 }
 
+/** Can this arm predicate be RE-RENDERED in handler position?
+ *
+ *  A `match` arm's condition is written for the RENDER scope, where a lambda
+ *  parameter (`For { each: rows, i => match { … } }`) is in scope.
+ *  `handle_params/3` is a function body: that same `i` renders as a bare
+ *  variable nothing binds, so the emitted module is
+ *
+ *      socket =
+ *        if (i.flagged) do          # ** (CompileError) undefined variable "i"
+ *
+ *  and `mix compile` rejects the WHOLE project — not a bad render, an app that
+ *  never boots.  So a gate is carried down only when every name in the
+ *  predicate also exists as a socket assign: a `state` field, a `derived` over
+ *  such, a route param, the principal, or a `data:`-lambda binding the walker
+ *  has already remapped to one.
+ *
+ *  Anything else falls back to the UNGATED load — no improvement for that
+ *  shape, and no regression either: it is exactly what every read emitted
+ *  before gating existed.  Rides `walkExprDeep` rather than a hand-rolled
+ *  descent, so a new `ExprIR` kind cannot hide a reference from this check. */
+function gateIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
+  let safe = true;
+  walkExprDeep(cond, (e) => {
+    if (e.kind !== "ref") return;
+    if (ctx.varRemapping?.has(snake(e.name))) return;
+    if (ctx.stateNames.has(snake(e.name))) return;
+    if (ctx.page.derived?.some((d) => snake(d.name) === snake(e.name))) return;
+    if (ctx.page.params.some((p) => p.name === e.name)) return;
+    // Not a page-scope name at all — an enum value or the principal renders the
+    // same in both positions.
+    if (e.refKind === "enum-value" || e.refKind === "current-user") return;
+    safe = false;
+  });
+  return safe;
+}
+
 /** `!(c)` — Elixir's `!` is the truthy negation, so it holds for whatever a
  *  rendered arm condition evaluates to, not only a strict boolean. */
 function notGate(cond: string): string {
@@ -1334,14 +1390,21 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     // gate is the negation of them all — otherwise two arms could both load
     // into the same assign and the later one would win, which is the bug this
     // gating exists to close.
+    //
+    // …but only when EVERY arm's predicate survives the move to handler scope
+    // (`gateIsHandlerSafe`).  One unsafe arm disables gating for the WHOLE
+    // match: a partly-gated `cond` is worse than none, since the ungated load
+    // still clobbers the gated one, and a gate naming a render-only binding
+    // fails `mix compile` outright.
+    const gatable = expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx));
     const handlerConds: string[] = [];
     for (const a of expr.arms) {
       lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      const mine = renderExpr(a.cond, { ...ctx, position: "handler" });
+      const mine = gatable ? renderExpr(a.cond, { ...ctx, position: "handler" }) : undefined;
       lines.push(
-        `    ${renderChild(a.value, { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) })}`,
+        `    ${renderChild(a.value, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) } : ctx)}`,
       );
-      handlerConds.push(mine);
+      if (mine !== undefined) handlerConds.push(mine);
     }
     // `cond` raises CondClauseError when no arm matches, so the fallback is
     // not cosmetic. Without an authored `else` the page renders nothing rather
@@ -1349,7 +1412,7 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     lines.push(`  <% true -> %>`);
     lines.push(
       expr.otherwise !== undefined
-        ? `    ${renderChild(expr.otherwise, { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) })}`
+        ? `    ${renderChild(expr.otherwise, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) } : ctx)}`
         : `    <%= nil %>`,
     );
     lines.push(`<% end %>`);
@@ -2417,6 +2480,7 @@ function renderRequiresGuardAt(
     appModule,
     aggregatesByName: new Map(),
     bcByAggregate: new Map(),
+    workflowsByName: new Map(),
     projectionsByName: new Set(),
     listShapedProjections: new Set(),
     enumsByName: new Map(),

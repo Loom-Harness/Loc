@@ -7,6 +7,7 @@ import type {
   FieldIR,
   TestIR,
   TestStmtIR,
+  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
@@ -14,6 +15,8 @@ import { lines } from "../../../util/code-builder.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import { jid } from "../java-ident.js";
 import { collectJavaExprImports, collectJavaTypeImports, renderJavaExpr } from "../render-expr.js";
 import { stubUserValue } from "./auth.js";
 
@@ -162,28 +165,31 @@ function renderTest(
  *  `UUID.fromString` first, since `record CustomerId(UUID value)`) and
  *  `datetime` (`Instant.parse`).  Mirrors wire.ts's `wireToDomain`, but from a
  *  raw literal rather than a wire value. */
+/** Java leaves for the shared rule.  Closes over the file's import set so an
+ *  emitted `UUID` / `Instant` brings its import with it. */
+function javaTestLiteral(imports: Set<string>): TestLiteralTarget {
+  return {
+    id: (rendered, targetName, valueType) => {
+      if (valueType === "guid") {
+        imports.add("java.util.UUID");
+        return `new ${targetName}Id(UUID.fromString(${rendered}))`;
+      }
+      return `new ${targetName}Id(${rendered})`;
+    },
+    datetime: (rendered) => {
+      imports.add("java.time.Instant");
+      return `Instant.parse(${rendered})`;
+    },
+  };
+}
+
 function coerceLiteralToJavaType(
-  type: { kind: string; name?: string; targetName?: string; valueType?: string },
+  type: TypeIR | undefined,
   v: ExprIR,
   rendered: string,
   imports: Set<string>,
 ): string {
-  // Only a raw STRING literal needs coercion — `now` renders as `Instant.now()`
-  // (already the target type), a ref is already typed, etc.  Wrapping those in
-  // `Instant.parse(...)` / an Id ctor would break them.
-  if (v.kind !== "literal" || v.lit !== "string") return rendered;
-  if (type.kind === "id" && type.targetName) {
-    if (type.valueType === "guid") {
-      imports.add("java.util.UUID");
-      return `new ${type.targetName}Id(UUID.fromString(${rendered}))`;
-    }
-    return `new ${type.targetName}Id(${rendered})`;
-  }
-  if (type.kind === "primitive" && type.name === "datetime") {
-    imports.add("java.time.Instant");
-    return `Instant.parse(${rendered})`;
-  }
-  return rendered;
+  return coerceTestLiteral(type, v, rendered, javaTestLiteral(imports));
 }
 
 /** `x.op(args)` on an aggregate receiver → the same call with each arg coerced
@@ -214,7 +220,7 @@ export function renderOperationCall(
     const p = op.params[i];
     return p ? coerceLiteralToJavaType(p.type, a, rendered, imports) : rendered;
   });
-  return `${recv}.${e.member}(${args.join(", ")})`;
+  return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
 
 /** `Agg.create({...})` → the positional `Agg.create(...)` factory call,

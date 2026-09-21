@@ -1120,6 +1120,22 @@ export interface BoundedContextIR {
    *  `httpStatus UniquenessConflict -> 422` retargets both. Populated by
    *  `enrichLoomModel`; undefined in single-context (no-api) lowering. */
   structuralErrorStatuses?: Record<string, number>;
+  /** Value objects declared in the OTHER contexts of the same system — the
+   *  pool an emitter needs to look up a `valueobject` this context merely
+   *  REFERENCES.  A cross-context VO reference is legal and resolves at
+   *  lowering (`aggregate Payment { paid: Money }` in context Beta against
+   *  `valueobject Money` in context Alpha — the README's own Quick Example
+   *  shape), but the declaration stays in its own context, so
+   *  `ctx.valueObjects` alone cannot answer "what does this file have to
+   *  declare".  Emitters that materialise a per-file copy of each referenced
+   *  VO (the .NET request/response DTO records, the JSX frontends'
+   *  per-aggregate api modules) resolve the name through
+   *  `ctx.valueObjects` ∪ this, then keep only what the aggregate's wire
+   *  shape actually reaches.  Own names shadow; first declaration wins on a
+   *  cross-context collision (the validator owns the ambiguity diagnostic).
+   *  Populated by `enrichLoomModel`; undefined when the model has a single
+   *  context. */
+  siblingValueObjects?: ValueObjectIR[];
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -2080,16 +2096,22 @@ export type EnrichedValueObjectIR = ValueObjectIR;
  *  against the channels that `carries:` that event (channels.md; the
  *  in-process dispatch slice).  Computed per context by `enrichContext`; the
  *  Hono backend reads it to wire the in-process `DomainEventDispatcher` to the
- *  reactor/starter handlers.  Only events a channel in this context carries
- *  appear — the "channel-routed" rule.  Empty for channel-less contexts, so
- *  their generated output stays byte-identical (Noop dispatcher). */
+ *  reactor/starter handlers.
+ *
+ *  EVERY in-process consumer appears, carried or not (**D-PROJECTION-IMPLICIT-SUB**):
+ *  `on(e: E)` IS the subscription, and a `channel` is what makes delivery
+ *  cross-deployable or durable — not what makes a handler run.  The derivation
+ *  used to drop an uncarried consumer on the floor, which left a fold that no
+ *  backend ever ran. */
 export interface EventSubscriptionIR {
   /** The carried event type the consumer subscribes to. */
   event: string;
-  /** The channel (in this context) that carries `event` and routes it.  When
-   *  more than one carries it, the first by declaration order — disambiguation
-   *  is a deferred validation rule (`reactor-channel-ambiguous`). */
-  channel: string;
+  /** The channel (in this context) that carries `event` and routes it, or
+   *  `undefined` when no declared channel does — an IMPLICIT in-process
+   *  subscription (D-PROJECTION-IMPLICIT-SUB), which dispatches all the same.
+   *  When more than one channel carries it, the first by declaration order —
+   *  disambiguation is a deferred validation rule (`reactor-channel-ambiguous`). */
+  channel?: string;
   /** Owning workflow name. */
   workflow: string;
   /** `"on"` reactor or event-triggered `"create"` starter. */
@@ -2108,9 +2130,15 @@ export interface EventSubscriptionIR {
   projection?: string;
 }
 
-export type EnrichedBoundedContextIR = Omit<BoundedContextIR, "aggregates" | "valueObjects"> & {
+export type EnrichedBoundedContextIR = Omit<
+  BoundedContextIR,
+  "aggregates" | "valueObjects" | "siblingValueObjects"
+> & {
   aggregates: EnrichedAggregateIR[];
   valueObjects: EnrichedValueObjectIR[];
+  /** Sibling-context value objects, enriched — see
+   *  `BoundedContextIR.siblingValueObjects`. */
+  siblingValueObjects?: EnrichedValueObjectIR[];
   /** Channel-routed event subscriptions in this context (in-process dispatch
    *  slice).  Derived by `enrichContext`; empty when the context declares no
    *  channel that carries a subscribed event. */

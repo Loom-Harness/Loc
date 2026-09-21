@@ -742,7 +742,50 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   const coerce = moneyScalarCoercionSide(e);
   if (coerce === "right") return `${left} ${pyBinOp(e.op)} Decimal(str(${right}))`;
   if (coerce === "left") return `Decimal(str(${left})) ${pyBinOp(e.op)} ${right}`;
+  // Same bargain as the money lift above, for the other operand pair Python
+  // refuses to combine: `str + datetime`.
+  //
+  //     >>> "on " + datetime.datetime.now()
+  //     TypeError: can only concatenate str (not "datetime.datetime") to str
+  //
+  // This is reachable from ORDINARY source.  An interpolated template whose
+  // hole carries an ICU date/time format — `` `on {startAt, date}` `` — is
+  // ACCEPTED by the validator precisely because the format lifts the bare-hole
+  // rejection (`loom.interp-hole-type`), and it lowers to a `+`-chain whose
+  // datetime operand is NOT wrapped in a `string(…)` convert the way a numeric
+  // hole is.  Every other backend's `+` coerces silently (JS `String`, C# /
+  // Java `ToString`), so only Python raises — at REQUEST time, on every read of
+  // the aggregate, as a 500.
+  //
+  // `.isoformat()` is exactly what `renderPyConvert` emits for an explicit
+  // `string(x: datetime)`, and what this same file's synthesized `inspect`
+  // already writes for a datetime field — so the coercion is the backend's own
+  // established spelling, not a new one, and the rendered value matches the
+  // `"O"` / `.toISOString()` parity note there.
+  const dt = datetimeConcatSide(e);
+  if (dt === "right") return `${left} ${pyBinOp(e.op)} ${right}.isoformat()`;
+  if (dt === "left") return `${left}.isoformat() ${pyBinOp(e.op)} ${right}`;
   return `${left} ${pyBinOp(e.op)} ${right}`;
+}
+
+/**
+ * Which operand of a string concatenation is a `datetime` that Python cannot
+ * concatenate — or `undefined` when neither is.  Deliberately narrow: only
+ * `+`, only when the OTHER side is a `string`, so ordinary temporal
+ * arithmetic (`datetime + duration`, which Python's own operators handle) is
+ * untouched.
+ */
+function datetimeConcatSide(e: Extract<ExprIR, { kind: "binary" }>): "left" | "right" | undefined {
+  if (e.op !== "+") return undefined;
+  // Read each operand's OWN type rather than the binary's `leftType` /
+  // `rightType`: a `+` synthesized by template lowering populates neither for
+  // the hole side, and the hole is wrapped in the transparent `i18nFormat`
+  // node, so the type is one level in.  `bodyTypeOf` sees through both.
+  const lt = e.leftType ?? bodyTypeOf(e.left);
+  const rt = e.rightType ?? bodyTypeOf(e.right);
+  if (isPrim(lt, "string") && isPrim(rt, "datetime")) return "right";
+  if (isPrim(lt, "datetime") && isPrim(rt, "string")) return "left";
+  return undefined;
 }
 
 /**
@@ -760,12 +803,14 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
  * it WIDENS to `decimal` (`isIntDivWidenedToDecimal`), and Python's true
  * division hands back a `float`, exactly the representation this lifts.
  */
+function isPrim(t: TypeIR | undefined, name: string): boolean {
+  return t?.kind === "primitive" && t.name === name;
+}
+
 function moneyScalarCoercionSide(
   e: Extract<ExprIR, { kind: "binary" }>,
 ): "left" | "right" | undefined {
   if (e.op !== "*" && e.op !== "/") return undefined;
-  const isPrim = (t: TypeIR | undefined, name: string): boolean =>
-    t?.kind === "primitive" && t.name === name;
   if (isPrim(e.leftType, "money") && isPrim(e.rightType, "decimal")) return "right";
   if (isPrim(e.leftType, "decimal") && isPrim(e.rightType, "money")) return "left";
   return undefined;

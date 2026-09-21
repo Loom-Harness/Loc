@@ -34,6 +34,7 @@ import {
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   isDocumentShaped,
@@ -1289,7 +1290,7 @@ function emitContext(
   // Same FluentValidation gate as the system path — drives the
   // pipeline behavior emit + csproj + Program.cs registration +
   // the DomainExceptionFilter arm.
-  const usesValidators = ctx.aggregates.some((a) => hasAnyWireValidator(a, ctx.valueObjects));
+  const usesValidators = ctx.aggregates.some((a) => hasAnyWireValidator(a, valueObjectPool(ctx)));
   emitInfrastructure(ctx, ns, out, usesValidators);
   if (usesValidators) {
     out.set("Application/Common/ValidationBehavior.cs", renderValidationBehavior(ns));

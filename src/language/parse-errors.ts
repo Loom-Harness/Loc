@@ -125,6 +125,15 @@ export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): st
   });
 }
 
+/** The name-shaped terminals.  A keyword found where one of these was expected
+ *  is the reserved-word case: the author wrote a word Loom has spoken for, in a
+ *  position that wanted a name of their own.  `ID` covers declaration and field
+ *  names; `STRING` and the numeric terminals are NOT here — a keyword found
+ *  where a string literal was expected is an ordinary syntax error. */
+const NAME_TERMINALS: Record<string, string> = {
+  ID: "name",
+};
+
 /**
  * Langium's provider with the two token-dump messages replaced.  The
  * mismatched-token and redundant-input messages are already short, so they
@@ -153,6 +162,28 @@ export class DddParserErrorMessageProvider extends LangiumParserErrorMessageProv
     const actual = options.actual[0];
     if (!actual) return super.buildEarlyExitMessage(options);
     return unexpectedTokenMessage(actual, options.expectedIterationPaths);
+  }
+
+  /** A keyword where a NAME was expected — `command File { … }`,
+   *  `valueobject Berth { slot: int }` before `slot` was promoted.  Langium's
+   *  wording is short, which is why this class otherwise leaves it alone, but
+   *  it is short about the token stream: it never says the word is reserved, so
+   *  the reader cannot tell a typo from a word Loom has taken.  Every other
+   *  mismatch keeps Langium's message (and the tests that pin it). */
+  override buildMismatchTokenMessage(options: {
+    expected: TokenType;
+    actual: IToken;
+    previous: IToken;
+    ruleName: string;
+  }): string {
+    const role = NAME_TERMINALS[options.expected.name];
+    if (role && isKeywordToken(options.actual.tokenType)) {
+      return diagMessage("loom.parse-error#reserved-name", {
+        found: options.actual.image,
+        expected: role,
+      });
+    }
+    return super.buildMismatchTokenMessage(options);
   }
 }
 

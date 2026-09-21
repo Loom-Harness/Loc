@@ -146,6 +146,47 @@ system Storefront {
     expect(app).not.toContain("currentUserDecoder");
   });
 
+  // `feliz-navbar-ignores-page-requires` (ledger P2).  The default navbar
+  // advertised EVERY top-level page unconditionally, so under `auth: ui` a
+  // Feliz app showed every principal a link to a route whose own view
+  // immediately renders `forbiddenView` and whose backend answers 403 — while
+  // react / vue / svelte / angular / heex all gate the entry
+  // (`_frontend/menu-emitter.ts` `requiresJs`).  The guard is the one the
+  // gated page view and the gated action button already use.
+  it("gates a navbar entry on its page's `requires`, and leaves ungated entries bare", async () => {
+    const app = await appFs(
+      BASE(`    page Home { route: "/"  body: Heading { "Home", level: 1 } }
+    page About { route: "/about"  body: Heading { "About", level: 1 } }
+    page Admin {
+      route: "/admin"
+      requires currentUser.role == "admin"
+      body: Heading { "Admin only", level: 1 }
+    }`),
+    );
+    expect(app).toContain(
+      '(match model.CurrentUser with Some currentUser when currentUser.Role = "admin" -> ' +
+        'Html.li [ prop.children [ Html.a [ prop.href "/admin"; prop.text "Admin" ] ] ] | _ -> Html.none)',
+    );
+    // The two ungated pages keep the bare entry — byte-identical to the
+    // pre-gate shell, so a gate-free bar does not change shape.
+    expect(app).toContain(
+      '            Html.li [ prop.children [ Html.a [ prop.href "/about"; prop.text "About" ] ] ]',
+    );
+    expect(app).toContain(
+      '            Html.li [ prop.children [ Html.a [ prop.href "/"; prop.text "Home" ] ] ]',
+    );
+  });
+
+  // An app with NO page gate has no `model.CurrentUser` field at all, so the
+  // guard must not be reachable there: the bar stays byte-identical.
+  it("leaves the navbar untouched when the app carries no page gate", async () => {
+    const app = await appFs(NO_GATE);
+    expect(app).toContain(
+      '            Html.li [ prop.children [ Html.a [ prop.href "/about"; prop.text "About" ] ] ]',
+    );
+    expect(app).not.toContain("Html.none)");
+  });
+
   it("validates cleanly through validateLoomModel", async () => {
     const { errors } = await parseString(GATED, { validate: true });
     expect(errors).toEqual([]);

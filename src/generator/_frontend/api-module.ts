@@ -33,9 +33,14 @@ import {
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import { collectReachableTypes } from "../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { hookFnName } from "../_walker/js-target-helpers.js";
 import {
@@ -125,7 +130,7 @@ export function buildApiModule(
     lines.push(`import { type MaybeRefOrGetter, computed, toValue } from "vue";`);
   }
   lines.push(`import { api, seg } from "./client";`);
-  if (aggregateUsesMoneyDeep(agg, ctx.valueObjects)) {
+  if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     // Shared `moneySchema` — single home for the precise-decimal
     // wire shape; emitted to `src/lib/schemas.ts` whenever any
     // context uses money.  Both request and response sides of every
@@ -795,7 +800,7 @@ export function typeReachesMoney(t: TypeIR, ctx: BoundedContextIR): boolean {
   if (t.kind === "array") return typeReachesMoney(t.element, ctx);
   if (t.kind === "optional") return typeReachesMoney(t.inner, ctx);
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     return (vo?.fields ?? []).some((f) => typeReachesMoney(f.type, ctx));
   }
   return false;
@@ -831,7 +836,11 @@ function zodForRequest(t: TypeIR): string {
       // validator says so too and the caller is told at the field instead of
       // by a server error.  Gated on the declared id value type — an
       // `int`/`long`/`string`-keyed aggregate is not a uuid (schemathesis F2).
-      return info.idValueType === "guid" ? "z.string().uuid()" : "z.string()";
+      // Tracks the shared `UUID_WIRE_PATTERN` so the form cannot refuse an id
+      // the server accepts — see `zodForRequest` in ./zod-schemas.ts.
+      return info.idValueType === "guid"
+        ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`
+        : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;
@@ -895,9 +904,17 @@ function collectUsedTypes(
       for (const d of part.derived) yield d.type;
     }
   };
-  const { valueObjects, enums } = collectReachableTypes(seeds(), ctx.valueObjects);
+  // POOL, not emission list: a `valueobject` declared in a SIBLING context and
+  // referenced from this one (`aggregate Payment { paid: Money }` against
+  // `valueobject Money` in another context) is legal, and this per-aggregate
+  // api module is self-contained — it imports no schema from a sibling
+  // aggregate's module, so a VO it references must be DECLARED here or the
+  // bundle fails on an undefined `MoneySchema`.  The reachability filter keeps
+  // only what this aggregate's surface names, so nothing extra is emitted.
+  const pool = valueObjectPool(ctx);
+  const { valueObjects, enums } = collectReachableTypes(seeds(), pool);
   return {
-    valueObjects: ctx.valueObjects.filter((v) => valueObjects.has(v.name)),
+    valueObjects: pool.filter((v) => valueObjects.has(v.name)),
     enums: ctx.enums.filter((e) => enums.has(e.name)),
   };
 }

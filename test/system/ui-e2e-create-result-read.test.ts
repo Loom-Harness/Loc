@@ -21,7 +21,14 @@ const src = (assertions: string): string => `
 system Shop {
   subdomain Sales {
     context Orders {
-      aggregate Order {
+      // \`with crudish\` is load-bearing, not decoration: without a canonical
+      // create the backends mount no \`POST /api/orders\`, the scaffold's
+      // \`dropNonConstructibleNewPages\` pass deletes the \`OrderNew\` page, and
+      // \`ui.orders.create(…)\` — whose Playwright lowering is List → New →
+      // Detail — drives a page object for a page that was never emitted.
+      // \`loom.e2e-unrouted-verb\` now refuses that model, so the fixture states
+      // the create surface it always needed.
+      aggregate Order with crudish {
         customerId: string
         status: string
         contains lines: OrderLine[]

@@ -73,6 +73,17 @@ describe.skipIf(!ENABLED)(
       // Pins the previously-latent forward-ref (z.array(LabelResponse)) + the
       // Shipment._create({...labels}) type-check.
       "test/e2e/fixtures/ts-build/nested-parts.ddd",
+      // F2: an `<Agg> id` / `datetime` LITERAL written in a `test` block, in
+      // BOTH positions that take a declared type — an operation parameter and
+      // a `create({ ... })` create-input field, required and optional.  The
+      // emitted `domain/*.test.ts` is inside this project's `tsc --noEmit`
+      // (the generated tsconfig is `include: ["**/*.ts"]`), so this is the cell
+      // that typechecks an EMITTED TEST FILE.  Nothing did before: the
+      // behavioral tier transpiles the emitted tests through esbuild without
+      // typechecking them, and vitest does not typecheck at all — so a raw
+      // literal against a branded/`Date` signature ran green everywhere and
+      // failed only in the user's own `npm run typecheck`.
+      "test/e2e/fixtures/ts-build/typed-test-literals.ddd",
     ])("%s — `ddd generate ts` output type-checks + tsup-bundles", (example) => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-"));
       try {
@@ -483,7 +494,7 @@ describe.skipIf(!ENABLED)(
     // real columns, so it reuses the relational-principal path — the embedded
     // repository weaves `requireCurrentUser().tenantId` into every embedded
     // root read and imports `requireCurrentUser` from `../../auth/middleware`.
-    // Previously gated by `loom.context-filter-unsupported`.  Generated via
+    // Previously gated by `loom.context-filter-no-principal`.  Generated via
     // `generate system` (the user block + auth/middleware.ts are system-level);
     // this gate compiles the emitted embedded repository + the import.
     it("system embedded tenancy filter (principal filter on shape: embedded) — generated project type-checks", () => {
@@ -519,7 +530,7 @@ describe.skipIf(!ENABLED)(
     // binds `const currentUser = requireCurrentUser();` (fail-closed) and AND-s
     // the principal predicate over the rehydrated aggregate, importing
     // `requireCurrentUser` from `../../auth/middleware`.  Previously gated by
-    // `loom.context-filter-unsupported`.  Generated via `generate system` (the
+    // `loom.context-filter-no-principal`.  Generated via `generate system` (the
     // user block + auth/middleware.ts are system-level); this gate compiles the
     // emitted document repository + the import.
     it("system document tenancy filter (principal filter on shape: document) — generated project type-checks", () => {

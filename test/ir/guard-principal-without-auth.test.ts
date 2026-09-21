@@ -1,7 +1,7 @@
 // A `requires` gate that reads `currentUser`, on a deployable with no auth.
 //
 // The third sibling of a rule that already existed twice — a principal-reading
-// `filter` is refused (`loom.context-filter-unsupported#no-auth-user`), and so
+// `filter` is refused (`loom.context-filter-no-principal`), and so
 // is a principal-reading `stamp` (`loom.stamp-principal-without-auth`) — for
 // the same reason: with no auth there is no request-scoped principal, so the
 // clause is unimplementABLE, not merely unimplemented.  The guard was the

@@ -174,7 +174,7 @@ export async function computeDenominators() {
   const schemathesis = JSON.parse(read("test/behavioral/schemathesis-waivers.json"));
 
   return {
-    unsupportedRegister: { gap: kinds.gap ?? 0, scope: kinds.scope ?? 0 },
+    unsupportedRegister: { gap: kinds.gap ?? 0, seam: kinds.seam ?? 0, scope: kinds.scope ?? 0 },
     flutterFormFieldFreeze: objectLiteralKeys(
       "test/generator/flutter/parity-freeze.test.ts",
       "KNOWN_FLUTTER_GAPS",
@@ -221,7 +221,7 @@ function renderTable(d) {
     [
       "`*-unsupported` register",
       "`src/diagnostics/unsupported-register.ts`",
-      `**${d.unsupportedRegister.gap}** \`gap\` + ${d.unsupportedRegister.scope} \`scope\``,
+      `**${d.unsupportedRegister.gap}** \`gap\` + ${d.unsupportedRegister.seam} \`seam\` + ${d.unsupportedRegister.scope} \`scope\``,
     ],
     [
       "Flutter form-field freeze",

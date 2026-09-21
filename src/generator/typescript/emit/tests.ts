@@ -11,8 +11,22 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import {
+  coerceTestArgs,
+  coerceTestLiteral,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
 import { renderTsExpr } from "../render-expr.js";
+
+/** TypeScript leaves for the shared test-literal coercion rule
+ *  (`_test/arg-coercion.ts`).  `Ids.<X>Id(…)` is the brand constructor the
+ *  generator already emits into `domain/ids.ts`; `datetime` is a `Date`. */
+const TS_TEST_LITERAL: TestLiteralTarget = {
+  id: (rendered, targetName) => `Ids.${targetName}Id(${rendered})`,
+  datetime: (rendered) => `new Date(${rendered})`,
+};
 
 // A currentUser-gated operation's method signature picks up a trailing
 // `currentUser: User` parameter; a domain `test` block has no auth context,
@@ -87,7 +101,9 @@ function renderTestsCore(
   const bodyStr = body.join("\n");
   const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
   const subjectNames = subjectImport ? subjectImport.symbols.filter(refs) : [];
-  const voNames = ctx.valueObjects.map((v) => v.name).filter(refs);
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
   const enumNames = ctx.enums.map((e) => e.name).filter(refs);
   const usesIds = /\bIds\.\w/.test(bodyStr);
   // A money literal / money expression in a test body renders as
@@ -160,13 +176,28 @@ function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
   if (e.kind === "member" && isNullableMemberRead(e.receiver, ctx)) {
     return `${renderTestExpr(e.receiver, ctx)}!.${e.member}`;
   }
+  // `w.assign("…")` — coerce each argument to the operation's declared PARAM
+  // type, the same rule `create({ … })` applies to its create-input fields
+  // below: a bare string in an `X id` position brands to `Ids.XId(…)`, an
+  // ISO-8601 string in a `datetime` position to `new Date(…)`.  Without this
+  // the user-written test literal is passed raw against a branded/typed
+  // signature — which vitest never notices (it does not typecheck) but the
+  // generated project's own `tsc --noEmit` rejects with TS2345.
   if (e.kind === "method-call" && e.receiverType.kind === "entity" && !e.isCollectionOp) {
     const entityName = e.receiverType.name;
     const agg = ctx.aggregates.find((a) => a.name === entityName);
     const op = agg?.operations.find((o) => o.name === e.member);
-    if (op && operationBodyUsesCurrentUser(op)) {
+    if (op) {
       const recv = renderTestExpr(e.receiver, ctx);
-      const args = [...e.args.map((a) => renderTestExpr(a, ctx)), TEST_ACTOR];
+      const args = coerceTestArgs(
+        op.params,
+        e.args,
+        (a) => renderTestExpr(a, ctx),
+        TS_TEST_LITERAL,
+      );
+      // A currentUser-gated op's method signature carries a trailing
+      // `currentUser` parameter; thread the synthetic actor.
+      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR);
       return `${recv}.${e.member}(${args.join(", ")})`;
     }
   }
@@ -229,11 +260,8 @@ export function renderCreateInput(
  *  (declared field order, omitted optionals filled with `null`), datetime
  *  literal → `new Date(…)`.  Everything else renders unchanged. */
 function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: BoundedContextIR): string {
-  if (type?.kind === "id") {
-    return `Ids.${type.targetName}Id(${renderTestExpr(value, ctx)})`;
-  }
   if (type?.kind === "valueobject" && value.kind === "object") {
-    const vo = ctx.valueObjects.find((v) => v.name === type.name);
+    const vo = findValueObjectInScope(ctx, type.name);
     if (vo) {
       const byName = new Map(value.fields.map((f) => [f.name, f.value] as const));
       const args = vo.fields.map((vf) => {
@@ -243,10 +271,9 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
       return `new ${vo.name}(${args.join(", ")})`;
     }
   }
-  if (type?.kind === "primitive" && type.name === "datetime" && value.kind === "literal") {
-    return `new Date(${renderTestExpr(value, ctx)})`;
-  }
-  return renderTestExpr(value, ctx);
+  // The id / datetime arms are the SHARED rule (`_test/arg-coercion.ts`) — the
+  // same one the operation-call path above applies to a declared param type.
+  return coerceTestLiteral(type, value, renderTestExpr(value, ctx), TS_TEST_LITERAL);
 }
 
 /** Detect `expect(x).<matcher>(y)` / `expect(x).not.<matcher>(y)` — an

@@ -87,10 +87,15 @@ function base(t: TypeIR): TypeIR {
  *  spelling isn't already nullable.  A `File` primitive spells `FileRef?` on its
  *  own (`dart-types.ts` — a File holds a FileRef-or-nothing), so blindly
  *  appending produced the non-parsing `FileRef??`.  Mirrors the sibling
- *  `buildStateFields` rule in `riverpod-emit.ts` (`dt.endsWith("?")`). */
+ *  `buildStateFields` rule in `riverpod-emit.ts` (`dt.endsWith("?")`).
+ *
+ *  `dynamic` (a `json` field, and the `Provenanced` carrier's `lineage`) counts
+ *  as already-nullable for the same reason: `dynamic?` is legal Dart but the
+ *  analyzer calls it `unnecessary_question_mark`, a WARNING in every generated
+ *  model that carries one. */
 function dartFieldType(f: DartField): string {
   const dt = dartType(base(f.type));
-  return f.optional && !dt.endsWith("?") ? `${dt}?` : dt;
+  return f.optional && !dt.endsWith("?") && dt !== "dynamic" ? `${dt}?` : dt;
 }
 
 /** Whether the field's DART type is nullable — the only correct test for
@@ -134,7 +139,7 @@ function toJsonEntry(f: DartField): string {
  *  optional keeps its single `?`. */
 function copyWithParam(f: DartField): string {
   const t = dartFieldType(f);
-  return `    ${t.endsWith("?") ? t : `${t}?`} ${f.name},`;
+  return `    ${t.endsWith("?") || t === "dynamic" ? t : `${t}?`} ${f.name},`;
 }
 
 /** The `copyWith` body entry — `field: field ?? this.field`. */

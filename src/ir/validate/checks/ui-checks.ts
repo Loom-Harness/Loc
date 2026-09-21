@@ -50,6 +50,7 @@ import {
   checkAsyncEffectArgs,
   checkDestroyFormOf,
   checkInstanceEffectRouteId,
+  checkOfReadResolves,
   checkOpFormRouteId,
   checkScaffoldFilterParams,
   checkSlotOutsideComponent,
@@ -224,6 +225,14 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
             diags,
           );
         }
+        checkOfReadResolves(
+          page,
+          pageWhere(page),
+          apiParamNames,
+          aggNames,
+          findsByAggregate,
+          diags,
+        );
         checkSubPrimitivePlacement(page, pageWhere(page), diags);
         checkDataGridSelection(page.body, page.state, pageWhere(page), diags);
         // The `of:` receiver must be an API HANDLE — the walker's Pattern H
@@ -268,6 +277,14 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
         checkUnresolvedPageRefs(comp, `component '${comp.name}'`, callableNames, diags);
         checkFixedSlotArity(comp, `component '${comp.name}'`, diags);
+        checkOfReadResolves(
+          comp,
+          `component '${comp.name}'`,
+          apiParamNames,
+          aggNames,
+          findsByAggregate,
+          diags,
+        );
         checkPrimitiveNamedArgs(comp, `component '${comp.name}'`, diags);
         checkSubPrimitivePlacement(comp, `component '${comp.name}'`, diags);
         checkDataGridSelection(comp.body, comp.state, `component '${comp.name}'`, diags);

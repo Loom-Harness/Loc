@@ -1,23 +1,27 @@
-// G2646 — node's folded-projection emission vs the diagnostic that ships beside it.
+// G2646 / **D-PROJECTION-IMPLICIT-SUB** — node's folded-projection emission and
+// the channel that is not required to trigger it.
 //
-// `loom.projection-event-uncarried` warns, verbatim:
+// History, because the assertions below are the exact inverse of what this file
+// used to assert.  `loom.projection-event-uncarried` warned, verbatim, that a
+// fold whose event no `channel` carries "never runs and the read-model row is
+// never written", and four backends behaved that way while node folded it
+// anyway.  The first fix made node agree with the warning.  The DECISION went
+// the other way: `on(e: E)` IS the subscription, a `channel` decides
+// cross-deployable delivery and durability (`docs/channels.md`) — nothing in a
+// projection's own syntax mentions transport — so the warning is retired and
+// the other four backends learned to dispatch the uncarried fold.  Node's
+// original leniency was right; what was wrong was that it was alone.
 //
-//   "In-process dispatch is channel-routed, so this fold never runs and the
-//    read-model row is never written"
+// So what this file gates now is that carriage is IRRELEVANT to emission: the
+// no-channel system and the carries-both system produce the same folds and the
+// same tee.  It is still worth gating per-event, because the regression it
+// guards against (a tee `case` naming a `fold…` function the module did not
+// declare — TS2304 in the generated project) comes back the moment the tee and
+// the fold emission read different handler lists.
 //
-// …and node then folded it anyway.  `buildProjectionsFile` keyed off
-// `isMaterializedProjection` alone, so for a `projection … on(Event)` whose
-// event no `channel` carries it still emitted `fold<Event>Into<Proj>` AND wired
-// `projectionTee` as `createApp`'s default dispatcher — which `repo.save`
-// dispatches every pending event through.  So on node the fold DID run: the
-// warning was false on the one backend that contradicted it, while python and
-// elixir emitted no fold module at all.
-//
-// Direction of the fix: the warning is the contract.  `deriveEventSubscriptions`
-// records a subscription only for a carried event; node's OWN workflow-reactor
-// path already gates on `ctx.eventSubscriptions`; four backends already agree.
-// Node's projection emitter was the outlier, so it now filters by the same
-// subscription set — and the warning tells the truth on all five.
+// The cross-backend half — all five dispatching the same uncarried fold — is
+// `test/generator/projection-implicit-sub.test.ts` over the shared corpus
+// fixture.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -62,7 +66,7 @@ async function projections(channel: string): Promise<string> {
   return files.get(k!)!;
 }
 
-describe("node folded-projection emission honours channel carriage", () => {
+describe("node folds a projection whether or not a channel carries the event", () => {
   it("a carried fold is emitted and routed by the tee", async () => {
     const src = await projections(CARRIES_BOTH);
     expect(src).toContain("export async function foldOrderPlacedIntoOrderBook(");
@@ -71,32 +75,45 @@ describe("node folded-projection emission honours channel carriage", () => {
     expect(src).toContain('case "OrderShipped":');
   });
 
-  it("an UNCARRIED fold is not emitted — the warning said it never runs", async () => {
+  it("an UNCARRIED fold is emitted and routed IDENTICALLY — no channel needed", async () => {
     const src = await projections("");
-    expect(src).not.toContain("foldOrderPlacedIntoOrderBook");
-    expect(src).not.toContain("foldOrderShippedIntoOrderBook");
-    // No fold ⇒ no load/save helpers either (they would be dead code the
-    // generated-project Biome gate rejects), and the tee is the identity.
-    expect(src).not.toContain("async function loadOrderBook");
-    expect(src).toContain("  return inner;");
-    // …and the `Events` namespace import goes with them, or `noUnusedImports`
-    // fails on the generated project.
-    expect(src).not.toContain('import type * as Events from "../domain/events"');
+    expect(src).toContain("export async function foldOrderPlacedIntoOrderBook(");
+    expect(src).toContain("export async function foldOrderShippedIntoOrderBook(");
+    expect(src).toContain('case "OrderPlaced":');
+    expect(src).toContain('case "OrderShipped":');
+    // The fold needs its load/save helpers and the `Events` namespace import,
+    // and the tee must be a real decorator rather than the identity.
+    expect(src).toContain("async function loadOrderBook");
+    expect(src).not.toContain("  return inner;\n}");
+    expect(src).toContain('import type * as Events from "../domain/events"');
   });
 
-  it("the READ surface survives an uncarried fold — the row table is still declared", async () => {
+  it("declaring a channel changes nothing about the emitted folds", async () => {
+    const withChannel = await projections(CARRIES_BOTH);
+    const without = await projections("");
+    // Byte-identical: carriage is a delivery/durability knob, not a codegen one.
+    expect(without).toBe(withChannel);
+  });
+
+  it("the READ surface is emitted either way", async () => {
     const src = await projections("");
     expect(src).toContain("export function projectionsRoutes(");
     expect(src).toContain('path: "/order_book"');
   });
 
-  it("carriage is per-EVENT, not per-projection", async () => {
-    const src = await projections(CARRIES_ONE);
-    expect(src).toContain("export async function foldOrderPlacedIntoOrderBook(");
-    expect(src).not.toContain("foldOrderShippedIntoOrderBook");
-    // The tee routes the carried event only — a case for the uncarried one
-    // would name a function this module no longer declares (TS2304).
-    expect(src).toContain('case "OrderPlaced":');
-    expect(src).not.toContain('case "OrderShipped":');
+  it("the tee routes exactly the handlers the module declares", async () => {
+    // The TS2304 guard: a `case` for an event whose `fold…` function is absent
+    // does not compile in the generated project.  Asserted over the partial
+    // carriage system too, since that is where the two lists last diverged.
+    for (const channel of [CARRIES_BOTH, CARRIES_ONE, ""]) {
+      const src = await projections(channel);
+      const cases = [...src.matchAll(/case "(\w+)":/g)].map((m) => m[1]);
+      expect(cases.length, `no tee cases for channel=${channel || "<none>"}`).toBeGreaterThan(0);
+      for (const ev of cases) {
+        expect(src, `tee routes ${ev} with no fold function`).toContain(
+          `export async function fold${ev}IntoOrderBook(`,
+        );
+      }
+    }
   });
 });

@@ -1,0 +1,8 @@
+// Probe: `from` is accepted as a PARAMETER NAME but rejected as a bare
+// expression ref in the same declaration's body. Error points at the use
+// site with a raw parser message and no loom.* code.
+context C {
+  aggregate A { startAt: datetime }
+  criterion InWindow(from: datetime) of A = startAt >= from
+  repository As for A { }
+}

@@ -17,7 +17,11 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
-import { collectReachableTypes } from "../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
@@ -515,7 +519,7 @@ export function wireToCommandArgument(
       // the wire member name by JsonStringEnumConverter) — pass it through.
       return expr;
     case "valueObject": {
-      const vo = ctx.valueObjects.find((v) => v.name === info.base);
+      const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return expr;
       const args = vo.fields
         .map((f) =>
@@ -578,7 +582,7 @@ export function collectWireUsings(
     return into;
   }
   if (info.refKind === "valueObject") {
-    const vo = ctx.valueObjects.find((v) => v.name === info.base);
+    const vo = findValueObjectInScope(ctx, info.base);
     if (vo) for (const f of vo.fields) collectWireUsings(f.type, ctx, into);
   }
   // A payload param materializes field by field too (see the `entity` arm of
@@ -647,7 +651,7 @@ export function projectToResponse(
       // (JsonStringEnumConverter serialises it to the wire member name).
       return domainExpr;
     case "valueObject": {
-      const vo = ctx.valueObjects.find((v) => v.name === info.base);
+      const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return domainExpr;
       const args = vo.fields
         .map((f) => projectToResponse(`${domainExpr}.${upperFirst(f.name)}`, f.type, ctx, names))
@@ -709,7 +713,7 @@ export function domainToRequestExpr(
       // Request DTO field is the enum type — emit the value directly.
       return domainExpr;
     case "valueObject": {
-      const vo = ctx.valueObjects.find((v) => v.name === info.base);
+      const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return domainExpr;
       const args = vo.fields
         .map((f) => domainToRequestExpr(`${domainExpr}.${upperFirst(f.name)}`, f.type, ctx))
@@ -1050,8 +1054,15 @@ export function valueObjectsUsedBy(
       for (const d of part.derived) yield d.type;
     }
   };
-  const { valueObjects } = collectReachableTypes(seeds(), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  // POOL, not emission list: a cross-context `valueobject` (declared in a
+  // sibling context, referenced here) has to be resolvable or the emitted
+  // `<Vo>Request` / `<Vo>Response` reference dangles — .NET's per-namespace
+  // DTO records carry no `using` back to another aggregate's Responses
+  // namespace.  The reachability filter below still keeps only what this
+  // aggregate's surface actually names, so an unused sibling VO emits nothing.
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(seeds(), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 export function csIdValueClrType(idValueType: IdValueType): string {

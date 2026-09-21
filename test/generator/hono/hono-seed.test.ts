@@ -228,7 +228,7 @@ describe("Hono seeding — raw explicit-id path", () => {
     const seed = find(generateSystems(model).files, /\/db\/seed\.ts$/);
     // Schema-qualified, because every accepted model qualifies: a backend
     // deployable hosting a context MUST bind a dataSource for it
-    // (`loom.persistence-mode-unsupported`), and that binding puts the
+    // (`loom.datasource-binding-missing`), and that binding puts the
     // context's tables in their own Postgres schema.  The bare
     // `INSERT INTO "customers"` this used to pin is a shape no user can
     // generate — it only existed because the fixture skipped the binding.

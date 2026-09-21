@@ -23,11 +23,11 @@ Sources: [database-seeding](../old/proposals/database-seeding.md), D-SEED-*.
 Sources: [uniqueness-and-indexes](../old/proposals/uniqueness-and-indexes.md) Slice 2.
 
 ## M-T2.9 — Storage-config tail — `partial` · **M** · P3
-Remaining from the storage RFC: logical `dataSource` bindings (`dataSources:` per D-STORAGE-SPLIT), the `STORAGE_CAPABILITIES` matrix, per-deployable outbox overrides. Note 2026-07-12 pruning: `style:` knob and `marten`/`layered` stubs are gone — don't resurrect. **Owns `loom.persistence-mode-unsupported` (re-owned 2026-09-03 off M-T6.35)** — a hosted aggregate whose deployable declares no matching `dataSource` for its persistence kind (`kind: state` for stateBased, `kind: eventLog` for eventSourced); this is the missing-binding half of the `dataSources:` work this mission already tracks, not an adapter capability limit.
+Remaining from the storage RFC: logical `dataSource` bindings (`dataSources:` per D-STORAGE-SPLIT), the `STORAGE_CAPABILITIES` matrix, per-deployable outbox overrides. Note 2026-07-12 pruning: `style:` knob and `marten`/`layered` stubs are gone — don't resurrect. **Owns `loom.datasource-binding-missing` (re-owned 2026-09-03 off M-T6.35)** — a hosted aggregate whose deployable declares no matching `dataSource` for its persistence kind (`kind: state` for stateBased, `kind: eventLog` for eventSourced); this is the missing-binding half of the `dataSources:` work this mission already tracks, not an adapter capability limit. **Renamed out of the `-unsupported` suffix and off the register** in wave C2 packet 2f (it was `loom.persistence-mode-unsupported`): a missing binding is a misuse error no backend could ever implement its way out of, and a `gap` row nothing can close stalls a drain sprint — the register header's own rule. The mission still owns the RULE; it just no longer owes a drain.
 Sources: [storage-and-platform-config](../old/proposals/storage-and-platform-config.md).
 
 ## M-T2.10 — Document/embedded shape completion — `partial` · **M** · P2
-`embedded` on Drizzle (TS) still emits relationally ⚠ verify-first; `document` on Phoenix/Ecto unscheduled (honest gate); `supportedShapes` two-tier validator (capability error vs idiomaticity warning); eventLog+document/embedded snapshot rehydration deferred behind appliers.
+~~`embedded` on Drizzle (TS) still emits relationally~~ — **verified stale, and the residue closed** (wave C2 packet 2c, 2026-09-13). Measured by generating: a `shape: embedded` aggregate emits `lines: jsonb("lines")` on its own table (`src/generator/typescript/emit/schema.ts:180` → `emitEmbeddedTable`) and the repository reads/writes it as jsonb. It emitted RELATIONALLY in exactly one crossing — under a TPH (`sharedTable`) base, where `emit/schema.ts`'s TPH-concrete branch runs before the shape dispatch and emits a child table (and the repository then targeted a `schema.<own plural>` export that does not exist: compile waiver F11, 19 × TS2339). That crossing is now refused by the language rather than half-emitted — `loom.es-tph-forced-own-table` covers `shape: embedded` alongside `document` / `eventLog` ([D-EMBEDDED-TPH](../decisions.md#d-embedded-tph-a-shape-embedded-concrete-of-a-sharedtable-base-is-forced-to-owntable-like-the-other-two-non-relational-shapes)), so the F11 waiver is deleted and `embedded × ownTable` compiles on both node adapters. Remaining: `document` on Phoenix/Ecto unscheduled (honest gate); `supportedShapes` two-tier validator (capability error vs idiomaticity warning); eventLog+document/embedded snapshot rehydration deferred behind appliers.
 Sources: [document-and-json-hierarchies](../old/proposals/document-and-json-hierarchies.md), global-plan T2.h residue; elixir document residual is M-T6.2.
 
 ## M-T2.11 — `encryptedAtRest` — `blocked(proposal)` · **XL** · P3
@@ -64,3 +64,76 @@ rather than re-deciding it.
 
 Relates to [M-T2.1](#m-t21) (rename intent), the phase-⑨ migration gating, and
 `docs/loom-artifacts.md` (the read side of the `.loom/` bundle).
+
+## M-T2.17 — the self-provisioning adapters get a real migration chain (dapper + mikroorm) — `open` · **L** · P2
+
+Minted 2026-09-13 by wave C2 packet 2b, as [`D-DAPPER-ALTER`](../decisions.md#d-dapper-alter--dapper-and-mikroorm-get-a-real-alter-path-in-phase-9-the-widened-refusal-lands-first)
+requires ("a named **T2 mission** owns the build"). The ruling is already given —
+option (c), BUILD it, with the widened gate (b) as the interim — so this mission
+implements a decision, it does not re-open one.
+
+**What is wrong.** `persistence: dapper` and `persistence: mikroorm` provision
+their schema themselves at boot instead of applying a migration chain:
+`renderDapperSchema` (`src/generator/dotnet/emit/dapper.ts`) emits `CREATE TABLE
+IF NOT EXISTS` per aggregate, and mikroorm calls `orm.schema.updateSchema()`.
+Neither has an ALTER path — `grep -c 'ALTER TABLE|ADD COLUMN'` over the dapper
+emitter is 0 — and `hasMigrations` suppresses the chain outright
+(`src/generator/dotnet/index.ts` `!usingDapper && …`;
+`src/platform/hono/v4/emit.ts` `!usingMikro && …`). So against a database that
+already exists: add a field and the column is never created (the app 500s on
+first read), drop one and it lingers, change a type and nothing happens. No
+diagnostic fires, because the existing gate only looks at DECLARED `migration`
+blocks.
+
+**Two slices, in this order.**
+
+- **(b) the widened refusal — the interim.** `validateMigrationAdapterSupport`
+  (`src/ir/validate/checks/migration-checks.ts`) indexes the declared
+  rename/backfill/SQL intents and returns early when they are all empty, so the
+  common case — an ordinary model edit against an existing baseline — is
+  silent. Widen it: a self-provisioning deployable regenerated against an
+  existing baseline whose derived diff is non-empty must refuse, naming the
+  adapter limitation and the remedy. The snapshot store is already threaded into
+  phase ⑨ (`fsSnapshotStore(outDir)`), and the diff it needs only exists there —
+  so unlike its sibling this gate lives in phase ⑨, not ⑦. Note what it
+  replaces: today a second generate exits 1 on snapshot drift with an error
+  naming neither the adapter nor a remedy, and `--allow-rebaseline` does not
+  clear it.
+- **(c) the chain.** `emitDotnetMigrations` already produces platform-neutral
+  Postgres through `src/generator/sql-pg.ts`; what is missing is emitting it as
+  an ordered `.sql` set applied by `DbSchema.EnsureAsync` behind a
+  `__loom_migrations` ledger, then flipping the two `hasMigrations` guards. The
+  mikroorm twin is ruled the same way.
+- **(d) Postgres schema PLACEMENT — the twin limit of the same boot-time owner.**
+  Folded in here by wave C2 packet 2b rather than left unowned; **the owner may
+  split it back out**, but it should not be built separately, because both halves
+  are the same `DbSchema.EnsureAsync` / `updateSchema()` seam and slice (c) has to
+  rewrite it anyway. `loom.dapper-unsupported#schema-split` /
+  `#schema-ignored` (and their mikroorm twins) refuse a binding that asks for a
+  `schema:` other than `public`, or any `tablePrefix:`, because a
+  self-provisioning adapter names every table UNQUALIFIED while a migration-chain
+  sibling routes it into `snake(<context>)` — two physical tables, both
+  deployables answering, each seeing an empty database (`migration-checks.ts`,
+  `validateSelfProvisioningSchemaSupport`). *Recommendation, from packet 2b's
+  survey of the emitter:* qualify through the connection's `search_path` (a
+  `CREATE SCHEMA IF NOT EXISTS` plus a data-source-level `search_path`) rather
+  than threading a schema into every raw SQL string — the dapper emitter computes
+  its table name in eight places and none of them takes a schema, so the
+  string-threading road is where a missed site becomes a silent split-brain. Two
+  shapes that road does NOT cover and which must be settled before building:
+  one deployable hosting two contexts on DIFFERENT schemas (a `search_path` is
+  per-connection, and a shared name across the two is then ambiguous), and
+  `tablePrefix:`, which renames rather than places and needs the names threaded
+  after all. The seed path is already schema-qualified (`schemaFor`, the F2-ADP-2
+  fix), so it is the one half that will not need changing.
+
+**Exit.** A `test:migration-evolution-dapper` and `test:migration-evolution-mikroorm`
+leg added to `migration-evolution-e2e.yml` — today all five legs run on the
+default efcore/drizzle adapters, so nothing measures either of these. The
+register clauses `loom.dapper-unsupported#migrations` /
+`loom.mikroorm-unsupported#migrations` and the ledger row
+`dapper-no-schema-evolution` close when that leg is GREEN, not when the gate
+widens (D-DAPPER-ALTER, Consequences).
+
+Relates to [M-T2.1](#m-t21) (rename intent), M-T6.35 (the per-adapter capability
+gates), and the phase-⑨ derivation in `src/system/migrations-builder.ts`.
