@@ -2293,7 +2293,25 @@ MatchExpr:
              '}');
 
 MatchArm:
-    cond=Expression '=>' value=Expression;
+    cond=MatchArmCond '=>' value=Expression;
+
+// An arm CONDITION is a boolean expression, never a lambda.  `Expression`
+// admits `Lambda` (`ID '=>' body`) at the top of the ladder, so a BARE-NAME
+// condition was swallowed whole:
+//
+//     match {
+//       pwOk => Badge { "ok" }     // parsed as the lambda `pwOk => Badge {…}`
+//       else => Text { "no" }      // …so the arm's own `=>` was missing here
+//     }
+//
+// and the error landed on `else`, two lines below the real cause, saying
+// `Expecting token of type '=>' but found 'else'`.  `pwOk == true` parsed
+// fine, which is the tell: a binary expression cannot start a lambda, so only
+// the bare-name form was affected.  Excluding `Lambda` from the condition
+// costs nothing — a lambda is not a boolean — and is the same reasoning that
+// already keeps `Lambda` out of binary operands (see `Expression`).
+MatchArmCond infers Expression:
+    MatchExpr | TernaryExpr;
 
 // The variant-match scrutinee.  Reuses `ForIterable` (a `NameRef` plus
 // optional postfix suffixes) so a bare name (`outcome`) or a simple
