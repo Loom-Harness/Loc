@@ -92,7 +92,14 @@ const SCAFFOLD: Case = {
     // input the three JSX frontends do rather than an editable box bound to an
     // array.  Pinning both halves keeps a green `ng build` from hiding the
     // second one.
-    "tags: new FormControl([]",
+    //
+    // Pinned WITH the explicit generic, which is the part that carries the
+    // guarantee: `nonNullableTsType` names the element type, so a regression to
+    // `FormControl(null)` or to the accidental `FormControl<never[]>` fails
+    // here.  An earlier revision of this line pinned the bare `FormControl([]`
+    // spelling — it matched a fix that was superseded, and then matched nothing
+    // at all, which this gate only discovered in the merge queue.
+    "tags: new FormControl<string[]>([]",
     "(arrays not yet supported in forms)",
   ],
   source: `
