@@ -349,8 +349,13 @@ export function renderExplicitMatcher(
   lets?: Map<string, string>,
 ): string | null {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
+  // The table lookup is deferred past `toBeNull` / `toContain` below: neither
+  // fits `<actual> <op> <expected>`.  `toBeNull` has no operand at all, and
+  // Python's containment operator takes its operands in the OPPOSITE order
+  // (`needle in haystack`), so rendering it through the table would emit
+  // `tags in "urgent"` — which is not a type error in Python, just silently
+  // the wrong question.
   const op = MATCHER_OP[expr.member];
-  if (!op) return null;
   let receiver = expr.receiver;
   let negate = false;
   if (receiver.kind === "member" && receiver.member === "not") {
@@ -369,6 +374,22 @@ export function renderExplicitMatcher(
     inner.kind === "binary" && ["==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(inner.op);
   const actual = chains ? `(${rendered})` : rendered;
   const expected = expr.args.map((a) => renderTestExpr(a, ctx, lets)).join(", ");
+  // Absence.  `is None` rather than `== None`: identity is the idiom, and it
+  // cannot be intercepted by a `__eq__` on a value-object subject.
+  // (`toBeAbsent` never reaches this emitter — it is e2e-only.)
+  if (expr.member === "toBeNull") {
+    return negate ? `    assert ${actual} is not None` : `    assert ${actual} is None`;
+  }
+  // Containment.  Python's `in` covers BOTH receiver kinds — element
+  // membership for a list, substring for a `str` — which is the same pair the
+  // DSL promises and `checkContainReceiver` already restricted the subject to.
+  // Note the operand ORDER is reversed relative to every other matcher here.
+  if (expr.member === "toContain") {
+    return negate
+      ? `    assert ${expected} not in ${actual}`
+      : `    assert ${expected} in ${actual}`;
+  }
+  if (!op) return null;
   const cmp = `${actual} ${op} ${expected}`;
   return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
 }
