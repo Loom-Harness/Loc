@@ -43,6 +43,15 @@ const PATCH = `@@ -40,6 +40,14 @@
 `;
 
 describe("next-free-mission-id check (M-T9.32)", () => {
+  it("an EDITED heading (removed and re-added) is not a mint", () => {
+    const patch = [
+      "-## M-T6.37 — thing — `open` · **M** · P2",
+      "+## M-T6.37 — thing — `done` · **M** · P2",
+      "+## M-T6.40 — a genuinely new mission — `open`",
+    ].join("\n");
+    expect(mintedInPatch(patch)).toEqual([{ track: 6, num: 40 }]);
+  });
+
   it("a HEADING mints an id; a MENTION in the same patch does not", () => {
     expect(mintedInPatch(PATCH)).toEqual([{ track: 5, num: 41 }]);
     // The same text, read as plain mentions, names five ids — which is exactly
@@ -82,15 +91,40 @@ describe("next-free-mission-id check (M-T9.32)", () => {
 
   it("names both collision shapes, with the PRs", () => {
     const existing = [{ track: 6, num: 37 }];
+    const minted37 = [{ track: 6, num: 37 }];
     const claims = [
       { pr: 100, title: "first claim", ids: [{ track: 6, num: 38 }] },
       { pr: 101, title: "second claim", ids: [{ track: 6, num: 38 }] },
-      { pr: 102, title: "re-mints an existing id", ids: [{ track: 6, num: 37 }] },
+      { pr: 102, title: "re-mints an existing id", ids: minted37, minted: minted37 },
+      // A PR that merely MENTIONS an existing mission (a status flip, a
+      // cross-reference in its body) is not a collision — the first live run
+      // of this script reported eighteen of these on one wave PR.
+      { pr: 103, title: "flips M-T6.37 to done", ids: [{ track: 6, num: 37 }] },
     ];
     const r = report(existing, claims, true);
     const kinds = r.collisions.map((c) => `${c.kind}:${c.id}`).sort();
     expect(kinds).toEqual(["already-on-main:M-T6.37", "two-open-prs:M-T6.38"]);
     expect(r.collisions.find((c) => c.kind === "two-open-prs")?.prs.sort()).toEqual([100, 101]);
+    expect(r.collisions.find((c) => c.kind === "already-on-main")?.prs).toEqual([102]);
+    // Two PRs both touching an EXISTING mission is ordinary, not a collision.
+    const both = report(
+      existing,
+      [
+        { pr: 110, title: "slice 1", ids: minted37 },
+        { pr: 111, title: "slice 2", ids: minted37 },
+      ],
+      true,
+    );
+    expect(both.collisions).toEqual([]);
+    // The checked-out branch's own PR does not collide with the ids it minted
+    // — the tree HAS them because of that PR.
+    const self = report(
+      existing,
+      [{ pr: 120, title: "the wave PR", ids: minted37, minted: minted37, headRef: "claude/wave" }],
+      true,
+      "claude/wave",
+    );
+    expect(self.collisions).toEqual([]);
     // A single PR claiming one id twice (title AND heading) is NOT a collision.
     const single = report(
       [],

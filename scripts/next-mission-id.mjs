@@ -67,12 +67,19 @@ export function idsIn(text) {
  *  list) is not a mint and must not move the next-free number; only the
  *  heading declares the id. */
 export function mintedInPatch(patch) {
-  const out = [];
+  const added = [];
+  const removed = new Set();
   for (const line of String(patch ?? "").split("\n")) {
-    const m = /^\+#{1,4} (M-T(\d+)\.(\d+))\b/.exec(line);
-    if (m) out.push({ track: Number(m[2]), num: Number(m[3]) });
+    const plus = /^\+#{1,4} (M-T(\d+)\.(\d+))\b/.exec(line);
+    if (plus) added.push({ track: Number(plus[2]), num: Number(plus[3]) });
+    const minus = /^-#{1,4} (M-T(\d+)\.(\d+))\b/.exec(line);
+    if (minus) removed.add(`${Number(minus[2])}.${Number(minus[3])}`);
   }
-  return out;
+  // A heading that is REMOVED and ADDED in the same patch is an edit of an
+  // existing mission's status line, not a mint — the first GitHub-half run of
+  // this script (Wave C4 fold) reported every status flip in the wave PR as
+  // "mints an id that already exists".
+  return added.filter(({ track, num }) => !removed.has(`${track}.${num}`));
 }
 
 /**
@@ -82,7 +89,7 @@ export function mintedInPatch(patch) {
  * @param claims   `[{pr, title, ids: [{track, num}]}]` — one entry per open PR.
  * @param complete whether the open-PR half actually ran.
  */
-export function report(existing, claims, complete) {
+export function report(existing, claims, complete, selfRef) {
   const tracks = new Map();
   const track = (n) => {
     if (!tracks.has(n))
@@ -95,21 +102,34 @@ export function report(existing, claims, complete) {
     if (num > row.maxExisting) row.maxExisting = num;
     existingSet.add(`${t}.${num}`);
   }
+  // Every id a PR announces (title, body, or an added heading) moves the
+  // next-free number; only an id it MINTS as a heading can collide with the
+  // tree, and a PR whose head IS this tree (`selfRef`) cannot collide with the
+  // ids it put there itself.
   for (const c of claims) {
+    const minted = new Set((c.minted ?? []).map(({ track: t, num }) => `${t}.${num}`));
     for (const { track: t, num } of c.ids) {
       const row = track(t);
       if (num > row.maxClaimed) row.maxClaimed = num;
       const key = `${t}.${num}`;
       if (!row.claimedBy.has(key)) row.claimedBy.set(key, []);
       const list = row.claimedBy.get(key);
-      if (!list.some((x) => x.pr === c.pr)) list.push({ pr: c.pr, title: c.title });
+      if (!list.some((x) => x.pr === c.pr))
+        list.push({
+          pr: c.pr,
+          title: c.title,
+          minted: minted.has(key),
+          self: selfRef !== undefined && c.headRef === selfRef,
+        });
     }
   }
 
   const collisions = [];
   for (const row of tracks.values()) {
     for (const [key, prs] of row.claimedBy) {
-      if (prs.length > 1) {
+      // Two PRs announcing an id that is NOT yet on the tree: one of them will
+      // lose the number.  Two PRs both editing an EXISTING mission is ordinary.
+      if (prs.length > 1 && !existingSet.has(key)) {
         collisions.push({
           kind: "two-open-prs",
           id: `M-T${key}`,
@@ -117,12 +137,13 @@ export function report(existing, claims, complete) {
           detail: prs.map((p) => `#${p.pr} ${p.title}`).join("  |  "),
         });
       }
-      if (existingSet.has(key)) {
+      const minters = prs.filter((p) => p.minted && !p.self);
+      if (existingSet.has(key) && minters.length) {
         collisions.push({
           kind: "already-on-main",
           id: `M-T${key}`,
-          prs: prs.map((p) => p.pr),
-          detail: `#${prs.map((p) => p.pr).join(", #")} mints an id that already exists in docs/new-plan/`,
+          prs: minters.map((p) => p.pr),
+          detail: `#${minters.map((p) => p.pr).join(", #")} mints an id that already exists in docs/new-plan/`,
         });
       }
     }
@@ -154,18 +175,21 @@ function dedupeCollisions(list) {
 // I/O.
 // ---------------------------------------------------------------------------
 
-/** `## M-T<n>.<m>` headings in the working tree's plan files. */
+/** `## M-T<n>.<m>` headings in EVERY `.md` under the plan tree — trackers,
+ *  the archive, and the side plans (M-T9.13's heading lives in
+ *  `testing-quality-improvement-plan.md`; a collector that read only
+ *  `T<n>-*.md` reported its two open slices as a two-PR collision on an id
+ *  that has been on `main` for weeks). */
 export function collectLocalIds(planDir = PLAN_DIR) {
   const files = [];
-  for (const f of fs.readdirSync(planDir)) {
-    if (/^T\d+[-.].*\.md$/.test(f)) files.push(path.join(planDir, f));
-  }
-  const archive = path.join(planDir, "archive");
-  if (fs.existsSync(archive)) {
-    for (const f of fs.readdirSync(archive)) {
-      if (/^T\d+-done\.md$/.test(f)) files.push(path.join(archive, f));
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith(".md")) files.push(full);
     }
-  }
+  };
+  walk(planDir);
   const out = [];
   for (const file of files) {
     for (const line of fs.readFileSync(file, "utf8").split("\n")) {
@@ -186,6 +210,20 @@ async function api(url, token) {
   const res = await fetch(url, { headers: API_HEADERS(token) });
   if (!res.ok) throw new Error(`GitHub API ${res.status} on ${url}`);
   return res.json();
+}
+
+/** The checked-out branch, so the PR whose head it is does not collide with
+ *  the ids the tree got FROM that PR.  `undefined` off a branch. */
+function currentBranch() {
+  try {
+    const ref = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: ROOT,
+      encoding: "utf8",
+    }).trim();
+    return ref === "HEAD" ? undefined : ref;
+  } catch {
+    return undefined;
+  }
 }
 
 function repoSlug() {
@@ -215,6 +253,7 @@ export async function collectPrClaims(repo, token) {
   }
   for (const pr of prs) {
     const ids = [];
+    const minted = [];
     // A claim announced in the title/body counts before the heading lands —
     // that is precisely the window the collision happens in.
     ids.push(...idsIn(`${pr.title ?? ""}\n${pr.body ?? ""}`));
@@ -226,7 +265,9 @@ export async function collectPrClaims(repo, token) {
         );
         for (const f of files) {
           if (!/^docs\/new-plan\/.*\.md$/.test(f.filename)) continue;
-          ids.push(...mintedInPatch(f.patch));
+          const m = mintedInPatch(f.patch);
+          ids.push(...m);
+          minted.push(...m);
         }
         if (files.length < 100) break;
       }
@@ -234,7 +275,8 @@ export async function collectPrClaims(repo, token) {
       // A PR whose files cannot be read (too large a diff, a deleted fork)
       // still contributes its title/body claim rather than dropping out.
     }
-    if (ids.length) claims.push({ pr: pr.number, title: pr.title ?? "", ids });
+    if (ids.length)
+      claims.push({ pr: pr.number, title: pr.title ?? "", ids, minted, headRef: pr.head?.ref });
   }
   return claims;
 }
@@ -258,7 +300,7 @@ function render(result, only) {
   if (!result.complete) {
     out.push("");
     out.push(
-      "INCOMPLETE — the open-PR half did not run (no GITHUB_TOKEN, --local, or an API error).",
+      `INCOMPLETE — the open-PR half did not run (${result.incompleteReason ?? "no GITHUB_TOKEN, --local, or an API error"}).`,
     );
     out.push(
       "These are the ids on THIS TREE only. An id minted on an open branch is invisible here,",
@@ -283,18 +325,30 @@ async function main() {
   const existing = collectLocalIds();
   let claims = [];
   let complete = false;
+  // WHY the reason is kept: a swallowed API error reads exactly like "no
+  // token" (the §59/§63 shape), and the two have different fixes — a 401 is
+  // the token, ENOTFOUND is the network, and a node `fetch` that ignores
+  // `HTTPS_PROXY` (node < 24 without `NODE_USE_ENV_PROXY=1`) is the sandbox.
   const repo = repoSlug();
   const token = process.env.GITHUB_TOKEN;
+  let incompleteReason = local
+    ? "--local"
+    : !repo
+      ? "origin is not a github.com remote"
+      : !token
+        ? "no GITHUB_TOKEN"
+        : undefined;
   if (!local && repo && token) {
     try {
       claims = await collectPrClaims(repo, token);
       complete = true;
-    } catch {
+    } catch (e) {
       complete = false;
+      incompleteReason = `API error: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
 
-  const result = report(existing, claims, complete);
+  const result = { ...report(existing, claims, complete, currentBranch()), incompleteReason };
   if (json) console.log(JSON.stringify(result, null, 2));
   else console.log(render(result, only));
 
