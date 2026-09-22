@@ -1399,12 +1399,24 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
+| `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
 nobody: the paged envelope (`{ items, page, pageSize, total, totalPages }`)
 for a relational aggregate, a bare JSON array where `all` is typed `T[]`
 — exactly like a declared collection find, so `expect(xs.items.length)`
 reads the same as it does for `find … paged`.
+
+A ROUTED HANDLER is addressed through the same two-level shape, with the
+bounded CONTEXT in the slug position and the HANDLER in the method
+position — the spelling `route POST "/echo/{text}" -> Sales.Echo` already
+uses, so `api.sales.echo("hi")` posts `/api/echo/hi`.  Arguments bind
+POSITIONALLY to the declared params; a wrong count is
+`loom.e2e-routed-handler-arity`, and a `GET`/`DELETE` route whose handler
+declares a param no `{token}` binds is
+`loom.e2e-routed-handler-bodyless-method` (the backends read it from a
+body those methods cannot carry).  An aggregate verb always wins, so a
+context whose name slugs like an aggregate changes no existing call.
 
 The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can

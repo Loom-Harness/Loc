@@ -61,8 +61,10 @@ import {
   opGetById,
   opOperation,
 } from "../../src/ir/util/openapi-ids.js";
+import { apisServedBy, resolveRoutedHandler } from "../../src/ir/util/routed-handler.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { collectApiCallShapes } from "../../src/system/e2e-render.js";
+import { API_BASE_PATH } from "../../src/util/api-base.js";
 import { lowerFirst, plural, snake } from "../../src/util/naming.js";
 import { requiredGoldenCaseNames } from "../_helpers/golden-coverage.js";
 import { buildLoomModel } from "../_helpers/ir.js";
@@ -163,6 +165,14 @@ interface DerivedOp {
   readonly aggregate: string;
   /** `api.<seg>.<verb>` shape a `test e2e` body would write to call it. */
   readonly callHint: string;
+  /** Set only for an explicit `route … -> <Ctx>.<Handler>` binding: the route's
+   *  own `{token}` template.  The wire goldens template a path by collapsing
+   *  VOLATILE segments (uuid / all-digits / long-opaque) to a literal `{id}`,
+   *  so a routed path cannot be joined to the golden by string equality — `GET
+   *  /api/sum/{a}/{b}` is recorded as `/api/sum/{id}/{id}` and `POST
+   *  /api/echo/{text}` as `/api/echo/hi`.  The cross-check below matches those
+   *  through this template instead. */
+  readonly routeTemplate?: string;
 }
 
 interface Census {
@@ -204,6 +214,31 @@ function callHint(op: { kind: string; idTokens: readonly string[]; aggregate: st
 const slugsFor = (agg: string): Set<string> =>
   new Set([lowerFirst(agg), snake(plural(agg)), lowerFirst(plural(agg))]);
 
+/** The census id of an explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>`
+ *  binding.  The ROUTE is the identity — it is what the api declares and what
+ *  every backend mounts — rather than a per-backend operationId (the five
+ *  explicit-route emitters build theirs by hand, so there is no shared token
+ *  helper to borrow and inventing one here would be a second source of truth
+ *  nothing pins). */
+const routedOpId = (method: string, path: string): string =>
+  `route:${method.toUpperCase()} ${path}`;
+
+/** The verb dispatch `renderApiCall` performs: `create` / `getById` are fixed
+ *  names; anything else is an operation OR a repository find, and both render
+ *  their operationId from the same token pair. */
+const aggregateVerbCandidates = (agg: string, method: string): string[] =>
+  method === "create"
+    ? [camelId(opCreate(agg))]
+    : method === "getById"
+      ? [camelId(opGetById(agg))]
+      : [camelId(opOperation(agg, method)), camelId(opFind(agg, method))];
+
+/** Does this verb resolve to a derived operation on `agg`?  The routed-handler
+ *  fallback below consults it so an aggregate verb always wins — exactly the
+ *  precedence `renderApiCall` and `checkApiVerb` apply. */
+const verbOf = (agg: string, method: string, ids: ReadonlySet<string>): boolean =>
+  aggregateVerbCandidates(agg, method).some((c) => ids.has(c));
+
 function censusOf(model: LoomModel): Census {
   const derived: DerivedOp[] = [];
   const aggregates: string[] = [];
@@ -236,30 +271,82 @@ function censusOf(model: LoomModel): Census {
         for (const a of ctx.aggregates) aggregates.push(a.name);
       }
     }
+    // Explicit `route … -> <Ctx>.<Handler>` bindings.  NOT part of
+    // `deriveContextOperations` (which covers aggregate verbs only), and until
+    // the `api.<context>.<handler>(…)` call form landed there was no way to
+    // call one — so this whole route class was invisible to the census and a
+    // fixture whose entire api is routed handlers looked fully covered by
+    // having no derived operations at all.
+    for (const d of sys.deployables) {
+      let frontend = false;
+      try {
+        frontend = platformFor(d.platform).isFrontend;
+      } catch {
+        frontend = false;
+      }
+      if (frontend) continue;
+      const ctxs = sys.subdomains
+        .flatMap((sd) => sd.contexts)
+        .filter((c) => d.contextNames.includes(c.name));
+      for (const api of apisServedBy(d, sys.apis)) {
+        for (const route of api.routes) {
+          const ctx = ctxs.find((c) => c.name === route.target.context);
+          if (!ctx) continue;
+          const declared =
+            (ctx.commandHandlers ?? []).some((h) => h.name === route.target.handler) ||
+            (ctx.queryHandlers ?? []).some((h) => h.name === route.target.handler);
+          // An unresolved target is `loom.route-handler-unresolved`'s problem.
+          if (!declared) continue;
+          const full = `${API_BASE_PATH}${route.path}`;
+          const id = routedOpId(route.method, full);
+          if (derived.some((x) => x.id === id)) continue;
+          derived.push({
+            id,
+            kind: "routedHandler",
+            method: route.method.toLowerCase(),
+            path: full,
+            aggregate: ctx.name,
+            callHint: `api.${lowerFirst(ctx.name)}.${lowerFirst(route.target.handler)}(…)`,
+            routeTemplate: full,
+          });
+        }
+      }
+    }
   }
 
   const ids = new Set(derived.map((d) => d.id));
   const called = new Set<string>();
   const unattributed = new Set<string>();
   for (const sys of model.systems) {
+    const backendCtxs = sys.subdomains
+      .flatMap((sd) => sd.contexts)
+      .filter((c) => sys.deployables.some((d) => d.contextNames.includes(c.name)));
+    const servedApis = sys.deployables.flatMap((d) => apisServedBy(d, sys.apis));
     for (const t of sys.e2eTests) {
       if (t.kind !== "api") continue; // ui e2e drives pages, not routes
       for (const call of collectApiCallShapes(t.statements)) {
         const agg = aggregates.find((a) => slugsFor(a).has(call.aggregateSlug));
+        // A routed handler — `api.<contextSlug>.<handlerName>(…)`.  Resolved
+        // through the SAME helper the renderer and the two IR-validate checks
+        // use, and in the same PRECEDENCE order (aggregate verbs first), so a
+        // call this credits is a call the emitter emits.
+        if (!agg || !verbOf(agg, call.method, ids)) {
+          const routed = resolveRoutedHandler(
+            call.aggregateSlug,
+            call.method,
+            backendCtxs,
+            servedApis,
+          );
+          if (routed) {
+            called.add(routedOpId(routed.route.method, `${API_BASE_PATH}${routed.route.path}`));
+            continue;
+          }
+        }
         if (!agg) {
           unattributed.add(`api.${call.aggregateSlug}.${call.method} (no such aggregate)`);
           continue;
         }
-        // The verb dispatch `renderApiCall` performs: `create` / `getById` are
-        // fixed names; anything else is an operation OR a repository find, and
-        // both render their operationId from the same token pair.
-        const candidates =
-          call.method === "create"
-            ? [camelId(opCreate(agg))]
-            : call.method === "getById"
-              ? [camelId(opGetById(agg))]
-              : [camelId(opOperation(agg, call.method)), camelId(opFind(agg, call.method))];
-        const hits = candidates.filter((c) => ids.has(c));
+        const hits = aggregateVerbCandidates(agg, call.method).filter((c) => ids.has(c));
         if (hits.length === 0) {
           unattributed.add(`api.${call.aggregateSlug}.${call.method} (no derived operation)`);
         }
@@ -448,12 +535,37 @@ describe("api caller census — cross-checked against the wire goldens", () => {
     it(`${c.key}: the IR-derived caller set equals the requests actually made`, async () => {
       const census = censusOf(await buildLoomModel(c.source));
       const byRoute = new Map(census.derived.map((d) => [`${d.method} ${d.path}`, d.id]));
+      // A ROUTED handler cannot be joined by string equality: the golden
+      // templates a path by collapsing VOLATILE segments (uuid / all-digits /
+      // long-opaque) to `{id}`, so `GET /api/sum/{a}/{b}` is recorded as
+      // `/api/sum/{id}/{id}` and `POST /api/echo/{text}` as `/api/echo/hi`.
+      // Match those through the route template instead — one segment per
+      // `{token}`, literals compared verbatim, so it cannot merge two routes
+      // that differ anywhere outside a token.
+      const routed = census.derived
+        .filter((d) => d.routeTemplate)
+        .map((d) => ({
+          id: d.id,
+          method: d.method,
+          re: new RegExp(
+            `^${(d.routeTemplate as string)
+              .split("/")
+              .map((seg) =>
+                /^\{\w+\}$/.test(seg) ? "[^/]+" : seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+              )
+              .join("/")}$`,
+          ),
+        }));
       // A golden entry is `{method, templated path}` — the same vocabulary the
       // derivation speaks, so the join needs no heuristics beyond dropping the
       // query string a find carries.
       const fromGolden = new Set<string>();
       for (const e of goldenFor(c.key)!.entries) {
-        const id = byRoute.get(`${e.method.toLowerCase()} ${e.path.split("?")[0]}`);
+        const method = e.method.toLowerCase();
+        const p = e.path.split("?")[0] as string;
+        const id =
+          byRoute.get(`${method} ${p}`) ??
+          routed.find((r) => r.method === method && r.re.test(p))?.id;
         // Unmapped routes are the NOT-LIFTED classes (projection reads,
         // workflows) — `apiSurfaceCoverage.notLifted`, out of scope by design.
         if (id) fromGolden.add(id);
