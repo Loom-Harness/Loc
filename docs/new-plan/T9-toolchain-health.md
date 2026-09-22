@@ -628,7 +628,7 @@ the generated comment, not on `ddd generate`'s stderr — lifting them into real
 ([`waves/handoffs/wave-c1-1d-giveup-drain.md`](waves/handoffs/wave-c1-1d-giveup-drain.md)) along with
 the HEEx named-icon parity gap the drain deliberately did not smuggle in.
 
-## M-T9.56 — 128 validator conditions reach the user as one non-catalog code (the gate half landed with Wave C1 packet 1g; the drain is Wave C4's) — `open` · ~**70-78 h** for the drain · P1
+## M-T9.56 — 129 validator conditions reached the user as one non-catalog code; zero do now — `done` (gate half Wave C1 packet 1g, drain Wave C4 packet 4c) · P1
 
 Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
 `src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
@@ -660,7 +660,8 @@ entry points hold no row — they are already clean. Three gates landed, all shr
 
 - **invariant 5** in `diagnostic-catalog.test.ts`, over the per-file baseline
   `test/system/diagnostic-uncoded-baseline.ts`. Grow a row → it fails naming the site; drain one without
-  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0.
+  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0. (Wave C4 drained the
+  last row, so the baseline file is gone and the invariant is an absolute gate — see the drain half.)
 - **`diagnostic-firing-census.test.ts`** — no `FIRING_FIXTURES` fixture may raise `loom.unknown`. On its
   first run it found exactly one (`loom.workflow-emit-unknown-field`'s fixture, hitting
   `statements.ts`'s `checkEmit`); that site was drained here, so its waiver table
@@ -675,10 +676,34 @@ raises **`loom.emit-unknown-field`** (wording in `messages.ts`, anchor
 `06-behavior-and-statements.md#let--emit` in `code-docs.ts`, an aggregate-emit firing fixture — the half
 the workflow-only IR check never sees). **128 left.**
 
-### Drain half — `open` (Wave C4, ~10 slices)
+### Drain half — `done` (Wave C4 packet 4c, seven slices)
 
-The triage, per-site cost and ordering are in the fleet plan. Each slice lowers its row in
-`diagnostic-uncoded-baseline.ts` in the same change; the whole file is deleted when the last row goes.
+All **128** remaining sites drained, largest validator file first, one commit per file (or per coherent
+group of conditions). **109 codes for 128 sites** — 108 minted, and `loom.duplicate-theme-block` reused
+with a `#system-scope` slug because `ddd-validator.ts` re-states a rule `composition.ts` already owns
+one scope up. Seven more codes carry several `#slug`s for the same reason (one rule, several sentences):
+`loom.resource-knob-kind-mismatch` and `loom.resource-knob-storage-mismatch` (4 knobs each),
+`loom.ui-binding-missing`, `loom.unresolved-member`, `loom.matcher-e2e-only`,
+`loom.layout-slot-duplicate`, `loom.requirement-property-missing`.
+
+Two CONDITION FAMILIES were drained across files rather than by file, per the C1 hand-off's warning that
+draining one of a family leaves an incoherent surface: `loom.requires-not-bool` (5 sites —
+`statements.ts` ×2, `structural.ts`, `repository.ts`, `types.ts`) and
+`loom.function-return-type-mismatch` (3 sites — `toplevel-function.ts`, `types.ts` ×2).
+
+Every code carries a live `code-docs.ts` anchor — **`UNDOCUMENTED_CODES` never grew**, so its pinned
+length stands at 365 — and a `FIRING_FIXTURES` entry. Two of the 128 turned out to be UNREACHABLE, found
+by trying to write their fixtures, and are pinned in `UNREACHABLE_PINS` with the reason:
+`loom.valueobject-contains-entity` (the grammar admits no `Containment` in a `valueobject`) and
+`loom.containment-foreign-part` (the scope provider hides other aggregates' parts, so the ref never
+links and the check's own `!part` guard returns first).
+
+**Both gates are now absolute.** `diagnostic-uncoded-baseline.ts` is deleted; invariant 5 fails on the
+first `accept(...)` shipped without a `code:`, naming its file, line and source text, and the
+`loom.unknown` assertion dropped its `FIXTURES_RAISING_UNKNOWN` waiver table (it shipped empty — a
+waiver kept past the debt it waived is slack). Invariant 5's vacuous-pass guard stopped counting live
+offenders and now drives the scanner with a fixture holding one of each shape, so it holds at any debt
+level including none. Both halves mutation-proved: [`waves/handoffs/wave-c4-4c-uncoded.md`](waves/handoffs/wave-c4-4c-uncoded.md).
 
 ## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 
