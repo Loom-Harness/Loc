@@ -53,7 +53,12 @@ import {
   renderSequenceDiagram,
   renderWorkflowDiagram,
 } from "./mermaid.js";
-import { checkMigrationBaseline, type MigrationArtifactIndex } from "./migration-artifacts.js";
+import {
+  checkMigrationBaseline,
+  type MigrationArtifactIndex,
+  memoryMigrationArtifactIndex,
+} from "./migration-artifacts.js";
+import { buildMigrationLedger, type MigrationHistoryLedger } from "./migration-ledger.js";
 import { buildMigrations } from "./migrations-builder.js";
 import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
@@ -96,6 +101,12 @@ export interface SystemEmission {
    *  `loom.*` code in a comment beside each one; this is where that becomes a
    *  reportable diagnostic instead of a note in a file nobody reads. */
   giveUps: GiveUpReport[];
+  /** The migration history this run's output tree now has, folded over
+   *  `options.recordedHistory`.  The CLI writes it back beside the `.ddd`
+   *  after a successful non-dry run so the NEXT run can tell "this module
+   *  has history" from "this module is new" even when `-o` points at a tree
+   *  that carries neither.  See `migration-ledger.ts` (F-029). */
+  migrationLedger: MigrationHistoryLedger;
 }
 
 export interface GenerateSystemOptions {
@@ -156,10 +167,17 @@ export interface GenerateSystemOptions {
    *  guards are then skipped.  CLI wires `fsMigrationArtifactIndex(outDir,
    *  loom)`. */
   existingMigrations?: MigrationArtifactIndex;
-  /** Override for guard (a): permit re-emitting "Initial" even though
-   *  migration files already exist and the snapshot is missing — the CLI
-   *  `--allow-rebaseline` flag. */
+  /** Override for guards (a)/(d)/(e): permit re-emitting "Initial" (or
+   *  re-issuing a recorded version) even though the module demonstrably has
+   *  migration history — the CLI `--allow-rebaseline` flag. */
   allowRebaseline?: boolean;
+  /** The migration-history ledger read from beside the `.ddd` source, when
+   *  the caller has a source directory.  Feeds baseline guards (d)/(e) —
+   *  the ones that see a re-baseline into a CLEAN output tree, which the
+   *  output-tree-only guards cannot.  Omitted by the web playground. */
+  recordedHistory?: MigrationHistoryLedger | null;
+  /** Path to name in the guard (d)/(e) refusal messages. */
+  ledgerPath?: string;
 }
 
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
@@ -186,6 +204,10 @@ export function generateSystemsFromLoom(
   // (same pattern as traceability below), so a single recorder's paths
   // line up with the final written paths across every system.
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
+  // Every system's migrations, folded into ONE source-side ledger below:
+  // the ledger is keyed by module and lives beside the `.ddd`, which may
+  // declare several systems.
+  const builtMigrations: MigrationsIR[] = [];
   for (const sys of loom.systems) {
     emitSystem(sys, loom, out, {
       emitTrace: options.emitTrace,
@@ -194,6 +216,9 @@ export function generateSystemsFromLoom(
       allowDestructive: options.allowDestructive,
       existingMigrations: options.existingMigrations,
       allowRebaseline: options.allowRebaseline,
+      recordedHistory: options.recordedHistory,
+      ledgerPath: options.ledgerPath,
+      collectMigrations: builtMigrations,
       sourcemap: recorder,
       sourceTexts: options.sourceTexts,
     });
@@ -267,7 +292,13 @@ export function generateSystemsFromLoom(
   }
   // Give-up surfacing (F-019) runs LAST, over the finished map, so a fragment
   // written by any emitter above — README included — is in scope.
-  return { files: out, giveUps: collectGiveUps(out) };
+  return {
+    files: out,
+    giveUps: collectGiveUps(out),
+    // Always built (it is pure): callers with no source directory simply
+    // never write it.
+    migrationLedger: buildMigrationLedger(builtMigrations, options.recordedHistory ?? null),
+  };
 }
 
 function emitSystem(
@@ -281,6 +312,11 @@ function emitSystem(
     allowDestructive?: boolean;
     existingMigrations?: MigrationArtifactIndex;
     allowRebaseline?: boolean;
+    recordedHistory?: MigrationHistoryLedger | null;
+    ledgerPath?: string;
+    /** Sink the freshly-built `MigrationsIR[]` is appended to, so the caller
+     *  can fold every system's migrations into one source-side ledger. */
+    collectMigrations?: MigrationsIR[];
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
   },
@@ -306,11 +342,22 @@ function emitSystem(
   // snapshot is missing but migration files exist, verify files ↔ recorded
   // history, and reject version-number reuse.  Skipped when no on-disk
   // inventory was supplied (web playground / in-memory callers).
-  if (options.existingMigrations) {
-    checkMigrationBaseline(migrations, options.existingMigrations, {
-      allowRebaseline: options.allowRebaseline,
-    });
+  // Guards (d)/(e) read the source-side ledger, not the output tree, so they
+  // run even for a caller that supplied no on-disk inventory — as long as it
+  // supplied a ledger.  `checkMigrationBaseline` with an empty index simply
+  // skips (a)-(c).
+  if (options.existingMigrations || options.recordedHistory) {
+    checkMigrationBaseline(
+      migrations,
+      options.existingMigrations ?? memoryMigrationArtifactIndex(),
+      {
+        allowRebaseline: options.allowRebaseline,
+        recordedHistory: options.recordedHistory,
+        ledgerPath: options.ledgerPath,
+      },
+    );
   }
+  options.collectMigrations?.push(...migrations);
   for (const m of migrations) {
     out.set(snapshotRelPath(m.module), serializeSnapshot(m.next));
   }

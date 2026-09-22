@@ -342,6 +342,14 @@ Change \`main.ddd\` and re-run \`ddd generate system main.ddd -o .\`.
 Generation overwrites its own output every run; pin any file you hand-edit
 in \`.loomignore\` so it survives (see the comments in that file).
 
+Schema changes become migrations, so two files have to be **committed** for
+the next regenerate to produce a correct delta rather than a fresh baseline:
+\`.loom/snapshots/\` (the schema the migrations have built up) and
+\`.loom/main.migration-history.json\` (which versions this model has emitted).
+Without the second, generating into a directory that carries no migrations —
+a CI job, a fresh clone — re-issues the first migration under a version your
+database has already applied, and the change silently never lands.
+
 ## Learn more
 
 - Language reference: https://github.com/Loom-Harness/loc/blob/main/docs/language.md
