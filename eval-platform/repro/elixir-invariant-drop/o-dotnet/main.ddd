@@ -1,0 +1,28 @@
+// All four invariants below are LEGAL Loom (no invented members).
+// node/.NET/java/python enforce all four. Elixir emits only some.
+system InvDrop {
+  subdomain S {
+    context C {
+      aggregate Order {
+        sku: string
+        qty: int
+        contains lines: Line[]
+
+        derived isBig: bool = qty > 100
+
+        invariant sku.length > 0                 // single-field native
+        invariant qty >= 1                       // single-field native
+        invariant sku.trim().length > 0          // method call
+        invariant lines.count > 0                // collection walk
+        invariant isBig == false                 // derived getter
+
+        entity Line { amount: int }
+      }
+      repository Orders for Order { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: dotnet, contexts: [C], dataSources: [st], port: 3000 }
+}

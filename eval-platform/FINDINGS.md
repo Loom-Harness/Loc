@@ -10,7 +10,16 @@ friction / drift.
 
 ---
 
-## F-1 (S2/S1) — Undefined member access on a scalar field passes validation and reaches codegen
+## F-1a (S2/S1) — Undefined member access on a scalar field passes validation and reaches codegen
+
+> **ALREADY CLAIMED AND FIXED — do not duplicate.** PR **#2949**
+> (`claude/fix-primitive-member-access`, draft since 2026-09-14) closes exactly this,
+> with `loom.unknown-primitive-member`, per-primitive wording for `money`/`json`/`File`,
+> and a 408-file differential blast-radius sweep. **Verified by execution, not by
+> reading its body:** built that branch in a worktree and ran my own repros through it —
+> both `money.amount` and `label.bogusThing` are now refused at `file:line:col`.
+> Recorded here because the finding was reached independently and its evidence
+> (the five-backend outcome table below) corroborates that PR's case.
 
 The validator does not check that a member EXISTS on a primitive-typed receiver.
 Both of these parse with `0 error(s), 0 warning(s)`:
@@ -92,6 +101,60 @@ expressions are correct in both positions.
 
 ---
 
+## F-1b (S1) — Elixir silently drops any invariant outside a narrow allow-list
+
+**This is the finding that survives #2949, and it is the more serious one.** #2949 stops
+you *writing* `money.amount`; it does nothing about Elixir dropping invariants it cannot
+render. Verified against PR #2949's own branch: the repro below still validates
+`0 error(s), 0 warning(s)` there.
+
+Five invariants, all **legal Loom** (no invented members, nothing #2949 would reject):
+
+```ddd
+aggregate Order {
+  sku: string   qty: int   contains lines: Line[]
+  derived isBig: bool = qty > 100
+  invariant sku.length > 0            // single-field native
+  invariant qty >= 1                  // single-field native
+  invariant sku.trim().length > 0     // method call
+  invariant lines.count > 0           // collection walk
+  invariant isBig == false            // derived getter
+  entity Line { amount: int }
+}
+```
+
+| backend | invariants enforced |
+|---|---|
+| node | **5 / 5** |
+| dotnet | **5 / 5** |
+| java | **5 / 5** |
+| python | **5 / 5** |
+| **elixir** | **2 / 5** — `sku.trim().length`, `lines.count` and `isBig` are absent from the entire generated tree |
+
+`ddd generate system` reports `0 error(s), 0 warning(s)` for all five. Three declared
+business rules are simply not enforced on Elixir, and nothing anywhere says so.
+
+**Root cause, located.** `src/generator/elixir/vanilla/changeset-invariant-emit.ts`
+gates every cross-field invariant through `structEvaluable()`, which returns `false` for
+`member`, `method-call`, `call`, `match`, `new`, `object`, `list` and `this-derived`
+refs. `changeset-emit.ts` handles only single-field natives via `singleFieldConstraints`.
+An invariant matching neither path falls through **silently**.
+
+The module's own header comment states the consequence plainly — and shows the drop is
+known in the cross-field case it was written to close:
+
+> "Without this module such an invariant is **silently dropped on every path** — create,
+> PATCH and operation persist all skip it — while the other four backends 400 it at the
+> domain floor."
+
+…and then scopes itself to scalar comparisons, leaving everything else to "keep their
+(absent) domain-level story". That residual is what this finding measures: the fail-open
+was narrowed, not closed, and it is not announced.
+
+**Repro:** `eval-platform/repro/elixir-invariant-drop/`.
+
+---
+
 ## F-2 (S2) — The `.NET` backend cannot compile the shipped `ddd new --template crud` starter
 
 `node bin/cli.js new X --platform dotnet --template crud` emits an aggregate named
@@ -111,7 +174,7 @@ known for Java — the C# `Task` collision is not covered.
 
 ---
 
-## F-3 (S1) — The migration rename heuristic routes around the destructive gate
+## F-3 (S1, but a DELIBERATE trade-off — reframed after reading the code)
 
 Loom's destructive gate is good. Dropping a field emits a precise refusal:
 
@@ -130,8 +193,23 @@ emitted: ALTER TABLE "c"."products" RENAME COLUMN "title" TO "description";
 ```
 
 `title`'s data now lives in `description` with `0 error(s), 0 warning(s)` and no flag
-required. The gate exists and works; the heuristic that reclassifies the change bypasses
-it. (This reproduces F-018 from the 2026-09-13 evaluation — still open 9 days later.)
+required.
+
+**Correction to my first reading.** I initially wrote this up as an oversight. It is not.
+`src/system/migrations-builder.ts` (~line 1329) carries a long, explicit rationale for the
+collapse, names F-018 directly, and shows that F-018's *backfill-discard* half **was
+fixed** — a declared backfill is now contrary signal (1), a scalar field default contrary
+signal (2), a nullability mismatch contrary signal (3). The author's argument is stated
+and reasonable: the collapse fires only where the author gave no contrary signal.
+
+So the residual is a **known, documented guess**, not a bug. What is genuinely missing is
+that the guess is **silent**: there is no `loom.migration-rename-*` diagnostic for the
+INFERRED case (only for the explicit-intent structural errors), and `docs/migrations.md`
+documents the explicit `migration { Agg.old -> new }` block without warning that the
+absence of one lets a drop+add be reinterpreted.
+
+That reframes the fix from "change the heuristic" (which would break real renames) to
+"**announce the guess**" — see `FIX-PLAN.md` PR-3.
 
 **Repro:** `eval-platform/migr/` (`out2` = the mis-inferred rename, `out3` = the correctly
 gated pure drop).
