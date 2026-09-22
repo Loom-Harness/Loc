@@ -1666,12 +1666,27 @@ function renderWorkflowModule(
     params.length > 0
       ? params.map((n) => ` and is_map_key(params, ${JSON.stringify(n)})`).join("")
       : "";
+  // A second clause forces the DEFAULT-ARGUMENT declaration out into a bodiless
+  // header.  `userParam` is `, current_user \\ nil`, and Elixir rejects a
+  // function that has several clauses AND declares defaults on them ("definitions
+  // with multiple clauses and default values require a header"); it is a compile
+  // ERROR, not a warning, so a currentUser-threading workflow would not build at
+  // all.  Only emitted when BOTH the fallback clause and the default exist —
+  // otherwise the single-clause output stays byte-identical.
+  const defaultsHeader =
+    params.length > 0 && userParam !== ""
+      ? `  def run(params${userParam})
+
+`
+      : "";
+  // …and with the header carrying the default, the clauses must not repeat it.
+  const clauseUserParam = defaultsHeader !== "" ? ", current_user" : userParam;
   const missingParamsClause =
     params.length > 0
       ? `
   # The request omitted a param the body destructures.  Returned, not raised,
   # so the controller answers the 422 this route publishes instead of a 500.
-  def run(params${userParam}) when is_map(params) do
+  def run(params${defaultsHeader !== "" ? ", _current_user" : ""}) when is_map(params) do
     {:error, {:invalid_params, Enum.reject([${params.map((n) => JSON.stringify(n)).join(", ")}], &is_map_key(params, &1))}}
   end
 `
@@ -1706,7 +1721,7 @@ defmodule ${moduleName} do
   alias ${repoMod}${contextAlias}
 
   @spec run(map()${needsUser ? ", term()" : ""}) :: {:ok, term()} | {:error, term()}
-  def run(params${userParam}) when is_map(params)${requiredKeysGuard} do
+${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requiredKeysGuard} do
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
@@ -1741,7 +1756,7 @@ defmodule ${moduleName} do
   require Logger${corrParam ? `\n  alias ${repoMod}` : ""}${hasContextCall ? `${contextAlias}\n` : ""}
 
   @spec run(map()${needsUser ? ", term()" : ""}) :: {:ok, term()} | {:error, term()}
-  def run(params${userParam}) when is_map(params)${requiredKeysGuard} do
+${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requiredKeysGuard} do
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.

@@ -32,6 +32,9 @@ system WF {
       aggregate Order with crudish {
         name: string
         qty: int
+        // Optional so the workflows that do NOT thread the actor still
+        // satisfy loom.workflow-create-missing-field.
+        owner: string?
       }
       repository Orders for Order { }
       ${workflow}
@@ -53,6 +56,13 @@ system WF {
 const WITH_PARAMS = `workflow placeOrder {
         create(name: string, qty: int) {
           let o = Order.create({ name: name, qty: qty })
+        }
+      }`;
+
+// A workflow that threads `currentUser`, so `run/1` carries a DEFAULT argument.
+const WITH_USER = `workflow placeOrder {
+        create(name: string, qty: int) {
+          let o = Order.create({ name: name, qty: qty, owner: currentUser.sub })
         }
       }`;
 
@@ -108,6 +118,29 @@ describe("a workflow request missing a referenced param", () => {
     const catchAll = ctl.indexOf("def respond(conn, {:error, _reason})");
     expect(arm).toBeGreaterThan(-1);
     expect(catchAll).toBeGreaterThan(arm);
+  });
+
+  it("moves the default argument into a header when the workflow threads currentUser", async () => {
+    // THE SHAPE THAT BROKE CI.  `run/1` grows `, current_user \\ nil` when the
+    // body references the actor — a DEFAULT argument.  Adding a second clause
+    // beside it is not a warning but a hard compile ERROR:
+    //
+    //     error: def run/2 defines defaults multiple times. Elixir allows
+    //            defaults to be declared once per definition.
+    //
+    // so the generated app did not build at all, which took the whole
+    // compose-boot parity job down with it.  Elixir's answer is a bodiless
+    // header carrying the default, with the clauses declaring none.
+    const wfu = await elixirFile(sys(WITH_USER), "/workflows/place_order.ex");
+    expect(wfu).toContain("def run(params, current_user \\\\ nil)\n");
+    expect(wfu).toContain(
+      'def run(params, current_user) when is_map(params) and is_map_key(params, "name")',
+    );
+    // The fallback never reads the actor, and an unused plain binding is
+    // itself a `--warnings-as-errors` failure.
+    expect(wfu).toContain("def run(params, _current_user) when is_map(params) do");
+    // Exactly one declaration of the default, and it is the header.
+    expect(wfu.match(/current_user \\\\ nil/g)).toHaveLength(1);
   });
 
   it("leaves a param-free workflow exactly as it was", async () => {
