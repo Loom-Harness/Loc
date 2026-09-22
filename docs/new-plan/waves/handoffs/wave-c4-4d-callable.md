@@ -8,7 +8,7 @@ Rules: §3 there (rules 10–18), §3/§3a of [`../../improvement-waves-2026-09.
 
 ## Outcome in one line
 
-**Row 1 (M-T5.21): Phase 1 LANDED in full — `open` → `partial`.** One callable production (three shared grammar fragments at twelve sites), the declared legality table `CALLABLE_SITES`, one validator that reports *why*, and the `lower/` duplication drained. Byte-identical across the corpus on all five backend platforms; mutation-proved three ways. **Phases 2–4 handed off** with the exact recipe and the reason they were not taken here (fence collision with packet 4c).
+**Row 1 (M-T5.21): Phase 1 LANDED in full — `open` → `partial`.** One callable production (three shared grammar fragments at twelve sites), the declared legality table `CALLABLE_SITES`, one validator that reports *why*, and the `lower/` duplication drained. Byte-identical on **all eleven targets** — 26 424 emitted files across the five backends and 6 439 across the six frontends, measured separately because the corpus fixtures are backend-only; mutation-proved three ways. **Phases 2–4 handed off** with the exact recipe and the reason they were not taken here (fence collision with packet 4c).
 **Row 2 (M-T9.26): re-measured; the seam is CONFIRMED and slice 1 is BLOCKED on the design's own §2.6** — mission stays `open` with the ⚠ discharged and the block named. Neither `done` nor `declined` was taken, and §Row 2 says plainly why forcing either would have been false.
 
 ---
@@ -96,8 +96,21 @@ Not rows, deliberately (design §"What this explicitly does NOT change"): `Crite
 | after the grammar widening + regenerated parser | 395 | 26 424 | **BYTE-IDENTICAL: no emitted file differs** |
 | after the validator + printers + firing fixture | 395 | 26 424 | **BYTE-IDENTICAL: no emitted file differs** |
 | after the `lower/` parameter-binder drain | 395 | 26 424 | **BYTE-IDENTICAL: no emitted file differs** |
+| after the final tree (incl. the hygiene fix) | 395 | 26 424 | **BYTE-IDENTICAL: no emitted file differs** |
 
-Not one byte differs on any of the 26 424 emitted files, so there is no line to justify. `test/fixtures/baseline-output/` needed no regeneration for the same reason — it is a subset of what the corpus snapshot covers, and the fixture tests read it back green in the full run. The AST printer round-trip (`print-structural-roundtrip.test.ts`) and `print-completeness.test.ts` are green; no new printable union member was added, so no new printer arm was owed — the twelve existing arms grew the shared header helpers instead.
+**The corpus snapshot alone does NOT make this an eleven-target claim — and saying so would have been the comfortable mistake.** Every `test/fixtures/corpus/*.ddd` is backend-only: all 80 deployables in it are `platform: __PLATFORM__` (substituted with the five backends) and **not one fixture declares a `ui` block**. So its 395 cells speak for five targets, not eleven — and the callable widening does reach a frontend site, since `ActionDecl` is a page/component member.
+
+The frontend half was therefore measured separately, the same way: a snapshot over the `.ddd` sources that DO declare frontends (`examples/*.ddd` + `web/src/examples/*.ddd`) through the same `generateSystems` entry point, captured on this branch and again with `src/` checked out at the base commit (`git checkout ae464314c -- src/`, the three new files removed, rebuilt, captured, then `git checkout HEAD -- src/` — safe only because the tree was fully committed first, per CLAUDE.md's rule about what `checkout --` discards):
+
+| | sources | emitted files | diff |
+|---|---|---|---|
+| frontend snapshot, base (`ae464314c`) vs. this branch | 70 (66 generating, 4 non-generating) | 6 439 | **BYTE-IDENTICAL: no emitted file differs** |
+
+Coverage of those 6 439 files: `.tsx` 611 (react), `.svelte` 47, `.vue` 40, `.dart` 21 (flutter), `.heex` 4 + `.ex` 291 (phoenix), `.fs` + `.fsproj` (feliz), `.html` 44, plus the angular/react shared `.ts` bulk — all six frontends reached. The 4 non-generating sources fail **identically before and after** (`examples/sales-ui.ddd` on a legacy `Dashboard(items: […])` named-argument spelling that has not parsed since long before this branch — the file was last touched by #2562 — and three `web/src/examples/` files on unknown types / an unknown builder); their error TEXT is compared too, so a change in *why* they fail would have shown up as a diff rather than hiding.
+
+Together the two snapshots are the eleven-target claim: **not one byte differs on any of 32 863 emitted files across five backends and six frontends**, so there is no line to justify.
+
+`test/fixtures/baseline-output/` was NOT regenerated, and should not be: it is the frozen page-metamodel migration reference (`scripts/capture-baseline-fixture.mjs` over `examples/acme.ddd`), read back by five tests that all pass in the full run, and its `web_app/` tree is covered by the frontend snapshot above. The AST printer round-trip (`print-structural-roundtrip.test.ts`) and `print-completeness.test.ts` are green; no new printable union member was added, so no new printer arm was owed — the twelve existing arms grew the shared header helpers instead.
 
 ### Why Phases 2–4 did NOT land here — a decision, not an omission
 
@@ -241,7 +254,8 @@ Method → token mapping used (so the count is reproducible, not asserted): `rou
 | `npx tsc -b` | clean |
 | `node scripts/test-typecheck.mjs` | `OK — 181 files, 469 errors, src/ clean` — the M-T9.50 baseline is **unmoved**, as a packet outside 4b's fence must leave it |
 | `npm run lint` (`npx biome ci .`) | clean, 3267 files |
-| corpus byte-identity | **BYTE-IDENTICAL: 395 cells, no emitted file differs** (3 captures: post-grammar, post-validator, post-`lower/`) |
+| corpus byte-identity (5 backends) | **BYTE-IDENTICAL: 395 cells / 26 424 files, no emitted file differs** (4 captures: post-grammar, post-validator, post-`lower/`, final tree) |
+| frontend byte-identity (6 frontends) | **BYTE-IDENTICAL: 70 sources / 6 439 files, no emitted file differs** — the corpus is backend-only, so this is the other half of the eleven-target claim |
 | `npm test` (redirected, exit code appended) | see §"Full-suite result" below |
 | `node scripts/mission-counts.mjs --check` | OK (regenerated with `--write` after the two status edits) |
 | `node scripts/ledger-counts.mjs --check` | OK |
@@ -251,7 +265,20 @@ Targeted runs along the way: `test/language/print/` 350 passed, `test/ir/` 3379 
 
 ### Full-suite result
 
-<!-- npm-test-result -->
+`npm test > log 2>&1; echo NPM_TEST_EXIT=$? >> log`, on the merged tree, 24 min wall (load 14–18 — the 4-core box was running three C4 packets):
+
+```
+Test Files  4 failed | 2145 passed | 89 skipped (2238)
+Tests  5 failed | 25418 passed | 6 expected fail | 1185 skipped (26614)
+NPM_TEST_EXIT=1
+```
+
+**Five failures, and they split two ways — read WHICH assertion failed, not just that one did.**
+
+- **Three were STARVATION.** Each reports `Error: Test timed out in 30000ms` (`vitest.config.ts` sets `testTimeout: 30_000`) after 43–48 s elapsed: `print-structural-roundtrip.test.ts` › *round-trips every top-level member in storefront-system.ddd*, `model-patch.test.ts` › *add inserts a new aggregate…*, `pack-chrome-i18n.test.ts` › *Feliz names them as F# values*. Two of the three sit squarely in this packet's blast radius (both exercise the printers), so they were re-run alone rather than waved through as "probably the box".
+- **Two were REAL, and this packet's.** `diagnostic-message-hygiene.test.ts` (DIAG-1) failed in 184 ms on an assertion, not a timeout: `expected [ …(15) ] to deeply equal [ …(8) ]`, naming all seven `callable-sites.ts` arms. That gate reads the LITERAL keys at each `diagMessage(key, { … })` site to check that every param a template declares is one it actually interpolates; the seven arms shared one `const p`, which is invisible to it, and the gate pins the variable-arg sites as an exact set so a new one fails. Fixed by passing `{ feature, label }` inline at each arm (commit `d469952`). The corpus snapshot was re-captured after the fix and is still byte-identical.
+
+Re-run of all four suites alone, on the final tree: **`Test Files 4 passed (4)`, `Tests 203 passed | 1 skipped (204)`** — both formerly-red hygiene cases and all three timeouts. The only residue behind the recorded `NPM_TEST_EXIT=1` is those three starvation timeouts plus the two assertions since fixed; nothing in this packet's diff is red.
 
 ---
 
