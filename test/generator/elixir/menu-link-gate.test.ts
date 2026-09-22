@@ -107,11 +107,25 @@ describe("phoenix sidebar — menu-link gate", () => {
     expect(src).toContain('navigate={~p"/public"}');
   });
 
-  it("leaves a non-currentUser predicate ungated (no record context in the sidebar)", async () => {
-    // `open` is not a currentUser claim — the sidebar can't evaluate it, so
-    // the link stays ungated even though auth is on.
-    const src = await sidebar({ auth: true, gate: "requires open == true" });
-    expect(src).not.toContain("<%= if (");
+  it("REFUSES a non-currentUser predicate instead of silently leaving the link ungated", async () => {
+    // This case used to assert the sidebar emitted NO `if` wrapper for
+    // `requires open == true` — "the sidebar can't evaluate it, so the link
+    // stays ungated even though auth is on".  That is the same degrade the
+    // header above calls out for the two no-auth cases: an authorization rule
+    // the author wrote, turned into an ungated link with no diagnostic.
+    //
+    // `loom.page-gate-not-client-evaluable` now refuses it at phase ⑦ — `open`
+    // is an aggregate field, and a page gate is evaluated in the BROWSER before
+    // the page's data is read, so there is nothing to evaluate it against.  The
+    // model never reaches the emitter, which is why this asserts the refusal
+    // rather than the emitted output.  The sidebar's genuinely-ungated path is
+    // still covered, by the ungated-page cases above.
+    const loom = await buildLoomModel(system({ auth: true, gate: "requires open == true" }));
+    const errs = validateLoomModel(loom).filter((d) => d.severity === "error");
+    expect(errs.map((d) => d.code)).toContain("loom.page-gate-not-client-evaluable");
+    expect(errs.find((d) => d.code === "loom.page-gate-not-client-evaluable")!.message).toContain(
+      "`open` is outside that set",
+    );
   });
 
   it("REFUSES a no-auth ui whose page gate reads currentUser", async () => {
