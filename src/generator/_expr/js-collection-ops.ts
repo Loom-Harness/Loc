@@ -64,7 +64,15 @@ export const JS_COLLECTION_RENDERERS: Record<
       : `${recv}.includes(${args[0] ?? "undefined"})`;
   },
   where: (recv, args) => `${recv}.filter(${args[0] ?? "() => true"})`,
-  first: (recv) => `${recv}[0]`,
+  // `first` is PARTIAL (D-FIRST-ON-EMPTY / RS-36): its declared type is a
+  // non-optional `T`, so an empty receiver must FAIL rather than hand back the
+  // `undefined` a bare `[0]` yields — which then flows onto the wire, or dies
+  // later somewhere that never mentions the collection.  The guard is an arrow
+  // IIFE so the receiver is evaluated ONCE (a `recv.length > 0 ? recv[0] : …`
+  // ternary would emit the whole receiver chain twice), and it is still an
+  // expression, which is what every emission site here requires.
+  first: (recv) =>
+    `((__c) => { if (__c.length === 0) throw new Error("'.first' on an empty collection — use '.firstOrNull' for the total form"); return __c[0]; })(${recv})`,
   firstOrNull: (recv) => `(${recv}[0] ?? null)`,
   map: (recv, args) => `${recv}.map(${args[0]})`,
   sortBy: (recv, args, e) => {

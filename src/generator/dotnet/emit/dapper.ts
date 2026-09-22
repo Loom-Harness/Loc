@@ -694,7 +694,8 @@ const SQL_BINOP: Record<string, string> = {
 // catalogue row needs a snippet or `whereToSql` throws.
 //
 // It threw for ALL of them until M-T3.6: `whereToSql` had no intrinsic arm at
-// all, while `DAPPER_SUBSET` (`src/ir/util/find-predicate-capability.ts`)
+// all, while `DAPPER_SUBSET` (the per-adapter descriptor, deleted in wave C2
+// packet 2n once the whole family was shown to be target-neutral)
 // declared this adapter fully-lowerable — so `criterion C of X = this.s.trim()
 // == "a"` + `filter C` under `persistence: dapper` died at generate time with a
 // bare `Error`, never a `loom.*` diagnostic.  Same shape as the `policy { deny }`
@@ -803,6 +804,19 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     case "member":
       // `this.<field>` → column.
       if (e.receiver.kind === "this") return sqlIdent(snake(e.member));
+      // `this.<vo>.<sub>` → the FLATTENED column the schema gives a value
+      // object's sub-property (`flags.active` → `flags_active`), the same
+      // spelling `columnsForType` emits and the drizzle / EF / JPA / SQLAlchemy
+      // twins target.  Without this arm every predicate touching a value
+      // object — a comparison as much as a bare boolean — fell through to the
+      // refusal below, and `renderDapperRepository` turned that into a
+      // `NotImplementedException` STUB BODY: a repository method that compiles,
+      // ships, and throws the first time the endpoint is called.  Measured in
+      // wave C2 packet 2n on `this.flags.label == "x"`, `this.flags.active` and
+      // `!this.flags.active`, which is also why the register's
+      // `DAPPER_SUBSET = FULL_SUBSET` claim was wrong.
+      if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this")
+        return sqlIdent(`${snake(e.receiver.member)}_${snake(e.member)}`);
       // `currentUser.<claim>` → a Dapper named parameter bound from the ambient
       // request principal (`RequestContext.Current!.CurrentUser!.<Claim>`).  The
       // caller (a capability `filter`) binds `@__cu_<claim>` into every SELECT's
