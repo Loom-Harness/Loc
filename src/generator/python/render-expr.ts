@@ -1,5 +1,6 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
@@ -51,13 +52,13 @@ export interface PyRenderContext {
    *  Pydantic `@model_validator` for cross-field invariants), whose fields
    *  keep the wire casing. */
   wireField?: boolean;
-  /** Method-name prefix for `function` / `private-operation` call
-   *  targets and `helper-fn` refs.  Defaults to `_` (aggregate
-   *  functions are private).  Value-object emission passes `""` —
-   *  VO functions are public surface, invoked across aggregate
-   *  boundaries (`probability.as_fraction()`), so their internal
-   *  spelling must match the public method name. */
-  fnPrefix?: string;
+  /* (There is no `fnPrefix` seam any more.  It existed because aggregate
+   *  `function`s were emitted `def _<name>` while VO functions were public,
+   *  so the VO emitter had to pass `""` to cancel it.  Aggregate functions
+   *  are public too now — the same members the routes and workflows already
+   *  called by their unprefixed name — so both sides spell one name and the
+   *  only remaining `_` is a genuinely `private` OPERATION, keyed off
+   *  `targetPrivate` at the one call site that needs it.) */
   /** Handler record-param names (M-T5.10 handler-param rewrite): a
    *  `command`/`query` request RECORD param is FLATTENED into its fields as
    *  local `def` params, so a `cmd.<field>` member access in the handler body
@@ -186,6 +187,23 @@ export function renderPyNegatedGuard(e: ExprIR, ctx: PyRenderContext = DEFAULT):
     const recv = renderPyExpr(e.receiver, ctx);
     const arg = e.args[0] ? renderPyExpr(e.args[0], ctx) : "None";
     return `${arg} not in ${recv}`;
+  }
+  // `x == null` / `x != null` negate by FLIPPING the identity test, not by
+  // wrapping it: `renderBinary` renders these as `x is None` / `x is not None`
+  // (E711), and `not (x is None)` is then ruff **E714** ("test for object
+  // identity should be `is not`").  The parentheses do not help — ruff's E714
+  // is AST-based, unlike pycodestyle's regex, so it sees `UnaryOp(Not,
+  // Compare(Is))` whatever the source spelling.  Two emitted sites hit it: an
+  // `operation … when <field> == null` state gate, in the aggregate method AND
+  // in its route pre-check (F-015).
+  {
+    const inner = e.kind === "paren" ? e.inner : e;
+    const nullTest =
+      inner.kind === "binary" ? nullComparison(inner.op, inner.left, inner.right) : null;
+    if (nullTest) {
+      // `negated` is `!=` (`is not None`), whose negation is `is None`.
+      return `${renderPyExpr(nullTest.operand, ctx)} is ${nullTest.negated ? "" : "not "}None`;
+    }
   }
   return `not (${renderPyExpr(e, ctx)})`;
 }
@@ -337,7 +355,7 @@ function renderRef(e: RefExpr, ctx: PyRenderContext): string {
       if (ctx.wireField) return `${ctx.thisName}.${e.name}`;
       return `${ctx.thisName}.${snake(e.name)}`;
     case "helper-fn":
-      return `${ctx.thisName}.${ctx.fnPrefix ?? "_"}${snake(e.name)}`;
+      return `${ctx.thisName}.${snake(e.name)}`;
     case "workflow-fn":
       // Bare reference to a workflow helper — the module-scoped `def` name.
       return workflowFnSnake(e.wfScope!, e.name);
@@ -602,8 +620,8 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
     case "value-object-ctor":
       return `${e.name}(${argList})`;
     case "function":
-      // Helper functions are always emitted as private methods (`def _is_draft`).
-      return `${ctx.thisName}.${ctx.fnPrefix ?? "_"}${snake(e.name)}(${argList})`;
+      // Public, like the `def` site (`def is_draft`) and like a VO function.
+      return `${ctx.thisName}.${snake(e.name)}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` — a module-scoped `def`, namespaced by its
       // workflow (workflows share the generated file).  Same derivation as the
@@ -613,7 +631,7 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       // Operations are emitted as PUBLIC methods (`def reserve`) unless declared
       // `private` (`def _reserve`) — so a sibling-operation self-call only gets
       // the `_` prefix when the target is actually private.
-      const prefix = e.targetPrivate ? (ctx.fnPrefix ?? "_") : "";
+      const prefix = e.targetPrivate ? "_" : "";
       return `${ctx.thisName}.${prefix}${snake(e.name)}(${argList})`;
     }
     case "remote-api-op": {

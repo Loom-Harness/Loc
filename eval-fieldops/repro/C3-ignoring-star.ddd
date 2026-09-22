@@ -1,0 +1,20 @@
+system P {
+  user { id: guid  email: string  orgId: string  role: string  permissions: string[] }
+  auth { enforcement: opt  oidc { issuer: env("I")  clientId: env("C") } }
+  tenancy by user.orgId of Org
+  subdomain S { context C {
+    aggregate Org { name: string  derived display: string = name }
+    aggregate WorkOrder with tenantOwned { ref: string  amount: money  derived display: string = ref }
+    repository Orgs for Org {}
+    repository WorkOrders for WorkOrder {}
+    // THE REQUIREMENT: a platform admin reads work orders ACROSS all tenants
+    projection PlatformRevenue requires currentUser.role == "platformAdmin" {
+      revenue: money
+      from WorkOrder as w ignoring *
+      select revenue = sum(w.amount)
+    }
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], auth: required, port: 3000 }
+}

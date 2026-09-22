@@ -98,6 +98,28 @@ export function createApp(
     const body = await registry.metrics();
     return c.text(body, 200, { "Content-Type": registry.contentType });
   });
+  // Dev-only state reset for the emitted e2e suite — see the note on
+  // `renderTestResetRoute`.  Registered only when asked for, so this
+  // surface does not exist in a real deployment.
+  const testResetEnabled =
+    process.env.LOOM_TEST_RESET === "1" ||
+    (process.env.LOOM_TEST_RESET !== "0" && process.env.NODE_ENV !== "production");
+  if (testResetEnabled) {
+    app.post("/__loom/test-reset", async (c) => {
+      const found = (
+        await db.execute(sql.raw("select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')"))
+      ).rows as Array<{ schemaname: string; tablename: string }>;
+      const targets = found.map(
+        (t) => `"${t.schemaname}"."${t.tablename}"`,
+      );
+      if (targets.length > 0) {
+        const statement =
+          `truncate table ${targets.join(", ")} restart identity cascade`;
+        await db.execute(sql.raw(statement));
+      }
+      return c.json({ status: "reset", tables: targets.length });
+    });
+  }
   app.route("/api/products", productRoutes(new ProductRepository(db, events)));
   app.route("/api/customers", customerRoutes(new CustomerRepository(db, events)));
   const frameworkProblem = (

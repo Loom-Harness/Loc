@@ -706,7 +706,7 @@ recipe below.
 
 ### The activation runbook (repo settings — the only remaining step)
 
-Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
+Nothing below is code; it is an admin action on `github.com/Loom-Harness/Loc`.
 
 1. **Do not remove `tests passed` at any point.** It stays required from the
    first click to the last, so there is never an unprotected window.

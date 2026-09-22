@@ -118,7 +118,7 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 **Divergence 3 was not that, and was scheduled apart from them (and has since landed).** There is no contract to narrow: nobody depends on "a 40-digit price answers 500". It is the same client-fault-reported-as-server-fault class M-T6.48 removed, surfacing one layer later at the database instead of at the parse. Its fix is a different shape too — a **range** check derived from the money column's precision, not a format guard — so it shares neither the decision nor the code with 1 and 2. Holding it behind an owner ruling stalls an unambiguous defect behind a contract question it does not raise. Land it as an ordinary P2 defect whenever a backend packet is open; land 1 and 2 only after the ruling.
 
-*(Recorded 2026-09-10 from the M-T6.48 matrix session. The wave plan's §5 ruling #4 currently bundles all three as one owner-only item — see the note on [#2849](https://github.com/lemmit/Loc/pull/2849).)*
+*(Recorded 2026-09-10 from the M-T6.48 matrix session. The wave plan's §5 ruling #4 currently bundles all three as one owner-only item — see the note on [#2849](https://github.com/Loom-Harness/Loc/pull/2849).)*
 
 **The fix, once ruled.** Strict: `model_config = ConfigDict(strict=True)` on python request models (or per-field `Strict()`, which is narrower and does not disturb datetime parsing), and a pre-cast wire-type guard on elixir's changeset path — the natural home is a `__loom_money_field` / `__loom_int_field` validation running before `cast/3`, reusing the `__loom_param_error` responder the op-param arm already emits. (Divergence 3's half of this paragraph is done — see its block above.)
 
@@ -126,7 +126,7 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F12 annex (the stringified-number skew was noted there but never dispositioned); M-T6.48 and its matrix. Relates to RS-12 (money wire scale, response direction) and RS-24 (decimal is a JSON number).
 
-## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `partial` (sites 1 + 3 landed by [#2752](https://github.com/lemmit/Loc/pull/2752), verified 2026-09-11; **site 2 is the only live half**, claimed by [#2850](https://github.com/lemmit/Loc/pull/2850) + wave-c1 packet 1a) · **S–M** · P1
+## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `partial` (sites 1 + 3 landed by [#2752](https://github.com/Loom-Harness/Loc/pull/2752), verified 2026-09-11; **site 2 is the only live half**, claimed by [#2850](https://github.com/Loom-Harness/Loc/pull/2850) + wave-c1 packet 1a) · **S–M** · P1
 
 Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (rows 14–16); two **reproduced** on `main` @ `aa236ae`, one latent.
 
@@ -299,7 +299,7 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > `projectionClauseFor` comment calls `"not_found"` "the canonical find-miss detail token on every
 > backend"). A golden captured on the node leg would redden the other four on `main`.
 > **TWO SPIN-OFFS, both pre-existing and neither envelope-specific:**
-> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it;
+> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it. **CLOSED 2026-09-21 (#2979).** It was worse than 1-vs-4: node answered the token on its `: T?` / `: T option` arms (thrown from `routes-builder.ts`) and the space-spelling on its `: T` / `: T envelope` arms (thrown from `repository-find-builder.ts`) — an INTRA-backend split as well as a cross-backend one. node aligned on `"not_found"`; gated per site across 5 backends x 4 carriers by `test/conformance/find-miss-detail-parity.test.ts`, which also pins RS-27's by-id SENTENCE beside it so the two 404 classes cannot be collapsed. The miss arm of a single-row-find e2e block is no longer blocked;
 > (b) a FILTERLESS single-return find on an EVENT-SOURCED aggregate emits
 > `Enum.find(all, fn a ->  end)` on elixir — an empty lambda body, invalid Elixir (identical for
 > `find pick(): Ev` with no carrier).
@@ -414,6 +414,18 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 > aggregate `function` whose only `return`s sit inside an `if` is refused at phase ④ on EVERY
 > backend — the identical tail-return shape a `domainService` operation accepts. Not an elixir
 > row; the elixir renderer already handles it.
+
+> **Re-classed 2026-09-21 (wave C2, packet 2m) — `D-ELIXIR-IF-BRANCH`.** The four survivors above
+> were re-derived on a fresh head and the register row moved `gap` → `scope`, keeping
+> `mission: "M-T6.59"` and every arm that fires. The finding that decided it: three of the four
+> need a change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit; a
+> non-hoisted guard form; a statement spine for ES commands), and the two sharpest members of the
+> closed branch vocabulary are **not elixir-local at all** — a conditional `emit` is an event
+> ORDERING question the S5a persist-then-dispatch restructure cannot answer (walking deeper does
+> not fix it), and a PROVENANCED write in a branch is decided by the TARGET-NEUTRAL `opHasProvSite`
+> (`src/ir/util/prov-id.ts:49`), so deepening that scan changes all five backends. This mission
+> stays OPEN and owns the body-renderer question; what changed is the claim that a drain sprint
+> could close it.
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
@@ -556,6 +568,60 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 :not_found}`, or mirror the controller's plug in the LiveView `mount`. The first is cleaner but changes
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
+
+## M-T6.73 — An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is mounted OUTSIDE `/api` on four of five backends, and python wraps its scalar return — `open` · **S–M** · P1
+
+Measured 2026-09-22 by [#2984](https://github.com/Loom-Harness/Loc/pull/2984), which lifted routed
+handlers onto the `test e2e` surface and then booted `corpus/handler-triad` across the behavioural tier
+for the first time. **Not a verify-first mission** — every row below is a booted runtime observation from
+the per-leg CI logs on head `dcd6d329`, re-derived statically from the emitted trees.
+
+Until that lift, no `test e2e` body could ADDRESS a routed handler at all (`api.<x>.<y>(…)` resolved to an
+aggregate, a projection or a workflow only), so **not one of these routes had ever been called on any
+backend**. All five emit and all five compile; four serve nothing at the path the caller uses. That is the
+silent-gap shape the behavioural tier exists to catch, and it stayed invisible because the only oracle that
+could see it did not exist.
+
+| leg | observed | emitted mounting |
+|---|---|---|
+| node, mikroorm | `POST /api/echo/hi` → `"hi"` (the wire-golden oracle) | under `API_BASE_PATH` |
+| dotnet, dapper | `POST /api/echo/hi → 404 "no route for POST /api/echo/hi"` | `[HttpPost("/echo/{text}")]` — a leading slash makes an ASP.NET route ROOT-ABSOLUTE, so the `/api` prefix is ignored |
+| java | same 404 | `@RestController` with **no class-level `@RequestMapping`** + `@PostMapping("/echo/{text}")` |
+| elixir | same 404 | `router.ex` puts them in `scope "/"` while every aggregate route sits in `scope "/api", DWeb` |
+| python | `expected {"result":"hi"} to be "hi"` | path is CORRECT (`include_router(a_router, prefix="/api")`); the divergence is the RESPONSE — it wraps a handler's scalar return in `{"result": …}` |
+
+So there are **two** independent defects, and they want separate treatment:
+
+1. **The prefix (dotnet/dapper, java, elixir).** Every other route class on these backends is mounted under
+   `API_BASE_PATH`; the explicit-route emitter is the one that is not. The five emitters all exist —
+   `src/generator/{dotnet,java,python,elixir/vanilla}/explicit-handlers-emit.ts` and hono's
+   `src/platform/hono/v4/emit.ts` — so this is "emitted at the wrong prefix", **not** "not implemented".
+   Fix is per-emitter and small: .NET drop the leading slash and carry the controller prefix, java add the
+   class-level `@RequestMapping(API_BASE_PATH)`, elixir move the routes into the existing `scope "/api"`.
+2. **The scalar envelope (python).** `{"result": "hi"}` where node answers the bare `"hi"`. This is a
+   runtime-VALUE divergence a spec-vs-spec diff cannot see, so it reads as a **conformance-semantics RS-rule
+   candidate** (`docs/conformance-semantics.md`) rather than a schema gap — the rule would pin "a routed
+   handler returning a scalar answers that scalar, unwrapped". Whether to ratify node's shape or python's is
+   an owner call, not a defect ruling; note that #2984's wire golden was recorded on node.
+
+**This is a wire-contract change to a shipped feature** — anyone calling an explicit route on .NET, java or
+elixir today is calling it at the root. Decide and record the canonical answer before moving the routes.
+
+**Drain, in one PR:** make the five agree; restore the `test e2e` block #2984 wrote and reverted (it is in
+that PR's history at commit `dcd6d329`, `test/fixtures/corpus/handler-triad.ddd`); delete the
+`handler-triad` rows from `E2E_LESS_CORPUS_FIXTURES` (`test/ir/api-caller-census-pins.ts`) and
+`BEHAVIOURAL_ABSENT` (`test/system/gate-ledger.test.ts`); lower the `BEHAVIOURAL_ABSENT` ratchet in
+`test/platform/allowlist-ratchet.test.ts` by one **off whatever main's value is then**; pin the two
+id-taking aggregate routes (`getOrderById`, `cancelOrder`) that the fixture's create-less `Order` genuinely
+blocks; and re-record `test/behavioral/wire-golden/handler-triad.json`.
+
+**Why #2984 did not narrow the drain to node instead.** `gate-ledger.test.ts` asserts, zero-tolerance and
+with no allowlist, that *"a compile-only feature is compile-only on EVERY backend it declares — a split
+would mean a per-backend `BEHAVIOURAL_SKIP` entry is doing the hiding, and the per-feature register above
+would be the wrong shape to describe it"*, and `BEHAVIOURAL_SKIP` is itself ratcheted at `max: 0`. A
+node-only boot is exactly that split. Both gates reject it, so the fixture stays compile-only on every leg
+until this mission lands. Changing that invariant is a decision about the ledger's shape, not part of
+either this mission or #2984.
 
 ## M-T6.72 — Move the .NET capability filters that cannot be model-hosted onto the per-read query — `open` · **L** · P3
 

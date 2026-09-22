@@ -48,8 +48,36 @@ const shuffled = <T>(r: () => number, xs: readonly T[]): T[] => {
 };
 
 const SCALARS = ["string", "int", "bool", "decimal", "money", "datetime"];
-const NAMES = ["Order", "Invoice", "Ticket", "Account", "Shipment", "Widget", "Parcel", "Claim"];
-const FIELDS = ["code", "label", "amount", "quantity", "active", "note", "total", "openedAt"];
+// MULTI-WORD names are load-bearing, not variety.  Every name here used to be
+// one word, which made a whole family of defects unreachable BY CONSTRUCTION:
+// for a single-word name `lowerFirst(plural(n))` and `snake(plural(n))` are the
+// SAME string, so any emitter that disagrees about which spelling it uses
+// happens to agree.  `WorkOrder` separates them (`workOrders` vs
+// `work_orders`), and likewise crosses `pascal` vs `snake` and the `<name>Id`
+// boundary — the seam an e2e slug resolver, a route path and a column name all
+// derive from independently.
+const NAMES = [
+  "Order",
+  "Invoice",
+  "Ticket",
+  "Account",
+  "Shipment",
+  "Widget",
+  "Parcel",
+  "Claim",
+  "WorkOrder",
+  "LineItem",
+  "PurchaseOrder",
+];
+// NOTE the absence of `amount`.  Its PascalCase form collides with the value
+// object `Amount` in VO_NAMES below, and the dotnet backend refuses that by
+// design (`loom.dotnet-name-collision`): C# resolves a simple name in
+// expression position against the enclosing class's members first, so a member
+// `Amount` hides the type `Amount` and the emitted C# stops compiling.  The
+// generator was emitting that model and the deep leg reported it as `invalid`,
+// correctly — the gate is right, the generator was wrong.  `assertNoTypeNameCollisions`
+// below keeps the two lists disjoint so a future addition cannot reintroduce it.
+const FIELDS = ["code", "label", "charge", "quantity", "active", "note", "total", "openedAt"];
 
 /** A literal of the given declared type — the generator only ever emits
  *  type-correct assignments, because an INVALID model proves nothing about the
@@ -223,7 +251,13 @@ export type AggSpec = {
   crudish: boolean;
   fields: FieldSpec[];
   derived: { name: string; from: string } | null;
-  invariant: { field: string } | null;
+  /** `message` is not decoration: a MESSAGED invariant is what makes the
+   *  backends emit their validation-message catalog at all (node's
+   *  `zod-refine`, dotnet's `Localization/LoomMessages.cs`, …).  With every
+   *  generated invariant message-less, that whole file — and the
+   *  namespace-relative reference inside it, F-025b — was unreachable by any
+   *  seed. */
+  invariant: { field: string; message: string | null } | null;
   part: PartSpec | null;
   op: OpSpec | null;
   /** Hand-written `create` over one field, emitted when `crudish` is false. */
@@ -264,9 +298,34 @@ export type ModelSpec = {
   events: EventSpec[];
   workflows: WorkflowSpec[];
   ui: UiSpec | null;
+  /** The backend deployable's NAME, and it is load-bearing.  Every seed used to
+   *  name it `d`, as do 67 of the corpus fixtures — while `ddd new` scaffolds
+   *  `api`.  That one name decides whether the project's root namespace also has
+   *  a child of the same name (`Api.Api`), which is the difference between a
+   *  namespace-relative C# reference resolving and binding to the wrong thing
+   *  (F-025, `CS0234 … in the namespace 'Api.Api'`).  A pool that never says
+   *  `api` cannot reach that class at all. */
+  deployName: string;
 };
 
 const VO_NAMES = ["Amount", "Ratio", "Extent"];
+
+/** A generated FIELD name must never PascalCase onto a generated TYPE name.
+ *  Checked at import so the failure names the cause, rather than surfacing 250
+ *  seeds later as a `loom.dotnet-name-collision` in the `invalid` tier. */
+function assertNoTypeNameCollisions(): void {
+  const types = new Set([...VO_NAMES, ...NAMES].map((n) => n.toLowerCase()));
+  const clash = FIELDS.filter((f) => types.has(f.toLowerCase()));
+  if (clash.length > 0) {
+    throw new Error(
+      `ddd-model-generator: field name(s) ${clash.join(", ")} collide with a generated ` +
+        `type name. The dotnet backend refuses that model (loom.dotnet-name-collision), ` +
+        `so every seed carrying the field would be reported as an invalid MODEL rather ` +
+        `than telling you anything about the pipeline. Rename the field.`,
+    );
+  }
+}
+assertNoTypeNameCollisions();
 const VO_FIELDS: readonly FieldSpec[] = [
   { name: "value", type: "decimal", optional: false },
   { name: "currency", type: "string", optional: false },
@@ -297,7 +356,10 @@ function emitAgg(agg: AggSpec): string {
   const derived = agg.derived
     ? `\n        derived ${agg.derived.name}: string = ${agg.derived.from}`
     : "";
-  const invariant = agg.invariant ? `\n        invariant ${agg.invariant.field} >= 0` : "";
+  const invariant = agg.invariant
+    ? `\n        invariant ${agg.invariant.field} >= 0` +
+      (agg.invariant.message === null ? "" : ` message "${agg.invariant.message}"`)
+    : "";
   const part = agg.part
     ? `\n        contains ${agg.part.collection}: ${agg.part.entity}[]` +
       `\n        entity ${agg.part.entity} {\n          sku: string\n          qty: int\n        }`
@@ -345,17 +407,35 @@ function emitWorkflow(wf: WorkflowSpec, aggs: readonly AggSpec[]): string {
   const required = agg.fields.filter((f) => !f.optional);
   const params = required.map((f) => `${f.name}: ${f.type}`).join(", ");
   const assigns = required.map((f) => `${f.name}: ${f.name}`).join(", ");
-  const state = wf.reactor ? `\n        item: ${agg.name} id\n        attempts: int` : "";
-  const correlate = wf.reactor ? "\n          item := built.id" : "";
-  const reactor = wf.reactor
-    ? `\n        on(e: ${wf.event}) by e.item {\n          attempts := 1\n        }`
-    : "";
+  if (!wf.reactor) {
+    return (
+      `      workflow ${wf.name} {\n` +
+      `        create(${params}) {\n` +
+      `          let built = ${agg.name}.create({ ${assigns} })\n` +
+      `          emit ${wf.event} { item: built.id, at: now() }\n` +
+      `        }\n      }`
+    );
+  }
+  // A CORRELATED (reactor) workflow is started FOR an aggregate that already
+  // exists — its key is a parameter, so the saga row can be allocated before the
+  // body runs.  The generator used to mint the aggregate inside the create and
+  // correlate on the new id (`item := built.id`), which phase ⑦ rightly refuses
+  // (`loom.workflow-create-correlation-unsupplied`): a key computed in the body
+  // is not knowable at allocation time, so it addresses no instance.  That was
+  // the generator emitting an unsupported shape, not the validator over-refusing
+  // — every assertion on such a seed was vacuous, and it is why this leg stood
+  // red at ~2.5% of seeds.
+  const keyed = [`item: ${agg.name} id`, params].filter(Boolean).join(", ");
   return (
-    `      workflow ${wf.name} {${state}\n` +
-    `        create(${params}) {\n` +
-    `          let built = ${agg.name}.create({ ${assigns} })${correlate}\n` +
-    `          emit ${wf.event} { item: built.id, at: now() }\n` +
-    `        }${reactor}\n      }`
+    `      workflow ${wf.name} {\n` +
+    `        item: ${agg.name} id\n` +
+    `        attempts: int\n` +
+    `        create(${keyed}) {\n` +
+    `          emit ${wf.event} { item: item, at: now() }\n` +
+    `        }\n` +
+    `        on(e: ${wf.event}) by e.item {\n` +
+    `          attempts := 1\n` +
+    `        }\n      }`
   );
 }
 
@@ -380,7 +460,7 @@ function emitPage(p: PageSpec, ui: UiSpec, order: number): string {
   return `${meta}${body}    }`;
 }
 
-function emitUi(ui: UiSpec): string {
+function emitUi(ui: UiSpec, backend: string): string {
   const pages = ui.pages.map((p, i) => emitPage(p, ui, i)).join("\n");
   const links = ui.pages.map((p) => `        link ${p.name}`).join(",\n");
   return (
@@ -389,7 +469,7 @@ function emitUi(ui: UiSpec): string {
     `${pages}\n` +
     `    menu {\n      section "${ui.section}" {\n${links}\n      }\n    }\n` +
     `  }\n` +
-    `  deployable web { platform: react targets: d ui: ${ui.name} { ${ui.apiParam}: d } port: 5000 }\n`
+    `  deployable web { platform: react targets: ${backend} ui: ${ui.name} { ${ui.apiParam}: ${backend} } port: 5000 }\n`
   );
 }
 
@@ -411,8 +491,8 @@ ${decls.join("\n")}
   api A from S
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
-  deployable d { platform: __PLATFORM__ contexts: [C] dataSources: [st] serves: A port: 4000 }
-${spec.ui === null ? "" : emitUi(spec.ui)}}
+  deployable ${spec.deployName} { platform: __PLATFORM__ contexts: [C] dataSources: [st] serves: A port: 4000 }
+${spec.ui === null ? "" : emitUi(spec.ui, spec.deployName)}}
 `;
 }
 
@@ -477,7 +557,15 @@ function genDeepSpec(seed: number): ModelSpec {
       fields,
       derived:
         strField !== undefined && r() < 0.4 ? { name: "display", from: strField.name } : null,
-      invariant: numField !== undefined && r() < 0.35 ? { field: numField.name } : null,
+      invariant:
+        numField !== undefined && r() < 0.35
+          ? {
+              field: numField.name,
+              // Half the invariants carry a message, so the validation-message
+              // catalog is emitted on roughly half the seeds rather than never.
+              message: r() < 0.5 ? `${numField.name} must not be negative` : null,
+            }
+          : null,
       part: r() < 0.35 ? { collection: "lines", entity: `${name}Line` } : null,
       op:
         assignable.length > 0 && r() < 0.5
@@ -563,7 +651,11 @@ function genDeepSpec(seed: number): ModelSpec {
     }
   }
 
-  return normalizeSpec({ seed, enumDecl, vos, aggs, events, workflows, ui });
+  // `api` is the name `ddd new` scaffolds and the one no fixture used; `d` is
+  // the historical shape.  Drawing from both means the emitter-namespace class
+  // is reachable without losing the old coverage.
+  const deployName = r() < 0.5 ? "api" : "d";
+  return normalizeSpec({ seed, enumDecl, vos, aggs, events, workflows, ui, deployName });
 }
 
 /**
@@ -674,11 +766,23 @@ export const genSpec = (seed: number): ModelSpec => genDeepSpec(seed);
 /**
  * A random VALID `.ddd` model for `seed`.
  *
- * `genModel(seed)` is the slice-1 shape and is byte-stable — 250 fixed seeds of
- * it are the fast suite's fuzz corpus, so it must not move.  `genModel(seed,
- * { deep: true })` selects the wider arm above (value objects, UI pages + menu,
- * workflows, the three find shapes), which the deep leg drives and the shrinker
- * reduces.
+ * `genModel(seed)` is the slice-1 shape and is DETERMINISTIC — the same seed
+ * always yields the same model, and 250 fixed seeds of it are the fast suite's
+ * fuzz corpus.  That determinism is what makes a failure replayable; it is not
+ * a frozen-bytes golden, and no test pins the emitted text (every consumer
+ * asserts a PROPERTY of the pipeline, not the corpus's contents).
+ *
+ * Editing the shared pools (`NAMES`, `FIELDS`, `VO_NAMES`) therefore reshuffles
+ * which model each seed produces, on both arms.  That is a real cost — a seed
+ * that happened to cover something now covers something else — and it is worth
+ * paying only to reach a region the pools could not express at all.  The
+ * multi-word names were exactly that case: with eight single-word names,
+ * `lowerFirst(plural(n))` and `snake(plural(n))` are the same string for every
+ * name in the pool, so no seed could ever separate the two spellings.
+ *
+ * `genModel(seed, { deep: true })` selects the wider arm above (value objects,
+ * UI pages + menu, workflows, the three find shapes), which the deep leg drives
+ * and the shrinker reduces.
  */
 export function genModel(seed: number, opts: { deep?: boolean } = {}): string {
   return opts.deep === true ? emitModel(genDeepSpec(seed)) : genShallowModel(seed);

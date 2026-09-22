@@ -1,0 +1,28 @@
+// The `Chart` page primitive emits `yAxisProps={{{ ... }}` — invalid JSX.
+system X {
+  subdomain S { context C {
+    enum St { Open, Closed }
+    aggregate Ticket with crudish { st: St  derived display: string = "t" }
+    repository Tickets for Ticket { }
+    projection ByStatus {
+      st: St
+      tickets: int
+      from Ticket as t
+      group by t.st
+      select st = t.st, tickets = count()
+    }
+  } }
+  api TicketApi from S
+  ui Web with scaffold(subdomains: [S]) {
+    framework: react
+    api S: TicketApi
+    page Dash {
+      route: "/dash"
+      body: Chart { of: S.ByStatus, kind: "bar", x: r => r.st, y: r => r.tickets }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], serves: TicketApi, port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web { S: api }, port: 3001 }
+}

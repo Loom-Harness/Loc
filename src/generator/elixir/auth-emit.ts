@@ -10,6 +10,7 @@ import type {
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
+import { claimPathFor } from "../_auth/claim-types.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 
@@ -183,12 +184,6 @@ export function actorIdKey(user: UserIR | undefined): string {
  *  explicit `claims:` mapping wins; otherwise `id` defaults to the standard
  *  `sub` claim and every other field reads its own (snake) name.  Mirrors the
  *  Hono / .NET `claimPathFor`. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : snake(field);
-}
-
 function renderAuthPlug(
   user: UserIR | undefined,
   webModule: string,

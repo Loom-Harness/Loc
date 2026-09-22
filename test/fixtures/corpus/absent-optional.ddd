@@ -40,7 +40,12 @@ system AbsentOptional {
     let read = api.tickets.getById(t)
     expect(read.title).toBe("Ship it")
     // …and the absent value round-trips as the wire's null, not as 0.
-    expect(read.estimate).toBe(null)
+    //
+    // `toBeNull()` — the ABSENCE PAIR's "present, explicitly null" half, and
+    // the spelling all five backends are held to (RS-27).  Its sibling
+    // `toBeAbsent()` would assert the opposite wire spelling (no `estimate`
+    // key at all) and must FAIL here: that is the pair working, not a bug.
+    expect(read.estimate).toBeNull()
 
     // Present and satisfying the guarded half: unchanged behaviour.
     let sized = api.tickets.create({ title: "Sized", estimate: 3 })
@@ -55,7 +60,7 @@ system AbsentOptional {
     api.tickets.update(t, { title: "Shipped" })
     let updated = api.tickets.getById(t)
     expect(updated.title).toBe("Shipped")
-    expect(updated.estimate).toBe(null)
+    expect(updated.estimate).toBeNull()
 
     let listed = api.tickets.all()
     expect(listed.items.length).toBe(2)

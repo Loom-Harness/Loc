@@ -10,13 +10,26 @@ import type {
   StoreIR,
   TypeIR,
   UiApiParamIR,
+  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
-import { componentPropTsType } from "../../_frontend/component-prop-type.js";
+import {
+  componentPropTsType,
+  takeMoneyPropImport,
+  valueObjectIndex,
+} from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { pageEmitPath } from "../../_frontend/page-identity.js";
+import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { ImportSpec, LoadedPack } from "../../_packs/loader.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import { addImportToMap, I18N_MODULE, needsPackChromeT } from "../../_walker/render-primitive.js";
@@ -156,6 +169,10 @@ export interface VuePageShellInput {
    *  extension (they resolve to a `<Name>.ts` re-export shim forwarding
    *  the hand-written module), unlike walked components (`<Name>.vue`). */
   externComponents?: ReadonlySet<string>;
+  /** The ui's `extern function` names.  A ui that declares `toast` owns the
+   *  name — the walker binds its shim — so the page must NOT also import the
+   *  built-in effect over it. */
+  externFunctions?: ReadonlySet<string>;
   /** True when the frontend opts into `auth: ui` — a page's `requires` gate
    *  then renders a `v-if` `<Forbidden/>` guard against the verified session
    *  claims (`useSession().user`).  Absent ⇒ ungated. */
@@ -184,6 +201,21 @@ export interface VuePageShellInput {
 
 export function renderVuePage(input: VuePageShellInput): string {
   const { page, routeParams, result } = input;
+  // `toast(<msg>)` is rendered verbatim by every walker target, exactly like
+  // `navigate(…)`, so without this import the page references a symbol the
+  // project never declares (TS2304 under `vue-tsc`).  React and Svelte wire the
+  // shared self-mounting module; Vue does NOT need it — it already ships
+  // `src/lib/toast.ts`, a reactive queue the app-shell hosts for realtime and
+  // form-success toasts.  Aliasing its `pushToast` puts the page effect through
+  // the pack's own host instead of standing up a second mechanism beside it.
+  if (usesToastEffect(page.body, page.actions ?? [], input.externFunctions)) {
+    // The canonical ONE-LEVEL key, like `../i18n` and `../api/client`: the fold
+    // below looks it up by that exact string and `adjustDepth` rewrites it for
+    // a nested page.  Writing the page's own prefix here instead makes the fold
+    // miss on any page under a subdirectory — which is how the first draft of
+    // this fix silently kept the bug for `src/pages/orders/list.vue`.
+    addImportToMap(result.imports, "../lib/toast", "pushToast as toast");
+  }
   const script: string[] = [];
   const vueImports = new Set<string>();
 
@@ -443,7 +475,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   const dialogBlocks: string[] = [];
   for (const state of opFormStates) {
     if (state.kind !== "operation") continue;
-    const opCamel = lowerFirst(state.op.name);
+    const opCamel = escapeTsIdent(lowerFirst(state.op.name));
     const opPascal = upperFirst(state.op.name);
     const agg = state.agg.name;
     const from = `../api/${lowerFirst(agg)}`;
@@ -634,6 +666,16 @@ export function renderVuePage(input: VuePageShellInput): string {
     const set = apiImports.get("../i18n") ?? new Set<string>();
     for (const n of i18nNames) set.add(n);
     apiImports.set("../i18n", set);
+  }
+  // Same fold for the `toast(<msg>)` page effect, recorded above as the
+  // one-level `../lib/toast`: the pass-through loop below drops every relative
+  // specifier, so it has to ride `apiImports` to be emitted at all — and to get
+  // depth-adjusted for a nested page.
+  const toastNames = result.imports.get("../lib/toast");
+  if (toastNames && toastNames.size > 0) {
+    const set = apiImports.get("../lib/toast") ?? new Set<string>();
+    for (const n of toastNames) set.add(n);
+    apiImports.set("../lib/toast", set);
   }
   for (const [from, names] of [...apiImports.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const adjusted = adjustDepth(from, input);
@@ -868,6 +910,7 @@ function paramPropType(
   p: ParamIR,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
   dtoImports: Map<string, string>,
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const t = p.type;
   const action =
@@ -878,10 +921,10 @@ function paramPropType(
         : undefined;
   if (action) {
     return action.arg
-      ? `(arg: ${componentPropTsType(action.arg, aggregatesByName, dtoImports)}) => void`
+      ? `(arg: ${componentPropTsType(action.arg, aggregatesByName, dtoImports, valueObjects)}) => void`
       : "() => void";
   }
-  return componentPropTsType(t, aggregatesByName, dtoImports);
+  return componentPropTsType(t, aggregatesByName, dtoImports, valueObjects);
 }
 
 // ---------------------------------------------------------------------------
@@ -903,6 +946,9 @@ export function renderVueExternComponentProps(
   name: string,
   params: readonly ParamIR[],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
+   *  `valueobject`-typed prop is spelled structurally from its fields. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   // Vue slots are template content (`<slot>`), not props — a `slot`
@@ -912,12 +958,20 @@ export function renderVueExternComponentProps(
   const propParams = params.filter((p) => !isSlotParam(p));
   const propLines = propParams.map((p) => {
     const optional = p.type.kind === "optional" && p.type.inner.kind === "action";
-    return `  ${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports)};`;
+    return `  ${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports, valueObjects)};`;
   });
-  const dtoImportLines = [...dtoImports.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
-    .join("");
+  // A money-typed prop asks for decimal.js by sentinel — a DEFAULT import, since
+  // the name is bound once per file (see `MONEY_IMPORT_SENTINEL`).  Draining it
+  // here is what keeps it out of the `import type { … }` serialization below.
+  const moneyPropImport = takeMoneyPropImport(dtoImports)
+    ? `import type Decimal from "decimal.js";\n`
+    : "";
+  const dtoImportLines =
+    moneyPropImport +
+    [...dtoImports.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .join("");
   const propsBody =
     propLines.length > 0
       ? `export interface ${name}Props {\n${propLines.join("\n")}\n}\n`
@@ -1037,12 +1091,20 @@ export function renderVueComponentFile(
   // params become callback props — matching the extern-component path and the
   // React/Svelte frontends.
   const dtoImports = new Map<string, string>();
+  // Declared value objects, for a `valueobject`-typed prop — spelled
+  // structurally from its fields by the shared prop layer.
+  const propValueObjects = valueObjectIndex(bcByAggregate);
   const propFields = params
     .filter((p) => !isSlotParam(p))
     .map((p) => {
       const optional = p.type.kind === "optional" && p.type.inner.kind === "action";
-      return `${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports)};`;
+      return `${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports, propValueObjects)};`;
     });
+  // `Decimal` is bound at most once per <script setup>, by a default import.
+  // A money PROP is a type annotation, so nothing in the rendered body reveals
+  // it — the sentinel is the only signal, and draining it here also keeps it
+  // out of the `import type { … }` loop below.
+  const moneyProp = takeMoneyPropImport(dtoImports);
 
   // `Action(<inst>.<op>)` mutation hoists — the only api a component
   // body reaches (no apiParams in component scope).  Hoist args (when
@@ -1265,6 +1327,12 @@ export function renderVueComponentFile(
       addImportToMap(result.imports, I18N_MODULE, "t");
     }
   }
+  // Same `toast(<msg>)` wiring as the page renderer above — a ui-scoped
+  // component hosts an `action` body too, and rendered the call with no import.
+  // One level up from `src/components/`.
+  if (usesToastEffect(body, actions, externFunctions)) {
+    addImportToMap(result.imports, "../lib/toast", "pushToast as toast");
+  }
   // Id-target select hooks (`X id` form fields render as `useAll<Target>()`
   // selects), deduped across the form states.
   for (const st of result.formOfs) {
@@ -1294,7 +1362,7 @@ export function renderVueComponentFile(
   }
   // A money-typed `state {}` field refs as `ref(new Decimal("0"))` —
   // pull decimal.js in, same as the page shell.
-  if (result.usesState && state.some((f) => typeUsesMoney(f.type))) {
+  if ((result.usesState && state.some((f) => typeUsesMoney(f.type))) || moneyProp) {
     script.push(`import Decimal from "decimal.js";`);
   }
   if (needsNavigate) {
@@ -1336,6 +1404,16 @@ export function renderVueComponentFile(
     const set = apiImports.get("../i18n") ?? new Set<string>();
     for (const n of i18nNames) set.add(n);
     apiImports.set("../i18n", set);
+  }
+  // Same fold for the `toast(<msg>)` page effect, recorded above as the
+  // one-level `../lib/toast`: the pass-through loop below drops every relative
+  // specifier, so it has to ride `apiImports` to be emitted at all — and to get
+  // depth-adjusted for a nested page.
+  const toastNames = result.imports.get("../lib/toast");
+  if (toastNames && toastNames.size > 0) {
+    const set = apiImports.get("../lib/toast") ?? new Set<string>();
+    for (const n of toastNames) set.add(n);
+    apiImports.set("../lib/toast", set);
   }
   for (const [from, names] of [...apiImports.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     script.push(`import { ${[...names].sort().join(", ")} } from "${from}";`);

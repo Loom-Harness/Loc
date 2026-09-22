@@ -65,6 +65,39 @@ function renderExplicitValueMatcher(expr: ExprIR, render: (e: ExprIR) => string)
     return `expect(${actual}).${prefix}toBe(${expected});`;
   }
 
+  // `toBeAbsent()` — the OTHER wire spelling of absence.  `toBeNull()` asks
+  // whether the value is null; this asks whether the KEY IS IN THE BODY AT
+  // ALL, which no `expect(<value>)` form can see: `read.estimate` has already
+  // evaluated to `undefined` by the time a matcher runs, and `undefined` is
+  // what a present-but-null key gives too.  So the assertion is rewritten onto
+  // the RECEIVER: `expect("estimate" in read).toBe(false)`.
+  //
+  // It is allowed to fail honestly.  Every backend currently sends explicit
+  // null (RS-35), so this matcher has no passing subject today — that is the
+  // point.  A backend that starts omitting a key should turn a test red here
+  // rather than slipping past a matcher special-cased into always passing.
+  if (expr.member === "toBeAbsent") {
+    // The subject is a field read (`<obj>.<key>`) — `checkAbsentReceiver`
+    // rejects anything else at the author's source span, so a non-member here
+    // is a compiler invariant violation, not user input.
+    if (inner.kind !== "member") {
+      throw new Error(
+        "toBeAbsent() requires a field read (expect(<obj>.<field>).toBeAbsent()); " +
+          `got a '${inner.kind}' expression.`,
+      );
+    }
+    const key = JSON.stringify(inner.member);
+    // `.not.toBeAbsent()` is "the key IS present" — flip the compared boolean
+    // rather than emitting `not.toBe(false)`, which reads as a double negative.
+    return `expect(${key} in ${render(inner.receiver)}).toBe(${negate ? "true" : "false"});`;
+  }
+
+  // `toBeNull` (arity 0) and `toContain` (arity 1) need no special case: both
+  // are native vitest matchers whose names line up 1:1, and vitest's own
+  // `toContain` already dispatches on the subject at runtime (membership for
+  // an array, substring for a string) — the same two lowerings the unit-tier
+  // emitters have to spell out by hand because their assertion libraries do
+  // not.  `checkContainReceiver` has already refused every third subject type.
   const args = expr.args.map((a) => render(a)).join(", ");
   return `expect(${render(inner)}).${prefix}${expr.member}(${args});`;
 }

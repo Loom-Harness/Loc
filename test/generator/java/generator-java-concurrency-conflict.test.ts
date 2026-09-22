@@ -174,10 +174,15 @@ describe("java generator — versioned optimistic-concurrency", () => {
     const controller = (await generateSystemFiles(javaSystem("with versioned"))).get(
       `${feature}/CustomersController.java`,
     )!;
+    // Bound as a STRING and parsed by the shared helper, not converted by
+    // Spring's binder: an entity-tag is quoted (`If-Match: "3"`), and
+    // `Integer.valueOf("\"3\"")` throws — a 400 for a spec-correct request.
     expect(controller).toContain(
-      '@RequestHeader(value = "If-Match", required = false) Integer ifMatch',
+      '@RequestHeader(value = "If-Match", required = false) String ifMatch',
     );
-    expect(controller).toContain("service.update(new CustomerId(id), request, ifMatch);");
+    expect(controller).toContain(
+      "service.update(new CustomerId(id), request, IfMatch.expectedVersion(ifMatch));",
+    );
   });
 
   it("advice maps OptimisticLockingFailure to 409 with a distinct `conflict` event", async () => {

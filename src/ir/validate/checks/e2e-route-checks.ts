@@ -37,28 +37,50 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import {
+  buildCreateInput,
+  forApiRead,
+  isRequiredCreateInput,
+  wireFieldsForAggregate,
+} from "../../enrich/wire-projection.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   ExprIR,
+  LiteralKind,
   RepositoryIR,
   SubdomainIR,
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  TypeIR,
+  WorkflowIR,
 } from "../../types/loom-ir.js";
 import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
+import {
+  apisServedBy,
+  type RoutedHandlerTarget,
+  resolveRoutedHandler,
+  routedHandlerNeedsUnsendableBody,
+} from "../../util/routed-handler.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { emitsCommandRoute } from "../../util/workflow-command-route.js";
+import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** One `<magicId>.<slug>.<verb>(…)` call found in an e2e body. */
 interface MagicCall {
   slug: string;
   verb: string;
+  /** The call's arguments, in source order — the PAYLOAD half of this file
+   *  judges them against the create-input / parameter contract. */
+  args: readonly ExprIR[];
 }
 
 export function validateE2ERouteContract(
@@ -72,14 +94,35 @@ export function validateE2ERouteContract(
   // `test-checks.ts` skips it the same way rather than crashing here.
   if (!target) return;
   const contexts = collectContexts(target, modulesByName);
+  // Explicit `route … -> <Ctx>.<Handler>` bindings live on the apis the target
+  // deployable `serves:`, not on any aggregate — so they are the one route
+  // class whose ground truth is the `ApiIR`, not `deriveAggregateOperations`.
+  const apis = apisServedBy(target, sys.apis);
   const source = `${sys.name}/${test.name}`;
   // A ui-kind test binds BOTH magic receivers — its kind comes from the target
   // deployable's platform, not from what the body spells — so an api-shaped
   // body aimed at a UI-mounting deployable legitimately writes `api.…` and its
   // calls must be routed-checked too.
+  // The PAYLOAD half runs only on a verb that ROUTES.  A body aimed at a route
+  // that does not exist has no contract to be measured against, and a second
+  // complaint about an already-refused call is the double-report this packet
+  // exists to remove, not to add to.  The same gate covers the RESPONSE half:
+  // a call with no route has no response body either.
+  const routed = new Set<string>();
   for (const call of collectMagicCalls(test.statements, "api")) {
-    checkApiVerb(call, contexts, source, diags);
+    if (!checkApiVerb(call, contexts, apis, source, diags)) continue;
+    routed.add(`${call.slug}.${call.verb}`);
+    const resolved = resolveAggregate(call.slug, contexts);
+    if (resolved) {
+      checkApiPayload(call, resolved.agg, contexts, source, diags);
+      continue;
+    }
+    // The WORKFLOW accessor's body half — `api.<wf>.run({…})`.  Aggregate
+    // first, the same precedence every other arm in this file uses.
+    const wf = findWorkflowBySlug(call.slug, contexts);
+    if (wf) checkWorkflowPayload(call, wf, contexts, source, diags);
   }
+  checkResponseFields(test, contexts, routed, source, diags);
   // The `ui.` half is scoped to a ui-kind test, mirroring `test-checks.ts`'s
   // single-`magicId` walk: only there does the body actually lower to page
   // objects, so only there is "drives no page object" the right complaint.
@@ -94,34 +137,263 @@ export function validateE2ERouteContract(
 // The api surface — `api.<agg>.<verb>(…)` → an HTTP route
 // ---------------------------------------------------------------------------
 
+/** The route contract's verdict on one call: which complaint it has, and the
+ *  derivation inputs that complaint needs — or `null` when it has none (the
+ *  verb routes, or the call is outside this check's ground truth).
+ *
+ *  Computed ONCE and read by two consumers — the reporter below and
+ *  {@link routeContractWillReport}, which `test-checks.ts` consults so that one
+ *  mistake yields one diagnostic.  A second copy of this DECISION is exactly
+ *  the drift that would let both checks answer a call, or neither.
+ *
+ *  It carries a TAG rather than a rendered message on purpose: two ratchets
+ *  read the push sites textually — `diagnostic-catalog.test.ts` requires a
+ *  literal `diagMessage("…")` as the `message:` expression, and
+ *  `diagnostic-codes-completeness.test.ts` a literal `code:` property — so the
+ *  rendering has to stay inline at each push, even though the decision does
+ *  not. */
+type VerbVerdict =
+  | { readonly tag: "create"; readonly aggregate: string }
+  | { readonly tag: "destroy"; readonly aggregate: string }
+  | { readonly tag: "history"; readonly aggregate: string }
+  | { readonly tag: "find"; readonly aggregate: string }
+  | { readonly tag: "verb"; readonly aggregate: string; readonly routed: string }
+  | { readonly tag: "workflow-run"; readonly workflow: string }
+  | { readonly tag: "workflow-instance"; readonly workflow: string }
+  | {
+      readonly tag: "routed-arity";
+      readonly expected: number;
+      readonly got: number;
+      readonly params: string;
+      readonly method: string;
+      readonly path: string;
+    }
+  | {
+      readonly tag: "routed-bodyless";
+      readonly method: string;
+      readonly path: string;
+      readonly params: string;
+    }
+  | { readonly tag: "ui-create"; readonly aggregate: string }
+  | { readonly tag: "ui-verb"; readonly known: string };
+
+/** Does this call's verb resolve to a route THIS compilation emits?
+ *  `null` ⇒ nothing to say. */
+function apiVerbVerdict(
+  call: MagicCall,
+  contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
+): VerbVerdict | null {
+  // `api.<projection>.{byKey,list}` routes outside `deriveAggregateOperations`
+  // (it is in the derivation's documented `notLifted` set), so this check has
+  // no ground truth for it — `test-checks.ts` resolves it by name and is the
+  // whole story there.
+  //
+  // The reserved `workflows` slug used to be skipped here too.  It is `ui`-only
+  // now (see `test-checks.ts`): on the api side `api.workflows.<name>` resolves
+  // to nothing and is refused as an unknown aggregate, so there is no api call
+  // left for a `workflows` guard to let through.
+  if (findProjectionBySlug(call.slug, contexts)) return null;
+  const resolved = resolveAggregate(call.slug, contexts);
+  if (!resolved) {
+    // The WORKFLOW accessor — `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`.  Consulted AFTER the aggregate, the same precedence
+    // `test-checks.ts` and `renderApiCall` use, because what matters here is
+    // the route the RENDERER will emit.
+    //
+    // A projection read is skipped above because BOTH its verbs are
+    // unconditional once the projection exists.  A workflow's three routes are
+    // not: the command POST rides the facade's trigger kind and the two
+    // instance reads ride the correlation field, so the route-contract question
+    // is real here and is answered against the same two predicates every
+    // backend gates its own emission on.
+    const wf = findWorkflowBySlug(call.slug, contexts);
+    if (wf) return workflowVerbVerdict(call, wf);
+    // An explicit `route … -> <Ctx>.<Handler>` binding, addressed as
+    // `api.<contextSlug>.<handlerName>(…)`.  Its ground truth is the api's own
+    // `routes` list rather than `deriveAggregateOperations` (which covers
+    // aggregate verbs only), so the contract question here is a different one:
+    // the route EXISTS by construction, and what is asked is whether the CALL
+    // matches the request shape every backend emits for it.
+    const routed = resolveRoutedHandler(call.slug, call.verb, contexts, apis);
+    if (routed) return routedHandlerVerdict(call, routed);
+    // Otherwise an unresolved slug already raises `loom.e2e-unknown-aggregate`;
+    // a second diagnostic for the same call would just be noise.
+    return null;
+  }
+  const { agg, repo, ctx } = resolved;
+  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  if (apiRouteExists(call.verb, agg, repo, ops)) return null;
+  // Same fallback order as the renderer: every aggregate verb wins first, and
+  // only then may a routed handler whose context slugs like the aggregate
+  // (`context Sales` + `aggregate Sale`) answer the call.
+  const routedFallback = resolveRoutedHandler(call.slug, call.verb, contexts, apis);
+  if (routedFallback) return routedHandlerVerdict(call, routedFallback);
+  if (call.verb === "create") return { tag: "create", aggregate: agg.name };
+  if (call.verb === "destroy") return { tag: "destroy", aggregate: agg.name };
+  if (call.verb === "history") return { tag: "history", aggregate: agg.name };
+  // A find the repository DECLARES but the derivation does not list is a
+  // compiler-synthesized retrieval — a different fix from "no such verb", so a
+  // different message.
+  if ((repo?.finds ?? []).some((f) => f.name === call.verb)) {
+    return { tag: "find", aggregate: agg.name };
+  }
+  return {
+    tag: "verb",
+    aggregate: agg.name,
+    routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
+  };
+}
+
+/** The three workflow verbs against the two conditions the backends mount a
+ *  workflow's routes on.  An UNKNOWN verb answers `null` on purpose:
+ *  `test-checks.ts` owns that complaint (`loom.e2e-unknown-method#workflow`),
+ *  and the one-mistake-one-diagnostic rule below reads this verdict to decide
+ *  whether to stay out of the way. */
+function workflowVerbVerdict(call: MagicCall, wf: WorkflowIR): VerbVerdict | null {
+  // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
+  // every backend's workflow emitter skips the POST for it, so `.run()` would
+  // emit a request nothing answers.
+  if (call.verb === "run") {
+    return emitsCommandRoute(wf) ? null : { tag: "workflow-run", workflow: wf.name };
+  }
+  if (call.verb === "instances" || call.verb === "instance") {
+    return emitsInstanceRoutes(wf) ? null : { tag: "workflow-instance", workflow: wf.name };
+  }
+  return null;
+}
+
+/**
+ * The route-contract question for an explicit `route … -> <Ctx>.<Handler>`
+ * binding.  The route EXISTS by construction — the resolver found it in the
+ * api's own list, and `loom.route-handler-unresolved` already gates a route
+ * whose target does not resolve — so what is left to ask is whether the CALL
+ * matches the request the backends emit for it:
+ *
+ *   • ARITY — arguments bind POSITIONALLY to the declared params.  A wrong
+ *     count shifts every later argument into the wrong slot, and on a
+ *     path-param route that renders a URL with a literal `undefined` segment.
+ *   • A SENDABLE BODY — a `GET`/`DELETE` route whose handler declares a param
+ *     that is not a `{token}` in the path.  Every backend reads that param
+ *     from a request BODY; `fetch` cannot send one on those methods, so the
+ *     call is not expressible and the argument would silently vanish.
+ *
+ * `null` ⇒ the call is well-formed and the route is real.
+ */
+function routedHandlerVerdict(call: MagicCall, t: RoutedHandlerTarget): VerbVerdict | null {
+  if (call.args.length !== t.bindings.length) {
+    return {
+      tag: "routed-arity",
+      expected: t.bindings.length,
+      got: call.args.length,
+      params: t.bindings.map((b) => b.param.name).join(", ") || "(none)",
+      method: t.route.method,
+      path: t.route.path,
+    };
+  }
+  if (routedHandlerNeedsUnsendableBody(t)) {
+    return {
+      tag: "routed-bodyless",
+      method: t.route.method,
+      path: t.route.path,
+      params: t.bindings
+        .filter((b) => b.source === "body")
+        .map((b) => b.param.name)
+        .join(", "),
+    };
+  }
+  return null;
+}
+
+/** Does `ui.<slug>.<verb>(…)` drive a page object the harness emits? */
+function uiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerdict | null {
+  if (call.slug === "workflows") return null;
+  const resolved = resolveAggregate(call.slug, contexts);
+  if (!resolved) return null;
+  const { agg, repo, ctx } = resolved;
+  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `renderAggregateCall` (ui-e2e-render.ts) addresses exactly three shapes:
+  // the New-page create flow, the Detail-page goto, and a public operation's
+  // detail-page button.  `create` is gated on the same `emitsRestCreate` the
+  // scaffold's `dropNonConstructibleNewPages` pass uses, so a non-constructible
+  // aggregate has no New page for the flow to drive — and no POST behind it.
+  if (call.verb === "create") {
+    if (ops.some((o) => o.kind === "create")) return null;
+    return { tag: "ui-create", aggregate: agg.name };
+  }
+  if (call.verb === "getById") return null;
+  if (ops.some((o) => o.kind === "operation" && o.operation?.name === call.verb)) return null;
+  return {
+    tag: "ui-verb",
+    known: [
+      ...(ops.some((o) => o.kind === "create") ? ["create"] : []),
+      "getById",
+      ...ops.flatMap((o) => (o.kind === "operation" && o.operation ? [o.operation.name] : [])),
+    ].join(", "),
+  };
+}
+
+/** ONE MISTAKE, ONE DIAGNOSTIC.
+ *
+ *  `test-checks.ts` (`checkMagicCall`) and this file ask two different
+ *  questions of the same call — does the verb NAME resolve to something in the
+ *  model, and does it resolve to a ROUTE — and for a verb that is neither, both
+ *  used to answer:
+ *
+ *      api.widgets.noSuchOperation(w)
+ *      → loom.e2e-unknown-method   "unknown method … Available: …"
+ *      → loom.e2e-unrouted-verb    "resolves to no route … Routed verbs: …"
+ *
+ *  Two errors, one typo, two near-identical lists to read.  The routing answer
+ *  is the one that survives, because it is the one that names the FIX: for
+ *  `destroy` on an aggregate with no canonical destroy it says *add
+ *  `with crudish`, or an unnamed `destroy { }` — a NAMED destroy is a domain
+ *  command and gets no DELETE route*, where "unknown method" only lists what
+ *  else exists.  So `test-checks.ts` consults this predicate before adding its
+ *  own complaint, and reports only when this check will stay silent.
+ *
+ *  Deliberately a call INTO the decision (`apiVerbComplaint`/`uiVerbComplaint`),
+ *  not a re-derivation of it: a second copy of the routing rule would drift and
+ *  leave a call with either two diagnostics again or none at all. */
+export function routeContractWillReport(
+  magicId: "api" | "ui",
+  call: { slug: string; verb: string; args?: readonly ExprIR[] },
+  contexts: BoundedContextIR[],
+  apis: readonly ApiIR[] = [],
+): boolean {
+  const shaped: MagicCall = { slug: call.slug, verb: call.verb, args: call.args ?? [] };
+  return (
+    (magicId === "api"
+      ? apiVerbVerdict(shaped, contexts, apis)
+      : uiVerbVerdict(shaped, contexts)) !== null
+  );
+}
+
+// One `diags.push` per catalog key rather than one push over a
+// message-picking helper, and each object spelled out in full rather than
+// spread from a shared `common`.  TWO ratchets read these sites TEXTUALLY:
+// `diagnostic-catalog.test.ts` requires a literal `diagMessage("…")` as the
+// `message:` expression (a helper returning the rendered string reads as
+// inline wording), and `diagnostic-codes-completeness.test.ts` requires a
+// literal `code:` property on the pushed object (a `...common` spread hides
+// it).  The repetition above is the price of both staying checkable — which is
+// why `VerbComplaint` carries an already-rendered `message` built at a literal
+// `diagMessage("…")` site, and the two pushes below are the only `code:`
+// bearers.
+
+/** Reports the api verb's complaint, if any.  Returns true when the verb
+ *  ROUTES — the precondition the payload half needs, since a body has no
+ *  contract to be measured against until its route exists. */
 function checkApiVerb(
   call: MagicCall,
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
   source: string,
   diags: LoomDiagnostic[],
-): void {
-  // `api.workflows.<name>` and `api.<projection>.{byKey,list}` route outside
-  // `deriveAggregateOperations` (both are in its documented `notLifted` set),
-  // so this check has no ground truth for them — `test-checks.ts` resolves
-  // them by name and is the whole story there.
-  if (call.slug === "workflows") return;
-  if (findProjectionBySlug(call.slug, contexts)) return;
-  const resolved = resolveAggregate(call.slug, contexts);
-  // An unresolved slug already raises `loom.e2e-unknown-aggregate`; a second
-  // diagnostic for the same call would just be noise.
-  if (!resolved) return;
-  const { agg, repo, ctx } = resolved;
-  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
-  if (apiRouteExists(call.verb, agg, repo, ops)) return;
-  // One `diags.push` per catalog key rather than one push over a
-  // message-picking helper, and each object spelled out in full rather than
-  // spread from a shared `common`.  TWO ratchets read these sites TEXTUALLY:
-  // `diagnostic-catalog.test.ts` requires a literal `diagMessage("…")` as the
-  // `message:` expression (a helper returning the rendered string reads as
-  // inline wording), and `diagnostic-codes-completeness.test.ts` requires a
-  // literal `code:` property on the pushed object (a `...common` spread hides
-  // it).  The repetition is the price of both staying checkable.
-  if (call.verb === "create") {
+): boolean {
+  const verdict = apiVerbVerdict(call, contexts, apis);
+  if (!verdict) return true;
+  if (verdict.tag === "create") {
     diags.push({
       severity: "error",
       code: "loom.e2e-unrouted-verb",
@@ -129,39 +401,39 @@ function checkApiVerb(
       message: diagMessage("loom.e2e-unrouted-verb#create", {
         magicId: "api",
         slug: call.slug,
-        aggregate: agg.name,
+        aggregate: verdict.aggregate,
       }),
     });
-    return;
+    return false;
   }
-  if (call.verb === "destroy") {
+  if (verdict.tag === "destroy") {
     diags.push({
       severity: "error",
       code: "loom.e2e-unrouted-verb",
       source,
       message: diagMessage("loom.e2e-unrouted-verb#destroy", {
         slug: call.slug,
-        aggregate: agg.name,
+        aggregate: verdict.aggregate,
       }),
     });
-    return;
+    return false;
   }
-  if (call.verb === "history") {
+  if (verdict.tag === "history") {
     diags.push({
       severity: "error",
       code: "loom.e2e-unrouted-verb",
       source,
       message: diagMessage("loom.e2e-unrouted-verb#history", {
         slug: call.slug,
-        aggregate: agg.name,
+        aggregate: verdict.aggregate,
       }),
     });
-    return;
+    return false;
   }
   // A find the repository DECLARES but the derivation does not list is a
   // compiler-synthesized retrieval — a different fix from "no such verb", so a
   // different message.
-  if ((repo?.finds ?? []).some((f) => f.name === call.verb)) {
+  if (verdict.tag === "find") {
     diags.push({
       severity: "error",
       code: "loom.e2e-unrouted-verb",
@@ -169,22 +441,124 @@ function checkApiVerb(
       message: diagMessage("loom.e2e-unrouted-verb#find", {
         slug: call.slug,
         verb: call.verb,
-        aggregate: agg.name,
+        aggregate: verdict.aggregate,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "workflow-run") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
+        slug: call.slug,
+        workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "workflow-instance") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
+        slug: call.slug,
+        verb: call.verb,
+        workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "routed-arity") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-routed-handler-arity",
+      source,
+      message: diagMessage("loom.e2e-routed-handler-arity", {
+        slug: call.slug,
+        verb: call.verb,
+        expected: verdict.expected,
+        got: verdict.got,
+        params: verdict.params,
+        method: verdict.method,
+        path: verdict.path,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "routed-bodyless") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-routed-handler-bodyless-method",
+      source,
+      message: diagMessage("loom.e2e-routed-handler-bodyless-method", {
+        slug: call.slug,
+        verb: call.verb,
+        method: verdict.method,
+        path: verdict.path,
+        params: verdict.params,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "verb") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#verb", {
+        slug: call.slug,
+        verb: call.verb,
+        aggregate: verdict.aggregate,
+        routed: verdict.routed,
+      }),
+    });
+  }
+  return false;
+}
+
+/** The three workflow verbs against the two conditions the backends mount their
+ *  workflow routes on.  An unknown verb is NOT diagnosed here — `test-checks.ts`
+ *  already raised `loom.e2e-unknown-method#workflow` for it, and a second
+ *  diagnostic for one call is noise (the same division the aggregate arms keep).
+ */
+function checkWorkflowVerb(
+  call: MagicCall,
+  wf: WorkflowIR,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.verb === "run") {
+    // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
+    // every backend's workflow emitter skips the POST for it, so calling
+    // `.run()` would emit a request nothing answers (405).
+    if (emitsCommandRoute(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
+        slug: call.slug,
+        workflow: wf.name,
       }),
     });
     return;
   }
-  diags.push({
-    severity: "error",
-    code: "loom.e2e-unrouted-verb",
-    source,
-    message: diagMessage("loom.e2e-unrouted-verb#verb", {
-      slug: call.slug,
-      verb: call.verb,
-      aggregate: agg.name,
-      routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
-    }),
-  });
+  if (call.verb === "instances" || call.verb === "instance") {
+    if (emitsInstanceRoutes(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
+        slug: call.slug,
+        verb: call.verb,
+        workflow: wf.name,
+      }),
+    });
+  }
 }
 
 /** Does the route `renderApiCall` will emit for `verb` exist in the derivation?
@@ -226,46 +600,33 @@ function checkUiVerb(
   source: string,
   diags: LoomDiagnostic[],
 ): void {
-  if (call.slug === "workflows") return;
-  const resolved = resolveAggregate(call.slug, contexts);
-  if (!resolved) return;
-  const { agg, repo, ctx } = resolved;
-  const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
-  // `renderAggregateCall` (ui-e2e-render.ts) addresses exactly three shapes:
-  // the New-page create flow, the Detail-page goto, and a public operation's
-  // detail-page button.  `create` is gated on the same `emitsRestCreate` the
-  // scaffold's `dropNonConstructibleNewPages` pass uses, so a non-constructible
-  // aggregate has no New page for the flow to drive — and no POST behind it.
-  if (call.verb === "create") {
-    if (ops.some((o) => o.kind === "create")) return;
+  const verdict = uiVerbVerdict(call, contexts);
+  if (!verdict) return;
+  if (verdict.tag === "ui-create") {
     diags.push({
       severity: "error",
       code: "loom.e2e-unrouted-verb",
       message: diagMessage("loom.e2e-unrouted-verb#create", {
         magicId: "ui",
         slug: call.slug,
-        aggregate: agg.name,
+        aggregate: verdict.aggregate,
       }),
       source,
     });
     return;
   }
-  if (call.verb === "getById") return;
-  if (ops.some((o) => o.kind === "operation" && o.operation?.name === call.verb)) return;
-  diags.push({
-    severity: "error",
-    code: "loom.e2e-unrouted-verb",
-    message: diagMessage("loom.e2e-unrouted-verb#ui-verb", {
-      slug: call.slug,
-      verb: call.verb,
-      known: [
-        ...(ops.some((o) => o.kind === "create") ? ["create"] : []),
-        "getById",
-        ...ops.flatMap((o) => (o.kind === "operation" && o.operation ? [o.operation.name] : [])),
-      ].join(", "),
-    }),
-    source,
-  });
+  if (verdict.tag === "ui-verb") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      message: diagMessage("loom.e2e-unrouted-verb#ui-verb", {
+        slug: call.slug,
+        verb: call.verb,
+        known: verdict.known,
+      }),
+      source,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +678,7 @@ function matchMagicCall(e: ExprIR, magicId: "api" | "ui"): MagicCall | null {
   if (e.receiver.kind !== "member") return null;
   const r = e.receiver;
   if (r.receiver.kind !== "ref" || r.receiver.name !== magicId) return null;
-  return { slug: r.member, verb: e.member };
+  return { slug: r.member, verb: e.member, args: e.args };
 }
 
 /** The aggregate a slug names, with the repository serving it and the context
@@ -360,4 +721,534 @@ function collectContexts(
     for (const c of m.contexts) if (want.has(c.name)) out.push(c);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// The PAYLOAD contract — what the body SENDS and what it READS BACK
+//
+// The arms above answer "does this verb route anywhere".  A verb that routes
+// can still carry a body the route will refuse, and the compiler derives
+// everything needed to say so: `createInput` (the reified create contract,
+// enrichment phase ⑥), the operation's declared parameter list, and
+// `wireFieldsForAggregate` (the response projection every backend serves).
+//
+// The cost of not checking is not merely the round trip to find out.  A
+// NEGATIVE test passes for the WRONG REASON:
+//
+//     expect(api.widgets.create({ kode: "A" })).toThrow(422)
+//
+// is green because of the typo, not because of the domain rule it names.  This
+// is not hypothetical — a `schedule(techId: …)` called with `{ technicianId: … }`
+// generated, ran, and 422'd on an unknown field, with `0 error(s)` at compile
+// time.
+//
+// WIRE, NOT DOMAIN.  An e2e body drives the deployable over HTTP: it sends
+// JSON and reads JSON.  So every judgement here is against the WIRE form —
+// keys as the wire spells them, an enum as its serialized member string
+// (`"Placed"`, not `Placed`; the bare form is already
+// `loom.e2e-unresolved-ref`'s business and is not re-reported here), a
+// `datetime` as an ISO-8601 string, a `money` as a JSON scalar.
+//
+// WHAT IS DELIBERATELY NOT CHECKED, and why — a gate that guesses is worse
+// than no gate, because a false positive turns a valid model red:
+//
+//   - `find` / `list` / `all` / projection reads.  Their argument is a QUERY
+//     string, not a body, and it carries an implicit pagination set
+//     (`page`, `pageSize`, `sort`, `dir`) on top of the declared params — 145
+//     `all(...)` sites in the corpus depend on it.  Their RESPONSE is a
+//     per-cardinality envelope (`{items,total}` for a list find, a bare row for
+//     a unique-key one), which this layer has no derivation for.
+//   - a non-literal value.  A member read (`cust.id`), a nested `{…}` for a
+//     value object, a `[…]`, a bare `ref` and a conversion call (`decimal(x)`)
+//     are all admissible wire values whose type this layer cannot decide; only
+//     a LITERAL is judged, and only against a SCALAR declared type.  Note that
+//     `money("5.00")` IS a literal — lowering gives it `lit: "money"`, not a
+//     call — so it is judged, and accepted.
+//   - an explicit `null`.  Nullability is not decidable from `TypeIR` alone
+//     here; see the note on the `null` arm below.
+//   - a payload that is not an object literal at all (a bare `ref`).
+//   - the `ui.` surface.  A `ui` body fills a FORM; its field vocabulary is the
+//     page object's, not the wire's.
+//
+// Each is a named limitation, not an oversight: the sweep behind this gate
+// enumerated all 1001 magic-call sites across the tracked `.ddd` corpus, and
+// these are the shapes whose contract is not decidable here.
+// ---------------------------------------------------------------------------
+
+/** The create-input contract as the WIRE carries it: the reified
+ *  `createInput` for a state-backed aggregate, or the create action's params
+ *  for an event-sourced one — the exact split every backend's create-request
+ *  schema makes (`routes-builder.ts`'s `esCreate` fork). */
+function createBodyContract(agg: AggregateIR): { name: string; type: TypeIR; required: boolean }[] {
+  if (agg.persistedAs === "eventLog") {
+    const create = agg.creates?.[0];
+    if (!create) return [];
+    return create.params.map((p) => ({
+      name: p.name,
+      type: p.type,
+      required: isRequiredCreateInput(p),
+    }));
+  }
+  // `agg.createInput` is populated by enrichment and this check runs on an
+  // `EnrichedLoomModel`; `buildCreateInput` is the total fallback the shared
+  // helper keeps for pre-enrichment callers, so read through it rather than
+  // asserting.
+  return (agg.createInput ?? buildCreateInput(agg)).map((c) => ({
+    name: c.field.name,
+    type: c.field.type,
+    required: c.requiredInput,
+  }));
+}
+
+function checkApiPayload(
+  call: MagicCall,
+  agg: AggregateIR,
+  contexts: BoundedContextIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.verb === "create") {
+    // The create body is argument 0 (`renderApiCall`: `args[0] ?? "{}"`).
+    checkBody(call, call.args[0], createBodyContract(agg), contexts, source, diags, {
+      kind: "create",
+      aggregate: agg.name,
+    });
+    return;
+  }
+  const op = agg.operations.find((o) => o.visibility === "public" && o.name === call.verb);
+  // An operation body is argument 1 — argument 0 is the id
+  // (`renderOperationCall`: `args[1] ?? "{}"`).  A zero-param operation
+  // legitimately passes no body at all.
+  if (op) {
+    checkBody(
+      call,
+      call.args[1],
+      // `required: false` throughout, deliberately: the omission arm in
+      // `checkBody` is create-only (see the note there), so computing a
+      // required-set for an operation would be a value nothing reads.
+      op.params.map((p) => ({ name: p.name, type: p.type, required: false })),
+      contexts,
+      source,
+      diags,
+      { kind: "operation" },
+    );
+  }
+}
+
+/** `api.<wf>.run({…})` against the workflow facade's declared parameters.
+ *
+ *  `wf.params` is READ HERE because it is what the emitters read: every
+ *  backend builds `<Wf>Request` from exactly that list (hono
+ *  `zodForWorkflowParam(p.type)` over `wf.params`, python's `<Wf>Request`
+ *  BaseModel, and the java/.NET/elixir twins).  Taking the facade create's
+ *  params by a second route would be a copy of the rule that could drift.
+ *
+ *  Only `run` has a body; `instances()` takes none and `instance(key)` takes a
+ *  path segment, not a body. */
+function checkWorkflowPayload(
+  call: MagicCall,
+  wf: WorkflowIR,
+  contexts: BoundedContextIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.verb !== "run") return;
+  checkBody(
+    call,
+    // The command body is argument 0 — `renderWorkflowCall`: `args[0] ?? "{}"`.
+    call.args[0],
+    wf.params.map((p) => ({
+      name: p.name,
+      type: p.type,
+      // Required unless the TYPE is optional.  An `= default` does NOT relax
+      // it — see the note in `checkBody`'s omission arm.
+      required: p.type.kind !== "optional",
+    })),
+    contexts,
+    source,
+    diags,
+    { kind: "workflow-run", workflow: wf.name },
+  );
+}
+
+/** One object-literal body against one declared field/param contract. */
+function checkBody(
+  call: MagicCall,
+  body: ExprIR | undefined,
+  contract: { name: string; type: TypeIR; required: boolean }[],
+  contexts: BoundedContextIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+  site: { kind: "create" | "operation" | "workflow-run"; aggregate?: string; workflow?: string },
+): void {
+  // Only an object literal is a body this layer can read.  A bare `ref`
+  // (`api.orders.confirm(id, payload)`) carries a shape from somewhere else.
+  if (body?.kind !== "object") return;
+  const byName = new Map(contract.map((c) => [c.name, c]));
+  const seen = new Set<string>();
+  let sawUnknownKey = false;
+  for (const entry of body.fields) {
+    seen.add(entry.name);
+    const declared = byName.get(entry.name);
+    if (!declared) {
+      sawUnknownKey = true;
+      // ONE mistake, ONE diagnostic: an unknown key says nothing about the
+      // value it carries, so the type arm below is not also run for it.
+      if (site.kind === "workflow-run") {
+        diags.push({
+          severity: "error",
+          code: "loom.e2e-unknown-body-key",
+          source,
+          message: diagMessage("loom.e2e-unknown-body-key#workflow-run", {
+            slug: call.slug,
+            key: entry.name,
+            workflow: site.workflow ?? "",
+            known: contract.map((c) => c.name).join(", ") || "(none)",
+          }),
+        });
+      } else if (site.kind === "create") {
+        diags.push({
+          severity: "error",
+          code: "loom.e2e-unknown-body-key",
+          source,
+          message: diagMessage("loom.e2e-unknown-body-key#create", {
+            slug: call.slug,
+            key: entry.name,
+            aggregate: site.aggregate ?? "",
+            known: contract.map((c) => c.name).join(", ") || "(none)",
+          }),
+        });
+      } else {
+        diags.push({
+          severity: "error",
+          code: "loom.e2e-unknown-body-key",
+          source,
+          message: diagMessage("loom.e2e-unknown-body-key#operation", {
+            slug: call.slug,
+            verb: call.verb,
+            key: entry.name,
+            known: contract.map((c) => c.name).join(", ") || "(none)",
+          }),
+        });
+      }
+      continue;
+    }
+    checkLiteralAgainstType(call, entry.name, entry.value, declared.type, contexts, source, diags);
+  }
+  // Missing required input — create and `run` only.  An OPERATION's declared
+  // params are NOT all client-supplied on every backend (a defaulted param is
+  // seeded by the scaffolded form), and no corpus site exercises the omission,
+  // so claiming it there would be a guess.
+  //
+  // A workflow `run` body is not that case and is admitted: the emitted
+  // `<Wf>Request` is built straight from the facade's params with no per-param
+  // optionality beyond the TYPE's (hono `zodFor(p.type)` over `wf.params`, and
+  // its four twins), so a non-optional param is required on the wire even when
+  // it carries an `= default` — the default is applied in the body, after the
+  // schema has already rejected the request.
+  if (site.kind === "operation") return;
+  // ONE MISTAKE, ONE DIAGNOSTIC, again: a misspelled key makes the field it
+  // meant to spell "missing" too, and `{ kode: "A" }` reporting both an unknown
+  // `kode` AND an absent `code` is one typo described twice.  The unknown key
+  // is the actionable half — fixing it resolves the other — so the absence arm
+  // speaks only for a body whose every key was recognised.
+  if (sawUnknownKey) return;
+  const missing = contract.filter((c) => c.required && !seen.has(c.name)).map((c) => c.name);
+  if (missing.length === 0) return;
+  if (site.kind === "workflow-run") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-missing-required-field",
+      source,
+      message: diagMessage("loom.e2e-missing-required-field#workflow-run", {
+        slug: call.slug,
+        workflow: site.workflow ?? "",
+        missing: missing.map((m) => `'${m}'`).join(", "),
+        known:
+          contract
+            .filter((c) => c.required)
+            .map((c) => c.name)
+            .join(", ") || "(none)",
+      }),
+    });
+    return;
+  }
+  diags.push({
+    severity: "error",
+    code: "loom.e2e-missing-required-field",
+    source,
+    message: diagMessage("loom.e2e-missing-required-field", {
+      slug: call.slug,
+      aggregate: site.aggregate ?? "",
+      missing: missing.map((m) => `'${m}'`).join(", "),
+      known:
+        contract
+          .filter((c) => c.required)
+          .map((c) => c.name)
+          .join(", ") || "(none)",
+    }),
+  });
+}
+
+/** A literal in a body position, against the WIRE form of its declared type.
+ *  Silent for every non-literal value and for every non-scalar target — see
+ *  the header's list of deliberate non-checks. */
+function checkLiteralAgainstType(
+  call: MagicCall,
+  key: string,
+  value: ExprIR,
+  declaredType: TypeIR,
+  contexts: BoundedContextIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (value.kind !== "literal") return;
+  const t = declaredType.kind === "optional" ? declaredType.inner : declaredType;
+  // `null` returns before the kind table below, and the return is load-bearing:
+  // without it every legitimately-null value would fall through to "no accepted
+  // literal kind matched" and be reported as a type mismatch.
+  //
+  // Judging it properly would need to know whether the field is nullable, and
+  // that is NOT decidable from `TypeIR` alone here — a `f: T?` carries its
+  // optionality on the `FieldIR` flag, which does not always reach the type
+  // (see `isNullable` in `wire-projection.ts`, which has to consult both).  So
+  // an explicit `null` is admitted everywhere rather than guessed at.
+  if (value.lit === "null") return;
+  const accepted = acceptedLiteralKinds(t, contexts);
+  if (!accepted) return; // not a scalar target — nothing decidable here
+  if (accepted.has(value.lit)) {
+    // The enum MEMBERSHIP arm: an enum crosses the wire as the member name,
+    // so a string that is not a member is the same 422 by another route.
+    if (t.kind === "enum") {
+      const members = enumMembers(t.name, contexts);
+      if (members && !members.includes(value.value)) {
+        diags.push({
+          severity: "error",
+          code: "loom.e2e-body-type-mismatch",
+          source,
+          message: diagMessage("loom.e2e-body-type-mismatch#enum", {
+            slug: call.slug,
+            verb: call.verb,
+            key,
+            declared: t.name,
+            got: `the string "${value.value}"`,
+            members: members.join(", ") || "(none)",
+          }),
+        });
+      }
+    }
+    return;
+  }
+  diags.push({
+    severity: "error",
+    code: "loom.e2e-body-type-mismatch",
+    source,
+    message: diagMessage("loom.e2e-body-type-mismatch", {
+      slug: call.slug,
+      verb: call.verb,
+      key,
+      declared: describeType(t),
+      got: describeLiteral(value.lit, value.value),
+    }),
+  });
+}
+
+/** The literal kinds the WIRE form of a scalar type admits, or `undefined`
+ *  when the target is not a scalar (a value object, an entity, a containment,
+ *  an array, `json`, a `File`) and a literal there says nothing decidable.
+ *
+ *  Deliberately GENEROUS on the numeric and stringly-serialized types: `money`
+ *  and `decimal` reach the wire as a JSON string on some backends and a JSON
+ *  number on others (the reason `e2e-render.ts` funnels every numeric
+ *  conversion through `__num`), so both spellings are admissible and only a
+ *  categorically wrong literal — a string for an `int`, an int for a `bool` —
+ *  is refused. */
+function acceptedLiteralKinds(
+  t: TypeIR,
+  contexts: BoundedContextIR[],
+): Set<LiteralKind> | undefined {
+  if (t.kind === "id") return new Set(["string"]);
+  if (t.kind === "enum") {
+    // An enum whose declaration is not in the deployable's contexts (a root
+    // enum) still serializes as a string; only the membership arm needs the
+    // declaration, and it checks for itself.
+    void enumMembers(t.name, contexts);
+    return new Set(["string"]);
+  }
+  if (t.kind !== "primitive") return undefined;
+  switch (t.name) {
+    case "string":
+      return new Set(["string"]);
+    case "int":
+    case "long":
+      return new Set(["int", "long"]);
+    case "decimal":
+    case "money":
+      return new Set(["int", "long", "decimal", "money", "string"]);
+    case "bool":
+      return new Set(["bool"]);
+    case "datetime":
+      return new Set(["string", "now"]);
+    case "guid":
+      return new Set(["string"]);
+    // `json` is an opaque blob and `File` a fixed wire object — neither has a
+    // literal form this layer can judge.
+    default:
+      return undefined;
+  }
+}
+
+function enumMembers(name: string, contexts: BoundedContextIR[]): string[] | undefined {
+  for (const c of contexts) {
+    const e = c.enums.find((x) => x.name === name);
+    if (e) return e.values;
+  }
+  return undefined;
+}
+
+function describeType(t: TypeIR): string {
+  if (t.kind === "primitive") return t.name;
+  if (t.kind === "enum") return t.name;
+  if (t.kind === "id") return `${t.targetName} id`;
+  return t.kind;
+}
+
+function describeLiteral(lit: LiteralKind, value: string): string {
+  if (lit === "string") return `the string "${value}"`;
+  if (lit === "bool") return `the bool ${value}`;
+  if (lit === "now") return "now()";
+  return `the ${lit} ${value}`;
+}
+
+// ---------------------------------------------------------------------------
+// Response-field reads — `let x = api.<agg>.getById(…)` then `x.<field>`
+// ---------------------------------------------------------------------------
+
+/** The two verbs whose response body this layer knows exactly: `getById`
+ *  serves the api-read wire shape, and `create` answers an id envelope that
+ *  every backend widens at most to that same shape.  Checking their union is
+ *  what lets `create` reject a genuinely invented field without this gate
+ *  having to adjudicate which backends return the whole entity on 201.
+ *
+ *  Every other verb is skipped — see the header. */
+const SHAPED_RESPONSE_VERBS = new Set(["getById", "create", "instance"]);
+
+/** `.instance(key)` is in the set above; `.instances()` deliberately is NOT.
+ *  The list read answers a JSON ARRAY, so a member on its binding is an array
+ *  member (`running.length`) and not an instance field at all — judging it
+ *  against the row shape would reject the one read such a binding exists for.
+ *  Exactly why `all` is absent for aggregates (its paged envelope, same
+ *  reason), and the element shape is only reachable through a collection op
+ *  this layer does not follow. */
+const WORKFLOW_ROW_RESPONSE_VERB = "instance";
+
+/** One `<binding>.<field>` read off a workflow instance row.
+ *
+ *  Split out rather than inlined because the aggregate arm's two escape hatches
+ *  do not apply and saying so is the point: a workflow has no `extends`, so
+ *  there is no inherited-field case to be undecidable about, and
+ *  `instanceWireShape` is the WHOLE row (correlation token + state fields) with
+ *  no read-masking projection over it — `forApiRead` has nothing to drop. */
+function checkWorkflowInstanceRead(
+  binding: string,
+  field: string,
+  call: MagicCall,
+  wf: WorkflowIR,
+  seen: Set<string>,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  // Absent only for a stateless workflow — which has no instance route either,
+  // so `checkApiVerb` has already refused the call and this is unreachable
+  // through it.  Guarded anyway: this reads enriched state, and a caller
+  // reaching it another way should get silence, not a bogus "readable: none".
+  const shape = wf.instanceWireShape;
+  if (!shape) return;
+  const readable = shape.map((w) => w.name);
+  if (readable.includes(field)) return;
+  // One read, one diagnostic, however many times the body repeats it.
+  const key = `${binding}.${field}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  diags.push({
+    severity: "error",
+    code: "loom.e2e-unknown-response-field",
+    source,
+    message: diagMessage("loom.e2e-unknown-response-field#workflow-instance", {
+      binding,
+      field,
+      slug: call.slug,
+      workflow: wf.name,
+      known: readable.join(", ") || "(none)",
+    }),
+  });
+}
+
+function checkResponseFields(
+  test: TestE2EIR,
+  contexts: BoundedContextIR[],
+  routed: ReadonlySet<string>,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  // `let <name> = api.<slug>.<verb>(…)` — the only binding form whose response
+  // shape is known.  A rebinding (two `let`s of the same name) is not legal in
+  // a test body, so a flat map is enough.
+  const bound = new Map<string, MagicCall>();
+  for (const s of test.statements) {
+    if (s.kind !== "let") continue;
+    const c = matchMagicCall(s.expr, "api");
+    if (c && SHAPED_RESPONSE_VERBS.has(c.verb) && routed.has(`${c.slug}.${c.verb}`)) {
+      bound.set(s.name, c);
+    }
+  }
+  if (bound.size === 0) return;
+  const seen = new Set<string>();
+  const visit = (e: ExprIR): void => {
+    if (e.kind !== "member") return;
+    if (e.receiver.kind !== "ref") return;
+    const call = bound.get(e.receiver.name);
+    if (!call) return;
+    const resolved = resolveAggregate(call.slug, contexts);
+    if (!resolved) {
+      // The WORKFLOW accessor's read half — `let one = api.<wf>.instance(k)`.
+      // Its response is the persisted instance row, whose shape enrichment has
+      // already derived as `instanceWireShape`; that is the same list every
+      // backend builds `<Wf>InstanceResponse` from, so this judges the read
+      // against the emitted DTO rather than against a second opinion of it.
+      const wf = findWorkflowBySlug(call.slug, contexts);
+      if (wf && call.verb === WORKFLOW_ROW_RESPONSE_VERB) {
+        checkWorkflowInstanceRead(e.receiver.name, e.member, call, wf, seen, source, diags);
+      }
+      return;
+    }
+    const readable = forApiRead(wireFieldsForAggregate(resolved.agg)).map((w) => w.name);
+    if (readable.includes(e.member)) return;
+    // An `extends` subtype does not carry its abstract base's fields in its own
+    // `fields` (the I1 note on `AggregateIR.extendsAggregate`), so a read of an
+    // inherited field is not decidable here and the whole aggregate is skipped
+    // rather than half-judged.
+    if (resolved.agg.extendsAggregate) return;
+    // One read, one diagnostic, however many times the body repeats it.
+    const key = `${e.receiver.name}.${e.member}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unknown-response-field",
+      source,
+      message: diagMessage("loom.e2e-unknown-response-field", {
+        binding: e.receiver.name,
+        field: e.member,
+        slug: call.slug,
+        verb: call.verb,
+        aggregate: resolved.agg.name,
+        known: readable.join(", ") || "(none)",
+      }),
+    });
+  };
+  for (const s of test.statements) {
+    if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
+    else walkStmtExprsDeep(s, visit);
+  }
 }

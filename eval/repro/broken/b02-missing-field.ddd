@@ -1,0 +1,13 @@
+// 2. invariant references a field that doesn't exist
+system X {
+  subdomain S {
+    context C {
+      aggregate Order with crudish { total: int  derived display: string = "x"
+        invariant totl > 0 }
+      repository Orders for Order { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

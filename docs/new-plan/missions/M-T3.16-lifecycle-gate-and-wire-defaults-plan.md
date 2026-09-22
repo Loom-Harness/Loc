@@ -1,6 +1,6 @@
 # M-T3.16 — the canonical `create` / `destroy` body: what is left, and in what order
 
-> **STATUS: STEPS 2, 3 and 5 LANDED** in [#2519](https://github.com/lemmit/Loc/pull/2519) — the gate is emitted and enforced on all five backends, an ES lifecycle guard is refused by name, and the enforcement gate is mutation-proven 10/10 (all four #2450 defects included). What remains is step 4 (the VO wire default, [#2509](https://github.com/lemmit/Loc/pull/2509)) and step 6 (the follow-ups, retriaged in §5 below). The body below is the ORIGINAL plan, kept as written; the sequencing table records what each step became.
+> **STATUS: STEPS 2, 3 and 5 LANDED** in [#2519](https://github.com/Loom-Harness/Loc/pull/2519) — the gate is emitted and enforced on all five backends, an ES lifecycle guard is refused by name, and the enforcement gate is mutation-proven 10/10 (all four #2450 defects included). What remains is step 4 (the VO wire default, [#2509](https://github.com/Loom-Harness/Loc/pull/2509)) and step 6 (the follow-ups, retriaged in §5 below). The body below is the ORIGINAL plan, kept as written; the sequencing table records what each step became.
 >
 > Written after #2446 landed (the honest gap + the check) and #2450 was pulled back to draft (`[needs redesign]`). Every claim below is code-verified against `main` @ `25f7f78`; this repo's statuses rot, so **re-verify before picking anything up.**
 

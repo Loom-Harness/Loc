@@ -71,7 +71,7 @@ export function renderCsMessages(ns: string, messages: readonly ValidationMessag
     // The ambient carrier holds the Accept-Language header VERBATIM (D-CTX-SHAPE
     // — it is the request-stable input, not a catalog-shaped one), so the
     // normalisation to a lookup tag lives here.
-    `        var header = ${ns}.Domain.Common.RequestContext.Current?.Locale ?? "en";`,
+    `        var header = global::${ns}.Domain.Common.RequestContext.Current?.Locale ?? "en";`,
     "        var first = header.Split(',')[0].Split(';')[0].Trim().ToLowerInvariant();",
     "        if (first.Length == 0) return fallback;",
     "        if (Catalog.TryGetValue(first, out var exact) && exact.TryGetValue(code, out var hit))",

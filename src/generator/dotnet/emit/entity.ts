@@ -28,6 +28,7 @@ import { constructionSeededFields } from "../../construction-default.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
+  declarationSubRegion,
   renderCsStatementChunks,
   renderCsStatements,
   statementSubRegions,
@@ -92,6 +93,51 @@ function narrowedOrigin(stmt: NarrowableStmt): OriginRef | undefined {
  *  `statementSubRegions` walks, so the returned chunks stay line-countable
  *  the same way.  An `assign`/`return`/`let` statement narrows to its inner
  *  expression's span via `narrowedOrigin` — see there. */
+/** The `.ddd` path a `#line` directive names, relative to the common parent
+ *  directory of every source file in this model.
+ *
+ *  The directive used to carry the ABSOLUTE path it was generated from:
+ *
+ *      #line (97,11)-(97,35) "/home/alice/work/shop/model.ddd"
+ *
+ *  which makes the emitted C# depend on where the generator ran.  It was the
+ *  only reason the .NET output was not byte-identical across otherwise
+ *  identical runs — six distinct file hashes across six frontend cells of one
+ *  sweep, against one hash for every other backend — and it means two
+ *  developers generating the same `.ddd` get different source files.
+ *
+ *  Relative to the model's own common root, rather than a bare basename,
+ *  because a multi-file model may hold two `.ddd`s of the same name in
+ *  different directories; the common root keeps them distinct while staying
+ *  machine-independent.  A single-file model therefore yields just
+ *  `model.ddd`.
+ *
+ *  This is the C#-native PDB path only.  `.loom/sourcemap.json` — what
+ *  `ddd trace`, `ddd breakpoints` and the DAP adapter read — keeps its
+ *  absolute paths deliberately: it is a build artifact, never committed, and a
+ *  debugger resolves those off disk (see `sourceTexts` in src/system/index.ts).
+ *
+ *  Paths come from `OriginRef.path`, i.e. a Langium `uri.path`, so they are
+ *  always POSIX-separated; this stays string-only because `src/generator/` is
+ *  browser-safe and may not import `node:path`. */
+export function lineDirectivePath(path: string, allSources: Iterable<string>): string {
+  const dirsOf = (p: string) => p.split("/").slice(0, -1);
+  let common: string[] | undefined;
+  for (const other of allSources) {
+    const segs = dirsOf(other);
+    if (common === undefined) {
+      common = segs;
+      continue;
+    }
+    let i = 0;
+    while (i < common.length && i < segs.length && common[i] === segs[i]) i++;
+    common = common.slice(0, i);
+  }
+  const prefix = (common ?? []).join("/");
+  // `+ 1` drops the separator the prefix does not include.
+  return prefix.length > 0 && path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : path;
+}
+
 export function weaveLineDirectives(
   stmts: readonly NarrowableStmt[],
   chunks: readonly string[],
@@ -109,7 +155,7 @@ export function weaveLineDirectives(
     if (!r) return `#line hidden\n${chunk}`;
     const from = offsetToLineCol(r.text, r.span.start);
     const to = offsetToLineCol(r.text, r.span.end);
-    return `#line (${from.line},${from.col})-(${to.line},${to.col}) "${r.path}"\n${chunk}`;
+    return `#line (${from.line},${from.col})-(${to.line},${to.col}) "${lineDirectivePath(r.path, sourceTexts.keys())}"\n${chunk}`;
   });
   return { chunks: woven, wove: true };
 }
@@ -424,7 +470,12 @@ export function renderEntity(
     const params = fn.params
       .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
       .join(", ");
-    const head = `    private ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
+    // PUBLIC, like the operations below — see the matching note in the node
+    // emitter.  The generated code calls a `function` from outside the class
+    // (`CloseHandler`, `CanCloseHandler`, a workflow handler's hoisted
+    // precondition), so `private` made each of those a CS0122 on a model that
+    // validated `0 error(s)`.
+    const head = `    public ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     // Expression form keeps the expression-bodied `=> expr;` shape
     // (byte-identical); block form (domain-services.md rev. 4) emits a
     // statement body whose `return`s carry the value out.
@@ -548,11 +599,16 @@ export function renderEntity(
     if (opFragments && chunks.length > 0) {
       opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(
-          opBody,
-          chunks,
-          `${constructPrefix ?? entity.name}.${op.name}`,
-        ),
+        subRegions: [
+          // F-021 — the member's declaration region, so the `operation` header
+          // line resolves to the body's first generated line, not `:1`.
+          ...declarationSubRegion(
+            op.origin,
+            chunks,
+            `${constructPrefix ?? entity.name}.${op.name}`,
+          ),
+          ...statementSubRegions(opBody, chunks, `${constructPrefix ?? entity.name}.${op.name}`),
+        ],
       });
     }
     if (body.length > 0) opLines.push(body);
