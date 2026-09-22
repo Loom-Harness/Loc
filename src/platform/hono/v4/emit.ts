@@ -614,9 +614,26 @@ export function generateTypeScriptForContexts(
   // Foreign events a hosted workflow consumes through a wired channel join
   // the deployable's event vocabulary: `domain/events.ts` needs the type
   // (the reactor handler references it) and the DomainEvent union carries it.
+  //
+  // EVERY broker-carried event joins too, subscribed or not.  A wired channel
+  // delivers everything it `carries:` to every subscriber, so the consumer's
+  // codec must be able to decode a carried type it has no reactor for — the
+  // dispatch then no-ops, which is the correct outcome.  Without it the
+  // consumer loop reads "no decoder" as "malformed envelope" and refuses the
+  // message at `error` level, which is both a lie and a silent loss of the
+  // `channel_consumed` record downstream readers count.  The other four
+  // backends have unioned the carried set since the 8a python fix; node got
+  // its codec later (F-019, #2944) and inherited the subscribed-only
+  // vocabulary with it, which is what made `channels-e2e-kafka (node)` red on
+  // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const foreignConsumedEvents = system
-    ? [...new Set(mergedSubscriptions.map((s) => s.event))]
+    ? [
+        ...new Set([
+          ...mergedSubscriptions.map((s) => s.event),
+          ...channelBindings.flatMap((b) => b.events),
+        ]),
+      ]
         .filter((name) => !knownEventNames.has(name))
         .flatMap((name) => {
           for (const sub of system.sys.subdomains) {
