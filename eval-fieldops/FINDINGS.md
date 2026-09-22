@@ -1016,3 +1016,65 @@ correct SQL and deliberately waived; it was changed to `.is_not(None)` only as a
 matches the node shape. Cross-backend result for `this.technicianId != null`: **node was the only
 broken target** — .NET, Java and Elixir were already correct (`!= null` via EF, `cb.isNotNull(...)`,
 `not is_nil(...)`).
+
+---
+
+### F-026 — Two DIFFERENT naming rules mint one OpenAPI component name, so the published spec documents an endpoint with another endpoint's body (all five backends)
+
+**Class: SILENT** (valid input, `0 error(s), 0 warning(s)`, wrong output). Found while
+closing out F-023; it is NOT the same defect. F-023 was an operation and a workflow that
+*share a name*. This one needs no shared name at all — two independent naming rules
+happen to produce the same string:
+
+| producer | rule | example |
+|---|---|---|
+| `src/platform/hono/v4/routes-builder.ts:777` | `` `${upperFirst(op.name)}${agg.name}Request` `` | op `schedule` on aggregate `WorkOrder` → `ScheduleWorkOrderRequest` |
+| `src/platform/hono/v4/workflow-builder.ts:204` | `` `${upperFirst(wf.name)}Request` `` | workflow `scheduleWorkOrder` → `ScheduleWorkOrderRequest` |
+
+Neither rule is wrong on its own. They are two halves of one contract — the OpenAPI
+component namespace — computed independently with nothing checking they agree
+(`experience_gathered.md` §89's class exactly).
+
+**Repro:** `eval-fieldops/repro/f026/openapi-schema-name-collision.ddd` — an aggregate
+`WorkOrder` with `operation schedule(at: string)`, plus `workflow scheduleWorkOrder` taking
+`note: string`. It parses clean and generates 45 files.
+
+```
+$ node bin/cli.js parse eval-fieldops/repro/f026/openapi-schema-name-collision.ddd
+0 error(s), 0 warning(s).
+
+$ grep -rn 'ScheduleWorkOrderRequest' out/api --include=*.ts
+api/http/workflows.ts:15:      }).openapi("ScheduleWorkOrderRequest");     // { note: string }
+api/http/workOrder.routes.ts:20:  }).openapi("ScheduleWorkOrderRequest");  // { at: string }
+```
+
+**Why it is SILENT, measured rather than assumed.** `@hono/zod-openapi` does not throw on a
+duplicate component name. Running the real library against the two emitted schemas:
+
+```
+NO THROW — document generated
+component ScheduleWorkOrderRequest = {"type":"object","properties":{"note":{"type":"string"}},"required":["note"]}
+wf body ref: {"$ref":"#/components/schemas/ScheduleWorkOrderRequest"}
+op body ref: {"$ref":"#/components/schemas/ScheduleWorkOrderRequest"}
+```
+
+Both endpoints `$ref` one component, and the component carries the WORKFLOW's shape. So
+`POST /api/work-orders/{id}/schedule`, which really requires `{ at }`, is published as
+requiring `{ note }`. Every client generated from that spec sends the wrong body.
+
+**All five backends emit the collision**, though the failure mode differs and only node is
+confirmed silent end-to-end so far:
+
+| backend | both names emitted at | note |
+|---|---|---|
+| node | `api/http/workflows.ts`, `api/http/workOrder.routes.ts` | SILENT — proven above |
+| dotnet | `Application/Workflows/ScheduleWorkOrderRequest.cs`, `WorkOrders/Requests/WorkOrderRequests.cs` | different namespaces, so C# compiles; Swashbuckle derives schemaId from the short name — needs a boot to classify |
+| java | `features/workorders/ScheduleWorkOrderRequest.java`, `application/workflows/ScheduleWorkOrderRequest.java` | different packages, so javac is fine; springdoc's default schema name is the simple class name — needs a boot to classify |
+| python | `app/http/work_order_routes.py`, `app/http/workflows_routes.py` | unclassified |
+| elixir | `lib/api_web/api/schemas/schedule_work_order_request.ex` | unclassified |
+
+**Not yet fixed.** The shape of the fix is a decision, not a detail: the component
+namespace needs ONE owner that mints every name and can see a collision, rather than two
+emitters each confident in its own rule. Renaming either side changes a published spec, so
+which side moves — and whether a colliding model should instead be refused with a
+`loom.*` diagnostic — is a call worth making deliberately.
