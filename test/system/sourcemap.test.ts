@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { resolveToSource } from "../../src/ir/types/origin.js";
 import { generateSystems } from "../../src/system/index.js";
-import { toOriginRef, type WireOriginRef } from "../../src/trace/resolve.js";
+import { toOriginRef, type WireOriginRef, type WireSourceRef } from "../../src/trace/resolve.js";
 import { parseString, parseValid } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -16,15 +17,8 @@ import { parseString, parseValid } from "../_helpers/index.js";
 // annotate the parsed JSON with `OriginRef` and then destructure `span` as a
 // tuple — two mutually contradictory claims that only compiled because nothing
 // typechecked `test/` (M-T9.50).
-interface WireSourceRef {
-  kind: "source";
-  path: string;
-  span: [number, number];
-}
-type WireOriginRef =
-  | WireSourceRef
-  | { kind: "macro"; macro: string; call: WireSourceRef; inner?: WireOriginRef }
-  | { kind: "derived"; reason: string; from?: WireOriginRef };
+// (`WireSourceRef` / `WireOriginRef` are the exported wire types of
+// `src/trace/resolve.ts` — the same shape this file once declared locally.)
 
 /** The wire twin of `resolveToSource`: walk the chain to the nearest real
  *  source span — a `macro` resolves through its `call`, a `derived` through
@@ -685,7 +679,7 @@ describe(".loom/sourcemap.json", () => {
     // so this case keeps asking the one-per-statement question it was written
     // to ask.
     const isDeclarationRegion = (r: {
-      origin: import("../../src/ir/types/origin.js").OriginRef;
+      origin: WireOriginRef;
       targetCol?: [number, number];
     }): boolean => {
       if (r.targetCol) return false;
@@ -695,7 +689,7 @@ describe(".loom/sourcemap.json", () => {
       // `start`/`end` are `undefined` (so `SOURCE.slice(...)` silently yields
       // the WHOLE source).  Converting first is what makes this predicate — and
       // the per-token assertion at the end of this case — read the real span.
-      const resolved = resolveToSource(toOriginRef(r.origin as unknown as WireOriginRef));
+      const resolved = resolveToSource(toOriginRef(r.origin));
       return resolved !== undefined && SOURCE.slice(resolved.span.start).startsWith("operation ");
     };
     const opRegions = regions.filter((r) => r.construct === opConstruct);
