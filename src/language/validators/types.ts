@@ -920,8 +920,12 @@ export function checkFunction(
     ) {
       accept(
         "error",
-        `Function '${fn.name}' returns '${typeToString(actual)}' but is declared to return '${typeToString(declared)}'.`,
-        { node: fn, property: "body" },
+        diagMessage("loom.function-return-type-mismatch", {
+          name: fn.name,
+          actual: typeToString(actual),
+          declared: typeToString(declared),
+        }),
+        { node: fn, property: "body", code: "loom.function-return-type-mismatch" },
       );
     }
     warnSensitivityDrop(actual, declared, accept, { node: fn, property: "body" });
@@ -1007,11 +1011,22 @@ function checkFunctionBlock(
     if (isPreconditionStmt(stmt) || isRequiresStmt(stmt)) {
       const t = typeOf(stmt.expr, blockEnv);
       if (t.kind !== "primitive" || t.name !== "bool") {
-        accept(
-          "error",
-          `'${isRequiresStmt(stmt) ? "requires" : "precondition"}' must be of type 'bool', got '${typeToString(t)}'.`,
-          { node: stmt, property: "expr" },
-        );
+        // Two separate `accept` calls, not one with a computed `code:` — a
+        // conditional code is invisible to the catalog ratchet, which is how
+        // this whole class of site kept inline wording (invariant 4).
+        if (isRequiresStmt(stmt)) {
+          accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(t) }), {
+            node: stmt,
+            property: "expr",
+            code: "loom.requires-not-bool",
+          });
+        } else {
+          accept("error", diagMessage("loom.precondition-not-bool", { actual: typeToString(t) }), {
+            node: stmt,
+            property: "expr",
+            code: "loom.precondition-not-bool",
+          });
+        }
       }
       continue;
     }
@@ -1026,8 +1041,12 @@ function checkFunctionBlock(
       ) {
         accept(
           "error",
-          `Function '${fn.name}' returns '${typeToString(actual)}' but is declared to return '${typeToString(declared)}'.`,
-          { node: stmt, property: "value" },
+          diagMessage("loom.function-return-type-mismatch", {
+            name: fn.name,
+            actual: typeToString(actual),
+            declared: typeToString(declared),
+          }),
+          { node: stmt, property: "value", code: "loom.function-return-type-mismatch" },
         );
       }
       warnSensitivityDrop(actual, declared, accept, { node: stmt, property: "value" });

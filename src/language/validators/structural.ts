@@ -285,9 +285,10 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
     if (!m.gate) continue;
     const gt = typeOf(m.gate, envForNode(m.gate));
     if (gt.kind !== "primitive" || gt.name !== "bool") {
-      accept("error", `'requires' must be of type 'bool', got '${typeToString(gt)}'.`, {
+      accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(gt) }), {
         node: m,
         property: "gate",
+        code: "loom.requires-not-bool",
       });
     }
   }

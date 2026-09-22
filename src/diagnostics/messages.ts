@@ -801,6 +801,58 @@ export const DIAGNOSTIC_MESSAGES = {
     length2: unknown;
     argsLength: unknown;
   }) => `${p.label} expects ${p.length} argument${p.length2}, got ${p.argsLength}.`,
+  // --- the M-T9.56 drain of `statements.ts` -------------------------------
+  // The three "modifier on a PRIVATE operation" warnings.  They stay three
+  // codes because each names a different thing the private operation loses;
+  // the shared half ("no HTTP entry point") is the reason, not the rule.
+  "loom.audited-private-operation": (p: { name: unknown }) =>
+    `'audited' has no effect on private operation '${p.name}' — it has no HTTP entry point, so no audit record is produced.`,
+  "loom.when-private-operation": (p: { name: unknown }) =>
+    `'when' on private operation '${p.name}' gates the domain method but exposes nothing — a private operation has no HTTP entry point, so no can-${p.name} query is emitted for a UI to read the gate.`,
+  "loom.requires-private-operation": (p: { name: unknown }) =>
+    `'requires' has no effect on private operation '${p.name}' — it has no HTTP entry point, so no authorization gate is emitted.`,
+  "loom.when-not-bool": (p: { actual: unknown }) =>
+    `'when' must be of type 'bool', got '${p.actual}'.`,
+  // ONE code for the `requires` gate at all five sites that used to word it
+  // separately — the operation gate (`statements.ts`), the in-body `requires`
+  // statement (`statements.ts` and the workflow/handler twin in `types.ts`),
+  // the read-path find/projection gate (`repository.ts`) and the member gate
+  // (`structural.ts`).  It is literally the same rule; five uncoded copies of
+  // one sentence is exactly what the catalog exists to end.
+  "loom.requires-not-bool": (p: { actual: unknown }) =>
+    `'requires' must be of type 'bool', got '${p.actual}'.`,
+  "loom.precondition-not-bool": (p: { actual: unknown }) =>
+    `'precondition' must be of type 'bool', got '${p.actual}'.`,
+  "loom.retrieval-where-not-criterion":
+    "an anonymous retrieval's 'where:' must be a criterion reference (e.g. 'ActiveOrder' or 'InRegion(r)') in this release.",
+  "loom.assign-to-derived": (p: { path: unknown }) =>
+    `Cannot assign to derived property '${p.path}'.`,
+  "loom.assign-type-mismatch": (p: { actual: unknown; expected: unknown }) =>
+    `Cannot assign '${p.actual}' to '${p.expected}'.`,
+  "loom.collection-mutation-non-collection": (p: { op: unknown; actual: unknown }) =>
+    `'${p.op}' requires a collection on the left-hand side, got '${p.actual}'.`,
+  "loom.collection-mutation-element-type": (p: {
+    verb: unknown;
+    actual: unknown;
+    element: unknown;
+  }) => `Cannot ${p.verb} element of type '${p.actual}' to/from collection of '${p.element}'.`,
+  "loom.emit-field-type": (p: { name: unknown; expected: unknown; actual: unknown }) =>
+    `Field '${p.name}' expects '${p.expected}' but got '${p.actual}'.`,
+  "loom.emit-field-missing": (p: { name: unknown }) => `Event field '${p.name}' not provided.`,
+  "loom.operation-self-call": (p: { name: unknown }) => `Operation '${p.name}' calls itself.`,
+  "loom.unresolved-call": (p: { name: unknown; agg: unknown }) =>
+    `Cannot resolve call to '${p.name}' from aggregate '${p.agg}'.`,
+  // Two slugs, one code: a member that does not resolve while walking an
+  // l-value / member-call chain.  The `#on-type` variant can name the receiver
+  // type (the chain's last step knows it); the bare one cannot.
+  "loom.unresolved-member": (p: { member: unknown }) => `Cannot resolve member '${p.member}'.`,
+  "loom.unresolved-member#on-type": (p: { member: unknown; recv: unknown }) =>
+    `Cannot resolve member '${p.member}' on type '${p.recv}'.`,
+  "loom.member-not-callable": (p: { member: unknown }) =>
+    `Member '${p.member}' is not callable — only operations and functions can be called.`,
+  "loom.bare-statement-invalid":
+    "Bare statement must be an assignment, collection mutation, or function/operation call.",
+  "loom.unresolved-lvalue-head": (p: { head: unknown }) => `Cannot resolve '${p.head}'.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/stmt-placement.ts
@@ -1215,6 +1267,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `Top-level 'function ${p.name}' is part of a recursion cycle. Expression-form functions ` +
     `inline at their call sites, so they must not call themselves — directly or through ` +
     `another top-level function that calls back.`,
+  // ONE code for the return-type mismatch at all three sites that used to word
+  // it separately: the top-level expression-form function here, and the member
+  // function's expression body and block-body `return` in `types.ts`.  Same
+  // rule, one sentence, three call sites (M-T9.56).
+  "loom.function-return-type-mismatch": (p: {
+    name: unknown;
+    actual: unknown;
+    declared: unknown;
+  }) => `Function '${p.name}' returns '${p.actual}' but is declared to return '${p.declared}'.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/types.ts

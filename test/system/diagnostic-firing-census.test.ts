@@ -143,6 +143,27 @@ system P {
   deployable web { platform: ${platform} targets: api port: 3001 }
 }`;
 
+/** One aggregate carrying every shape the `statements.ts` drain (M-T9.56)
+ *  needs to reach — a derived field, a collection, a value-object member and
+ *  an event to `emit` — so each fixture is one line: the member whose body IS
+ *  the defect. */
+const orderOps = (members: string): string => `
+system P {
+  subdomain D { context Orders {
+    valueobject Tag { label: string }
+    event Bumped { by: int  note: string }
+    aggregate Order with crudish {
+      name: string
+      total: int
+      tags: string[]
+      tag: Tag
+      derived label: string = name
+      ${members}
+    }
+    repository Orders for Order { }
+  } }
+}`;
+
 /**
  * The shared base for the `deployable.ts` drain (M-T9.56): one clean backend
  * deployable serving one api over one context, plus whatever extra deployable
@@ -1086,6 +1107,63 @@ system P {
       apply(e: Opened) { owner := e.owner }
     }
     repository Accounts for Account { }`),
+
+  // --- the M-T9.56 drain of `src/language/validators/statements.ts` --------
+  // 22 uncoded sites: the three "modifier on a private operation" warnings,
+  // the guard type checks, the assignment / collection-mutation ladder, the
+  // `emit` field checks and the l-value / call resolution chain.  All of them
+  // shared one `loom.unknown` on the wire.  `orderOps(...)` puts the defect in
+  // one aggregate body, which is where every one of them lives.
+  "loom.audited-private-operation": orderOps(
+    "private operation quiet() audited { total := total + 1 }",
+  ),
+  "loom.when-private-operation": orderOps(
+    "private operation p() when total > 0 { total := total + 1 }",
+  ),
+  "loom.requires-private-operation": orderOps(
+    "private operation p() requires true { total := total + 1 }",
+  ),
+  "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
+  // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
+  // `requires` statement, the workflow create/handle gate (`structural.ts`),
+  // the read-path find/projection gate (`repository.ts`) and the handler-body
+  // statement (`types.ts`) — share this code, so one fixture covers the family.
+  "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
+  "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
+  "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
+  "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
+  "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
+  "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
+  "loom.emit-field-type": orderOps('operation p() { emit Bumped { by: "no", note: "n" } }'),
+  "loom.emit-field-missing": orderOps("operation p() { emit Bumped { by: 1 } }"),
+  "loom.operation-self-call": orderOps("operation p() { p() }"),
+  "loom.unresolved-call": orderOps("operation p() { nope() }"),
+  // Both slugs of the code in one body: the mid-chain step (`tag.nope := …`)
+  // and the final member-call step, which can name the receiver type.
+  "loom.unresolved-member": orderOps(
+    'operation p() { tag.nope := "x" }\n      operation q() { tag.nope() }',
+  ),
+  "loom.member-not-callable": orderOps("operation p() { tag.label() }"),
+  "loom.bare-statement-invalid": orderOps("operation p() { name }"),
+  "loom.unresolved-lvalue-head": orderOps("operation p() { ghost := 1 }"),
+  // The member-function form.  Its two siblings — the top-level
+  // expression-form function (`toplevel-function.ts`) and the block-body
+  // `return` (`types.ts`) — share this code.
+  "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
+  // than the criterion reference this release admits.
+  "loom.retrieval-where-not-criterion": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order { }
+    criterion ActiveOrder of Order = region != ""
+    command C { region: string }
+    workflow W {
+      create(c: C) { let xs = Orders.run(retrieval { where: this.region == c.region }) }
+    }
+  } }
+}`,
 
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }

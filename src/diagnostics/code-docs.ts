@@ -51,6 +51,33 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
+  // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
+  "loom.emit-field-type": "06-behavior-and-statements.md#let--emit",
+  "loom.emit-field-missing": "06-behavior-and-statements.md#let--emit",
+  "loom.when-not-bool":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.requires-not-bool":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.precondition-not-bool":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.when-private-operation":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.requires-private-operation":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.audited-private-operation": "22-macros.md#audit--the-built-in-capability-auditable",
+  "loom.assign-to-derived": "06-behavior-and-statements.md#assignment-----",
+  "loom.assign-type-mismatch": "06-behavior-and-statements.md#assignment-----",
+  "loom.collection-mutation-non-collection": "06-behavior-and-statements.md#assignment-----",
+  "loom.collection-mutation-element-type": "06-behavior-and-statements.md#assignment-----",
+  "loom.operation-self-call": "06-behavior-and-statements.md#operation--a-mutating-method",
+  "loom.unresolved-call": "06-behavior-and-statements.md#operation--a-mutating-method",
+  "loom.unresolved-member": "05-expressions.md#member-access--calls",
+  "loom.member-not-callable": "05-expressions.md#member-access--calls",
+  "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
+  "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
+  "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.function-return-type-mismatch":
+    "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
