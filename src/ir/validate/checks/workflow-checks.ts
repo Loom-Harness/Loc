@@ -5,7 +5,11 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst } from "../../../util/naming.js";
-import { createInputFields, omittableCreateInputs } from "../../enrich/wire-projection.js";
+import {
+  createInputFields,
+  isConstructible,
+  omittableCreateInputs,
+} from "../../enrich/wire-projection.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import type {
   AggregateIR,
@@ -1085,6 +1089,36 @@ function validateWorkflowStatements(
         // backends' create-call emitters consume, rather than the raw
         // field list: a `managed` timestamp is neither required here nor a
         // legal argument (passing one would fail the backend create-call).
+        // The aggregate may have no `create` AT ALL.  An invariant that reaches
+        // outside the create input makes it non-constructible (`isConstructible`),
+        // and every backend then CORRECTLY emits no `static create(...)` — while
+        // this workflow's emitter goes on emitting `Agg.create({ … })` against it
+        // (`http/workflows.ts(46,23): TS2551: Property 'create' does not exist on
+        // type 'typeof Order'. Did you mean '_create'?`).  Checked before the
+        // field contract: when there is no factory, arguing about its arguments
+        // is noise.
+        if (!isConstructible(agg)) {
+          const blocking = agg.invariants.map((inv) => inv.source).filter((x) => x.length > 0);
+          diags.push({
+            severity: "error",
+            code: "loom.create-call-not-constructible",
+            message: diagMessage("loom.create-call-not-constructible", {
+              agg: agg.name,
+              blocking:
+                blocking.length > 0
+                  ? `  Its invariant${blocking.length === 1 ? "" : "s"} ${blocking
+                      .map((x) => `\`${x}\``)
+                      .join(", ")} reach${
+                      blocking.length === 1 ? "es" : ""
+                    } outside the create input.`
+                  : "",
+            }),
+            source: `${ctx.name}/${wf.name}`,
+          });
+          bindingAgg.set(st.name, st.aggName);
+          markMutated();
+          break;
+        }
         const omittable = omittableCreateInputs(agg);
         const inputFields = createInputFields(agg).map((f) => f.name);
         const required = inputFields.filter((n) => !omittable.has(n));

@@ -46,9 +46,13 @@
 // aggregation through the repository (or the row read through the table) breaks
 // exactly one of them, and the two numbers diverge.
 //
-// Still NO java — `backends: DOCUMENT_TABLE_AGGREGATION` excludes it, so the
-// behavioural java leg skips this case by construction, exactly as the compile
-// legs do.
+// JAVA RUNS THIS CASE.  The paragraph that used to sit here said it did not —
+// "`backends: DOCUMENT_TABLE_AGGREGATION` excludes it, so the behavioural java
+// leg skips this case by construction".  That was stale on both counts: no such
+// constant exists anywhere in the tree (only in the sentence that named it), and
+// the manifest row says `backends: ALL`.  Java joined on 2026-09-13, which the
+// paragraph four above this one already records.  Two comments in one file
+// disagreeing is how a wrong belief survives a re-read, so this one is gone.
 system ProjectionDocumentAggregation {
   subdomain Cms {
     context Cms {

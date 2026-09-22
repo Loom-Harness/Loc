@@ -1,0 +1,11 @@
+system B { subdomain S { context C {
+  aggregate A { n: string  derived display: string = n }
+  aggregate Z { m: string  derived display: string = m }
+  repository As for A {}
+  repository Zs for Z {}
+} }
+ui W { page P(id: A id) { route: "/a/:id"  title: "A"
+  body: QueryView { of: S.C.Z.byId(id), single: true, data: z => Stack { Text { z.m } } } } }
+storage db { type: postgres } resource r { for: C, kind: state, use: db }
+deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+deployable web { platform: react, targets: api, ui: W, design: mantine, port: 3001 } }

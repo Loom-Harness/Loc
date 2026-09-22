@@ -32,8 +32,8 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 // Without an `auth { … }` block the user calls `registerUserVerifier(fn)`
 // by hand (index.ts ships a permissive dev stub).  With one, the
 // generated OIDC verifier is registered automatically.  The middleware
-// bypass list mirrors the .NET side: /health, /ready, /openapi.json,
-// /swagger (plus /auth for the OIDC handshake).
+// bypass list mirrors the .NET side: /health, /ready, /metrics,
+// /openapi.json, /swagger (plus /auth for the OIDC handshake).
 // ---------------------------------------------------------------------------
 
 export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
@@ -348,7 +348,11 @@ function rootOrgOf(orgPath: string): string {
 `
     : "";
   // Only the handshake's redirect endpoints bypass auth — they must be
-  // reachable without a verified principal.  `/api/auth/me` (the session probe
+  // reachable without a verified principal.  `/metrics` is on the list for
+  // the same reason `/health` and `/ready` are, and because the compose stack
+  // this generator ALSO emits scrapes it: `monitoring/prometheus.yml` carries
+  // no credentials, so a gated `/metrics` made the two generated halves
+  // disagree — every scrape 401'd (finding F-022).  `/api/auth/me` (the session probe
   // the frontend guard reads) is deliberately NOT bypassed, so the
   // middleware populates `currentUser` or rejects with 401.
   //
@@ -359,8 +363,8 @@ function rootOrgOf(orgPath: string): string {
   // REGISTERED outside a dev profile, so on a real deployment there is no
   // handler behind the bypassed path.
   const bypass = oidc
-    ? `["/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
-    : `["/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
+    ? `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
+    : `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
   return `// Auto-generated.
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";

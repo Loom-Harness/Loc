@@ -1,0 +1,15 @@
+// An enum COLLECTION field (`Skill[]`) emits an invalid Ecto type on the elixir backend.
+system P {
+  subdomain S { context C {
+    enum Skill { Electrical, Plumbing, HVAC }
+    aggregate Tech with crudish {
+      fullName: string
+      skills: Skill[]
+      derived display: string = fullName
+    }
+    repository Techs for Tech {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: elixir, contexts: [C], dataSources: [st], port: 4000 }
+}

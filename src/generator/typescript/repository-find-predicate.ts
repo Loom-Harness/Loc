@@ -19,7 +19,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { orientComparison } from "../../ir/util/comparison-operands.js";
+import { nullComparison, orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
@@ -257,6 +257,23 @@ export function lowerToDrizzle(
       }
       const drizzleFn = COMPARE_OP_TO_DRIZZLE[e.op];
       if (!drizzleFn) return null;
+      // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL, which
+      // is a DIFFERENT operator from `=`/`<>`, not a value binding.  Drizzle
+      // types `eq`/`ne` as `(column, column | value)` with no `null` in the
+      // value union, so binding it emitted `ne(schema.x.y, null)` and the
+      // generated project failed `tsc` with TS2769 (F-007).  Handled ahead of
+      // the temporal/orientation arms below: a null literal is neither a
+      // temporal fragment nor a bindable value, so both would mis-handle it.
+      {
+        const nullTest = nullComparison(e.op, e.left, e.right);
+        if (nullTest) {
+          const col = renderColumnRef(nullTest.operand);
+          if (col === null) return null;
+          const fn = nullTest.negated ? "isNotNull" : "isNull";
+          ops.add(fn);
+          return `${fn}(${col})`;
+        }
+      }
       // A5 temporal — a `datetime ± duration` side is an sql`…` fragment
       // that composes on EITHER side of the comparison, against a column, a
       // bound value, or another fragment (`this.due + days(1) < q`,

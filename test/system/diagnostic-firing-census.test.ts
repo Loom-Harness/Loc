@@ -314,21 +314,6 @@ system Billder {
   resource b { for: Accounts, kind: state, use: primary }
   deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
 }`,
-  "loom.containment-cycle": `
-system X {
-  subdomain S { context C {
-    aggregate Node1 with crudish {
-      label: string
-      derived display: string = label
-      contains kids: Child[]
-      entity Child { label: string  contains kids: Child[] }
-    }
-    repository Node1s for Node1 { }
-  } }
-  storage p { type: postgres }
-  resource r { for: C, kind: state, use: p }
-  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
-}`,
 
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
@@ -465,7 +450,69 @@ system S {
     }
     repository Invoices for Invoice { }`),
 
+  // --- create call sites ---------------------------------------------------
+  // An invariant over a CONTAINED collection cannot be satisfied from the create
+  // input, so the aggregate is not constructible and every backend emits no
+  // `static create(...)` — while the unit-test emitter kept emitting the call.
+  "loom.create-call-not-constructible": repoOnly(`    aggregate Order {
+      currency: string
+      contains lines: Line[]
+      derived display: string = currency
+      invariant lines.all(l => l.currency == currency)
+      entity Line { currency: string }
+      test "an order can be built" {
+        let o = Order.create({ currency: "EUR" })
+        expect(o.display).toBe("EUR")
+      }
+    }
+    repository Orders for Order { }`),
+
+  // A create call site that omits a REQUIRED create-input field.  The factory
+  // input is the field-derived contract, so the emitted `.test.ts` fails the
+  // generated project's own tsc (TS2345, "Property 'binCode' is missing").
+  "loom.create-call-missing-field": repoOnly(`    aggregate Part {
+      sku: string
+      binCode: string
+      onHand: int
+      derived display: string = sku
+      test "part is built" {
+        let p = Part.create({ sku: "a", onHand: 1 })
+        expect(p.display).toBe("a")
+      }
+    }
+    repository Parts for Part { }`),
+
   // --- structural ---------------------------------------------------------
+  // Two entity parts that contain each other.  `contains` is ownership, so the
+  // graph must be a tree; the cycle used to parse clean and then blow the JS
+  // stack inside the TypeScript repository emitter's `nestedContainLoads`.
+  // This census keys by bare code, so `loom.containment-cycle` gets ONE fixture.
+  // Two arrived at once — a direct self-cycle and this INDIRECT one (X -> Y -> X).
+  // The indirect chain is kept because it is the harder case: an implementation
+  // that walks only one level catches the direct cycle and misses this.  The
+  // direct case keeps its own coverage in `test/ir/containment-cycle.test.ts`
+  // ("direct self-containment raises loom.containment-cycle").
+  "loom.containment-cycle": repoOnly(`    aggregate A {
+      n: string
+      contains xs: X[]
+      derived display: string = n
+      entity X { contains ys: Y[] }
+      entity Y { contains zs: X[] }
+    }
+    repository As for A { }`),
+
+  // A cross-aggregate invariant that reads through a repository.  It validated
+  // clean and emitted `Technicians.getById(...)` into the per-instance floor —
+  // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
+  // rule was silently emitted nowhere at all.
+  "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
+    aggregate WorkOrder with crudish {
+      technicianId: Technician id
+      invariant Technicians.getById(technicianId).skill.length > 0
+    }
+    repository Technicians for Technician { }
+    repository WorkOrders for WorkOrder { }`),
+
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
   // saw the site, because its `message` was a shorthand property.
@@ -2088,6 +2135,53 @@ system S {
   "loom.throw-kind-outside-tothrow": throwKindProbe({
     unitBody: `          expect(wo.reference).toBe(invariant)`,
   }),
+  // --- M-T5.36 / P11b: the absence pair + containment ----------------------
+  // `toBeAbsent()` is a claim about a SERIALIZED PAYLOAD, so it is e2e-only:
+  // a unit `test` asserts against an in-memory aggregate whose declared fields
+  // always exist.  Fire it from the unit tier, which is the refusal.
+  "loom.unit-absent-invalid": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBeAbsent()`,
+  }),
+  // `toContain` has exactly two lowerings, picked by the subject's type
+  // (collection membership / string substring).  An ENUM subject is neither,
+  // so it has no lowering and is refused at the IR, where the resolved type is
+  // available.
+  "loom.contain-receiver-invalid": throwKindProbe({
+    unitBody: `          expect(wo.status).toContain("Draft")`,
+  }),
+  // `toBeAbsent()` rewrites onto the receiver (`"<key>" in <obj>`), so it needs
+  // a FIELD READ to name a key.  A bare let-bound name supplies none — and in
+  // the e2e tier, which is the only one where the matcher is legal at all.
+  "loom.absent-receiver-invalid": throwKindProbe({
+    e2eTest: `    expect(wo).toBeAbsent()`,
+  }),
+  // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
+  // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
+  // absence spelling is observable there.  Needs a full react-targeting system,
+  // because the diagnostic reads the target deployable's platform.
+  "loom.e2e-ui-absence-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot assert an absence" against webApp {
+    let t = ui.technicians.create({ name: "Grace" })
+    let read = ui.technicians.getById(t)
+    expect(read.name).toBeNull()
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
@@ -2102,6 +2196,50 @@ system S {
     repository Invoices for Invoice { }
     seed default { Invoice { label: "Seeded" } }
   } }
+}`,
+  // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
+  // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
+  // so — the admin-only `find all` next to it is no protection at all.
+  "loom.default-deny-by-id-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+    repository Secrets for Secret {
+      find all(): Secret[] requires currentUser.role == "admin"
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
+  // projection under the LANGUAGE-DEFAULT `enforcement: opt` — 0 errors /
+  // 0 warnings before the gate, while the emitted route served every
+  // tenant's revenue to any authenticated caller.
+  "loom.tenancy-filter-bypass": `
+system S {
+  user { id: guid  orgId: string }
+  auth { enforcement: opt  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  tenancy by user.orgId of Org
+  subdomain Ops { context Work {
+    aggregate Org with crudish { name: string }
+    aggregate WorkOrder with tenantOwned, crudish { ref: string  amount: money }
+    repository Orgs for Org { }
+    repository WorkOrders for WorkOrder { }
+    projection PlatformRevenue {
+      revenue: money
+      from WorkOrder as w ignoring tenantOwned
+      select revenue = sum(w.amount)
+    }
+  } }
+  api Api from Ops
+  storage pg { type: postgres }
+  resource st { for: Work, kind: state, use: pg }
+  deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
   // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
@@ -2576,6 +2714,13 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // unsupported-primitive arm and the two procedural packs' missing-renderer
   // fallback.
   "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  // Phase ⑨, and not reachable from a `.ddd` at all: the discarded-backfill
+  // invariant (F-018 §4) needs a BASELINE SNAPSHOT to diff against — one
+  // generation's schema plus a second source that adds the backfilled column.
+  // `validate()` has no baseline, so no fixture here can drive it. The pointed
+  // -at file builds the pair and asserts the code, both directions (it also
+  // pins the inert cases that must stay silent).
+  "loom.migration-backfill-discarded": "test/ir/migrations-builder.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 

@@ -76,7 +76,7 @@ describe("feliz invariant validation — numeric bounds", () => {
     // `Required`'s business and `"abc"` is the parse guard's, each with its own
     // message.  The rungs are ordered so those fire first.
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
-    const line = fs.split("\n").find((l) => l.includes("productFormQtyError"));
+    const line = fs.split("\n").find((l) => l.includes("productCreateFormQtyError"));
     const body = fs.split("\n")[fs.split("\n").indexOf(line!) + 1]!;
     expect(body.indexOf('Some "Required"')).toBeLessThan(
       body.indexOf('Some "Must be a whole number"'),
@@ -122,8 +122,8 @@ describe("feliz invariant validation — length and regex", () => {
     );
     expect(fs).toContain('then Some "Must be at most 10 characters"');
     // The view seam agrees — onBlur, aria, and the inline error element.
-    expect(fs).toContain('dispatch (TouchProductForm "note")');
-    expect(fs).toContain("Validation.productFormNoteError model.ProductForm");
+    expect(fs).toContain('dispatch (TouchProductCreateForm "note")');
+    expect(fs).toContain("Validation.productCreateFormNoteError model.ProductCreateForm");
     // An empty optional cell is a legitimate omission: the rule skips it.
     expect(fs).toContain("not (System.String.IsNullOrEmpty form.note) && cpLength form.note > 10");
   });

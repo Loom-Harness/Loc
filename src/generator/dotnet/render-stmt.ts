@@ -64,7 +64,7 @@ export function renderCsStatementChunks(
 // backend's chunk-producing renderer shares the one cursor walk.  Re-exported
 // here so call sites in this backend's emitters can import it alongside
 // `renderCsStatementChunks` from a single module.
-export { statementSubRegions } from "../_trace/sourcemap.js";
+export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.js";
 
 /** Namespaces a statement body reaches into beyond the SDK's implicit
  *  usings — the union of `collectCsExprUsings` over every expression

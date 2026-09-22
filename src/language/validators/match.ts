@@ -179,6 +179,47 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       }
       continue;
     }
+    // `toBeAbsent()` — E2E ONLY, the same tier split `toBeSameInstant` above
+    // takes and for the same underlying reason: it is a claim about a
+    // SERIALIZED PAYLOAD.  "The key is not in the body" needs a body; a unit
+    // `test` asserts against an in-memory aggregate whose declared fields
+    // always exist, and on three of the five backends (C# `int?`, Java
+    // `Integer`, an Elixir struct's `nil` default) in-process absence is not
+    // observable even in principle.  Lowering it there could only degrade it
+    // to a null check — making it a silent synonym for `toBeNull()`, one name
+    // carrying two strengths of claim, which is the #2959 defect — or emit an
+    // assertion that can never pass.  Refuse at the author's own span.
+    //
+    // `toBeNull()` and `toContain()` are legal in BOTH tiers; only the
+    // wire-spelling half of the absence pair is split.
+    if (matcher.member === "toBeAbsent" || matcher.member === "toBeNull") {
+      const absenceContainer = stmt.$container;
+      if (matcher.member === "toBeAbsent" && !isTestE2E(absenceContainer)) {
+        accept("error", diagMessage("loom.unit-absent-invalid", {}), {
+          node: matcher,
+          property: "member",
+          code: "loom.unit-absent-invalid",
+        });
+        continue;
+      }
+      // A `test e2e` block that lowers to the UI renderer asserts against
+      // RENDERED TEXT, not a payload — `ui-e2e-render.ts` puts a value matcher
+      // on `(await <handle>.field("x").innerText())`, which is always a string.
+      // `toBeNull()` there can never hold and `toBeAbsent()` is not a runtime
+      // matcher at all, so the emitted spec would fail to run.  Refuse both at
+      // the source span rather than shipping an assertion that cannot pass —
+      // the same ruling `loom.e2e-ui-throw-invalid` makes for `toThrow`
+      // (audit 2026-09-13 F7).  `toContain` is NOT refused here: a substring of
+      // the rendered text is a real, useful claim.
+      if (isTestE2E(absenceContainer) && lowersToUiSpec(absenceContainer)) {
+        accept("error", diagMessage("loom.e2e-ui-absence-invalid", { matcher: matcher.member }), {
+          node: matcher,
+          property: "member",
+          code: "loom.e2e-ui-absence-invalid",
+        });
+      }
+      continue;
+    }
     if (matcher.member !== "toThrow") continue;
     // `toThrow(<kind>)` — the failure RUNG (`precondition` / `invariant`).
     // UNIT TIER ONLY.  In-process the rung is observable: elixir carries a
