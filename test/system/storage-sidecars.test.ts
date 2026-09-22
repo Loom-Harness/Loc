@@ -30,9 +30,13 @@ describe("storage sidecars in docker-compose", () => {
   it("emits a minio service + volume for an s3 storage and a rabbitmq service", async () => {
     const { files } = generateSystems(await parseValid(SRC));
     const compose = files.get("docker-compose.yml")!;
-    expect(compose).toMatch(/image: minio\/minio:latest/);
+    // quay.io, not docker.io — MinIO's Docker Hub repository no longer exists
+    // (`pull access denied for minio/minio`), and a failed pull aborts the
+    // whole `docker compose up`, interrupting the other services' pulls too.
+    expect(compose).toMatch(/image: quay\.io\/minio\/minio:latest/);
+    expect(compose).not.toMatch(/image: minio\/minio/);
     expect(compose).toMatch(/image: rabbitmq:3-management/);
-    expect(compose).toMatch(/files:\n {4}image: minio/);
+    expect(compose).toMatch(/files:\n {4}image: quay\.io\/minio/);
     expect(compose).toMatch(/bus:\n {4}image: rabbitmq/);
     // the postgres db service + its volume are still present
     expect(compose).toMatch(/image: postgres:18-alpine/);

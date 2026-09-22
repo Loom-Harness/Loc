@@ -34,7 +34,14 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import {
   paramPropTsType,
@@ -248,7 +255,7 @@ function renderFormOpWiring(
     aggregateNameCamel: lowerFirst(agg.name),
     opName: op.name,
     opPascal,
-    opCamel: lowerFirst(op.name),
+    opCamel: escapeTsIdent(lowerFirst(op.name)),
     idExpr,
     humanOp: humanize(op.name),
     // The dialog title: the authored `Modal { title: … }` (already translated,

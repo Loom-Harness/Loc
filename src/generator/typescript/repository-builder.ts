@@ -142,7 +142,6 @@ export function buildRepositoryFile(
   // Shared with the MikroORM + document builders (`projection-finds.ts`), which
   // must emit the same method names for the same routes.
   const projectionFinds: FindIR[] = synthProjectionFinds(agg.name, ctx);
-
   // Individual methods, hoisted so the same strings feed BOTH the class body
   // AND the derived repository PORT (audit S7 — the concrete `implements` a
   // domain-side `<Agg>RepositoryPort`; the members are extracted from these

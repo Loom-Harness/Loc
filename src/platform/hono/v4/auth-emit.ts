@@ -1,4 +1,4 @@
-import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import type {
@@ -149,15 +149,6 @@ function authValueExpr(v: AuthValueIR | undefined, fallback = '""'): string {
 function envOverridableExpr(envVar: string, v: AuthValueIR | undefined): string {
   if (v?.kind === "env" && v.env === envVar) return authValueExpr(v);
   return `process.env.${envVar} ?? ${authValueExpr(v)}`;
-}
-
-/** The IdP claim path projected onto a given `user { … }` field.  An
- *  explicit `claims:` mapping wins; otherwise `id` defaults to the
- *  standard `sub` claim and every other field reads its own name. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
 }
 
 /** The `Ids` namespace import an auth module needs when the claim shape names

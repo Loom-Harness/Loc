@@ -377,6 +377,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `Abstract aggregate '${p.name}' cannot declare a '${p.kw}' action — abstract ` +
     `bases are never instantiated and have no polymorphic dispatch in v1. ` +
     `Declare it on each concrete subtype.`,
+  // A containment graph must be a tree: an aggregate is loaded whole, so a part
+  // that contains itself names a value with no finite serialisation.  The
+  // message carries the CHAIN because a two-part cycle is obvious and a
+  // three-part one is not, and it names the shape that does work — the natural
+  // domains here (sub-task tree, bill of materials, threaded comment) are ones
+  // an author will want to model some other way, not abandon.
+  // The tenant registry's id IS the tenant identity, so the signup loop starts
+  // by creating a registry row.  No create path means the first tenant can
+  // never exist — a bootstrap that cannot start, which is not obvious from the
+  // model and was not reported.
+  "loom.tenant-registry-not-constructible": (p: { name: unknown }) =>
+    `'${p.name}' is the tenant registry ('tenancy by user.<claim> of ${p.name}') but nothing can ` +
+    `create one: it declares no 'create', no workflow saves one, and no seed names it, so the ` +
+    `generated API is read-only. A tenant's claim value IS a ${p.name} row's id, so with no way ` +
+    `to create one the first tenant can never exist. Add 'with crudish' (or declare a 'create') ` +
+    `to open the signup loop, or seed the registry if tenants are provisioned out of band.`,
+
+  "loom.containment-cycle": (p: { agg: unknown; chain: unknown; part: unknown }) =>
+    `Aggregate '${p.agg}' has a containment cycle: ${p.chain}. An aggregate is loaded as a ` +
+    `whole, so a part that contains itself (directly or through a chain) has no finite shape. ` +
+    `Model the recursion as a separate aggregate with a self-reference instead — ` +
+    `'aggregate ${p.part} { parentId: ${p.part} id? … }' is a foreign key to the same table and ` +
+    `loads one level at a time.`,
+
   "loom.abstract-aggregate-contains": (p: { name: unknown; member: unknown }) =>
     `Abstract aggregate '${p.name}' cannot declare 'contains ${p.member}' — an abstract ` +
     `base owns no repository and its concretes do not inherit its parts, so the part's ` +
@@ -1008,6 +1032,18 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.unknown-permission": (p: { name: unknown }) =>
     `permissions.${p.name}: no permission named '${p.name}' is declared in this subdomain's 'permissions { ... }' block. ` +
     `Either add the declaration or fix the reference.`,
+  // A `ui` is a system member, so it sees the union of every subdomain's
+  // catalogue rather than one subdomain's — which means the name can fail to
+  // resolve for a SECOND reason the context-scoped wording cannot express: two
+  // subdomains declaring the same bare name give different runtime strings
+  // (`sales.read` / `billing.read`), and binding the gate to whichever lowered
+  // first would silently gate the page on the wrong subdomain's permission.
+  "loom.unknown-permission#ui": (p: { name: unknown }) =>
+    `permissions.${p.name}: no permission named '${p.name}' resolves from a 'ui'. ` +
+    `A ui sees every subdomain's 'permissions { ... }' catalogue, so either no subdomain ` +
+    `declares '${p.name}', or more than one does and the bare name is ambiguous — ` +
+    `two subdomains declaring it produce different runtime strings. ` +
+    `Declare it in exactly one subdomain, or rename so the gate names a single permission.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/template.ts

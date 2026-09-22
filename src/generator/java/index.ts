@@ -44,6 +44,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -73,6 +74,7 @@ import {
 } from "./capability-filter.js";
 import {
   renderApiExceptionAdvice,
+  renderIfMatchHeaderParser,
   renderJavaController,
   renderNoNulCharConstraint,
   renderStaticSubpathMethodFilter,
@@ -469,6 +471,12 @@ function emitProjectFromContexts(
   // byte, so without a guard the driver's refusal escapes as a 500. Emitted
   // unconditionally: every project has request DTOs with strings.
   place("NoNulChar.java", "api-common", renderNoNulCharConstraint(basePkg));
+  // F-023 — the `If-Match` optimistic-concurrency precondition parser.  Only a
+  // `versioned` aggregate's controller binds the header, so the class is
+  // emitted only then (a project without one is byte-identical).
+  if (contexts.some((c) => c.aggregates.some(aggregateIsVersioned))) {
+    place("IfMatch.java", "api-common", renderIfMatchHeaderParser(basePkg));
+  }
   place("Paged.java", "domain-common", renderPagedRecord(basePkg));
   // File upload/download (M-T1.2): a hosted File field ⇒ emit the shared FileRef
   // record; the bound objectStore ⇒ mount root POST /files / GET /files/{key}

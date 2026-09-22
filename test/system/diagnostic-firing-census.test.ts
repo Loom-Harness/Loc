@@ -295,6 +295,41 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A part that contains itself.  The natural domain is ordinary (a sub-task
+  // tree), and before the check this parsed clean and then killed `generate`
+  // with a bare `RangeError: Maximum call stack size exceeded`.
+  // A tenancy registry nothing can create — the signup loop's step one is
+  // missing, so the first tenant can never exist.
+  "loom.tenant-registry-not-constructible": `
+system Billder {
+  user { id: guid  email: string  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Billing {
+    context Accounts {
+      aggregate Organization { name: string }
+      repository Organizations for Organization { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Accounts, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
+}`,
+  "loom.containment-cycle": `
+system X {
+  subdomain S { context C {
+    aggregate Node1 with crudish {
+      label: string
+      derived display: string = label
+      contains kids: Child[]
+      entity Child { label: string  contains kids: Child[] }
+    }
+    repository Node1s for Node1 { }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`,
+
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on

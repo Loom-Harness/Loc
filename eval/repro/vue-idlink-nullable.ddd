@@ -1,0 +1,20 @@
+// A NULLABLE `X id` column rendered in a scaffolded Vue list/detail emits
+// <router-link :title="row.assetId"> where assetId is `string | null | undefined`
+// → `vue-tsc` (the project's own `npm run build`) fails.
+system X {
+  subdomain S { context C {
+    aggregate Asset with crudish { serial: string  derived display: string = serial }
+    aggregate WorkOrder with crudish {
+      assetId: Asset id?
+      note: string
+      derived display: string = note
+    }
+    repository Assets for Asset { }
+    repository WorkOrders for WorkOrder { }
+  } }
+  ui Web with scaffold(subdomains: [S]) { framework: vue }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+  deployable web { platform: vue, targets: api, ui: Web, design: vuetify, port: 3002 }
+}
