@@ -230,7 +230,14 @@ Documented in `docs/tools.md` § "Local enforcement hooks" (the file had no hook
 | `node scripts/mission-counts.mjs --check` | exit 0 (regenerated: **167 live / 115 archived**) |
 | `node scripts/ledger-counts.mjs --check` | exit 0 |
 | `node docs/build.mjs` | exit 0 |
-| `npm test` | redirected with the exit code. **First run: 1 failed / 26 072 passed / 6 expected-fail / 1 186 skipped (2 266 files), 672 s.** The single failure was `archived-docs-fence.test.ts` on `docs/new-plan/T9-toolchain-health.md -> waves/handoffs/wave-c4-4f-hygiene.md` — the mission bodies link this hand-off note, and the note had not been written yet. Green in isolation once the note landed (7/7), and the whole suite re-run clean afterwards. |
+| `npm test` | redirected with the exit code. **Final run on the final tree: `NPM_TEST_EXIT=0` — 2 178 files passed / 89 skipped (2 267), 26 075 passed / 6 expected-fail / 1 186 skipped (27 267), ~11 min.** No starvation timeouts, so nothing was re-run alone. |
+
+The first run had one failure, recorded because it is the only red this packet
+produced: `archived-docs-fence.test.ts` on
+`docs/new-plan/T9-toolchain-health.md -> waves/handoffs/wave-c4-4f-hygiene.md`.
+The mission bodies link this hand-off note and the note had not been written
+yet — a forward link to the packet's own deliverable. Green in isolation once
+the note landed (7/7) and in both subsequent full runs.
 
 ---
 
