@@ -143,6 +143,37 @@ system P {
   deployable web { platform: ${platform} targets: api port: 3001 }
 }`;
 
+/** A system whose only content is a `theme { … }` block carrying one bad
+ *  property — the shape every `theme` rule in the `ui.ts` drain (M-T9.56)
+ *  needs, and nothing else. */
+const themed = (props: string): string => `
+system S {
+  theme {
+    ${props}
+  }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+}`;
+
+/** A `ui { … }` whose members ARE the defect, over a minimal module + api so
+ *  an `api <P>: SubApi` parameter resolves.  `layouts` adds system-level
+ *  `layout` declarations for the slot rules. */
+const uiMembers = (members: string, opts: { layouts?: string } = {}): string => `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  api SubApi from Sub
+${opts.layouts ? `  ${opts.layouts}` : ""}
+  ui WebApp {
+    framework: react
+    ${members}
+  }
+}`;
+
 /** One aggregate carrying every shape the `statements.ts` drain (M-T9.56)
  *  needs to reach — a derived field, a collection, a value-object member and
  *  an event to `emit` — so each fixture is one line: the member whose body IS
@@ -1634,6 +1665,80 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `src/language/validators/ui.ts` ---------------
+  // The `theme { … }` block's five rules.  Each is one property in an
+  // otherwise-valid block, so the fixture's diagnostic set is exactly one.
+  "loom.theme-property-unknown": themed('bogus: "#fff"'),
+  "loom.theme-property-duplicate": themed('primary: "#3b82f6"\n    primary: "#3b82f6"'),
+  "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
+  "loom.theme-radius-invalid": themed('radius: "gigantic"'),
+  "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),
+  // The `ui { … }` member rules.
+  "loom.ui-api-param-duplicate": uiMembers("api Sales: SubApi\n    api Sales: SubApi"),
+  "loom.ui-api-unknown": uiMembers("api Ghost: NopeApi"),
+  "loom.ui-function-duplicate": uiMembers(
+    'function f(x: int): int extern from "./f"\n    function f(x: int): int extern from "./f"',
+  ),
+  "loom.ui-page-duplicate": uiMembers(
+    'page Twin { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    page Twin { route: "/b"  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-property-duplicate": uiMembers(
+    'page P { route: "/a"  route: "/b"  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-menu-key-unknown": uiMembers(
+    'page P { route: "/a"  menu { bogus: "x" }  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-layout-unknown": uiMembers(
+    'page P { route: "/a"  layout: Nonesuch  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.ui-menu-duplicate": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    menu { section "Main" { link P } }\n' +
+      '    menu { section "Other" { link P } }',
+  ),
+  "loom.menu-link-property-unknown": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    menu { section "Main" { link P { bogusKey: "x" } } }',
+  ),
+  // The `<apiParam>.<Aggregate>.<op>` body chain — an aggregate the api's
+  // module does not hold, and an operation the aggregate does not declare.
+  "loom.ui-api-aggregate-unknown": uiMembers(
+    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Ghost.create({ name: "x" }) } } }',
+  ),
+  "loom.ui-api-operation-unknown": uiMembers(
+    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Thing.explode({ name: "x" }) } } }',
+  ),
+  // `api` and `channel` parameters share ONE namespace on a ui, which is what
+  // this rule is for — hence a channel param colliding with an api param.
+  "loom.ui-param-duplicate": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
+  } }
+  api Api from D
+  ui WebApp {
+    api Live: Api
+    channel Live: C.Lifecycle
+    page Home { route: "/" body: Stack { Heading { "home" } } }
+  }
+}`,
+  // `layout <Name> { … }` — the reserved-name and slot-count rules.
+  "loom.layout-name-reserved": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
+    layouts: "layout default { main }",
+  }),
+  "loom.layout-main-slot-missing": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "x" } } }',
+    { layouts: 'layout NoMain { header { Text { "h" } } }' },
+  ),
+  // Both slugs: the `main` slot counted on its own, and a named slot repeated.
+  "loom.layout-slot-duplicate": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
+    layouts:
+      'layout TwoMain { main  main }\n  layout Chrome { main  header { Text { "h" } }  header { Text { "i" } } }',
+  }),
+
   // --- the M-T9.56 drain of `src/language/validators/deployable.ts` --------
   // 24 uncoded sites, all of them deployable-composition rules that used to
   // reach the user as `loom.unknown`.  One fixture each, over the shared

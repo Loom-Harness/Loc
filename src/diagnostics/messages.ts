@@ -1331,6 +1331,61 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.extern-component-has-body": (p: { name: unknown; externPath: unknown }) =>
     `Extern component '${p.name}' must not declare a 'body:' — its rendering is owned by the hand-written module at '${p.externPath}'. Remove the body, or drop 'extern from' to make it a normal component.`,
+  // --- the M-T9.56 drain of `ui.ts` ---------------------------------------
+  // The `theme { … }` block: an unknown key, a repeated key, and the three
+  // per-value menus (hex colour / radius / colorScheme).  Each menu is DERIVED
+  // from the same set the check tests against, never re-typed here.
+  "loom.theme-property-unknown": (p: { name: unknown; known: unknown }) =>
+    `unknown theme property '${p.name}'. Known properties: ${p.known}.`,
+  "loom.theme-property-duplicate": (p: { name: unknown }) =>
+    `theme property '${p.name}' declared more than once.`,
+  "loom.theme-color-invalid": (p: { name: unknown; value: unknown }) =>
+    `theme '${p.name}' must be a CSS hex color (#RGB, #RRGGBB, or #RRGGBBAA); got '${p.value}'.`,
+  "loom.theme-radius-invalid": (p: { known: unknown; value: unknown }) =>
+    `theme 'radius' must be one of ${p.known}; got '${p.value}'.`,
+  "loom.theme-color-scheme-invalid": (p: { known: unknown; value: unknown }) =>
+    `theme 'colorScheme' must be one of ${p.known}; got '${p.value}'.`,
+  "loom.ui-page-duplicate": (p: { name: unknown; scope: unknown }) =>
+    `Duplicate page '${p.name}' in ${p.scope}. Pages within a scope (the ui top level or one area) must have unique names; an explicit override-by-name displaces a single scaffolded page, not another explicit one.`,
+  "loom.ui-menu-duplicate": (p: { name: unknown }) =>
+    `ui '${p.name}' declares more than one 'menu { ... }' block; keep just the first.`,
+  "loom.ui-api-param-duplicate": (p: { name: unknown; param: unknown }) =>
+    `ui '${p.name}' declares api parameter '${p.param}' more than once.`,
+  "loom.ui-api-unknown": (p: { name: unknown; apiName: unknown }) =>
+    `ui '${p.name}' references undeclared api '${p.apiName}'. Declare it at system scope as 'api ${p.apiName} from <Module>'.`,
+  // The ui's api and channel parameters share ONE namespace, so this fires for
+  // a channel param colliding with either kind — hence "parameter", not
+  // "channel parameter".
+  "loom.ui-param-duplicate": (p: { name: unknown; param: unknown }) =>
+    `ui '${p.name}' declares parameter '${p.param}' more than once.`,
+  "loom.ui-function-duplicate": (p: { name: unknown; fnName: unknown }) =>
+    `ui '${p.name}' declares function '${p.fnName}' more than once.`,
+  "loom.page-property-duplicate": (p: { name: unknown; prop: unknown }) =>
+    `Page '${p.name}' declares more than one '${p.prop}' property; keep just the first.`,
+  "loom.page-menu-key-unknown": (p: { key: unknown; name: unknown; known: unknown }) =>
+    `Unknown menu metadata key '${p.key}' on page '${p.name}'. Recognised keys: ${p.known}.`,
+  "loom.page-layout-unknown": (p: { layout: unknown; name: unknown; known: unknown }) =>
+    `Unknown layout '${p.layout}' on page '${p.name}'. Recognised: ${p.known}.`,
+  "loom.menu-link-property-unknown": (p: { prop: unknown; known: unknown }) =>
+    `Unknown menu link property '${p.prop}'. Recognised: ${p.known}.`,
+  "loom.ui-api-aggregate-unknown": (p: {
+    aggName: unknown;
+    apiName: unknown;
+    moduleName: unknown;
+  }) => `Aggregate '${p.aggName}' not found in api '${p.apiName}' (subdomain '${p.moduleName}').`,
+  "loom.ui-api-operation-unknown": (p: { op: unknown; aggName: unknown; allowed: unknown }) =>
+    `Operation '${p.op}' is not declared on aggregate '${p.aggName}'. Available: ${p.allowed}.`,
+  "loom.layout-name-reserved": (p: { name: unknown }) =>
+    `Layout name '${p.name}' shadows a reserved layout preset. Pick a different name.`,
+  "loom.layout-main-slot-missing": (p: { name: unknown }) =>
+    `Layout '${p.name}' must declare a 'main' slot (the page-body Outlet position).`,
+  // Two slugs, one code: the `main` slot is a distinct grammar node, so the
+  // repeat check counts it separately — but the rule ("a layout declares each
+  // slot once") is the same one.
+  "loom.layout-slot-duplicate#main": (p: { name: unknown }) =>
+    `Layout '${p.name}' declares more than one 'main' slot; keep just the first.`,
+  "loom.layout-slot-duplicate": (p: { name: unknown; slot: unknown }) =>
+    `Layout '${p.name}' declares more than one '${p.slot}' slot; keep just the first.`,
   "loom.component-missing-body": (p: { name: unknown }) =>
     `Component '${p.name}' requires a 'body:' (or mark it 'extern from "<path>"' to hand rendering to a hand-written module).`,
   "loom.duplicate-action": (p: { name: unknown; surface: unknown }) =>
