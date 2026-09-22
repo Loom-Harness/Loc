@@ -139,6 +139,35 @@ export const DIAGNOSTIC_MESSAGES = {
     "to the read it is meant to widen.",
 
   // ----------------------------------------------------------------------
+  // src/language/validators/callable-sites.ts
+  // ----------------------------------------------------------------------
+  // ONE code, one `#<slug>` arm per SITE KIND — because the reason a modifier
+  // is refused is a property of what the site IS, not of the modifier.  The
+  // legality itself is declared data (`CALLABLE_SITES`,
+  // `src/language/callable-sites.ts`); this is only its wording.  Before
+  // M-T5.21 these were bare parse errors with nothing to say why.
+  "loom.callable-modifier-not-allowed-here#lifecycle": (p: { feature: unknown; label: unknown }) =>
+    `'${p.feature}' is not allowed on ${p.label}. A lifecycle action has no LOADED instance to gate: the framework allocates (create) or removes (destroy) around the body, so a 'when' canCommand predicate has nothing to evaluate and a 'requires' gate belongs on the route that reaches it. 'audited' is the one modifier a lifecycle action carries. Drop the modifier, or move the rule to the operation that owns the state.`,
+  "loom.callable-modifier-not-allowed-here#applier": (p: { feature: unknown; label: unknown }) =>
+    `'${p.feature}' is not allowed on ${p.label}. An applier is a PURE FOLD replayed from the event log — it must produce the same state on every replay — so nothing that can refuse the fold ('requires' / 'when'), hand it to a hand-written module ('extern') or write a second record ('audited') belongs on it. The command that emitted the event is where those rules go.`,
+  "loom.callable-modifier-not-allowed-here#function": (p: { feature: unknown; label: unknown }) =>
+    `'${p.feature}' is not allowed on ${p.label}. A 'function' is a pure helper over its parameters: no receiver to gate, no route to authorize, no persistence to audit. Put the rule on the operation that calls it.`,
+  "loom.callable-modifier-not-allowed-here#handler": (p: { feature: unknown; label: unknown }) =>
+    `'${p.feature}' is not allowed on ${p.label}. A handler is dispatched by the API layer, not routed per instance, so it carries only 'extern' (the bodyless, user-implemented form). Gate the aggregate operation the handler calls instead.`,
+  "loom.callable-modifier-not-allowed-here#domain-service": (p: {
+    feature: unknown;
+    label: unknown;
+  }) =>
+    `'${p.feature}' is not allowed on ${p.label}. A domain service is a stateless, context-internal calculator: no instance to gate, no route to authorize, no persistence to audit — and its body already refuses repository / extern / emit / this-write. Move the rule to the aggregate operation that owns the state.`,
+  "loom.callable-modifier-not-allowed-here#workflow": (p: { feature: unknown; label: unknown }) =>
+    `'${p.feature}' is not allowed on ${p.label}. A workflow member is orchestration, not an aggregate method: there is no 'this' for a 'when' canCommand gate to read, and the aggregate-only modifiers ('private' / 'extern' / 'audited') have no member to attach to. A workflow's command entries ('create' / 'handle') take 'requires'; the workflow header takes its own 'requires' for the instance READ.`,
+  "loom.callable-modifier-not-allowed-here#page-action": (p: {
+    feature: unknown;
+    label: unknown;
+  }) =>
+    `'${p.feature}' is not allowed on ${p.label}. A page or component 'action' runs in the browser, where the server-side modifiers mean nothing and nothing is enforceable. A page's own gate is the 'requires' page property; authorize the operation the action calls.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/channel.ts
   // ----------------------------------------------------------------------
   "loom.channel-key-missing-field": (p: { name: unknown; key: unknown; evName: unknown }) =>
