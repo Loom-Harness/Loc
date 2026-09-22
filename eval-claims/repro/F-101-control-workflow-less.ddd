@@ -1,0 +1,19 @@
+system S {
+  subdomain D {
+    context Ord {
+      aggregate Order with crudish { code: string  derived display: string = code }
+      repository Orders for Order { }
+      event OrderPlaced { order: Shipment id, at: datetime }
+      channel Lifecycle { carries: OrderPlaced  delivery: queue  retention: work }
+      aggregate Shipment with crudish { code2: string
+        operation go() { emit OrderPlaced { order: id, at: now() } }
+      }
+      repository Shipments for Shipment { }
+    }
+  }
+  storage primary { type: postgres }
+  storage bus { type: rabbitmq }
+  channelSource lifeBus { for: Lifecycle, use: bus }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Ord], dataSources: [ordState], port: 3000, channels: [lifeBus] }
+}

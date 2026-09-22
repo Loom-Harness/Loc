@@ -1,0 +1,21 @@
+system S {
+ subdomain D {
+  context C {
+    aggregate A with crudish { code: string  derived display: string = code }
+    aggregate B2 with crudish { code: string  derived display: string = code }
+    aggregate R with crudish { a: A id  n: int
+      operation retarget(x: A id) { a := x }
+      operation bump(by: int) { n := n + by }
+    }
+    repository As for A { } repository B2s for B2 { } repository Rs for R { }
+    workflow wonky2 {
+      create(bid: B2 id) {
+        let r = R.create({ a: bid, n: 1 })
+      }
+    }
+  }
+ }
+ storage primary { type: postgres }
+ resource st { for: C, kind: state, use: primary }
+ deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

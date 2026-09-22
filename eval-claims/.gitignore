@@ -1,0 +1,4 @@
+# Generated trees + installed deps — regenerate with
+#   node bin/cli.js generate system <v>/main.ddd -o <v>/out
+*/out/
+starter/

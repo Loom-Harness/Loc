@@ -1,0 +1,10 @@
+system S {
+ subdomain D { context C {
+   aggregate T with crudish { code: string  derived display: string = code }
+   repository Ts for T { }
+   workflow make { create(code: string, ignoredNote: string, ignoredQty: int) { let t = T.create({ code: code }) } }
+ } }
+ storage primary { type: postgres }
+ resource st { for: C, kind: state, use: primary }
+ deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

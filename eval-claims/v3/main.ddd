@@ -1,0 +1,416 @@
+// Assure — a unified claims platform.
+// Iteration 1: insurance policies + claim intake and adjudication.
+
+system Assure {
+
+  user {
+    id: guid
+    email: string
+    tenantId: string
+    permissions: string[]
+  }
+
+  auth {
+    enforcement: denyByDefault
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  }
+
+  tenancy by user.tenantId of Insurer
+
+  subdomain Insurance {
+
+    permissions { policyWrite, claimRead, claimAssess, claimApprove, payoutRelease }
+
+    context Tenants {
+      policy TenantAdmin(): bool = currentUser.permissions.contains(permissions.policyWrite)
+
+      aggregate Insurer with crudish(requires: TenantAdmin) {
+        name: string
+        derived display: string = name
+        invariant name.length > 0
+      }
+      repository Insurers for Insurer { }
+    }
+
+    context Policies {
+
+      enum PolicyStatus { Draft, Active, Lapsed, Cancelled }
+      enum CoverageKind { Collision, Theft, Fire, Liability, Travel }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+      }
+
+      valueobject Coverage {
+        kind: CoverageKind
+        limit: Money
+        deductible: Money
+        invariant limit.amount > 0
+      }
+
+      policy PolicyWriter(): bool = currentUser.permissions.contains(permissions.policyWrite)
+      policy ClaimReader(): bool = currentUser.permissions.contains(permissions.claimRead)
+
+      aggregate Policyholder with crudish(requires: PolicyWriter), tenantOwned {
+        fullName: string
+        email: string
+        invariant fullName.length > 0
+        invariant email.contains("@")
+        derived display: string = fullName
+      }
+
+      aggregate Policy with tenantOwned {
+        number: string
+        holder: Policyholder id
+        status: PolicyStatus
+        startsOn: datetime
+        endsOn: datetime
+        contains coverages: CoverageLine[]
+
+        invariant number.length > 0
+        invariant endsOn > startsOn
+
+        derived coverageCount: int = coverages.count
+        derived display: string = number
+
+        function isActive(): bool = status == Active
+
+        operation activate() {
+          requires PolicyWriter()
+          precondition status == Draft
+          precondition coverages.count > 0
+          status := Active
+          emit PolicyActivated { policy: id, at: now() }
+        }
+
+        operation cancel(reason: string) {
+          requires PolicyWriter()
+          precondition status == Active
+          status := Cancelled
+          emit PolicyCancelled { policy: id, reason: reason, at: now() }
+        }
+
+        entity CoverageLine {
+          cover: Coverage
+          note: string?
+        }
+      }
+
+      event PolicyActivated { policy: Policy id, at: datetime }
+      event PolicyCancelled { policy: Policy id, reason: string, at: datetime }
+
+      repository Policyholders for Policyholder { }
+      repository Policies for Policy { }
+
+      criterion ActivePolicies() of Policy = status == Active
+      criterion PoliciesOfHolder(h: Policyholder id) of Policy = holder == h
+
+      retrieval ActivePolicyList() of Policy {
+        where: ActivePolicies()
+        sort: [number asc]
+      }
+      retrieval HolderPolicies(h: Policyholder id) of Policy {
+        where: PoliciesOfHolder(h)
+        sort: [startsOn desc]
+      }
+    }
+
+    context Claims {
+
+      enum ClaimStatus { Submitted, UnderReview, Approved, Rejected, Paid, Withdrawn }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant amount >= 0
+      }
+
+      aggregate Claim with tenantOwned {
+        claimNumber: string
+        policy: Policy id
+        status: ClaimStatus
+        incidentOn: datetime
+        submittedAt: datetime
+        description: string
+        priority: int = 3
+        claimedTotal: money = money("0")
+        evidence: File?
+        contains lines: ClaimLine[]
+
+        invariant claimNumber.length > 0
+        invariant description.length >= 10
+
+        derived totalClaimed: money = lines.sum(l => l.claimed.amount)
+        derived lineCount: int = lines.count
+
+        operation startReview() {
+          requires currentUser.permissions.contains(permissions.claimAssess)
+          precondition status == Submitted
+          status := UnderReview
+        }
+
+        operation approve(approvedTotal: Money) {
+          requires currentUser.permissions.contains(permissions.claimApprove)
+          precondition status == UnderReview
+          precondition approvedTotal.amount > 0
+          status := Approved
+          emit ClaimApproved { claim: id, total: approvedTotal, at: now() }
+        }
+
+        operation reject(reason: string) {
+          requires currentUser.permissions.contains(permissions.claimAssess)
+          precondition status == UnderReview
+          precondition reason.length > 0
+          status := Rejected
+          emit ClaimRejected { claim: id, reason: reason, at: now() }
+        }
+
+        operation markPaid() {
+          requires true
+          precondition status == Approved
+          status := Paid
+        }
+
+        entity ClaimLine {
+          label: string
+          claimed: Money
+          approved: Money?
+        }
+      }
+
+      event ClaimApproved { claim: Claim id, total: Money, at: datetime }
+      event ClaimRejected { claim: Claim id, reason: string, at: datetime }
+
+      repository Claims for Claim { }
+
+      test "a submitted claim cannot be approved" for Claim {
+        let c = Claim.create({
+          claimNumber: "CLM-2",
+          policy: "01a0c81b-0000-7000-8000-000000000001",
+          status: Submitted,
+          incidentOn: now(),
+          submittedAt: now(),
+          description: "a long enough description",
+          priority: 1,
+          claimedTotal: money("10")
+        })
+        expect(c.approve(Money { amount: money("5"), currency: "EUR" })).toThrow(precondition)
+      }
+
+      test "review then approve moves the claim to Approved" for Claim {
+        let c = Claim.create({
+          claimNumber: "CLM-3",
+          policy: "01a0c81b-0000-7000-8000-000000000001",
+          status: Submitted,
+          incidentOn: now(),
+          submittedAt: now(),
+          description: "a long enough description",
+          priority: 1,
+          claimedTotal: money("10")
+        })
+        c.startReview()
+        c.approve(Money { amount: money("5"), currency: "EUR" })
+        expect(c.status).toBe(Approved)
+      }
+
+      workflow submitClaim transactional {
+        create(policy: Policy id, incidentOn: datetime, description: string) {
+          requires currentUser.permissions.contains(permissions.claimRead)
+          precondition description.length >= 10
+          let claim = Claim.create({
+            claimNumber: `CLM-{description.length}`,
+            policy: policy,
+            status: Submitted,
+            incidentOn: incidentOn,
+            submittedAt: now(),
+            description: description
+          })
+          emit ClaimSubmitted { claim: claim.id, policy: policy, at: now() }
+        }
+      }
+
+      event ClaimSubmitted { claim: Claim id, policy: Policy id, at: datetime }
+
+      channel ClaimEvents { carries: ClaimApproved, ClaimSubmitted  delivery: queue  retention: work }
+
+      // Return leg of the saga: the bank confirms, the claim closes.
+      workflow settleClaim requires currentUser.permissions.contains(permissions.claimRead) {
+        claimRef: Claim id
+        create(e: PayoutSent) by e.claim {
+          let c = Claims.getById(e.claim)
+          c.markPaid()
+        }
+      }
+
+      criterion OpenClaims() of Claim = status == Submitted || status == UnderReview
+
+      projection ClaimStats requires currentUser.permissions.contains(permissions.claimRead) {
+        open: int
+        exposure: money
+        from Claim as c
+        where OpenClaims
+        select open = count, exposure = sum(c.claimedTotal)
+      }
+      retrieval ClaimQueue() of Claim {
+        where: OpenClaims()
+        sort: [submittedAt asc]
+      }
+    }
+  }
+
+  subdomain Banking {
+
+    permissions { payoutView, payoutExecute }
+
+    context Payouts {
+
+      enum PayoutStatus { Pending, Sent, Failed }
+
+      valueobject BankAccount {
+        iban: string mask unless PayoutOperator()
+        holderName: string
+        invariant iban.length >= 15
+      }
+
+      policy PayoutOperator(): bool = currentUser.permissions.contains(permissions.payoutExecute)
+
+      aggregate Payout with tenantOwned {
+        claimRef: Claim id
+        amount: money
+        currency: string
+        account: BankAccount
+        status: PayoutStatus
+        requestedAt: datetime
+        derived display: string = `{currency} {amount}`
+
+        invariant amount > money("0")
+        invariant currency.length == 3
+
+        operation markSent(externalRef: string) {
+          requires PayoutOperator()
+          precondition status == Pending
+          status := Sent
+          emit PayoutSent { payout: id, claim: claimRef, externalRef: externalRef, at: now() }
+        }
+
+        operation markFailed(reason: string) {
+          requires PayoutOperator()
+          precondition status == Pending
+          status := Failed
+        }
+      }
+
+      event PayoutSent { payout: Payout id, claim: Claim id, externalRef: string, at: datetime }
+
+      channel PayoutEvents { carries: PayoutSent  delivery: queue  retention: work }
+
+      repository Payouts for Payout { }
+
+      // Saga: an approved claim becomes a pending payout.
+      workflow raisePayout requires currentUser.permissions.contains(permissions.payoutView) {
+        claimRef: Claim id
+        create(e: ClaimApproved) by e.claim {
+          let p = Payout.create({
+            claimRef: e.claim,
+            amount: e.total.amount,
+            currency: e.total.currency,
+            account: BankAccount { iban: "PENDING0000000000", holderName: "unknown" },
+            status: Pending,
+            requestedAt: e.at
+          })
+        }
+      }
+
+      criterion PendingPayouts() of Payout = status == Pending
+      retrieval PayoutQueue() of Payout {
+        where: PendingPayouts()
+        sort: [requestedAt asc]
+      }
+    }
+  }
+
+  api InsuranceApi from Insurance
+
+  ui Portal with scaffold(subdomains: [Insurance]) {
+
+    api Ins: InsuranceApi
+
+    page Workbench {
+      route: "/workbench"
+      title: "Claims workbench"
+      requires currentUser.permissions.contains(permissions.claimRead)
+      body: Stack {
+        Heading { "Adjuster workbench", level: 1 },
+        QueryView {
+          of: Ins.ClaimStats,
+          loading: Loader { },
+          error: Alert { "Could not load the claim queue" },
+          empty: Text { "Nothing in the queue" },
+          data: s => Group {
+            Stat { "Open claims", s.open },
+            Stat { "Exposure (EUR)", s.exposure.round(0) }
+          }
+        },
+        QueryView {
+          of: Ins.Claim.all,
+          loading: Loader { },
+          error: Alert { "Could not load claims" },
+          empty: Text { "No claims" },
+          data: rows => Table { rows: rows,
+            Column { "Claim", c => c.claimNumber },
+            Column { "Status", c => c.status },
+            Column { "Priority", c => c.priority }
+          }
+        }
+      }
+      menu { section: "Claims", label: "Workbench" }
+    }
+  }
+
+  storage primary { type: postgres }
+  storage blobs { type: s3, config: { bucket: "assure-evidence", region: "eu-central-1" } }
+  storage bus { type: rabbitmq }
+
+  channelSource claimBus { for: ClaimEvents, use: bus }
+  channelSource payoutBus { for: PayoutEvents, use: bus }
+  resource tenantState { for: Tenants, kind: state, use: primary }
+  resource policyState { for: Policies, kind: state, use: primary }
+  resource claimState { for: Claims, kind: state, use: primary }
+  resource claimFiles { for: Claims, kind: objectStore, use: blobs }
+  resource payoutState { for: Payouts, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Tenants, Policies, Claims],
+    dataSources: [tenantState, policyState, claimState, claimFiles],
+    serves: InsuranceApi,
+    port: 3000,
+    auth: required,
+    channels: [claimBus, payoutBus]
+  }
+
+  deployable payoutsApi {
+    platform: java,
+    contexts: [Payouts],
+    dataSources: [payoutState],
+    port: 3002,
+    auth: required,
+    channels: [claimBus, payoutBus]
+  }
+
+  deployable portal {
+    platform: react,
+    targets: api,
+    ui: Portal { Ins: api },
+    port: 3001,
+    auth: ui,
+    design: mantine
+  }
+}
+
+migration "claim-evolution" {
+  Claim.reference -> claimNumber
+}

@@ -1,0 +1,173 @@
+// Assure — a unified claims platform.
+// Iteration 1: insurance policies + claim intake and adjudication.
+
+system Assure {
+
+  subdomain Insurance {
+
+    context Policies {
+
+      enum PolicyStatus { Draft, Active, Lapsed, Cancelled }
+      enum CoverageKind { Collision, Theft, Fire, Liability, Travel }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+      }
+
+      valueobject Coverage {
+        kind: CoverageKind
+        limit: Money
+        deductible: Money
+        invariant limit.amount > 0
+      }
+
+      aggregate Policyholder with crudish {
+        fullName: string
+        email: string
+        invariant fullName.length > 0
+        invariant email.contains("@")
+        derived display: string = fullName
+      }
+
+      aggregate Policy {
+        number: string
+        holder: Policyholder id
+        status: PolicyStatus
+        startsOn: datetime
+        endsOn: datetime
+        contains coverages: CoverageLine[]
+
+        invariant number.length > 0
+        invariant endsOn > startsOn
+
+        derived coverageCount: int = coverages.count
+
+        function isActive(): bool = status == Active
+
+        operation activate() {
+          precondition status == Draft
+          precondition coverages.count > 0
+          status := Active
+          emit PolicyActivated { policy: id, at: now() }
+        }
+
+        operation cancel(reason: string) {
+          precondition status == Active
+          status := Cancelled
+          emit PolicyCancelled { policy: id, reason: reason, at: now() }
+        }
+
+        entity CoverageLine {
+          cover: Coverage
+          note: string?
+        }
+      }
+
+      event PolicyActivated { policy: Policy id, at: datetime }
+      event PolicyCancelled { policy: Policy id, reason: string, at: datetime }
+
+      repository Policyholders for Policyholder { }
+      repository Policies for Policy { }
+
+      criterion ActivePolicies() of Policy = status == Active
+      criterion PoliciesOfHolder(h: Policyholder id) of Policy = holder == h
+
+      retrieval ActivePolicyList() of Policy {
+        where: ActivePolicies()
+        sort: [number asc]
+      }
+      retrieval HolderPolicies(h: Policyholder id) of Policy {
+        where: PoliciesOfHolder(h)
+        sort: [startsOn desc]
+      }
+    }
+
+    context Claims {
+
+      enum ClaimStatus { Submitted, UnderReview, Approved, Rejected, Paid }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant amount >= 0
+      }
+
+      aggregate Claim {
+        reference: string
+        policyNumber: string
+        status: ClaimStatus
+        incidentOn: datetime
+        submittedAt: datetime
+        description: string
+        contains lines: ClaimLine[]
+
+        invariant reference.length > 0
+        invariant description.length >= 10
+
+        derived totalClaimed: money = lines.sum(l => l.claimed.amount)
+        derived lineCount: int = lines.count
+
+        operation startReview() {
+          precondition status == Submitted
+          status := UnderReview
+        }
+
+        operation approve(approvedTotal: Money) {
+          precondition status == UnderReview
+          precondition approvedTotal.amount > 0
+          status := Approved
+          emit ClaimApproved { claim: id, total: approvedTotal, at: now() }
+        }
+
+        operation reject(reason: string) {
+          precondition status == UnderReview
+          precondition reason.length > 0
+          status := Rejected
+          emit ClaimRejected { claim: id, reason: reason, at: now() }
+        }
+
+        entity ClaimLine {
+          label: string
+          claimed: Money
+          approved: Money?
+        }
+      }
+
+      event ClaimApproved { claim: Claim id, total: Money, at: datetime }
+      event ClaimRejected { claim: Claim id, reason: string, at: datetime }
+
+      repository Claims for Claim { }
+
+      criterion OpenClaims() of Claim = status == Submitted || status == UnderReview
+      retrieval ClaimQueue() of Claim {
+        where: OpenClaims()
+        sort: [submittedAt asc]
+      }
+    }
+  }
+
+  ui Portal with scaffold(subdomains: [Insurance]) {
+  }
+
+  storage primary { type: postgres }
+  resource policyState { for: Policies, kind: state, use: primary }
+  resource claimState { for: Claims, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Policies, Claims],
+    dataSources: [policyState, claimState],
+    port: 3000
+  }
+
+  deployable portal {
+    platform: react,
+    targets: api,
+    ui: Portal,
+    port: 3001,
+    design: mantine
+  }
+}

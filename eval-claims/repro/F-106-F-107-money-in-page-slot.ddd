@@ -1,0 +1,23 @@
+system S {
+  subdomain D {
+    context A {
+      aggregate Thing with crudish { code: string  price: money  derived display: string = code }
+      repository Things for Thing { }
+      criterion AllThings() of Thing = price > money("0")
+      projection Totals { n: int  gross: money  from Thing as t  where AllThings  select n = count, gross = sum(t.price) }
+    }
+  }
+  api DApi from D
+  ui U {
+    api Ap: DApi
+    page Home {
+      route: "/"
+      body: QueryView { of: Ap.Totals, loading: Loader { }, error: Alert { "e" }, empty: Text { "none" },
+        data: s => Group { Stat { "Count", s.n }, Stat { "Gross", s.gross } } }
+    }
+  }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable api { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: DApi }
+  deployable web { platform: react, targets: api, ui: U { Ap: api }, port: 3001, design: mantine }
+}

@@ -1,0 +1,20 @@
+system S {
+  subdomain D {
+    context A {
+      aggregate Thing with crudish { code: string  n: int  derived display: string = code }
+      repository Things for Thing { }
+      criterion AllThings() of Thing = n > 0
+      projection ThingStats { total: int  from Thing as t  where AllThings  select total = count }
+    }
+    context B {
+      valueobject Addr { street: string }
+      aggregate Place with crudish { where2: Addr  label: string  derived display: string = label }
+      repository Places for Place { }
+    }
+  }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  resource bState { for: B, kind: state, use: primary }
+  deployable apiA { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable apiB { platform: node, contexts: [B], dataSources: [bState], port: 3001 }
+}
