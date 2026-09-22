@@ -382,7 +382,8 @@ function emitColumn(
     const body = accessorArg.body;
     if (body) {
       if (body.kind === "call") {
-        cellJsx = walk(body, childCtx, depth);
+        // A cell renders exactly ONE value into the row — never a sequence.
+        cellJsx = walk(body, childCtx, depth, "value");
       } else if (body.kind === "literal" && body.lit === "string") {
         cellJsx = ctx.target.escapeText(body.value);
       } else {
