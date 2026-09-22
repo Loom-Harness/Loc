@@ -23,6 +23,15 @@
 // limitation, unrelated to these matchers) and skips the whole test body when
 // it meets one — which would silently drop elixir out of this comparison.  The
 // fixture reads `tags` without ever constructing one.
+//
+// WHY `tags` CARRIES AN `= []` DEFAULT.  `Doc.create({ title })` omits it, and
+// `loom.create-call-missing-field` now checks call sites against the
+// field-derived create-input contract.  Of that gate's three remedies —
+// supply it, default it, or make it optional — only a DEFAULT works here:
+// supplying it would put a list literal in test position (the thing the
+// paragraph above exists to avoid), and `string[]?` would change what the
+// containment assertions are asserting about.  The default sits in the field
+// declaration, not in test position, so the elixir leg still emits a body.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -34,7 +43,7 @@ system Probe {
       aggregate Doc with crudish {
         title: string
         estimate: int?
-        tags: string[]
+        tags: string[] = []
 
         test "absence and containment" {
           let d = Doc.create({ title: "Ship it" })
