@@ -7,13 +7,15 @@
 //     twice to reach context members through `system → subdomain`.  The `in`
 //     narrowing leaves a UNION of five member arrays, so every downstream
 //     `.find`/`.filter` sees `unknown`.  Worse, it silently returns the wrong
-//     level for a bare top-level `context` root — one suite's assertion never
-//     ran because of exactly that (see `operation-workflow-gate-parse`).
+//     level for a root shape it does not match — `operation-workflow-gate-parse`'s
+//     "an ungated workflow has no header gate" searched a `system`-rooted
+//     fixture this way, found nothing, and asserted NOTHING for as long as it
+//     has existed.
 //   - `(n as { name: string }).name` on an `AstNode`, which TS rejects outright
 //     as a non-overlapping assertion.
 //
-// `contextMembersOf` descends both root shapes explicitly, and `nodeName` reads
-// the optional `name` once instead of per call site.
+// `contextMembersOf` descends all three root shapes explicitly, and `nodeName`
+// reads the optional `name` once instead of per call site.
 
 import type { AstNode } from "langium";
 import {
