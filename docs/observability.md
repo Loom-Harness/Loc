@@ -150,7 +150,7 @@ This list is an excerpt of what the catalog ships; the file
 |---|---|---|---|
 | **Hono** | [pino](https://github.com/pinojs/pino) | Native — pino emits JSON by default | `req.log` child logger; envelope auto-bound |
 | **.NET** | `ILogger<T>` | `AddJsonConsole` — structured fields land under `State.<Pascal>` | `IHttpContextAccessor` + `BeginScope`; `Activity.Current.TraceId` carries `request_id` |
-| **Phoenix** | Elixir `Logger` | Custom `<App>.LogFormatter` — see [`lib/<app>/log_formatter.ex`](https://github.com/lemmit/Loc/blob/main/src/generator/phoenix-live-view/index.ts) | `:telemetry` handlers attach `[:phoenix, :endpoint, :start/:stop]` and translate to catalog identity; the `<App>.RequestContext` Plug stamps `correlation_id`/`scope_id` (and `actor_id` post-auth) into `Logger.metadata`, which the LogFormatter dumps onto every line — see [`request-context.md`](architecture/request-context.md) |
+| **Phoenix** | Elixir `Logger` | Custom `<App>.LogFormatter` — see [`lib/<app>/log_formatter.ex`](https://github.com/Loom-Harness/Loc/blob/main/src/generator/elixir/index.ts) | `:telemetry` handlers attach `[:phoenix, :endpoint, :start/:stop]` and translate to catalog identity; the `<App>.RequestContext` Plug stamps `correlation_id`/`scope_id` (and `actor_id` post-auth) into `Logger.metadata`, which the LogFormatter dumps onto every line — see [`request-context.md`](architecture/request-context.md) |
 | **Java** | slf4j + Logback | JSON layout; structured fields land on each line | `MDC` carries `request_id`/`scope_id`/`actor_id`, read at log time |
 | **Python** | stdlib `logging` | JSON formatter | a `contextvar` carries the per-frame ids, read by the formatter at log time |
 
@@ -285,6 +285,20 @@ docker compose -f docker-compose.yml -f docker-compose.obs.yml up
 Both are additive — a system with no backend deployable emits neither the
 overlay nor the scrape config, and the base compose does not advertise an
 overlay that is not there.
+
+**`/metrics` is UNAUTHENTICATED, deliberately** — it sits on every backend's
+auth-bypass list beside `/health` and `/ready`, on all five backends, whatever
+the deployable's `auth:` setting. The reason is that both halves of the scrape
+come out of the same generator: `monitoring/prometheus.yml` (and the k8s
+`prometheus.io/*` annotations) carry no credentials, so a gated `/metrics`
+would answer every scrape Loom itself configured with a 401 — a monitoring
+stack that cannot monitor (finding F-022). The alternative — minting a static
+bearer token into both the generated app and the generated scrape job — puts a
+long-lived shared secret in the repository and still protects nothing once the
+port is published. Treat `/metrics` as an operations surface: keep the backend
+port on the internal network (compose already publishes it only to localhost),
+or front it with an authenticating proxy. It carries counters, histograms and
+process gauges — never request bodies, principals or tenant data.
 
 ## Tracing (OpenTelemetry)
 
@@ -466,7 +480,7 @@ Phoenix where `:telemetry` carries it).
 
 ## Further reading
 
-- [`docs/old/proposals/observability.md`](https://github.com/lemmit/Loc/blob/main/docs/old/proposals/observability.md)
+- [`docs/old/proposals/observability.md`](https://github.com/Loom-Harness/Loc/blob/main/docs/old/proposals/observability.md)
   — design rationale, level-as-concept analysis.  (`proposals/`
   isn't deployed to the docs site; link points at GitHub.)
 - [`docs/traceability.md`](./traceability.md) — separate concern;

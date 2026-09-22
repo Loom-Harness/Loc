@@ -1,4 +1,3 @@
-import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -15,6 +14,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
+import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { aggregateIsAudited } from "./emit/audit-stamp.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import {
@@ -23,9 +23,7 @@ import {
   findManyByIdsMethod,
   findQueryMethod,
   kindPredicate,
-  lowerToDrizzle,
   nonPrincipalContextFilterEntries,
-  nonPrincipalContextFilters,
   reifiableCriterion,
   renderCriterionFn,
   repoTableName,
@@ -61,35 +59,27 @@ export function buildRepositoryFile(
   ctx: EnrichedBoundedContextIR,
   emitTrace = false,
 ): string {
-  // Walk every find's filter (and any matching capability filters — both
-  // lower to Drizzle predicates on the same table) to figure out
-  // which Drizzle operators we'll need.  Default operators (eq / and
-  // / inArray) are always pulled in; the lowering may add ne / gt /
-  // gte / lt / lte / or / not depending on the expression shape.
-  const drizzleOps = new Set<string>(["eq", "and", "inArray"]);
-  // A paged find runs a `count()` aggregate for its total (P3b).  Added as a
-  // candidate; the import narrower below keeps it only if `count(` is emitted.
-  // A paged find runs a `count()` for the total and an `asc`/`desc` ORDER BY
-  // for the server-side sort (M-T2.6).  Seed all three; the body-scan narrower
-  // below drops any that don't actually appear in the emitted method.
-  if ((repo?.finds ?? []).some((f) => pagedReturn(f.returnType))) {
-    drizzleOps.add("count");
-    drizzleOps.add("asc");
-    drizzleOps.add("desc");
-  }
-  const allFilters = [
-    ...(repo?.finds ?? [])
-      .map((f) => f.filter)
-      .filter((x): x is import("../../ir/types/loom-ir.js").ExprIR => !!x),
-    // Non-principal capability filters (`filter !this.isDeleted`) AND
-    // into every root read; include them in the ops walk so the import
-    // narrower keeps `and` / `not` / comparison helpers they need.
-    ...nonPrincipalContextFilters(agg),
-  ];
-  for (const f of allFilters) {
-    const lowered = lowerToDrizzle(f, lowerFirst(plural(agg.name)), ctx);
-    if (lowered) for (const op of lowered.ops) drizzleOps.add(op);
-  }
+  // The `drizzle-orm` import is derived from the RENDERED BODY at the bottom of
+  // this function (`drizzleImportLine`), not from a candidate walk up here.
+  //
+  // It used to be both: a hand-kept candidate set accumulated from the IR
+  // shapes this file expects to render, intersected with a scan of what it
+  // actually rendered.  The intersection was sound; the candidate half was a
+  // SECOND enumeration of "what this file renders", and it drifted.  Query-time
+  // projections synthesise repository reads (`synthProjectionFinds` below) that
+  // render through the very same `findQueryMethod` as a declared find — but
+  // only `repo.finds` was ever walked, so `projection … where t.status != Closed`
+  // emitted `.where(ne(…))` into a file importing `and, asc, count, desc, eq,
+  // inArray` and nothing else: `TS2304: Cannot find name 'ne'`, from a
+  // `generate system` that reported `0 error(s)` (eval F-009).  Deriving from
+  // the emitted text is the only description of "what this file renders" that
+  // cannot fall behind the render sites.
+  //
+  // This set survives ONLY because `contextFilterPredicate`,
+  // `getByIdMethod` and the write-scope guard take it as a write-only
+  // out-parameter.  Nothing reads it back; adding to it no longer changes the
+  // header one way or the other.
+  const drizzleOps = new Set<string>();
   // Context retrievals (retrieval.md) targeting this aggregate emit a
   // `run<Name>` method.  Their `where` lowers to Drizzle (same oracle as
   // finds, so collect its ops), and a non-empty `sort` pulls in `asc` /
@@ -97,11 +87,6 @@ export function buildRepositoryFile(
   const aggRetrievals = (ctx.retrievals ?? []).filter(
     (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
   );
-  for (const r of aggRetrievals) {
-    const lowered = lowerToDrizzle(r.where, lowerFirst(plural(agg.name)), ctx);
-    if (lowered) for (const op of lowered.ops) drizzleOps.add(op);
-    if (r.sort.length > 0) for (const s of r.sort) drizzleOps.add(s.direction);
-  }
   // Reified criteria (one module-level predicate fn per named criterion a
   // retrieval or find `where` reifies to — the functional analog of .NET's
   // `Criterion<T>`).  Deduped by name across both consumers (a criterion used
@@ -124,8 +109,6 @@ export function buildRepositoryFile(
     const c = reifiableCriterion(ref, ctx, retrievalTable);
     if (c && !criterionFnByName.has(c.name)) {
       criterionFnByName.set(c.name, renderCriterionFn(c, retrievalTable, ctx));
-      const lowered = lowerToDrizzle(c.body, retrievalTable, ctx);
-      if (lowered) for (const op of lowered.ops) drizzleOps.add(op);
     }
   }
   const criterionFns = [...criterionFnByName.values()];
@@ -159,7 +142,6 @@ export function buildRepositoryFile(
   // Shared with the MikroORM + document builders (`projection-finds.ts`), which
   // must emit the same method names for the same routes.
   const projectionFinds: FindIR[] = synthProjectionFinds(agg.name, ctx);
-
   // Individual methods, hoisted so the same strings feed BOTH the class body
   // AND the derived repository PORT (audit S7 — the concrete `implements` a
   // domain-side `<Agg>RepositoryPort`; the members are extracted from these
@@ -229,20 +211,13 @@ export function buildRepositoryFile(
     `}`,
   );
 
-  // Strip string contents so symbols mentioned only inside error messages
-  // or labels don't register as references for the import narrowing below.
-  // The criterion fns sit outside the class but their bodies use the same
-  // Drizzle ops, so scan them too.
-  const bodyScan = `${criterionFns.join("\n")}\n${bodyStr}`
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  // Narrow `drizzle-orm` ops to those actually called in the body, drop
-  // `type Tx` when no method declares a `(tx: Tx)` parameter.
-  const usedDrizzleOps = [...drizzleOps]
-    // `op(` call or `op`…`` tagged template (the `sql` intrinsic wrapper).
-    .filter((op) => new RegExp(`\\b${op}[(\\\`]`).test(bodyScan))
-    .sort();
+  // Everything this module emits, as one string.  The criterion fns sit
+  // outside the class but render the same Drizzle operators, so they are part
+  // of "what this file spells".
+  const renderedBody = `${criterionFns.join("\n")}\n${bodyStr}`;
+  // Strip string contents so symbols mentioned only inside error messages or
+  // labels don't register as references for the import narrowing below.
+  const bodyScan = stripStringLiterals(renderedBody);
   const usesTx = /:\s*Tx\b/.test(bodyScan);
   // VO / enum imports: per-symbol. A name needs a runtime value when
   // the body uses `new <Vo>(` (value-object construction) or `<Name>.<member>`
@@ -272,7 +247,7 @@ export function buildRepositoryFile(
     // A paged find's server-side ORDER BY types its sort-column whitelist as
     // `Record<string, AnyPgColumn>` (M-T2.6).
     /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
-    usedDrizzleOps.length > 0 && `import { ${usedDrizzleOps.join(", ")} } from "drizzle-orm";`,
+    drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     // …or a reified criterion fn (a tenancy `criterion` used by a

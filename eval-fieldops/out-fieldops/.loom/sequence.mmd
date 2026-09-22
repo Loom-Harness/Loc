@@ -1,0 +1,16 @@
+%% Loom sequence diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+sequenceDiagram
+  autonumber
+  participant WF as Workflow
+  participant Technicians
+  participant WorkOrder
+  participant WorkOrders
+  note over WF: Field · scheduleWorkOrder(workOrder, technician, at)
+  note over WF: requires: currentUser.permissions.contains(permissions.manageWorkOrders)
+  WF->>WorkOrders: getById()
+  WorkOrders-->>WF: wo
+  WF->>Technicians: getById()
+  Technicians-->>WF: tech
+  WF->>WorkOrder: schedule()
+  note over WF: emit WorkOrderScheduled

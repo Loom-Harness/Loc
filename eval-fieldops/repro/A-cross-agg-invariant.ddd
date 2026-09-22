@@ -1,0 +1,20 @@
+system P {
+  subdomain S { context C {
+    enum Skill { Electrical, HVAC }
+    aggregate Asset { requiredSkill: Skill  derived display: string = "a" }
+    aggregate Technician { skills: Skill[]  derived display: string = "t" }
+    aggregate WorkOrder {
+      assetId: Asset id
+      technicianId: Technician id?
+      // THE RULE: technician's skills must cover the asset's required skill
+      invariant Technicians.getById(technicianId).skills.contains(Assets.getById(assetId).requiredSkill)
+      derived display: string = "w"
+    }
+    repository Assets for Asset {}
+    repository Technicians for Technician {}
+    repository WorkOrders for WorkOrder {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

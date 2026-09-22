@@ -75,7 +75,7 @@ export function renderTsStatementChunks(
 // (works for any statement IR carrying `origin?`), so every backend's
 // chunk-producing renderer shares the one cursor walk. Re-exported here so
 // existing import sites keep working.
-export { statementSubRegions } from "../_trace/sourcemap.js";
+export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.js";
 
 /** The expression-bearing sub-nodes marked for EVERY StmtIR kind
  *  (span-tracking-emission.md — widened from the

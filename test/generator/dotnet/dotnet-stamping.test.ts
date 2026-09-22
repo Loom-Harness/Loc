@@ -143,6 +143,52 @@ system TS {
     expect(src).not.toMatch(/= currentUser\./);
   });
 
+  it("collects EVERY create rule when two capabilities each contribute one", async () => {
+    // `contextStamps` composes ADDITIVELY: `with tenantOwned, auditable` puts
+    // TWO `create` rules on the aggregate.  The interceptor used to read them
+    // with `.find()`, keeping whichever capability lowered first and silently
+    // dropping the rest — so `createdAt`/`createdBy` were never stamped and
+    // every create violated the NOT NULL columns this same backend emits.
+    //
+    // Every existing case in this file declares ONE `stamp onCreate` block, so
+    // the first-vs-all distinction was invisible to all of them.
+    const twoCaps = `
+system PS {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D {
+    context Orgs {
+      aggregate Org with crudish { name: string  derived display: string = name }
+      repository Orgs for Org { }
+    }
+    context Shop {
+      aggregate Thing with tenantOwned, auditable, crudish {
+        name: string
+        derived display: string = name
+      }
+      repository Things for Thing { }
+    }
+  }
+  storage primary { type: postgres }
+  resource so { for: Orgs, kind: state, use: primary }
+  resource st { for: Shop, kind: state, use: primary }
+  deployable api { platform: dotnet, contexts: [Orgs, Shop], dataSources: [so, st], auth: required, port: 8081 }
+}
+`;
+    const files = generateSystems(await build(twoCaps)).files;
+    const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
+    const addedBlock =
+      /case Thing e:\s*\n\s*if \(entry\.State == EntityState\.Added\)\s*\n\s*\{([\s\S]*?)\n\s*\}/.exec(
+        src,
+      );
+    expect(addedBlock, "no EntityState.Added block emitted for Thing").not.toBeNull();
+    const added = addedBlock![1]!;
+    // tenantOwned's two stamps AND auditable's two — not just whichever came first.
+    for (const prop of ["TenantId", "DataKey", "CreatedAt", "CreatedBy"]) {
+      expect(added, `create stamp for ${prop} was dropped`).toContain(`x => x.${prop}`);
+    }
+  });
+
   it("gates a currentUser stamp on a dotnet deployable WITHOUT auth fail-fast", async () => {
     const noAuth = SOURCE.replace(
       ", serves: A, port: 8081, auth: required }",

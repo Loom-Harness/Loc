@@ -239,10 +239,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.elixir-if-stmt-unsupported",
-    kind: "gap",
+    kind: "scope",
     site: "src/ir/validate/checks/if-stmt-checks.ts:265",
     what:
       "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
+      "RE-CLASSED `scope` in wave C2 packet 2m under **D-ELIXIR-IF-BRANCH**: each survivor needs a " +
+      "change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit, a " +
+      "non-hoisted guard form, a statement spine for ES commands), and two members of the closed " +
+      "branch vocabulary are not even elixir-local — the conditional `emit` is an event-ORDERING " +
+      "question the S5a persist-then-dispatch restructure cannot answer, and the PROVENANCED " +
+      "write is decided by the TARGET-NEUTRAL `opHasProvSite` (`src/ir/util/prov-id.ts:49`), so " +
+      "deepening it changes all five backends.  M-T6.59 owns that body renderer.  " +
       "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
       "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
       "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
@@ -273,13 +280,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/store-checks.ts:527",
     what:
-      "`match await <subject>` whose subject is not an aggregate INSTANCE operation — a " +
-      "workflow, a collection read or a plain state field.  Awaiting a WORKFLOW is the real " +
-      "work behind this row (a different route shape, `POST /workflows/<wf>`, and its own " +
-      "result projection on each of the seven frontend emitters); the other subjects are " +
-      "nonsense the statement form could not otherwise refuse, because a " +
-      "`StmtIR.variant-match`'s `subjectType` comes from `inferExprType` (catch-all `string`) " +
-      "and so cannot reach `loom.match-non-union-subject`",
+      "`match await <subject>` whose subject is not an aggregate INSTANCE operation.  The " +
+      "reachable population was CENSUSED in wave C2 packet 2l by spelling every candidate " +
+      "subject and parsing it, and it is exactly THREE shapes: (1) `match await " +
+      "<api>.<Workflow>(args)` — a workflow run, which is the only DRAINABLE one and the real " +
+      "work behind this row (a different route shape, `POST /workflows/<wf>`, with its own " +
+      "result projection on each of the seven frontend emitters); (2) `match await " +
+      "<api>.<Agg>.all` — a collection READ, which has no command to await; (3) `match await " +
+      "<state field>`.  (2) and (3) are nonsense the statement form could not otherwise " +
+      "refuse, because a `StmtIR.variant-match`'s `subjectType` comes from `inferExprType` " +
+      "(catch-all `string`) and so cannot reach `loom.match-non-union-subject` — so the row " +
+      "will NOT reach zero by building; when the workflow subject lands, what is left is a " +
+      "permanent refusal and the row re-classes `scope`.  Two shapes a reader might expect " +
+      "here are NOT this row's: a dotted workflow (`<api>.<Workflow>.run(…)`) and a " +
+      "domain-service call are both refused earlier, by scope resolution (\"Aggregate 'X' not " +
+      'found in api"), so they never reach the classifier',
     mission: "M-T1.20",
   },
   {
@@ -310,26 +325,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`ignoring` is honored by every backend family (FILTER_BYPASS_FAMILIES) — latent: it can " +
       "only fire for a backend deployable with no DB read path, which carries no `ignoring`",
     mission: "M-T6.32",
-  },
-  {
-    code: "loom.find-predicate-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
-    what:
-      "NO NAMED SHAPE is left on any adapter.  EF Core + Drizzle were always the full-subset " +
-      "baseline; `DAPPER_SUBSET = FULL_SUBSET` (wave C2 packet 2b); and mikroorm's last " +
-      "narrowing — a reference-collection membership whose ARGUMENT is a column rather than a " +
-      "bindable value — was never adapter-specific: the join-table subquery binds its target as " +
-      "a parameter on EVERY adapter, so packet 2f moved the refusal to a target-neutral rule in " +
-      "`firstNonQueryableNode` and deleted the descriptor arm (which is also what stopped the " +
-      "identical shape CRASHING drizzle codegen: the adapter gate keys on `dep.persistence`, " +
-      "which a DEFAULT-adapter deployable does not carry).  The row is KEPT rather than drained " +
-      "because the descriptors still carry fall-through arms and nobody has PROVED them " +
-      "unreachable — a spot probe (arithmetic in a predicate position) was preempted by " +
-      "`loom.find-where-not-queryable` upstream, which is suggestive, not a proof over the whole " +
-      "queryable subset.  Drain condition for M-T6.35: show the descriptors cannot fire, or " +
-      "delete them",
-    mission: "M-T6.35",
   },
   {
     code: "loom.flutter-async-effect-unsupported",
@@ -364,33 +359,44 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/ui-framework-checks.ts:822",
     what:
-      "two Flutter action-body shapes every other frontend renders: a `toast(…)` view " +
-      "effect (a Riverpod Notifier holds no BuildContext, so it reaches no ScaffoldMessenger; " +
-      "`navigate(…)` reaches the router through the generated lib/nav.dart bridge since " +
-      "Wave C1 packet 1e-ii) and a `match await` on one of the five " +
+      "ONE Flutter action-body shape left, down from two: a `match await` on one of the five " +
       "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
-      "`agg.operations`, which holds only DECLARED ones). Both emitted a " +
-      "`// TODO(flutter full-parity)` comment into the Dart before Wave C1 1d-ii — the " +
-      "action was wired and silently did nothing",
+      "`agg.operations`, which holds only DECLARED ones).  The `toast(…)` VIEW-EFFECT arm is " +
+      "DRAINED (wave C2 packet 2l): a Riverpod Notifier still holds no BuildContext, so it " +
+      "reaches the live ScaffoldMessenger through a generated `lib/toast.dart` bridge — a " +
+      "`GlobalKey<ScaffoldMessengerState>` installed on MaterialApp, the same shape " +
+      "`navigate(…)` has used since Wave C1 packet 1e-ii, emitted use-driven off one marker so " +
+      "a non-toasting app stays byte-identical.  A realtime handler's toast is IN the widget " +
+      "tree (`LoomRealtime`) and deliberately keeps `ScaffoldMessenger.maybeOf(context)`.  Both " +
+      "shapes emitted a `// TODO(flutter full-parity)` comment into the Dart before Wave C1 " +
+      "1d-ii — the action was wired and silently did nothing",
     mission: "M-T1.32",
   },
   {
     code: "loom.frontend-prop-type-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:160",
     what:
       "a declared `component` param / `extern` function signature type the shared TypeScript " +
-      "prop layer has no spelling for — `money`, `File` and a `valueobject`, each of which " +
-      "HAS a wire shape (a decimal string re-parsed to Decimal, a fixed FileRef object, a " +
-      "VO DTO) and is therefore portable work rather than an impossibility. Before Wave C1 " +
-      "1d-ii these were the `default: throw` arms in `_frontend/component-prop-type.ts` / " +
-      "`extern-functions.ts`: a raw stack trace on `.ddd` that validated clean",
+      "prop layer has no spelling for. The three shapes this row was opened for — `money`, " +
+      "`File`, a `valueobject` — LANDED in wave C2 (packet 2k) on all four TS-prop " +
+      "frontends: `money` spells `Decimal` (decimal.js, requested through a sentinel so the " +
+      "file keeps its single default import), `File` and a `valueobject` spell their wire " +
+      "shape STRUCTURALLY (there is no emitted `FileRef` alias, and a `<VO>Schema` lives " +
+      "inside whichever aggregate's api module reaches it, so neither has an import path a " +
+      "prop could name). Angular's private `angularWireType` copy, which answered `unknown` " +
+      "for all three instead of throwing, spells the same three now. What is left is the " +
+      "CARRIER kinds — `union`, `genericInstance`, `none` — whose emission is already " +
+      "blocked one layer up by `loom.generic-carrier-unsupported` and the P4a union gate, so " +
+      "the reachable set is EMPTY on every shipping frontend and this is latent: a seam for " +
+      "the next type kind, which is what this kind is for. `FRONTEND_PROP_PRIMITIVES` now holds every member of `PrimitiveName`, " +
+      "pinned by test/ir/frontend-prop-type-support.test.ts against the emitters themselves",
     mission: "M-T1.20",
   },
   {
     code: "loom.frontend-collection-op-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-collection-display-checks.ts:575",
+    site: "src/ir/validate/checks/ui-collection-display-checks.ts:655",
     what:
       "EIGHT of the seventeen stdlib collection ops over a collection receiver in a " +
       "walker-rendered page/component/store expression. The nine that RESHAPE a collection " +
@@ -482,7 +488,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/language/validators/inheritance.ts:275",
     what:
       "a `<Base> id` reference to a TPC (`ownTable`) abstract base — no single table to key the " +
-      "FK against; an all-shared TPH base IS allowed (mixed strategy has its own code)",
+      "FK against; an all-shared TPH base IS allowed (mixed strategy has its own code).  The " +
+      "REPRESENTATION is now ruled (**D-POLYMORPHIC-ID-REPRESENTATION**, wave C2 packet 2n): a " +
+      "plain id column, NO foreign key and NO discriminator, read through the delegating " +
+      "polymorphic base reader M-T5.7 already ships.  Measured with the gate bypassed, the " +
+      "SCHEMA needs no change at all — `migrations-builder`'s M-T4.4 filter already drops an FK " +
+      "whose target table does not exist, and a TPC base owns none, so node emits " +
+      "`payment_id UUID NOT NULL` + its index and nothing else.  What is left is TWO IDENTITY " +
+      "TYPES: java (`src/generator/java/index.ts`) and dotnet " +
+      "(`src/generator/dotnet/context-scaffolding-emit.ts`) both skip `<Base>Id` for an abstract " +
+      "TPC base while their entity/configuration emitters REFERENCE it, so both fail to compile; " +
+      "node / python / elixir are already correct.  Drain condition: emit those two, narrow the " +
+      "sibling `loom.polymorphic-id-ref-mixed-strategy` predicate to a `sharedTable` base (it " +
+      "fires on a PURE TPC hierarchy once this arm goes), and settle the id-FOLLOW path " +
+      "(`id-follow.ts` bulk load, a query-time `join <Base>`), which packet 2n did not exercise",
     mission: "M-T5.7",
   },
   {
@@ -581,26 +600,36 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/store-checks.ts:364",
     what:
       "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
-      "narrowed in wave C2 (feliz in packet 2i, flutter in packet 2j) to exactly the cells that " +
-      "would need a RECORD codec the store path does not emit — `File`, `valueobject`, `entity` " +
-      "and arrays of them.  Feliz: `datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` " +
-      "arms, an enum rides F# as `string`, list elements cover every scalar.  Flutter: a nullable " +
-      "scalar and a `json` cell now persist; a nullable cell is still refused at the `url` tier for " +
-      "a measured reason (no null-distinguishing `copyWith` sentinel in the shared state class).  " +
-      "The two codec tables' remaining divergences are pinned by test/ir/util/persist-codec-divergence.test.ts",
+      "narrowed across wave C2 (feliz in packets 2i + 2l, flutter in packet 2j) to exactly the " +
+      "cells that would need a RECORD codec the store path does not emit — `File`, `valueobject`, " +
+      "`entity` and arrays of them.  Feliz: `datetime`/`guid` grew " +
+      "`System.DateTime.TryParse`/`System.Guid.TryParse` arms, an enum rides F# as `string`, list " +
+      "elements cover every scalar, and packet 2l added the `optional` arm (a `'T option` cell) at " +
+      "EVERY tier.  Flutter: a nullable scalar and a `json` cell persist, but a nullable cell is " +
+      "still refused at the `url` tier for a measured reason (no null-distinguishing `copyWith` " +
+      "sentinel in the shared state class) — Feliz has no such cause, since its `StoreUrlChanged` " +
+      "arm rebuilds the record field from the loader, so `felizPersistCodec` takes no tier at all.  " +
+      "That tier difference is now the ONLY disagreement between the two tables and is pinned in " +
+      "both directions by test/ir/util/persist-codec-divergence.test.ts; every TYPE agrees",
     mission: "M-T1.20",
   },
   {
     code: "loom.table-filter-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-collection-display-checks.ts:326",
     what:
-      "`Table { filter: <state> }` on a framework with no filter seam.  The six `walkBody` " +
-      "targets all declare `renderFilteredRows` + `renderFilterInput`; phoenixLiveView runs the " +
-      "parallel HEEx engine, whose `renderTable` `else if` chain handles rows/testid/sort/page " +
-      "and lets `filter:` fall through into nothing.  Drains when the generated `list/4` takes a " +
-      "filter param and the LiveView grows the matching `handle_event` + `<.input>`",
+      "`Table { filter: <state> }` on a framework with no filter seam.  LATENT seam for a NEW " +
+      "frontend: `TABLE_FILTER_FRAMEWORKS` now names every `framework:` the grammar admits.  " +
+      "The six `walkBody` targets declare `renderFilteredRows` + `renderFilterInput`, and wave " +
+      "C2 packet 2m gave the parallel HEEx engine the same pair — `renderTable` emits the bound " +
+      '`<.input type="search">` (same `data-testid="table-filter"` the React seam uses) plus ' +
+      "`LoomTable.filter_rows/2` around the bound rows, which walks every row value " +
+      "case-insensitively exactly as React's `Object.values(row)` filter does.  No server-side " +
+      "`list/4` filter param was needed: the client leg filters the bound list, and a " +
+      "SERVER-paged table's filter is refused by the sibling code " +
+      "`loom.table-filter-server-paged`, which is where that slice is tracked",
     mission: "M-T1.1",
+    verified: true,
   },
   {
     code: "loom.modal-controlled-op-form-unsupported",
@@ -751,9 +780,31 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    // NOTE ON THE SIBLING CODE.  The OTHER half of this refusal —
+    // `toThrow(<kind>)` in a `test e2e` body — is `loom.e2e-throw-kind-INVALID`
+    // and deliberately has no row.  Over HTTP both rungs are a 422 whose only
+    // discriminator is the RFC 7807 `detail` sentence, which an authored
+    // `message` overwrites; that is a permanent semantic refusal, not work, so
+    // per this file's header it carries `-invalid` (like its sibling
+    // `loom.e2e-ui-throw-invalid` on the same matcher) and stays out of the
+    // drain backlog.  THIS row is the half that IS work.
+    code: "loom.throw-kind-integration-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/test-checks.ts:206",
+    what:
+      "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
+      "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
+      "throws the same domain error the unit tier reads.  It is refused because the rung ships " +
+      "on the five UNIT emitters only, and each backend's separate `integration-tests.ts` would " +
+      "silently DROP the argument (measured: the node leg emitted a bare `.rejects.toThrow()`). " +
+      "Drains when the rung is carried through the five integration emitters too",
+    mission: "M-T5.36",
+    verified: true,
+  },
+  {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:176",
+    site: "src/ir/validate/checks/test-checks.ts:302",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,
@@ -769,7 +820,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/query-checks.ts:290",
+    site: "src/ir/validate/checks/query-checks.ts:323",
     what: "explicit `loads:` deferred — retrievals load the whole aggregate",
     mission: "M-T5.4",
     verified: true,
@@ -801,7 +852,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1180",
+    site: "src/ir/validate/checks/workflow-checks.ts:1214",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -825,7 +876,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1193",
+    site: "src/ir/validate/checks/workflow-checks.ts:1227",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,

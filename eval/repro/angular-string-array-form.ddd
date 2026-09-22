@@ -1,0 +1,13 @@
+// A scalar collection field (`string[]`) is initialised as `null` in the generated
+// Angular reactive form → `ng build` fails.
+system X {
+  subdomain S { context C {
+    aggregate Tech with crudish { fullName: string  skills: string[]  derived display: string = fullName }
+    repository Techs for Tech { }
+  } }
+  ui Web with scaffold(subdomains: [S]) { framework: angular }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+  deployable web { platform: angular, targets: api, ui: Web, design: angularMaterial, port: 3004 }
+}

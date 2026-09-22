@@ -1,0 +1,20 @@
+// A projection `where` using `!=` emits Drizzle `ne(...)` but the generated
+// repository never imports it → the generated TypeScript does not compile.
+system X {
+  subdomain S { context C {
+    enum St { Open, Closed }
+    aggregate Ticket with crudish { st: St  derived display: string = "t" }
+    repository Tickets for Ticket { }
+    projection OpenCount {
+      st: St
+      tickets: int
+      from Ticket as t
+      where t.st != Closed
+      group by t.st
+      select st = t.st, tickets = count()
+    }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

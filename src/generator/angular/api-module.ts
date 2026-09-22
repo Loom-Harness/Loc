@@ -28,6 +28,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { aggregateHasProvenanced, historyHookName } from "../_frontend/api-module.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 
 // ---------------------------------------------------------------------------
@@ -385,11 +386,21 @@ export function buildAngularApiModule(
       op.returnType && unionReturn(op.returnType) ? unionResponseTypeName(op.name, agg) : "void";
     return [
       "",
-      `  ${op.name}(id: string, input: ${upperFirst(op.name)}${single}Request) {`,
+      // F-023 — a guarded write takes the caller's `If-Match` precondition.  The
+      // factory below reads the version out of the by-id query cache; the
+      // service stays transport-only and just forwards the header.
+      `  ${op.name}(id: string, input: ${upperFirst(op.name)}${single}Request${
+        sendsIfMatchPrecondition(agg, op) ? ", headers?: Record<string, string>" : ""
+      }) {`,
       // The REST path segment is the SNAKE-cased op name (`add_line`) — the
       // convention the Hono route emitter registers (`POST /{id}/add_line`) and
       // every other client posts to.  The TS method keeps its camelCase name.
-      `    return this.http.post<${respType}>(\`\${API_BASE_URL}/${tag}/\${id}/${snake(op.name)}\`, input);`,
+      `    return this.http.post<${respType}>(\`\${API_BASE_URL}/${tag}/\${id}/${snake(op.name)}\`, input${
+        // `headers ?? {}` rather than `{ headers }`: a `headers: undefined`
+        // property makes HttpClient's overload set ambiguous, and an empty
+        // record is byte-equivalent on the wire.
+        sendsIfMatchPrecondition(agg, op) ? ", { headers: headers ?? {} })" : ")"
+      };`,
       "  }",
     ];
   });
@@ -413,7 +424,16 @@ export function buildAngularApiModule(
         `  const service = inject(${serviceName});`,
         "  const queryClient = inject(QueryClient);",
         "  return injectMutation(() => ({",
-        `    mutationFn: (input: ${reqType}) => firstValueFrom(service.${op.name}(id, input)),`,
+        ...(sendsIfMatchPrecondition(agg, op)
+          ? [
+              `    mutationFn: (input: ${reqType}) =>`,
+              `      firstValueFrom(`,
+              `        service.${op.name}(id, input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", id])?.version)),`,
+              `      ),`,
+            ]
+          : [
+              `    mutationFn: (input: ${reqType}) => firstValueFrom(service.${op.name}(id, input)),`,
+            ]),
         "    onSuccess: () =>",
         `      queryClient`,
         `        .invalidateQueries({ queryKey: ["${oneTag}", id] })`,
@@ -434,7 +454,13 @@ export function buildAngularApiModule(
       "  const queryClient = inject(QueryClient);",
       "  return injectMutation(() => ({",
       `    mutationFn: (vars: { id: string; input: ${reqType} }) =>`,
-      `      firstValueFrom(service.${op.name}(vars.id, vars.input)),`,
+      ...(sendsIfMatchPrecondition(agg, op)
+        ? [
+            `      firstValueFrom(`,
+            `        service.${op.name}(vars.id, vars.input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", vars.id])?.version)),`,
+            `      ),`,
+          ]
+        : [`      firstValueFrom(service.${op.name}(vars.id, vars.input)),`]),
       "    onSuccess: (_data, vars) =>",
       `      queryClient`,
       `        .invalidateQueries({ queryKey: ["${oneTag}", vars.id] })`,
@@ -551,6 +577,11 @@ export function buildAngularApiModule(
     'import { QueryClient, injectMutation, injectQuery } from "@tanstack/angular-query-experimental";',
     'import { firstValueFrom } from "rxjs";',
     'import { API_BASE_URL } from "./config";',
+    // `ifMatch` — the shared entity-tag builder in the emitted api client, used
+    // only when an operation sends the optimistic-concurrency precondition.
+    ...(ops.some((o) => sendsIfMatchPrecondition(agg, o))
+      ? ['import { ifMatch } from "./client";']
+      : []),
     // The `File` field's response type — imported only when one is emitted, so
     // an aggregate without a File field keeps its import block byte-identical.
     ...(emitsFileRef(fields, ...responseVos.map((v) => v.fields), ...parts.map((p) => p.fields))

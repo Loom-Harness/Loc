@@ -531,6 +531,23 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   ) {
     return snake(e.member);
   }
+  // PRINCIPAL CLAIM INSIDE AN ECTO QUERY (`ctx.filterArgs`).  `current_user` is
+  // an ordinary Elixir local, and Ecto's `where:` admits no unbound locals — a
+  // bare `current_user.id` raises `Ecto.Query.CompileError: unbound variable
+  // \`current_user\` in query` at COMPILE time.  It has to be interpolated, the
+  // same way `param` / `enum-value` refs already are in this mode (`renderRef`).
+  // Nil-safe, because the actor may be absent on an internal / unauthenticated
+  // read: a pinned `nil` matches no rows (Ecto binds `= NULL`, never `IS NULL`),
+  // so the read fails CLOSED instead of raising `KeyError` on `nil.id`.
+  //
+  // This is the ONE place the pin is applied, so every Ecto read path gets it:
+  // the derived capability/tenancy filters (`capability-filter.ts`) AND the
+  // author-written `find … where` / `retrieval … where:` / query-projection
+  // `where` predicates, which previously emitted the unpinned form.
+  if (ctx.filterArgs && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
+    const claim = snake(e.member);
+    return `^(current_user && current_user.${claim})`;
+  }
   // Array/list size shorthand.  The DSL admits both `.count` and
   // `.length` on arrays (see the .NET renderer's matching comment);
   // both map to Elixir `Enum.count/1`.  Without the `.length` arm an
@@ -570,7 +587,31 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // typed-VO handling the other backends get for free.
   if (e.receiverType.kind === "valueobject") {
     const k = snake(e.member);
-    return `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
+    const read = `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
+    // …and a FOURTH inconsistency the shapes above don't cover: the NUMERIC
+    // TYPE.  A `decimal`/`money` in its own column loads as `%Decimal{}`, but
+    // the same field inside the jsonb map loads as whatever JSON decoding
+    // produced — a FLOAT.  `Decimal.mult/2` refuses an implicit float
+    // ("implicit conversion of 1.0 to Decimal is not allowed"), so a `derived`
+    // doing arithmetic over a value object's fields compiled clean, booted
+    // clean, accepted a POST, and then raised on EVERY read of that aggregate.
+    // Coerced here rather than at the arithmetic, because the arithmetic's
+    // premise ("both are Decimal structs") is true for every other source.
+    // `Decimal.cast/1` is total over integer / float / binary / Decimal, and
+    // the `_ ->` arm leaves anything it refuses exactly as it was, so a nil
+    // optional VO field still fail-softs to nil instead of raising here.
+    //
+    // The binding is `dec`, NOT the `__`-prefixed name the generated helpers
+    // in this backend use (`__decimal_num`, `__money_round`).  Those are
+    // FUNCTION names; a leading underscore on a VARIABLE tells Elixir the
+    // value is meant to be ignored, and using it anyway is a warning — fatal
+    // under the `mix compile --warnings-as-errors` every elixir build gate
+    // runs.  Shadowing is harmless: the binding lives only in this clause
+    // body, which is the bare `dec`.
+    if (e.memberType.kind === "primitive" && isDecimalStruct(e.memberType.name)) {
+      return `(case Decimal.cast(${read}) do {:ok, dec} -> dec; _ -> ${read} end)`;
+    }
+    return read;
   }
   return `${recv}.${snake(e.member)}`;
 }
@@ -748,6 +789,26 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
       : ELIXIR_INTRINSIC_RENDERERS[key];
     if (snippet) return snippet(recv, args);
   }
+  // A call on an ENTITY receiver that is not the aggregate's own `this` — a
+  // workflow reusing a named domain rule across aggregates
+  // (`precondition t.hasSkill("physio")`).  The self-call spelling arrives as
+  // `callKind: "function"` and is already handled there; THIS shape lowers as
+  // a plain `method-call`, and the generic `recv.member(args)` fallback below
+  // emitted `t.has_skill("physio")` — which is not a call at all in Elixir but
+  // a remote call on a STRUCT, so the generated workflow raised at run time on
+  // a model that validated `0 error(s)`.
+  //
+  // `renderAggregateFunctions` emits every aggregate `function` as a
+  // struct-guarded module function on the context facade
+  // (`def has_skill(%<Ctx>.Tech{} = record, s)`), so the call that reaches it
+  // from another module is `<Ctx>.has_skill(t, "physio")` — the receiver moves
+  // into first-argument position, exactly as the self-call spelling does.
+  // Every other reading of an entity-receiver method-call (a collection op, a
+  // `refColl.contains`, a scalar intrinsic) has already returned above, so
+  // this arm is reached only by a function call.
+  if (e.receiverType.kind === "entity") {
+    return `${ctx.contextModule}.${snake(e.member)}(${[recv, ...args].join(", ")})`;
+  }
   return `${recv}.${snake(e.member)}(${args.join(", ")})`;
 }
 
@@ -902,7 +963,12 @@ export const ELIXIR_COLLECTION_RENDERERS: Record<
   any: (recv, args) => `Enum.any?(${recv}, ${args[0] ?? "fn _ -> true end"})`,
   contains: (recv, args) => `Enum.member?(${recv}, ${args[0] ?? "nil"})`,
   where: (recv, args) => `Enum.filter(${recv}, ${args[0] ?? "fn _ -> true end"})`,
-  first: (recv) => `List.first(${recv})`,
+  // `first` is PARTIAL and `firstOrNull` TOTAL (D-FIRST-ON-EMPTY / RS-36).
+  // These two were literally the SAME snippet, so `first` — declared as a
+  // non-optional `T` — silently returned `nil` on an empty list.  `hd/1` raises
+  // `ArgumentError` on `[]`, which is the raise the other four targets already
+  // make natively; `List.first/1` stays the total form.
+  first: (recv) => `hd(${recv})`,
   firstOrNull: (recv) => `List.first(${recv})`,
   map: (recv, args) => `Enum.map(${recv}, ${args[0]})`,
   // The sorter is TYPE-AWARE for the same reason min/max's is (see

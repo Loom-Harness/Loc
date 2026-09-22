@@ -285,13 +285,34 @@ export function renderSchema(
   const schemaDecls = schemaNames.map(
     (name) => `export const ${schemaConstName(name)} = pgSchema("${name}");`,
   );
+  // A VALUES TUPLE, not `pgEnum`.  The physical column an enum field gets is
+  // `TEXT` — `mapTypeToColumn` in `src/system/migrations-builder.ts` maps
+  // `enum` to `{ kind: "text" }` for EVERY backend, and this project's own
+  // `db/migrations/*.sql` (which `index.ts` applies through drizzle's runtime
+  // migrator at boot) therefore says `"status" TEXT NOT NULL`.  Declaring the
+  // column as `pgEnum` here claimed a `CREATE TYPE … AS ENUM` that no
+  // migration ever creates, so the schema and the DDL beside it disagreed.
+  //
+  // That disagreement was not cosmetic.  A pg enum orders by DECLARATION
+  // position and TEXT orders by COLLATION, so `ORDER BY <enum column>` —
+  // which every grouped query-time projection emits — answered differently
+  // depending on which of the two halves built the database.  The behavioural
+  // tier builds its PGlite database from THIS schema object (`synthDDL`,
+  // `web/src/runtime/ddl.ts`), so the node leg — the oracle every wire golden
+  // is captured on — was the only backend in the fleet reading an enum key in
+  // declaration order, and it read it that way on a schema the shipped node
+  // app never has.
+  //
+  // `text(col, { enum: [...] })` is type-identical to `pgEnum(...)` on the TS
+  // side (drizzle infers the same `"Draft" | "Confirmed" | …` union for reads
+  // and writes) and emits the TEXT column the migration actually creates.
   const enumLines = ctx.enums.map(
     (e) =>
-      `export const ${lowerFirst(e.name)}Enum = pgEnum("${snake(e.name)}", [${e.values.map((v) => `"${v}"`).join(", ")}]);`,
+      `export const ${lowerFirst(e.name)}Values = [${e.values.map((v) => `"${v}"`).join(", ")}] as const;`,
   );
   // Derive the drizzle-pg-core import list from what the body actually
   // calls — every helper here is invoked as a function (`text(...)`,
-  // `pgEnum(...)`, etc.), so a `\b<name>\(` scan is exact and keeps the
+  // `jsonb(...)`, etc.), so a `\b<name>\(` scan is exact and keeps the
   // import line free of dead names per the generated-code Biome gate.
   const body = [...schemaDecls, ...enumLines, "", tables.join("\n\n")].join("\n");
   const candidates = [
@@ -304,7 +325,6 @@ export function renderSchema(
     "numeric",
     "boolean",
     "timestamp",
-    "pgEnum",
     "uuid",
     "index",
     "primaryKey",
@@ -889,7 +909,7 @@ function drizzleColumnLinesForName(
     case "id":
       return [`${fieldName}: ${drizzleIdColumn(inner.valueType, colName)}${not},`];
     case "enum":
-      return [`${fieldName}: ${lowerFirst(inner.name)}Enum("${colName}")${not},`];
+      return [`${fieldName}: text("${colName}", { enum: ${lowerFirst(inner.name)}Values })${not},`];
     case "valueobject": {
       const vo = findValueObjectInScope(ctx, inner.name);
       if (!vo) return [`${fieldName}: text("${colName}")${not},`];

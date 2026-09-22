@@ -741,7 +741,22 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
   // inference happen in subsequent passes.
   // Thread the system user shape so a page's `requires` gate (and any other
   // page-scope `currentUser` reference) resolves to a `current-user` ref.
-  const uis = members.filter((m): m is Ui => m.$type === "Ui").map((u) => lowerUi(u, user));
+  //
+  // …and the PERMISSIONS CATALOGUE with it.  `permissions { … }` is a subdomain
+  // member while a `ui` is a system member, so a page gate spelling
+  // `currentUser.permissions.contains(permissions.read)` — the exact form
+  // `docs/auth.md` documents — had no catalogue in scope, `permissions` stayed
+  // an unresolved ref, and `renderGateExpr` threw a raw Node stack trace out of
+  // `ddd generate` on a model that had just validated `0 error(s), 0 warning(s)`
+  // (F-011).  A ui is not scoped to one subdomain, so the catalogue is the
+  // system-wide union; a bare name declared by TWO subdomains with different
+  // runtime strings is genuinely ambiguous from a ui, so it is DROPPED rather
+  // than resolved to whichever came first — an ambiguous gate must not silently
+  // become one subdomain's permission.
+  const uiPermissions = dedupePermissionsForUi(subdomains.flatMap((s) => s.permissions));
+  const uis = members
+    .filter((m): m is Ui => m.$type === "Ui")
+    .map((u) => lowerUi(u, user, uiPermissions));
   // Api declarations — system-level peers to module / ui / deployable.
   const apis = members
     .filter((m): m is Api => m.$type === "Api")
@@ -1797,4 +1812,28 @@ function lowerRepository(
     }),
     origin: originFor(repo),
   };
+}
+
+/** The permission catalogue a `ui` sees: the system-wide union, minus any bare
+ *  name two subdomains define differently.
+ *
+ *  A `permissions { read }` block is subdomain-scoped and its runtime string is
+ *  namespaced (`sales.read`), so the bare name a ui page writes
+ *  (`permissions.read`) is only unambiguous when exactly one runtime string
+ *  answers to it.  Dropping the ambiguous ones keeps the resolution HONEST:
+ *  an unresolved name is reported, where a first-wins pick would silently gate
+ *  the page on the wrong subdomain's permission. */
+function dedupePermissionsForUi(all: readonly PermissionDeclIR[]): PermissionDeclIR[] {
+  const byName = new Map<string, PermissionDeclIR[]>();
+  for (const p of all) {
+    const bucket = byName.get(p.name);
+    if (bucket) bucket.push(p);
+    else byName.set(p.name, [p]);
+  }
+  const out: PermissionDeclIR[] = [];
+  for (const [, bucket] of byName) {
+    const distinct = new Set(bucket.map((p) => p.runtimeString));
+    if (distinct.size === 1) out.push(bucket[0]!);
+  }
+  return out;
 }

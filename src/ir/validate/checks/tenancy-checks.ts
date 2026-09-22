@@ -409,6 +409,7 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
 
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validateTenantRegistry(sys, diags);
+  validateRegistryConstructible(sys, diags);
   validatePolicyReadLevels(sys, diags);
   validatePolicyWriteLevels(sys, diags);
   validatePolicyDenies(sys, diags);
@@ -653,4 +654,57 @@ function inheritedStance(
     cur = base;
   }
   return undefined;
+}
+
+/** The tenant registry must be constructible, or the system can never onboard
+ *  its first tenant.
+ *
+ *  `tenancy by user.<claim> of <Registry>` makes the registry's id the tenant
+ *  identity — a principal's claim IS a registry row's id.  So the signup loop
+ *  is: create a registry row, issue a token whose claim is that row's id, read
+ *  it back.  An aggregate with no `create` emits a read-only API, which breaks
+ *  the loop at step one: there is no way to bring the first tenant into
+ *  existence through the generated surface, and nothing said so.
+ *
+ *  `docs/tenancy.md` promises exactly this bootstrap — *"`POST /organizations`
+ *  works for any authenticated principal … closing the signup loop"* — and its
+ *  own inline example omitted the `with crudish` that makes the route exist,
+ *  while the fixture the same doc cites as the end-to-end pin declares it
+ *  (F-005).
+ *
+ *  A WARNING, not an error: a registry seeded by migration or provisioned out
+ *  of band is a coherent (if unusual) choice, and the shapes that count as a
+ *  create path are deliberately generous — a declared `create`, a workflow that
+ *  saves one, or a seed row.  Measured across all 496 tracked `.ddd`: 7 hits,
+ *  every one a genuine dead-end.  (The same check written for EVERY aggregate
+ *  rather than the registry fires on 233 of 496 — an aggregate with no create
+ *  is ordinary, a tenant registry with no create is a bootstrap that cannot
+ *  start.) */
+export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const tenancy = sys.tenancy;
+  if (!tenancy) return;
+  for (const mod of sys.subdomains) {
+    for (const ctx of mod.contexts) {
+      const registry = ctx.aggregates.find((a) => a.name === tenancy.registryName);
+      if (!registry || registry.isAbstract) continue;
+      if (registry.canonicalCreate || (registry.creates ?? []).length > 0) return;
+      // A workflow that SAVES the registry constructs it just as well as a
+      // route does — `savesAtExit` covers created and mutated alike, which
+      // over-approximates in the safe direction for a warning.
+      const savedByWorkflow = ctx.workflows.some(
+        (w) =>
+          w.savesAtExit.some((s) => s.aggName === registry.name) ||
+          (w.creates ?? []).some((c) => c.savesAtExit.some((s) => s.aggName === registry.name)),
+      );
+      if (savedByWorkflow) return;
+      if ((ctx.seeds ?? []).some((s) => s.rows.some((r) => r.aggregate === registry.name))) return;
+      diags.push({
+        severity: "warning",
+        code: "loom.tenant-registry-not-constructible",
+        message: diagMessage("loom.tenant-registry-not-constructible", { name: registry.name }),
+        source: `${ctx.name}/${registry.name}`,
+      });
+      return;
+    }
+  }
 }

@@ -1,3 +1,4 @@
+import { claimPathFor } from "../generator/_auth/claim-types.js";
 import {
   brokerUrl,
   devPassword,
@@ -26,6 +27,7 @@ import type {
   EnrichedSystemIR,
   Platform,
   SystemIR,
+  TypeIR,
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
@@ -34,9 +36,11 @@ import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { resourceEnvUrlVar } from "../util/resource-env.js";
+import { TEST_RESET_ENV } from "../util/test-reset.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { renderE2EFile } from "./e2e-render.js";
+import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
 import { renderKubernetesManifests } from "./kubernetes.js";
@@ -49,8 +53,14 @@ import {
   renderSequenceDiagram,
   renderWorkflowDiagram,
 } from "./mermaid.js";
-import { checkMigrationBaseline, type MigrationArtifactIndex } from "./migration-artifacts.js";
+import {
+  checkMigrationBaseline,
+  type MigrationArtifactIndex,
+  memoryMigrationArtifactIndex,
+} from "./migration-artifacts.js";
+import { buildMigrationLedger, type MigrationHistoryLedger } from "./migration-ledger.js";
 import { buildMigrations } from "./migrations-builder.js";
+import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import {
   memorySnapshotStore,
@@ -86,6 +96,17 @@ import { renderWireSpec } from "./wire-spec.js";
 export interface SystemEmission {
   /** path → file content, relative to the system output directory. */
   files: Map<string, string>;
+  /** Every construct a frontend walker declined to render, lifted out of the
+   *  emitted text (see `give-up-report.ts`).  The walkers already name a
+   *  `loom.*` code in a comment beside each one; this is where that becomes a
+   *  reportable diagnostic instead of a note in a file nobody reads. */
+  giveUps: GiveUpReport[];
+  /** The migration history this run's output tree now has, folded over
+   *  `options.recordedHistory`.  The CLI writes it back beside the `.ddd`
+   *  after a successful non-dry run so the NEXT run can tell "this module
+   *  has history" from "this module is new" even when `-o` points at a tree
+   *  that carries neither.  See `migration-ledger.ts` (F-029). */
+  migrationLedger: MigrationHistoryLedger;
 }
 
 export interface GenerateSystemOptions {
@@ -146,10 +167,17 @@ export interface GenerateSystemOptions {
    *  guards are then skipped.  CLI wires `fsMigrationArtifactIndex(outDir,
    *  loom)`. */
   existingMigrations?: MigrationArtifactIndex;
-  /** Override for guard (a): permit re-emitting "Initial" even though
-   *  migration files already exist and the snapshot is missing — the CLI
-   *  `--allow-rebaseline` flag. */
+  /** Override for guards (a)/(d)/(e): permit re-emitting "Initial" (or
+   *  re-issuing a recorded version) even though the module demonstrably has
+   *  migration history — the CLI `--allow-rebaseline` flag. */
   allowRebaseline?: boolean;
+  /** The migration-history ledger read from beside the `.ddd` source, when
+   *  the caller has a source directory.  Feeds baseline guards (d)/(e) —
+   *  the ones that see a re-baseline into a CLEAN output tree, which the
+   *  output-tree-only guards cannot.  Omitted by the web playground. */
+  recordedHistory?: MigrationHistoryLedger | null;
+  /** Path to name in the guard (d)/(e) refusal messages. */
+  ledgerPath?: string;
 }
 
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
@@ -176,6 +204,10 @@ export function generateSystemsFromLoom(
   // (same pattern as traceability below), so a single recorder's paths
   // line up with the final written paths across every system.
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
+  // Every system's migrations, folded into ONE source-side ledger below:
+  // the ledger is keyed by module and lives beside the `.ddd`, which may
+  // declare several systems.
+  const builtMigrations: MigrationsIR[] = [];
   for (const sys of loom.systems) {
     emitSystem(sys, loom, out, {
       emitTrace: options.emitTrace,
@@ -184,6 +216,9 @@ export function generateSystemsFromLoom(
       allowDestructive: options.allowDestructive,
       existingMigrations: options.existingMigrations,
       allowRebaseline: options.allowRebaseline,
+      recordedHistory: options.recordedHistory,
+      ledgerPath: options.ledgerPath,
+      collectMigrations: builtMigrations,
       sourcemap: recorder,
       sourceTexts: options.sourceTexts,
     });
@@ -236,7 +271,34 @@ export function generateSystemsFromLoom(
       out.set(`${path}.smap`, rendered);
     }
   }
-  return { files: out };
+  // `README.md` — the orientation page for the generated tree (finding F12).
+  // LAST of everything, because it is DERIVED from the finished output map:
+  // which test projects exist, how each deployable's own project boots, which
+  // `.loom/` artifacts this model produced (traceability is emitted above,
+  // after `emitSystem`, so an earlier call would under-report it).  Written at
+  // the output root beside `docker-compose.yml`, and like that file the last
+  // system wins when a source declares several.  Scaffold-once, so it never
+  // overwrites `ddd new`'s README at this same path nor a reader's own edits
+  // — see the header of `readme.ts`.
+  for (const sys of loom.systems) {
+    out.set(
+      "README.md",
+      renderSystemReadme(sys, {
+        slugOf: serviceSlug,
+        emitted: out,
+        dbImage: POSTGRES_IMAGE,
+      }),
+    );
+  }
+  // Give-up surfacing (F-019) runs LAST, over the finished map, so a fragment
+  // written by any emitter above — README included — is in scope.
+  return {
+    files: out,
+    giveUps: collectGiveUps(out),
+    // Always built (it is pure): callers with no source directory simply
+    // never write it.
+    migrationLedger: buildMigrationLedger(builtMigrations, options.recordedHistory ?? null),
+  };
 }
 
 function emitSystem(
@@ -250,6 +312,11 @@ function emitSystem(
     allowDestructive?: boolean;
     existingMigrations?: MigrationArtifactIndex;
     allowRebaseline?: boolean;
+    recordedHistory?: MigrationHistoryLedger | null;
+    ledgerPath?: string;
+    /** Sink the freshly-built `MigrationsIR[]` is appended to, so the caller
+     *  can fold every system's migrations into one source-side ledger. */
+    collectMigrations?: MigrationsIR[];
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
   },
@@ -275,11 +342,22 @@ function emitSystem(
   // snapshot is missing but migration files exist, verify files ↔ recorded
   // history, and reject version-number reuse.  Skipped when no on-disk
   // inventory was supplied (web playground / in-memory callers).
-  if (options.existingMigrations) {
-    checkMigrationBaseline(migrations, options.existingMigrations, {
-      allowRebaseline: options.allowRebaseline,
-    });
+  // Guards (d)/(e) read the source-side ledger, not the output tree, so they
+  // run even for a caller that supplied no on-disk inventory — as long as it
+  // supplied a ledger.  `checkMigrationBaseline` with an empty index simply
+  // skips (a)-(c).
+  if (options.existingMigrations || options.recordedHistory) {
+    checkMigrationBaseline(
+      migrations,
+      options.existingMigrations ?? memoryMigrationArtifactIndex(),
+      {
+        allowRebaseline: options.allowRebaseline,
+        recordedHistory: options.recordedHistory,
+        ledgerPath: options.ledgerPath,
+      },
+    );
   }
+  options.collectMigrations?.push(...migrations);
   for (const m of migrations) {
     out.set(snapshotRelPath(m.module), serializeSnapshot(m.next));
   }
@@ -651,13 +729,26 @@ function frontendOrigins(sys: SystemIR): string[] {
     .map((f) => `http://localhost:${f.port}`);
 }
 
-function serviceSlug(name: string): string {
+/** The compose-safe service slug of a deployable name.  Exported because it
+ *  is also the exact suffix set an api-e2e vitest title can carry
+ *  (` against <serviceSlug>`, appended by `e2e-render.ts`), which `ddd verify`
+ *  needs to undo the suffix when joining results onto the requirements graph
+ *  — see `src/verify/verification.ts`.  Note it is NOT `naming.snake`: that
+ *  splits consecutive capitals too (`APIGateway` → `api_gateway`, where this
+ *  gives `apigateway`). */
+export function serviceSlug(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
 // docker-compose.yml
 // ---------------------------------------------------------------------------
+
+/** The Postgres image the compose stack runs.  Named because the generated
+ *  README hands the reader a `docker run` of the SAME image for a host-side
+ *  run (compose deliberately does not publish the database port), and the two
+ *  must not drift. */
+export const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /** The Prometheus scrape targets — every BACKEND deployable exposes
  *  `GET /metrics` (M-T7.1); pure static frontends do not.  Each target is
@@ -679,7 +770,20 @@ function metricsScrapeTargets(sys: SystemIR): Array<{ slug: string; port: number
  *  backend deployable, hitting its `/metrics` on the compose network.  Wired
  *  into the `prometheus` service by `renderDockerCompose`. */
 function renderPrometheusConfig(sys: SystemIR): string {
-  const lines: string[] = ["# Auto-generated.", "global:", "  scrape_interval: 15s", ""];
+  const lines: string[] = [
+    "# Auto-generated.",
+    "#",
+    "# No credentials: `GET /metrics` is on every backend's auth-bypass list,",
+    "# beside /health and /ready (finding F-022 — this config and that",
+    "# middleware are emitted by the same tool from the same model, so they",
+    "# must agree; a gated /metrics answered every scrape below with 401).",
+    "# The endpoint is an operations surface, not an API one: do not publish",
+    "# the backend port straight to the internet, or put an authenticating",
+    "# proxy in front of it.",
+    "global:",
+    "  scrape_interval: 15s",
+    "",
+  ];
   lines.push("scrape_configs:");
   for (const { slug, port } of metricsScrapeTargets(sys)) {
     lines.push(`  - job_name: ${slug}`);
@@ -755,7 +859,7 @@ function renderDockerCompose(sys: SystemIR): string {
   }
   lines.push("services:");
   lines.push("  db:");
-  lines.push("    image: postgres:18-alpine");
+  lines.push(`    image: ${POSTGRES_IMAGE}`);
   lines.push("    environment:");
   lines.push("      POSTGRES_DB: postgres");
   lines.push("      POSTGRES_USER: postgres");
@@ -907,40 +1011,124 @@ function renderKeycloakRealm(sys: SystemIR): string {
           },
         ]
       : [];
-  // A scalar `role` claim (`currentUser.role`) is a common RBAC shape, but
-  // Keycloak emits realm roles as an ARRAY (`realm_access.roles`) — nothing
-  // populates a singular claim path, so `currentUser.role` decodes to `null`
-  // out of the box and every `role == "admin"` gate 403s while an
-  // onCreate `stamp createdByRole := currentUser.role` writes NULL (→ a
-  // not-null violation → 500/409).  When the app declares a `role` claim, seed
-  // the demo user with an `admin` role *attribute* and a mapper that projects
-  // it to the declared claim path, so role-gated ops are exercisable.  The
-  // `realm_access.roles` array (permissions) is untouched — it stays
-  // `[user, agent]`, so permission-gated denials still hold.
-  const roleClaim = sys.auth?.claims.find((c) => c.field === "role");
-  const roleMappers = roleClaim
-    ? [
-        {
-          name: "loom-role-claim",
-          protocol: "openid-connect",
-          protocolMapper: "oidc-usermodel-attribute-mapper",
-          consentRequired: false,
-          config: {
-            "user.attribute": "role",
-            "claim.name": roleClaim.path,
-            "jsonType.label": "String",
-            "access.token.claim": "true",
-            "id.token.claim": "false",
-          },
-        },
-      ]
-    : [];
-  const clientMappers = [...audienceMappers, ...roleMappers];
+  // ONE PROTOCOL MAPPER PER DECLARED CLAIM, with a seeded value on the demo
+  // user — so the dev IdP can actually exercise the authorization model the
+  // same `.ddd` declares.
+  //
+  // It could not.  The realm had one demo user, no attributes and no mappers,
+  // so a system declaring `user { role, permissions: string[], tenantId, … }`
+  // authenticated fine and then denied everything: `/auth/me` answered
+  // `{"role":null,"permissions":[],"tenantId":null}`, the tenant filter matched
+  // no rows, and every `permissions.contains(…)` gate 403'd — on the stack the
+  // tool itself emits, with no diagnostic (F-022).  "Docker compose up →
+  // everything running" was true of the containers and false of the product.
+  //
+  // Two claims are Keycloak's to mint and are skipped: `id` reads `sub`, and
+  // `email` comes from the built-in `email` client scope.  Everything else
+  // needs a user-attribute mapper projecting the seeded attribute onto the
+  // claim path the BACKENDS read — which is why the path comes from the shared
+  // `claimPathFor` rather than a second copy of the rule here; the realm and
+  // the verifiers must name the same claim or this fix would only move the
+  // silence (see `auth-claim-path-parity.test.ts`).
+  const IDP_PROVIDED = new Set(["id", "email"]);
+  // A field the author gave an EXPLICIT `claims:` mapping is IdP-provided BY
+  // DEFINITION — the mapping exists to say "the IdP already mints this, here is
+  // where it puts it".  Emitting a user-attribute mapper for it does not add the
+  // claim, it OVERWRITES the real one with a seeded value.
+  //
+  // `auth-oidc-e2e.ddd` is the case that proved it:
+  //
+  //     claims: { roles: "realm_access.roles", email: "email" }
+  //
+  // `realm_access.roles` is Keycloak's own realm-role claim, and the demo user's
+  // roles (`user`, `agent`) are what the gated finds split on.  A mapper on that
+  // path replaced them — the four native `*-oidc-e2e` legs failed with
+  // `expected [ 'demo-roles' ] to include 'agent'`, i.e. my synthetic seed
+  // standing where the IdP's real roles belong.
+  //
+  // The dotted-path test is the same rule's safety net: a nested path addresses
+  // a structure the IdP owns, whether or not it was reached through `claims:`.
+  const explicitlyMapped = new Set((sys.auth?.claims ?? []).map((c) => c.field));
+  const claimFields = (sys.user?.fields ?? []).filter(
+    (f) =>
+      !IDP_PROVIDED.has(f.name) &&
+      !explicitlyMapped.has(f.name) &&
+      !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
+  );
+  const claimMappers = claimFields.map((f) => {
+    const multivalued = f.type.kind === "array";
+    return {
+      name: `loom-claim-${f.name}`,
+      protocol: "openid-connect",
+      protocolMapper: "oidc-usermodel-attribute-mapper",
+      consentRequired: false,
+      config: {
+        "user.attribute": f.name,
+        "claim.name": claimPathFor(f.name, sys.auth ?? { claims: [] }),
+        // Keycloak types the claim from this label; an array claim additionally
+        // needs `multivalued`, or the list arrives as a single joined string and
+        // `permissions.contains(...)` never matches.
+        "jsonType.label": keycloakJsonType(f.type),
+        ...(multivalued ? { multivalued: "true" } : {}),
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+      },
+    };
+  });
+  // Seeded demo values — IDENTITY claims only.
+  //
+  // A tenant id that is the same on every boot is what makes tenant-scoped
+  // reads return rows, which is the half of F-022 that made multi-tenancy
+  // undemonstrable.  Every non-authority claim gets a stable, obviously
+  // synthetic value.
+  //
+  // AUTHORITY claims (`role`, and any permission ARRAY) are deliberately NOT
+  // seeded with the widest value the realm knows.  My first version of this
+  // fix did exactly that, reasoning that "a demo user who is denied everything
+  // demonstrates nothing" — and it made the shipped dev principal a superuser.
+  // The cross-backend runtime-authorization gate caught it: showcase's
+  // `registerProject` guards on
+  // `currentUser.permissions.contains(permissions.manageProjects)`, the demo
+  // user now HELD manageProjects, and node/.NET/python answered 204 where the
+  // whole point of the gate is 403 (`e2e.test.ts`, "a guarded workflow denies
+  // with 403").  A seed that grants every permission cannot demonstrate denial
+  // — and denial is the property an authorization model exists to provide.
+  //
+  // So the demo user's authority stays exactly what its realm roles give it
+  // (`user`, `agent`).  `role` is seeded to `user`, matching a role it really
+  // holds rather than inventing `admin`.  To exercise an allow-path, grant the
+  // permission in the admin console or seed a second user — both of which are
+  // the operator's call, not a default the generator makes for them.
+  const AUTHORITY_CLAIMS = new Set(["role", "permissions"]);
+  const demoAttributes: Record<string, string[]> = {};
+  for (const f of claimFields) {
+    if (f.type.kind === "array" && AUTHORITY_CLAIMS.has(f.name)) continue;
+    demoAttributes[f.name] =
+      f.name === "role"
+        ? ["user"]
+        : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+  }
+
+  const clientMappers = [...audienceMappers, ...claimMappers];
   const doc = {
     realm,
     enabled: true,
     sslRequired: "none",
-    roles: { realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }] },
+    // `offline_access` is declared and granted because the generated handshake
+    // ASKS FOR IT, unconditionally, on every backend (`auth-emit.ts`: "add it
+    // (idempotently)" — the scope that makes the IdP mint a refresh token so
+    // `/refresh` can rotate).  Keycloak normally carries `offline_access` on the
+    // realm's default-role composite, which a hand-written realm import does
+    // not set up — so the seeded user had only `[user, agent]`, and the very
+    // first login the tool's own compose stack can perform died at token
+    // exchange with `CODE_TO_TOKEN_ERROR … "Offline tokens not allowed for the
+    // user or client"`, surfacing to the browser as
+    // `{"error":"token_exchange_failed"}` (F-024).  The two halves are emitted
+    // by the same tool and must not disagree; `keycloak-realm-grants-handshake-scopes`
+    // pins that they don't.
+    roles: {
+      realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }, { name: "offline_access" }],
+    },
     clients: [
       {
         clientId,
@@ -964,11 +1152,10 @@ function renderKeycloakRealm(sys: SystemIR): string {
         lastName: "User",
         emailVerified: true,
         credentials: [{ type: "password", value: "demo", temporary: false }],
-        realmRoles: ["user", "agent"],
-        // Backs the scalar `role` claim mapper above (admin so the demo user
-        // can exercise role-gated operations); only consumed when the app
-        // declares a `role` claim.
-        ...(roleClaim ? { attributes: { role: ["admin"] } } : {}),
+        realmRoles: ["user", "agent", "offline_access"],
+        // Backs the per-claim mappers above.  Absent when the system declares
+        // no claims beyond `id`/`email`, so those realms stay byte-identical.
+        ...(Object.keys(demoAttributes).length > 0 ? { attributes: demoAttributes } : {}),
       },
     ],
   };
@@ -1070,7 +1257,12 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
       volumes.push(volume);
       services.push([
         `${slug}:`,
-        `  image: minio/minio:latest`,
+        // quay.io, NOT docker.io: MinIO's Docker Hub repository no longer
+        // exists, and `docker compose pull` fails the whole `up` with
+        // "pull access denied for minio/minio" — taking the OTHER services'
+        // pulls down with it ("postgres … Interrupted"), so a cold machine
+        // gets no image at all rather than three out of four.
+        `  image: quay.io/minio/minio:latest`,
         `  command: server /data --console-address ":9001"`,
         `  environment:`,
         `    MINIO_ROOT_USER: minioadmin`,
@@ -1179,6 +1371,20 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   }
   lines.push(`  environment:`);
   for (const [k, v] of shape.env) lines.push(`    ${k}: ${JSON.stringify(v)}`);
+  // The dev-only state reset the emitted `e2e/` suite calls between tests
+  // (`src/util/test-reset.ts`).  Opted into BY NAME here rather than inferred,
+  // because each backend's container image correctly pins a PRODUCTION
+  // profile — and this compose file is the LOCAL dev stack built from that
+  // image, the one the run recipe in `docs/tools.md` starts.  Without this
+  // line the documented recipe would be red on its second run, which is the
+  // whole of F3.  A reader who does not want the surface deletes the line.
+  //
+  // Emitted only when the system declares `test e2e` api blocks — i.e. exactly
+  // when the `e2e/` project that calls it is emitted — so a system without one
+  // is byte-identical to before.
+  if (!platform.isFrontend && sys.e2eTests.some((t) => t.kind === "api")) {
+    lines.push(`    ${TEST_RESET_ENV}: "1"`);
+  }
   for (const b of brokerBindings) {
     // Credentialed URL (§7): the deployable's own broker
     // identity rides the URL — the one seam every driver already consumes,
@@ -1237,6 +1443,34 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );
+    // Where the browser lands AFTER a successful token exchange.
+    //
+    // The callback runs on the API origin, and the generated handshake's
+    // fallback is `process.env.OIDC_POST_LOGIN_REDIRECT ?? "/"` — so with
+    // nothing set, logging in redirected the user to the API root, which
+    // answers `{"status":404,"detail":"no route for GET /"}`.  The user signs
+    // in successfully and lands on a 404 (F-024).
+    //
+    // The frontend's host origin is known right here: it is the deployable
+    // that `targets:` this backend.  Only set when exactly one does — with two
+    // frontends on one API there is no single "the app", and picking one
+    // silently would be a worse answer than the operator picking it; the
+    // comment names the choice so the compose file stays self-explaining.
+    const uiHosts = sys.deployables.filter(
+      (t) => t.targetName === d.name && platformFor(t.platform).mountsUi,
+    );
+    if (uiHosts.length === 1) {
+      lines.push(
+        `    OIDC_POST_LOGIN_REDIRECT: ${JSON.stringify(`http://localhost:${uiHosts[0]!.port}/`)}`,
+      );
+    } else if (uiHosts.length > 1) {
+      lines.push(
+        `    # OIDC_POST_LOGIN_REDIRECT: ${uiHosts.map((u) => `http://localhost:${u.port}/`).join(" | ")}`,
+      );
+      lines.push(
+        `    #   ^ ${uiHosts.length} frontends target this api; pick one, or login lands on the api root.`,
+      );
+    }
   }
   lines.push(`  ports:`);
   lines.push(`    - "${d.port}:${shape.internalPort}"`);
@@ -1262,4 +1496,17 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(`    start_period: 60s`);
   }
   return lines;
+}
+
+/** Keycloak's `jsonType.label` for a declared claim's Loom type.  Keycloak
+ *  types the claim value from this; getting it wrong makes a numeric claim
+ *  arrive as a string (and an int comparison in a gate silently false). */
+function keycloakJsonType(t: TypeIR): string {
+  const inner = t.kind === "array" ? t.element : t;
+  if (inner.kind === "primitive") {
+    if (inner.name === "int") return "int";
+    if (inner.name === "long") return "long";
+    if (inner.name === "bool") return "boolean";
+  }
+  return "String";
 }

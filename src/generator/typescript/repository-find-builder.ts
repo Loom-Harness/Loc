@@ -552,7 +552,21 @@ export function findQueryMethod(
       : // Throws → no `find_executed` log on this branch.  The thrown
         // AggregateNotFoundError is logged at the route's onError seam
         // (`not_found` warn) so we don't double-log the same fact.
-        `    if (rootRows.length === 0) throw new AggregateNotFoundError("not found");`,
+        //
+        // The `detail` is the canonical `"not_found"` TOKEN — the spelling
+        // RS-27 scopes a DECLARED-FIND miss to (as against the by-id
+        // sentence `"<Agg> <id> not found"`, which this arm is not).  It
+        // used to read `"not found"` with a SPACE, which was wrong twice
+        // over: dotnet/python/java/elixir all answer the token on this arm,
+        // and node itself already answered the token on its OWN sibling
+        // arms — a `T?` / `T option` find misses in the ROUTE
+        // (`routes-builder.ts`, `AggregateNotFoundError("not_found")`),
+        // leaving one service spelling one 404 class two ways depending on
+        // which carrier the `find` was declared with.  That intra-backend
+        // split is the exact defect shape `not-found-by-id-detail-parity`
+        // and `absent-read-envelope-parity` exist to catch; the sibling
+        // gate for THIS class is `find-miss-detail-parity.test.ts`.
+        `    if (rootRows.length === 0) throw new AggregateNotFoundError("not_found");`,
     needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx),
     associationMapLines(agg, "this.db", "    "),
@@ -637,8 +651,29 @@ export function runMethod(
     eagerContains.length > 0 ||
     associationsOf(agg).length > 0 ||
     valueCollectionsFor(agg).length > 0;
+  // An AUTHOR-WRITTEN `currentUser` predicate in the retrieval's own `where`
+  // (`where: this.technicianUserId == currentUser.id`) renders a bare
+  // `currentUser` into the Drizzle expression — but `run<Name>` is a plain
+  // method with no principal in scope, so the emitted project failed `tsc`
+  // with `TS2304: Cannot find name 'currentUser'`.  The FIND path threads a
+  // trailing `currentUser: User` parameter (`findUsesCurrentUser` above); the
+  // retrieval path cannot, because its own trailing `page?` is optional and
+  // TypeScript forbids a required parameter after an optional one.  So it
+  // binds the AMBIENT accessor instead, exactly as the criterion and
+  // document read paths already do (`repository-document-builder.ts`, and the
+  // `principalAccessor: "requireCurrentUser()"` criterion arm above).  The
+  // import rides the body scan in `repository-builder.ts`, which greps the
+  // emitted text for `requireCurrentUser(`.
+  //
+  // The DERIVED tenancy filter reaches this method through `filterPred` and
+  // was already correct — which is why the gap stayed invisible: an aggregate
+  // carrying a tenancy capability got the accessor bound for the derived half
+  // and the author's half rode along.  This fixture deliberately declares no
+  // tenancy capability, so nothing masks it.
+  const bindsPrincipal = exprUsesCurrentUser(retrieval.where);
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
+    bindsPrincipal && `    const currentUser = requireCurrentUser();`,
     // `page` is optional — apply limit / offset only when supplied.
     `    let query = this.db.select().from(schema.${tableName})${whereClause}${orderByClause}.$dynamic();`,
     `    if (page?.limit !== undefined) query = query.limit(page.limit);`,

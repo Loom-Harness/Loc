@@ -139,12 +139,13 @@ describe("typescript generator", () => {
     expect((doc.diagnostics ?? []).filter((d) => d.severity === 1)).toEqual([]);
     const files = generateTypeScript(doc.parseResult.value as Model, HONO_V4_PINS);
     const cart = files.get("domain/cart.ts")!;
-    // Expression form stays the single-line `{ return expr; }` shape.
-    expect(cart).toMatch(
-      /private lineTotal\(\): number \{ return this\._weight \* this\._rate; \}/,
-    );
+    // Expression form stays the single-line `{ return expr; }` shape.  PUBLIC:
+    // the routes file and a workflow body call an aggregate `function` from
+    // outside the class, so `private` was a TS2341 (see
+    // `aggregate-function-visibility.test.ts`).
+    expect(cart).toMatch(/public lineTotal\(\): number \{ return this\._weight \* this\._rate; \}/);
     // Block form emits its lowered statements.
-    expect(cart).toMatch(/private shippingFor\(extra: number\): number \{/);
+    expect(cart).toMatch(/public shippingFor\(extra: number\): number \{/);
     expect(cart).toMatch(/const base = this\._weight \* this\._rate;/);
     expect(cart).toMatch(/if \(!\(base >= 0\)\) throw new DomainError/);
     expect(cart).toMatch(/return \(this\._domestic \? base : base \+ this\._surcharge\) \+ extra;/);
@@ -156,7 +157,11 @@ describe("typescript generator", () => {
     const dockerfile = files.get("Dockerfile")!;
     expect(dockerfile).toMatch(/FROM node:24-alpine AS build/);
     expect(dockerfile).toMatch(/FROM node:24-alpine AS runtime/);
-    expect(dockerfile).toMatch(/CMD \["node", "dist\/index\.js"\]/);
+    // --enable-source-maps: the entry is the BUNDLE, so without it every frame
+    // in a production stack trace names `dist/index.js` and `ddd trace`
+    // resolves none of them.  Invariant form in
+    // test/system/generation-defaults.test.ts.
+    expect(dockerfile).toMatch(/CMD \["node", "--enable-source-maps", "dist\/index\.js"\]/);
     const dockerignore = files.get(".dockerignore")!;
     expect(dockerignore).toMatch(/node_modules/);
   });

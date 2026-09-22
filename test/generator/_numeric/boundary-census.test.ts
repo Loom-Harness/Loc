@@ -301,6 +301,12 @@ const BACKENDS: BackendCensus[] = [
         reason:
           "LiveView template DISPLAY helper (HTML rendering) — not a wire boundary; the S6/M-T1.25 display-formatting class, out of M-T9.36's scope",
       },
+      {
+        file: "src/generator/elixir/liveview-emit.ts",
+        contains: "defp sort_key(%Decimal{} = v), do: Decimal.to_float(v)",
+        reason:
+          "`LoomTable`'s ORDERING key for a client-side table sort — the value is compared and thrown away, never rendered and never serialized, so it is not a read boundary. It exists because Erlang term order compares a %Decimal{}'s `coef` before its `exp` (1.5 above 2); the same class as the `number_of` display helper above, one line down the same module",
+      },
     ],
   },
 ];

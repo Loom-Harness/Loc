@@ -14,8 +14,15 @@ import type {
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  TypeIR,
 } from "../../types/loom-ir.js";
+import {
+  E2E_WORKFLOW_VERBS,
+  findWorkflowBySlug,
+  workflowSlugHints,
+} from "../../util/e2e-workflow-accessor.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -41,7 +48,9 @@ import { walkExpr } from "./shared.js";
 export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const agg of ctx.aggregates) {
     for (const test of agg.tests) {
+      checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
+        checkThrowKindReadable(stmt, agg, ctx, test.name, diags);
         const reason = invalidTestStmt(stmt);
         if (!reason) continue;
         diags.push({
@@ -57,6 +66,111 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
       }
     }
   }
+}
+
+/** `toThrow(<kind>)` against a rule that carries an authored `message "..."`.
+ *
+ *  Four of the five backends discriminate the rung by the MESSAGE PREFIX the
+ *  domain layer emits — `"Precondition failed: "` / `"Invariant violated: "` —
+ *  and an authored `message` REPLACES that whole string rather than extending
+ *  it (`render-stmt.ts`'s `message ?? \`Precondition failed: …\`` on every one
+ *  of them).  So the very clause that makes a rule's failure legible to a
+ *  human is the clause that makes it illegible to this matcher.
+ *
+ *  Only elixir escapes it, because `GuardError` is `defexception [:message,
+ *  :kind]` and the rung rides the struct instead of the text.  Giving the other
+ *  four the same structural `kind` is the RIGHT long-term answer and is filed
+ *  as its own mission — an error-shape change across five backends should not
+ *  ride along on a matcher's first outing (design M-T5.36 § 2a, decision 7).
+ *
+ *  So: refuse, narrowly and at the source.  A unit `test` is emitted for ALL
+ *  five backends from one `.ddd`, so a shape four of them cannot express is not
+ *  writable portably — accepting it would mean the same assertion silently
+ *  proving less on four legs than on one, which is the defect this whole packet
+ *  exists to remove. */
+function checkThrowKindReadable(
+  stmt: TestStmtIR,
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  testName: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (stmt.kind !== "expect-throws" || !stmt.throwKind) return;
+  const offender = messagedRuleFor(stmt, agg, ctx);
+  if (!offender) return;
+  diags.push({
+    severity: "error",
+    code: "loom.throw-kind-custom-message",
+    message: diagMessage("loom.throw-kind-custom-message", {
+      kind: stmt.throwKind,
+      rule: offender.source,
+      message: offender.message,
+      subject: offender.subject,
+    }),
+    source: `${ctx.name}/${agg.name}.test:${testName}`,
+  });
+}
+
+/** The messaged rule a `toThrow(<kind>)` would have to read through, or
+ *  undefined when every candidate rule still carries its derived prefix.
+ *
+ *  Resolution is by NAME, the same way the five test emitters resolve a test
+ *  body's calls (receiver types are unreliable in test position — see
+ *  `isAggOp` in the elixir emitter):
+ *
+ *    * `<local>.<op>()`       → that operation's `precondition` statements;
+ *    * `<Agg>.create({...})`  → the canonical create's guards, plus — because a
+ *                               create runs the invariant floor too — the
+ *                               aggregate's invariants;
+ *    * `<VO> { ... }`         → the value object's invariants.
+ *
+ *  A rung with NO candidate rule at all is left alone here: that is a different
+ *  complaint (an assertion with no subject) and belongs to whichever gate grows
+ *  to make it, not to this one. */
+function messagedRuleFor(
+  stmt: Extract<TestStmtIR, { kind: "expect-throws" }>,
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+): { source: string; message: string; subject: string } | undefined {
+  const kind = stmt.throwKind;
+  const e = stmt.expr;
+  if (kind === "invariant") {
+    // A value-object construction (`Money { amount: -1 }` / `Money(-1, "USD")`)
+    // trips the VO's own invariants, not the aggregate's.
+    const voName = valueObjectCtorName(e);
+    const vo = voName ? ctx.valueObjects.find((v) => v.name === voName) : undefined;
+    const invariants = vo ? vo.invariants : agg.invariants;
+    const subject = vo ? vo.name : agg.name;
+    const messaged = invariants.find((i) => i.message);
+    return messaged
+      ? { source: messaged.source, message: messaged.message!.text, subject }
+      : undefined;
+  }
+  // `precondition`: the guards of the operation (or create) under call.
+  const ops = [
+    ...agg.operations,
+    ...(agg.creates ?? []),
+    ...(agg.destroys ?? []),
+    ...(agg.canonicalCreate ? [agg.canonicalCreate] : []),
+  ];
+  if (e.kind !== "method-call") return undefined;
+  const op = ops.find((o) => o.name === e.member);
+  if (!op) return undefined;
+  for (const st of op.statements) {
+    if (st.kind === "precondition" && st.message) {
+      return { source: st.source, message: st.message.text, subject: `${agg.name}.${op.name}` };
+    }
+  }
+  return undefined;
+}
+
+/** `Money { amount: -1 }` / `Money(-1, "USD")` — the value-object construction
+ *  a `toThrow(invariant)` can sit over.  BOTH source forms (builder and
+ *  positional) lower to the same `callKind: "value-object-ctor"` call, so one
+ *  branch covers them; returns undefined when the asserted expression is not a
+ *  VO construction, and the aggregate's own invariants are then the subject. */
+function valueObjectCtorName(e: ExprIR): string | undefined {
+  return e.kind === "call" && e.callKind === "value-object-ctor" ? e.name : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +198,29 @@ export function validateContextIntegrationTests(
     );
   };
   for (const test of ctx.tests) {
+    checkMatcherSubjects(test.statements, `${ctx.name}.test:${test.name}`, diags);
     for (const stmt of test.statements) {
       if (stmt.kind !== "expect" && stmt.kind !== "expect-throws") continue;
+      // `toThrow(<kind>)` is UNIT-TIER ONLY, and the context-integration rung is
+      // not the unit tier: it renders through each backend's
+      // `integration-tests.ts`, which carries no rung and would emit a bare
+      // `.rejects.toThrow()` — the author's `precondition` word silently gone.
+      // Measured, not assumed: that is exactly what the node leg emitted before
+      // this gate existed.  A dropped refinement is the defect this matcher was
+      // built to remove, so refuse it here rather than quietly weakening the
+      // claim in the one tier the emitters don't reach.
+      if (stmt.kind === "expect-throws" && stmt.throwKind) {
+        diags.push({
+          severity: "error",
+          code: "loom.throw-kind-integration-unsupported",
+          message: diagMessage("loom.throw-kind-integration-unsupported", {
+            kind: stmt.throwKind,
+            name: ctx.name,
+            testName: test.name,
+          }),
+          source: `${ctx.name}.test:${test.name}`,
+        });
+      }
       let inlineFind = false;
       walkExpr(stmt.expr, (e) => {
         if (isRepoFind(e)) inlineFind = true;
@@ -162,6 +297,8 @@ export function validateE2ETest(
   for (const stmt of test.statements) {
     walkStmt(stmt, (e) => checkUnresolvedRef(e, bound, test.name, source, diags));
   }
+
+  checkMatcherSubjects(test.statements, source, diags);
 
   for (const stmt of test.statements) {
     const badKind = unsupportedE2EStmtKind(stmt);
@@ -267,6 +404,131 @@ function walkStmt(s: TestStmtIR, visit: (e: ExprIR) => void): void {
   }
 }
 
+/** Strip `optional` wrappers — `string?` is still a string for containment,
+ *  and `tags: string[]?` is still a collection. */
+function unwrapOptional(t: TypeIR): TypeIR {
+  return t.kind === "optional" ? unwrapOptional(t.inner) : t;
+}
+
+/** A short, author-facing spelling of a resolved type, for the refusal text. */
+function typeLabel(t: TypeIR): string {
+  switch (t.kind) {
+    case "primitive":
+      return t.name;
+    case "array":
+      return `${typeLabel(t.element)}[]`;
+    case "optional":
+      return `${typeLabel(t.inner)}?`;
+    case "id":
+      return `${t.targetName} id`;
+    default:
+      return t.kind === "enum" || t.kind === "valueobject" || t.kind === "entity" ? t.name : t.kind;
+  }
+}
+
+/** The SUBJECT of a matcher call, with `.not.` peeled — and its resolved type.
+ *
+ *  `expr.receiverType` is the type of `expr.receiver`, which for a negated
+ *  assertion is the synthetic `.not` member rather than the asserted value.
+ *  Peel it the same way every emitter does, and take the type from the `.not`
+ *  node's OWN receiverType so the subject's real type reaches the check. */
+function matcherSubject(expr: ExprIR & { kind: "method-call" }): {
+  subject: ExprIR;
+  type: TypeIR;
+} {
+  let receiver = expr.receiver;
+  let type = expr.receiverType;
+  if (receiver.kind === "member" && receiver.member === "not") {
+    type = receiver.receiverType;
+    receiver = receiver.receiver;
+  }
+  const subject = receiver.kind === "paren" ? receiver.inner : receiver;
+  return { subject, type };
+}
+
+/** `toContain` is ONE matcher with TWO lowerings, picked by the subject's
+ *  type: membership for a collection, substring for a string.  There is no
+ *  third lowering, so any other subject has to be refused — and the IR is the
+ *  first phase where the resolved type is available to refuse it.
+ *
+ *  Left unchecked, each backend's emitter would pick its own answer for, say,
+ *  an `int` subject: python would emit `assert 3 in 7` (a TypeError at run
+ *  time), java a `.contains` that does not compile, vitest a matcher that
+ *  fails with a confusing message.  One refusal here, at the author's span,
+ *  replaces five different downstream failures. */
+function checkContainReceiver(
+  e: ExprIR,
+  source: string,
+  diags: LoomDiagnostic[],
+  seen: Set<ExprIR>,
+): void {
+  if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toContain") return;
+  if (seen.has(e)) return;
+  seen.add(e);
+  const { subject, type } = matcherSubject(e);
+  const t = unwrapOptional(type);
+  if (t.kind === "array") return;
+  if (t.kind === "primitive" && t.name === "string") return;
+  diags.push({
+    severity: "error",
+    code: "loom.contain-receiver-invalid",
+    message: diagMessage("loom.contain-receiver-invalid", {
+      actual: exprLabel(subject),
+      type: typeLabel(t),
+    }),
+    source,
+  });
+}
+
+/** `toBeAbsent()` rewrites its assertion onto the RECEIVER — the generated
+ *  `expect("estimate" in read).toBe(false)` needs an object and a key, which
+ *  only a field read supplies.  Anything else would reach `renderExpectStmt`'s
+ *  compiler-invariant throw and kill `generate system` with a stack trace, so
+ *  name it here instead (the shape audit 2026-09-03 F6 found for locator
+ *  matchers: validates clean, then crashes the compiler). */
+function checkAbsentReceiver(
+  e: ExprIR,
+  source: string,
+  diags: LoomDiagnostic[],
+  seen: Set<ExprIR>,
+): void {
+  if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toBeAbsent") return;
+  if (seen.has(e)) return;
+  seen.add(e);
+  const { subject } = matcherSubject(e);
+  if (subject.kind === "member") return;
+  diags.push({
+    severity: "error",
+    code: "loom.absent-receiver-invalid",
+    message: diagMessage("loom.absent-receiver-invalid", { actual: exprLabel(subject) }),
+    source,
+  });
+}
+
+/** Best-effort author-facing rendering of an expression, for a message. */
+function exprLabel(e: ExprIR): string {
+  if (e.kind === "member") return `${exprLabel(e.receiver)}.${e.member}`;
+  if (e.kind === "ref") return e.name;
+  if (e.kind === "paren") return exprLabel(e.inner);
+  if (e.kind === "literal") return String(e.value);
+  return `the asserted expression`;
+}
+
+/** Both matcher-subject checks, over every expression in one test body. */
+export function checkMatcherSubjects(
+  statements: readonly TestStmtIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<ExprIR>();
+  for (const stmt of statements) {
+    walkStmt(stmt, (e) => {
+      checkContainReceiver(e, source, diags, seen);
+      checkAbsentReceiver(e, source, diags, seen);
+    });
+  }
+}
+
 function checkMagicCall(
   e: ExprIR,
   magicId: "api" | "ui",
@@ -358,10 +620,51 @@ function checkMagicCall(
   }
   const agg = findAggregateBySlug(aggregateSlug, contexts);
   if (!agg) {
+    // The WORKFLOW accessor (M-T5.36 F5): `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`, with the workflow's own name in the slug position.
+    //
+    // Resolved only once the aggregate lookup has FAILED, deliberately.  A
+    // workflow and an aggregate cannot share a name inside one context
+    // (`loom.workflow-name-collision`), but that guard compares names, not
+    // SLUGS — an aggregate is addressed by its plural (`snake(plural(Order))`
+    // = `orders`), so a `workflow Orders` beside an `aggregate Order` slugs
+    // identically and passes it, as does any collision across the several
+    // contexts one deployable hosts.  Aggregate-first therefore cannot change
+    // the meaning of a call that resolves today; workflow-first could.
+    if (magicId === "api") {
+      const wf = findWorkflowBySlug(aggregateSlug, contexts);
+      if (wf) {
+        // Whether the three ROUTES exist is a different question, asked by
+        // `e2e-route-checks.ts` against the same predicates the backends gate
+        // their emission on — exactly the split the aggregate verbs already
+        // use (this file accepts `create` by name; that one asks whether a
+        // `POST /api/<aggs>` was mounted).
+        if (!E2E_WORKFLOW_VERBS.includes(method)) {
+          diags.push({
+            severity: "error",
+            code: "loom.e2e-unknown-method",
+            message: diagMessage("loom.e2e-unknown-method#workflow", {
+              magicId,
+              aggregateSlug,
+              method,
+              knownVerbs: E2E_WORKFLOW_VERBS.join(", "),
+            }),
+            source,
+          });
+        }
+        return;
+      }
+    }
     const known = contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    // …and the workflows too.  This message used to name only aggregates, so a
+    // body reaching for the orchestration tier was told its workflow was an
+    // unknown AGGREGATE — which reads as a typo and sent the testability audit
+    // looking for one, rather than as "that tier is unreachable from here".
+    // Now the slug that resolves to nothing is told what it could have named.
+    const knownWorkflows = workflowSlugHints(contexts).join(", ");
     diags.push({
       severity: "error",
       code: "loom.e2e-unknown-aggregate",
@@ -369,6 +672,7 @@ function checkMagicCall(
         magicId,
         aggregateSlug,
         known: known || "(none)",
+        knownWorkflows: knownWorkflows || "(none)",
       }),
       source,
     });
@@ -397,6 +701,26 @@ function checkMagicCall(
   // so an aggregate that is not `audited` has no history to call and the
   // unknown-method error below is the right answer.
   if (method === "history" && repo?.historyFind) return;
+
+  // ONE MISTAKE, ONE DIAGNOSTIC.  This arm and `e2e-route-checks.ts` ask two
+  // different questions of the same call — does the verb NAME resolve, and does
+  // it resolve to a ROUTE — and for a verb that is neither, both answered:
+  // `api.widgets.noSuchOperation(w)` raised `loom.e2e-unknown-method` AND
+  // `loom.e2e-unrouted-verb`, one typo described twice with two near-identical
+  // "available" lists to read.
+  //
+  // The ROUTING answer is the one that survives, because it is the one that
+  // names the fix — for `destroy` on an aggregate with no canonical destroy it
+  // says *add `with crudish`, or an unnamed `destroy { }`; a NAMED destroy is a
+  // domain command and gets no DELETE route*, where this arm can only list what
+  // else exists.  So this arm defers whenever that check will speak, and speaks
+  // itself for everything it does not reach (a projection verb, a workflow, a
+  // slug it has no ground truth for).
+  //
+  // The predicate is a call INTO that check's own decision, never a second copy
+  // of the routing rule: a copy would drift and leave a call with two
+  // diagnostics again — or, worse, with none.
+  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts)) return;
 
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (repo?.finds ?? []).map((f) => f.name);

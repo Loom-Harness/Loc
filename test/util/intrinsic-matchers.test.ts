@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import {
   intrinsicMatcherSig,
   isIntrinsicMatcher,
+  isThrowKind,
   type MatcherSig,
+  THROW_KINDS,
 } from "../../src/util/intrinsic-matchers.js";
 
 // `src/util/intrinsic-matchers.ts` is a pure table plus two lookups over it.
@@ -132,11 +134,81 @@ describe("intrinsic matchers — the documented special cases", () => {
     });
   });
 
-  it("every matcher other than the zero-arg `toBeVisible` / `toThrow` is unary", () => {
+  it("the absence pair are the zero-arg VALUE matchers", () => {
+    // Loom has ONE absence value, so neither takes an operand: `toBeNull()`
+    // asks about the value and `toBeAbsent()` about the KEY (it lowers onto the
+    // receiver, `"k" in obj`).  Both are negatable — `not.toBeAbsent()` is the
+    // useful claim "the key IS present".
+    expect(intrinsicMatcherSig("toBeNull")).toMatchObject({
+      arity: 0,
+      on: "value",
+      negatable: true,
+    });
+    expect(intrinsicMatcherSig("toBeAbsent")).toMatchObject({
+      arity: 0,
+      on: "value",
+      negatable: true,
+    });
+  });
+
+  it("`toContain` is a unary value matcher (one matcher, two lowerings)", () => {
+    // The subject's TYPE picks the lowering — membership for a collection,
+    // substring for a string — so the SIGNATURE is unary either way; the
+    // dispatch lives in the emitters, not the table.
+    expect(intrinsicMatcherSig("toContain")).toMatchObject({
+      arity: 1,
+      on: "value",
+      negatable: true,
+    });
+  });
+
+  it("every matcher is either zero-arg or unary, and the zero-arg ones are named", () => {
+    // Stated as a partition rather than "everything else is 1", so ADDING a
+    // zero-arg matcher fails here and gets a deliberate line above rather than
+    // quietly joining an `if (name === …) continue` skip list.
+    const zeroArg = NAMES.filter((n) => intrinsicMatcherSig(n)!.arity === 0).sort();
+    expect(zeroArg).toEqual(["toBeAbsent", "toBeNull", "toBeVisible", "toThrow"]);
     for (const name of NAMES) {
-      const sig = intrinsicMatcherSig(name)!;
-      if (name === "toBeVisible" || name === "toThrow") continue;
-      expect(sig.arity).toBe(1);
+      expect([0, 1], `${name}: matchers are zero-arg or unary`).toContain(
+        intrinsicMatcherSig(name)!.arity,
+      );
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The throw-KIND vocabulary (`toThrow(precondition)` / `toThrow(invariant)`).
+//
+// It lives beside the matcher table because it is the same kind of thing: a
+// closed, compiler-known set the grammar, the validator, the lowering and five
+// emitters all have to agree about.  The grammar spells it as a `ThrowKind`
+// rule; if the two ever disagree, a word parses and then resolves to nothing.
+// ---------------------------------------------------------------------------
+
+describe("throw kinds — the closed rung vocabulary", () => {
+  it("is exactly {precondition, invariant}", () => {
+    expect([...THROW_KINDS].sort()).toEqual(["invariant", "precondition"]);
+  });
+
+  it("matches the grammar's ThrowKind rule, so no word parses and then resolves to nothing", () => {
+    const grammar = fs.readFileSync(path.join(repoRoot, "src/language/ddd.langium"), "utf8");
+    const rule = grammar.slice(grammar.indexOf("ThrowKind returns string:"));
+    const words = [...rule.slice(0, rule.indexOf(";")).matchAll(/'([a-z]+)'/g)].map((m) => m[1]!);
+    expect(words.sort()).toEqual([...THROW_KINDS].sort());
+  });
+
+  it("recognises its own members and nothing else", () => {
+    for (const k of THROW_KINDS) expect(isThrowKind(k)).toBe(true);
+    // `requires` is the near miss worth pinning: it is a real guard keyword and
+    // a real rung of the domain floor, deliberately LEFT OUT — it is an
+    // authorization gate (403) needing a principal the unit tier has no
+    // vocabulary for, and the fleet deferred the principal clause (F6).
+    for (const n of ["requires", "toThrow", "constructor", "", "Precondition"]) {
+      expect(isThrowKind(n)).toBe(false);
+    }
+  });
+
+  it("is not itself a matcher name — the rung is an ARGUMENT, not a matcher", () => {
+    for (const k of THROW_KINDS) expect(isIntrinsicMatcher(k)).toBe(false);
   });
 });

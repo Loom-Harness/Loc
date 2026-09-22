@@ -1,0 +1,16 @@
+asyncapi: 3.0.0
+info:
+  title: "FieldOps channels"
+  version: 0.0.0
+channels:
+  "Field.WorkOrderEvents":
+    address: "Field.WorkOrderEvents"
+    messages:
+      "WorkOrderCompleted":
+        name: "WorkOrderCompleted"
+    x-loom:
+      delivery: broadcast
+      retention: ephemeral
+      transport: "bus"
+      transportStatus: "declared, not provisioned"
+      wiredBy: ["api"]

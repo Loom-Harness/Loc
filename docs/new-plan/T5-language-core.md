@@ -142,11 +142,11 @@ oracle move, and a conflict on the goldens blocks the whole packet. Treat it as
 a fourth coordinated moment alongside the three in
 [completion-waves-2026-09](completion-waves-2026-09.md) (A4 `getById`,
 `denyByDefault`, `organizationContext`). Note the move is more visible than it
-was before [#2807](https://github.com/lemmit/Loc/pull/2807): the differential
+was before [#2807](https://github.com/Loom-Harness/Loc/pull/2807): the differential
 now compares number FORMATS as well as values, so an oracle shift diverges on
 spelling too, not only on magnitude.
 
-**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/lemmit/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
+**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/Loom-Harness/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 
@@ -287,3 +287,73 @@ Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workfl
 **Verification when it lands.** The G4 repro pair (value-object vs entity spelling of one aggregate, both clean); the required-set asserted per backend rather than inferred from node; the wire-golden differential and the 5-way OpenAPI parity diff run, not skipped; mutation-proved by file-copy revert.
 
 Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
+
+## M-T5.37 — test surface v2: a workflow accessor and three matchers — `in progress` · **M** · P1
+
+Design: [`missions/M-T5.37-test-surface-v2-design.md`](missions/M-T5.37-test-surface-v2-design.md).
+Wave 3 of the testability-audit fleet ([findings](../audits/2026-09-13-testability-audit.md) F5 + F11,
+[plan](../audits/2026-09-14-testability-fleet-plan.md)). Six owner decisions are recorded in the
+design doc against who made them; the syntax is signed off.
+
+**Two halves, deliberately sized apart.** The **workflow accessor** (`api.<wf>.run()` /
+`.instances()` / `.instance(key)`) touches ONE emitter — the e2e suite is backend-agnostic HTTP,
+emitted once by `src/system/e2e-render.ts` and replayed against every compatible backend — and
+needs no new route: all five backends already mount the command and instance reads (python states
+it plainest, `APIRouter(prefix="/workflows")`). The **matchers** touch FIVE, because unit tests run
+in-process. The cheap-looking half is the expensive one.
+
+- **P9 — the workflow accessor** ([#2985](https://github.com/Loom-Harness/Loc/pull/2985)). Closes
+  F5 and M-T9.12's own follow-up, which says asserting a folded workflow instance's scalars "needs a
+  workflow-instance read verb the `test e2e` DSL doesn't have yet".
+- **P11a — `toThrow(precondition)` / `toThrow(invariant)`** — **LANDED**
+  ([#2987](https://github.com/Loom-Harness/Loc/pull/2987)). Unit tier only; refused in an e2e body,
+  where both kinds are a 422 whose only discriminator is a `detail` sentence an authored
+  `invariant … message` can overwrite. Motivated by a measured false pass: the audit deleted a
+  `precondition` from generated source and the test stayed GREEN, because an invariant threw instead.
+- **P11b — `toBeNull` / `toBeAbsent` / `toContain`** + verify-and-document the absence conformance
+  contract. Stacked on P11a (shared `intrinsic-matchers.ts`).
+
+**Deferred by the owner, recorded so it is not mistaken for an oversight:** a principal clause for
+`test e2e` (F6) — "a gap, not a bug". Consequence: `requires` / `policy` / `mask unless` and tenancy
+denial stay untestable from a user's model, and the repo's own coverage of them stays in
+`AUTHZ_LADDERS`, harness-side, shipped to nobody.
+
+## M-T5.38 — the IR's TWO SPELLINGS of a `this` property read, normalised at lowering — `open` · **M** · P2 ⚠ not byte-identical on three backends
+
+`this.<prop>` lowers to a `member` node whose receiver is `this`; the BARE `<prop>` spelling of the same field lowers to a `ref` with `refKind: "this-prop"` / `"this-derived"`. Two IR shapes for one source meaning, and every consumer that special-cases one of them silently misses the other. (Wave C2 packet 2a closed the CALL half — `this.<fn>(…)` now lowers to the bare form's `call` node — and left the READ half; packet 2f censused it on all five and recommended its own mission. This is it.)
+
+**The divergence is cosmetic at the RENDER site and dangerous at the DECISION sites.** Measured on one aggregate carrying `derived bare: int = total + 1` beside `derived dotted: int = this.total + 1`, all five compile:
+
+| backend | bare spelling | dotted spelling |
+|---|---|---|
+| node | `this._total + 1` (backing field) | `this.total + 1` (getter) |
+| python | `self._total + 1` | `self.total + 1` |
+| java | `this.total + 1` (field) | `this.total() + 1` (accessor) |
+| dotnet | `this.Total + 1` | `this.Total + 1` — identical |
+| elixir | `record.total + 1` | `record.total + 1` — identical |
+
+The damage is elsewhere, and packet 2a demonstrated it twice: elixir's `wire-serialize` `derivedRenderable` declined every `member` on a `this` receiver, so a `this.<derived>`-spelled field was **silently off the wire**; and the `loom.vanilla-op-call-position` scan could not see the dotted call. Those were found; the census below is the list of walkers that could still be wrong the same way.
+
+**The census (packet 2f) — every walker that special-cases `this-prop` and would miss `member(this, …)`:**
+
+```
+src/generator/zod-refine.ts:427
+src/generator/elixir/vanilla/changeset-invariant-emit.ts:52
+src/generator/elixir/vanilla/inspect-emit.ts:61,75
+src/generator/elixir/vanilla/provenance-emit.ts:264,366,420
+src/generator/elixir/vanilla/workflow-eventsourced-emit.ts:351
+src/generator/elixir/vanilla/wire-serialize.ts:87,127
+src/generator/elixir/dispatch-emit.ts:463
+src/generator/elixir/domain/predicates.ts:92
+src/generator/java/emit/dispatch.ts:109,582
+src/generator/java/render-jpql.ts:333
+```
+
+**Why it is a mission and not a packet row.** Normalising at LOWERING is the right fix — one spelling reaches every consumer, and the census list stops being a list. But it is **not byte-identical**: the node / python / java rows in the table above move (a getter becomes a backing field, an accessor becomes a field). So it needs the per-backend justified-diff gate the completion plan reserves for exactly this, plus the compile legs on the three that move — which is a coordinated moment, not a sweep.
+
+**Build order.** (1) Decide the normal form — the BARE `ref` is the recommendation: it is what the type system already resolves to, it is the spelling the majority of consumers special-case, and `this` receivers carry no extra information. (2) Normalise in `lower-expr.ts` so `this.<prop>` produces the `ref`. (3) Delete the `member`-on-`this` arms the census names, one per consumer, each one now unreachable. (4) Run the diff gate per backend and JUSTIFY every moved byte in the PR body (the three rows above are expected; anything else is a finding). (5) Compile legs on node / python / java at minimum.
+
+**Until it lands, the packet-2a rule stands:** every walker that special-cases `this-prop` must also accept `member(this, …)`.
+
+Sources: wave C2 hand-offs [`wave-c2-2a-elixir.md`](waves/handoffs/wave-c2-2a-elixir.md) (the two demonstrated defects) and [`wave-c2-2f-ir.md`](waves/handoffs/wave-c2-2f-ir.md) §5.4 (the five-backend measurement and the census above); `src/ir/lower/lower-expr.ts`; `src/ir/types/loom-ir.ts` (`RefKind`).
+

@@ -38,6 +38,7 @@ import {
 import { renderSqlRestriction } from "../render-sql-restriction.js";
 import {
   collectJavaStmtImports,
+  declarationSubRegion,
   renderJavaStatementChunks,
   renderJavaStatements,
   statementSubRegions,
@@ -587,7 +588,12 @@ export function renderJavaEntity(
   }
   const fnLines = entity.functions.flatMap((fn) => {
     const params = fn.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
-    const open = `    private ${renderJavaType(fn.returnType)} ${jid(fn.name)}(${params}) {`;
+    // PUBLIC, like the operations below — see the matching note in the node
+    // emitter.  `<Agg>Service.<op>` re-evaluates the hoisted `when` gate post-
+    // load and serves the `can_<op>` query from it, and a workflow body calls a
+    // function across aggregates; `private` made each of those a javac
+    // "has private access" on a model that validated `0 error(s)`.
+    const open = `    public ${renderJavaType(fn.returnType)} ${jid(fn.name)}(${params}) {`;
     // Expression form keeps its single `return expr;`; block form
     // (domain-services.md rev. 4) emits its lowered statements.
     const bodyLine =
@@ -671,7 +677,11 @@ export function renderJavaEntity(
     if (options.opFragments && chunks.length > 0) {
       options.opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(opBody, chunks, `${options.construct}.${op.name}`),
+        subRegions: [
+          // F-021 — see `declarationSubRegion`.
+          ...declarationSubRegion(op.origin, chunks, `${options.construct}.${op.name}`),
+          ...statementSubRegions(opBody, chunks, `${options.construct}.${op.name}`),
+        ],
       });
     }
     if (body.length > 0) opLines.push(body);
