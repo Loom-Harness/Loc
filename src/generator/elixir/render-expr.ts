@@ -570,7 +570,31 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // typed-VO handling the other backends get for free.
   if (e.receiverType.kind === "valueobject") {
     const k = snake(e.member);
-    return `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
+    const read = `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
+    // …and a FOURTH inconsistency the shapes above don't cover: the NUMERIC
+    // TYPE.  A `decimal`/`money` in its own column loads as `%Decimal{}`, but
+    // the same field inside the jsonb map loads as whatever JSON decoding
+    // produced — a FLOAT.  `Decimal.mult/2` refuses an implicit float
+    // ("implicit conversion of 1.0 to Decimal is not allowed"), so a `derived`
+    // doing arithmetic over a value object's fields compiled clean, booted
+    // clean, accepted a POST, and then raised on EVERY read of that aggregate.
+    // Coerced here rather than at the arithmetic, because the arithmetic's
+    // premise ("both are Decimal structs") is true for every other source.
+    // `Decimal.cast/1` is total over integer / float / binary / Decimal, and
+    // the `_ ->` arm leaves anything it refuses exactly as it was, so a nil
+    // optional VO field still fail-softs to nil instead of raising here.
+    //
+    // The binding is `dec`, NOT the `__`-prefixed name the generated helpers
+    // in this backend use (`__decimal_num`, `__money_round`).  Those are
+    // FUNCTION names; a leading underscore on a VARIABLE tells Elixir the
+    // value is meant to be ignored, and using it anyway is a warning — fatal
+    // under the `mix compile --warnings-as-errors` every elixir build gate
+    // runs.  Shadowing is harmless: the binding lives only in this clause
+    // body, which is the bare `dec`.
+    if (e.memberType.kind === "primitive" && isDecimalStruct(e.memberType.name)) {
+      return `(case Decimal.cast(${read}) do {:ok, dec} -> dec; _ -> ${read} end)`;
+    }
+    return read;
   }
   return `${recv}.${snake(e.member)}`;
 }

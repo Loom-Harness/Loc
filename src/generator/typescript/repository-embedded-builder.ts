@@ -17,6 +17,7 @@ import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import {
   docTypeAlias,
@@ -28,7 +29,6 @@ import {
 import {
   buildFindWhereClause,
   hydrateRootExpr,
-  lowerToDrizzle,
   readFilterPred,
 } from "./repository-find-builder.js";
 import {
@@ -106,22 +106,16 @@ export function buildEmbeddedRepositoryFile(
   // a second reason this file needs the import, as on the relational builder.
   const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
 
-  // Drizzle ops the find where-clauses need (default eq/and/inArray; the
-  // lowering adds ne/gt/or/… per filter shape).
-  const drizzleOps = new Set<string>(["eq", "and", "inArray"]);
-  // A paged find runs a `count()` for the total and an `asc`/`desc` ORDER BY for
-  // the server-side sort — same three candidates the relational builder seeds;
-  // the body-scan narrower below drops any that don't appear.
-  if ((repo?.finds ?? []).some((f) => pagedReturn(f.returnType))) {
-    drizzleOps.add("count");
-    drizzleOps.add("asc");
-    drizzleOps.add("desc");
-  }
-  for (const f of repo?.finds ?? []) {
-    if (!f.filter) continue;
-    const lowered = lowerToDrizzle(f.filter, tableName, ctx);
-    if (lowered) for (const op of lowered.ops) drizzleOps.add(op);
-  }
+  // The `drizzle-orm` import is derived from the RENDERED BODY below
+  // (`drizzleImportLine`), not from a candidate walk here — see the header of
+  // `drizzle-imports.ts` for why the candidate half of the old
+  // `candidates ∩ body` rule is the part that drifts.  This builder carried the
+  // relational one's hole in the same shape: the walk saw `repo.finds` only,
+  // while the emitted class also renders the synthesised projection finds.
+  //
+  // Kept only as the write-only out-parameter `contextFilterPredicate` and the
+  // write-scope guard take; nothing reads it back.
+  const drizzleOps = new Set<string>();
   // A `shape: embedded` aggregate keeps its root scalars as real columns, so a
   // (non-principal) capability `filter` AND-s into every root read as a Drizzle
   // SQL predicate — the same machinery the relational repository uses (DEBT-02).
@@ -279,14 +273,7 @@ export function buildEmbeddedRepositoryFile(
   );
 
   // Import narrowing — mirror buildRepositoryFile.
-  const bodyScan = bodyStr
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const usedDrizzleOps = [...drizzleOps]
-    // `op(` call or `op`…`` tagged template (the `sql` intrinsic wrapper).
-    .filter((op) => new RegExp(`\\b${op}[(\\\`]`).test(bodyScan))
-    .sort();
+  const bodyScan = stripStringLiterals(bodyStr);
   const voOrEnumImports = [...collectValueObjects(agg, ctx), ...collectEnums(agg, ctx)];
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
@@ -310,7 +297,7 @@ export function buildEmbeddedRepositoryFile(
     // The paged find's sort-column allowlist is typed `AnyPgColumn` (as on the
     // relational builder); absent from a repository with no paged find.
     /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
-    `import { ${usedDrizzleOps.join(", ")} } from "drizzle-orm";`,
+    drizzleImportLine(bodyStr),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,

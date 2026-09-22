@@ -679,13 +679,13 @@ missing CSS imports, asset resolution, Tailwind config errors.
 
 ### The `LOOM_REACT_BUILD=1` gate
 
-The repo ships `test/generated-react-build.test.ts` which does the
+The repo ships `test/e2e/generated-react-build.test.ts` which does the
 above for the example systems × the built-in React packs (`mantine`,
 `shadcn`, `mui`, `chakra`).  Add your
 custom pack to its cases for ongoing coverage:
 
 ```sh
-LOOM_REACT_BUILD=1 npx vitest run test/generated-react-build.test.ts
+LOOM_REACT_BUILD=1 npx vitest run test/e2e/generated-react-build.test.ts
 ```
 
 ### Side-by-side visual check
@@ -1103,7 +1103,7 @@ fixture under `test/fixtures/baseline-output/`.
 
 ### Step 6 — Add the version to the test matrix
 
-`test/generated-react-build.test.ts`:
+`test/e2e/generated-react-build.test.ts`:
 
 ```ts
 const PACKS: readonly PackSpec[] = [
@@ -1140,11 +1140,11 @@ npm test
 
 # The new shard must pass both tsc --noEmit AND vite build.
 LOOM_REACT_BUILD_CASE="web/src/examples/sales-system.ddd:<family>@<vNew>" \
-  npx vitest run test/generated-react-build.test.ts
+  npx vitest run test/e2e/generated-react-build.test.ts
 
 # Sanity-check at least one other shard didn't regress.
 LOOM_REACT_BUILD_CASE="web/src/examples/sales-system.ddd:<family>@<vOld>" \
-  npx vitest run test/generated-react-build.test.ts
+  npx vitest run test/e2e/generated-react-build.test.ts
 
 # Playground build clean.
 cd web && npm run build
@@ -1201,6 +1201,6 @@ In a separate PR after the new version has soaked:
 - `src/util/builtin-formats.ts` — built-in pack format map + bareword defaults
 - `stacks/<id>/` — stack definitions (`v1`, `v3`, `sv1`, `vue1`, `ng1`)
 - `designs/<family>/<version>/` — reference implementations
-- `test/generated-react-build.test.ts` — the static-validation gate
-- `test/pack-manifest.test.ts` — manifest-shape contract tests
-- `test/template-shared-layer.test.ts` — shared-source contract tests
+- `test/e2e/generated-react-build.test.ts` — the static-validation gate
+- `test/platform/pack-manifest.test.ts` — manifest-shape contract tests
+- `test/generator/_packs/template-shared-layer.test.ts` — shared-source contract tests

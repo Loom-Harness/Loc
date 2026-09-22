@@ -185,6 +185,12 @@ const PROSE_SAYS_UNDEFINED = [
   // assertion over it passes or fails for the wrong reason — so the word is
   // the message's content, not an interpolation reaching one hop too far.
   "loom.e2e-unknown-response-field",
+  // The WORKFLOW-INSTANCE variant of the entry directly above, waived for the
+  // same reason and no other: the read it describes is a member of the parsed
+  // JSON instance row, so it too evaluates to `undefined` in the emitted
+  // JavaScript.  Listed separately because the gate keys on the full catalog
+  // key, `#variant` included.
+  "loom.e2e-unknown-response-field#workflow-instance",
   // Explains why `first`/`firstOrNull` are refused across the frontends: the
   // JS four answer `undefined` on an empty collection where F#/Dart raise.
   // That divergence IS the refusal's reason, so the word is the message's

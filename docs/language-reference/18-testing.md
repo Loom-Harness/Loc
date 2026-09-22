@@ -166,9 +166,9 @@ describe("Sales (integration)", () => {
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 
-`test e2e name=STRING 'against' deployable=[Deployable] ('verifies' TraceId)? { … }` is a system-level test (declared in the `system` body, not inside an aggregate) that drives a deployment. The body talks to the deployable through a **magic dispatcher** — `api.<aggregate>.<verb>(…)` against a backend, `ui.<aggregate>.<verb>(…)` against a frontend — plus `let` and `expect`. Domain mutations and guards are rejected (`loom.e2e-unsupported-statement`); an e2e body resolves no domain names, so a bare enum value (`st: On` instead of `"On"`) is `loom.e2e-unresolved-ref` and an unknown function `loom.e2e-unresolved-call` (the conversions `money(…)`, `decimal(…)`, `string(…)`, `int(…)` are built in); an unknown aggregate / verb / workflow is caught against the deployable's hosted contexts (`loom.e2e-unknown-aggregate`, `loom.e2e-unknown-method` — which also covers a folded projection's `byKey` / `list`, `loom.e2e-unknown-workflow`).
+`test e2e name=STRING 'against' deployable=[Deployable] ('verifies' TraceId)? { … }` is a system-level test (declared in the `system` body, not inside an aggregate) that drives a deployment. The body talks to the deployable through a **magic dispatcher** — `api.<aggregate>.<verb>(…)` against a backend, `ui.<aggregate>.<verb>(…)` against a frontend — plus `let` and `expect`. Domain mutations and guards are rejected (`loom.e2e-unsupported-statement`); an e2e body resolves no domain names, so a bare enum value (`st: On` instead of `"On"`) is `loom.e2e-unresolved-ref` and an unknown function `loom.e2e-unresolved-call` (the conversions `money(…)`, `decimal(…)`, `string(…)`, `int(…)` are built in); an unknown aggregate / verb / workflow is caught against the deployable's hosted contexts (`loom.e2e-unknown-aggregate` — whose message names the deployable's workflows as well as its aggregates, `loom.e2e-unknown-method` — which also covers a folded projection's `byKey` / `list` and a workflow's three verbs, `loom.e2e-unknown-workflow`).
 
-The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus the reserved `api.workflows.<name>(…)` and `api.<projection>.byKey(…)` / `.list()`.
+The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus the reserved `api.workflows.<name>(…)`, `api.<projection>.byKey(…)` / `.list()`, and a workflow's own `api.<workflow>.run(…)` / `.instances()` / `.instance(key)` (below).
 
 Resolving the verb's NAME is only half the check. A second, phase-⑦ gate asks whether the route it lowers to is one **this same compilation emits**, resolving each verb against `deriveAggregateOperations` (`src/ir/util/api-surface.ts`) — the derivation all five backend route builders render from — and raising `loom.e2e-unrouted-verb` when it does not. This matters because several routes are conditional: `POST /api/<plural>` appears only for an aggregate with a canonical `create` (hand-written or `with crudish`), `DELETE /api/<plural>/{id}` only for an unnamed `destroy`, `GET /api/<plural>/{id}/history` only when `auditable`, and a find route only for a *declared* find. Until this gate landed, `api.products.create({…})` on a `create`-less aggregate compiled with `0 error(s), 0 warning(s)` and emitted a suite that POSTed to a route the same run had not mounted — `405 Method Not Allowed`, three failures out of three, from a model the compiler had just called clean. On the `ui` side the same code covers the page-object vocabulary: `create` (only where the scaffolded `New` page survives, i.e. the same create-surface gate), `getById`, and a public operation — a `ui.<agg>.<find>(…)` drives no page object.
 
@@ -209,6 +209,52 @@ describe("SalesSystem e2e", () => {
 ```
 
 > The api-e2e suite is emitted as a single vitest+fetch file regardless of backend platform (it talks HTTP, so it is target-language-neutral) — there is no per-backend xUnit/ExUnit api-e2e variant. Only the in-process `test` blocks diverge per backend.
+
+### Driving a workflow — `run` / `instances` / `instance`
+
+A `test e2e` body reaches the **orchestration tier** through the workflow's own name in the slug position. Three verbs, onto the three routes every backend already mounts (`POST /api/workflows/<snake>`, `GET …/instances`, `GET …/instances/{key}`):
+
+```ddd
+test e2e "the command create persists a saga row and the reactor folds it" against d {
+  let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+  api.fulfillment.run({ orderId: ord.id })
+
+  let running = api.fulfillment.instances()
+  expect(running.length).toBe(1)
+  let started = api.fulfillment.instance(ord)
+  expect(started.status).toBe("Pending")
+
+  // The reactor's fold, over the wire: `ship()` emits, `on(e: OrderShipped)`
+  // folds, and the SAME row reads back changed.
+  api.orders.ship(ord)
+  let shipped = api.fulfillment.instance(ord)
+  expect(shipped.status).toBe("Shipped")
+  expect(shipped.attempts).toBe(1)
+}
+```
+
+```ts
+// e2e/WorkflowCreateState.e2e.test.ts
+const ord = await __post(`${base}/api/orders`, ({ sku: "SKU-1", status: "Placed" }));
+await __post(`${base}/api/workflows/fulfillment`, ({ orderId: ord.id }));
+const running = await __get(`${base}/api/workflows/fulfillment/instances`);
+expect(running.length).toBe(1);
+const started = await __get(`${base}/api/workflows/fulfillment/instances/${ord.id}`);
+expect(started.status).toBe("Pending");
+```
+
+- `run(body?)` POSTs the workflow's **command** route; the single argument is the facade's `create` params by name, exactly like `api.<aggs>.create({…})`. It answers `204`, so bind it only if you want the empty body.
+- `instances()` lists the persisted correlation rows; `instance(key)` reads one by its **correlation key**. Both return the workflow's instance wire shape — the correlation field plus its state fields — which is what makes a folded saga's scalars assertable.
+- Like every other e2e accessor, a `let`-bound argument gets `.id` appended: `api.fulfillment.instance(ord)` reads `…/instances/${ord.id}`.
+- The slug is the workflow's name (`fulfillment` / `schedule_visit`); the emitted path is always `snake`. An **aggregate** slug wins a collision, so no existing call changes meaning.
+
+Both halves are route-contract checked (`loom.e2e-unrouted-verb`), because both routes are conditional: an **event-triggered** workflow is a reactor the in-process dispatcher starts and mounts no `POST`, so `.run()` on one is refused (drive the operation that emits its trigger event instead); a workflow with **no correlation field** persists no row, so `.instances()` / `.instance(key)` on one is refused. The two conditions are independent — a reactor still has readable instances, and a stateless command workflow still has a `run`.
+
+The **body and the read are checked too**, against the same inputs the backends build their DTOs from — `wf.params` for `<Wf>Request`, `instanceWireShape` for `<Wf>InstanceResponse`:
+
+- `api.<wf>.run({…})` — a key the facade does not declare is `loom.e2e-unknown-body-key`, and an omitted required parameter `loom.e2e-missing-required-field`. Note the asymmetry, which the two messages state: a **missing** key really does fail the schema (422), but an **extra** one does not — `<Wf>Request` is a plain object schema on every backend, so an unknown key is silently dropped and the POST still answers `204`. The body sends something the workflow never receives, and an assertion resting on it goes green having proved nothing. A parameter carrying an `= default` is still required on the wire: the default is applied in the body, after the schema has already run.
+- `let one = api.<wf>.instance(key)` — a read of a field the row does not carry is `loom.e2e-unknown-response-field`. Readable is the correlation field followed by the state fields, in declaration order. `instances()` is deliberately **not** judged: its binding is a JSON array, so a member on it (`running.length`) is an array member and not an instance field, exactly as an aggregate's `all()` is excluded for its paged envelope.
+
 
 ### Against a frontend — Playwright over page objects
 
