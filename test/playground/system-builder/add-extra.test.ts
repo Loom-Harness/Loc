@@ -4,6 +4,7 @@ import {
   addContextSource,
   addOperationSource,
 } from "../../../web/src/builder/system-v2/add-extra.js";
+import { nodeName } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
 const SRC = `system S {
@@ -36,10 +37,10 @@ describe("v2 add helpers — addContextSource / addOperationSource", () => {
     const ast = parse(next);
     let foundUnderOrder = false;
     for (const n of AstUtils.streamAst(ast)) {
-      if (n.$type === "Operation" && (n as { name: string }).name === "op1") {
+      if (n.$type === "Operation" && nodeName(n) === "op1") {
         let p = n.$container;
         while (p) {
-          if (p.$type === "Aggregate" && (p as { name?: string }).name === "Order") {
+          if (p.$type === "Aggregate" && nodeName(p) === "Order") {
             foundUnderOrder = true;
             break;
           }

@@ -32,7 +32,7 @@ describe("BuildRpcRequest discriminated union", () => {
       {
         id: 3,
         method: "vfs.write",
-        params: { entries: [{ path: "/workspace/main.ddd", content: "..." }] },
+        params: { entries: [{ kind: "file", path: "/workspace/main.ddd", content: "..." }] },
       },
       { id: 4, method: "vfs.delete", params: { paths: ["/workspace/main.ddd"] } },
     ];

@@ -1,3 +1,4 @@
+export * from "./ast.js";
 export * from "./diagnostics.js";
 export * from "./examples.js";
 export * from "./generate.js";
