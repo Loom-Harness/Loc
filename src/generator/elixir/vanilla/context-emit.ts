@@ -32,6 +32,7 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
@@ -279,7 +280,15 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
     case "money":
     case "decimal":
       return `{:ok, ${snake(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
+    // An `int` is an int4 COLUMN, so the guard carries its declared range as
+    // well as its type: without it a contract-conforming-looking value like
+    // 9543751572142 cast cleanly, reached the column and the DATABASE refused
+    // it — a 500 for a client fault, the same shape as the money-range guard
+    // beside it (Schemathesis F11).  `long` keeps the type-only guard: its
+    // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
+    // moving it is a five-backend ruling rather than this row.
     case "int":
+      return `{:ok, ${snake(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
       return `{:ok, ${snake(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
     default:
@@ -301,7 +310,24 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  given as text: `"5"` is refused, matching node's `z.number()` body slot and
  *  .NET.  A fractional value for an `int` is refused rather than truncated —
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
-function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): string {
+/** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
+ *  guard here and the create/update changeset in `changeset-emit.ts`.
+ *
+ *  Spelled like `MONEY_RANGE_MESSAGE` beside it, and for the same reason: a
+ *  client sees ONE family of wire refusals rather than a different sentence per
+ *  column kind.  It is elixir-local because the other four backends each render
+ *  their framework's own text for this (zod's "Number must be less than or
+ *  equal to …", pydantic's "Input should be less than or equal to …", Bean
+ *  Validation's "must be less than or equal to …"), so there is no shared
+ *  string to converge on — only a shared STATUS, which is the part that
+ *  matters: 422, not the 500 the database used to answer. */
+export const INT32_RANGE_MESSAGE = "Integer out of range";
+
+function renderNumericParamHelpers(
+  needsDecimal: boolean,
+  needsInt: boolean,
+  needsInt32: boolean,
+): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
   // param but no `money` must not carry the decimal helper.  (The generated
@@ -353,10 +379,30 @@ function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): st
   defp __loom_int_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
 `;
+  // RANGE, not format — the int32 twin of `__loom_money_in_range?` above, and
+  // the same failure it prevents: an `int` param is an int4 COLUMN, so a value
+  // past 2147483647 casts cleanly, reaches the column and the DATABASE refuses
+  // it with a 500 for what is a client fault (Schemathesis F11).  The published
+  // schema now declares the bound (`openapi-emit.ts` `INT32_SCHEMA`), so a
+  // contract-conforming request can no longer produce a 500, and both numbers
+  // come from `src/util/numeric-range.ts`.
+  const int32 = `
+  defp __loom_int32_param(_record, _field, nil), do: {:ok, nil}
+
+  defp __loom_int32_param(_record, _field, value)
+       when is_integer(value) and value >= ${INT32_MIN} and value <= ${INT32_MAX},
+       do: {:ok, value}
+
+  defp __loom_int32_param(record, field, value) when is_integer(value),
+    do: {:error, __loom_param_error(record, field, value, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
+
+  defp __loom_int32_param(record, field, value),
+    do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
+`;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}`;
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}`;
 }
 
 function renderContextModule(
@@ -813,9 +859,10 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const assembledBody = [blocks.join("\n"), ensureBlock].join("\n");
   const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
   const needsIntParam = assembledBody.includes("__loom_int_param(");
+  const needsInt32Param = assembledBody.includes("__loom_int32_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam)}`
+    needsDecimalParam || needsIntParam || needsInt32Param
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param)}`
       : "";
 
   return `# Auto-generated.

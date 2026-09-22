@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 import {
   componentPropTsType,
   paramPropTsType,
+  takeMoneyPropImport,
 } from "../../../src/generator/_frontend/component-prop-type.js";
 import type { AggregateIR, ParamIR, PrimitiveName, TypeIR } from "../../../src/ir/types/loom-ir.js";
 
@@ -112,13 +113,18 @@ describe("componentPropTsType — the loud-failure contract", () => {
   // a code to look up instead of a sentence.
   const FLOOR = /internal: the frontend prop layer has no TypeScript spelling for/;
 
-  it("THROWS on a value-object param rather than emitting `string`", () => {
+  it("THROWS on a value-object param it has never SEEN — the floor, not a silent `unknown`", () => {
+    // Wave C2 packet 2k taught this layer to spell a value object STRUCTURALLY,
+    // from the VO's own `fields` — so the floor moved rather than disappearing:
+    // it now fires for a VO the caller did not hand over (an unvalidated model,
+    // or a caller that forgot to build the index), which is exactly the case
+    // where emitting `unknown` would void the contract.
     expect(() =>
       componentPropTsType({ kind: "valueobject", name: "Address" }, aggs(), noImports()),
     ).toThrow(FLOOR);
     expect(() =>
       componentPropTsType({ kind: "valueobject", name: "Address" }, aggs(), noImports()),
-    ).toThrow(/type kind 'valueobject'/);
+    ).toThrow(/value object 'Address'/);
   });
 
   it("THROWS on a slot param — the call sites handle `slot` before delegating here", () => {
@@ -127,51 +133,68 @@ describe("componentPropTsType — the loud-failure contract", () => {
     );
   });
 
-  it("THROWS on a `money` / `File` primitive", () => {
-    expect(() => componentPropTsType(prim("money"), aggs(), noImports())).toThrow(
-      /primitive 'money'/,
+  it("SPELLS `money` and `File` — they were the floor until wave C2 packet 2k", () => {
+    const sink = noImports();
+    expect(componentPropTsType(prim("money"), aggs(), sink)).toBe("Decimal");
+    // `Decimal` arrives through the file's single default import, requested by
+    // sentinel rather than by an import line — see `takeMoneyPropImport`.
+    expect(takeMoneyPropImport(sink)).toBe(true);
+    expect(componentPropTsType(prim("File"), aggs(), noImports())).toBe(
+      "{ url: string; key: string; contentType: string; size: number }",
     );
-    expect(() => componentPropTsType(prim("File"), aggs(), noImports())).toThrow(
-      /primitive 'File'/,
+  });
+
+  it("still THROWS on a primitive with no spelling at all", () => {
+    // `duration` is expression-only — it has no wire form, so it is the one
+    // primitive-shaped thing left below the floor.  Keeping a live case here is
+    // what stops the arm from rotting into unreachable code.
+    expect(() => componentPropTsType(prim("duration"), aggs(), noImports())).toThrow(
+      /primitive 'duration'/,
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// THE GAP, as of Wave C1 packet 1d-ii — and a correction to what stood here.
+// THE GAP — opened by Wave C1 packet 1d-ii, CLOSED by Wave C2 packet 2k.
 //
-// This note used to say: "`File` and value-object params are HONEST gaps —
-// phase ④ rejects both, so they never reach the emitter; `money` is the hole."
-// MEASURED on this checkout, that was wrong in both directions:
+// The history, because the spelling below only makes sense against it.  The
+// note here once said "`File` and value-object params are HONEST gaps — phase
+// ④ rejects both, so they never reach the emitter; `money` is the hole."
+// Measured, that was wrong in both directions: all four shapes validated
+// `0 error(s), 0 warning(s)` and then crashed mid-generate —
 //
-//   component Price(amount: money)   0 error(s), 0 warning(s) → crash
-//   component Doc(f: File)           0 error(s), 0 warning(s) → crash
-//   component Ship(at: Address)      0 error(s), 0 warning(s) → crash
-//   function fmt(m: money): string extern from "./fmt"
-//                                    0 error(s), 0 warning(s) → crash
+//   component Price(amount: money)   component Doc(f: File)
+//   component Ship(at: Address)      function fmt(m: money): string extern from "./fmt"
 //
-// All four now raise `loom.frontend-prop-type-unsupported` at phase ⑦
-// (`validateFrontendPropTypes`, `ui-framework-checks.ts`), driven by the shared
-// predicate in `src/ir/util/frontend-prop-type.ts` — which is pinned AGAINST
-// this emitter, by running it, in `test/ir/frontend-prop-type-support.test.ts`.
-// So the crash is gone and the refusal is honest; what remains is the FEATURE.
+// 1d-ii replaced the crash with a refusal (`loom.frontend-prop-type-unsupported`
+// at phase ⑦, driven by the shared predicate in
+// `src/ir/util/frontend-prop-type.ts`, pinned AGAINST this emitter by running
+// it in `test/ir/frontend-prop-type-support.test.ts`).  2k replaced the refusal
+// with the feature, on all four TS-prop frontends:
 //
-// The register row (`src/diagnostics/unsupported-register.ts`,
-// `kind: "gap"`, mission M-T1.20) is the drain ticket: all three types have
-// wire shapes — a decimal string re-parsed to `Decimal`, a fixed `FileRef`
-// object, a VO DTO — so this is portable work, not an impossibility.  The
-// proposal below stands as one candidate spelling for the money arm; whichever
-// lands, it deletes the register row and lowers `MAX_OPEN_GAPS` in the same PR.
+//   money         `Decimal` — what `moneySchema` parses the wire string into,
+//                 so it is what `<Agg>Response["price"]` HOLDS.  Requested
+//                 through a sentinel, because decimal.js binds by DEFAULT
+//                 import and each file may carry exactly one.
+//   File          the four-field ref object, spelled structurally — there is no
+//                 emitted `FileRef` alias to import.
+//   valueobject   also structural, from `vo.fields` — a `<VO>Schema` lives
+//                 inside whichever aggregate's api module reaches it, so there
+//                 is no import path a standalone prop could name.
+//
+// The `it.fails` placeholder that used to sit here proposed
+// `number | string | { toString(): string }` for the money arm.  That is NOT
+// what landed, and deliberately: a union that admits a bare `string` lets a
+// prop be handed an unparsed wire value, which is the bug `moneySchema` exists
+// to prevent.  `Decimal` is the parsed type the api module actually produces.
+//
+// The register row is now `kind: "seam"` (`MAX_OPEN_GAPS` 20 → 19); what still
+// reaches the gate is the carrier kinds, and the only one a param position can
+// spell (`A or B`) is independently refused by `loom.union-position`.
 // ---------------------------------------------------------------------------
-describe("componentPropTsType — the open gap", () => {
-  it.fails("SHOULD type a `money` component param instead of refusing it", () => {
-    // `it.fails` so it flips green with the fix and stays honest (red-as-
-    // expected) until then.  The exact spelling is the fix's to choose; this
-    // one matches the widened `MoneyValue` prop every React/Svelte pack already
-    // emits, so a money prop could be handed straight to the formatter.
-    expect(componentPropTsType(prim("money"), aggs(), noImports())).toBe(
-      "number | string | { toString(): string }",
-    );
+describe("componentPropTsType — the gap, now closed", () => {
+  it("types a `money` component param as the PARSED value, not a wire union", () => {
+    expect(componentPropTsType(prim("money"), aggs(), noImports())).toBe("Decimal");
   });
 });
 

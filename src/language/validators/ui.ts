@@ -72,6 +72,28 @@ export function checkComponent(model: Model, accept: ValidationAcceptor): void {
         code: "loom.component-missing-body",
       });
     }
+    // A component whose NAME is a walker primitive is emitted and never
+    // rendered.  The page-body dispatcher resolves a call by name, primitives
+    // first, so `component Alert(msg: string) { body: Heading { msg, level: 3 } }`
+    // + `body: Stack { Alert("hi") }` writes `src/components/Alert.tsx` AND
+    // emits the PACK's alert at the call site — measured on this tree at
+    // `0 error(s), 0 warning(s)`, with the author's body appearing nowhere.
+    //
+    // Exactly the defect `loom.extern-function-shadows-stdlib` (below, in
+    // `checkUi`) already refuses for an `extern function`; the component arm
+    // was simply missing.  Deliberately components ONLY — a `valueobject Money`
+    // does NOT shadow the `Money` primitive (re-probed: the primitive still
+    // wins and its own arity gate still fires), and refusing it would reject
+    // the shipped examples, which is why this is the narrow ruling rather than
+    // the blanket "no user declaration may share a primitive name".  See
+    // D-PAGE-PRIMITIVE-SHADOW.
+    if (isWalkerPrimitive(comp.name)) {
+      accept("error", diagMessage("loom.component-shadows-stdlib", { name: comp.name }), {
+        node: comp,
+        property: "name",
+        code: "loom.component-shadows-stdlib",
+      });
+    }
     // Duplicate named action on one component — lowering's `indexActions` Map
     // would silently overwrite the earlier body (named-actions-and-stores.md,
     // Proposal A Stage 1).
