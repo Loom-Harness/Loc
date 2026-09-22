@@ -425,6 +425,7 @@ function prepareFormFields(
       bc,
       `${testidNamespace}-input-${f.name}`,
       aggregatesByNameMut,
+      ctx.bcByAggregate,
     ),
   );
   // RHF + zodResolver are universal across all React packs; the

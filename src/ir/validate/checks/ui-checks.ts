@@ -51,6 +51,7 @@ import {
   checkAsyncEffectArgs,
   checkDestroyFormOf,
   checkInstanceEffectRouteId,
+  checkOfReadBinds,
   checkOfReadResolves,
   checkOpFormRouteId,
   checkScaffoldFilterParams,
@@ -235,6 +236,17 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           findsByAggregate,
           diags,
         );
+        // Asked BEFORE the operation question above can even be meaningful:
+        // does the `of:` read name anything at all?  (`#unbound`.)
+        checkOfReadBinds(
+          page,
+          pageWhere(page),
+          apiParamNames,
+          aggNames,
+          workflowNames,
+          projectionNames,
+          diags,
+        );
         checkSubPrimitivePlacement(page, pageWhere(page), diags);
         checkDataGridSelection(page.body, page.state, pageWhere(page), diags);
         // The `of:` receiver must be an API HANDLE — the walker's Pattern H
@@ -285,6 +297,15 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           apiParamNames,
           aggNames,
           findsByAggregate,
+          diags,
+        );
+        checkOfReadBinds(
+          comp,
+          `component '${comp.name}'`,
+          apiParamNames,
+          aggNames,
+          workflowNames,
+          projectionNames,
           diags,
         );
         checkPrimitiveNamedArgs(comp, `component '${comp.name}'`, diags);

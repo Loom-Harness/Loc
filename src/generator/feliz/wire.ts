@@ -48,6 +48,7 @@ import {
 } from "../../ir/util/feliz-async-effect.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
+import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
@@ -304,6 +305,14 @@ export function findReadCmd(r: FelizRead, renderedArgs: readonly string[]): stri
 export interface FelizAllReadOpts {
   paged?: boolean;
   controls?: FelizPageControls;
+  /** Aggregate → owning context, so the decoder can ask `isPagedAllRead`
+   *  whether `GET /<aggs>` serves the `{items, …}` envelope at all.  A declared
+   *  `find all(): T[]` makes it a BARE ARRAY, and `Decode.field "items"` then
+   *  fails at runtime — Feliz compiles clean either way, so this is the only
+   *  place the mismatch is catchable.  Absent keeps the envelope (the
+   *  paged-by-default auto-`findAll`, which is what every untouched call site
+   *  has). */
+  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
 }
 
 /** Build the `FelizRead` for a `.all` read of `aggregate`. */
@@ -312,7 +321,14 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
-  const items = `(Decode.field "items" (Decode.list Decoders.${fsIdent(lowerFirst(aggregate))}))`;
+  const rows = `(Decode.list Decoders.${fsIdent(lowerFirst(aggregate))})`;
+  // The WIRE shape of `GET /<aggs>`, which is not the same question as
+  // `opts.paged` (whether this READ threads page controls): a declared
+  // `find all(): T[]` returns a bare array, and there is no envelope to reach
+  // into.
+  const envelope =
+    opts.bcByAggregate === undefined || isPagedAllRead(aggregate, opts.bcByAggregate);
+  const items = envelope ? `(Decode.field "items" ${rows})` : rows;
   return {
     field,
     msgCase: `${field}Loaded`,
@@ -1761,6 +1777,7 @@ function collectBodyReads(
         // this on the explicit flag instead is what let the two disagree.
         paged: explicitPaged || isPagedQuery(ofArg, pagedCtx),
         controls: pagingFromArgs(detected.args, host),
+        bcByAggregate,
       });
     else if (detected.operation === "byId" && pageCase !== undefined)
       read = felizByIdRead(detected.aggregateName, pageCase);
