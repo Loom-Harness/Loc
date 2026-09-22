@@ -756,9 +756,7 @@ function checkMagicCall(
   // The predicate is a call INTO that check's own decision, never a second copy
   // of the routing rule: a copy would drift and leave a call with two
   // diagnostics again — or, worse, with none.
-  if (
-    routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts, apis)
-  )
+  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts, apis))
     return;
 
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);

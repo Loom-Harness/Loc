@@ -88,13 +88,18 @@ const e2eOf = async (src: string): Promise<string> =>
 async function codesOf(src: string): Promise<string[]> {
   const { model, errors } = await parseString(src);
   expect(errors).toEqual([]);
-  return validateLoomModel(toLoomModel(model)).map((d) => d.code);
+  // `LoomDiagnostic.code` is optional — an uncoded diagnostic is spelled so
+  // rather than dropped, since a missing entry would read as "not raised".
+  return validateLoomModel(toLoomModel(model)).map((d) => d.code ?? "<uncoded>");
 }
 
 /** The phase-⑦ diagnostics themselves, for message assertions. */
 async function diagsOf(src: string): Promise<{ code: string; message: string }[]> {
   const { model } = await parseString(src);
-  return validateLoomModel(toLoomModel(model));
+  return validateLoomModel(toLoomModel(model)).map((d) => ({
+    code: d.code ?? "<uncoded>",
+    message: d.message,
+  }));
 }
 
 describe("e2e routed handlers — the request", () => {
