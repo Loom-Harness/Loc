@@ -114,7 +114,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.duplicate-service-slug",
   "loom.duplicate-system",
   "loom.duplicate-table",
-  "loom.duplicate-theme-block",
   "loom.duplicate-user-block",
   "loom.duplicate-valueobject",
   "loom.duration-arg-type",

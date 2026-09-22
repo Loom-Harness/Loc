@@ -34,9 +34,10 @@ function checkGateIsBool(
   if (!gate) return;
   const gt = typeOf(gate, envForNode(gate));
   if (gt.kind !== "primitive" || gt.name !== "bool") {
-    accept("error", `'requires' must be of type 'bool', got '${typeToString(gt)}'.`, {
+    accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(gt) }), {
       node,
       property: "gate",
+      code: "loom.requires-not-bool",
     });
   }
 }

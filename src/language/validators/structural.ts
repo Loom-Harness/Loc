@@ -285,9 +285,10 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
     if (!m.gate) continue;
     const gt = typeOf(m.gate, envForNode(m.gate));
     if (gt.kind !== "primitive" || gt.name !== "bool") {
-      accept("error", `'requires' must be of type 'bool', got '${typeToString(gt)}'.`, {
+      accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(gt) }), {
         node: m,
         property: "gate",
+        code: "loom.requires-not-bool",
       });
     }
   }
@@ -547,11 +548,11 @@ export function checkAggregate(agg: Aggregate, accept: ValidationAcceptor): void
       (m) => (isOperation(m) && !m.private) || isCreate(m) || isDestroy(m),
     );
     if (!hasPublicCommand) {
-      accept(
-        "warning",
-        `'audited' on aggregate '${agg.name}' has no effect — it declares no public command action (operation, create, or destroy), so no audit record is ever produced.`,
-        { node: agg, property: "audited" },
-      );
+      accept("warning", diagMessage("loom.audited-no-command", { name: agg.name }), {
+        node: agg,
+        property: "audited",
+        code: "loom.audited-no-command",
+      });
     }
   }
   // Ensure unique part names within the aggregate
@@ -565,10 +566,15 @@ export function checkAggregate(agg: Aggregate, accept: ValidationAcceptor): void
   for (const m of agg.members) {
     if (isEntityPart(m)) {
       if (partNames.has(m.name)) {
-        accept("error", `Duplicate entity part '${m.name}' in aggregate '${agg.name}'.`, {
-          node: m,
-          property: "name",
-        });
+        accept(
+          "error",
+          diagMessage("loom.duplicate-entity-part", { name: m.name, agg: agg.name }),
+          {
+            node: m,
+            property: "name",
+            code: "loom.duplicate-entity-part",
+          },
+        );
       }
       partNames.add(m.name);
       checkEntityPart(m, agg, accept);
@@ -596,11 +602,11 @@ export function checkAggregate(agg: Aggregate, accept: ValidationAcceptor): void
       if (m.name === "display" || m.name === "inspect") {
         const slot = m.name === "display" ? displayDerived : inspectDerived;
         if (slot) {
-          accept(
-            "error",
-            `Aggregate '${agg.name}' declares multiple 'derived ${m.name}' fields; at most one is allowed.`,
-            { node: m, property: "name" },
-          );
+          accept("error", diagMessage("loom.duplicate-derived", { name: m.name, agg: agg.name }), {
+            node: m,
+            property: "name",
+            code: "loom.duplicate-derived",
+          });
         } else if (m.name === "display") {
           displayDerived = m;
         } else {
@@ -784,7 +790,11 @@ export function checkEntityPart(
 export function checkValueObject(vo: ValueObject, accept: ValidationAcceptor): void {
   for (const m of vo.members) {
     if (isContainment(m)) {
-      accept("error", `Value objects cannot contain entities.`, { node: m, property: "name" });
+      accept("error", diagMessage("loom.valueobject-contains-entity"), {
+        node: m,
+        property: "name",
+        code: "loom.valueobject-contains-entity",
+      });
     }
     if (isInvariant(m)) checkInvariant(m, envForValueObject(vo), accept);
     if (isProperty(m) && m.check) checkPropertyCheck(m, envForValueObject(vo), accept);
@@ -847,11 +857,11 @@ export function checkContainment(c: Containment, agg: Aggregate, accept: Validat
   // An empty collection already encodes absence, so `[]?` is redundant
   // and almost certainly a mistake — reject it with a fixit pointer.
   if (c.collection && c.optional) {
-    accept(
-      "error",
-      `Containment '${c.name}' is both a collection and optional — an empty collection already encodes absence; drop the '?'.`,
-      { node: c, property: "optional" },
-    );
+    accept("error", diagMessage("loom.containment-optional-collection", { name: c.name }), {
+      node: c,
+      property: "optional",
+      code: "loom.containment-optional-collection",
+    });
   }
   const part = c.partType?.ref;
   if (!part) return;
@@ -861,8 +871,11 @@ export function checkContainment(c: Containment, agg: Aggregate, accept: Validat
   if (owner !== agg) {
     accept(
       "error",
-      `Cannot 'contain' part '${part.name}' — it belongs to aggregate '${owner?.name ?? "?"}'. Use '${owner?.name ?? "?"} id' for a cross-aggregate link.`,
-      { node: c, property: "partType" },
+      diagMessage("loom.containment-foreign-part", {
+        name: part.name,
+        owner: owner?.name ?? "?",
+      }),
+      { node: c, property: "partType", code: "loom.containment-foreign-part" },
     );
   }
 }
