@@ -210,6 +210,19 @@ const REFERENCE_DOCS = [
   "docs/language-reference/06-behavior-and-statements.md",
 ];
 
+/** The block population for the SYNTAX-ONLY sweep below.  Deliberately NOT
+ *  `blocksOf`: that one classifies whole-vs-fragment and drops elided or
+ *  brace-unbalanced fences, because its caller then VALIDATES (names must
+ *  resolve).  This sweep asks a weaker question of a wider set — it accepts a
+ *  `requirement` head too, and judges only whether the grammar accepts the
+ *  text.  Narrowing it to `blocksOf` would quietly shrink what the reference
+ *  docs are checked against, so the two populations stay separate on purpose. */
+function wholeBlocks(md: string): string[] {
+  return [...md.matchAll(/```(?:ddd|loom)\n([\s\S]*?)```/g)]
+    .map((m) => m[1] ?? "")
+    .filter((b) => /^\s*(system|context|requirement)\b/m.test(b));
+}
+
 /** The standard embeddings a reference snippet may be written against: as
  *  written (a whole `system`), inside a system's subdomain (a bare `context …`),
  *  or directly inside a system (a snippet mixing a `context` with system-scope
