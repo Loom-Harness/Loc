@@ -126,6 +126,24 @@ OpenAPI schema does not declare. `aggregate Customer extends Party` is worse —
 `{id, name, email, tier, version}`, so **every inherited field is missing from
 the schema** and from any client generated off it.
 
+**And the failure mode differs per backend, which makes A2 worse than a schema
+mismatch.** The same `.ddd` on `platform: java`:
+
+```java
+// api/.../features/customers/CustomerResponse.java
+public record CustomerResponse(UUID id, String tier, int version) {
+    public static CustomerResponse from(Customer value) {
+        return new CustomerResponse(value.id().value(), value.tier(), value.version());
+    }
+}
+```
+
+The record-based backends do not merely mis-declare the shape — the projection
+mapper is generated FROM the record, so `name` and `email` are **never
+serialised at all**. On node the data is on the wire and the schema understates
+it; on java (and by the same construction .NET) the API silently truncates the
+response. Both are wrong, and only one of them is visible by reading the JSON.
+
 Why seven PRs missed it: no `.ddd` anywhere combines `scaffoldHandlers` with a
 capability or an `extends`. The five compile fixtures are minimal by design, so
 they compile and prove nothing about these shapes.
