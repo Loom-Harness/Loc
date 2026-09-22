@@ -16,6 +16,11 @@ import type {
   TestStmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import {
+  E2E_WORKFLOW_VERBS,
+  findWorkflowBySlug,
+  workflowSlugHints,
+} from "../../util/e2e-workflow-accessor.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
@@ -615,10 +620,51 @@ function checkMagicCall(
   }
   const agg = findAggregateBySlug(aggregateSlug, contexts);
   if (!agg) {
+    // The WORKFLOW accessor (M-T5.36 F5): `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`, with the workflow's own name in the slug position.
+    //
+    // Resolved only once the aggregate lookup has FAILED, deliberately.  A
+    // workflow and an aggregate cannot share a name inside one context
+    // (`loom.workflow-name-collision`), but that guard compares names, not
+    // SLUGS — an aggregate is addressed by its plural (`snake(plural(Order))`
+    // = `orders`), so a `workflow Orders` beside an `aggregate Order` slugs
+    // identically and passes it, as does any collision across the several
+    // contexts one deployable hosts.  Aggregate-first therefore cannot change
+    // the meaning of a call that resolves today; workflow-first could.
+    if (magicId === "api") {
+      const wf = findWorkflowBySlug(aggregateSlug, contexts);
+      if (wf) {
+        // Whether the three ROUTES exist is a different question, asked by
+        // `e2e-route-checks.ts` against the same predicates the backends gate
+        // their emission on — exactly the split the aggregate verbs already
+        // use (this file accepts `create` by name; that one asks whether a
+        // `POST /api/<aggs>` was mounted).
+        if (!E2E_WORKFLOW_VERBS.includes(method)) {
+          diags.push({
+            severity: "error",
+            code: "loom.e2e-unknown-method",
+            message: diagMessage("loom.e2e-unknown-method#workflow", {
+              magicId,
+              aggregateSlug,
+              method,
+              knownVerbs: E2E_WORKFLOW_VERBS.join(", "),
+            }),
+            source,
+          });
+        }
+        return;
+      }
+    }
     const known = contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    // …and the workflows too.  This message used to name only aggregates, so a
+    // body reaching for the orchestration tier was told its workflow was an
+    // unknown AGGREGATE — which reads as a typo and sent the testability audit
+    // looking for one, rather than as "that tier is unreachable from here".
+    // Now the slug that resolves to nothing is told what it could have named.
+    const knownWorkflows = workflowSlugHints(contexts).join(", ");
     diags.push({
       severity: "error",
       code: "loom.e2e-unknown-aggregate",
@@ -626,6 +672,7 @@ function checkMagicCall(
         magicId,
         aggregateSlug,
         known: known || "(none)",
+        knownWorkflows: knownWorkflows || "(none)",
       }),
       source,
     });

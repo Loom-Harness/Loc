@@ -1,0 +1,156 @@
+{
+  "case": "vo-decimal-derived",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "footprint": 11.25,
+        "id": "<volatile:key>",
+        "name": "widget",
+        "size": {
+          "height": 4.5,
+          "width": 2.5
+        },
+        "topLevel": 12.25,
+        "version": 1,
+        "weight": 3.5
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "footprint": 11.25,
+            "id": "<volatile:key>",
+            "name": "widget",
+            "size": {
+              "height": 4.5,
+              "width": 2.5
+            },
+            "topLevel": 12.25,
+            "version": 1,
+            "weight": 3.5
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "footprint": 15.75,
+        "id": "<volatile:key>",
+        "name": "widget2",
+        "size": {
+          "height": 4.5,
+          "width": 3.5
+        },
+        "topLevel": 30.25,
+        "version": 2,
+        "weight": 5.5
+      }
+    },
+    {
+      "seq": 5,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/products",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/products",
+        "instance": "/api/products",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/products",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

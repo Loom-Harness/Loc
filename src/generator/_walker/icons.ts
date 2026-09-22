@@ -16,6 +16,17 @@
 // All icons render through a wrapping `<span class="loom-icon">` so
 // design packs can size + colour them via CSS without each emitter
 // having to know the pack's idiom.
+//
+// That wrapper is an OVERRIDE, not the sizing itself.  It used to be the
+// only sizing: the SVGs below carry a `viewBox` and no width/height, and an
+// inline `<svg>` with no intrinsic size fills its container — so a 16px icon
+// rendered as tall as the page.  Ten of the fifteen packs never shipped the
+// rule (`mantine` / `mui` / `chakra` / `vuetify` theme through a JS object and
+// emit no stylesheet at all, so they COULD not), and nothing said so.  Every
+// builtin is therefore handed out with an intrinsic `1em` box by
+// `lookupBuiltinIcon` — em-relative, so it inherits the surrounding type scale
+// — and a pack's `.loom-icon svg { width: 100% }` still wins, because CSS beats
+// a presentation attribute.
 
 export const BUILTIN_ICONS: Record<string, string> = {
   github: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.69-3.87-1.54-3.87-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.27-5.24-5.65 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17a10.95 10.95 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.62 1.58.23 2.75.11 3.04.73.8 1.18 1.82 1.18 3.07 0 4.39-2.7 5.36-5.27 5.64.41.36.78 1.07.78 2.16 0 1.56-.01 2.82-.01 3.21 0 .31.21.68.8.56 4.56-1.52 7.85-5.83 7.85-10.91C23.5 5.65 18.35.5 12 .5z"/></svg>`,
@@ -32,9 +43,25 @@ export const BUILTIN_ICONS: Record<string, string> = {
   grid: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
 };
 
+/** Give an `<svg>` an intrinsic box when it declares none.
+ *
+ *  Only the OPENING tag is touched, and only when neither dimension is
+ *  already present — a pack (or a user's `svg:` passthrough) that sizes its
+ *  own icon keeps exactly what it wrote. */
+function withIntrinsicSize(svg: string): string {
+  const open = svg.match(/^<svg\b[^>]*>/);
+  if (!open) return svg;
+  if (/\s(width|height)\s*=/.test(open[0])) return svg;
+  return svg.replace(/^<svg\b/, '<svg width="1em" height="1em"');
+}
+
 /** Resolve a builtin icon name to its SVG string.  Returns
  *  `undefined` for unknown names so callers can surface a visible
- *  comment / placeholder rather than silently emitting nothing. */
+ *  comment / placeholder rather than silently emitting nothing.
+ *
+ *  The returned SVG carries an intrinsic `1em` box (see the header note) so
+ *  an icon is never unbounded on a pack that ships no `.loom-icon` rule. */
 export function lookupBuiltinIcon(name: string): string | undefined {
-  return BUILTIN_ICONS[name];
+  const svg = BUILTIN_ICONS[name];
+  return svg === undefined ? undefined : withIntrinsicSize(svg);
 }

@@ -1004,7 +1004,7 @@ the conforming backends, and the fix that established it.
   > answered locally instead of reaching the producer.
   >
   > **And a fifth discovery, at the two read sites nobody had counted
-  > (2026-08-11, M-T6.31 / [#2520](https://github.com/lemmit/Loc/pull/2520)).**
+  > (2026-08-11, M-T6.31 / [#2520](https://github.com/Loom-Harness/Loc/pull/2520)).**
   > The four corrections above all concern the aggregate's own routes. Two more
   > by-KEY reads exist — the **projection show**
   > (`GET /api/projections/<p>/{key}`) and the **workflow-instance show**
@@ -1024,7 +1024,7 @@ the conforming backends, and the fix that established it.
   > the URLs each tier already requested.
   >
   > **And a sixth, at the last by-key read of all (2026-08-23, M-T6.39 /
-  > [#2645](https://github.com/lemmit/Loc/pull/2645)).** `GET /files/{key}` —
+  > [#2645](https://github.com/Loom-Harness/Loc/pull/2645)).** `GET /files/{key}` —
   > the root file-download route over a bound `objectStore` — was the one
   > absent-read site outside all five discoveries above, and it was wrong on
   > **all five backends at once**: node/python/elixir answered
@@ -1044,6 +1044,29 @@ the conforming backends, and the fix that established it.
   > through all of the above — **no golden reached the route**, and none could:
   > the routes are emitted only for a system with BOTH a `File` field and an
   > `objectStore`, and no corpus fixture had one until `file-download.ddd`.
+  >
+  > **And a seventh — this time on the OTHER side of the scope line
+  > (2026-09-21).** Everything above concerns a read addressed BY KEY, which is
+  > what this rule governs. The sibling class it scopes out — the DECLARED-FIND
+  > miss, whose `detail` is the bare `"not_found"` token because a predicate has
+  > no id to name — turned out to be split too, and the scope note above
+  > understated it by naming only the `option` carrier. A single-row `find` has
+  > FOUR carriers (`: T`, `: T?`, `: T option`, `: T envelope`), and **node
+  > spelled the token `"not found"` — with a space — on two of them**: `: T` and
+  > `: T envelope` refuse the miss in the REPOSITORY
+  > (`typescript/repository-find-builder.ts`), where the space-spelling lived,
+  > while `: T?` and `: T option` refuse it in the ROUTE (`routes-builder.ts`),
+  > which already answered the token. So it was a 4-vs-1 cross-backend split AND
+  > an intra-backend one — the same "one service, two answers" shape as node's
+  > by-id bypass above, one carrier axis further out. Fixed on node (the other
+  > four already answered the token); gated per SITE across all five backends x
+  > all four carriers by `test/conformance/find-miss-detail-parity.test.ts`,
+  > whose last assertion pins the by-id SENTENCE alongside, so the two classes
+  > cannot be collapsed into one answer by a later "tidy-up". It survived
+  > because no fixture declares a non-optional single-row find AND drives it to
+  > a miss: `envelope.ddd` was authored with a `test e2e` block and the block
+  > was withdrawn precisely because the golden would have frozen node's
+  > spelling as the answer key and reddened the other four legs.
 - **The real rule: don't hand-roll a 404.** This was not five backends inventing
   five strings. **Two agreed out of the box**, because on each the message comes
   from one shared producer — the repository's `getById`

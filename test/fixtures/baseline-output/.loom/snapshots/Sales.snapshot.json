@@ -110,6 +110,14 @@
       ],
       "foreignKeys": [],
       "indexes": [],
+      "checks": [
+        {
+          "name": "orders_status_enum",
+          "table": "orders",
+          "expression": "\"status\" IN ('Draft', 'Confirmed', 'Shipped', 'Cancelled')",
+          "kind": "enumValues"
+        }
+      ],
       "schema": "orders",
       "savingShape": "relational"
     }

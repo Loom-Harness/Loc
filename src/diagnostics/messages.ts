@@ -2273,8 +2273,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
     `does not accept it — a client (or a \`test\` block) written from the ` +
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or drop the parameter list: a narrowed one ` +
-    `shapes nothing.`,
+    `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
+    `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
@@ -2909,6 +2909,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `catalog either, so translators cannot even see it went missing).  On a fixed-slot ` +
     `primitive it also DISPLACES the positional the content was meant to fill ` +
     `(\`Tab { title: "One", … }\` renders as "Tab 1").  ${p.known}`,
+  "loom.page-primitive-unknown-arg-value": (p: {
+    name: unknown;
+    arg: unknown;
+    value: unknown;
+    known: unknown;
+    fallback: unknown;
+  }) =>
+    `\`${p.name}\`'s \`${p.arg}: ${JSON.stringify(p.value)}\` is not one of the values that ` +
+    `argument accepts (${p.known}).  This is a CLOSED vocabulary, and an unrecognised value is ` +
+    `not dropped — every design pack renders its \`${p.fallback}\` default instead, on every ` +
+    `frontend, with nothing to say so.  A primary action written this way ships looking like ` +
+    `plain text.  On Phoenix the same value is a COMPILE error, because the pack's function ` +
+    `component declares the identical list as an \`attr … values:\` constraint — so the value ` +
+    `is wrong on every target; only the JSX packs kept quiet about it.`,
   "loom.page-primitive-unknown-arg#style-not-object": (p: { where: unknown; name: unknown }) =>
     `\`${p.name}\`'s \`style:\` takes an OBJECT LITERAL of CSS declarations ` +
     `(\`style: { padding: "1rem" }\`).  Any other expression is dropped during lowering, so ` +
@@ -3377,7 +3391,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
   "loom.e2e-unaddressable-call": (p: { magicId: unknown; method: unknown }) =>
-    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\` or \`${p.magicId}.workflows.<name>(…)\`. An explicit \`route … -> <Handler>\` route has no such slug and cannot be called from a test body yet.`,
+    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\`, \`${p.magicId}.<workflow>.{run,instances,instance}(…)\` or \`${p.magicId}.workflows.<name>(…)\`. An explicit \`route … -> <Handler>\` route has no such slug and cannot be called from a test body yet.`,
   "loom.e2e-unresolved-ref": (p: { testName: unknown; name: unknown }) =>
     `e2e test '${p.testName}': '${p.name}' is not a 'let' binding or a magic receiver ('api'/'ui'). ` +
     `An e2e body drives the deployable over HTTP, so it resolves no domain names — ` +
@@ -3407,9 +3421,26 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `e2e: unknown method '${p.magicId}.${p.aggregateSlug}.${p.method}'. ` +
     `Available: ${p.knownVerbs}.`,
-  "loom.e2e-unknown-aggregate": (p: { magicId: unknown; aggregateSlug: unknown; known: unknown }) =>
+  "loom.e2e-unknown-method#workflow": (p: {
+    magicId: unknown;
+    aggregateSlug: unknown;
+    method: unknown;
+    knownVerbs: unknown;
+  }) =>
+    `e2e: unknown workflow verb '${p.magicId}.${p.aggregateSlug}.${p.method}'. ` +
+    `A workflow exposes: ${p.knownVerbs} — 'run(…)' posts the command, ` +
+    `'instances()' lists the running instances, and 'instance(key)' reads one by ` +
+    `its correlation key.`,
+  "loom.e2e-unknown-aggregate": (p: {
+    magicId: unknown;
+    aggregateSlug: unknown;
+    known: unknown;
+    knownWorkflows: unknown;
+  }) =>
     `e2e: unknown aggregate '${p.magicId}.${p.aggregateSlug}' on this deployable. ` +
-    `Available aggregates: ${p.known}.`,
+    `Available aggregates: ${p.known}. ` +
+    `Workflows (called as '${p.magicId}.<workflow>.run(…)' / '.instances()' / ` +
+    `'.instance(key)'): ${p.knownWorkflows}.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/e2e-route-checks.ts
@@ -3440,6 +3471,21 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `e2e: 'api.${p.slug}.${p.verb}(…)' resolves to no route this model emits for ` +
     `'${p.aggregate}'. Routed verbs: ${p.routed}.`,
+  "loom.e2e-unrouted-verb#workflow-run": (p: { slug: unknown; workflow: unknown }) =>
+    `e2e: 'api.${p.slug}.run(…)' has no route — workflow '${p.workflow}' is started by an ` +
+    `EVENT, not by a command, so no backend mounts 'POST /api/workflows/${p.slug}'. It is a ` +
+    `reactor the in-process dispatcher starts: drive the operation that emits its trigger ` +
+    `event instead, then read the saga back with 'api.${p.slug}.instances()' / ` +
+    `'.instance(key)'.`,
+  "loom.e2e-unrouted-verb#workflow-instance": (p: {
+    slug: unknown;
+    verb: unknown;
+    workflow: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' has no route — workflow '${p.workflow}' declares no ` +
+    `correlation field, so it persists no instance row and no backend mounts ` +
+    `'GET /api/workflows/${p.slug}/instances'. Declare one id-shaped state field ` +
+    `(e.g. 'orderId: Order id') to give it an instance to read.`,
   "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
@@ -3966,6 +4012,18 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.parse-error#reserved-name": (p: { found: unknown; expected: unknown }) =>
     `'${p.found}' is a Loom keyword, so it cannot be used as a ${p.expected} here. ` +
     `Rename it — '${p.found}Ref' or a domain-specific synonym.`,
+  // The ASYMMETRIC half of the reserved-word case: a keyword the grammar
+  // admits where a name is DECLARED (`LooseName`) but not where one is READ
+  // (`NameRefIdent`).  The declaration is accepted, so the author has no
+  // reason to suspect the name — and the failure lands on the USE, in an
+  // alternation whose candidate dump describes expression syntax.  Naming the
+  // asymmetry is the only thing that makes the refusal learnable; `from` works
+  // as a parameter and `to` works everywhere, so there is otherwise no rule to
+  // infer.  The set is derived from the grammar (`src/language/soft-keywords.ts`).
+  "loom.parse-error#reserved-in-expression": (p: { found: unknown }) =>
+    `'${p.found}' is a Loom keyword and cannot be READ as a name, even though it ` +
+    `is accepted where a name is DECLARED — so a parameter, field or binding ` +
+    `called '${p.found}' parses and can then never be mentioned. Rename it.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

@@ -37,6 +37,14 @@ import {
 } from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
+  ledgerRelPath,
+  type MigrationHistoryLedger,
+  MigrationLedgerReadError,
+  migrationLedgerPath,
+  readMigrationLedger,
+  writeMigrationLedger,
+} from "../system/migration-ledger.js";
+import {
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
@@ -544,6 +552,17 @@ interface RunResult {
 
 type GenerateTarget = "ts" | "dotnet" | "system";
 
+/** The ledger path to NAME in a guard refusal.  Relative to the cwd when that
+ *  is actually shorter and readable, absolute otherwise: a source tree beside
+ *  (or above) the cwd otherwise yields a `../../../..` chain the operator has
+ *  to decode before they can go look at the file the message blames. */
+function displayLedgerPath(sourceDir: string, sourceFile: string): string {
+  const abs = migrationLedgerPath(sourceDir, sourceFile);
+  const rel = path.relative(process.cwd(), abs);
+  if (!rel) return ledgerRelPath(sourceFile);
+  return rel.startsWith("..") || path.isAbsolute(rel) ? abs : rel;
+}
+
 async function runGenerate(
   target: GenerateTarget,
   file: string,
@@ -633,6 +652,12 @@ async function runGenerate(
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
+  // The migration-history ledger lives beside the `.ddd` SOURCE, not under
+  // `-o`: it is the only record of "this module already has migrations" that
+  // survives being read in an output tree that carries none of them (F-029).
+  // Written back after a successful non-dry run, below.
+  const sourceDir = path.dirname(path.resolve(file));
+  let ledgerToWrite: MigrationHistoryLedger | null = null;
   if (target === "system") {
     // Diff each subdomain's current schema against the snapshot the
     // LAST regen wrote into `.loom/snapshots/` (under `outDir`).
@@ -641,7 +666,7 @@ async function runGenerate(
     // moves.  See `src/system/migrations-builder.ts` for the diff
     // builder + `docs/generators.md` § Migrations for the pipeline.
     try {
-      files = generateSystemsFromLoom(loom, {
+      const emission = generateSystemsFromLoom(loom, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
         snapshots: fsSnapshotStore(outDir),
@@ -652,12 +677,19 @@ async function runGenerate(
         // scans a real tree.
         existingMigrations: fsMigrationArtifactIndex(outDir, loom),
         allowRebaseline: options.allowRebaseline,
+        // F-029: the output-tree guards are blind to a generate into a CLEAN
+        // directory (no snapshot AND no files reads as a first run). The
+        // ledger beside the source is the fact they are missing.
+        recordedHistory: readMigrationLedger(sourceDir, file),
+        ledgerPath: displayLedgerPath(sourceDir, file),
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
-      }).files;
+      });
+      files = emission.files;
+      ledgerToWrite = emission.migrationLedger;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -671,7 +703,8 @@ async function runGenerate(
         err instanceof MigrationDestructiveError ||
         err instanceof MigrationShapeChangeError ||
         err instanceof MigrationSqlScopeError ||
-        err instanceof MigrationBaselineError
+        err instanceof MigrationBaselineError ||
+        err instanceof MigrationLedgerReadError
       ) {
         console.error(`${file}: ${err.message}`);
         if (!options.continueOnError) process.exit(1);
@@ -853,6 +886,27 @@ async function runGenerate(
     console.log(`  removed             ${relPath}`);
     removed++;
     pruneEmptyDirs(resolvedOut, path.dirname(full));
+  }
+
+  // Record the migration history this run's tree now has, beside the SOURCE.
+  // After the write loop and only on a real run: a `--dry-run` generated
+  // nothing, so the ledger must keep describing the tree as it stands (a dry
+  // run that recorded the delta it only previewed would arm guard (e) against
+  // the very next real generate).
+  if (ledgerToWrite && !options.dryRun) {
+    const { error } = writeMigrationLedger(sourceDir, file, ledgerToWrite);
+    if (error) {
+      // Non-fatal: a read-only source checkout is a real setup, and losing
+      // the detector must not fail a generate that otherwise succeeded. But
+      // it must not be SILENT either — without it the next generate into a
+      // clean directory is unguarded again.
+      console.error(
+        `Warning: could not record the migration history at ` +
+          `${migrationLedgerPath(sourceDir, file)} (${error.message}). The next ` +
+          `\`generate system\` into a clean output directory will not be able to tell a ` +
+          `re-baseline from a first run.`,
+      );
+    }
   }
 
   const verb = options.dryRun ? "Would write" : "Wrote";
@@ -1534,7 +1588,7 @@ program
   .description("Parse and validate a .ddd file")
   .option(
     "--json",
-    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/old/proposals/ai-diagnostics-contract.md",
+    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/api-toolkit.md",
   )
   .action(async (file: string, options: { json?: boolean }) => {
     if (options.json) await runParseJson(file);
@@ -1544,7 +1598,7 @@ program
 program
   .command("patch <file>")
   .description(
-    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/old/proposals/ai-authoring-loop.md.",
+    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/api-toolkit.md.",
   )
   .requiredOption(
     "--patches <file>",
@@ -1564,7 +1618,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1587,7 +1641,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1612,11 +1666,11 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--json",
-    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/old/proposals/ai-diagnostics-contract.md.",
+    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/api-toolkit.md.",
   )
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .option(
     "--k8s",
@@ -1632,7 +1686,7 @@ generate
   )
   .option(
     "--sourcemap",
-    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/old/plans/source-map-debug-kickoff.md.",
+    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
   )
   .option(
     "--inline-sources",
@@ -1719,7 +1773,7 @@ program
   .command("trace <logfile>")
   .description(
     "Annotate a crash log / stack trace with the .ddd construct + source location each " +
-      "frame maps to, via .loom/sourcemap.json. See docs/old/proposals/source-map-and-debugging.md §6B.",
+      "frame maps to, via .loom/sourcemap.json. See docs/debugging.md.",
   )
   .option(
     "--map <path>",
@@ -1737,7 +1791,7 @@ program
   .command("breakpoints <file>")
   .description(
     "Resolve a .ddd source line to the generated file:line(s) it produced, via " +
-      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/old/proposals/source-map-and-debugging.md §6E.",
+      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/debugging.md.",
   )
   .requiredOption("--line <n>", "1-based .ddd source line to resolve")
   .option(

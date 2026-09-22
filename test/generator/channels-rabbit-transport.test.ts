@@ -116,8 +116,11 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     const files = await generateSystemFiles(FIXTURE);
     const mod = files.get("ship_api/http/channels.ts") ?? "";
     expect(mod).toContain("t.subscribe(b.address, b.queue ? b.group : null, async (envelope) => {");
-    // The envelope id rides into the dispatcher as the idempotency marker.
-    expect(mod).toContain("__loomEventId: envelope.id,");
+    // The envelope id rides into the dispatcher as the idempotency marker —
+    // now handed to the typed decoder rather than spread in behind a cast
+    // (F-019), so the marker travels on the DECODED event.
+    expect(mod).toContain("decodeChannelEvent(bare, envelope.data, envelope.id)");
+    expect(mod).toContain("__loomEventId: eventId,");
   });
 
   it("provisions the RabbitMQ sidecar and injects the amqp URL in compose", async () => {
