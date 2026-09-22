@@ -1,6 +1,6 @@
 # Wave C4 — the debt seams and compiler hygiene (coordinator log)
 
-Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 "Wave C4". Rules: §3 there (rules 10–18) and §3/§3a of [`../improvement-waves-2026-09.md`](../improvement-waves-2026-09.md). Wave PR: **#TBD** (draft = the claim) on `claude/loom-review-planning-adz0n4`, restarted from `main` @ `a45fc948b` (the C2 batch-3 merge, 2026-09-22 03:19Z).
+Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 "Wave C4". Rules: §3 there (rules 10–18) and §3/§3a of [`../improvement-waves-2026-09.md`](../improvement-waves-2026-09.md). Wave PR: **[#3011](https://github.com/Loom-Harness/Loc/pull/3011)** (draft = the claim) on `claude/loom-review-planning-adz0n4`, restarted from `main` @ `a45fc948b` (the C2 batch-3 merge, 2026-09-22 03:19Z).
 
 ## Status: **launched 2026-09-22 — batch 1 (4b, 4c, 4a) running; batch 2 (4d, 4e, 4f) follows as slots free (4-core box, three Opus agents at a time)**
 
