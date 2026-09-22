@@ -9,6 +9,7 @@ import { lowerModel, mergeLoomModels } from "../../../src/ir/lower/lower.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { loadProject } from "../../../src/language/project-loader.js";
+import { diagText, type LspDiagnostic } from "../../_helpers/diagnostics.js";
 
 function writeProject(rootDir: string, files: Record<string, string>): void {
   for (const [rel, content] of Object.entries(files)) {
@@ -18,13 +19,11 @@ function writeProject(rootDir: string, files: Record<string, string>): void {
   }
 }
 
-function collectErrors(
-  docs: { uri: URI; diagnostics?: { severity?: number; message: string }[] }[],
-): string[] {
+function collectErrors(docs: { uri: URI; diagnostics?: LspDiagnostic[] }[]): string[] {
   const out: string[] = [];
   for (const doc of docs) {
     for (const d of doc.diagnostics ?? []) {
-      if (d.severity === 1) out.push(`${doc.uri.fsPath}: ${d.message}`);
+      if (d.severity === 1) out.push(`${doc.uri.fsPath}: ${diagText(d)}`);
     }
   }
   return out;

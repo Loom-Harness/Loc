@@ -34,7 +34,7 @@ async function codesFor(src: string): Promise<string[]> {
   const loom = await buildLoomModel(src);
   return validateLoomModel(loom)
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 // VO-typed saga instance-view field — the correlation-bearing workflow carries a

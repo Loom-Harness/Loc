@@ -28,7 +28,7 @@ class FakeDecimal {
   }
 }
 
-type MoneySchema = z.ZodType<FakeDecimal, z.ZodTypeDef, unknown>;
+type MoneySchema = z.ZodType<FakeDecimal, unknown>;
 
 /** Strip the template's imports, transpile, and evaluate with the repo's
  *  zod + the Decimal stand-in injected. */

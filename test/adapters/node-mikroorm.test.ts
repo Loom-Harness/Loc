@@ -15,17 +15,18 @@ import type { Model } from "../../src/language/generated/ast.js";
 import { mikroOrmPersistenceAdapter } from "../../src/platform/hono/v4/adapters/mikroorm-persistence.js";
 import { adaptersFor } from "../../src/platform/resolve-adapters.js";
 import { generateSystems } from "../../src/system/index.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 /** Lower + enrich + run parse diagnostics AND the IR validator (where
  *  `loom.mikroorm-unsupported` lives), then emit. */
 async function emit(src: string): Promise<{ files: Map<string, string>; errors: string[] }> {
   const services = createDddServices(NodeFileSystem);
   const doc = await parseHelper(services.Ddd)(src, { validation: true });
-  const parseErrors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+  const parseErrors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
   const loom = enrichLoomModel(lowerModel(doc.parseResult.value as Model));
   const irErrors = validateLoomModel(loom)
     .filter((d) => d.severity === "error")
-    .map((d) => d.message);
+    .map(diagText);
   const errors = [...parseErrors, ...irErrors];
   if (errors.length > 0) return { files: new Map(), errors };
   return { files: generateSystems(doc.parseResult.value as Model).files, errors };

@@ -4,7 +4,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import { type PackFormat, packFormatForBuiltin } from "../../src/util/builtin-formats.js";
@@ -309,7 +309,8 @@ async function startPreview(
 }
 
 describe.skipIf(!ENABLED)("generated frontend clears axe-core (preview + axe)", () => {
-  const label = FORMAT === "tsx" ? EXAMPLE : `scaffold(${PLATFORM_BY_FORMAT[FORMAT] ?? FORMAT})`;
+  const label =
+    FORMAT === "tsx" || FORMAT === "heex" ? EXAMPLE : `scaffold(${PLATFORM_BY_FORMAT[FORMAT]})`;
   it(`${label} × ${PACK}`, { timeout: 900_000 }, async () => {
     const profile = profileFor(FORMAT);
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-a11y-e2e-"));

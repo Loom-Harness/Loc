@@ -58,9 +58,11 @@ function fakeBackend(): (req: SerializedRequest) => Promise<DispatchResult> {
 describe("harness", () => {
   it("expect(x).toBe(true) passes for true, fails otherwise", async () => {
     const h = createHarness();
-    // biome-ignore lint/suspicious/noSelfCompare: deliberately testing the harness's pass/fail outcomes
-    h.it("ok", () => h.expect(1 === 1).toBe(true));
-    h.it("bad", () => h.expect(1 === 2).toBe(true));
+    // `one` is widened so the comparisons are a runtime question, not a
+    // compile-time one — the point is the harness's pass/fail outcomes.
+    const one: number = 1;
+    h.it("ok", () => h.expect(one === 1).toBe(true));
+    h.it("bad", () => h.expect(one === 2).toBe(true));
     const results = await runTests(h.tests);
     expect(results.map((r) => r.status)).toEqual(["pass", "fail"]);
     expect(results[1].error).toMatch(/to be true/);

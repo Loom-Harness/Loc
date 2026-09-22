@@ -39,7 +39,7 @@ ${body}
 
 async function codesFor(body: string): Promise<string[]> {
   const diags = validateLoomModel(await buildLoomModel(SOURCE(body)));
-  return diags.filter((d) => d.severity === "error").map((d) => d.code);
+  return diags.filter((d) => d.severity === "error").map((d) => d.code ?? "");
 }
 
 describe("validator — e2e unresolved ref", () => {
@@ -144,7 +144,7 @@ system Shop {
 `;
     const codes = validateLoomModel(await buildLoomModel(src))
       .filter((d) => d.severity === "error")
-      .map((d) => d.code);
+      .map((d) => d.code ?? "");
     expect(codes).not.toContain("loom.e2e-unresolved-ref");
   });
 });

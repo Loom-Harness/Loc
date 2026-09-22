@@ -271,7 +271,7 @@ describe("ui factories", () => {
 describe("origin tracking", () => {
   it("nodes built outside `_withOrigin` carry no origin tag", () => {
     const n = nameRef("plain");
-    expect((n as Record<string, unknown>)[ORIGIN_PROP]).toBeUndefined();
+    expect((n as unknown as Record<string, unknown>)[ORIGIN_PROP]).toBeUndefined();
     expect(originOf(n)).toBeUndefined();
   });
 

@@ -58,7 +58,7 @@ async function diagnostics(uiBody: string) {
 }
 
 const codes = async (uiBody: string): Promise<string[]> =>
-  (await diagnostics(uiBody)).map((d) => d.code);
+  (await diagnostics(uiBody)).map((d) => d.code ?? "");
 
 describe("loom.unresolved-page-ref — the gate", () => {
   it("flags a bare unresolved ref in a text slot", async () => {

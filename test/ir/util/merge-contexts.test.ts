@@ -95,8 +95,8 @@ describe("mergeContexts — the plain-union fields", () => {
       ctx({ commandHandlers: [named("PlaceOrder")], queryHandlers: [named("GetOrder")] }),
       ctx({ commandHandlers: [named("ShipOrder")] }),
     ]);
-    expect(merged.commandHandlers.map((h) => h.name)).toEqual(["PlaceOrder", "ShipOrder"]);
-    expect(merged.queryHandlers.map((h) => h.name)).toEqual(["GetOrder"]);
+    expect((merged.commandHandlers ?? []).map((h) => h.name)).toEqual(["PlaceOrder", "ShipOrder"]);
+    expect((merged.queryHandlers ?? []).map((h) => h.name)).toEqual(["GetOrder"]);
   });
 });
 

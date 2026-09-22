@@ -225,8 +225,7 @@ describe("money — primitive type parses and lowers", () => {
   it("parses `money` as a field type", () => {
     const inv = findAgg(model, "Invoice");
     const subtotal = inv.members.find(
-      (m): m is { $type: string; name: string } =>
-        m.$type === "Property" && (m as { name: string }).name === "subtotal",
+      (m) => m.$type === "Property" && (m as { name: string }).name === "subtotal",
     );
     expect(subtotal).toBeDefined();
   });

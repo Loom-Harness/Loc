@@ -25,6 +25,7 @@ import {
   setFieldMask,
   setFieldSensitivity,
 } from "../../../web/src/builder/system/fields.js";
+import { contextMembersOf, nodeName } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
 // Every field shape the mutators have to cope with: bare, defaulted, fully
@@ -87,10 +88,9 @@ const expectHunk = (
 const BROKEN = SRC.replace("aggregate Order {", "aggregate Order {{");
 
 const constructOf = (source: string, type: string, name: string) => {
-  const found = parse(source)
-    .members.flatMap((m) => ("members" in m ? m.members : []))
-    .flatMap((m) => ("members" in m ? m.members : []))
-    .find((m) => m.$type === type && (m as { name?: string }).name === name);
+  const found = contextMembersOf(parse(source)).find(
+    (m) => m.$type === type && nodeName(m) === name,
+  );
   if (!found) throw new Error(`no ${type} ${name}`);
   return found;
 };

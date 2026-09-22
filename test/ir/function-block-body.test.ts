@@ -18,7 +18,7 @@ async function irCodes(source: string): Promise<string[]> {
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 const wrap = (aggBody: string, repoBody = "") => `

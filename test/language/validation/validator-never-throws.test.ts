@@ -5,6 +5,7 @@ import { EmptyFileSystem, OperationCancelled, URI } from "langium";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import { runChecked } from "../../../src/language/ddd-validator.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 import { repoRoot } from "../../_helpers/examples.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -49,7 +50,7 @@ async function errorsOverBrokenParse(source: string): Promise<string[]> {
     stopAfterLexingErrors: false,
     stopAfterParsingErrors: false,
   });
-  return diagnostics.filter((d) => d.severity === 1).map((d) => d.message);
+  return diagnostics.filter((d) => d.severity === 1).map(diagText);
 }
 
 /** Every shipped `.ddd` example (both example roots). */

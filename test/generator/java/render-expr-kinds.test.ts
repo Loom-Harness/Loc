@@ -17,21 +17,30 @@ import {
 } from "../../../src/generator/java/render-expr.js";
 import { renderJavaStatements } from "../../../src/generator/java/render-stmt.js";
 import type { ExprIR, StmtIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
 const MONEY: TypeIR = { kind: "primitive", name: "money" };
 const DATETIME: TypeIR = { kind: "primitive", name: "datetime" };
 
-const litInt = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
-const litLong = (v: string): ExprIR => ({ kind: "literal", lit: "long", value: v });
-const litStr = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
-const litDecimal = (v: string): ExprIR => ({ kind: "literal", lit: "decimal", value: v });
-const litMoney = (v: string): ExprIR => ({ kind: "literal", lit: "money", value: v });
-const litBool = (v: "true" | "false"): ExprIR => ({ kind: "literal", lit: "bool", value: v });
-const litNull = (): ExprIR => ({ kind: "literal", lit: "null", value: "" });
-const refParam = (name: string): ExprIR => ({ kind: "ref", name, refKind: "param" });
-const thisProp = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+const litInt = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
+const litLong = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "long", value: v });
+const litStr = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
+const litDecimal = (v: string): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "decimal",
+  value: v,
+});
+const litMoney = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "money", value: v });
+const litBool = (v: "true" | "false"): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "bool",
+  value: v,
+});
+const litNull = (): ExprOf<"literal"> => ({ kind: "literal", lit: "null", value: "" });
+const refParam = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "param" });
+const thisProp = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "this-prop" });
 
 describe("java renderJavaExpr — literals", () => {
   it("renders string literals JSON-quoted", () => {
@@ -153,7 +162,7 @@ describe("java renderJavaExpr — member + method-call", () => {
   });
 
   it("renders the A2 string-batch intrinsics via the catalogue snippets", () => {
-    const call = (member: string, args: ExprIR[] = []): ExprIR => ({
+    const call = (member: string, args: ExprIR[] = []): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("name"),
       member,
@@ -180,7 +189,7 @@ describe("java renderJavaExpr — member + method-call", () => {
   });
 
   it("renders substring with 0-based clamping semantics (both arities)", () => {
-    const sub = (args: ExprIR[]): ExprIR => ({
+    const sub = (args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("name"),
       member: "substring",
@@ -197,7 +206,7 @@ describe("java renderJavaExpr — member + method-call", () => {
   });
 
   it("renders collection ops via Streams", () => {
-    const items = (member: string, args: ExprIR[] = []): ExprIR => ({
+    const items = (member: string, args: ExprIR[] = []): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member,
@@ -309,7 +318,7 @@ describe("java renderJavaExpr — member + method-call", () => {
       param: "x",
       body: { kind: "ref", name: "x", refKind: "lambda" },
     };
-    const mc = (member: string, args: ExprIR[]): ExprIR => ({
+    const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member,
@@ -352,7 +361,7 @@ describe("java renderJavaExpr — member + method-call", () => {
       param: "x",
       body: { kind: "ref", name: "x", refKind: "lambda" },
     };
-    const mc = (member: string, args: ExprIR[]): ExprIR => ({
+    const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member,
@@ -537,6 +546,7 @@ describe("java renderJavaExpr — convert / match / list / lambda / object", () 
     expect(
       renderJavaExpr({
         kind: "match",
+        variantArms: [],
         arms: [
           { cond: litBool("true"), value: litStr("first") },
           { cond: litBool("false"), value: litStr("second") },
@@ -672,7 +682,7 @@ describe("java renderJavaType", () => {
   });
 
   it("renders ids, carriers, and entities", () => {
-    expect(renderJavaType({ kind: "id", targetName: "Order" })).toBe("OrderId");
+    expect(renderJavaType({ kind: "id", targetName: "Order", valueType: "guid" })).toBe("OrderId");
     expect(
       renderJavaType({
         kind: "genericInstance",
@@ -859,7 +869,7 @@ describe("java renderJavaExpr — variant-match with an `error` variant", () => 
       { kind: "entity", name: b },
     ],
   });
-  const readOf = (binding: string, member: string): ExprIR => ({
+  const readOf = (binding: string, member: string): ExprOf<"member"> => ({
     kind: "member",
     receiver: { kind: "ref", name: binding, refKind: "match-binding" },
     member,

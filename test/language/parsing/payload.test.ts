@@ -4,10 +4,10 @@
 // `event` projection with `kind: "event"`), the P2 synthesized `<Agg>Wire`
 // payloads, and the P1 validator rules (name conflict, duplicate field).
 
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
+import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseString, parseValid } from "../../_helpers/parse.js";
 
 const errorCodes = (diags: Diagnostic[]): (string | number | undefined)[] =>

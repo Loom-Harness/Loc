@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { resolveToSource } from "../../src/ir/types/origin.js";
 import { generateSystems } from "../../src/system/index.js";
 import { parseString, parseValid } from "../_helpers/index.js";
 
@@ -8,6 +7,33 @@ import { parseString, parseValid } from "../_helpers/index.js";
 // source-map-debug-kickoff.md §5/§6).  All five backends carry the emit
 // bracket, so each must map at least one file per aggregate.
 // ---------------------------------------------------------------------------
+
+// The WIRE shape of `.loom/sourcemap.json` — deliberately NOT the in-memory
+// `OriginRef`.  `renderSourceRef` (src/system/sourcemap.ts) serialises a span as
+// the tuple `[start, end]` precisely so an `origin.ts` field rename cannot move
+// the file format, while `OriginSpan` is `{ start, end }`.  This file used to
+// annotate the parsed JSON with `OriginRef` and then destructure `span` as a
+// tuple — two mutually contradictory claims that only compiled because nothing
+// typechecked `test/` (M-T9.50).
+interface WireSourceRef {
+  kind: "source";
+  path: string;
+  span: [number, number];
+}
+type WireOriginRef =
+  | WireSourceRef
+  | { kind: "macro"; macro: string; call: WireSourceRef; inner?: WireOriginRef }
+  | { kind: "derived"; reason: string; from?: WireOriginRef };
+
+/** The wire twin of `resolveToSource`: walk the chain to the nearest real
+ *  source span — a `macro` resolves through its `call`, a `derived` through
+ *  `from`.  `undefined` only for a bare `derived` with no chain. */
+function wireSourceOf(origin: WireOriginRef | undefined): WireSourceRef | undefined {
+  if (!origin) return undefined;
+  if (origin.kind === "source") return origin;
+  if (origin.kind === "macro") return origin.call;
+  return wireSourceOf(origin.from);
+}
 
 const BRACKETED: string[] = ["node", "dotnet", "elixir", "python", "java"];
 
@@ -431,7 +457,7 @@ describe(".loom/sourcemap.json", () => {
         string,
         {
           target: [number, number];
-          origin: import("../../src/ir/types/origin.js").OriginRef;
+          origin: WireOriginRef;
           construct?: string;
         }[]
       >;
@@ -452,7 +478,7 @@ describe(".loom/sourcemap.json", () => {
         );
         expect(start, `${path}: target start > end`).toBeLessThanOrEqual(end);
 
-        const resolved = resolveToSource(region.origin);
+        const resolved = wireSourceOf(region.origin);
         expect(resolved, `${path}: origin chain never resolves to a source span`).toBeDefined();
         expect(
           map.sources,
@@ -518,10 +544,7 @@ describe(".loom/sourcemap.json", () => {
     const files = generateSystems(model, { sourcemap: true }).files;
     const raw = files.get(".loom/sourcemap.json")!;
     const map = JSON.parse(raw) as {
-      files: Record<
-        string,
-        { construct?: string; origin: import("../../src/ir/types/origin.js").OriginRef }[]
-      >;
+      files: Record<string, { construct?: string; origin: WireOriginRef }[]>;
     };
 
     const prefix = `${REACT_SLUG}/`;
@@ -541,7 +564,7 @@ describe(".loom/sourcemap.json", () => {
           `${path}: construct ${region.construct} doesn't start with the ui name`,
         ).toBe(true);
         expect(region.origin.kind, `${path}: expected a scaffold macro origin`).toBe("macro");
-        const resolved = resolveToSource(region.origin);
+        const resolved = wireSourceOf(region.origin);
         expect(resolved, `${path}: origin never resolves to a source span`).toBeDefined();
       }
     }
@@ -622,7 +645,7 @@ describe(".loom/sourcemap.json", () => {
         string,
         {
           target: [number, number];
-          origin: import("../../src/ir/types/origin.js").OriginRef;
+          origin: WireOriginRef;
           construct?: string;
           targetCol?: [number, number];
         }[]
@@ -688,9 +711,9 @@ describe(".loom/sourcemap.json", () => {
     // (c) each statement region's origin resolves to a span whose text
     // contains that statement's own distinctive token, in source order.
     stmtRegions.forEach((r, i) => {
-      const resolved = resolveToSource(r.origin);
+      const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
-      const text = SOURCE.slice(resolved!.span.start, resolved!.span.end);
+      const text = SOURCE.slice(...resolved!.span);
       expect(text, `stmt region ${i} span doesn't contain "${tokens[i]}"`).toContain(tokens[i]);
     });
   });
@@ -757,7 +780,7 @@ describe(".loom/sourcemap.json", () => {
         string,
         {
           target: [number, number];
-          origin: import("../../src/ir/types/origin.js").OriginRef;
+          origin: WireOriginRef;
           construct?: string;
         }[]
       >;
@@ -823,9 +846,9 @@ describe(".loom/sourcemap.json", () => {
     // that statement's own distinctive token, in source order.
     const tokens = ["Orders.getById", "order.confirm"];
     stmtRegions.forEach((r, i) => {
-      const resolved = resolveToSource(r.origin);
+      const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
-      const text = SOURCE.slice(resolved!.span.start, resolved!.span.end);
+      const text = SOURCE.slice(...resolved!.span);
       expect(text, `stmt region ${i} span doesn't contain "${tokens[i]}"`).toContain(tokens[i]);
     });
   });
@@ -910,7 +933,7 @@ describe(".loom/sourcemap.json", () => {
         string,
         {
           target: [number, number];
-          origin: import("../../src/ir/types/origin.js").OriginRef;
+          origin: WireOriginRef;
           construct?: string;
         }[]
       >;
@@ -958,9 +981,9 @@ describe(".loom/sourcemap.json", () => {
     // that statement's own distinctive token, in source order.
     const tokens = ["Orders.getById", "order.confirm"];
     stmtRegions.forEach((r, i) => {
-      const resolved = resolveToSource(r.origin);
+      const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
-      const text = SOURCE.slice(resolved!.span.start, resolved!.span.end);
+      const text = SOURCE.slice(...resolved!.span);
       expect(text, `stmt region ${i} span doesn't contain "${tokens[i]}"`).toContain(tokens[i]);
     });
   });
@@ -985,7 +1008,7 @@ describe(".loom/sourcemap.json", () => {
         string,
         {
           target: [number, number];
-          origin: import("../../src/ir/types/origin.js").OriginRef;
+          origin: WireOriginRef;
           construct?: string;
         }[]
       >;
@@ -1009,12 +1032,18 @@ describe(".loom/sourcemap.json", () => {
       "transactional body's statement regions failed to anchor",
     ).toBeGreaterThanOrEqual(2);
 
-    const tokens = ["Orders.getById", "order.confirm"];
+    // `archiveOrder`'s OWN statements — its body deliberately differs from
+    // `confirmOrder`'s (see the comment on the workflow).  This list used to
+    // carry confirmOrder's tokens and passed anyway, because the slice below
+    // read `span.start`/`span.end` off a wire span that is a TUPLE: both were
+    // `undefined`, so `String.slice` returned the whole source and every
+    // `toContain` was vacuous (M-T9.50).
+    const tokens = ["Products.getById", "product.discontinue"];
     stmtRegions.forEach((r, i) => {
-      const resolved = resolveToSource(r.origin);
+      const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves`).toBeDefined();
-      const text = SOURCE.slice(resolved!.span.start, resolved!.span.end);
-      expect(text).toContain(tokens[i]);
+      const text = SOURCE.slice(...resolved!.span);
+      expect(text, `stmt region ${i} span doesn't contain "${tokens[i]}"`).toContain(tokens[i]);
     });
   });
 
@@ -1082,7 +1111,7 @@ describe(".loom/sourcemap.json", () => {
         string,
         {
           target: [number, number];
-          origin: import("../../src/ir/types/origin.js").OriginRef;
+          origin: WireOriginRef;
           construct?: string;
         }[]
       >;
@@ -1114,9 +1143,9 @@ describe(".loom/sourcemap.json", () => {
     ).toBeGreaterThanOrEqual(1);
 
     const sliced = stmtRegions.map((r) => {
-      const resolved = resolveToSource(r.origin);
+      const resolved = wireSourceOf(r.origin);
       expect(resolved, "origin never resolves to a source span").toBeDefined();
-      return SOURCE.slice(resolved!.span.start, resolved!.span.end);
+      return SOURCE.slice(...resolved!.span);
     });
     expect(
       sliced.some((t) => t.includes(token)),

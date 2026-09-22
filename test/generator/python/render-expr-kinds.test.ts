@@ -11,18 +11,23 @@ import {
 } from "../../../src/generator/python/render-expr.js";
 import { renderPyStatements } from "../../../src/generator/python/render-stmt.js";
 import type { ExprIR, StmtIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
 const MONEY: TypeIR = { kind: "primitive", name: "money" };
 const BOOL: TypeIR = { kind: "primitive", name: "bool" };
 
-const litInt = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
-const litStr = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
-const litMoney = (v: string): ExprIR => ({ kind: "literal", lit: "money", value: v });
-const litBool = (v: "true" | "false"): ExprIR => ({ kind: "literal", lit: "bool", value: v });
-const refParam = (name: string): ExprIR => ({ kind: "ref", name, refKind: "param" });
-const thisProp = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+const litInt = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
+const litStr = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
+const litMoney = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "money", value: v });
+const litBool = (v: "true" | "false"): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "bool",
+  value: v,
+});
+const refParam = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "param" });
+const thisProp = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "this-prop" });
 
 describe("py renderPyExpr — literals", () => {
   it("renders string literals JSON-quoted (valid Python)", () => {
@@ -149,20 +154,18 @@ describe("py renderPyExpr — member / method-call", () => {
         member: "trim",
         args: [],
         receiverType: STRING,
-        memberType: STRING,
         isCollectionOp: false,
       }),
     ).toBe("name.strip()");
   });
 
   it("renders the string case intrinsics as .upper()/.lower() (stdlib A2)", () => {
-    const call = (member: string): ExprIR => ({
+    const call = (member: string): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: refParam("name"),
       member,
       args: [],
       receiverType: STRING,
-      memberType: STRING,
       isCollectionOp: false,
     });
     expect(renderPyExpr(call("toUpper"))).toBe("name.upper()");
@@ -170,13 +173,12 @@ describe("py renderPyExpr — member / method-call", () => {
   });
 
   it("renders string.substring as a clamping slice (both arities)", () => {
-    const sub = (args: ExprIR[]): ExprIR => ({
+    const sub = (args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: refParam("name"),
       member: "substring",
       args,
       receiverType: STRING,
-      memberType: STRING,
       isCollectionOp: false,
     });
     expect(renderPyExpr(sub([litInt("2")]))).toBe("name[2 :]");
@@ -191,20 +193,18 @@ describe("py renderPyExpr — member / method-call", () => {
         member: "contains",
         args: [litStr("x")],
         receiverType: STRING,
-        memberType: BOOL,
         isCollectionOp: false,
       }),
     ).toBe('("x" in name)');
   });
 
   it("renders string startsWith/endsWith/replace/split through the host methods", () => {
-    const call = (member: string, args: ExprIR[]): ExprIR => ({
+    const call = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: refParam("name"),
       member,
       args,
       receiverType: STRING,
-      memberType: STRING,
       isCollectionOp: false,
     });
     expect(renderPyExpr(call("startsWith", [litStr("a")]))).toBe('name.startswith("a")');
@@ -224,7 +224,6 @@ describe("py renderPyExpr — member / method-call", () => {
         member: "matches",
         args: [litStr("^[^@]+@")],
         receiverType: STRING,
-        memberType: BOOL,
         isCollectionOp: false,
       }),
     ).toBe('re.search("^[^@]+@", email) is not None');
@@ -233,16 +232,15 @@ describe("py renderPyExpr — member / method-call", () => {
 
 describe("py renderPyExpr — collection ops", () => {
   const lines: ExprIR = thisProp("lines");
-  const arr = (member: string, args: ExprIR[] = []): ExprIR => ({
+  const arr = (member: string, args: ExprIR[] = []): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: lines,
     member,
     args,
     receiverType: { kind: "array", element: { kind: "entity", name: "OrderLine" } },
-    memberType: INT,
     isCollectionOp: true,
   });
-  const lam = (body: ExprIR): ExprIR => ({ kind: "lambda", param: "l", body });
+  const lam = (body: ExprIR): ExprOf<"lambda"> => ({ kind: "lambda", param: "l", body });
 
   it("count → len()", () => {
     expect(renderPyExpr(arr("count"))).toBe("len(self._lines)");
@@ -429,7 +427,11 @@ describe("py renderPyExpr — calls / new / object / list", () => {
 });
 
 describe("py renderPyExpr — operators / ternary / match / convert", () => {
-  const bin = (op: "&&" | "||" | "==" | "!=" | "+", left: ExprIR, right: ExprIR): ExprIR => ({
+  const bin = (
+    op: "&&" | "||" | "==" | "!=" | "+",
+    left: ExprIR,
+    right: ExprIR,
+  ): ExprOf<"binary"> => ({
     kind: "binary",
     op,
     left,
@@ -495,6 +497,7 @@ describe("py renderPyExpr — operators / ternary / match / convert", () => {
     expect(
       renderPyExpr({
         kind: "match",
+        variantArms: [],
         arms: [
           { cond: refParam("a"), value: litInt("1") },
           { cond: refParam("b"), value: litInt("2") },
@@ -505,7 +508,7 @@ describe("py renderPyExpr — operators / ternary / match / convert", () => {
   });
 
   it("renders converts per (from, target) pair", () => {
-    const conv = (target: string, from: string | undefined, v: ExprIR): ExprIR => ({
+    const conv = (target: string, from: string | undefined, v: ExprIR): ExprOf<"convert"> => ({
       kind: "convert",
       target: target as never,
       from: from as never,
@@ -553,7 +556,6 @@ describe("py renderPyExpr — A1 int-division widening + divTrunc", () => {
         member: "divTrunc",
         args: [litInt("2")],
         receiverType: INT,
-        memberType: INT,
         isCollectionOp: false,
       }),
     ).toBe("trunc_div(self._a, 2)");
@@ -574,7 +576,7 @@ describe("py renderPyType", () => {
   });
 
   it("maps ids, enums, VOs, arrays, optionals", () => {
-    expect(renderPyType({ kind: "id", targetName: "Order" })).toBe("OrderId");
+    expect(renderPyType({ kind: "id", targetName: "Order", valueType: "guid" })).toBe("OrderId");
     expect(renderPyType({ kind: "enum", name: "Status" })).toBe("Status");
     expect(renderPyType({ kind: "valueobject", name: "Money" })).toBe("Money");
     expect(renderPyType({ kind: "array", element: STRING })).toBe("list[str]");
@@ -678,7 +680,6 @@ describe("py collectPyExprImports", () => {
       member: "matches",
       args: [litStr("@")],
       receiverType: STRING,
-      memberType: BOOL,
       isCollectionOp: false,
     };
     expect([...collectPyExprImports(matches)]).toEqual(["re"]);
@@ -710,7 +711,15 @@ describe("py renderPyExpr — money × decimal lifts the float operand (M-T6.45)
     right: ExprIR,
     leftType: TypeIR,
     rightType: TypeIR,
-  ): ExprIR => ({ kind: "binary", op, left, right, leftType, rightType, resultType: MONEY });
+  ): ExprOf<"binary"> => ({
+    kind: "binary",
+    op,
+    left,
+    right,
+    leftType,
+    rightType,
+    resultType: MONEY,
+  });
 
   it("lifts the RIGHT operand for `money * decimal`", () => {
     expect(renderPyExpr(scale("*", money, rate, MONEY, DECIMAL))).toBe(

@@ -12,6 +12,7 @@ import {
   printSolutionText,
   printTestCaseText,
 } from "../../web/src/builder/requirements/printers.js";
+import { nodeName } from "../_helpers/ast.js";
 
 const SRC = `
 requirement US-001 {
@@ -104,7 +105,7 @@ describe("Requirements edit round-trip via spliceNode", () => {
   it("changing a requirement status round-trips through the parser", () => {
     const { ast } = parseDdd(SRC);
     const us001 = [...AstUtils.streamAst(ast)].find(
-      (n) => n.$type === "Requirement" && (n as { name: string }).name === "US-001",
+      (n) => n.$type === "Requirement" && nodeName(n) === "US-001",
     )!;
     const next = printRequirementText({
       name: "US-001",
@@ -120,7 +121,7 @@ describe("Requirements edit round-trip via spliceNode", () => {
     const reparsed = parseDdd(updated);
     expect(reparsed.parserErrors).toEqual([]);
     const us = [...AstUtils.streamAst(reparsed.ast)].find(
-      (n) => n.$type === "Requirement" && (n as { name: string }).name === "US-001",
+      (n) => n.$type === "Requirement" && nodeName(n) === "US-001",
     ) as { props: { name: string; value: unknown }[] } | undefined;
     const status = us?.props.find((p) => p.name === "status");
     expect((status?.value as { name: string }).name).toBe("Done");
@@ -129,7 +130,7 @@ describe("Requirements edit round-trip via spliceNode", () => {
   it("adding a code element to a solution's entitles round-trips", () => {
     const { ast } = parseDdd(SRC);
     const sol = [...AstUtils.streamAst(ast)].find(
-      (n) => n.$type === "Solution" && (n as { name: string }).name === "SOL-001",
+      (n) => n.$type === "Solution" && nodeName(n) === "SOL-001",
     )!;
     const next = printSolutionText({
       name: "SOL-001",
@@ -163,7 +164,7 @@ describe("Requirements edit round-trip via spliceNode", () => {
     const reparsed = parseDdd(updated);
     expect(reparsed.parserErrors).toEqual([]);
     const found = [...AstUtils.streamAst(reparsed.ast)].find(
-      (n) => n.$type === "Requirement" && (n as { name: string }).name === "AC-009",
+      (n) => n.$type === "Requirement" && nodeName(n) === "AC-009",
     ) as { parent?: { $refText: string } } | undefined;
     expect(found?.parent?.$refText).toBe("US-001");
   });
@@ -176,7 +177,7 @@ describe("Requirements edit round-trip via spliceNode", () => {
     );
     const { ast } = parseDdd(SRC2);
     const ac = [...AstUtils.streamAst(ast)].find(
-      (n) => n.$type === "Requirement" && (n as { name: string }).name === "AC-001",
+      (n) => n.$type === "Requirement" && nodeName(n) === "AC-001",
     )!;
     const next = printRequirementText({
       name: "AC-001",
@@ -188,7 +189,7 @@ describe("Requirements edit round-trip via spliceNode", () => {
     const reparsed = parseDdd(updated);
     expect(reparsed.parserErrors).toEqual([]);
     const acAfter = [...AstUtils.streamAst(reparsed.ast)].find(
-      (n) => n.$type === "Requirement" && (n as { name: string }).name === "AC-001",
+      (n) => n.$type === "Requirement" && nodeName(n) === "AC-001",
     ) as { parent?: { $refText: string } } | undefined;
     expect(acAfter?.parent?.$refText).toBe("US-002");
   });

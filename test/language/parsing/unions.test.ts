@@ -5,7 +5,6 @@
 // tighter-than-`or` precedence pin, and the soft-keyword admission that keeps
 // pre-existing fields named `or` / `option` parsing.
 
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
 import {
   isNamedType,
@@ -13,6 +12,7 @@ import {
   isPrimitiveType,
   isTypeAtom,
 } from "../../../src/language/generated/ast.js";
+import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseRaw, parseRawOk, parseString } from "../../_helpers/parse.js";
 
 const errorCodes = (diags: Diagnostic[]): (string | number | undefined)[] =>

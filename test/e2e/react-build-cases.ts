@@ -10,7 +10,18 @@
 // `import "./…"` (erp/main.ddd, fulfillment-newest.ddd) can't be built
 // here — their parse/generate coverage lives in
 // test/system/playground-feature-examples.test.ts.
-export const reactBuildExamples = [
+/** One row of the React build sweep. */
+export interface ReactBuildExample {
+  readonly ddd: string;
+  /** The example's FIRST React deployable dir — the one the sweep compiles
+   *  under every design pack. */
+  readonly reactDir: string;
+  /** Further React deployable dirs the same example emits, compiled once.
+   *  Absent means the example emits only `reactDir`. */
+  readonly extraReactDirs?: readonly string[];
+}
+
+export const reactBuildExamples: readonly ReactBuildExample[] = [
   { ddd: "examples/acme.ddd", reactDir: "web_app" },
   // Conformance fixture: console_web is the richest React deployable
   // (exercises every walker primitive).  injectDesign rewrites its

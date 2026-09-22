@@ -96,7 +96,10 @@ describe("the completion plan's §1 denominators are computed, not remembered (�
     expect(d.unsupportedRegister.gap).toBeGreaterThan(10);
     expect(d.ledgerOpen).toBeGreaterThan(50);
     expect(d.missions.live).toBeGreaterThan(100);
-    expect(d.testTypecheckBaseline.files).toBeGreaterThan(50);
+    // NOT the typecheck baseline: M-T9.50 drained it to zero and DELETED the
+    // file, so that denominator is legitimately 0 and can no longer witness a
+    // live scanner.  The corpus fixture register can.
+    expect(d.e2eLessCorpusFixtures).toBeGreaterThan(10);
   });
 
   it("unsupported-register gap/scope match the imported module", async () => {
@@ -139,9 +142,19 @@ describe("the completion plan's §1 denominators are computed, not remembered (�
     const waivers = JSON.parse(read("test/behavioral/schemathesis-waivers.json"));
     expect(d.schemathesisWaiverRules).toBe(waivers.waivers.length);
 
-    const baseline: Record<string, number> = JSON.parse(read("test-typecheck-baseline.json"));
-    expect(d.testTypecheckBaseline.files).toBe(Object.keys(baseline).length);
-    expect(d.testTypecheckBaseline.errors).toBe(Object.values(baseline).reduce((a, b) => a + b, 0));
+    // The baseline is GONE once M-T9.50's drain lands (the plan's §1 exit is
+    // "0 / 0 and the baseline file deleted"), so the denominator is zero and the
+    // gate — `scripts/test-typecheck.mjs` — is what holds the line from there.
+    const baselinePath = path.join(repoRoot, "test-typecheck-baseline.json");
+    if (fs.existsSync(baselinePath)) {
+      const baseline: Record<string, number> = JSON.parse(read("test-typecheck-baseline.json"));
+      expect(d.testTypecheckBaseline.files).toBe(Object.keys(baseline).length);
+      expect(d.testTypecheckBaseline.errors).toBe(
+        Object.values(baseline).reduce((a, b) => a + b, 0),
+      );
+    } else {
+      expect(d.testTypecheckBaseline).toEqual({ files: 0, errors: 0 });
+    }
   });
 
   it("the mission counts match a direct heading count over the track files", async () => {

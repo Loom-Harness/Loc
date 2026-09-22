@@ -7,6 +7,7 @@ import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // collide because they're reached via different call paths.
 
 import { describe, expect, it } from "vitest";
+import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 import { allAggregates } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/index.js";
 import { parseString } from "../../_helpers/parse.js";
@@ -188,7 +189,7 @@ describe("auto-injected `derived inspect`", () => {
     expect(u.inspectDerived?.expr.kind).toBe("binary");
     // The default would produce a 'User(id: ...' literal prefix; the
     // override starts with "custom: " instead.
-    const bin = u.inspectDerived!.expr as Extract<typeof u.inspectDerived.expr, { kind: "binary" }>;
+    const bin = u.inspectDerived!.expr as Extract<ExprIR, { kind: "binary" }>;
     expect(bin.left).toMatchObject({ kind: "literal", value: "custom: " });
   });
 
@@ -231,7 +232,7 @@ describe("auto-injected `derived inspect`", () => {
     `);
     const p = allAggregates(loom).find((a) => a.name === "Product")!;
     const seen: string[] = [];
-    const walk = (e: typeof p.inspectDerived.expr): void => {
+    const walk = (e: ExprIR): void => {
       if (e.kind === "binary") {
         walk(e.left);
         walk(e.right);
@@ -279,7 +280,7 @@ describe("auto-injected `derived inspect`", () => {
     `);
     const s = allAggregates(loom).find((a) => a.name === "Session")!;
     const seen: string[] = [];
-    const walk = (e: typeof s.inspectDerived.expr): void => {
+    const walk = (e: ExprIR): void => {
       if (e.kind === "binary") {
         walk(e.left);
         walk(e.right);
@@ -317,7 +318,7 @@ describe("auto-injected `derived inspect`", () => {
     `);
     const p = allAggregates(loom).find((a) => a.name === "Payment")!;
     const seen: string[] = [];
-    const walk = (e: typeof p.inspectDerived.expr): void => {
+    const walk = (e: ExprIR): void => {
       if (e.kind === "binary") {
         walk(e.left);
         walk(e.right);
@@ -354,7 +355,7 @@ describe("auto-injected `derived inspect`", () => {
     // every literal leaf; the sensitive `ssn` field should appear as
     // `<redacted>` rather than as a `ref` to the field.
     const seen: string[] = [];
-    const walk = (e: typeof u.inspectDerived.expr): void => {
+    const walk = (e: ExprIR): void => {
       if (e.kind === "binary") {
         walk(e.left);
         walk(e.right);

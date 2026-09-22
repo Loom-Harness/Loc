@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { renderExpr } from "../../../src/generator/elixir/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
 const ctx = { thisName: "record", contextModule: "MyApp" };
 
@@ -19,11 +20,11 @@ const INT: TypeIR = { kind: "primitive", name: "int" };
 const MONEY: TypeIR = { kind: "primitive", name: "money" };
 const BOOL: TypeIR = { kind: "primitive", name: "bool" };
 
-const litInt = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
-const litStr = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
-const litMoney = (v: string): ExprIR => ({ kind: "literal", lit: "money", value: v });
-const refParam = (name: string): ExprIR => ({ kind: "ref", name, refKind: "param" });
-const thisProp = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+const litInt = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
+const litStr = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
+const litMoney = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "money", value: v });
+const refParam = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "param" });
+const thisProp = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "this-prop" });
 
 describe("phoenix renderExpr — literals", () => {
   it("renders string literals as Elixir-quoted strings", () => {
@@ -338,6 +339,7 @@ describe("phoenix renderExpr — match", () => {
       renderExpr(
         {
           kind: "match",
+          variantArms: [],
           arms: [{ cond: thisProp("active"), value: litStr("yes") }],
         },
         ctx,
@@ -350,6 +352,7 @@ describe("phoenix renderExpr — match", () => {
       renderExpr(
         {
           kind: "match",
+          variantArms: [],
           arms: [{ cond: thisProp("active"), value: litStr("yes") }],
           otherwise: litStr("no"),
         },
@@ -640,7 +643,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
       param: "x",
       body: { kind: "ref", name: "x", refKind: "lambda" },
     };
-    const mc = (member: string, args: ExprIR[]): ExprIR => ({
+    const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member,
@@ -675,7 +678,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
 
   it("renders the A4 reductions min(λ)/max(λ) with a type-aware Enum sorter", () => {
     const arr: TypeIR = { kind: "array", element: STRING };
-    const mc = (member: string, args: ExprIR[]): ExprIR => ({
+    const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member,
@@ -684,7 +687,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
       isCollectionOp: true,
     });
     // λ-body projection typed via `member.memberType` (bodyTypeOf reads it).
-    const proj = (member: string, memberType: TypeIR): ExprIR => ({
+    const proj = (member: string, memberType: TypeIR): ExprOf<"lambda"> => ({
       kind: "lambda",
       param: "x",
       body: {
@@ -735,7 +738,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
 
   it("folds a money/decimal `sum` through Decimal.add (Enum.sum uses Kernel.+ and raises on a Decimal)", () => {
     const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
-    const proj = (member: string, memberType: TypeIR): ExprIR => ({
+    const proj = (member: string, memberType: TypeIR): ExprOf<"lambda"> => ({
       kind: "lambda",
       param: "x",
       body: {
@@ -746,7 +749,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
         memberType,
       },
     });
-    const sumMc = (elem: TypeIR, args: ExprIR[]): ExprIR => ({
+    const sumMc = (elem: TypeIR, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member: "sum",
@@ -812,7 +815,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
   // `!isEmpty()` / `len(...) > 0`).  `all`'s own default was already correct.
   it("renders argless `any()` as a NON-EMPTY test, not an always-false predicate (A12)", () => {
     const arr: TypeIR = { kind: "array", element: STRING };
-    const mc = (member: string, args: ExprIR[]): ExprIR => ({
+    const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member,
@@ -861,7 +864,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
         resultType: MONEY,
       },
     };
-    const sortMc = (args: ExprIR[]): ExprIR => ({
+    const sortMc = (args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: thisProp("items"),
       member: "sortBy",

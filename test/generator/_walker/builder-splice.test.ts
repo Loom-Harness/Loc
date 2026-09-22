@@ -1,5 +1,6 @@
 import { type AstNode, AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
+import { isStringLit } from "../../../src/language/generated/ast.js";
 import {
   applyEdits,
   lineDiff,
@@ -39,10 +40,7 @@ describe("builder edit-engine", () => {
   });
 
   it("locality: editing one node's value changes only its span", () => {
-    const title = find(
-      SRC,
-      (n) => n.$type === "StringLit" && (n as { value: string }).value === "Welcome",
-    );
+    const title = find(SRC, (n) => isStringLit(n) && n.value === "Welcome");
     const out = spliceNode(SRC, title, '"Hi"');
 
     expect(out).toBe(SRC.replace('"Welcome"', '"Hi"'));

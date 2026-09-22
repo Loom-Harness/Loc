@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
-import type { RawLoomModel } from "../../src/ir/types/loom-ir.js";
-import { allAggregates, allContexts } from "../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../_helpers/index.js";
+import { allAggregates } from "../../src/ir/types/loom-ir.js";
+import { buildLoomModel, enrichedContexts, reEnrich } from "../_helpers/index.js";
 
 // enrichLoomModel runs one pure pass after lowering.  These tests pin the
 // two derivations every backend's DTO emitter and repository depend on:
@@ -57,7 +55,7 @@ describe("enrichment — wireShape", () => {
 
   it("a value object's wireShape carries neither an id nor a containment", async () => {
     const loom = await buildLoomModel(SRC);
-    const money = allContexts(loom)
+    const money = enrichedContexts(loom)
       .flatMap((c) => c.valueObjects)
       .find((v) => v.name === "Money")!;
     for (const f of wireFieldsFor(money)) {
@@ -70,7 +68,7 @@ describe("enrichment — wireShape", () => {
 describe("enrichment — auto findAll", () => {
   it("injects `all` (no params) as the first find on every repository", async () => {
     const loom = await buildLoomModel(SRC);
-    for (const ctx of allContexts(loom)) {
+    for (const ctx of enrichedContexts(loom)) {
       for (const agg of ctx.aggregates) {
         const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
         expect(repo, `${agg.name} repository`).toBeDefined();
@@ -168,7 +166,7 @@ describe("enrichment — idempotency", () => {
         }
       }`;
     const loom = await buildLoomModel(SRC);
-    const ctx = allContexts(loom).find((c) => c.name === "Sales")!;
+    const ctx = enrichedContexts(loom).find((c) => c.name === "Sales")!;
     const subs = ctx.eventSubscriptions;
     expect(subs.find((s) => s.trigger === "on")).toMatchObject({
       event: "OrderPlaced",
@@ -204,7 +202,7 @@ describe("enrichment — idempotency", () => {
         }
       }`;
     const loom = await buildLoomModel(SRC);
-    const ctx = allContexts(loom).find((c) => c.name === "Sales")!;
+    const ctx = enrichedContexts(loom).find((c) => c.name === "Sales")!;
     const sub = ctx.eventSubscriptions.find((s) => s.event === "Ignored");
     expect(sub, "the uncarried consumer must still subscribe").toBeDefined();
     expect(sub?.channel, "…with no carrier named").toBeUndefined();
@@ -217,25 +215,25 @@ describe("enrichment — idempotency", () => {
   // for a context that genuinely has nothing to dispatch.)
   it("yields [] for a context with no event consumer (byte-identical / Noop path)", async () => {
     const loom = await buildLoomModel(SRC);
-    for (const ctx of allContexts(loom)) {
+    for (const ctx of enrichedContexts(loom)) {
       expect(ctx.eventSubscriptions).toEqual([]);
     }
   });
 
   it("re-enriching deep-equals the first enrichment pass", async () => {
     const once = await buildLoomModel(SYSTEM_SRC);
-    // Brand cast: enrichLoomModel's input is the `RawLoomModel` brand;
-    // an already-`EnrichedLoomModel` value is structurally compatible
-    // but carries the wrong phantom phase tag.  The cast is for the
-    // type-checker only — no runtime data is changed.
-    const twice = enrichLoomModel(once as unknown as RawLoomModel);
+    // `reEnrich` carries the brand widening (enrichLoomModel's input is the
+    // `RawLoomModel` brand; an already-`EnrichedLoomModel` value is
+    // structurally compatible but carries the wrong phantom phase tag).  It is
+    // for the type-checker only — no runtime data is changed.
+    const twice = reEnrich(once);
     expect(twice).toEqual(once);
   });
 
   it("re-enriching does not duplicate the auto-injected `findAll`", async () => {
     const once = await buildLoomModel(SYSTEM_SRC);
-    const twice = enrichLoomModel(once as unknown as RawLoomModel);
-    for (const ctx of allContexts(twice)) {
+    const twice = reEnrich(once);
+    for (const ctx of enrichedContexts(twice)) {
       for (const repo of ctx.repositories) {
         const allCount = repo.finds.filter((f) => f.name === "all").length;
         expect(allCount, `${repo.aggregateName}.repository.finds["all"]`).toBe(1);
@@ -245,7 +243,7 @@ describe("enrichment — idempotency", () => {
 
   it("re-enriching keeps the per-module migrationsOwner stable", async () => {
     const once = await buildLoomModel(SYSTEM_SRC);
-    const twice = enrichLoomModel(once as unknown as RawLoomModel);
+    const twice = reEnrich(once);
     const onceOwners = once.systems.flatMap((s) =>
       s.subdomains.map((m) => [m.name, m.migrationsOwner] as const),
     );

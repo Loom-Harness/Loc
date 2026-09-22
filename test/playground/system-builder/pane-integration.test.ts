@@ -206,11 +206,12 @@ describe("lifecycle flow path — the drill step the pane pushes and edits throu
     // The pane's key template is `${base}:${index}…`, where an operation's base
     // is `<Agg>.<op>` and a lifecycle body's is the member-carrying locator.
     const lifecycle = locatorFor(stepOf("apply:Paid"), "Order");
+    if (lifecycle.kind !== "operation") throw new Error("expected an aggregate body locator");
     const slot: ExprSlot = {
       kind: "stmtExpr",
       owner: "Order",
       op: lifecycle.op,
-      member: (lifecycle as { member?: string }).member,
+      member: lifecycle.member,
       index: 0,
     };
     expect(slotExpr(parse(SRC), slot)?.$cstNode?.text).toBe('"paid"');

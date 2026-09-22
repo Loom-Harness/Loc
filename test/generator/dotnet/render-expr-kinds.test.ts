@@ -14,20 +14,29 @@
 import { describe, expect, it } from "vitest";
 import { renderCsExpr, renderCsType } from "../../../src/generator/dotnet/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
 const MONEY: TypeIR = { kind: "primitive", name: "money" };
 const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
 
-const litInt = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
-const litLong = (v: string): ExprIR => ({ kind: "literal", lit: "long", value: v });
-const litStr = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
-const litDecimal = (v: string): ExprIR => ({ kind: "literal", lit: "decimal", value: v });
-const litMoney = (v: string): ExprIR => ({ kind: "literal", lit: "money", value: v });
-const litBool = (v: "true" | "false"): ExprIR => ({ kind: "literal", lit: "bool", value: v });
-const refParam = (name: string): ExprIR => ({ kind: "ref", name, refKind: "param" });
-const thisProp = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+const litInt = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
+const litLong = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "long", value: v });
+const litStr = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
+const litDecimal = (v: string): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "decimal",
+  value: v,
+});
+const litMoney = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "money", value: v });
+const litBool = (v: "true" | "false"): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "bool",
+  value: v,
+});
+const refParam = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "param" });
+const thisProp = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "this-prop" });
 
 describe("dotnet renderCsExpr — literals", () => {
   it("renders string literals JSON-quoted", () => {
@@ -406,7 +415,7 @@ describe("dotnet renderCsExpr — A4 collection transformation ops", () => {
     param: "x",
     body: { kind: "ref", name: "x", refKind: "lambda" },
   };
-  const mc = (member: string, args: ExprIR[]): ExprIR => ({
+  const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: thisProp("items"),
     member,
@@ -455,7 +464,7 @@ describe("dotnet renderCsExpr — A4 collection transformation ops", () => {
 
   // `min(λ)`/`max(λ)` — LINQ `.Min`/`.Max` throw on empty, so guard on
   // `.Count == 0` and spell the nullable projected body-type for the null arm.
-  const proj = (member: string, memberType: TypeIR): ExprIR => ({
+  const proj = (member: string, memberType: TypeIR): ExprOf<"lambda"> => ({
     kind: "lambda",
     param: "x",
     body: {
@@ -634,7 +643,11 @@ describe("dotnet renderCsExpr — convert", () => {
 describe("dotnet renderCsExpr — match → right-folded ternary", () => {
   it("lowers a single-arm match to `(cond ? value : tail)` with `null` tail", () => {
     expect(
-      renderCsExpr({ kind: "match", arms: [{ cond: thisProp("active"), value: litStr("yes") }] }),
+      renderCsExpr({
+        kind: "match",
+        variantArms: [],
+        arms: [{ cond: thisProp("active"), value: litStr("yes") }],
+      }),
     ).toBe('(this.Active ? "yes" : null)');
   });
 
@@ -642,6 +655,7 @@ describe("dotnet renderCsExpr — match → right-folded ternary", () => {
     expect(
       renderCsExpr({
         kind: "match",
+        variantArms: [],
         arms: [{ cond: thisProp("active"), value: litStr("yes") }],
         otherwise: litStr("no"),
       }),
@@ -652,6 +666,7 @@ describe("dotnet renderCsExpr — match → right-folded ternary", () => {
     expect(
       renderCsExpr({
         kind: "match",
+        variantArms: [],
         arms: [
           { cond: litBool("true"), value: litStr("first") },
           { cond: litBool("false"), value: litStr("second") },
@@ -788,7 +803,7 @@ describe("dotnet renderCsExpr — variant-match with an `error` variant", () => 
       { kind: "entity", name: b },
     ],
   });
-  const readOf = (binding: string, member: string): ExprIR => ({
+  const readOf = (binding: string, member: string): ExprOf<"member"> => ({
     kind: "member",
     receiver: { kind: "ref", name: binding, refKind: "match-binding" },
     member,

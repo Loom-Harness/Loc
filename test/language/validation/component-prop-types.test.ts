@@ -7,10 +7,8 @@
 // need no arg, so only PROVIDED props are checked.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 const sys = (body: string) => `
 system S {
@@ -30,7 +28,7 @@ system S {
 
 async function codes(body: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(body), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 const CODE = "loom.component-prop-type";
@@ -71,7 +69,7 @@ system S {
 }`,
       { validate: true },
     );
-    expect(codesOf(diagnostics)).not.toContain(CODE);
+    expect(lspCodes(diagnostics)).not.toContain(CODE);
   });
 
   it("does not flag a `slot`-typed prop given JSX children", async () => {

@@ -14,8 +14,8 @@ import {
 } from "../../../src/generator/flutter/forms-emit.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { allContexts } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // A Product aggregate exercising every field kind (string / number-int /
@@ -85,7 +85,7 @@ describe("flutter form projector", () => {
   it("collects one form widget per hosted CreateForm / OperationForm / DestroyForm", async () => {
     const model = await enriched();
     const ui = model.systems[0]!.uis[0]!;
-    const contexts = allContexts(model);
+    const contexts = enrichedContexts(model);
     const aggregatesByName = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a])));
     const bcByAggregate = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, c])));
 
@@ -114,11 +114,12 @@ describe("flutter form projector", () => {
 
   it("derives the input widget from each field's wire type + flattens value objects", async () => {
     const model = await enriched();
-    const contexts = allContexts(model);
+    const contexts = enrichedContexts(model);
     const product = contexts.flatMap((c) => c.aggregates).find((a) => a.name === "Product")!;
     const bc = contexts.find((c) => c.aggregates.some((a) => a.name === "Product"));
 
-    const create = flutterCreateForm(product, bc);
+    const aggregatesByName = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a])));
+    const create = flutterCreateForm(product, bc, aggregatesByName);
     const byName = new Map(create.fields.map((f) => [f.wireName, f]));
 
     expect(byName.get("name")!.kind).toBe("text");
