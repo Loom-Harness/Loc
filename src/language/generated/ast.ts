@@ -362,16 +362,26 @@ export type DddTokenNames = DddTerminalNames | DddKeywordNames;
 export interface ActionDecl extends langium.AstNode {
     readonly $container: Component | Page | Store;
     readonly $type: 'ActionDecl';
+    audited: boolean;
+    extern: boolean;
+    gate?: Expression;
     name: 'write' | string;
     params: Array<Parameter>;
+    private: boolean;
     stmts: Array<Statement>;
+    when?: Expression;
 }
 
 export const ActionDecl = {
     $type: 'ActionDecl',
+    audited: 'audited',
+    extern: 'extern',
+    gate: 'gate',
     name: 'name',
     params: 'params',
-    stmts: 'stmts'
+    private: 'private',
+    stmts: 'stmts',
+    when: 'when'
 } as const;
 
 export function isActionDecl(item: unknown): item is ActionDecl {
@@ -483,16 +493,26 @@ export function isApiStatus(item: unknown): item is ApiStatus {
 export interface Apply extends langium.AstNode {
     readonly $container: Aggregate | Workflow;
     readonly $type: 'Apply';
+    audited: boolean;
     body: Array<Statement>;
     event: langium.Reference<EventDecl>;
+    extern: boolean;
+    gate?: Expression;
     param: LooseName;
+    private: boolean;
+    when?: Expression;
 }
 
 export const Apply = {
     $type: 'Apply',
+    audited: 'audited',
     body: 'body',
     event: 'event',
-    param: 'param'
+    extern: 'extern',
+    gate: 'gate',
+    param: 'param',
+    private: 'private',
+    when: 'when'
 } as const;
 
 export function isApply(item: unknown): item is Apply {
@@ -585,7 +605,7 @@ export function isAuthMode(item: unknown): item is AuthMode {
 }
 
 export interface AwaitExpr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'AwaitExpr';
     inner: Expression;
 }
@@ -610,7 +630,7 @@ export function isBaseType(item: unknown): item is BaseType {
 }
 
 export interface BinaryChain extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'BinaryChain';
     head: Expression;
     ops: Array<'!=' | '%' | '&&' | '*' | '+' | '-' | '/' | '<' | '<=' | '==' | '>' | '>=' | '??' | '||'>;
@@ -659,7 +679,7 @@ export function isBoolConfigValue(item: unknown): item is BoolConfigValue {
 }
 
 export interface BoolLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'BoolLit';
     value: 'false' | 'true';
 }
@@ -699,7 +719,7 @@ export function isBoundedContext(item: unknown): item is BoundedContext {
 }
 
 export interface BuilderCall extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'BuilderCall';
     entries: Array<BuilderEntry>;
     type: string;
@@ -916,20 +936,28 @@ export function isColumnStep(item: unknown): item is ColumnStep {
 export interface CommandHandler extends langium.AstNode {
     readonly $container: BoundedContext;
     readonly $type: 'CommandHandler';
+    audited: boolean;
     body: Array<Statement>;
     extern: boolean;
+    gate?: Expression;
     name: string;
     params: Array<Parameter>;
+    private: boolean;
     returnType?: TypeRef;
+    when?: Expression;
 }
 
 export const CommandHandler = {
     $type: 'CommandHandler',
+    audited: 'audited',
     body: 'body',
     extern: 'extern',
+    gate: 'gate',
     name: 'name',
     params: 'params',
-    returnType: 'returnType'
+    private: 'private',
+    returnType: 'returnType',
+    when: 'when'
 } as const;
 
 export function isCommandHandler(item: unknown): item is CommandHandler {
@@ -1050,16 +1078,24 @@ export interface Create extends langium.AstNode {
     readonly $type: 'Create';
     audited: boolean;
     body: Array<Statement>;
+    extern: boolean;
+    gate?: Expression;
     name?: string;
     params: Array<Parameter>;
+    private: boolean;
+    when?: Expression;
 }
 
 export const Create = {
     $type: 'Create',
     audited: 'audited',
     body: 'body',
+    extern: 'extern',
+    gate: 'gate',
     name: 'name',
-    params: 'params'
+    params: 'params',
+    private: 'private',
+    when: 'when'
 } as const;
 
 export function isCreate(item: unknown): item is Create {
@@ -1096,7 +1132,7 @@ export function isDataSourceKind(item: unknown): item is DataSourceKind {
 }
 
 export interface DecLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'DecLit';
     value: string;
 }
@@ -1200,16 +1236,24 @@ export interface Destroy extends langium.AstNode {
     readonly $type: 'Destroy';
     audited: boolean;
     body: Array<Statement>;
+    extern: boolean;
+    gate?: Expression;
     name?: string;
     params: Array<Parameter>;
+    private: boolean;
+    when?: Expression;
 }
 
 export const Destroy = {
     $type: 'Destroy',
     audited: 'audited',
     body: 'body',
+    extern: 'extern',
+    gate: 'gate',
     name: 'name',
-    params: 'params'
+    params: 'params',
+    private: 'private',
+    when: 'when'
 } as const;
 
 export function isDestroy(item: unknown): item is Destroy {
@@ -1238,18 +1282,28 @@ export function isDomainService(item: unknown): item is DomainService {
 export interface DomainServiceOperation extends langium.AstNode {
     readonly $container: DomainService;
     readonly $type: 'DomainServiceOperation';
+    audited: boolean;
+    extern: boolean;
+    gate?: Expression;
     name: 'write' | string;
     params: Array<Parameter>;
+    private: boolean;
     returnType?: TypeRef;
     stmts: Array<Statement>;
+    when?: Expression;
 }
 
 export const DomainServiceOperation = {
     $type: 'DomainServiceOperation',
+    audited: 'audited',
+    extern: 'extern',
+    gate: 'gate',
     name: 'name',
     params: 'params',
+    private: 'private',
     returnType: 'returnType',
-    stmts: 'stmts'
+    stmts: 'stmts',
+    when: 'when'
 } as const;
 
 export function isDomainServiceOperation(item: unknown): item is DomainServiceOperation {
@@ -1503,20 +1557,30 @@ export function isFramework(item: unknown): item is Framework {
 export interface FunctionDecl extends langium.AstNode {
     readonly $container: Aggregate | EntityPart | Model | System | ValueObject | Workflow;
     readonly $type: 'FunctionDecl';
+    audited: boolean;
     block: Array<Statement>;
     body?: Expression;
+    extern: boolean;
+    gate?: Expression;
     name: string;
     params: Array<Parameter>;
+    private: boolean;
     returnType: TypeRef;
+    when?: Expression;
 }
 
 export const FunctionDecl = {
     $type: 'FunctionDecl',
+    audited: 'audited',
     block: 'block',
     body: 'body',
+    extern: 'extern',
+    gate: 'gate',
     name: 'name',
     params: 'params',
-    returnType: 'returnType'
+    private: 'private',
+    returnType: 'returnType',
+    when: 'when'
 } as const;
 
 export function isFunctionDecl(item: unknown): item is FunctionDecl {
@@ -1532,18 +1596,26 @@ export function isGenericCtor(item: unknown): item is GenericCtor {
 export interface HandleDecl extends langium.AstNode {
     readonly $container: Workflow;
     readonly $type: 'HandleDecl';
+    audited: boolean;
     body: Array<Statement>;
+    extern: boolean;
     gate?: Expression;
     name: string;
     params: Array<Parameter>;
+    private: boolean;
+    when?: Expression;
 }
 
 export const HandleDecl = {
     $type: 'HandleDecl',
+    audited: 'audited',
     body: 'body',
+    extern: 'extern',
     gate: 'gate',
     name: 'name',
-    params: 'params'
+    params: 'params',
+    private: 'private',
+    when: 'when'
 } as const;
 
 export function isHandleDecl(item: unknown): item is HandleDecl {
@@ -1574,7 +1646,7 @@ export function isHttpMethod(item: unknown): item is HttpMethod {
 }
 
 export interface IdRef extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'IdRef';
 }
 
@@ -1712,7 +1784,7 @@ export function isIntConfigValue(item: unknown): item is IntConfigValue {
 }
 
 export interface IntLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'IntLit';
     value: number;
 }
@@ -1754,7 +1826,7 @@ export function isIsolationLevel(item: unknown): item is IsolationLevel {
 }
 
 export interface Lambda extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'Lambda';
     body?: Expression;
     param: string;
@@ -1868,7 +1940,7 @@ export function isLetStmt(item: unknown): item is LetStmt {
 }
 
 export interface ListLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'ListLit';
     elements: Array<Expression>;
 }
@@ -2132,7 +2204,7 @@ export function isMatchArm(item: unknown): item is MatchArm {
 }
 
 export interface MatchExpr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'MatchExpr';
     arms: Array<MatchArm>;
     elseExpr?: Expression;
@@ -2364,7 +2436,7 @@ export function isNamedType(item: unknown): item is NamedType {
 }
 
 export interface NameRef extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'NameRef';
     name: NameRefIdent;
 }
@@ -2385,7 +2457,7 @@ export function isNameRefIdent(item: unknown): item is NameRefIdent {
 }
 
 export interface NowExpr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'NowExpr';
 }
 
@@ -2398,7 +2470,7 @@ export function isNowExpr(item: unknown): item is NowExpr {
 }
 
 export interface NullLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'NullLit';
     value: 'null';
 }
@@ -2430,7 +2502,7 @@ export function isObjectFieldInit(item: unknown): item is ObjectFieldInit {
 }
 
 export interface ObjectLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | SeedRow | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | SeedRow | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'ObjectLit';
     fields: Array<ObjectFieldInit>;
 }
@@ -2485,18 +2557,28 @@ export function isOidcConfig(item: unknown): item is OidcConfig {
 export interface OnDecl extends langium.AstNode {
     readonly $container: Workflow;
     readonly $type: 'OnDecl';
+    audited: boolean;
     body: Array<Statement>;
     correlation?: Expression;
     event: langium.Reference<EventDecl>;
+    extern: boolean;
+    gate?: Expression;
     param: LooseName;
+    private: boolean;
+    when?: Expression;
 }
 
 export const OnDecl = {
     $type: 'OnDecl',
+    audited: 'audited',
     body: 'body',
     correlation: 'correlation',
     event: 'event',
-    param: 'param'
+    extern: 'extern',
+    gate: 'gate',
+    param: 'param',
+    private: 'private',
+    when: 'when'
 } as const;
 
 export function isOnDecl(item: unknown): item is OnDecl {
@@ -2598,7 +2680,7 @@ export function isParameter(item: unknown): item is Parameter {
 }
 
 export interface ParenExpr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'ParenExpr';
     inner: Expression;
 }
@@ -2728,7 +2810,7 @@ export function isPolicyVerb(item: unknown): item is PolicyVerb {
 }
 
 export interface PostfixChain extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'PostfixChain';
     bypass: Array<string>;
     bypassAll: boolean;
@@ -2776,7 +2858,7 @@ export function isPreconditionStmt(item: unknown): item is PreconditionStmt {
 }
 
 export interface PrimitiveConversion extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'PrimitiveConversion';
     target?: 'decimal' | 'long' | 'money' | 'string';
     value?: Expression;
@@ -2969,20 +3051,28 @@ export function isQualifiedPageName(item: unknown): item is QualifiedPageName {
 export interface QueryHandler extends langium.AstNode {
     readonly $container: BoundedContext;
     readonly $type: 'QueryHandler';
+    audited: boolean;
     body: Array<Statement>;
     extern: boolean;
+    gate?: Expression;
     name: string;
     params: Array<Parameter>;
+    private: boolean;
     returnType: TypeRef;
+    when?: Expression;
 }
 
 export const QueryHandler = {
     $type: 'QueryHandler',
+    audited: 'audited',
     body: 'body',
     extern: 'extern',
+    gate: 'gate',
     name: 'name',
     params: 'params',
-    returnType: 'returnType'
+    private: 'private',
+    returnType: 'returnType',
+    when: 'when'
 } as const;
 
 export function isQueryHandler(item: unknown): item is QueryHandler {
@@ -3165,7 +3255,7 @@ export function isRetrieval(item: unknown): item is Retrieval {
 }
 
 export interface RetrievalLiteral extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'RetrievalLiteral';
     loads: Array<LoadPath>;
     sort: Array<SortItem>;
@@ -3561,7 +3651,7 @@ export function isStringConfigValue(item: unknown): item is StringConfigValue {
 }
 
 export interface StringLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'StringLit';
     value: string;
 }
@@ -3666,7 +3756,7 @@ export function isTemplateHole(item: unknown): item is TemplateHole {
 }
 
 export interface TemplateStr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'TemplateStr';
     holes: Array<TemplateHole>;
     strings: Array<string>;
@@ -3700,7 +3790,7 @@ export function isTenancyDecl(item: unknown): item is TenancyDecl {
 }
 
 export interface TernaryExpr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'TernaryExpr';
     cond: Expression;
     elseExpr: Expression;
@@ -3834,7 +3924,7 @@ export function isThemeProp(item: unknown): item is ThemeProp {
 }
 
 export interface ThisRef extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'ThisRef';
 }
 
@@ -4107,7 +4197,7 @@ export function isUiSugarBinding(item: unknown): item is UiSugarBinding {
 }
 
 export interface UnaryExpr extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
+    readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'UnaryExpr';
     op: '!' | '-';
     operand: Expression;
@@ -4284,20 +4374,28 @@ export function isWorkflow(item: unknown): item is Workflow {
 export interface WorkflowCreateDecl extends langium.AstNode {
     readonly $container: Workflow;
     readonly $type: 'WorkflowCreateDecl';
+    audited: boolean;
     body: Array<Statement>;
     correlation?: Expression;
+    extern: boolean;
     gate?: Expression;
     name?: string;
     params: Array<Parameter>;
+    private: boolean;
+    when?: Expression;
 }
 
 export const WorkflowCreateDecl = {
     $type: 'WorkflowCreateDecl',
+    audited: 'audited',
     body: 'body',
     correlation: 'correlation',
+    extern: 'extern',
     gate: 'gate',
     name: 'name',
-    params: 'params'
+    params: 'params',
+    private: 'private',
+    when: 'when'
 } as const;
 
 export function isWorkflowCreateDecl(item: unknown): item is WorkflowCreateDecl {
@@ -4539,6 +4637,20 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         ActionDecl: {
             name: ActionDecl.$type,
             properties: {
+                audited: {
+                    name: ActionDecl.audited,
+                    defaultValue: false,
+                    optional: true
+                },
+                extern: {
+                    name: ActionDecl.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: ActionDecl.gate,
+                    optional: true
+                },
                 name: {
                     name: ActionDecl.name
                 },
@@ -4547,9 +4659,18 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: [],
                     optional: true
                 },
+                private: {
+                    name: ActionDecl.private,
+                    defaultValue: false,
+                    optional: true
+                },
                 stmts: {
                     name: ActionDecl.stmts,
                     defaultValue: [],
+                    optional: true
+                },
+                when: {
+                    name: ActionDecl.when,
                     optional: true
                 }
             },
@@ -4671,6 +4792,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         Apply: {
             name: Apply.$type,
             properties: {
+                audited: {
+                    name: Apply.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 body: {
                     name: Apply.body,
                     defaultValue: [],
@@ -4680,8 +4806,26 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     name: Apply.event,
                     referenceType: EventDecl.$type
                 },
+                extern: {
+                    name: Apply.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: Apply.gate,
+                    optional: true
+                },
                 param: {
                     name: Apply.param
+                },
+                private: {
+                    name: Apply.private,
+                    defaultValue: false,
+                    optional: true
+                },
+                when: {
+                    name: Apply.when,
+                    optional: true
                 }
             },
             superTypes: [AggregateMember.$type, WorkflowMember.$type]
@@ -5002,6 +5146,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         CommandHandler: {
             name: CommandHandler.$type,
             properties: {
+                audited: {
+                    name: CommandHandler.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 body: {
                     name: CommandHandler.body,
                     defaultValue: [],
@@ -5012,6 +5161,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: false,
                     optional: true
                 },
+                gate: {
+                    name: CommandHandler.gate,
+                    optional: true
+                },
                 name: {
                     name: CommandHandler.name
                 },
@@ -5020,8 +5173,17 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: [],
                     optional: true
                 },
+                private: {
+                    name: CommandHandler.private,
+                    defaultValue: false,
+                    optional: true
+                },
                 returnType: {
                     name: CommandHandler.returnType,
+                    optional: true
+                },
+                when: {
+                    name: CommandHandler.when,
                     optional: true
                 }
             },
@@ -5131,6 +5293,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: [],
                     optional: true
                 },
+                extern: {
+                    name: Create.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: Create.gate,
+                    optional: true
+                },
                 name: {
                     name: Create.name,
                     optional: true
@@ -5138,6 +5309,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 params: {
                     name: Create.params,
                     defaultValue: [],
+                    optional: true
+                },
+                private: {
+                    name: Create.private,
+                    defaultValue: false,
+                    optional: true
+                },
+                when: {
+                    name: Create.when,
                     optional: true
                 }
             },
@@ -5292,6 +5472,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: [],
                     optional: true
                 },
+                extern: {
+                    name: Destroy.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: Destroy.gate,
+                    optional: true
+                },
                 name: {
                     name: Destroy.name,
                     optional: true
@@ -5299,6 +5488,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 params: {
                     name: Destroy.params,
                     defaultValue: [],
+                    optional: true
+                },
+                private: {
+                    name: Destroy.private,
+                    defaultValue: false,
+                    optional: true
+                },
+                when: {
+                    name: Destroy.when,
                     optional: true
                 }
             },
@@ -5326,12 +5524,31 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         DomainServiceOperation: {
             name: DomainServiceOperation.$type,
             properties: {
+                audited: {
+                    name: DomainServiceOperation.audited,
+                    defaultValue: false,
+                    optional: true
+                },
+                extern: {
+                    name: DomainServiceOperation.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: DomainServiceOperation.gate,
+                    optional: true
+                },
                 name: {
                     name: DomainServiceOperation.name
                 },
                 params: {
                     name: DomainServiceOperation.params,
                     defaultValue: [],
+                    optional: true
+                },
+                private: {
+                    name: DomainServiceOperation.private,
+                    defaultValue: false,
                     optional: true
                 },
                 returnType: {
@@ -5341,6 +5558,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 stmts: {
                     name: DomainServiceOperation.stmts,
                     defaultValue: [],
+                    optional: true
+                },
+                when: {
+                    name: DomainServiceOperation.when,
                     optional: true
                 }
             },
@@ -5526,6 +5747,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         FunctionDecl: {
             name: FunctionDecl.$type,
             properties: {
+                audited: {
+                    name: FunctionDecl.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 block: {
                     name: FunctionDecl.block,
                     defaultValue: [],
@@ -5533,6 +5759,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 body: {
                     name: FunctionDecl.body,
+                    optional: true
+                },
+                extern: {
+                    name: FunctionDecl.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: FunctionDecl.gate,
                     optional: true
                 },
                 name: {
@@ -5543,8 +5778,17 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: [],
                     optional: true
                 },
+                private: {
+                    name: FunctionDecl.private,
+                    defaultValue: false,
+                    optional: true
+                },
                 returnType: {
                     name: FunctionDecl.returnType
+                },
+                when: {
+                    name: FunctionDecl.when,
+                    optional: true
                 }
             },
             superTypes: [AggregateMember.$type, EntityPartMember.$type, ModelMember.$type, SystemMember.$type, ValueObjectMember.$type, WorkflowMember.$type]
@@ -5552,9 +5796,19 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         HandleDecl: {
             name: HandleDecl.$type,
             properties: {
+                audited: {
+                    name: HandleDecl.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 body: {
                     name: HandleDecl.body,
                     defaultValue: [],
+                    optional: true
+                },
+                extern: {
+                    name: HandleDecl.extern,
+                    defaultValue: false,
                     optional: true
                 },
                 gate: {
@@ -5567,6 +5821,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 params: {
                     name: HandleDecl.params,
                     defaultValue: [],
+                    optional: true
+                },
+                private: {
+                    name: HandleDecl.private,
+                    defaultValue: false,
+                    optional: true
+                },
+                when: {
+                    name: HandleDecl.when,
                     optional: true
                 }
             },
@@ -6255,6 +6518,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         OnDecl: {
             name: OnDecl.$type,
             properties: {
+                audited: {
+                    name: OnDecl.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 body: {
                     name: OnDecl.body,
                     defaultValue: [],
@@ -6268,8 +6536,26 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     name: OnDecl.event,
                     referenceType: EventDecl.$type
                 },
+                extern: {
+                    name: OnDecl.extern,
+                    defaultValue: false,
+                    optional: true
+                },
+                gate: {
+                    name: OnDecl.gate,
+                    optional: true
+                },
                 param: {
                     name: OnDecl.param
+                },
+                private: {
+                    name: OnDecl.private,
+                    defaultValue: false,
+                    optional: true
+                },
+                when: {
+                    name: OnDecl.when,
+                    optional: true
                 }
             },
             superTypes: [WorkflowMember.$type]
@@ -6712,6 +6998,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         QueryHandler: {
             name: QueryHandler.$type,
             properties: {
+                audited: {
+                    name: QueryHandler.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 body: {
                     name: QueryHandler.body,
                     defaultValue: [],
@@ -6722,6 +7013,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: false,
                     optional: true
                 },
+                gate: {
+                    name: QueryHandler.gate,
+                    optional: true
+                },
                 name: {
                     name: QueryHandler.name
                 },
@@ -6730,8 +7025,17 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: [],
                     optional: true
                 },
+                private: {
+                    name: QueryHandler.private,
+                    defaultValue: false,
+                    optional: true
+                },
                 returnType: {
                     name: QueryHandler.returnType
+                },
+                when: {
+                    name: QueryHandler.when,
+                    optional: true
                 }
             },
             superTypes: [ContextMember.$type]
@@ -7800,6 +8104,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         WorkflowCreateDecl: {
             name: WorkflowCreateDecl.$type,
             properties: {
+                audited: {
+                    name: WorkflowCreateDecl.audited,
+                    defaultValue: false,
+                    optional: true
+                },
                 body: {
                     name: WorkflowCreateDecl.body,
                     defaultValue: [],
@@ -7807,6 +8116,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 correlation: {
                     name: WorkflowCreateDecl.correlation,
+                    optional: true
+                },
+                extern: {
+                    name: WorkflowCreateDecl.extern,
+                    defaultValue: false,
                     optional: true
                 },
                 gate: {
@@ -7820,6 +8134,15 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 params: {
                     name: WorkflowCreateDecl.params,
                     defaultValue: [],
+                    optional: true
+                },
+                private: {
+                    name: WorkflowCreateDecl.private,
+                    defaultValue: false,
+                    optional: true
+                },
+                when: {
+                    name: WorkflowCreateDecl.when,
                     optional: true
                 }
             },

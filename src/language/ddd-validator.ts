@@ -35,6 +35,7 @@ import {
   checkBindableInputArgs,
   checkBuilderCallType,
   checkBypassPlacement,
+  checkCallableSites,
   checkChannels,
   checkComponent,
   checkComponentPropTypes,
@@ -409,6 +410,11 @@ export class DddValidator {
     // expression (`group by o.status ignoring softDeletable`) and is then
     // silently dropped.  See `validators/bypass-placement.ts`.
     guard("bypass-placement", model, () => checkBypassPlacement(model, accept));
+    // The callable legality table (M-T5.21): the grammar's callable fragments
+    // accept the whole modifier/clause surface at every site, so an excluded
+    // modifier reports WHY (`CALLABLE_SITES`) instead of failing as an
+    // unexplained parse error.  See `validators/callable-sites.ts`.
+    guard("callable-sites", model, () => checkCallableSites(model, accept));
     // Implicit composition (finding 23): when the project has exactly one
     // `system { }`, the deployment-shape members written at file top level
     // fold into it (implicit-system-composition.md).  They must run through

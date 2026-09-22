@@ -520,6 +520,20 @@ system X {
   deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
 }`,
 
+  // M-T5.21 — `audited` on a `domainService` operation.  Before the callable
+  // fragments landed this was a bare parse error ("expecting '{' but found
+  // 'audited'"); the grammar now accepts the whole modifier surface at every
+  // callable site and `CALLABLE_SITES` refuses it WITH the reason.
+  "loom.callable-modifier-not-allowed-here": `
+system P {
+  subdomain S { context C {
+    domainService Pricing {
+      operation quote(base: int) audited : int { return base }
+    }
+    aggregate Thing { name: string }
+    repository Things for Thing { }
+  } }
+}`,
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on
