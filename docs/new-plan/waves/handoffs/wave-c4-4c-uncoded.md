@@ -370,13 +370,13 @@ reports **0** uncoded sites afterwards and the four diagnostic suites are green
 | command | result |
 |---|---|
 | `npx tsc -b` | clean |
-| `node scripts/test-typecheck.mjs` | see §8 — **untouched by this packet** (it is 4b's ratchet) |
+| `node scripts/test-typecheck.mjs` | `181 files, 469 errors, src/ clean` — **unmoved**; that ratchet is 4b's, and this packet edited only `test/system/diagnostic-*`, which carries none of its errors |
 | `npm run lint` (`npx biome ci .`) | exit 0 |
 | `npx vitest run test/system/diagnostic-{catalog,firing-census,message-hygiene,docs-anchors}.test.ts` | **787 passed**, 4 files |
 | `node scripts/mission-counts.mjs --check` | up to date (regenerated with `--write` after flipping M-T9.56) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | exit 0 |
-| `npm test` (redirected, exit code appended) | first run **1 failed / 25 715 passed** (`unsupported-register.test.ts`, §4b) → fixed by the three renames; the four diagnostic suites + `unsupported-register` re-run **796 passed** |
+| `npm test` (redirected, exit code appended) | first run **1 failed / 25 715 passed** (`unsupported-register.test.ts` — §4b); after the three renames, re-run FULL: **2146 files passed, 89 skipped; 25 716 tests passed, 6 expected fail, 1185 skipped, `NPM_TEST_EXIT=0`** |
 
 Pins, all moved DOWN or held, never up:
 
