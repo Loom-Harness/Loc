@@ -10,9 +10,12 @@
 // recognised read to a resolved `repo-read` `ExprIR` Call so a service body
 // can run read-only queries — domain-services.md rev. 4, the `reading` tier).
 //
-// It is a LEAF: it touches only the Langium AST + the `Repository` shape, and
-// never imports `lower.ts` (the graph stays acyclic — the orchestrator and the
-// two leaf lowerers import this).  Extracting it is a PURE refactor of the
+// It is a LEAF: it touches the Langium AST + the `Repository` shape, plus
+// `lower-types.ts` (itself a sibling leaf with no sibling imports of its own, so
+// the graph stays acyclic) for the ONE thing a read's shape decides but the AST
+// cannot spell on its own — the IR TYPE the read produces, see
+// `repoReadResultType` below.  It never imports `lower.ts` (the orchestrator and
+// the leaf lowerers import this).  Extracting it is a PURE refactor of the
 // workflow path: the matchers below are byte-for-byte the ones that lived in
 // `lower-workflow.ts`, so workflow lowering output is unchanged.
 import type {
@@ -32,7 +35,9 @@ import {
   isRetrieval,
   isRetrievalLiteral,
 } from "../../language/generated/ast.js";
+import type { TypeIR } from "../types/loom-ir.js";
 import { isReadMethod } from "../util/repo-methods.js";
+import { type Env, lowerType } from "./lower-types.js";
 
 /** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
  *  target names a **criterion** (so the read runs `findAllBy<Criterion>`) rather
@@ -370,6 +375,65 @@ export function matchRepoRead(
   if (repo && isReadMethod(repo.method))
     return { kind: "named", repo: repo.repo, method: repo.method, args: repo.args };
   return undefined;
+}
+
+/** The IR type a recognised repository READ produces — i.e. the type a `let`
+ *  binds when its initialiser is one.
+ *
+ *  This lives HERE, beside the detector, because the two are one fact: the
+ *  read's recognised SHAPE is exactly what decides its result type, and the
+ *  `.ddd` source never spells that type out.  Splitting them is how the pair
+ *  drifts — which is the bug this function was added to close.  A let-bound
+ *  repo read in a `domainService` body was typed by `inferExprType`, whose
+ *  PostfixChain arm has a probe for every OTHER resolved call shape (store
+ *  field, api operation, domain-service operation — each commented "without
+ *  this `let`-binds would mis-type as `string`") but had none for a repository
+ *  read.  So `let f = Owners.byTier(t)` fell through to `memberType`'s `string`
+ *  default and EVERY member read off `f` was then wrong: `f.count` emitted
+ *  verbatim (TS2339 on `Owner[]`), `f.length` took the grapheme-safe STRING
+ *  lowering (`[...f].length`), and an invented `f.nope` sailed through because
+ *  the unknown-member gate never sees a `string` receiver as suspect.
+ *
+ *  The rules track `lower-workflow.ts`, which lowers the same four shapes on
+ *  the workflow tier, so the two tiers cannot disagree about what one read
+ *  returns: `findAll` / `run` mirror its `repo-run` arms' `arrayType`, `named`
+ *  mirrors its `repo-let` arm (a declared `returnType`, else the built-in's own
+ *  shape), and `find` takes the `T?` its `if let` arm implies. */
+export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
+  const entity: TypeIR = { kind: "entity", name: read.repo.aggregate?.ref?.name ?? "Unknown" };
+  switch (read.kind) {
+    // A criterion `findAll` and a retrieval `run` both yield the retrieval's
+    // result ARRAY (workflow: the `repo-run` arms' `arrayType`).
+    case "findAll":
+    case "run":
+      return { kind: "array", element: entity };
+    // `Repo.find(<Criterion>)` is the single-result sibling of `findAll`, and
+    // the result may be ABSENT: `lower-workflow.ts` calls it "the only optional
+    // producer this release" and consumes it only as an `if let` source, whose
+    // bound var is the UNWRAPPED entity.  So the read itself is `T?`.
+    case "find":
+      return { kind: "optional", inner: entity };
+    // A named call — a DECLARED `find`, or one of the built-in verbs every
+    // repository auto-emits.  A declaration is the contract, so it wins and is
+    // honoured verbatim (`Owner[]`, `Owner?`, a union…).
+    //
+    // The built-ins carry no declaration to read, and they do NOT share one
+    // shape: `getById`/`findById` load a single row, `findAll`/`all` return the
+    // whole collection.  Collapsing them either way reintroduces exactly this
+    // bug for the other half — bind `findAll()` as one aggregate and `.count`
+    // goes back to emitting verbatim; bind `getById()` as a collection and a
+    // single row types as `Owner[]`.  The split mirrors `repositoryMethodType`
+    // in `src/language/type-system.ts`, which is the same table one layer up.
+    case "named": {
+      const decl = read.repo.finds.find((f) => f.name === read.method);
+      if (decl) return lowerType(decl.returnType, env);
+      if (read.method === "findAll" || read.method === "all")
+        return { kind: "array", element: entity };
+      // `getById` / `findById`, and the fallback for an unresolvable named read
+      // — the workflow `repo-let` arm's default is likewise the bare aggregate.
+      return entity;
+    }
+  }
 }
 
 /** Repository WRITE method names — a call on a repository naming one of these

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // Kubernetes/Helm validation e2e (docs/kubernetes.md).
@@ -42,7 +43,15 @@ function hasTool(cmd: string, args: string[]): boolean {
   }
 }
 
-const TOOLS = ENABLED && hasTool("helm", ["version"]) && hasTool("kubeconform", ["-v"]);
+const TOOLS = declareRunPrecondition({
+  suite: "generated Helm chart + k8s manifests validate",
+  gate: "LOOM_K8S=1",
+  enabled: ENABLED,
+  requirements: [
+    { name: "helm on PATH", ok: hasTool("helm", ["version"]) },
+    { name: "kubeconform on PATH", ok: hasTool("kubeconform", ["-v"]) },
+  ],
+});
 
 // Representative fixtures spanning the seams the emitter has to get right:
 // multi-backend + frontend ingress (hono + react), the Phoenix SECRET_KEY_BASE

@@ -1,0 +1,590 @@
+// ---------------------------------------------------------------------------
+// FieldOps — a multi-tenant B2B field-service product, written as an
+// external evaluation of Loom.  Not a Loom example; written from docs only.
+// ---------------------------------------------------------------------------
+
+requirement US-001 {
+  type: UserStory
+  title: "A dispatcher can schedule a work order to a qualified technician"
+  status: InProgress
+  priority: 1
+}
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "A work order can only be scheduled while it is a draft"
+}
+requirement US-002 {
+  type: UserStory
+  title: "Completing a work order consumes part stock atomically"
+  status: InProgress
+  priority: 1
+}
+requirement AC-002 parent US-002 {
+  type: AcceptanceCriteria
+  title: "Completion fails entirely when stock is insufficient"
+}
+requirement US-003 {
+  type: UserStory
+  title: "A tenant can never read another tenant's work orders"
+  status: InProgress
+  priority: 1
+}
+
+system FieldOps {
+
+  theme {
+    primary: "#0f766e"
+    neutral: "#475569"
+    radius: "md"
+    fontFamily: "Inter, system-ui, sans-serif"
+  }
+
+  user {
+    id: string
+    email: string
+    role: string
+    permissions: string[]
+    tenantId: string
+    technicianId: Technician id?
+  }
+
+
+  tenancy by user.tenantId of Organization
+
+  // -------------------------------------------------------------------
+  subdomain Accounts {
+    permissions { orgRead, orgAdmin implies orgRead }
+
+    context Orgs {
+      aggregate Organization {
+        name: string
+        implements tenantRegistry
+        derived display: string = name
+
+        create(name: string) { requires true }          // signup bootstrap
+        operation rename(name: string) {
+          requires currentUser.permissions.contains(permissions.orgAdmin)
+          name := name
+        }
+      }
+      repository Organizations for Organization {
+        find all(): Organization paged requires currentUser.role != "none"
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------
+  subdomain Ops {
+    permissions {
+      workOrderRead,
+      workOrderWrite    implies workOrderRead,
+      workOrderDispatch implies workOrderWrite,
+      costRateUnmask,
+      platformAdmin,
+      opsAdmin          implies [workOrderDispatch, costRateUnmask]
+    }
+
+    context Field {
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Emergency }
+      enum LineKind { Labour, Part }
+
+      event WorkOrderScheduled { workOrder: WorkOrder id, technician: Technician id, at: datetime }
+      event WorkOrderCompleted { workOrder: WorkOrder id, customer: Customer id, at: datetime }
+
+      channel Lifecycle {
+        carries: WorkOrderCompleted, WorkOrderScheduled
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      aggregate Customer with tenantOwned, auditable {
+        name: string
+        billingEmail: string
+        invariant name.length > 0
+        invariant billingEmail.matches("^[^@]+@[^@]+\\.[^@]+$")
+        derived display: string = name
+
+        create(name: string, billingEmail: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+        }
+        operation update(name: string, billingEmail: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          name := name
+          billingEmail := billingEmail
+        }
+        destroy {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+        }
+      }
+
+      aggregate Site with tenantOwned, auditable {
+        customerId: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+
+        create(customerId: Customer id, label: string, addressLine: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+        }
+        operation update(label: string, addressLine: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          label := label
+          addressLine := addressLine
+        }
+        destroy { requires currentUser.permissions.contains(permissions.opsAdmin) }
+      }
+
+      aggregate Asset with tenantOwned, auditable {
+        siteId: Site id
+        serial: string immutable
+        model: string
+        warrantyExpiry: datetime?
+        requiredSkill: string
+        unique (tenantId, serial)
+        derived display: string = serial
+        derived underWarranty: bool = warrantyExpiry != null ? now() < warrantyExpiry : false
+
+        create(siteId: Site id, serial: string, model: string, warrantyExpiry: datetime?, requiredSkill: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+        }
+        operation update(model: string, warrantyExpiry: datetime?, requiredSkill: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          model := model
+          warrantyExpiry := warrantyExpiry
+          requiredSkill := requiredSkill
+        }
+        destroy { requires currentUser.permissions.contains(permissions.opsAdmin) }
+      }
+
+      aggregate Technician with tenantOwned, auditable {
+        fullName: string
+        skills: string[]
+        costRate: money mask unless currentUser.permissions.contains(permissions.costRateUnmask)
+        derived display: string = fullName
+
+        function hasSkill(skill: string): bool = skills.contains(skill)
+
+        create(fullName: string, skills: string[], costRate: money) {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+        }
+        operation update(fullName: string, skills: string[], costRate: money) {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+          fullName := fullName
+          skills := skills
+          costRate := costRate
+        }
+        destroy { requires currentUser.permissions.contains(permissions.opsAdmin) }
+      }
+
+      aggregate WorkOrder audited with tenantOwned, auditable {
+        customerId: Customer id immutable
+        siteId: Site id immutable
+        assetId: Asset id?
+        technicianId: Technician id?
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string immutable
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        resolutionNote: string?
+        photo: File?
+        contains lines: WorkOrderLine[]
+
+        invariant currency.length == 3
+        invariant lines.all(l => l.currency == currency)
+          message "all work-order lines must share the order currency"
+
+        derived total: money = lines.sum(l => l.subtotal)
+        derived display: string = `WO {status} for {customerId}`
+        derived isOpen: bool = status != Completed && status != Cancelled
+
+        function isDraft(): bool = status == Draft
+
+        create(customerId: Customer id, siteId: Site id, assetId: Asset id?,
+               status: WorkOrderStatus, priority: Priority, currency: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+        }
+
+        operation schedule(technician: Technician id, at: datetime) when status == Draft {
+          requires currentUser.permissions.contains(permissions.workOrderDispatch)
+          technicianId := technician
+          scheduledAt := at
+          status := Scheduled
+          emit WorkOrderScheduled { workOrder: id, technician: technician, at: at }
+        }
+
+        operation start() when status == Scheduled {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          startedAt := now()
+          status := InProgress
+        }
+
+        operation complete(note: string) when status == InProgress {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          completedAt := now()
+          resolutionNote := note
+          status := Completed
+          emit WorkOrderCompleted { workOrder: id, customer: customerId, at: now() }
+        }
+
+        operation cancel() {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          precondition status != Completed message "a completed work order cannot be cancelled"
+          status := Cancelled
+        }
+
+        operation addLine(kind: LineKind, description: string, quantity: decimal, unitPrice: money) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          precondition isDraft() message "lines can only be added to a draft"
+          precondition quantity > 0
+          lines += WorkOrderLine {
+            kind: kind, description: description, quantity: quantity,
+            unitPrice: unitPrice, currency: currency
+          }
+        }
+
+        destroy { requires currentUser.permissions.contains(permissions.opsAdmin) }
+
+        entity WorkOrderLine {
+          kind: LineKind
+          description: string
+          quantity: decimal
+          unitPrice: money
+          currency: string
+          derived subtotal: money = unitPrice * quantity
+          invariant quantity > 0
+        }
+
+        test "a completed work order cannot be cancelled" verifies TC-001 {
+          let wo = WorkOrder.create({
+            customerId: "00000000-0000-0000-0000-000000000001",
+            siteId: "00000000-0000-0000-0000-000000000002",
+            assetId: null, status: Completed, priority: Normal, currency: "EUR"
+          })
+          expect(wo.cancel()).toThrow()
+        }
+      }
+
+      criterion OpenWorkOrders() of WorkOrder = this.status != Completed && this.status != Cancelled
+      criterion ForTechnician(t: Technician id) of WorkOrder = this.technicianId == t
+
+      repository Customers for Customer {
+        find all(): Customer paged requires currentUser.role != "none"
+      }
+      repository Sites for Site {
+        find all(): Site paged requires currentUser.role != "none"
+      }
+      repository Assets for Asset {
+        find all(): Asset paged requires currentUser.role != "none"
+        find bySerial(serial: string): Asset?
+          requires currentUser.role != "none"
+          where this.serial == serial
+      }
+      repository Technicians for Technician {
+        find all(): Technician paged requires currentUser.role != "none"
+      }
+      repository WorkOrders for WorkOrder {
+        find all(): WorkOrder paged requires currentUser.role != "none"
+        find mine(): WorkOrder[] requires true where this.technicianId == currentUser.technicianId
+      }
+
+      // Cross-aggregate orchestration.  The skill rule spans WorkOrder + Technician
+      // + Asset, so it cannot live in any one aggregate's invariants.
+      workflow scheduleWorkOrder transactional {
+        create(workOrder: WorkOrder id, technician: Technician id, asset: Asset id, at: datetime) {
+          requires currentUser.permissions.contains(permissions.workOrderDispatch)
+          let wo = WorkOrders.getById(workOrder)
+          let tech = Technicians.getById(technician)
+          let a = Assets.getById(asset)
+          precondition tech.hasSkill(a.requiredSkill)
+            message "technician is not qualified for this asset"
+          wo.schedule(technician, at)
+        }
+      }
+
+      // Per-tenant dashboard numbers.
+      projection OpenByStatus requires currentUser.role != "none" {
+        status: WorkOrderStatus
+        orders: int
+        from WorkOrder as w
+        where w.status != Completed && w.status != Cancelled
+        group by w.status
+        select status = w.status, orders = count()
+      }
+
+      // --- merged from `context Inventory` (see F-009: a workflow cannot reach
+      // --- a repository in another bounded context, so the contexts had to collapse).
+
+
+      aggregate Part with tenantOwned, auditable {
+        sku: string immutable
+        name: string
+        stockOnHand: int
+        unitCost: money
+        currency: string
+        unique (tenantId, sku)
+        invariant stockOnHand >= 0
+        derived display: string = sku
+
+        create(sku: string, name: string, stockOnHand: int, unitCost: money, currency: string) {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+        }
+        operation update(name: string, stockOnHand: int, unitCost: money, currency: string) {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+          name := name
+          stockOnHand := stockOnHand
+          unitCost := unitCost
+          currency := currency
+        }
+        operation consume(qty: int) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          precondition qty > 0
+          precondition stockOnHand >= qty message "insufficient stock"
+          stockOnHand := stockOnHand - qty
+        }
+        operation restock(qty: int) {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+          precondition qty > 0
+          stockOnHand := stockOnHand + qty
+        }
+        destroy { requires currentUser.permissions.contains(permissions.opsAdmin) }
+      }
+
+      // Part usage is its own aggregate, NOT a contained entity of WorkOrder:
+      // a workflow can only iterate a repository result (see eval/repro/wf-for-let-*),
+      // so per-line cross-aggregate writes force the child out of the containment boundary.
+      aggregate PartUsage with tenantOwned, auditable {
+        workOrderId: WorkOrder id immutable
+        partSku: string immutable
+        qty: int immutable
+        invariant qty > 0
+        derived display: string = partSku
+
+        create(workOrderId: WorkOrder id, partSku: string, qty: int) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+        }
+        destroy { requires currentUser.permissions.contains(permissions.opsAdmin) }
+      }
+
+      // Transactional stock decrement.  NOTE the shape this is forced into:
+      //  * `for` can only iterate a repository result, so PartUsage is an aggregate;
+      //  * a `let` inside the loop body is rejected, so the part lookup is an `if let`;
+      //  * `if let` has no id-criterion (this.id is not addressable), so the lookup
+      //    goes via the natural key `sku`.
+      workflow completeWorkOrder transactional(serializable) {
+        create(workOrder: WorkOrder id, note: string) {
+          requires currentUser.permissions.contains(permissions.workOrderWrite)
+          let usages = PartUsages.run(UsageForOrder(workOrder), page: { offset: 0, limit: 500 })
+          for u in usages {
+            if let p = Parts.find(PartBySku(u.partSku)) {
+              p.consume(u.qty)
+            } else {
+              precondition false message "part no longer exists"
+            }
+          }
+          let wo = WorkOrders.getById(workOrder)
+          wo.complete(note)
+        }
+      }
+
+      criterion UsageForOrder(wo: WorkOrder id) of PartUsage = this.workOrderId == wo
+      criterion PartBySku(s: string) of Part = this.sku == s
+
+      repository Parts for Part {
+        find all(): Part paged requires currentUser.role != "none"
+        find bySku(sku: string): Part?
+          requires currentUser.role != "none"
+          where this.sku == sku
+      }
+      repository PartUsages for PartUsage {
+        find all(): PartUsage paged requires currentUser.role != "none"
+      }
+
+    }
+
+    // -----------------------------------------------------------------
+    context Billing {
+
+      enum InvoiceStatus { Draft, Issued, Paid, Void }
+
+      aggregate Invoice audited with tenantOwned, auditable {
+        workOrderId: WorkOrder id immutable
+        customerId: Customer id immutable
+        number: string immutable
+        currency: string immutable
+        amount: money immutable
+        status: InvoiceStatus
+        issuedAt: datetime?
+        unique (tenantId, number)
+        derived display: string = number
+
+        create(workOrderId: WorkOrder id, customerId: Customer id, number: string,
+               currency: string, amount: money, status: InvoiceStatus) {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+        }
+
+        // "Immutable once issued" — a state gate (409), not just field access.
+        operation issue() when status == Draft {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+          issuedAt := now()
+          status := Issued
+        }
+        operation markPaid() when status == Issued {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+          status := Paid
+        }
+        operation cancelInvoice() when status == Draft {
+          requires currentUser.permissions.contains(permissions.opsAdmin)
+          status := Void
+        }
+        destroy { requires currentUser.permissions.contains(permissions.platformAdmin) }
+      }
+
+      repository Invoices for Invoice {
+        find all(): Invoice paged requires currentUser.role != "none"
+        find byNumber(number: string): Invoice?
+          requires currentUser.role != "none"
+          where this.number == number
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------
+  subdomain Comms {
+    context Notifications {
+      aggregate Notification crossTenant {
+        workOrderRef: string
+        kind: string
+        sentAt: datetime
+        derived display: string = kind
+        create(workOrderRef: string, kind: string, sentAt: datetime) { requires true }
+      }
+      repository Notifications for Notification {
+        find all(): Notification paged requires true
+      }
+      workflow notifyOnCompletion {
+        workOrderId: WorkOrder id
+        create(e: WorkOrderCompleted) by e.workOrder {
+          let n = Notification.create({
+            workOrderRef: string(e.workOrder), kind: "work-order-completed", sentAt: e.at
+          })
+        }
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------
+  storage primary { type: postgres }
+  storage bus     { type: redis }
+  storage mail    { type: smtp, config: { from: "no-reply@fieldops.example" } }
+  storage photos  { type: s3, config: { bucket: "fieldops-photos", region: "eu-central-1" } }
+
+  resource orgState    { for: Orgs,      kind: state, use: primary }
+  resource fieldState  { for: Field,     kind: state, use: primary, index: [Part.sku, Asset.serial] }
+  resource billState   { for: Billing,   kind: state, use: primary, index: [Invoice.number] }
+  resource fieldPhotos { for: Field,     kind: objectStore, use: photos }
+  resource notifState  { for: Notifications, kind: state,  use: primary }
+  resource notifMail   { for: Notifications, kind: mailer, use: mail }
+
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+
+  api FieldApi from Ops
+
+  ui WebApp with scaffold(subdomains: [Ops, Accounts]) {
+    framework: vue
+    api Ops: FieldApi
+
+    // Hand-written dashboard on top of the scaffolded CRUD.
+    page OpsDashboard {
+      route: "/dashboard"
+      title: "Operations dashboard"
+      requires currentUser.role != "customerReadOnly"   // F-011: permissions.<x> crashes the page-gate renderer
+      body: Stack {
+        Heading { "Open work orders" },
+        
+        QueryView {
+          of: Ops.WorkOrder.all,
+          loading: Loader { },
+          empty: Empty { "No work orders yet" },
+          data: rows => Table {
+            rows: rows,
+            Column { "Status", r => r.status },
+            Column { "Priority", r => r.priority },
+            Column { "Total", r => Money(r.total, currency: "EUR", decimals: 2) }
+          }
+        }
+      }
+      menu { section: "Operations", label: "Dashboard", order: 1 }
+    }
+  }
+
+  deployable api {
+    platform: node
+    contexts: [Orgs, Field, Billing]
+    dataSources: [orgState, fieldState, billState, fieldPhotos]
+    serves: FieldApi
+    channels: [lifecycleBus]
+    auth: required
+    port: 3000
+  }
+
+
+  deployable web {
+    platform: vue
+    targets: api
+    ui: WebApp { Ops: api }
+    auth: ui
+    design: vuetify
+    port: 3001
+  }
+}
+
+test e2e "schedule a work order to a qualified technician" against api verifies TC-001 {
+  let org  = api.organizations.create({ name: "Acme Facilities" })
+  let cust = api.customers.create({ name: "Northwind", billingEmail: "ap@northwind.example" })
+  let site = api.sites.create({ customerId: cust.id, label: "HQ", addressLine: "1 Main St" })
+  let asset = api.assets.create({ siteId: site.id, serial: "CH-E2E-1", model: "Chiller X", warrantyExpiry: null, requiredSkill: "hvac" })
+  let tech = api.technicians.create({ fullName: "Dana", skills: ["hvac"], costRate: "85.0000" })
+  let wo = api.workOrders.create({ customerId: cust.id, siteId: site.id, assetId: asset.id, status: "Draft", priority: "Normal", currency: "EUR" })
+  api.workOrders.schedule(wo, { technician: tech.id, at: "2026-10-01T09:00:00Z" })
+  let read = api.workOrders.getById(wo)
+  expect(read.status).toBe("Scheduled")
+}
+
+test e2e "a completed work order cannot be cancelled" against api {
+  let cust = api.customers.create({ name: "Contoso", billingEmail: "ap@contoso.example" })
+  let site = api.sites.create({ customerId: cust.id, label: "Depot", addressLine: "9 Dock Rd" })
+  let wo = api.workOrders.create({ customerId: cust.id, siteId: site.id, assetId: null, status: "Completed", priority: "Low", currency: "EUR" })
+  expect(api.workOrders.cancel(wo)).toThrow(422)
+}
+
+test e2e "reading a work order that does not exist is 404" against api {
+  expect(api.workOrders.getById("3f1a6a2e-0c7b-4f0a-9c2e-7b9d1f0a5e11")).toThrow(404)
+}
+
+test e2e "a customer can be created and listed in the UI" against web {
+  let cust = ui.customers.create({ name: "Fabrikam", billingEmail: "ap@fabrikam.example" })
+  let read = ui.customers.getById(cust)
+  expect(read.name).toBe("Fabrikam")
+}
+
+solution SOL-001 for US-001 {
+  title: "WorkOrder.schedule is a guarded state transition"
+  entitles [ Ops.Field.WorkOrder.schedule ]
+}
+solution SOL-002 for US-002 {
+  title: "completeWorkOrder workflow consumes stock in one transaction"
+}
+solution SOL-003 for US-003 {
+  title: "tenantOwned capability filters every read"
+}
+testCase TC-001 verifies AC-001 {
+  title: "A completed work order cannot be cancelled"
+  covers [ Ops.Field.WorkOrder.cancel ]
+}
+testCase TC-002 verifies AC-002 {
+  title: "Completion fails entirely when stock is insufficient"
+}

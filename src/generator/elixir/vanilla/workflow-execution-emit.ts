@@ -101,7 +101,6 @@ import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault } from "../state-default.js";
-import { renderControllerSerialize } from "./controller-serialize.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -208,13 +207,12 @@ export function emitVanillaWorkflowsController(
   appModule: string,
   groups: WorkflowControllerGroup[],
   out: Map<string, string>,
-  sys?: SystemIR,
 ): void {
   const nonEmpty = groups.filter((g) => g.workflows.length > 0);
   if (nonEmpty.length === 0) return;
   out.set(
     `lib/${appName}_web/controllers/workflows_controller.ex`,
-    renderWorkflowsController(appModule, nonEmpty, sys),
+    renderWorkflowsController(appModule, nonEmpty),
   );
 }
 
@@ -1731,11 +1729,7 @@ end
   return { content, statementRegions };
 }
 
-function renderWorkflowsController(
-  appModule: string,
-  groups: WorkflowControllerGroup[],
-  sys?: SystemIR,
-): string {
+function renderWorkflowsController(appModule: string, groups: WorkflowControllerGroup[]): string {
   const webModule = `${appModule}Web`;
 
   // One action per command workflow across ALL hosted contexts.  Each action
@@ -1767,16 +1761,6 @@ function renderWorkflowsController(
     .join("\n\n");
 
   const ctxList = groups.map((g) => upperFirst(g.ctx.name)).join(", ");
-  // A workflow's `{:ok, result}` is frequently a saved aggregate struct — project
-  // it through that aggregate's `wireShape` (camelCase keys, no `inserted_at`),
-  // the same wire the aggregate's own REST controller serves.  The raw-struct
-  // `%_{}` clause stays behind them for a non-aggregate struct.
-  const ser = renderControllerSerialize(
-    appModule,
-    groups.map((g) => g.ctx),
-    [],
-    sys,
-  );
 
   return `# Auto-generated.
 defmodule ${webModule}.WorkflowsController do
@@ -1795,18 +1779,24 @@ ${actions}
   # case inlined per action) means Elixir 1.18's type checker doesn't
   # narrow the scrutinee to a single workflow's exact result shape and
   # flag the error branches that workflow can't produce.
-  def respond(conn, {:ok, result}) do
-    conn
-    |> put_status(202)
-    |> json(%{status: "accepted", result: serialize(result)})
-  end
+  # 204, empty body — the SAME success contract the other four backends serve
+  # for a workflow POST (httpCtx.body(null, 204) / NoContent() /
+  # @ResponseStatus(NO_CONTENT) / Response(status_code=204)), and the one this
+  # deployable's own OpenAPI declares.
+  #
+  # Sweep F-030: this answered 202 with %{status: "accepted", result: ...}
+  # while the published spec said 200 and the other four said 204 — three
+  # contracts for one .ddd.  A client written against the "identical API
+  # contracts" claim and tested on Hono broke the moment the deployable was
+  # re-pointed at Phoenix.  The projected result body went with it: nothing
+  # published it, and a workflow's durable output is read back through the
+  # aggregate's own REST resource or its instance endpoints.
+  def respond(conn, {:ok, _result}), do: send_resp(conn, 204, "")
 
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),
     do: ProblemDetails.validation_error_response(conn, changeset)
 
 ${respondErrorTail("respond", "  ", groups[0] ? denialOverrides(groups[0].ctx) : undefined, contextsHaveWireDenials(groups.map((g) => g.ctx)))}
-
-${ser.clauses}${ser.helpers}
 end
 `;
 }

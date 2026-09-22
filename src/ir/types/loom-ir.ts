@@ -28,6 +28,7 @@
 // exhaustive child-walker (`src/ir/util/walk.ts`).  This is a value import from
 // `ir/types` → `ir/util`; the reverse edge (walk.ts → loom-ir.ts) is `import
 // type` only (erased at emit), so no runtime cycle forms.
+import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import {
   walkExprDeep,
@@ -785,7 +786,21 @@ export interface TestIR {
 export type TestStmtIR =
   | StmtIR
   | { kind: "expect"; expr: ExprIR; source: string }
-  | { kind: "expect-throws"; expr: ExprIR; source: string; status?: number };
+  | {
+      kind: "expect-throws";
+      expr: ExprIR;
+      source: string;
+      /** `toThrow(<status>)` — the HTTP status of a live rejection, e2e only. */
+      status?: number;
+      /** `toThrow(<kind>)` — WHICH rung of the domain floor rejected the call,
+       *  unit tier only (`loom.e2e-throw-kind-invalid` refuses it in an
+       *  e2e body).  Absent for the bare form, which asserts only "it threw"
+       *  and therefore cannot tell a deleted `precondition` from the
+       *  `invariant` that threw in its place (audit 2026-09-13 F11).
+       *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
+       *  the `CallArg` list are alternatives on the same suffix. */
+      throwKind?: ThrowKindName;
+    };
 
 export interface EnumIR {
   name: string;
@@ -1575,8 +1590,11 @@ export interface ProjectionQueryIR {
    *  `select` (so `o.status` arrives as a `this`-rooted member access), and
    *  validation pins it COLUMNAR — a single-hop member on the source row
    *  (`loom.projection-groupby-key-not-columnar`) — so every backend can render
-   *  it as a bare SQL column.  Emitters ORDER BY these columns too, so the
-   *  grouped read is deterministic across backends.  Absent ⇒ not grouped. */
+   *  it as a bare SQL column.  Emitters ORDER BY these columns too, ASCENDING
+   *  and by the STORED COLUMN VALUE, so the grouped read is deterministic
+   *  across backends — an enum key therefore orders by the lexicographic order
+   *  of its member NAME (the column is TEXT everywhere, per `mapTypeToColumn`),
+   *  not by declaration position.  Absent ⇒ not grouped. */
   groupBy?: ExprIR[];
   /** Bulk-load plan derived from the `join` clauses — the `auxiliaries` shape
    *  built for by-id follows, populated by reading the
@@ -3583,6 +3601,12 @@ export type ExprIR =
        *  library (Playwright/vitest/xUnit/ExUnit).  Resolved here so
        *  backends switch on the flag rather than re-recognising names. */
       isIntrinsicMatcher?: boolean;
+      /** `toThrow(precondition)` / `toThrow(invariant)` — the failure RUNG the
+       *  matcher pins, carried from the grammar's `ThrowKind` slot.  It is not
+       *  an `args[0]`: both words are hard keywords and never lower to an
+       *  expression.  `expectStmtIR` reads it off here and moves it onto the
+       *  `expect-throws` node, so no other consumer sees it on a method-call. */
+      throwKind?: ThrowKindName;
       /** Optional parallel array: `argNames[i]` is the
        *  source-side `name:` prefix for `args[i]`, or `undefined` for
        *  positional arguments.  Present iff at least one arg was
@@ -4440,5 +4464,19 @@ export function uiUsesMoney(ui: UiIR): boolean {
     state.some((f) => typeUsesMoney(f.type));
   if (ui.pages.some((p) => stateHasMoney(p.state))) return true;
   if (ui.components.some((c) => stateHasMoney(c.state))) return true;
+  // A DECLARED money param is the other producer of a `Decimal` binding in a
+  // generated frontend file, and it only became one in wave C2: before the
+  // shared prop layer learned to spell `money`, `component PriceTag(amount:
+  // money)` was refused outright by phase (7).  Now it emits `amount: Decimal`
+  // — so the same detect-once conditional-dep gate has to see it, or the file
+  // imports decimal.js and package.json never declares it.  Extern-function
+  // signatures produce the identical binding for the identical reason.
+  const paramsHaveMoney = (params: readonly ParamIR[]) => params.some((p) => typeUsesMoney(p.type));
+  if (ui.components.some((c) => paramsHaveMoney(c.params))) return true;
+  if (
+    (ui.functions ?? []).some((fn) => paramsHaveMoney(fn.params) || typeUsesMoney(fn.returnType))
+  ) {
+    return true;
+  }
   return false;
 }

@@ -603,7 +603,7 @@ export const felizTarget: WalkerTarget = {
 
   // `CreateForm(of: <Agg>)` → one `Html.input` per required create-input field
   // (bound to `model.<Agg>Form.<field>` + dispatching `Set<Agg>Form<Field>`) and
-  // a submit button dispatching `Submit<Agg>Form`.  The form STATE + encoder +
+  // a submit button dispatching `Submit<Agg>CreateForm`.  The form STATE + encoder +
   // POST `Cmd` live in `update`/`Api` (wired by index.ts's `collectPageForms`);
   // the view only reads/dispatches.  The field set is derived identically here
   // and in index.ts (both `felizCreateForm` off the same enriched aggregate).
@@ -636,7 +636,7 @@ export const felizTarget: WalkerTarget = {
   },
 
   // `OperationForm(of: <Agg>, op: <op>)` → one `Html.input` per op param + a
-  // submit button dispatching `Submit<Op><Agg>Form id` (the op is instance-
+  // submit button dispatching `Submit<Op><Agg>OpForm id` (the op is instance-
   // qualified, so it carries the route id).  The form state + encoder + POST
   // live in `update`/`Api` (wired by index.ts's `collectPageOperationForms`).
   // Falls through when the args aren't `of:`+`op:` refs or the op is unknown /
@@ -696,7 +696,7 @@ export const felizTarget: WalkerTarget = {
   },
 
   // `WorkflowForm(runs: <wf>)` → one `Html.input` per workflow param + a
-  // (paramless) submit button dispatching `Submit<Wf>Form`.  The form state +
+  // (paramless) submit button dispatching `Submit<Wf>WorkflowForm`.  The form state +
   // encoder + POST `/workflows/<wf>` Cmd live in `update`/`Api` (wired by
   // index.ts's `collectPageWorkflowForms`).  Falls through when `runs:` isn't a
   // ref to a reachable workflow.

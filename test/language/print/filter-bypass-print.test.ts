@@ -12,7 +12,7 @@ import {
   type Model,
 } from "../../../src/language/generated/ast.js";
 import { printStructural } from "../../../src/language/print/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../../_helpers/parse.js";
 
 function contexts(model: Model): BoundedContext[] {
   const out: BoundedContext[] = [];
@@ -39,8 +39,8 @@ async function printAndReparse(source: string): Promise<{ printed: string; model
   const { model } = await parseString(source, { validate: false });
   const sys = model.members.find(isSystem)!;
   const printed = printStructural(sys);
-  const { model: reparsed, errors } = await parseString(printed, { validate: false });
-  expect(errors, `re-parse of printed source failed:\n${printed}`).toEqual([]);
+  expect(parseErrorsOf(printed), `re-parse of printed source failed:\n${printed}`).toEqual([]);
+  const { model: reparsed } = await parseString(printed, { validate: false });
   return { printed, model: reparsed };
 }
 

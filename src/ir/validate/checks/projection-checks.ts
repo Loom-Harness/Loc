@@ -36,7 +36,7 @@ import { type GroupKey, groupKeyOf, sameGroupKey } from "../../util/projection-a
 import { typeLabel } from "../../util/type-label.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { firstNonQueryableNode } from "./shared.js";
+import { firstNonQueryablePredicate } from "./shared.js";
 
 /** The whole-table (keyless) aggregation vocabulary a singleton projection's
  *  `select` reaches for (read-path-architecture.md rev. 8).  Spelled bare
@@ -263,7 +263,7 @@ function validateQueryComprehension(
   // on node and python DROPPED the filter silently — an endpoint returning
   // every row.  Reject it here, where the find/retrieval twins already do.
   if (q.filter) {
-    const offending = firstNonQueryableNode(q.filter);
+    const offending = firstNonQueryablePredicate(q.filter);
     if (offending) {
       diags.push({
         severity: "error",

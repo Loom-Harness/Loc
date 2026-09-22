@@ -2,9 +2,15 @@
 
 First-class B2B tenant isolation. One system-level declaration names the
 tenant claim and the tenant registry; every aggregate then declares its
-stance explicitly, and the toolchain guarantees the read scope on every
+stance explicitly, and the toolchain applies the read scope to every
 generated query — the "forgot the filter on one query" cross-tenant leak
 becomes a compile error instead of an incident.
+
+One clause opts a read out of it, and it is the only one: `ignoring
+tenantOwned` / `ignoring *` (the deliberate platform-admin cross-tenant
+report — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter)
+below).  It is not silent: every read that drops a tenancy filter raises
+`loom.tenancy-filter-bypass`, in every `auth { enforcement: }` mode.
 
 Design record: [`proposals/multi-tenancy-design-note.md`](old/proposals/multi-tenancy-design-note.md)
 (R1–R5); implementation plan: [`plans/multi-tenancy-implementation.md`](old/plans/multi-tenancy-implementation.md).
@@ -19,13 +25,18 @@ system Billder {
 
   subdomain Billing {
     context Catalog {
-      crossTenant aggregate Plan { code: string  monthlyPrice: decimal }
+      aggregate Plan crossTenant { code: string  monthlyPrice: decimal }
     }
     context Invoicing {
       aggregate Invoice with tenantOwned { number: string  amountDue: decimal }
     }
     context Accounts {
-      aggregate Organization { name: string }   // the registry — named in `of`, no marker
+      // The registry — named in `of`, no tenancy marker.  `with crudish` is not
+      // decoration: the signup bootstrap two sections down turns on `POST
+      // /organizations` existing, and an aggregate with no `create` emits a
+      // read-only API.  `tenancy-owned.ddd` — the fixture that pins the
+      // bootstrap end-to-end — declares it the same way.
+      aggregate Organization with crudish { name: string }
     }
   }
   // deployables need `auth: required` — the filter/stamp read the principal
@@ -181,6 +192,48 @@ The derived filter is provenance-tagged `tenancy` in
 only an explicit `ignoring *` read — the same authored escape hatch that
 drops `tenantOwned`'s filter — bypasses it.
 
+## `ignoring` and the tenant filter
+
+`ignoring tenantOwned` (and `ignoring *` on a tenant-scoped aggregate, which
+subsumes it and the registry self-scope above) is the ONE way to read across
+tenants, and it is a real, supported shape: the platform-admin report that has
+to total every tenant's rows. What it is not is a quiet one — it removes the
+boundary the whole feature exists to provide, and the emitted query then
+carries no tenant predicate at all:
+
+```ddd
+projection PlatformRevenue {          // every tenant's revenue, to any caller
+  revenue: money
+  from WorkOrder as w ignoring tenantOwned
+  select revenue = sum(w.amount)
+}
+```
+
+```ts
+// the emitted read — no `where`, where the un-bypassed sibling carries
+// `.where(eq(schema.workOrders.tenantId, requireCurrentUser().orgId))`
+const [row] = await db.select({ revenue: sum(schema.workOrders.amount) }).from(schema.workOrders);
+```
+
+So every such read raises **`loom.tenancy-filter-bypass`** (a warning, naming
+the read, the aggregate and the claim that no longer applies). Three
+properties of that gate are deliberate:
+
+- **It does not consult `auth { enforcement: }`.** The language default is
+  `enforcement: opt`, which gates nothing at all; and under `denyByDefault`,
+  `requires true` satisfies the ungated-read check while leaking exactly as
+  hard. The question this gate asks is "does this read drop the tenant
+  filter", not "does this read have some gate".
+- **It is a warning, never an error.** The escape hatch keeps working — the
+  model still compiles and the cross-tenant read is still emitted.
+- **It fires only on a TENANCY bypass.** `ignoring softDeletable` widens a
+  read to rows the caller's own tenant already owns and stays silent, as does
+  `ignoring *` on an aggregate with no tenancy filter in scope.
+
+If the cross-tenant read is deliberate, gate it behind an explicit
+platform-admin `requires` and keep it off tenant-facing APIs; the warning
+stays, as the standing record that this read crosses the boundary.
+
 ## The explicit-stance rule (the safety story)
 
 Under a system with `tenancy by`, **every persisted aggregate must declare a
@@ -198,6 +251,7 @@ bases are exempt). An unmarked aggregate is a hard error:
 | `loom.tenancy-inherited-stance-conflict` | a subtype declares the OPPOSITE stance from the abstract base it `extends` | error |
 | `loom.tenancy-claim-type-mismatch` | the claim's type can't bind against the registry's `ids` type (see the id-vs-claim rule above) | error |
 | `loom.tenant-owned-claim-type` | a `tenantOwned` aggregate exists but the claim isn't `string` (the capability's field is `tenantId: string`; a `guid` claim mis-compiles typed backends — declare the claim `string`, guid values round-trip as text) | error |
+| `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.run`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
 
 ### Inheritance: the stance is declared per CONCRETE
 

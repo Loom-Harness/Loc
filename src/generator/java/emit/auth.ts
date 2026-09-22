@@ -12,7 +12,8 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
-import { claimsReferenceIds } from "../../_auth/claim-types.js";
+import { TEST_RESET_PATH } from "../../../util/test-reset.js";
+import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { jid } from "../java-ident.js";
@@ -355,8 +356,14 @@ export function renderAuthFiles(
       `    private static final String[] BYPASS_PREFIXES = {`,
       `        "/health",`,
       `        "/ready",`,
+      `        "/metrics",`,
       `        "/openapi.json",`,
       `        "/swagger",`,
+      // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
+      // surface, so an auth-bearing system's e2e suite need not mint a
+      // principal just to empty a table.  The handler itself answers 404
+      // unless the switch is on, so bypassing the filter exposes nothing.
+      `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable
       // without a verified principal; /auth/me stays protected (it is the
       // session probe the frontend guard reads).
@@ -639,12 +646,6 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
 
 /** The IdP claim path projected onto a given user field — explicit `claims:`
  *  mapping wins; `id` defaults to `sub`, others read their own name. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
-}
-
 /** The User-constructor argument reading a field off the verified payload.
  *  string / string[] are mapped (dotted paths supported); other field types
  *  fall back to the dev-stub default (a documented limitation — OIDC claims

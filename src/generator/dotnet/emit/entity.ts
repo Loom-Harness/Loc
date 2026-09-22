@@ -28,6 +28,7 @@ import { constructionSeededFields } from "../../construction-default.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
+  declarationSubRegion,
   renderCsStatementChunks,
   renderCsStatements,
   statementSubRegions,
@@ -424,7 +425,12 @@ export function renderEntity(
     const params = fn.params
       .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
       .join(", ");
-    const head = `    private ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
+    // PUBLIC, like the operations below — see the matching note in the node
+    // emitter.  The generated code calls a `function` from outside the class
+    // (`CloseHandler`, `CanCloseHandler`, a workflow handler's hoisted
+    // precondition), so `private` made each of those a CS0122 on a model that
+    // validated `0 error(s)`.
+    const head = `    public ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     // Expression form keeps the expression-bodied `=> expr;` shape
     // (byte-identical); block form (domain-services.md rev. 4) emits a
     // statement body whose `return`s carry the value out.
@@ -548,11 +554,16 @@ export function renderEntity(
     if (opFragments && chunks.length > 0) {
       opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(
-          opBody,
-          chunks,
-          `${constructPrefix ?? entity.name}.${op.name}`,
-        ),
+        subRegions: [
+          // F-021 — the member's declaration region, so the `operation` header
+          // line resolves to the body's first generated line, not `:1`.
+          ...declarationSubRegion(
+            op.origin,
+            chunks,
+            `${constructPrefix ?? entity.name}.${op.name}`,
+          ),
+          ...statementSubRegions(opBody, chunks, `${constructPrefix ?? entity.name}.${op.name}`),
+        ],
       });
     }
     if (body.length > 0) opLines.push(body);

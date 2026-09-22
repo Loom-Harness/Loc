@@ -821,16 +821,73 @@ export interface FelizFieldArray {
   rowFields: FelizRowField[];
 }
 
+// ---------------------------------------------------------------------------
+// Form-name families — three DISJOINT namespaces.
+//
+// F# has no overloading for records: two `type XForm = { … }` declarations in
+// one module are a hard `FS0037` (and the second silently shadows the first, so
+// every reference after it resolves to the WRONG record).  The three form
+// families are keyed by names the model author controls independently — an
+// aggregate, an aggregate+operation pair, a workflow — so the old flat
+// `<Agg>Form` / `<Op><Agg>Form` / `<Wf>Form` spellings collided on ordinary
+// models: a `scheduleWorkOrder` workflow beside a `WorkOrder.schedule`
+// operation both produced `ScheduleWorkOrderForm`.
+//
+// The fix is a per-family SUFFIX rather than a per-family prefix, so the names
+// still read left-to-right as "what it is, then what it does":
+//
+//   create     `<Agg>CreateForm`        WorkOrderCreateForm
+//   operation  `<Op><Agg>OpForm`        ScheduleWorkOrderOpForm
+//   workflow   `<Wf>WorkflowForm`       ScheduleWorkOrderWorkflowForm
+//
+// Cross-family collision is impossible BY CONSTRUCTION: every name in a family
+// ends with that family's suffix, and no suffix is a suffix of another
+// (`…teForm` / `…OpForm` / `…owForm` differ in their last six characters), so
+// no two names drawn from different families can be equal whatever the model
+// calls its aggregates, operations and workflows.  Everything derived from the
+// form base (the `Set`/`Touch`/`Submit` Msgs, the Model field, the empty
+// binding, the encoder + validity fns, the `Done` result Msg) inherits the
+// disjointness, which is why they are all derived from these two helpers and
+// never re-spelled at a use site.
+//
+// Residual (unchanged by this): WITHIN the operation family two different
+// (aggregate, operation) pairs can still concatenate to the same string
+// (`ship` on `NowOrder` vs `shipNow` on `Order`).  That needs a separator that
+// cannot occur in an identifier, and Loom's `ID` terminal admits `_`, so there
+// is none; it is left as a much rarer, separate concern.
+// ---------------------------------------------------------------------------
+
+/** The family suffix distinguishing the three form namespaces. */
+type FormFamily = "create" | "op" | "workflow";
+
+const FORM_FAMILY_SUFFIX: Record<FormFamily, string> = {
+  create: "Create",
+  op: "Op",
+  workflow: "Workflow",
+};
+
+/** The collision-free BASE name for a form — `<stem><FamilySuffix>`.  Every
+ *  other name the form projects (`<base>Form`, `Submit<base>Form`, `<base>Done`,
+ *  …) is built off this, so the whole MVU wiring shares one namespace decision. */
+function formBase(family: FormFamily, stem: string): string {
+  return `${upperFirst(stem)}${FORM_FAMILY_SUFFIX[family]}`;
+}
+
+/** The F# record type name for a form base (`WorkOrderCreate` → `WorkOrderCreateForm`). */
+function formTypeName(family: FormFamily, stem: string): string {
+  return `${formBase(family, stem)}Form`;
+}
+
 /** The record-shaped aspects a form (create OR operation) shares — the F#
  *  form-record type + its `empty<Form>` value + Thoth encoder + fields.  The
  *  type/encoder/Model-field/init renderers consume this; only the Msg/update/Api
  *  wiring differs between create and operation forms. */
 export interface FormRecord {
-  /** F# form-record type name (`ProductForm` / `RenameProductForm`). */
+  /** F# form-record type name (`ProductCreateForm` / `RenameProductOpForm`). */
   formType: string;
   /** Model field holding the in-progress form (same as `formType`). */
   formField: string;
-  /** The empty-form value binding (`emptyProductForm`). */
+  /** The empty-form value binding (`emptyProductCreateForm`). */
   emptyBinding: string;
   /** Thoth encoder fn name (`Encoders.<encoderFn>`). */
   encoderFn: string;
@@ -869,8 +926,8 @@ function attachFieldRules(
 }
 
 /** A create form a page hosts (`CreateForm(of: X)`), projected to its full MVU
- *  wiring: a string-typed `<Agg>Form` record in the Model, one `Set` `Msg` per
- *  field, a `Submit<Agg>Form` trigger that POSTs the Thoth-encoded body, and a
+ *  wiring: a string-typed `<Agg>CreateForm` record in the Model, one `Set` `Msg` per
+ *  field, a `Submit<Agg>CreateForm` trigger that POSTs the Thoth-encoded body, and a
  *  `<Agg>Created` result that navigates to the list on success.  v1 renders the
  *  REQUIRED scalar create-input fields (`createInputFields` minus optionals and
  *  non-scalars — nested/collection inputs are a follow-up). */
@@ -879,7 +936,7 @@ export interface FelizForm extends FormRecord {
   aggregate: string;
   /** F# api fn name (`createProduct`). */
   apiFn: string;
-  /** `Msg` the submit button dispatches (`SubmitProductForm`). */
+  /** `Msg` the submit button dispatches (`SubmitProductCreateForm`). */
   submitMsg: string;
   /** `Msg` carrying the created record `Result` (`ProductCreated`). */
   resultMsg: string;
@@ -894,9 +951,9 @@ export interface FelizForm extends FormRecord {
 }
 
 /** An operation form a page hosts (`OperationForm(of: X, op: Y)`), projected to
- *  its MVU wiring: a string-typed `<Op><Agg>Form` record, one `Set` `Msg` per
- *  op param, a `Submit<Op><Agg>Form of string` trigger (carrying the route id)
- *  that POSTs to `/api/<agg>/<id>/<op>`, and a `<Op><Agg>Done` result (204, no
+ *  its MVU wiring: a string-typed `<Op><Agg>OpForm` record, one `Set` `Msg` per
+ *  op param, a `Submit<Op><Agg>OpForm of string` trigger (carrying the route id)
+ *  that POSTs to `/api/<agg>/<id>/<op>`, and a `<Op><Agg>OpDone` result (204, no
  *  body → `unit`) that navigates to the list.  v1 renders the scalar op params;
  *  the form lives on a detail page (route `id`). */
 export interface FelizOperationForm extends FormRecord {
@@ -907,9 +964,9 @@ export interface FelizOperationForm extends FormRecord {
   /** F# api fn name (`renameProduct`) — CURRIED `(id) (form)`. */
   apiFn: string;
   /** `Msg` the submit button dispatches, carrying the route id
-   *  (`SubmitRenameProductForm`). */
+   *  (`SubmitRenameProductOpForm`). */
   submitMsg: string;
-  /** `Msg` carrying the op's `Result<unit, string>` (`RenameProductDone`). */
+  /** `Msg` carrying the op's `Result<unit, string>` (`RenameProductOpDone`). */
   doneMsg: string;
   /** Collection base route (`/api/products`) — the api fn appends `/<id>/<op>`. */
   route: string;
@@ -1330,7 +1387,7 @@ export function felizCreateForm(
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizForm {
   const name = agg.name;
-  const formType = `${upperFirst(name)}Form`;
+  const formType = formTypeName("create", name);
   const fields = attachFieldRules(
     formFieldsFrom(
       formType,
@@ -1387,7 +1444,7 @@ export function felizOperationForm(
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizOperationForm {
   const name = agg.name;
-  const opCap = `${upperFirst(op.name)}${upperFirst(name)}`;
+  const opCap = formBase("op", `${upperFirst(op.name)}${upperFirst(name)}`);
   const formType = `${opCap}Form`;
   const fields = attachFieldRules(
     formFieldsFrom(
@@ -1422,18 +1479,19 @@ export function felizOperationForm(
 }
 
 /** A workflow form a page hosts (`WorkflowForm(runs: Y)`), projected to its MVU
- *  wiring: a string-typed `<Wf>Form` record, one `Set` `Msg` per workflow param,
- *  a paramless `Submit<Wf>Form` trigger that POSTs to `/api/workflows/<wf>`, and
- *  a `<Wf>Done` result (204, no body → `unit`) that resets + navigates home.
+ *  wiring: a string-typed `<Wf>WorkflowForm` record, one `Set` `Msg` per workflow
+ *  param, a paramless `Submit<Wf>WorkflowForm` trigger that POSTs to
+ *  `/api/workflows/<wf>`, and a `<Wf>WorkflowDone` result (204, no body → `unit`)
+ *  that resets + navigates home.
  *  The create form's POST (no id) with the operation form's 204 result. */
 export interface FelizWorkflowForm extends FormRecord {
   /** The workflow run (`openAccount`). */
   workflow: string;
-  /** F# api fn name (`runOpenAccount`). */
+  /** F# api fn name (`runOpenAccountWorkflow`). */
   apiFn: string;
-  /** `Msg` the submit button dispatches (`SubmitOpenAccountForm`). */
+  /** `Msg` the submit button dispatches (`SubmitOpenAccountWorkflowForm`). */
   submitMsg: string;
-  /** `Msg` carrying the workflow's `Result<unit, string>` (`OpenAccountDone`). */
+  /** `Msg` carrying the workflow's `Result<unit, string>` (`OpenAccountWorkflowDone`). */
   doneMsg: string;
   /** Full POST route (`/api/workflows/open_account`). */
   route: string;
@@ -1449,7 +1507,7 @@ export function felizWorkflowForm(
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizWorkflowForm {
-  const wfCap = upperFirst(wf.name);
+  const wfCap = formBase("workflow", wf.name);
   const formType = `${wfCap}Form`;
   const fields = formFieldsFrom(
     formType,

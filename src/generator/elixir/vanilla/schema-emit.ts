@@ -448,7 +448,57 @@ export function renderEctoDefault(e: ExprIR): string | null {
   }
 }
 
+/** An Ecto field type split into the TYPE term and the `field/3` OPTIONS that
+ *  must accompany it.  The split exists because `Ecto.Enum` carries its
+ *  `values:` as an OPTION OF `field/3`, never as a third tuple element — so a
+ *  collection of enums is `field :x, {:array, Ecto.Enum}, values: [...]`, and
+ *  wrapping the joined `"Ecto.Enum, values: [...]"` string in `{:array, …}`
+ *  produced `{:array, Ecto.Enum, [values: …]}`, which Ecto rejects at compile
+ *  time ("invalid type … for field").  Keeping the option OUT of the type term
+ *  lets `array` wrap the type and carry the option up to the field line. */
+interface EctoFieldType {
+  /** The Ecto type term (`:string`, `Ecto.Enum`, `{:array, Ecto.Enum}`, …). */
+  readonly type: string;
+  /** `field/3` options that belong with the type (`values: [...]`), or "". */
+  readonly opts: string;
+}
+
+/** The type + options split for a Loom type, or `null` for an unmappable one. */
+function mapTypeToEctoParts(t: TypeIR, enumsByName: Map<string, EnumIR>): EctoFieldType | null {
+  if (t.kind === "enum") {
+    const en = enumsByName.get(t.name);
+    if (!en) return { type: ":string", opts: "" };
+    // Ecto.Enum values use the DECLARED casing (`:Passed`), not snake — the
+    // cross-backend wire contract (and the OpenAPI spec) carries the declared
+    // value, so casting `"Passed"` must succeed and the dumped/loaded value must
+    // round-trip as `"Passed"` (Jason encodes the atom back to the declared
+    // string).  Snake-casing here made the field reject every wire value → 422
+    // "is invalid".  Value names are grammar identifiers → valid unquoted atoms;
+    // `:"Passed"` would trip Elixir's "quotes not required" warning under -Werror.
+    return { type: "Ecto.Enum", opts: `values: [${en.values.map((v) => `:${v}`).join(", ")}]` };
+  }
+  if (t.kind === "array") {
+    const inner = mapTypeToEctoParts(t.element, enumsByName);
+    if (!inner) return null;
+    // The element's OPTIONS ride up to the field line unchanged — `values:` is
+    // an option of `field/3`, and Ecto applies it to the array's element type.
+    return { type: `{:array, ${inner.type}}`, opts: inner.opts };
+  }
+  if (t.kind === "optional") return mapTypeToEctoParts(t.inner, enumsByName);
+  const plain = mapLeafTypeToEcto(t);
+  return plain === null ? null : { type: plain, opts: "" };
+}
+
+/** The `field :name, <here>` text for a Loom type — the type term followed by
+ *  any `field/3` options it carries — or `null` when the type has no column. */
 export function mapTypeToEcto(t: TypeIR, enumsByName: Map<string, EnumIR>): string | null {
+  const parts = mapTypeToEctoParts(t, enumsByName);
+  if (!parts) return null;
+  return parts.opts ? `${parts.type}, ${parts.opts}` : parts.type;
+}
+
+/** Leaf (non-enum, non-array, non-optional) Loom type → Ecto type term. */
+function mapLeafTypeToEcto(t: TypeIR): string | null {
   switch (t.kind) {
     case "primitive": {
       switch (t.name) {
@@ -483,20 +533,6 @@ export function mapTypeToEcto(t: TypeIR, enumsByName: Map<string, EnumIR>): stri
       // dedicated assoc emit pass.  The column itself is enough for
       // wire shape parity (the agg JSON includes the FK value).
       return ":binary_id";
-    case "enum": {
-      const en = enumsByName.get(t.name);
-      if (!en) return ":string";
-      // Ecto.Enum values use the DECLARED casing (quoted atoms `:"Passed"`), not
-      // snake — the cross-backend wire contract (and the OpenAPI spec) carries the
-      // declared value, so casting `"Passed"` must succeed and the dumped/loaded
-      // value must round-trip as `"Passed"` (Jason encodes the atom back to the
-      // declared string).  Snake-casing here made the field reject every wire
-      // value → 422 "is invalid".
-      // Value names are grammar identifiers → valid unquoted atoms; `:"Passed"`
-      // would trip Elixir's "quotes not required" warning under -Werror.
-      const values = en.values.map((v) => `:${v}`).join(", ");
-      return `Ecto.Enum, values: [${values}]`;
-    }
     case "valueobject":
       // VO → `:map` (JSONB).  Simplest path that satisfies wire-shape
       // parity: the JSON column holds the value object's own field shape.
@@ -504,15 +540,6 @@ export function mapTypeToEcto(t: TypeIR, enumsByName: Map<string, EnumIR>): stri
       // (with its own embedded schema module) can replace this later
       // when typed queries on inner fields are needed.
       return ":map";
-    case "array": {
-      // Special-case array of VO → {:array, :map} (same JSONB shape).
-      // Otherwise wrap the element's Ecto type.
-      const inner = mapTypeToEcto(t.element, enumsByName);
-      if (!inner) return null;
-      return `{:array, ${inner}}`;
-    }
-    case "optional":
-      return mapTypeToEcto(t.inner, enumsByName);
     default:
       return null;
   }

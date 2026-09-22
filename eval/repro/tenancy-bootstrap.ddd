@@ -1,0 +1,17 @@
+// docs/tenancy.md:136 — "POST /organizations works for any authenticated principal ...
+// closing the signup loop: create org → issue token with tenantId = <org id> → read it back."
+// Built from the doc's own surface example (docs/tenancy.md:15-33).
+system Billder {
+  user { id: guid  email: string  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Billing {
+    context Invoicing { aggregate Invoice with tenantOwned { number: string  amountDue: decimal }
+      repository Invoices for Invoice { } }
+    context Accounts  { aggregate Organization { name: string }
+      repository Organizations for Organization { } }
+  }
+  storage primary { type: postgres }
+  resource a { for: Invoicing, kind: state, use: primary }
+  resource b { for: Accounts,  kind: state, use: primary }
+  deployable api { platform: node, contexts: [Invoicing, Accounts], dataSources: [a, b], auth: required, port: 3000 }
+}

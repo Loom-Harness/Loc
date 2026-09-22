@@ -9,8 +9,9 @@
 // there has nowhere to go — on any of them.
 //
 // WHY THE REFUSAL MOVED.  It lived in the per-adapter descriptor
-// (`find-predicate-capability.ts`, the `mikroorm` entry), and
-// `validateFindPredicateAdapterSupport` keys on `dep.persistence` — which a
+// (`find-predicate-capability.ts`, the `mikroorm` entry — since deleted with
+// the rest of that descriptor family in wave C2 packet 2n), and the per-adapter
+// gate that read it keyed on `dep.persistence` — which a
 // deployable on the DEFAULT adapter does not carry.  So the identical shape was
 // refused honestly under `persistence: mikroorm` and CRASHED codegen on a bare
 // `platform: node` one: `0 error(s), 0 warning(s)` followed by
@@ -32,7 +33,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
 /** `platform:` clauses spanning both node adapters plus the other four
  *  backends — the refusal is target-neutral, so the sweep has to say so. */
@@ -93,8 +94,15 @@ const FIND_COLUMN_ARG = `find weird(): Order[] where this.tags.contains(this.id)
 const FIND_BOUND_ARG = `find byTag(t: Tag id): Order[] where this.tags.contains(t)`;
 
 async function errorCodes(source: string): Promise<string[]> {
-  const { model, errors } = await parseString(source, { validate: false });
-  if (errors.length > 0) throw new Error(`fixture has parse errors:\n${errors.join("\n")}`);
+  // `parseErrorsOf`, not the `errors` off a `{ validate: false }` parse: Langium
+  // fills `doc.diagnostics` only while VALIDATING, so that field is empty for
+  // every input and this guard — whose whole job is to stop a broken fixture
+  // earning a `not.toContain` verdict — would never fire.  See
+  // `test/system/vacuous-parse-assertion.test.ts`.
+  const parseErrors = parseErrorsOf(source);
+  if (parseErrors.length > 0)
+    throw new Error(`fixture has parse errors:\n${parseErrors.join("\n")}`);
+  const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
     .map((d) => d.code ?? "<no code>");
@@ -115,6 +123,8 @@ describe("a reference-collection membership needs a BINDABLE argument", () => {
     it(`${platform}: a BOUND argument is still accepted (control)`, async () => {
       const codes = await errorCodes(sys(platform, FIND_BOUND_ARG));
       expect(codes).not.toContain("loom.find-where-not-queryable");
+      // The per-adapter code no longer exists at all (packet 2n): the
+      // refusal is neutral, so the adapter-keyed spelling must never come back.
       expect(codes).not.toContain("loom.find-predicate-unsupported");
     });
   }

@@ -2183,13 +2183,15 @@ export interface MemberSuffix extends langium.AstNode {
     args: Array<CallArg>;
     call: boolean;
     member: MemberName;
+    throwKind?: ThrowKind;
 }
 
 export const MemberSuffix = {
     $type: 'MemberSuffix',
     args: 'args',
     call: 'call',
-    member: 'member'
+    member: 'member',
+    throwKind: 'throwKind'
 } as const;
 
 export function isMemberSuffix(item: unknown): item is MemberSuffix {
@@ -2929,7 +2931,7 @@ export interface Property extends langium.AstNode {
     default?: Expression;
     maskUnless?: Expression;
     message?: string;
-    name: 'await' | 'page' | CommonSoftKeywords | string;
+    name: 'await' | 'ignoring' | 'page' | CommonSoftKeywords | string;
     provenanced: boolean;
     sensitivity?: SensitivityClause;
     type: TypeRef;
@@ -3842,6 +3844,12 @@ export const ThisRef = {
 
 export function isThisRef(item: unknown): item is ThisRef {
     return reflection.isInstance(item, ThisRef.$type);
+}
+
+export type ThrowKind = 'invariant' | 'precondition';
+
+export function isThrowKind(item: unknown): item is ThrowKind {
+    return item === 'precondition' || item === 'invariant';
 }
 
 export interface TimerSource extends langium.AstNode {
@@ -6022,6 +6030,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 member: {
                     name: MemberSuffix.member
+                },
+                throwKind: {
+                    name: MemberSuffix.throwKind,
+                    optional: true
                 }
             },
             superTypes: [PostfixSuffix.$type]

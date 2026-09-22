@@ -2,7 +2,8 @@ import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/type
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
-import { claimIdTargets } from "../_auth/claim-types.js";
+import { TEST_RESET_PATH } from "../../util/test-reset.js";
+import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { renderPyType } from "./render-expr.js";
 
@@ -34,7 +35,7 @@ function pyIdClaimImports(user: UserIR): string[] {
 // Without an `auth { oidc }` block the user calls `register_user_verifier(fn)`
 // by hand (main.py ships a permissive dev stub).  With one, the generated
 // OIDC verifier is auto-registered and the handshake router mounted.  The
-// middleware bypass list matches the Hono/.NET sides: /health, /ready,
+// middleware bypass list matches the Hono/.NET sides: /health, /ready, /metrics,
 // /openapi.json, /swagger (plus /auth/login|callback|logout under OIDC).
 // ---------------------------------------------------------------------------
 
@@ -78,12 +79,6 @@ function pyAuthValue(v: AuthValueIR | undefined, fallback = '""'): string {
 /** The IdP claim path projected onto a user field — explicit `claims:` wins;
  *  else `id` → `sub`, every other field reads its own snake name.  Mirrors the
  *  Hono / .NET / Phoenix `claimPathFor`. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : snake(field);
-}
-
 /** Python kwargs for the dev-stub User — same defaults as Hono's
  *  `renderStubUserLiteral` (string claims "admin", arrays EMPTY — so
  *  permission-guarded surfaces deny by default — optionals None). */
@@ -349,9 +344,14 @@ function renderAuthMiddleware(
   // Under OIDC the /auth/login|callback|logout redirect handlers must be
   // reachable without a verified principal — bypass them.  /auth/me is NOT
   // bypassed (the guard reads the verified user).
+  // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
+  // same reason as the probes: it is infra, not domain surface, and an
+  // auth-bearing system's e2e suite would otherwise have to mint a principal
+  // just to empty a table.  It costs nothing — the route is not DEFINED unless
+  // the switch is on, so there is no handler behind the bypassed path.
   const bypass = oidc
-    ? `("/health", "/ready", "/openapi.json", "/swagger", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
-    : '("/health", "/ready", "/openapi.json", "/swagger")';
+    ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
+    : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
   // The per-request registry `data_key` resolver (hierarchy only).  A fresh
   // session per lookup; `SELECT data_key … WHERE id = :claim LIMIT 1`; a
   // missing row / NULL `data_key` / any error (e.g. a non-matching dev-stub
