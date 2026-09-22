@@ -454,7 +454,7 @@ export function readRegisters(atCommit) {
 // ---------------------------------------------------------------------------
 
 const REC = "";
-const FIELD = " ";
+const FIELD = "\0";
 
 /** Parse `git log`'s NUL-delimited, RS-separated output.  Exported so the
  *  reader itself is testable — a silently-empty log would zero every merge
