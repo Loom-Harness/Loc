@@ -71,7 +71,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
       if (!carries(node, feature)) continue;
 
       const property = CALLABLE_FEATURE_PROPERTY[feature];
-      const p = { feature, label: site.label };
+      const label = site.label;
       // One arm per deny reason — see SHAPE above for why these are spelled
       // out rather than indexed by `site.why`.
       switch (site.why) {
@@ -80,7 +80,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#lifecycle", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#lifecycle", { feature, label }),
           );
           break;
         case "applier":
@@ -88,7 +88,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#applier", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#applier", { feature, label }),
           );
           break;
         case "function":
@@ -96,7 +96,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#function", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#function", { feature, label }),
           );
           break;
         case "handler":
@@ -104,7 +104,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#handler", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#handler", { feature, label }),
           );
           break;
         case "domain-service":
@@ -112,7 +112,10 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#domain-service", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#domain-service", {
+              feature,
+              label,
+            }),
           );
           break;
         case "workflow":
@@ -120,7 +123,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#workflow", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#workflow", { feature, label }),
           );
           break;
         case "page-action":
@@ -128,7 +131,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
             accept,
             node,
             property,
-            diagMessage("loom.callable-modifier-not-allowed-here#page-action", p),
+            diagMessage("loom.callable-modifier-not-allowed-here#page-action", { feature, label }),
           );
           break;
         default: {
