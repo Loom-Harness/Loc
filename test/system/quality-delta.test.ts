@@ -35,6 +35,11 @@ import {
   renderReport,
   staleDrafts,
   summarize,
+  // @ts-expect-error — plain-JS module with no declaration file, so its
+  // bindings are `any`.  The runtime shape is pinned by the assertions below;
+  // the real fix is a `scripts/quality-delta.d.mts`, which lives outside this
+  // packet's fence (handed off in wave-c4-4b).  If one lands, this directive
+  // goes unused and TS2578 says so.
 } from "../../scripts/quality-delta.mjs";
 
 // ---------------------------------------------------------------------------
@@ -456,7 +461,7 @@ describe("quality-delta — R12 duplicate claims", () => {
     ]);
     expect(dupes).toHaveLength(1);
     expect(dupes[0].headRef).toBe("claude/x");
-    expect(dupes[0].prs.map((p) => p.number)).toEqual([2349, 2351]);
+    expect(dupes[0].prs.map((p: { number: number }) => p.number)).toEqual([2349, 2351]);
   });
 
   it("a healthy PR list yields no findings", () => {
@@ -478,7 +483,7 @@ describe("quality-delta — R12 duplicate claims", () => {
       { number: 12, title: "ready+old", draft: false, headRef: "c", headCommittedAt: day(1) },
     ];
     const stale = staleDrafts(prs, { now, days: 10 });
-    expect(stale.map((p) => p.number)).toEqual([10]);
+    expect(stale.map((p: { number: number }) => p.number)).toEqual([10]);
     expect(stale[0].idleDays).toBe(19);
   });
 
@@ -490,7 +495,7 @@ describe("quality-delta — R12 duplicate claims", () => {
       ],
       { now, days: 3 },
     );
-    expect(stale.map((p) => p.number)).toEqual([2, 1]);
+    expect(stale.map((p: { number: number }) => p.number)).toEqual([2, 1]);
   });
 });
 
@@ -594,18 +599,30 @@ describe("quality-delta — register readers", () => {
 // ---------------------------------------------------------------------------
 
 describe("quality-delta — the readers reach the live repo files", async () => {
-  const { readRegisters } = await import("../../scripts/quality-delta.mjs");
+  const { readRegisters } = (await import(
+    // @ts-expect-error — see the static import above.
+    "../../scripts/quality-delta.mjs"
+  )) as {
+    readRegisters: () => {
+      wireWaivers: number | null;
+      register: { rows: number; gaps: number; seam: number; scope: number } | null;
+      heexPins: string[] | null;
+      compileSkips: Record<string, string[]> | null;
+    };
+  };
   const registers = readRegisters();
+  if (!registers.register) throw new Error("unsupported register unreadable at HEAD");
+  if (!registers.compileSkips) throw new Error("corpus skip maps unreadable at HEAD");
 
   it("reads a plausible unsupported register (the population, not a zero)", () => {
-    expect(registers.register.rows).toBeGreaterThan(10);
-    expect(registers.register.gaps + registers.register.seam + registers.register.scope).toBe(
-      registers.register.rows,
+    expect(registers.register!.rows).toBeGreaterThan(10);
+    expect(registers.register!.gaps + registers.register!.seam + registers.register!.scope).toBe(
+      registers.register!.rows,
     );
   });
 
   it("reads every corpus backend's skip map", () => {
-    expect(Object.keys(registers.compileSkips).sort()).toEqual([
+    expect(Object.keys(registers.compileSkips!).sort()).toEqual([
       "dapper",
       "dotnet",
       "elixir",

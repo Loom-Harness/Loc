@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { generateSystems } from "../../src/system/index.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 const ACME_EXPLICIT = `
 system Acme {
@@ -110,7 +111,7 @@ async function build(source: string) {
   const services = createDddServices(NodeFileSystem);
   const helper = parseHelper(services.Ddd);
   const doc = await helper(source, { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
   return {
     errors,
     files:
