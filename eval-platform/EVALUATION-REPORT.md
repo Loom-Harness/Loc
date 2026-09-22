@@ -41,8 +41,10 @@ verified, and rare.
 ### Hard exclusion
 
 **Do not use Elixir as the backend for anything with enforceable business rules**
-until F-1 is closed — it is the one target that silently drops a declared invariant
-and compiles green.
+until F-1 is closed. It is the one target that never fails at build time on this class
+of expression, and instead either **silently drops a declared invariant** or **emits a
+guard that raises `KeyError` at runtime** (a 500 instead of a 422), depending on where
+the expression was written.
 
 ### What would move this to unreserved "Adopt"
 
@@ -62,7 +64,7 @@ drop+add and bypass the destructive gate); and a tagged release with a changelog
 | Generation matrix, 5 backends × 6 frontends | **30/30 generate clean** |
 | Backend compiles, scaffold model | node ✅ · python ✅ · java ✅ · **dotnet ❌ (F-2)** |
 | Backend compiles, feature-rich model | elixir ✅ · node/python/java/dotnet ❌ (all F-1) |
-| Frontend builds | react ✅ · vue ✅ · svelte ✅ · **feliz ✅** · shadcn-pack react ✅ · angular/flutter see §6 |
+| Frontend builds | react ✅ · vue ✅ · svelte ✅ · **angular ✅** · **feliz ✅** · shadcn-pack react ✅ · flutter see §6 |
 | Runtime | Generated Hono API booted on real Postgres 18, self-migrated, 12 HTTP behaviours verified |
 | Runtime, full stack | Built React SPA served + proxied to the live API: create → FK-valid write → read-back ✅ |
 | Tenancy isolation e2e (repo harness) | ✅ passed |
@@ -118,7 +120,8 @@ The headline claim, tested directly.
   The diagnostic is excellent, so this is friction, not a trap — except on Flutter,
   where `design:` accepts anything and silently does nothing (F-4).
 - Domain-logic parity is not guaranteed. One ordinary line behaves five different ways
-  (F-1), and the dangerous case is Elixir compiling green with the rule removed.
+  (F-1). Four backends refuse to compile it; Elixir compiles green and then either drops
+  the rule or crashes at runtime.
 
 ### 3.4 Generated code quality — **high**
 
@@ -234,15 +237,15 @@ discipline is real; the release engineering does not exist yet.
 Recorded so the scorecard is not over-read. These are **environment constraints, not
 Loom defects**:
 
-- **Feliz did build** once the sandbox proxy CA was injected into its build container:
-  F# → Fable → a 303 KB vite bundle, exit 0. Its Dockerfile pins
-  `mcr.microsoft.com/dotnet/sdk:8.0` while the .NET *backend* targets `net10.0` — two
-  .NET majors in one generated tree, worth tidying.
-- **Angular was not completed** here: it requires Node ≥ 22.22.3 (host has 22.22.2;
-  Loom's own Dockerfile correctly pins `node:24`), and its in-container `npm install`
-  exceeded the time I had. **Flutter was not built** — no Flutter SDK available.
-- Every container build in this sandbox needs the TLS-intercepting proxy's CA installed
-  (NuGet, hex.pm, nodesource, npm all fail without it). None of these are Loom defects.
+- **Five of six frontends were built green**: react, vue, svelte, **angular** (1.01 MB
+  bundle) and **feliz** (F# → Fable → 303 KB bundle). Every one of my earlier Angular
+  and Feliz failures turned out to be the sandbox's TLS-intercepting proxy, not Loom —
+  they build once its CA is installed in the build container (`NODE_EXTRA_CA_CERTS`
+  for npm, `update-ca-certificates` + `HTTPS_PROXY` for NuGet/hex.pm/nodesource).
+- **Flutter was not built** — no Flutter SDK available in this environment. It is the
+  one target in the matrix with no compile evidence here.
+- The Feliz Dockerfile pins `mcr.microsoft.com/dotnet/sdk:8.0` while the .NET *backend*
+  targets `net10.0` — two .NET majors in one generated tree, worth tidying.
 - The full `docker compose up` stack never finished building here: `npm install` inside
   the build container cannot reach the host-local proxy without `--network=host`. I
   verified runtime by booting the generated API directly against a Postgres container

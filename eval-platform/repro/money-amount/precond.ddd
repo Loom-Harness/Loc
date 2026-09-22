@@ -1,0 +1,19 @@
+system PreCond {
+  subdomain S {
+    context C {
+      aggregate Invoice {
+        label: string
+        total: money
+        operation approve() {
+          precondition total.amount > 0
+          precondition label.length > 0
+          label := label + "!"
+        }
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: elixir, contexts: [C], dataSources: [st], port: 3000 }
+}

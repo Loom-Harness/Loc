@@ -46,24 +46,49 @@ backend — but they are the obvious spelling, and they validate clean. One line
 | python  | ❌ `mypy --strict` — `"Decimal" has no attribute "amount"` |
 | dotnet  | ❌ `CS1061` — `'decimal' does not contain a definition for 'Amount'` |
 | java    | ❌ `javac` — `symbol: method amount(), location: variable total of type BigDecimal` |
-| elixir  | ⚠️ **compiles clean; the rule is silently dropped** |
+| elixir  | ⚠️ **compiles clean — and then fails two different silent ways (below)** |
 
-Four backends fail loudly and late (S2). **Elixir fails silently (S1)** — the changeset
-emits the aggregate's *other* invariants (`label.length > 0` → `validate_change`,
-`qty >= 1` → `validate_number`) plus a generic `__loom_money_range` bounds check, but
-the authored rule is absent from the entire tree:
+Four backends fail loudly and late (S2). **Elixir never fails at build time at all**,
+and which silent failure you get depends on *where* you wrote the expression:
+
+**(a) In an `invariant` — the rule is silently DROPPED.** The changeset emits the
+aggregate's *other* invariants (`label.length > 0` → `validate_change`, `qty >= 1` →
+`validate_number`) plus a generic `__loom_money_range` bounds check, but the authored
+rule is absent from the entire tree:
 `grep -rn ">= 0\|amount\|Invariant violated" lib/` returns nothing, and
-`mix compile --warnings-as-errors` is green.
+`mix compile --warnings-as-errors` is green. The business rule simply never runs.
+
+**(b) In a `precondition` — the expression IS emitted, and CRASHES at runtime.**
+
+```elixir
+# lib/api/c.ex
+with :ok <- ensure(record.total.amount > 0, {:precondition_failed, "..."}),
+```
+
+`record.total` is a `Decimal`, whose struct keys are `[:exp, :__struct__, :sign, :coef]`
+— there is no `:amount`. Verified in the compiled project:
+
+```
+Decimal struct keys: [:exp, :__struct__, :sign, :coef]
+d.amount RAISES: KeyError -- key :amount not found in: Decimal.new("5")
+```
+
+So the guard compiles green and raises `KeyError` the first time the operation is
+invoked — a 500, not the 422 the author intended.
+
+Both halves defeat the loud compile-time failure the other four backends give.
 
 **Why this is the key stack-switching finding:** moving `platform: node` → `platform:
 elixir` silently converts a build error into an unenforced business rule. The model that
 refused to compile now ships.
 
-**Scope (measured):** on Elixir, invariants reaching into money components are dropped;
-scalar and string invariants survive.
+**Scope (measured):** on Elixir, money-component access is dropped in `invariant`
+position and emitted-but-runtime-fatal in `precondition` position; scalar and string
+expressions are correct in both positions.
 
 **Repro:** `eval-platform/repro/money-amount/` — `main.ddd` (money case), `scope.ddd`
-(which shapes survive on Elixir), `bogus2.ddd` (the general member-check gap).
+(which invariant shapes survive on Elixir), `precond.ddd` (the runtime-crash half),
+`bogus2.ddd` (the general member-check gap).
 
 ---
 
