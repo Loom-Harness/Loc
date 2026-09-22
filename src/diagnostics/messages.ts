@@ -3966,6 +3966,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `field 'isDeleted' on aggregate '${p.name}' collides with the 'softDeletable' capability's flag, which is a 'bool' ` +
     `(the spliced 'filter !this.isDeleted' reads it). Rename this field (e.g. '${p.name2}Deleted'), or declare it ` +
     `'isDeleted: bool' if you meant the soft-delete flag.`,
+  "loom.softdelete-field-collision#timestamp": (p: { name: unknown; name2: unknown }) =>
+    `field 'deletedAt' on aggregate '${p.name}' collides with the 'softDeletable' capability's timestamp, which is a ` +
+    `'datetime?' (the 'softDelete' macro's operation assigns it). Rename this field (e.g. '${p.name2}DeletedAt'), or ` +
+    `declare it 'deletedAt: datetime?' if you meant the soft-delete timestamp.`,
   "loom.unknown-macro#top-level": (p: { name: unknown; listMacroNames: unknown }) =>
     `Unknown macro or capability '${p.name}'.  Available macros: ${p.listMacroNames}.`,
   "loom.unknown-macro#nested": (p: {

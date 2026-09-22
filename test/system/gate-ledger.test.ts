@@ -58,10 +58,18 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "the enum × array crossing is a STATIC type question and its defect is a hard compile error in the emitted project (`** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field :skills` — `mix compile` fails), so the corpus compile legs ARE the oracle.  A behavioural block would boot a generic CRUD round-trip and mint a wire golden over an enum-array JSON encoding no cross-backend ruling has been asked for",
   "principal-read-filter":
     "both halves of the defect (an UNPINNED `current_user` in the Ecto `where:`, and an actor never threaded into the find/retrieval head) are hard `mix compile` failures, so the compile legs are the oracle.  The runtime half is not assertable from the harness either: a row-level `this.technicianUserId == currentUser.id` needs the principal's id to MATCH a seeded row's, and `devClaimKind` carries `string` / `string[]` claims only — so every assertion would read the empty fail-closed result and prove nothing about the filter.  A drain candidate for M-T9.13 once the harness can seed a row owned by the authenticated principal",
-  "projection-agg-filters":
-    "aggregation × capability filters — the cross-tenant COUNT/SUM leak audit A1 minted this fixture for is a RUNTIME value; the compile tier cannot see a wrong number",
+  // `projection-agg-filters` LEFT this list in wave-3 row 3.3.  Its signature
+  // said the leak "is a RUNTIME value; the compile tier cannot see a wrong
+  // number" — true, and it argued for a behavioural block rather than against
+  // one.  What actually blocked it was narrower and undocumented: `softDeletable`
+  // is a pure mixin with no operation, so nothing could set `isDeleted` through
+  // the api and the conjunct was unobservable whatever the tier.  Composing the
+  // `softDelete` macro made it assertable with ONE principal, and the fixture
+  // now runs `OrderVolume` vs `AllTimeVolume` at the behavioural tier.  The
+  // TENANT conjunct still needs two principals and stays with the generator
+  // tests — a narrower claim than the one this entry used to make.
   "projection-document-aggregation":
-    "count(*) over a document source — same shape as projection-agg-filters, same blindness",
+    "count(*) over a document source — same shape as projection-agg-filters, and the same blindness the compile tier has to a wrong number.  Unlike its sibling this one is NOT unblocked by the `softDelete` macro: its source is `shape: document`, so the aggregation is the one shape that source can express and the row count is the assertion; the drain still waits on seeded rows the behavioural runners set up per-fixture",
   outbox: "relay delivery is asynchronous; needs a booted leg that drains the outbox",
   "channels-broker":
     "needs a broker container (the channels-e2e legs boot one; the corpus case does not)",

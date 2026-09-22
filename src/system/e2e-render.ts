@@ -20,6 +20,7 @@ import {
   workflowRouteSlug,
   workflowSlugHints,
 } from "../ir/util/e2e-workflow-accessor.js";
+import { walkExprDeep } from "../ir/util/walk.js";
 import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
@@ -244,31 +245,18 @@ function collectReferencedAggregateSlugs(statements: readonly TestStmtIR[]): Set
  *  the census credit a caller the emitter never emits. */
 export function collectApiCallShapes(statements: readonly TestStmtIR[]): ApiCallShape[] {
   const calls: ApiCallShape[] = [];
+  // Rides `walkExprDeep` rather than enumerating kinds by hand.  The hand-rolled
+  // version listed ten kinds and stopped at anything else, so an api call nested
+  // inside an unlisted kind was invisible HERE — and this collector is what the
+  // CALLER CENSUS reads, so the census could not see it either.  The shared
+  // walker is exhaustively `never`-checked, which is the whole point of the
+  // convention (CLAUDE.md → "No hand-rolled IR walks").  Pre-order, so the
+  // documented visit order is unchanged.
   const visit = (e: ExprIR): void => {
-    const call = matchApiCall(e);
-    if (call) calls.push(call);
-    // Recurse regardless — the api call's args may carry further
-    // api.* receivers (`api.x.op(api.y.create(...).id)` etc.).
-    if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      const call = matchApiCall(n);
+      if (call) calls.push(call);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -385,28 +373,16 @@ function compatibleBackends(
  *  not a ref, so unused lets fall out naturally.) */
 function collectUsedLetNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
+  // Same migration, and this one had a LIVE defect: the hand-rolled walk did not
+  // reach a `ref` nested inside an unlisted kind, so a `let` whose only use was
+  // (say) `decimal(x.field)` was judged DEAD — the `const … =` binding was
+  // dropped while the reference survived, and the emitted test died with
+  // `ReferenceError: x is not defined` at runtime.  Found by wave-3 row 3.3's
+  // drain of `projection-agg-filters`.
   const visit = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    else if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      if (n.kind === "ref") used.add(n.name);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);

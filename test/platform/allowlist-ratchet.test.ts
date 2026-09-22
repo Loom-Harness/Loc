@@ -526,10 +526,16 @@ const REGISTERED: Ratchet[] = [
     // five-emitter slice of its own, reported on #2864 rather than smuggled in
     // here.  When it lands, this fixture gains its unit block and this entry
     // drains one.
-    // 23 -> 25 (audit F-013 + F-014, the two elixir S1 compile defects).  TWO
-    // RAISES, and the same shape as the four above rather than new M-T9.13
-    // debt: each new fixture's subject is a STATIC contract whose defect made
-    // `mix compile` FAIL on the emitted project, which is exactly what the
+    // 23 -> 22 on main (wave-3 row 3.3 DRAINED `projection-agg-filters`), then
+    // 22 -> 24 here (audit F-013 + F-014, the two elixir S1 compile defects).
+    // The arithmetic is against main's CURRENT value, exactly as main's own note
+    // on the drain insists: restoring a remembered literal (this branch had 25,
+    // computed off the pre-drain 23) is how a ratchet silently loses somebody
+    // else's lowering.  Both movements are real and both survive.
+    //
+    // The two RAISES are the same shape as the four above rather than new
+    // M-T9.13 debt: each new fixture's subject is a STATIC contract whose defect
+    // made `mix compile` FAIL on the emitted project, which is exactly what the
     // corpus compile legs read.
     //   * `enum-collection` — the enum × array crossing.  `field :skills,
     //     {:array, Ecto.Enum, values: [...]}` →  `** (ArgumentError) invalid
@@ -546,7 +552,7 @@ const REGISTERED: Ratchet[] = [
     //     booted leg would assert over the empty fail-closed result and prove
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
-    max: 25,
+    max: 24,
   },
 ];
 

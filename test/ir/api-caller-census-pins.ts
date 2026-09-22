@@ -453,6 +453,17 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
     updateOrganization: R.tenantRegistryRow,
     allOrganization: R.tenantRegistryRow,
   },
+  // Same registry class again, in the fixture wave-3 row 3.3 drained.  Only the
+  // THREE id-taking routes are pinned: `create` and `all` ARE called there, and
+  // the collection read carries the assertion the pin class implies — a row the
+  // caller just created comes back INVISIBLE to it (`total` is 0), because the
+  // self-scope filter compares the row id against a claim that is the string
+  // "acme".  That is the pin's own reason, asserted rather than described.
+  "corpus/projection-agg-filters": {
+    getOrganizationById: R.tenantRegistryRow,
+    destroyOrganization: R.tenantRegistryRow,
+    updateOrganization: R.tenantRegistryRow,
+  },
   "corpus/tenancy-claim-name": {
     // Same registry class, under the `orgId` claim.
     createOrganization: R.tenantRegistryRow,
@@ -536,6 +547,24 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // these credit no derived operation even though they are the whole point of
   // their fixtures.
   "corpus/projection-aggregation": [
+    "api.orderVolume.list (no such aggregate)",
+    "api.salesTotals.list (no such aggregate)",
+  ],
+  // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
+  // its three siblings above and below — three projection reads, none of which
+  // lifts to a derived operation.  `allTimeVolume` is the `ignoring` witness:
+  // it and `orderVolume` are the same shape over the same table and must
+  // DISAGREE once a row is soft-deleted, which is what the drained e2e asserts.
+  //
+  // The fixture's FOURTH projection, `salesByStatus`, is deliberately not
+  // called — its grouped rows come back in a different ORDER on node than on
+  // python, so a golden over it would pin one backend's collation rather than
+  // the `group by` clause's stated cross-backend determinism.  The measurement
+  // and the cause (enum grouping key: `CREATE TYPE … AS ENUM` ordinal order on
+  // node, text collation everywhere else) are written out at the call site in
+  // `projection-agg-filters.ddd`.
+  "corpus/projection-agg-filters": [
+    "api.allTimeVolume.list (no such aggregate)",
     "api.orderVolume.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
   ],
@@ -692,11 +721,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
-  // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
-  // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
-  // read carries the capability predicates.  The runtime half needs the
-  // two-principal harness (`tenancy-e2e.yml` owns that shape).
-  "projection-agg-filters",
   // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
   // `projection-agg-filters` directly above — same capabilities, same missing
   // harness.  The assertion this fixture wants is "a SECOND tenant's rows
@@ -733,8 +757,21 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // exactly one `platform: node` deployable per case so dispatch is unambiguous.
   // Its own runtime leg is `api-call-e2e.yml` (label/post-merge).
   "api-call",
-  // BROKER SIDECAR — redis/rabbitmq/kafka; the node leg boots in-process on
-  // PGlite with no broker. Runtime home: `channels-e2e.yml` (label/post-merge).
+  // BROKER SIDECAR — true of the FIXTURE's declared transport (redis/rabbitmq/
+  // kafka) and NOT true of the three routes, which is the distinction this
+  // reason was missing (wave-3 row 3.3 fleet re-derived it).  The behavioural
+  // harness boots `createApp(db)` from `http/index.ts`, which defaults `events`
+  // to `createOutboxDispatcher(db, NoopDomainEventDispatcher)`: durable events
+  // land in the `__loom_outbox` Postgres table.  The broker driver (amqplib,
+  // `createChannelTransports`, `channelPublishTee`) is wired only in the full
+  // `d/index.ts`, which this tier never imports — so NO broker is touched by
+  // `GET /{id}`, `POST /{id}/place` or `GET /` on the node leg.
+  //
+  // The real blocker is the unseedable one: `Order` carries no `crudish` and no
+  // author-declared create, so nothing can mint a row.  Give it a create and
+  // all three routes — including the 422 precondition-denial control — are
+  // drivable here with no docker.  The broker's own delivery half remains
+  // `channels-e2e.yml`'s (label/post-merge).
   "channels-broker",
   // FIXTURE CHANGE FIRST — `Order` carries no `crudish` and no author-declared
   // create, so the emitted route set is getById/all/confirm/flag/cancel with NO
@@ -761,6 +798,16 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `test/generator/handler-resource-clients.test.ts` (per backend, per verb,
   // mutation-proven).  The runtime drain belongs with the `resources` fixture's
   // own sidecar leg, not here.
+  //
+  // TWO independent blockers, both necessary, and only the I/O one was written
+  // down (wave-3 row 3.3 fleet).  The second: `POST /archive/{name}` and
+  // `GET /archive/{name}` are ROUTED HANDLERS, and a `test e2e` block cannot
+  // address one — `checkMagicCall` (`src/ir/validate/checks/test-checks.ts`)
+  // resolves `api.<slug>.<method>()` to a projection or an aggregate only and
+  // refuses anything else with `loom.e2e-unaddressable-call`.  So mocking the
+  // sidecars would NOT drain these two routes; the addressability lift has to
+  // land first.  Recorded because a reader who solved only the named blocker
+  // would find the cell still undrainable.
   "handler-resource-ops",
   // COMPILE-TIER WITNESS, and UNSEEDABLE besides.  Two of its three defects were
   // "the emitted project does not exist / does not compile" on .NET and java
@@ -795,8 +842,24 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the `AUTHZ_LADDERS` entry drives the denial. Mutation-proved that neither
   // half suffices — a NO-OP gate passes the e2e and fails the ladder, an
   // ALWAYS-DENY gate passes the ladder's 403 and fails the e2e.
-  // BROKER SIDECAR (the outbox relay's delivery half). Same home as
-  // `channels-broker`.
+  // NOT A BROKER SIDECAR — this reason was WRONG, and re-deriving it is how it
+  // was caught (wave-3 row 3.3 fleet).  It read "BROKER SIDECAR (the outbox
+  // relay's delivery half). Same home as `channels-broker`", which appears to
+  // have been copied from that entry without checking this fixture's resource
+  // graph: `outbox.ddd` declares `storage pg { type: postgres }` and NOTHING
+  // else — no `storage bus`, no `channelSource`, no `channels:` on the
+  // deployable — and the emitted tree carries no channel/amqp/rabbit/kafka file
+  // at all.  `delivery: queue` + `retention: log` here mean a same-process,
+  // Postgres-backed outbox + replay (`startOutboxRelay` →
+  // `createInProcessDispatcher`), never a broker.  All seven routes are
+  // Postgres-only.
+  //
+  // The REAL blockers are two, both same-process: (a) neither `Order` nor
+  // `Shipment` has a create route, so nothing can mint a row — the
+  // "FIXTURE CHANGE FIRST" shape `extern` already carries; and (b) the
+  // behavioural harness boots through `createApp(db)` and never calls
+  // `startOutboxRelay`, so even a seeded row would leave the outbox table
+  // undrained.  (b) is a harness gap, not an infrastructure one.
   "outbox",
   // `policy-deny` DRAINED in #2517 — the fixture now drives all four deny
   // stances over HTTP (read-denied with and without a tenant floor, write-denied,
@@ -835,6 +898,15 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // SIDECARS — `objectStore` (S3/minio), `queue`, an http `api` peer and a
   // `mailer` (mailpit).  A put→get round-trip needs them standing up, which is
   // `email-e2e.yml`'s and `channels-e2e.yml`'s shape, not this leg's.
+  //
+  // ACCURATE FOR ONE ROUTE OF SIX, which the reason above did not say (wave-3
+  // row 3.3 fleet).  `POST /archive` really is wholly sidecar I/O — S3 get/put,
+  // queue enqueue, http peer, smtp send.  The other five are ordinary `Order`
+  // CRUD on Postgres and reachable here today.  Kept waived deliberately rather
+  // than drained: those five assert nothing the crudish fixtures do not already
+  // assert, so authoring them would buy coverage the ledger already has.  That
+  // is a judgement about VALUE, and it is written down so the next reader is not
+  // told they are unreachable.
   "resources",
   // NEEDS THE REGISTRY-PRINCIPAL HARNESS FIX — subtree scoping is a statement
   // about two principals in different parts of the tree, and the behavioural
@@ -930,7 +1002,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
  * recurs — see `autoFindAll` and `crudishUpdate`).
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  tenantRegistryRow: 20,
+  tenantRegistryRow: 23,
   seededListReadUnwritten: 2,
   gateProbe: 1,
   clockDependentFind: 1,
