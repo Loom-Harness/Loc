@@ -295,6 +295,26 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A part that contains itself.  The natural domain is ordinary (a sub-task
+  // tree), and before the check this parsed clean and then killed `generate`
+  // with a bare `RangeError: Maximum call stack size exceeded`.
+  // A tenancy registry nothing can create — the signup loop's step one is
+  // missing, so the first tenant can never exist.
+  "loom.tenant-registry-not-constructible": `
+system Billder {
+  user { id: guid  email: string  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Billing {
+    context Accounts {
+      aggregate Organization { name: string }
+      repository Organizations for Organization { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Accounts, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
+}`,
+
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on
@@ -466,6 +486,12 @@ system S {
   // Two entity parts that contain each other.  `contains` is ownership, so the
   // graph must be a tree; the cycle used to parse clean and then blow the JS
   // stack inside the TypeScript repository emitter's `nestedContainLoads`.
+  // This census keys by bare code, so `loom.containment-cycle` gets ONE fixture.
+  // Two arrived at once — a direct self-cycle and this INDIRECT one (X -> Y -> X).
+  // The indirect chain is kept because it is the harder case: an implementation
+  // that walks only one level catches the direct cycle and misses this.  The
+  // direct case keeps its own coverage in `test/ir/containment-cycle.test.ts`
+  // ("direct self-containment raises loom.containment-cycle").
   "loom.containment-cycle": repoOnly(`    aggregate A {
       n: string
       contains xs: X[]

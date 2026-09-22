@@ -722,7 +722,7 @@ function checkContainmentCycles(agg: Aggregate, accept: ValidationAcceptor): voi
           reported.add(key);
           accept(
             "error",
-            diagMessage("loom.containment-cycle", {
+            diagMessage("loom.containment-cycle#ast", {
               cycle: cycle.map((p) => p.name).join(" → "),
               name: agg.name,
               target: edge.target.name,

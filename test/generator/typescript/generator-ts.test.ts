@@ -157,7 +157,11 @@ describe("typescript generator", () => {
     const dockerfile = files.get("Dockerfile")!;
     expect(dockerfile).toMatch(/FROM node:24-alpine AS build/);
     expect(dockerfile).toMatch(/FROM node:24-alpine AS runtime/);
-    expect(dockerfile).toMatch(/CMD \["node", "dist\/index\.js"\]/);
+    // --enable-source-maps: the entry is the BUNDLE, so without it every frame
+    // in a production stack trace names `dist/index.js` and `ddd trace`
+    // resolves none of them.  Invariant form in
+    // test/system/generation-defaults.test.ts.
+    expect(dockerfile).toMatch(/CMD \["node", "--enable-source-maps", "dist\/index\.js"\]/);
     const dockerignore = files.get(".dockerignore")!;
     expect(dockerignore).toMatch(/node_modules/);
   });

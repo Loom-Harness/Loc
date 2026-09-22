@@ -13,7 +13,7 @@ import {
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
-import { claimsReferenceIds } from "../../_auth/claim-types.js";
+import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { jid } from "../java-ident.js";
@@ -646,12 +646,6 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
 
 /** The IdP claim path projected onto a given user field — explicit `claims:`
  *  mapping wins; `id` defaults to `sub`, others read their own name. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
-}
-
 /** The User-constructor argument reading a field off the verified payload.
  *  string / string[] are mapped (dotted paths supported); other field types
  *  fall back to the dev-stub default (a documented limitation — OIDC claims

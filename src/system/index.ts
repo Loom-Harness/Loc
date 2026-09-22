@@ -1,3 +1,4 @@
+import { claimPathFor } from "../generator/_auth/claim-types.js";
 import {
   brokerUrl,
   devPassword,
@@ -26,6 +27,7 @@ import type {
   EnrichedSystemIR,
   Platform,
   SystemIR,
+  TypeIR,
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
@@ -38,6 +40,7 @@ import { TEST_RESET_ENV } from "../util/test-reset.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { renderE2EFile } from "./e2e-render.js";
+import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
 import { renderKubernetesManifests } from "./kubernetes.js";
@@ -93,6 +96,11 @@ import { renderWireSpec } from "./wire-spec.js";
 export interface SystemEmission {
   /** path → file content, relative to the system output directory. */
   files: Map<string, string>;
+  /** Every construct a frontend walker declined to render, lifted out of the
+   *  emitted text (see `give-up-report.ts`).  The walkers already name a
+   *  `loom.*` code in a comment beside each one; this is where that becomes a
+   *  reportable diagnostic instead of a note in a file nobody reads. */
+  giveUps: GiveUpReport[];
   /** The migration history this run's output tree now has, folded over
    *  `options.recordedHistory`.  The CLI writes it back beside the `.ddd`
    *  after a successful non-dry run so the NEXT run can tell "this module
@@ -282,8 +290,11 @@ export function generateSystemsFromLoom(
       }),
     );
   }
+  // Give-up surfacing (F-019) runs LAST, over the finished map, so a fragment
+  // written by any emitter above — README included — is in scope.
   return {
     files: out,
+    giveUps: collectGiveUps(out),
     // Always built (it is pure): callers with no source directory simply
     // never write it.
     migrationLedger: buildMigrationLedger(builtMigrations, options.recordedHistory ?? null),
@@ -1000,40 +1011,124 @@ function renderKeycloakRealm(sys: SystemIR): string {
           },
         ]
       : [];
-  // A scalar `role` claim (`currentUser.role`) is a common RBAC shape, but
-  // Keycloak emits realm roles as an ARRAY (`realm_access.roles`) — nothing
-  // populates a singular claim path, so `currentUser.role` decodes to `null`
-  // out of the box and every `role == "admin"` gate 403s while an
-  // onCreate `stamp createdByRole := currentUser.role` writes NULL (→ a
-  // not-null violation → 500/409).  When the app declares a `role` claim, seed
-  // the demo user with an `admin` role *attribute* and a mapper that projects
-  // it to the declared claim path, so role-gated ops are exercisable.  The
-  // `realm_access.roles` array (permissions) is untouched — it stays
-  // `[user, agent]`, so permission-gated denials still hold.
-  const roleClaim = sys.auth?.claims.find((c) => c.field === "role");
-  const roleMappers = roleClaim
-    ? [
-        {
-          name: "loom-role-claim",
-          protocol: "openid-connect",
-          protocolMapper: "oidc-usermodel-attribute-mapper",
-          consentRequired: false,
-          config: {
-            "user.attribute": "role",
-            "claim.name": roleClaim.path,
-            "jsonType.label": "String",
-            "access.token.claim": "true",
-            "id.token.claim": "false",
-          },
-        },
-      ]
-    : [];
-  const clientMappers = [...audienceMappers, ...roleMappers];
+  // ONE PROTOCOL MAPPER PER DECLARED CLAIM, with a seeded value on the demo
+  // user — so the dev IdP can actually exercise the authorization model the
+  // same `.ddd` declares.
+  //
+  // It could not.  The realm had one demo user, no attributes and no mappers,
+  // so a system declaring `user { role, permissions: string[], tenantId, … }`
+  // authenticated fine and then denied everything: `/auth/me` answered
+  // `{"role":null,"permissions":[],"tenantId":null}`, the tenant filter matched
+  // no rows, and every `permissions.contains(…)` gate 403'd — on the stack the
+  // tool itself emits, with no diagnostic (F-022).  "Docker compose up →
+  // everything running" was true of the containers and false of the product.
+  //
+  // Two claims are Keycloak's to mint and are skipped: `id` reads `sub`, and
+  // `email` comes from the built-in `email` client scope.  Everything else
+  // needs a user-attribute mapper projecting the seeded attribute onto the
+  // claim path the BACKENDS read — which is why the path comes from the shared
+  // `claimPathFor` rather than a second copy of the rule here; the realm and
+  // the verifiers must name the same claim or this fix would only move the
+  // silence (see `auth-claim-path-parity.test.ts`).
+  const IDP_PROVIDED = new Set(["id", "email"]);
+  // A field the author gave an EXPLICIT `claims:` mapping is IdP-provided BY
+  // DEFINITION — the mapping exists to say "the IdP already mints this, here is
+  // where it puts it".  Emitting a user-attribute mapper for it does not add the
+  // claim, it OVERWRITES the real one with a seeded value.
+  //
+  // `auth-oidc-e2e.ddd` is the case that proved it:
+  //
+  //     claims: { roles: "realm_access.roles", email: "email" }
+  //
+  // `realm_access.roles` is Keycloak's own realm-role claim, and the demo user's
+  // roles (`user`, `agent`) are what the gated finds split on.  A mapper on that
+  // path replaced them — the four native `*-oidc-e2e` legs failed with
+  // `expected [ 'demo-roles' ] to include 'agent'`, i.e. my synthetic seed
+  // standing where the IdP's real roles belong.
+  //
+  // The dotted-path test is the same rule's safety net: a nested path addresses
+  // a structure the IdP owns, whether or not it was reached through `claims:`.
+  const explicitlyMapped = new Set((sys.auth?.claims ?? []).map((c) => c.field));
+  const claimFields = (sys.user?.fields ?? []).filter(
+    (f) =>
+      !IDP_PROVIDED.has(f.name) &&
+      !explicitlyMapped.has(f.name) &&
+      !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
+  );
+  const claimMappers = claimFields.map((f) => {
+    const multivalued = f.type.kind === "array";
+    return {
+      name: `loom-claim-${f.name}`,
+      protocol: "openid-connect",
+      protocolMapper: "oidc-usermodel-attribute-mapper",
+      consentRequired: false,
+      config: {
+        "user.attribute": f.name,
+        "claim.name": claimPathFor(f.name, sys.auth ?? { claims: [] }),
+        // Keycloak types the claim from this label; an array claim additionally
+        // needs `multivalued`, or the list arrives as a single joined string and
+        // `permissions.contains(...)` never matches.
+        "jsonType.label": keycloakJsonType(f.type),
+        ...(multivalued ? { multivalued: "true" } : {}),
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+      },
+    };
+  });
+  // Seeded demo values — IDENTITY claims only.
+  //
+  // A tenant id that is the same on every boot is what makes tenant-scoped
+  // reads return rows, which is the half of F-022 that made multi-tenancy
+  // undemonstrable.  Every non-authority claim gets a stable, obviously
+  // synthetic value.
+  //
+  // AUTHORITY claims (`role`, and any permission ARRAY) are deliberately NOT
+  // seeded with the widest value the realm knows.  My first version of this
+  // fix did exactly that, reasoning that "a demo user who is denied everything
+  // demonstrates nothing" — and it made the shipped dev principal a superuser.
+  // The cross-backend runtime-authorization gate caught it: showcase's
+  // `registerProject` guards on
+  // `currentUser.permissions.contains(permissions.manageProjects)`, the demo
+  // user now HELD manageProjects, and node/.NET/python answered 204 where the
+  // whole point of the gate is 403 (`e2e.test.ts`, "a guarded workflow denies
+  // with 403").  A seed that grants every permission cannot demonstrate denial
+  // — and denial is the property an authorization model exists to provide.
+  //
+  // So the demo user's authority stays exactly what its realm roles give it
+  // (`user`, `agent`).  `role` is seeded to `user`, matching a role it really
+  // holds rather than inventing `admin`.  To exercise an allow-path, grant the
+  // permission in the admin console or seed a second user — both of which are
+  // the operator's call, not a default the generator makes for them.
+  const AUTHORITY_CLAIMS = new Set(["role", "permissions"]);
+  const demoAttributes: Record<string, string[]> = {};
+  for (const f of claimFields) {
+    if (f.type.kind === "array" && AUTHORITY_CLAIMS.has(f.name)) continue;
+    demoAttributes[f.name] =
+      f.name === "role"
+        ? ["user"]
+        : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+  }
+
+  const clientMappers = [...audienceMappers, ...claimMappers];
   const doc = {
     realm,
     enabled: true,
     sslRequired: "none",
-    roles: { realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }] },
+    // `offline_access` is declared and granted because the generated handshake
+    // ASKS FOR IT, unconditionally, on every backend (`auth-emit.ts`: "add it
+    // (idempotently)" — the scope that makes the IdP mint a refresh token so
+    // `/refresh` can rotate).  Keycloak normally carries `offline_access` on the
+    // realm's default-role composite, which a hand-written realm import does
+    // not set up — so the seeded user had only `[user, agent]`, and the very
+    // first login the tool's own compose stack can perform died at token
+    // exchange with `CODE_TO_TOKEN_ERROR … "Offline tokens not allowed for the
+    // user or client"`, surfacing to the browser as
+    // `{"error":"token_exchange_failed"}` (F-024).  The two halves are emitted
+    // by the same tool and must not disagree; `keycloak-realm-grants-handshake-scopes`
+    // pins that they don't.
+    roles: {
+      realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }, { name: "offline_access" }],
+    },
     clients: [
       {
         clientId,
@@ -1057,11 +1152,10 @@ function renderKeycloakRealm(sys: SystemIR): string {
         lastName: "User",
         emailVerified: true,
         credentials: [{ type: "password", value: "demo", temporary: false }],
-        realmRoles: ["user", "agent"],
-        // Backs the scalar `role` claim mapper above (admin so the demo user
-        // can exercise role-gated operations); only consumed when the app
-        // declares a `role` claim.
-        ...(roleClaim ? { attributes: { role: ["admin"] } } : {}),
+        realmRoles: ["user", "agent", "offline_access"],
+        // Backs the per-claim mappers above.  Absent when the system declares
+        // no claims beyond `id`/`email`, so those realms stay byte-identical.
+        ...(Object.keys(demoAttributes).length > 0 ? { attributes: demoAttributes } : {}),
       },
     ],
   };
@@ -1163,7 +1257,12 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
       volumes.push(volume);
       services.push([
         `${slug}:`,
-        `  image: minio/minio:latest`,
+        // quay.io, NOT docker.io: MinIO's Docker Hub repository no longer
+        // exists, and `docker compose pull` fails the whole `up` with
+        // "pull access denied for minio/minio" — taking the OTHER services'
+        // pulls down with it ("postgres … Interrupted"), so a cold machine
+        // gets no image at all rather than three out of four.
+        `  image: quay.io/minio/minio:latest`,
         `  command: server /data --console-address ":9001"`,
         `  environment:`,
         `    MINIO_ROOT_USER: minioadmin`,
@@ -1344,6 +1443,34 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );
+    // Where the browser lands AFTER a successful token exchange.
+    //
+    // The callback runs on the API origin, and the generated handshake's
+    // fallback is `process.env.OIDC_POST_LOGIN_REDIRECT ?? "/"` — so with
+    // nothing set, logging in redirected the user to the API root, which
+    // answers `{"status":404,"detail":"no route for GET /"}`.  The user signs
+    // in successfully and lands on a 404 (F-024).
+    //
+    // The frontend's host origin is known right here: it is the deployable
+    // that `targets:` this backend.  Only set when exactly one does — with two
+    // frontends on one API there is no single "the app", and picking one
+    // silently would be a worse answer than the operator picking it; the
+    // comment names the choice so the compose file stays self-explaining.
+    const uiHosts = sys.deployables.filter(
+      (t) => t.targetName === d.name && platformFor(t.platform).mountsUi,
+    );
+    if (uiHosts.length === 1) {
+      lines.push(
+        `    OIDC_POST_LOGIN_REDIRECT: ${JSON.stringify(`http://localhost:${uiHosts[0]!.port}/`)}`,
+      );
+    } else if (uiHosts.length > 1) {
+      lines.push(
+        `    # OIDC_POST_LOGIN_REDIRECT: ${uiHosts.map((u) => `http://localhost:${u.port}/`).join(" | ")}`,
+      );
+      lines.push(
+        `    #   ^ ${uiHosts.length} frontends target this api; pick one, or login lands on the api root.`,
+      );
+    }
   }
   lines.push(`  ports:`);
   lines.push(`    - "${d.port}:${shape.internalPort}"`);
@@ -1369,4 +1496,17 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(`    start_period: 60s`);
   }
   return lines;
+}
+
+/** Keycloak's `jsonType.label` for a declared claim's Loom type.  Keycloak
+ *  types the claim value from this; getting it wrong makes a numeric claim
+ *  arrive as a string (and an int comparison in a gate silently false). */
+function keycloakJsonType(t: TypeIR): string {
+  const inner = t.kind === "array" ? t.element : t;
+  if (inner.kind === "primitive") {
+    if (inner.name === "int") return "int";
+    if (inner.name === "long") return "long";
+    if (inner.name === "bool") return "boolean";
+  }
+  return "String";
 }

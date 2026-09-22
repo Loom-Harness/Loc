@@ -160,7 +160,7 @@ const header = (currentHref, depth) => {
     </a>
     <nav class="nav-links" aria-label="Primary">
         ${navLinks(currentHref, depth)}
-        <a class="btn" href="https://github.com/lemmit/loc" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn" href="https://github.com/Loom-Harness/loc" target="_blank" rel="noopener">GitHub</a>
     </nav>
   </div>
 </header>`;
@@ -173,7 +173,7 @@ const footer = (depth) => {
     <div>© Loom contributors · FSL-1.1-Apache-2.0</div>
     <div class="links">
       ${NAV.map(({ label, href }) => `<a href="${prefix}${href}">${label}</a>`).join('\n      ')}
-      <a href="https://github.com/lemmit/loc" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Loom-Harness/loc" target="_blank" rel="noopener">GitHub</a>
     </div>
   </div>
 </footer>`;

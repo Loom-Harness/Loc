@@ -29,7 +29,7 @@ export function githubHeadingSlug(heading: string): string {
 }
 
 /** The docs root every entry is relative to (the published site). */
-export const DOCS_SITE = "https://lemmit.github.io/Loc/";
+export const DOCS_SITE = "https://loom-harness.github.io/Loc/";
 
 const CHAPTER_DIR = "language-reference";
 
@@ -39,9 +39,11 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
+  "loom.tenant-registry-not-constructible":
+    "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
-  "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",

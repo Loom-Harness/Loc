@@ -23,6 +23,7 @@ import { renderExpr } from "../render-expr.js";
 import { plugRelativePath } from "./api-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
+import { effectiveGate } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import {
   PAGE_CALL_ARGS,
@@ -201,10 +202,16 @@ export function renderFindActions(
   const actions = httpFindsOf(ctx, agg).map((f) => {
     const findSnake = snake(f.name);
     const paged = pagedReturn(f.returnType);
-    const gateUsesUser = !!f.requires && exprUsesCurrentUser(f.requires);
+    // `requires true` is the always-public escape; on elixir it emits NO guard
+    // (a dead `if not (true)` is a 1.18 typing violation) — see gate.ts.
+    const requiresGate = effectiveGate(f.requires);
+    // Read the EFFECTIVE gate, not the raw `f.requires`: `requires true` emits
+    // no guard, so it binds no actor either.
+    const gateUsesUser = !!requiresGate && exprUsesCurrentUser(requiresGate);
     // A find whose own `where` reads `currentUser` takes the actor as a repo
     // argument too (see `findUsesPrincipal`), so it binds + passes one exactly
-    // like a principal-scoped find.
+    // like a principal-scoped find.  Orthogonal to the gate above — a find can
+    // need the actor for its `where` while carrying no `requires` at all.
     const findActor = principal || findUsesPrincipal(f);
     // Bind `current_user` when the find is principal-scoped (repo arg) or its
     // gate reads the actor; `requires true` on a non-principal find binds none.
@@ -238,13 +245,13 @@ export function renderFindActions(
     // do <403> else … end` guard when the find declares a `requires` clause.
     // Ungated finds stay byte-identical (no gate, original shape).
     const wrap = (innerBody: string): string => {
-      if (!f.requires) {
+      if (!requiresGate) {
         return `
   def ${findSnake}(conn, ${paramArg}) do
 ${cuLine}${innerBody}
   end`;
       }
-      const gate = renderExpr(f.requires, {
+      const gate = renderExpr(requiresGate, {
         thisName: "record",
         contextModule,
       });

@@ -8,7 +8,14 @@
 
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { typeReachesMoney } from "../../_frontend/api-module.js";
 import {
   idTargetHookVar,
@@ -288,7 +295,7 @@ function renderBareOperationFormTrigger(ctx: WalkContext, aggOpLabel: string, op
     label: aggOpLabel,
     emphasisPrimary: true,
     opPascal: upperFirst(opName),
-    opCamel: lowerFirst(opName),
+    opCamel: escapeTsIdent(lowerFirst(opName)),
     testidAttr: "",
     recordVar: undefined,
   });
@@ -1078,7 +1085,7 @@ export function emitModal(
     label,
     emphasisPrimary: triggerPrimary,
     opPascal: upperFirst(opName),
-    opCamel: lowerFirst(opName),
+    opCamel: escapeTsIdent(lowerFirst(opName)),
     testidAttr: testidAttr(triggerArg, ctx),
     recordVar,
   });

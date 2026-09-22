@@ -1387,6 +1387,18 @@ function validateWorkflowStatements(
         }
         bindingAgg.set(st.var, st.varAggName);
         for (const inner of st.body) {
+          // A `let` INSIDE the loop binds for the rest of the body.  Collecting
+          // it here is what the arm was missing: without it
+          //
+          //     for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }
+          //
+          // reported "references unknown binding 'p'" — pointing at the USE,
+          // one line below the `let` that plainly declares it, which reads as
+          // "you have a typo" rather than "this shape is unsupported" (F-002).
+          if (inner.kind === "repo-let" || inner.kind === "factory-let") {
+            bindingAgg.set(inner.name, inner.aggName);
+            continue;
+          }
           if (inner.kind === "op-call") {
             markMutated();
             // A binding poisoned by a cross-context repository read is already

@@ -100,7 +100,16 @@ function projectMembers(files: readonly string[]): Set<string> {
  *  does not parse" is worth one line of explanation — and because the README
  *  advertises it beside files that DO parse, which is a docs-truth gap this pin
  *  is the evidence for. */
-const UNPARSEABLE = ["examples/sales-ui.ddd"] as const;
+const UNPARSEABLE = [
+  "examples/sales-ui.ddd",
+  // The recorded repro for the "a `let` inside a `for` body is required"
+  // refusal (FieldOps evaluation, F-002): `for l in ls { Parts.getById(
+  // l.partId).consume(l.qty) }` does not parse — a call cannot be chained onto
+  // a repository read inside a `for`.  Pinned rather than fixed because the
+  // file IS the evidence; when the grammar accepts the chained form this pin
+  // goes stale and the check below says so.
+  "eval/repro/wf-for-let-d.ddd",
+] as const;
 
 /** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
  *  name says so; `test/cli/*` asserts the diagnostics it produces, and the
@@ -167,6 +176,33 @@ const DELIBERATELY_INVALID = [
   "eval-clinica/repro/r02-overlap.ddd",
   "eval-clinica/repro/r02-overlap-system.ddd",
   "eval-clinica/repro/r18-recursive-containment-crash.ddd",
+  // `eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
+  // evaluation: ten models each carrying exactly one ordinary mistake, used to
+  // score what the toolchain says back.  Being refused is the whole point, so
+  // they belong here rather than being fixed or untracked.  Only the seven
+  // that fail at the AST layer are listed, plus `b05` — see below; `b09` (a
+  // typo'd field in a page body) still validates CLEAN and is a finding in its
+  // own right (F-041), so it stays in the positive population
+  // above — the day either starts being refused, its pin is what should be
+  // added, not this comment.
+  //
+  // Listing them here also puts them under the negative control below, which
+  // turns the corpus into a standing ratchet: a gate that stops firing fails
+  // this file.
+  "eval/repro/broken/b01-typo-type.ddd",
+  "eval/repro/broken/b02-missing-field.ddd",
+  "eval/repro/broken/b03-wrong-arity.ddd",
+  "eval/repro/broken/b04-bare-aggregate-ref.ddd",
+  // `b05` was this corpus's F-040 — cyclic containment validating clean — and
+  // it is now REFUSED, by the `loom.containment-cycle` AST gate this branch adds
+  // for the same defect it found independently as F-020.  Per the note above
+  // ("the day either starts being refused, its pin is what should be added"),
+  // here is the pin.  Two evaluations reaching the same defect, one of them
+  // closing it, is the corroboration both registers were written to produce.
+  "eval/repro/broken/b05-cyclic-containment.ddd",
+  "eval/repro/broken/b06-duplicate-names.ddd",
+  "eval/repro/broken/b07-bad-enum-value.ddd",
+  "eval/repro/broken/b10-money-decimal-mix.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,
