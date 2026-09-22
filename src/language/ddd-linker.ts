@@ -25,11 +25,20 @@
 // ---------------------------------------------------------------------------
 
 import {
+  type AstNode,
   type AstNodeDescription,
+  AstUtils,
   DefaultLinker,
   type LinkingError,
   type ReferenceInfo,
 } from "langium";
+import { nearestType, primitiveTypeNames } from "./type-catalogue.js";
+
+/** The reference type every TYPE position resolves through.  `NamedDecl` is
+ *  used in exactly two grammar rules, `NamedType` (`target=[NamedDecl:ID]`) and
+ *  `IdType` (`target=[NamedDecl:ID] 'id'`), so an unresolved one is always a
+ *  user writing a type that does not exist — never some other broken link. */
+const TYPE_REFERENCE = "NamedDecl";
 
 export class DddLinker extends DefaultLinker {
   protected override createLinkingError(
@@ -37,10 +46,43 @@ export class DddLinker extends DefaultLinker {
     targetDescription?: AstNodeDescription,
   ): LinkingError {
     const referenceType = this.reflection.getReferenceType(refInfo);
+    const name = refInfo.reference.$refText;
     return {
       info: refInfo,
-      message: `Could not resolve reference to ${referenceType} named '${refInfo.reference.$refText}'.`,
+      message:
+        referenceType === TYPE_REFERENCE
+          ? unknownTypeMessage(name, refInfo.container)
+          : `Could not resolve reference to ${referenceType} named '${name}'.`,
       targetDescription,
     };
   }
+}
+
+/** The message a TYPE position gets instead of Langium's internal one.
+ *
+ *  `length: duration` reported "Could not resolve reference to NamedDecl named
+ *  'duration'." — which names an internal grammar type, does not say the
+ *  position is a type at all, and offers nothing to try.  (`docs/language.md`
+ *  does say "there is no duration field type on the wire"; the compiler did
+ *  not.)  This says what kind of thing was expected, what exists, and — when
+ *  the name is a near miss, the far more common case (`strng` for `string`) —
+ *  which one was probably meant. */
+function unknownTypeMessage(name: string, container: AstNode): string {
+  // Declared types reachable from this document, so the hint can land on a
+  // user's own `valueobject` / `enum` as readily as on a primitive.
+  const declared = new Set<string>();
+  const root = AstUtils.findRootNode(container);
+  if (root) {
+    for (const node of AstUtils.streamAllContents(root)) {
+      const n = (node as { name?: unknown }).name;
+      if (typeof n === "string" && n.length > 0) declared.add(n);
+    }
+  }
+  const primitives = primitiveTypeNames();
+  const hint = nearestType(name, [...primitives, ...declared]);
+  return (
+    `Unknown type '${name}'.${hint ? ` Did you mean '${hint}'?` : ""}  Field types are: ` +
+    `${primitives.join(", ")} — or an enum / valueobject / event / payload declared in ` +
+    `scope; a reference to another aggregate is spelled '<Aggregate> id'.`
+  );
 }

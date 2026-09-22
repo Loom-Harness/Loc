@@ -23,7 +23,7 @@ declaration:
 ```ddd
 aggregate Order with crudish {
   subject: string
-  implements "auditable"               // builtin capability, not a macro
+  implements auditable               // builtin capability, not a macro
 }
 
 context Sales with softDeleteByDefault {
@@ -255,6 +255,17 @@ modifier matrix in [`language.md`](language.md)):
   `auditable`, `isDeleted` from `softDeletable`, …) are excluded
   regardless of access modifier.
 
+`update` mass-assigns **every** field left after those rules, which is
+worth a moment's thought once the aggregate grows a guarded state-machine
+operation: a `requires`-gated `approve()` that writes `status` guards only
+`POST /{id}/approve`, while `POST /{id}/update {"status":…}` reaches the same
+column at whatever gate the *update* carries.  `immutable` on the field is the
+fix — it drops the field from the update surface while leaving the operation
+free to assign it (see [`auth.md`](auth.md) → "Guarded state transitions").
+Loom raises the advisory `loom.update-gate-suggestion` when it sees the shape;
+it is a `Suggestions:` hint, not an error, because some models really do want
+the field editable both ways.
+
 Pass `with crudish(updateOnly: true)` to emit only `update` — no
 canonical `create`/`destroy`.  Use it when another macro owns the
 create/delete lifecycle, e.g. `with crudish(updateOnly: true),
@@ -334,7 +345,7 @@ hand-write the member with its own `requires`.
 > **Removed as macros.** `audit` / `auditable` / `auditedByDefault`
 > no longer exist as macros.  Audit ships as the **builtin
 > `capability auditable`** declared in `src/macros/prelude.ts` — apply
-> it directly via the capability surface (`implements "auditable"` +
+> it directly via the capability surface (`implements auditable` +
 > the prelude's `filter` / `stamp` rules) rather than a `with`
 > clause.  See [`capabilities.md`](capabilities.md).
 
@@ -344,11 +355,11 @@ context-level stamping rules:
 
 ```ddd
 context Sales {
-  stamp for "auditable" onCreate {
+  stamp onCreate {
     createdAt := now()
     createdBy := currentUser
   }
-  stamp for "auditable" onUpdate {
+  stamp onUpdate {
     updatedAt := now()
     updatedBy := currentUser
   }
@@ -359,7 +370,7 @@ context Sales {
     updatedAt: datetime
     createdBy: User id
     updatedBy: User id
-    implements "auditable"
+    implements auditable
   }
 }
 ```
@@ -367,7 +378,7 @@ context Sales {
 Why keep fields and stamps separate?  The stamping rules are a
 *context-level* concern — they assign the same fields the same way
 for every audited aggregate — while the field declarations and the
-`implements "auditable"` opt-in are *per-aggregate*.  See
+`implements auditable` opt-in are *per-aggregate*.  See
 [`capabilities.md`](capabilities.md) for the underlying surface.
 
 ## `softDelete` / `softDeleteByDefault`
@@ -400,7 +411,7 @@ context Sales {
 
 ```ddd
 context Sales {
-  // filter for "softDeletable" !this.isDeleted  — carried by the builtin capability
+  // filter !this.isDeleted  — carried by the builtin capability
 
   aggregate Order {
     subject: string
@@ -416,14 +427,14 @@ context Sales {
       this.deletedAt := null
     }
 
-    implements "softDeletable"
+    implements softDeletable
   }
 
   aggregate Public { name: string }
 }
 ```
 
-`Public` does not `implements "softDeletable"` and therefore the
+`Public` does not `implements softDeletable` and therefore the
 capability-scoped filter doesn't apply — reads of `Public` are
 unfiltered.
 

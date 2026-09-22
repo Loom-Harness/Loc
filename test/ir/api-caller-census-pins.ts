@@ -112,15 +112,23 @@
 //      declared rule, so FIXED (`emit/common.ts` → `JAVA_FIND_ABSENCE_THROW`);
 //      one java generator test had pinned the bare 404 AS INTENT and is
 //      inverted, with the old contract left visible.
-//   6. An ENUM column has two different types depending on which schema source
-//      is read, so `ORDER BY` over it disagrees.  The emitted migration chain
-//      says `TEXT` (lexicographic); the emitted Drizzle schema says `pgEnum`, a
-//      native pg type (declaration order); the node behavioural leg uses the
-//      latter and every other leg the former — so the node COMPOSE stack sorts
-//      like python, not like its own behavioural leg.  Same root as (4): one
-//      backend, two schema sources, no gate between them.  Reported, not fixed
-//      (a representation decision); the two sorted reads that hit it now sort by
-//      a timestamp instead, with the finding written down at both sites.
+//   6. An ENUM column had two different types depending on which schema source
+//      was read, so `ORDER BY` over it disagreed.  The emitted migration chain
+//      says `TEXT` (lexicographic); the emitted Drizzle schema said `pgEnum`, a
+//      native pg type (declaration order); the node behavioural leg builds its
+//      database from the latter and every other leg from the former — so the
+//      node COMPOSE stack sorted like python, not like its own behavioural leg.
+//      Same root as (4): one backend, two schema sources, no gate between them.
+//      NOW FIXED, and the representation decision it was waiting on is made:
+//      TEXT wins, because it is what all five migration chains already emit and
+//      the only half that disagreed was node's ORM declaration.  The schema
+//      emitter now says `text(col, { enum: [...] })` — type-identical in TS,
+//      TEXT in SQL — and `corpus/projection-groupby` grew the gate that reaches
+//      it (`OrdersByStatus`, the unfiltered enum grouping whose read returns TWO
+//      groups; the filtered `SalesByStatus` returns one, which is why nothing
+//      saw this for so long).  `ddd.langium` now states WHICH order `group by`
+//      promises.  FOLLOW-UP: the two sorted reads that worked around this by
+//      sorting on a timestamp instead can go back to the enum key.
 //
 // WHAT IS LEFT, by class: see `PIN_CLASS_CENSUS` (gated; counts are not repeated in prose).
 
@@ -445,6 +453,17 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
     updateOrganization: R.tenantRegistryRow,
     allOrganization: R.tenantRegistryRow,
   },
+  // Same registry class again, in the fixture wave-3 row 3.3 drained.  Only the
+  // THREE id-taking routes are pinned: `create` and `all` ARE called there, and
+  // the collection read carries the assertion the pin class implies — a row the
+  // caller just created comes back INVISIBLE to it (`total` is 0), because the
+  // self-scope filter compares the row id against a claim that is the string
+  // "acme".  That is the pin's own reason, asserted rather than described.
+  "corpus/projection-agg-filters": {
+    getOrganizationById: R.tenantRegistryRow,
+    destroyOrganization: R.tenantRegistryRow,
+    updateOrganization: R.tenantRegistryRow,
+  },
   "corpus/tenancy-claim-name": {
     // Same registry class, under the `orgId` claim.
     createOrganization: R.tenantRegistryRow,
@@ -531,12 +550,34 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.orderVolume.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
   ],
+  // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
+  // its three siblings above and below — three projection reads, none of which
+  // lifts to a derived operation.  `allTimeVolume` is the `ignoring` witness:
+  // it and `orderVolume` are the same shape over the same table and must
+  // DISAGREE once a row is soft-deleted, which is what the drained e2e asserts.
+  //
+  // The fixture's FOURTH projection, `salesByStatus`, is deliberately not
+  // called — its grouped rows come back in a different ORDER on node than on
+  // python, so a golden over it would pin one backend's collation rather than
+  // the `group by` clause's stated cross-backend determinism.  The measurement
+  // and the cause (enum grouping key: `CREATE TYPE … AS ENUM` ordinal order on
+  // node, text collation everywhere else) are written out at the call site in
+  // `projection-agg-filters.ddd`.
+  "corpus/projection-agg-filters": [
+    "api.allTimeVolume.list (no such aggregate)",
+    "api.orderVolume.list (no such aggregate)",
+    "api.salesTotals.list (no such aggregate)",
+  ],
   // The by-id-follow join's read — same `notLifted` class, third shape.
   "corpus/projection-join": ["api.orderWithCustomer.list (no such aggregate)"],
   "corpus/projection-groupby": [
-    // All four are projection READS — the not-yet-lifted route class this map
+    // All five are projection READS — the not-yet-lifted route class this map
     // exists for, not a call that fails to find its operation.  `ordersByTotal`
-    // joined them with the money-grouping-key witness (#2549 follow-up).
+    // joined them with the money-grouping-key witness (#2549 follow-up), and
+    // `ordersByStatus` with the enum-key ORDER witness: it is the unfiltered
+    // twin of `salesByStatus`, so its read returns TWO groups and the order
+    // between them is observable at all.
+    "api.ordersByStatus.list (no such aggregate)",
     "api.ordersByTotal.list (no such aggregate)",
     "api.revenueByDay.list (no such aggregate)",
     "api.salesByStatus.list (no such aggregate)",
@@ -549,6 +590,23 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/read-gates": [
     "api.openOrders.list (no such aggregate)",
     "api.orderBook.byKey (no such aggregate)",
+  ],
+  // The WORKFLOW accessor (M-T5.36 P9 / F5) — the fourth `notLifted` class to
+  // reach a test body, and the first that is not a read model.
+  // `deriveContextOperations` derives AGGREGATE routes; a workflow's command
+  // POST and its two instance reads are mounted by every backend's workflow
+  // emitter instead, off `emitsCommandRoute` / `correlationField`, so they
+  // credit no derived operation even though driving them is the whole point of
+  // this fixture.  Their route-contract gate is `e2e-route-checks.ts`'s
+  // `checkWorkflowVerb`, not this census.  Lifting workflow routes into the
+  // derivation would make these attributable — and this entry stale.
+  "corpus/workflow-create-state": [
+    "api.escalation.instance (no such aggregate)",
+    "api.escalation.instances (no such aggregate)",
+    "api.escalation.run (no such aggregate)",
+    "api.fulfillment.instance (no such aggregate)",
+    "api.fulfillment.instances (no such aggregate)",
+    "api.fulfillment.run (no such aggregate)",
   ],
 };
 
@@ -616,6 +674,17 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // on the node leg would therefore redden the other four legs on main.  Author
   // the block once THAT is ruled.
   "envelope",
+  // COMPILE-TIER WITNESS (freight audit D3 / M-T6.64) — a `valueobject` whose
+  // field is a cross-aggregate reference (`ship: Ship id`).  The defect class
+  // it pins is entirely STATIC: node emitted `domain/value-objects.ts` naming
+  // `Ids.ShipId` in a file with zero imports (TS2503), and python's repository
+  // branded `Berth(ShipId(row.berth_ship), …)` without importing `ShipId`
+  // (ruff F821).  A type-checker is the only oracle for that, and the five
+  // compile legs are it.  The runtime shapes a behavioural block would boot —
+  // a required embedded VO and a `<VO>[]` collection — are already booted by
+  // `embedded` and `value-collections`; the new axis here is only what the
+  // VO's fields are TYPED as, which no booted leg can observe.
+  "vo-id-reference",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
@@ -623,6 +692,26 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the per-backend compile tiers; a behavioural block would add uncalled
   // routes and unrecorded goldens for no additional oracle.
   "collection-op-shapes",
+  // COMPILE-TIER WITNESS (audit F-014, S1) — an enum COLLECTION field
+  // (`skills: Skill[]`).  The corpus carried scalar enums and scalar/VO arrays
+  // but never the CROSSING, so every compile gate was blind to it and elixir
+  // folded the enum's `values:` (a `field/3` OPTION) into the array TYPE tuple:
+  // `** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field
+  // :skills` — `mix compile` fails on the emitted project.  The oracle is
+  // therefore a COMPILE one; a behavioural block would boot a generic CRUD
+  // round-trip and mint a wire golden over an enum-array JSON encoding that no
+  // cross-backend ruling has been asked for.
+  "enum-collection",
+  // COMPILE-TIER WITNESS (audit F-013, S1) — an AUTHOR-WRITTEN `currentUser`
+  // predicate in a `find` / `retrieval` `where`.  Both halves of the defect are
+  // hard `mix compile` failures (an unpinned `current_user` in the Ecto
+  // `where:`, then an actor never threaded into the head), so the compile legs
+  // are the oracle.  The runtime half is not assertable from the harness: the
+  // row-level filter needs the principal's id to MATCH a seeded row's
+  // `technicianUserId`, and `devClaimKind` carries `string` / `string[]` only —
+  // every assertion would read the empty fail-closed result.  A drain candidate
+  // once the harness can seed a row owned by the authenticated principal.
+  "principal-read-filter",
   // COMPILE + UNIT-TIER WITNESS (numeric-types audit F7 / M-T6.44) — the
   // right-hand money/decimal operand shapes (`int * money`, `int + decimal`,
   // `int < decimal`) the leftType-only TS/Elixir gates broke on.  The pure-
@@ -632,21 +721,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
-  // COMPILE + UNIT-TIER WITNESS (verification fleet F58 / M-T6.62) — a COMMAND
-  // `create(params)` on a workflow that carries `Property` state.  The defect
-  // it exists for is a TYPE ERROR in four of the five emitted projects (an
-  // unbound `this`/`state` receiver), so the per-backend compile legs are the
-  // oracle; the pure-domain `test` block rides every backend's unit tier.  The
-  // runtime half — POST the command, emit the event, read the saga row back
-  // through `/workflows/fulfillment/instances/{id}` — is expressible, but it
-  // mints a five-way wire golden for a cascade no golden covers yet, and
-  // capturing that needs the behavioural legs rather than this fixture's PR.
-  "workflow-create-state",
-  // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
-  // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
-  // read carries the capability predicates.  The runtime half needs the
-  // two-principal harness (`tenancy-e2e.yml` owns that shape).
-  "projection-agg-filters",
   // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
   // `projection-agg-filters` directly above — same capabilities, same missing
   // harness.  The assertion this fixture wants is "a SECOND tenant's rows
@@ -683,8 +757,21 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // exactly one `platform: node` deployable per case so dispatch is unambiguous.
   // Its own runtime leg is `api-call-e2e.yml` (label/post-merge).
   "api-call",
-  // BROKER SIDECAR — redis/rabbitmq/kafka; the node leg boots in-process on
-  // PGlite with no broker. Runtime home: `channels-e2e.yml` (label/post-merge).
+  // BROKER SIDECAR — true of the FIXTURE's declared transport (redis/rabbitmq/
+  // kafka) and NOT true of the three routes, which is the distinction this
+  // reason was missing (wave-3 row 3.3 fleet re-derived it).  The behavioural
+  // harness boots `createApp(db)` from `http/index.ts`, which defaults `events`
+  // to `createOutboxDispatcher(db, NoopDomainEventDispatcher)`: durable events
+  // land in the `__loom_outbox` Postgres table.  The broker driver (amqplib,
+  // `createChannelTransports`, `channelPublishTee`) is wired only in the full
+  // `d/index.ts`, which this tier never imports — so NO broker is touched by
+  // `GET /{id}`, `POST /{id}/place` or `GET /` on the node leg.
+  //
+  // The real blocker is the unseedable one: `Order` carries no `crudish` and no
+  // author-declared create, so nothing can mint a row.  Give it a create and
+  // all three routes — including the 422 precondition-denial control — are
+  // drivable here with no docker.  The broker's own delivery half remains
+  // `channels-e2e.yml`'s (label/post-merge).
   "channels-broker",
   // FIXTURE CHANGE FIRST — `Order` carries no `crudish` and no author-declared
   // create, so the emitted route set is getById/all/confirm/flag/cancel with NO
@@ -711,6 +798,16 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `test/generator/handler-resource-clients.test.ts` (per backend, per verb,
   // mutation-proven).  The runtime drain belongs with the `resources` fixture's
   // own sidecar leg, not here.
+  //
+  // TWO independent blockers, both necessary, and only the I/O one was written
+  // down (wave-3 row 3.3 fleet).  The second: `POST /archive/{name}` and
+  // `GET /archive/{name}` are ROUTED HANDLERS, and a `test e2e` block cannot
+  // address one — `checkMagicCall` (`src/ir/validate/checks/test-checks.ts`)
+  // resolves `api.<slug>.<method>()` to a projection or an aggregate only and
+  // refuses anything else with `loom.e2e-unaddressable-call`.  So mocking the
+  // sidecars would NOT drain these two routes; the addressability lift has to
+  // land first.  Recorded because a reader who solved only the named blocker
+  // would find the cell still undrainable.
   "handler-resource-ops",
   // COMPILE-TIER WITNESS, and UNSEEDABLE besides.  Two of its three defects were
   // "the emitted project does not exist / does not compile" on .NET and java
@@ -745,8 +842,24 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the `AUTHZ_LADDERS` entry drives the denial. Mutation-proved that neither
   // half suffices — a NO-OP gate passes the e2e and fails the ladder, an
   // ALWAYS-DENY gate passes the ladder's 403 and fails the e2e.
-  // BROKER SIDECAR (the outbox relay's delivery half). Same home as
-  // `channels-broker`.
+  // NOT A BROKER SIDECAR — this reason was WRONG, and re-deriving it is how it
+  // was caught (wave-3 row 3.3 fleet).  It read "BROKER SIDECAR (the outbox
+  // relay's delivery half). Same home as `channels-broker`", which appears to
+  // have been copied from that entry without checking this fixture's resource
+  // graph: `outbox.ddd` declares `storage pg { type: postgres }` and NOTHING
+  // else — no `storage bus`, no `channelSource`, no `channels:` on the
+  // deployable — and the emitted tree carries no channel/amqp/rabbit/kafka file
+  // at all.  `delivery: queue` + `retention: log` here mean a same-process,
+  // Postgres-backed outbox + replay (`startOutboxRelay` →
+  // `createInProcessDispatcher`), never a broker.  All seven routes are
+  // Postgres-only.
+  //
+  // The REAL blockers are two, both same-process: (a) neither `Order` nor
+  // `Shipment` has a create route, so nothing can mint a row — the
+  // "FIXTURE CHANGE FIRST" shape `extern` already carries; and (b) the
+  // behavioural harness boots through `createApp(db)` and never calls
+  // `startOutboxRelay`, so even a seeded row would leave the outbox table
+  // undrained.  (b) is a harness gap, not an infrastructure one.
   "outbox",
   // `policy-deny` DRAINED in #2517 — the fixture now drives all four deny
   // stances over HTTP (read-denied with and without a tenant floor, write-denied,
@@ -785,6 +898,15 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // SIDECARS — `objectStore` (S3/minio), `queue`, an http `api` peer and a
   // `mailer` (mailpit).  A put→get round-trip needs them standing up, which is
   // `email-e2e.yml`'s and `channels-e2e.yml`'s shape, not this leg's.
+  //
+  // ACCURATE FOR ONE ROUTE OF SIX, which the reason above did not say (wave-3
+  // row 3.3 fleet).  `POST /archive` really is wholly sidecar I/O — S3 get/put,
+  // queue enqueue, http peer, smtp send.  The other five are ordinary `Order`
+  // CRUD on Postgres and reachable here today.  Kept waived deliberately rather
+  // than drained: those five assert nothing the crudish fixtures do not already
+  // assert, so authoring them would buy coverage the ledger already has.  That
+  // is a judgement about VALUE, and it is written down so the next reader is not
+  // told they are unreachable.
   "resources",
   // NEEDS THE REGISTRY-PRINCIPAL HARNESS FIX — subtree scoping is a statement
   // about two principals in different parts of the tree, and the behavioural
@@ -880,7 +1002,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
  * recurs — see `autoFindAll` and `crudishUpdate`).
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  tenantRegistryRow: 20,
+  tenantRegistryRow: 23,
   seededListReadUnwritten: 2,
   gateProbe: 1,
   clockDependentFind: 1,

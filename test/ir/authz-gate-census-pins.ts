@@ -173,7 +173,11 @@ export const R = {
    *  `tenancy-e2e.yml`'s shape, not this tier's. */
   sharedTenancyIdentity:
     "tenancy predicate keyed on a claim `DEV_CLAIMS_UNAUTHORIZED` SHARES with `DEV_CLAIMS` by " +
-    "design; discriminating it needs a second tenancy identity — `tenancy-e2e.yml`'s shape",
+    "design, so neither identity this census reads can be refused by it.  The tier DOES now have " +
+    "a second tenancy identity (`DEV_CLAIMS_OTHER_TENANT`, wave-3 row 3.3) — but a tenancy " +
+    "statement is not an authorization refusal, and counting one as the other would let a gated " +
+    "surface look covered while its `requires` went unexercised, so the cross-tenant rung is " +
+    "deliberately not a refusal arm here",
   /** UNREACHABLE (shape).  A read mask redacts a FIELD inside a 200; there is no
    *  refusal status to assert.  Nor are the two identities distinguishable here
    *  — neither carries the unmasking claim. */
@@ -316,6 +320,28 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "getById GET /api/accounts/{id}": R.sharedTenancyIdentity,
     "operation POST /api/accounts/{id}/update": R.sharedTenancyIdentity,
   },
+  // The fixture wave-3 row 3.3 drained.  Every gate on it is the TENANCY scope
+  // filter and nothing else — there is no `requires` in the system — so the
+  // in-tenant unauthorized principal is correctly ALLOWED and a 403 arm would
+  // assert a refusal that must not happen.  What the drain added is a value
+  // assertion the ladder cannot express anyway: a leaking aggregation answers
+  // 200 with a wrong NUMBER.
+  "corpus/projection-agg-filters": {
+    "create POST /api/orders": R.sharedTenancyIdentity,
+    "destroy DELETE /api/orders/{id}": R.sharedTenancyIdentity,
+    "find GET /api/orders": R.sharedTenancyIdentity,
+    "getById GET /api/orders/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/update": R.sharedTenancyIdentity,
+    // The registry aggregate's own surface, same class as its twins in
+    // `tenancy-owned` / `tenancy-claim-name` below.
+    "create POST /api/organizations": R.sharedTenancyIdentity,
+    "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
+    "find GET /api/organizations": R.sharedTenancyIdentity,
+    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
+  },
   "corpus/tenancy-owned": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
     "create POST /api/organizations": R.sharedTenancyIdentity,
@@ -388,5 +414,5 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   oneSeededId: 1,
   importGateOnly: 1,
   principalFreeGate: 17,
-  sharedTenancyIdentity: 51,
+  sharedTenancyIdentity: 63,
 };

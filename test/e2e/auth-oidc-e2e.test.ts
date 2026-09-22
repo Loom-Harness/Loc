@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasDocker } from "./support/docker-probe.js";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e (D-AUTH-OIDC).  Boots a REAL Keycloak (the bundled dev
@@ -30,7 +31,12 @@ const fixture = path.join(here, "fixtures", "auth-oidc-e2e.ddd");
 
 const ENABLED = process.env.LOOM_AUTH_E2E === "1";
 
-const RUN = ENABLED && hasDocker();
+const RUN = declareRunPrecondition({
+  suite: "auth OIDC e2e",
+  gate: "LOOM_AUTH_E2E=1",
+  enabled: ENABLED,
+  requirements: [{ name: "a reachable docker daemon", ok: hasDocker() }],
+});
 
 async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

@@ -1582,8 +1582,18 @@ ProjectionMember:
 // per group in SQL, per-row `select`s restricted to the grouping columns
 // (`loom.projection-groupby-*` gates).  `group` stays a SOFT keyword
 // (CommonSoftKeywords) so a field / value named `group` keeps parsing; rows
-// come back ordered by the grouping columns so the read is deterministic
-// across backends.
+// come back ordered by the grouping columns, ASCENDING, by their STORED
+// COLUMN VALUE — so the read is deterministic across backends.
+//
+// "By their stored column value" is the load-bearing half, and it is what the
+// clause used to leave unsaid.  It matters for an ENUM key, where two readings
+// are available and they disagree: an enum column is stored as TEXT on every
+// backend (`mapTypeToColumn` in `src/system/migrations-builder.ts`), so the
+// order is the LEXICOGRAPHIC order of the member NAME — not the order the
+// members are declared in.  `enum OrderStatus { Draft Confirmed Cancelled }`
+// grouped on therefore comes back `Cancelled`, `Confirmed`, `Draft`.  (A read
+// that wants declaration order has to select an explicit rank column; there is
+// no `order by` clause on a projection yet — see the NOTE above.)
 // A query-time projection's `from` source — an AGGREGATE (read through its
 // repository), a WORKFLOW (read through its persisted instance / saga-state
 // rows, `instanceWireShape`), or another materialized PROJECTION (read through
@@ -1804,7 +1814,7 @@ FieldAccess returns string:
 Property:
     name=(ID | CommonSoftKeywords
         // Property-only (soft here but not in every value position):
-        | 'await' | 'page')
+        | 'await' | 'ignoring' | 'page')
     ':' type=TypeRef
     // `provenanced` / `sensitive(...)` / the access modifier are pure
     // flag-like keywords carrying no expression content, so they parse in
@@ -2441,8 +2451,30 @@ CondPrimaryExpr infers Expression:
 
 PostfixSuffix:
       {infer MemberSuffix} '.' member=MemberName
-        ( call?='(' (args+=CallArg (',' args+=CallArg)*)? ')' )?
+        ( call?='(' ( throwKind=ThrowKind | (args+=CallArg (',' args+=CallArg)*)? ) ')' )?
     | {infer CallSuffix}   '(' (args+=CallArg (',' args+=CallArg)*)? ')';
+
+// The failure RUNG a unit-tier `expect(<call>).toThrow(<kind>)` pins —
+// `precondition` (a domain validity check the operation body declares) or
+// `invariant` (a whole-state rule the aggregate declares).  Without the
+// discrimination both rungs are one undifferentiated "it threw": the audit
+// deleted a `precondition` from a generated aggregate and the test stayed
+// GREEN, because the invariant threw instead and the assertion could not tell
+// them apart (2026-09-13 testability audit, F11).
+//
+// It is a SLOT on the suffix rather than an ordinary `CallArg`, because both
+// words are HARD keywords (`PreconditionStmt` / `InvariantDecl` own them) and
+// so cannot reach an argument position as a `NameRef`.  Admitting them to
+// `NameRefIdent` instead would put `precondition` at the head of an
+// expression — exactly where `Statement` must still read it as the start of a
+// `PreconditionStmt`, including inside a `test` body (`TestStatement` lists
+// `PreconditionStmt`).  Confining the words to the inside of a `.member(...)`
+// call keeps that decision untouched: the slot is unreachable until the parser
+// has already committed to a member call.  A kind word in any OTHER call is a
+// parse success and a validator refusal (`loom.throw-kind-outside-tothrow`) —
+// the catalogue stays closed and compiler-known.
+ThrowKind returns string:
+    'precondition' | 'invariant';
 
 // Call arguments admit an optional `name:` prefix.
 // Positional usage (`Money(10.5, "USD")`) keeps working; named usage

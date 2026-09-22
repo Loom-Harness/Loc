@@ -37,11 +37,7 @@ import { generateSystemFiles, loadExample } from "../_helpers/index.js";
 /** Known-broken sites, each owned by a mission.  A waiver RATCHETS: the fix
  *  deletes its row in the same PR, and a stale row fails the gate. */
 const WAIVERS: ReadonlyArray<{ name: string; file: RegExp; mission: string }> = [
-  {
-    name: "Ids",
-    file: /\/domain\/value-objects\.ts$/,
-    mission: "M-T6.64 — the value-object emitter omits its `Ids` import (#2864 D3)",
-  },
+  // (empty — every known site is fixed; add a row here only with a mission.)
 ];
 
 const waived = (path: string, name: string): boolean =>
@@ -119,7 +115,9 @@ const FIXTURES: ReadonlyArray<{
   name: string;
   state: "broken" | "fixed";
 }> = [
-  { label: "a value object holding an `X id`", source: VO_WITH_ID, name: "Ids", state: "broken" },
+  // Fixed by #2881 (M-T6.64 / audit D3) — the node value-object emitter, plus
+  // the same missing-import class on all three python repository shapes.
+  { label: "a value object holding an `X id`", source: VO_WITH_ID, name: "Ids", state: "fixed" },
   // Fixed by #2869 (audit D6/P2) — four backends, not the one it was filed as.
   { label: "a `user {}` claim typed `X id?`", source: USER_ID_CLAIM, name: "Ids", state: "fixed" },
   // Fixed by #2894 (audit D4/T3) — the node backend AND four frontends.

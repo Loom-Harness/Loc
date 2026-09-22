@@ -388,9 +388,12 @@ function renderInitialEventLogFile(
     }
     return "      " + renderEctoColumn(c, table);
   });
-  const indexLines = table.indexes.map(
-    (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-  );
+  const indexLines = [
+    ...table.indexes.map(
+      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
+    ),
+    ...enumCheckLines(table, prefix, "    "),
+  ];
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
@@ -436,9 +439,12 @@ function renderInitialStateFile(
   // MigrationsIR carrying two each.  A fresh Phoenix project would get the
   // table with NO indexes while the same table added later
   // as a delta got both, so fresh-create and migrate-chain schemas disagreed.
-  const indexLines = table.indexes.map(
-    (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-  );
+  const indexLines = [
+    ...table.indexes.map(
+      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
+    ),
+    ...enumCheckLines(table, prefix, "    "),
+  ];
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
@@ -468,9 +474,12 @@ function renderInitialFile(table: TableShape, migrationName: string, appModule: 
   const ts = timestampsMacro(table);
   if (ts) colLines.push(`      ${ts}`);
   const prefix = prefixOpt(table.schema);
-  const indexLines = table.indexes.map(
-    (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-  );
+  const indexLines = [
+    ...table.indexes.map(
+      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
+    ),
+    ...enumCheckLines(table, prefix, "    "),
+  ];
 
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
@@ -515,9 +524,12 @@ function renderInitialValueCollectionFile(
       );
     }
   }
-  const indexLines = table.indexes.map(
-    (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-  );
+  const indexLines = [
+    ...table.indexes.map(
+      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
+    ),
+    ...enumCheckLines(table, prefix, "    "),
+  ];
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
@@ -559,9 +571,12 @@ function renderInitialJoinFile(
       );
     }
   }
-  const indexLines = table.indexes.map(
-    (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-  );
+  const indexLines = [
+    ...table.indexes.map(
+      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
+    ),
+    ...enumCheckLines(table, prefix, "    "),
+  ];
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
@@ -672,14 +687,29 @@ export function renderEctoStep(step: MigrationStep): string[] {
     case "dropIndex":
       return [`drop index(:${step.table}, name: "${step.name}"${prefixOpt(step.schema)})`];
     case "addCheck":
+      // Only the VO null-consistency kind is skipped, and only it.  Ecto stores
+      // a value object as ONE `:map` column (`collapseVoGroups`), so the
+      // `ship_to_line1` / `ship_to_city` leaf columns that constraint names do
+      // not exist on this backend — and the invariant cannot be violated
+      // anyway, because a `:map` cell is written whole.  Skipped exactly as the
+      // value-array child table is.
+      //
+      // An `enumValues` check names ONE real column that exists on all five
+      // backends, so Phoenix carries it: without it the elixir app would be the
+      // single backend whose database still accepted a value the model had
+      // deleted — which is the cross-backend asymmetry `docs/migrations.md`
+      // promises does not exist.
+      if ((step.check.kind ?? "voNullConsistent") !== "enumValues") return [];
+      return [
+        `create constraint(:${step.check.table}, :${step.check.name}, check: ${elixirStr(step.check.expression)}${prefixOpt(step.schema)}, validate: false)`,
+      ];
     case "dropCheck":
-      // Value-object null-consistency CHECKs (CheckShape) are meaningless here
-      // and would not even parse: Ecto stores a value object as ONE `:map`
-      // column (`collapseVoGroups`), so the `ship_to_line1` / `ship_to_city`
-      // leaf columns the constraint names do not exist on this backend — and
-      // the invariant they enforce cannot be violated, because a `:map` cell is
-      // written whole.  Skipped exactly as the value-array child table is.
-      return [];
+      // A DROP carries no `CheckShape`, so the builder copies the kind off the
+      // BASELINE shape onto the step.  The guard has to agree with the add
+      // above: Ecto has no `if_exists` on `drop constraint`, so dropping one
+      // this backend never created would fail the migration.
+      if ((step.kind ?? "voNullConsistent") !== "enumValues") return [];
+      return [`drop constraint(:${step.table}, :${step.name}${prefixOpt(step.schema)})`];
     case "renameIndex":
       // Ecto has no `rename index` DSL — wrap the shared schema-qualified SQL in
       // `execute/1` (the `CREATE SCHEMA` precedent), so the DDL is bit-identical
@@ -705,6 +735,32 @@ function elixirStr(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/#\{/g, "\\#{")}"`;
 }
 
+/** The `enumValues` CHECK constraints of a freshly created table, as Ecto
+ *  `create constraint(...)` lines at `indent`.
+ *
+ *  Phoenix has FIVE initial-file renderers plus the delta path's
+ *  `renderCreateTableInline`, and the index lines above this call are already
+ *  the scar of that: they were once emitted on some paths and not others, so a
+ *  fresh Phoenix project and the same table arriving later as a delta produced
+ *  different schemas (see the note in `renderIdlessInitialFile`).  One helper,
+ *  called from every path, is what keeps this constraint from repeating that.
+ *
+ *  No `validate: false` here — there are no stored rows on a table being
+ *  created, which is the same reason the SQL renderer inlines these in the
+ *  CREATE TABLE rather than adding them `NOT VALID`.
+ *
+ *  The `voNullConsistent` kind is skipped on every path, here as on the ALTER:
+ *  Ecto stores a value object as one `:map` column, so the leaf columns that
+ *  constraint names do not exist on this backend. */
+function enumCheckLines(table: TableShape, prefix: string, indent: string): string[] {
+  return (table.checks ?? [])
+    .filter((c) => (c.kind ?? "voNullConsistent") === "enumValues")
+    .map(
+      (c) =>
+        `${indent}create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
+    );
+}
+
 function renderCreateTableInline(table: TableShape): string[] {
   const idCol = table.columns.find((c) => c.name === "id");
   const others = collapseVoGroups(
@@ -721,6 +777,7 @@ function renderCreateTableInline(table: TableShape): string[] {
   const ts = timestampsMacro(table);
   if (ts) lines.push(`  ${ts}`);
   lines.push("end");
+  lines.push(...enumCheckLines(table, prefix, ""));
   for (const idx of table.indexes) {
     const cols = ectoIndexColumns(idx);
     lines.push(`create index(:${table.name}, [${cols}]${ectoIndexOpts(idx, prefix)})`);

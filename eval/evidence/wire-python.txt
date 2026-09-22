@@ -1,0 +1,49 @@
+### GET /work_orders/{id}
+{
+"assetId": "<uuid>",
+"completedAt": null,
+"createdAt": "<ts>",
+"createdBy": "u-a",
+"currency": "EUR",
+"customerId": "<uuid>",
+"display": "WO Draft for 01a09a79-1e86-75ec-abe3-fa951e1ad64a",
+"id": "<uuid>",
+"isOpen": true,
+"lines": [
+{
+"currency": "EUR",
+"description": "Diagnostics",
+"id": "<uuid>",
+"kind": "Labour",
+"quantity": 2.0,
+"subtotal": "100.5000",
+"unitPrice": "50.2500"
+}
+],
+"photo": null,
+"priority": "Normal",
+"resolutionNote": null,
+"scheduledAt": null,
+"siteId": "<uuid>",
+"startedAt": null,
+"status": "Draft",
+"technicianId": "<uuid>",
+"total": "100.5000",
+"updatedAt": "<ts>",
+"updatedBy": "u-a",
+"version": 2
+}
+### GET /work_orders (paged envelope keys)
+['items', 'page', 'pageSize', 'total', 'totalPages'] total= 1
+### statuses
+unauth           200
+invariant(422?)  422
+check(422?)      422
+notfound(404?)   404
+forbidden(403?)  403
+whengate(409?)   409
+crosstenant(404?)404
+mask(null?)      None
+### error body shape (invariant)
+['detail', 'errors', 'instance', 'status', 'title', 'type']
+{"detail": "One or more fields are invalid.", "errors": [{"message": "String should match pattern '^[^@]+@[^@]+\\.[^@]+$'", "pointer": "/billingEmail"}], "status": 422, "title": "Validation failed", "type": "about:blank"}

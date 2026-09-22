@@ -67,8 +67,8 @@ context Sales {
   // field it compares against — a parameter shadows a same-named field.)
   criterion InRegion(rgn: string) of Customer = region == rgn
 
-  // Block form — identical semantics to `= <expr>`.
-  criterion CanForceClose of Order { where: status != Closed }
+  // Comparison against an enum value.
+  criterion CanForceClose of Order = status != Closed
 
   // `of bool` — a pure ambient predicate with no candidate (reads only
   // parameters + ambient context such as `currentUser`).
@@ -80,7 +80,7 @@ Grammar:
 
 ```
 criterion <Name>(<Param>*) of <T> [as <alias>] = <bool expression>
-criterion <Name>(<Param>*) of <T> { where: <bool expression> }
+criterion <Name>(<Param>*) of <T> = <bool expression>
 ```
 
 `<T>` (the candidate) must be an **aggregate** or **`bool`** in this

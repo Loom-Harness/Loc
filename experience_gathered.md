@@ -6363,3 +6363,71 @@ the pre-fix path and shows the only verdict ever published is `in_progress`.
 > The remedy paragraph above is unaffected: the tail watch is the fix for the
 > mechanism #2835 identified, and it happens to close the coverage half too,
 > because a merge-queue head takes the same single-SHA path a PR head does.
+
+## 115. `merge-tree` against `origin/main` cannot predict a merge-queue ejection — the queue merges onto main **plus its predecessors** (2026-09-22)
+
+A 380-file PR (#2980) was ejected from the merge queue four times with
+`MERGE_CONFLICT`. Every ejection was preceded by a check that said the branch
+was clean:
+
+```
+git merge-tree --write-tree origin/main <branch>   # → clean, every time
+```
+
+That check was asking the wrong question. A merge-queue entry is not built on
+`main` — it is built on **`main` + every entry ahead of it in the queue**. On
+the ejection that was finally diagnosed, `#2980` was clean against `main` and
+conflicted only against `main + #2970`, a 107-file wave PR two positions ahead.
+
+**The probe that actually answers the question.** Build the speculative base
+first, then test against *that*:
+
+```bash
+# what is at the front:  refs/heads/gh-readonly-queue/main/pr-<N>-<base sha>
+git ls-remote origin 'refs/heads/gh-readonly-queue/*'
+
+SB=$(mktemp -d)
+git worktree add -q --detach "$SB" origin/main
+git -C "$SB" merge origin/<predecessor head ref> --no-edit -q
+BASE=$(git -C "$SB" rev-parse HEAD)
+git merge-tree --write-tree "$BASE" <your branch> | grep CONFLICT
+git worktree remove --force "$SB"
+```
+
+Note the queue-ref caveat: `gh-readonly-queue/main/pr-N-<sha>` exists only for
+the entry currently **building**, so it names one predecessor, not the whole
+line. Entries behind the front are invisible from git alone.
+
+**This affects the repo's own pre-push hook.** `.claude/settings.json`'s
+`PreToolUse(Bash)` guard runs the `origin/main` form. That is the right check
+for "will this PR show a conflict on its page", and it is *not* a check for
+"will this survive the queue". It cannot be — the predecessors are not known at
+push time. Do not read a green hook as queue safety.
+
+**The collision class that keeps causing this.** Every one of the four
+ejections landed on a shared append-point — the docs-anchor map, the corpus
+manifest, the auth BYPASS lists, the diagnostic catalog, the CLI import block,
+and finally `UNDOCUMENTED_BASELINE` in
+`test/system/diagnostic-docs-anchors.test.ts`. That last one is the purest
+form, and it is worth understanding because the ratchet is *correctly* built:
+
+```ts
+expect(UNDOCUMENTED_CODES.length).toBeLessThanOrEqual(UNDOCUMENTED_BASELINE);
+expect(UNDOCUMENTED_BASELINE - UNDOCUMENTED_CODES.length).toBeLessThan(1);
+```
+
+Two-sided, so the constant must equal the length **exactly** — deliberately, because
+slack is how a ratchet stops ratcheting. The consequence is that two PRs moving
+the count in opposite directions (one documenting a code, one adding an
+undocumented one) have **no merge-safe encoding**. Neither can pre-resolve: the
+correct combined value is wrong on both branches until one of them is on
+`main`. This is not a flaw in the ratchet; it is the cost of an exact ratchet in
+a repo with a merge queue, and it is paid in serialization.
+
+**What follows for a large PR.** A big diff needs an uninterrupted window at the
+front of the queue while touching none of the append-points any predecessor
+touches. The odds fall with both diff size and queue depth, and the failure is
+invisible from the PR's own head. Keep the shared-counter edits in a small PR
+that is cheap to re-resolve each round, and the bulk (docs, fixtures, eval
+corpora — anything touching no shared file) in a separate one that sails
+through regardless of queue position.

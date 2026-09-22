@@ -44,6 +44,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -73,6 +74,7 @@ import {
 } from "./capability-filter.js";
 import {
   renderApiExceptionAdvice,
+  renderIfMatchHeaderParser,
   renderJavaController,
   renderNoNulCharConstraint,
   renderStaticSubpathMethodFilter,
@@ -150,6 +152,7 @@ import {
   renderHealthController,
   renderJsonFormatMapperConfig,
   renderSpaWebConfig,
+  renderTestResetController,
 } from "./emit/program.js";
 import { renderJavaProjectionReads } from "./emit/projection-reads.js";
 import {
@@ -468,6 +471,12 @@ function emitProjectFromContexts(
   // byte, so without a guard the driver's refusal escapes as a 500. Emitted
   // unconditionally: every project has request DTOs with strings.
   place("NoNulChar.java", "api-common", renderNoNulCharConstraint(basePkg));
+  // F-023 — the `If-Match` optimistic-concurrency precondition parser.  Only a
+  // `versioned` aggregate's controller binds the header, so the class is
+  // emitted only then (a project without one is byte-identical).
+  if (contexts.some((c) => c.aggregates.some(aggregateIsVersioned))) {
+    place("IfMatch.java", "api-common", renderIfMatchHeaderParser(basePkg));
+  }
   place("Paged.java", "domain-common", renderPagedRecord(basePkg));
   // File upload/download (M-T1.2): a hosted File field ⇒ emit the shared FileRef
   // record; the bound objectStore ⇒ mount root POST /files / GET /files/{key}
@@ -653,6 +662,16 @@ function emitProjectFromContexts(
     );
   }
 
+  // The seeded contexts' ApplicationRunner classes, collected as they are
+  // emitted and handed to the reset controller so it can re-apply seed data.
+  //
+  // The FULLY-QUALIFIED name is captured here rather than rebuilt in the
+  // renderer: the package comes from `pkgFor("infra-persistence")`, which the
+  // directory layout decides (`infrastructure.persistence` under byLayer, and
+  // per-context under byFeature).  Reconstructing it as `<basePkg>.infra…`
+  // compiled fine for a system with no seeds — there was no import to be
+  // wrong — and failed the moment one had them.
+  const seedRunnerClasses: Array<{ fqn: string; cls: string }> = [];
   for (const ctx of contexts) {
     // This context's Postgres schema — the workflow saga tables (JPA `@Table`
     // + native-SQL ES stream) land here to match the migration DDL.
@@ -1189,7 +1208,13 @@ function emitProjectFromContexts(
           : undefined;
       },
     });
-    if (seedRunner) place(`${ctx.name}SeedRunner.java`, "infra-persistence", seedRunner);
+    if (seedRunner) {
+      place(`${ctx.name}SeedRunner.java`, "infra-persistence", seedRunner);
+      seedRunnerClasses.push({
+        fqn: `${pkgFor("infra-persistence")}.${ctx.name}SeedRunner`,
+        cls: `${ctx.name}SeedRunner`,
+      });
+    }
   }
 
   // Standalone (no-broker) transactional-outbox tier
@@ -1460,6 +1485,20 @@ function emitProjectFromContexts(
   out.set(
     mainSourcePath(`${basePkg}.api`, "HealthController.java"),
     renderHealthController(basePkg),
+  );
+  // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
+  // Beside the probes because it is the same class of surface: infra, not part
+  // of the domain contract.  It answers 404 unless LOOM_TEST_RESET=1, which the
+  // generated compose file sets, so it does nothing in a deployment.
+  //
+  // Seed runners are injected so the reset can re-apply declared seed data
+  // after truncating — a reset restores the just-migrated-AND-seeded state,
+  // not an empty database.  Collected from the same `place(...)` calls that
+  // emitted them, so the constructor can never name a class that was not
+  // emitted.
+  out.set(
+    mainSourcePath(`${basePkg}.api`, "TestResetController.java"),
+    renderTestResetController(basePkg, seedRunnerClasses),
   );
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast` channel
   // makes its carried events UI-observable at GET /api/realtime/events.  The

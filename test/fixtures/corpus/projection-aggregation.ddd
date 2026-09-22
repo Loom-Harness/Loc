@@ -65,6 +65,25 @@ system ProjectionAggregationSys {
                smallest = min(o.total)
       }
 
+      // INEQUALITY in the `where` — the one comparison shape the whole corpus
+      // lacked.  A projection's `where` is carried as the filter of a
+      // SYNTHESISED find (`synthProjectionFinds`), and two of the TypeScript
+      // repository builders derived their `drizzle-orm` import line from the
+      // DECLARED finds only — so `!=` emitted `.where(ne(…))` into a module
+      // importing `and, eq, inArray` and the project did not compile (F-013,
+      // relational and `shape: embedded` halves).  Every operator was covered
+      // in `select`; none was covered in a `where` that needed an import the
+      // equality path does not already pull in.  Inline rather than through a
+      // criterion so the shape is visible at the use site.
+      projection LiveOrders {
+        status: OrderStatus
+        orders: int
+        from Order as o
+        where o.status != OrderStatus.Cancelled
+        group by o.status
+        select status = o.status, orders = count()
+      }
+
       // Unfiltered — the bare whole-table count, the smallest useful KPI.
       projection OrderVolume {
         total: int

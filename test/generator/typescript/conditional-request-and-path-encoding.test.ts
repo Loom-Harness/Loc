@@ -186,7 +186,9 @@ describe("path parameters are percent-encoded in the generated client", () => {
     expect(client).toContain("encodeURIComponent(String(value));");
 
     const mod = fileEndingWith(files, "src/api/order.ts");
-    expect(mod).toContain('import { api, seg } from "./client";');
+    // `ifMatch` joins the import when the aggregate has a guarded write
+    // (F-023 — `versioned` is applied by default, so this fixture has one).
+    expect(mod).toContain('import { api, ifMatch, seg } from "./client";');
     // The by-id read, the destroy and every operation POST.
     expect(mod).toContain("await api.get(`/orders/${seg(id)}`)");
     expect(mod).toContain("await api.delete(`/orders/${seg(id)}`)");

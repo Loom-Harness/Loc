@@ -61,11 +61,37 @@ describe("phoenix — find requires gate", () => {
     expect(ctrl).not.toContain("problem_response(conn, 403");
   });
 
-  it("`requires true` emits an always-pass gate", async () => {
+  it("`requires true` emits NO gate — the dead branch is an Elixir typing violation", async () => {
+    // `requires true` is the documented "intentionally public" escape
+    // (docs/auth.md §32): a gate that can never deny.  The other four backends
+    // emit the dead branch (`if (!(true)) throw …`) because their compilers
+    // accept it.  Elixir's does not — since 1.18 `if not (true) do` is reported
+    // as a TYPING VIOLATION ("the following conditional expression will always
+    // evaluate to false"), which fails `mix compile --warnings-as-errors`, the
+    // flag the generated project's own CI recipe runs:
+    //
+    //     typing violation found at:
+    //      106 │     if not (true) do
+    //          └─ lib/api_web/controllers/foo_controller.ex:106
+    //
+    // So on this backend an always-true gate emits no guard at all: identical
+    // to an ungated read, and semantically exact, since it could never fire.
+    //
+    // This case previously asserted `if not (true) do` — a golden pinning
+    // output that does not compile under the project's own strict flag, which
+    // is why the defect survived.  See src/generator/elixir/vanilla/gate.ts.
     const ctrl = await controller("requires true ");
-    expect(ctrl).toContain("if not (true) do");
-    expect(ctrl).toContain(
-      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find openOnes")',
-    );
+    expect(ctrl).not.toContain("if not (true)");
+    expect(ctrl).not.toContain("problem_response(conn, 403");
+    // …and the find itself is still emitted and still reachable.
+    expect(ctrl).toContain("Tickets.open_ones_ticket(");
+    // Byte-identical to the ungated spelling — the guard is absent, not inverted.
+    expect(await controller("requires true ")).toBe(await controller(""));
+  });
+
+  it("a REAL gate is unaffected by the always-true carve-out", async () => {
+    const ctrl = await controller('requires currentUser.role == "agent" ');
+    expect(ctrl).toContain('if not (current_user.role == "agent") do');
+    expect(ctrl).toContain("problem_response(conn, 403");
   });
 });

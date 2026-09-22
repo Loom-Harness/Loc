@@ -29,7 +29,7 @@ export function githubHeadingSlug(heading: string): string {
 }
 
 /** The docs root every entry is relative to (the published site). */
-export const DOCS_SITE = "https://lemmit.github.io/Loc/";
+export const DOCS_SITE = "https://loom-harness.github.io/Loc/";
 
 const CHAPTER_DIR = "language-reference";
 
@@ -39,8 +39,12 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
+  "loom.tenant-registry-not-constructible":
+    "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
+  "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
@@ -50,10 +54,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
+  "loom.create-call-not-constructible":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-call-missing-field":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
   "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
+  "loom.rule-expr-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.when-references-op-param":
     "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
   "loom.variant-match-placement":
@@ -108,6 +117,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
+  "loom.tenancy-filter-bypass":
+    "11-capabilities-filters-stamps.md#ignoring--bypassing-a-filter-at-a-read-site",
   "loom.context-filter-no-principal":
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
@@ -184,6 +195,11 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
   "loom.page-ref-unreachable": "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
   "loom.page-expr-unrenderable": "16-ui-walker-primitives.md#the-dispatch-model",
+  // The VALUE twin of `loom.page-primitive-unknown-arg`, which anchors on the
+  // gate section above.  This one gets its own subsection, because the
+  // vocabulary it enforces is the part a reader needs.
+  "loom.page-primitive-unknown-arg-value":
+    "16-ui-walker-primitives.md#closed-vocabulary-argument-values",
   "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
@@ -195,6 +211,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
@@ -207,11 +224,27 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-missing-required-field":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-body-type-mismatch":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-unknown-response-field":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.locator-matcher-receiver":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.e2e-throw-kind-invalid": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.throw-kind-outside-tothrow": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.unit-absent-invalid": "18-testing.md#absence--tobenull--tobeabsent",
+  "loom.e2e-ui-absence-invalid": "18-testing.md#absence--tobenull--tobeabsent",
+  "loom.contain-receiver-invalid": "18-testing.md#tocontain--membership-or-substring",
+  "loom.absent-receiver-invalid": "18-testing.md#absence--tobenull--tobeabsent",
+  "loom.throw-kind-custom-message": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.throw-kind-integration-unsupported": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
+  "loom.component-shadows-stdlib": "15-ui-pages-structure.md#component--reusable-region-tree",
   "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",
   "loom.seed-foreign-aggregate":
     "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",
