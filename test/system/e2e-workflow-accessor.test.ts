@@ -262,6 +262,50 @@ describe("e2e workflow accessor — the unknown-slug message", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The RESERVED `workflows` slug — the split brain this accessor superseded
+// ---------------------------------------------------------------------------
+
+describe("e2e workflow accessor — the reserved `workflows` slug is ui-only", () => {
+  // `api.workflows.<name>(…)` was a validator arm with NO renderer arm.
+  // `test-checks.ts` resolved the reserved slug against every context's
+  // workflows and returned with no diagnostic, while `renderApiCall` had no
+  // matching case — so the call fell through to the aggregate lookup and
+  // `generate system` died with an unhandled Node `Error` plus a stack trace,
+  // on a source `ddd parse` had just reported as `0 error(s), 0 warning(s)`:
+  //
+  //     $ node bin/cli.js parse  probe.ddd   → 0 error(s), 0 warning(s).  OK
+  //     $ node bin/cli.js generate system …
+  //     Error: e2e: unknown aggregate 'api.workflows' on this deployable.
+  //         at renderApiCall (out/system/e2e-render.js:643:15)
+  //
+  // The arm's own comment said it validated `api` "for symmetry so
+  // backend-side dispatchers see a consistent IR shape" — but no backend-side
+  // dispatcher was ever written.  Only the `ui` one exists
+  // (`ui-e2e-render.ts`, the workflow FORM page object), so the arm is scoped
+  // to `ui` and the api side reaches the tier through `api.<wf>.run(…)`.
+  it("REFUSES `api.workflows.<name>(…)` instead of crashing the generator", async () => {
+    const src = sys(`api.workflows.fulfillment({ orderId: "x" })`);
+    const { codes, messages } = await diagsFor(src);
+    expect(codes).toContain("loom.e2e-unknown-aggregate");
+    // …and the refusal NAMES the shipped spelling, so the message is the fix.
+    const msg = messages.find((m) => m.includes("api.workflows"))!;
+    expect(msg).toContain("fulfillment");
+    expect(msg).toContain("run(…)");
+    // The layers now AGREE: a refused source never reaches the renderer, so
+    // there is no `generate system` stack trace left to hit.
+    await expect(e2eOf(src)).rejects.toThrow();
+  });
+
+  it("the shipped spelling for the same intent generates cleanly", async () => {
+    const { codes } = await diagsFor(sys(`api.fulfillment.run({ orderId: "x" })`));
+    expect(codes).toEqual([]);
+    expect(await e2eOf(sys(`api.fulfillment.run({ orderId: "x" })`))).toContain(
+      "await __post(`${base}/api/workflows/fulfillment`",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Aggregate precedence
 // ---------------------------------------------------------------------------
 

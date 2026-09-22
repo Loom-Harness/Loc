@@ -174,20 +174,65 @@ describe("flutterTarget — match / control-flow seams", () => {
 });
 
 describe("flutterTarget — list-comprehension seam", () => {
+  // The `slot` argument is spelled at every call below.  It is not optional in
+  // spirit: the seam FAILS CLOSED (absent ⇒ `"value"`), so omitting it here
+  // would quietly test the wrapped shape while claiming to test the spread.
   it("renderForEach spreads a `.map` into the children list", () => {
-    const s = flutterTarget.renderForEach("items", "x", "i", "x.id", "Tile(x)", 0, undefined);
+    const s = flutterTarget.renderForEach(
+      "items",
+      "x",
+      "i",
+      "x.id",
+      "Tile(x)",
+      0,
+      undefined,
+      "children",
+    );
     expect(s).toBe("...items.map((x) => Tile(x))");
   });
 
   it("uses the indexed form only when the index is referenced", () => {
-    const s = flutterTarget.renderForEach("items", "x", "i", "i", "Tile(x, i)", 0, undefined);
+    const s = flutterTarget.renderForEach(
+      "items",
+      "x",
+      "i",
+      "i",
+      "Tile(x, i)",
+      0,
+      undefined,
+      "children",
+    );
     expect(s).toContain("items.asMap().entries.map");
     expect(s).toContain("final i = entry.key");
   });
 
   it("an empty: arm folds into a collection-if", () => {
-    const s = flutterTarget.renderForEach("items", "x", "i", "x.id", "Tile(x)", 0, "Empty()");
+    const s = flutterTarget.renderForEach(
+      "items",
+      "x",
+      "i",
+      "x.id",
+      "Tile(x)",
+      0,
+      "Empty()",
+      "children",
+    );
     expect(s).toBe("if (items.isEmpty) Empty() else ...items.map((x) => Tile(x))");
+  });
+
+  // …and the seam's own fail-closed behaviour, which is what makes omitting
+  // the flag safe everywhere else: a `"value"` slot — and an ABSENT one —
+  // takes a `Column` whose list literal is where the spread becomes legal.
+  it("a value slot (and an absent slot) wraps the spread in a `Column`", () => {
+    const wrapped =
+      "Column(crossAxisAlignment: CrossAxisAlignment.start, " +
+      "children: <Widget>[...items.map((x) => Tile(x))])";
+    expect(
+      flutterTarget.renderForEach("items", "x", "i", "x.id", "Tile(x)", 0, undefined, "value"),
+    ).toBe(wrapped);
+    expect(flutterTarget.renderForEach("items", "x", "i", "x.id", "Tile(x)", 0, undefined)).toBe(
+      wrapped,
+    );
   });
 });
 
