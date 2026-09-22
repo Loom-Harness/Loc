@@ -1,6 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { forCreateInput, isConstructible } from "../../enrich/wire-projection.js";
 import type { BoundedContextIR, EnrichedAggregateIR, FieldIR } from "../../types/loom-ir.js";
+import { serverInitSeed } from "../../util/server-init-seed.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -57,13 +58,19 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // ---------------------------------------------------------------------------
 
 /** Whether an absent value for this field is language-DEFINED rather than
- *  missing: a bare `bool` is `false`, an absent collection is empty.  Mirrors
- *  `createOmissionValue`'s `{kind:"false"}` arm plus the reading the create
- *  contract already takes for a collection. */
+ *  missing.  Delegates to the ONE table every backend's create factory seeds
+ *  from (`src/ir/util/server-init-seed.ts`) — the gate and the emission cannot
+ *  disagree about which types have a value, which is the whole point of
+ *  keeping the table at the IR layer rather than in one emitter.
+ *
+ *  It is deliberately NOT `bool`-and-collections only.  Refusing every other
+ *  type would reject `placedAt: datetime managed` (the placement-stamp idiom),
+ *  `loginCount: int managed` (a counter) and `adminNotes: string internal` —
+ *  all three of which node and python already construct correctly today. The
+ *  shape that genuinely cannot be created is the one with NO seed: `money`
+ *  emits `null` into a non-nullable `Decimal` on every backend. */
 function hasLanguageDefinedAbsence(f: FieldIR): boolean {
-  const base = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (base.kind === "array") return true;
-  return base.kind === "primitive" && base.name === "bool";
+  return serverInitSeed(f.type) !== null;
 }
 
 /** Every field any lifecycle stamp writes — `onCreate` AND `onUpdate`.

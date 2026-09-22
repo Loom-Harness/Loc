@@ -24,6 +24,7 @@ import { directParentName } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -259,32 +260,33 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
  *  beside `type`, a scalar wraps a `value`, `none` is the bare unit. */
 /** Type-correct seed value for a non-optional, non-input field the create
  *  factory must name in its all-fields state literal but the server owns
- *  (`managed`/`token`/`internal`).  A `datetime managed` placement stamp
- *  seeds to `new Date()`; numeric counters to `0`, etc.  Falls back to
- *  `null` for shapes with no obvious zero (value objects, enums) — those
- *  don't occur as server-managed non-optional fields today, and `null`
- *  preserves the prior behaviour rather than fabricating a bogus instance. */
-function serverInitSeed(t: TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "datetime":
-        return "new Date()";
-      case "int":
-      case "long":
-      case "decimal":
-        return "0";
-      // `money` renders as `Decimal` (decimal.js) and `json`/value-object /
-      // enum shapes have no obvious bare zero — those fall through to the
-      // `null` default below (none occur as server-managed non-optional
-      // fields today; the seed only has to cover the cases that do).
-      case "bool":
-        return "false";
-      case "string":
-      case "guid":
-        return '""';
-    }
+ *  (`managed`/`token`/`internal`).
+ *
+ *  WHICH types have a seed is not this emitter's call — it is
+ *  `src/ir/util/server-init-seed.ts`, the same table
+ *  `loom.unconstructible-server-field` refuses from.  This function only
+ *  SPELLS the answer in TypeScript.  Keeping the two in one place is what
+ *  stops the gate refusing a shape the emitter could seed, or the emitter
+ *  fabricating one the gate believes has no value.
+ *
+ *  `null` here is reached only for a type the table has no seed for, which
+ *  the gate has already refused — it is the unreachable-by-valid-input arm,
+ *  kept because the emitter must still return a string. */
+function serverInitSeedExpr(t: TypeIR): string {
+  switch (serverInitSeed(t)) {
+    case "now":
+      return "new Date()";
+    case "zero":
+      return "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "[]";
+    default:
+      return "null";
   }
-  return "null";
 }
 
 export function renderOperationReturnType(returnType: TypeIR, ctx: BoundedContextIR): string {
@@ -751,7 +753,7 @@ function renderEntity(
     // backend sidesteps this by leaving such fields at their property
     // default; Hono's state object has to name every field, so it seeds one.
     if (f.optional) return "null";
-    return serverInitSeed(f.type);
+    return serverInitSeedExpr(f.type);
   };
   // Factory shape helpers.  An extern root is an ABSTRACT base whose concrete
   // subclass (`${e.name}`, scaffold-once) is what callers reference, so its
