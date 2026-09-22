@@ -943,6 +943,13 @@ export interface AggregateFormState extends FormStateBase {
 export interface WorkflowFormState extends FormStateBase {
   kind: "workflow";
   workflow: WorkflowIR;
+  /** Identifier base for this workflow's frontend surface — `<base>Request`,
+   *  `<base>FormState`, `use<base>Workflow`.  Minted by the walker against the
+   *  deployable's whole universe (`_frontend/request-names.ts`) and carried
+   *  here, so the shells that render the form declare the SAME name the api
+   *  module exported.  Equals `upperFirst(workflow.name)` unless an aggregate's
+   *  create/operation request already spells that. */
+  requestBase: string;
   /** Workflow params — all required (no optional filter; workflows
    *  don't have an "optional" notion the way aggregate fields do). */
   fields: WorkflowIR["params"];
