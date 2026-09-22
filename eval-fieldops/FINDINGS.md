@@ -1062,19 +1062,28 @@ Both endpoints `$ref` one component, and the component carries the WORKFLOW's sh
 `POST /api/work-orders/{id}/schedule`, which really requires `{ at }`, is published as
 requiring `{ note }`. Every client generated from that spec sends the wrong body.
 
-**All five backends emit the collision**, though the failure mode differs and only node is
-confirmed silent end-to-end so far:
+**CORRECTION — it is NOT "all five backends".** The claim as first filed said all five emit
+the collision, inferring from the fact that all five emit both names. Measuring each one
+changes the picture substantially, and two backends are simply not affected:
 
-| backend | both names emitted at | note |
+| backend | verdict | how it was established |
 |---|---|---|
-| node | `api/http/workflows.ts`, `api/http/workOrder.routes.ts` | SILENT — proven above |
-| dotnet | `Application/Workflows/ScheduleWorkOrderRequest.cs`, `WorkOrders/Requests/WorkOrderRequests.cs` | different namespaces, so C# compiles; Swashbuckle derives schemaId from the short name — needs a boot to classify |
-| java | `features/workorders/ScheduleWorkOrderRequest.java`, `application/workflows/ScheduleWorkOrderRequest.java` | different packages, so javac is fine; springdoc's default schema name is the simple class name — needs a boot to classify |
-| python | `app/http/work_order_routes.py`, `app/http/workflows_routes.py` | unclassified |
-| elixir | `lib/api_web/api/schemas/schedule_work_order_request.ex` | unclassified |
+| **node** | **SILENT — wrong spec** | Ran the real `@hono/zod-openapi`: no throw, both endpoints `$ref` one component carrying the WORKFLOW's `{note}`, so the operation is published as requiring the wrong body. |
+| **elixir** | **SILENT — wrong spec, worse** | Only ONE `ScheduleWorkOrderRequest` module is emitted at all (`note`), and BOTH `/workflows/schedule_work_order` and `/work_orders/{id}/schedule` reference it in `api_spec.ex`. The operation's `at` schema is never emitted anywhere. Doc-level only: no `OpenApiSpex.Plug.CastAndValidate` is wired in the router, so request parsing does not consult it. |
+| **python** | **NOT AFFECTED** | Ran FastAPI 0.141 / pydantic 2.13 against the two emitted model shapes: it auto-qualifies by module — `app__http__work_order_routes__ScheduleWorkOrderRequest` = `{at}` and `app__http__workflows_routes__ScheduleWorkOrderRequest` = `{note}` — and each path refs the correct one. |
+| **dotnet** | **NOT AFFECTED — already solved in-tree** | The emitter ALREADY detects this collision. Generated `Program.cs` builds a `collidingSchemaIds` map and a `CustomSchemaIds` selector publishing `WorkOrdersScheduleWorkOrderRequest` / `WorkflowsScheduleWorkOrderRequest`. Its own comment says Swashbuckle "would throw on the duplicate schemaId and fail the WHOLE document". |
+| **java** | **AFFECTED — exact runtime behaviour needs a boot** | Both records exist in separate packages so javac is fine and each controller binds the right type. But springdoc names schemas by SIMPLE class name, and the emitted `OpenApiContractCustomizer` patches by short name too — `new RequiredSet("ScheduleWorkOrderRequest", List.of("note"))` — so it assumes exactly one schema under that name. Whether springdoc overwrites or disambiguates decides if the patch lands on the wrong schema or silently misses. |
 
-**Not yet fixed.** The shape of the fix is a decision, not a detail: the component
-namespace needs ONE owner that mints every name and can see a collision, rather than two
-emitters each confident in its own rule. Renaming either side changes a published spec, so
-which side moves — and whether a colliding model should instead be refused with a
-`loom.*` diagnostic — is a call worth making deliberately.
+**This changes the shape of the fix.** It is no longer an open three-way design question,
+because **.NET has already answered it in-tree**: detect short-name collisions across
+owners and publish an owner-qualified id (`<Owner><Name>`). The defect is that this lives
+in ONE backend's emitter instead of in the shared layer every backend's OpenAPI naming
+goes through. node and elixir need it; python and dotnet already have equivalents by
+different means; java needs it and additionally has a short-name-keyed patch table that
+would need to move with it.
+
+**Not yet fixed.** The remaining decision is narrower than it first looked: adopt .NET's
+existing convention in the shared layer (owner-qualified ids for colliding short names),
+which changes published component names on node/elixir/java, or refuse a colliding model
+with a `loom.*` diagnostic and leave every published name alone. The first is what the
+codebase already does once; the second costs users a model that is legal today.
