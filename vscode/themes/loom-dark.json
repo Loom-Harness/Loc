@@ -119,11 +119,7 @@
     },
     {
       "name": "Punctuation",
-      "scope": [
-        "punctuation.accessor.ddd",
-        "punctuation.separator.ddd",
-        "punctuation.bracket.ddd"
-      ],
+      "scope": ["punctuation.accessor.ddd", "punctuation.separator.ddd", "punctuation.bracket.ddd"],
       "settings": { "foreground": "#9aa5ce" }
     }
   ],

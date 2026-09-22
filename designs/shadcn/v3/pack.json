@@ -127,469 +127,304 @@
     "primitive-data-grid": [
       {
         "from": "@/components/ui/table",
-        "named": [
-          "Table",
-          "TableBody",
-          "TableCell",
-          "TableHead",
-          "TableHeader",
-          "TableRow"
-        ]
+        "named": ["Table", "TableBody", "TableCell", "TableHead", "TableHeader", "TableRow"]
       },
       {
         "from": "@/components/ui/button",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "primitive-button": [
       {
         "from": "@/components/ui/button",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "primitive-card": [
       {
         "from": "@/components/ui/card",
-        "named": [
-          "Card",
-          "CardContent",
-          "CardHeader",
-          "CardTitle"
-        ]
+        "named": ["Card", "CardContent", "CardHeader", "CardTitle"]
       }
     ],
     "primitive-badge": [
       {
         "from": "@/components/ui/badge",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-field": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "@/components/ui/switch",
-        "named": [
-          "Switch"
-        ]
+        "named": ["Switch"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       }
     ],
     "primitive-loader": [
       {
         "from": "lucide-react",
-        "named": [
-          "Loader2"
-        ]
+        "named": ["Loader2"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "@/components/ui/tabs",
-        "named": [
-          "Tabs",
-          "TabsContent",
-          "TabsList",
-          "TabsTrigger"
-        ]
+        "named": ["Tabs", "TabsContent", "TabsList", "TabsTrigger"]
       }
     ],
     "primitive-table": [
       {
         "from": "@/components/ui/table",
-        "named": [
-          "Table",
-          "TableBody",
-          "TableCell",
-          "TableHead",
-          "TableHeader",
-          "TableRow"
-        ]
+        "named": ["Table", "TableBody", "TableCell", "TableHead", "TableHeader", "TableRow"]
       }
     ],
     "primitive-money": [
       {
         "from": "../lib/format",
-        "named": [
-          "MoneyValue"
-        ]
+        "named": ["MoneyValue"]
       }
     ],
     "primitive-date-display": [
       {
         "from": "../lib/format",
-        "named": [
-          "DateTimeValue"
-        ]
+        "named": ["DateTimeValue"]
       }
     ],
     "primitive-enum-badge": [
       {
         "from": "@/components/ui/badge",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-id-link": [
       {
         "from": "../lib/format",
-        "named": [
-          "IdValue"
-        ]
+        "named": ["IdValue"]
       }
     ],
     "primitive-skeleton": [
       {
         "from": "@/components/ui/skeleton",
-        "named": [
-          "Skeleton"
-        ]
+        "named": ["Skeleton"]
       }
     ],
     "primitive-alert": [
       {
         "from": "@/components/ui/alert",
-        "named": [
-          "Alert",
-          "AlertDescription",
-          "AlertTitle"
-        ]
+        "named": ["Alert", "AlertDescription", "AlertTitle"]
       }
     ],
     "primitive-key-value-row": [
       {
         "from": "../lib/format",
-        "named": [
-          "KeyValueRow"
-        ]
+        "named": ["KeyValueRow"]
       }
     ],
     "primitive-form-of": [
       {
         "from": "@/components/ui/button",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       },
       {
         "from": "@/components/ui/form",
-        "named": [
-          "Form",
-          "FormControl",
-          "FormField",
-          "FormItem",
-          "FormLabel",
-          "FormMessage"
-        ]
+        "named": ["Form", "FormControl", "FormField", "FormItem", "FormLabel", "FormMessage"]
       }
     ],
     "field-input-string": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       }
     ],
     "field-input-int": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       }
     ],
     "field-input-decimal": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       }
     ],
     "field-input-money": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "decimal.js",
-        "named": [
-          "Decimal"
-        ]
+        "named": ["Decimal"]
       }
     ],
     "field-input-bool": [
       {
         "from": "@/components/ui/switch",
-        "named": [
-          "Switch"
-        ]
+        "named": ["Switch"]
       }
     ],
     "field-input-datetime": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       }
     ],
     "field-input-id-text": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       }
     ],
     "field-input-id-select": [
       {
         "from": "@/components/ui/select",
-        "named": [
-          "Select",
-          "SelectContent",
-          "SelectItem",
-          "SelectTrigger",
-          "SelectValue"
-        ]
+        "named": ["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"]
       }
     ],
     "field-input-enum-select": [
       {
         "from": "@/components/ui/select",
-        "named": [
-          "Select",
-          "SelectContent",
-          "SelectItem",
-          "SelectTrigger",
-          "SelectValue"
-        ]
+        "named": ["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"]
       }
     ],
     "field-input-array": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "@/components/ui/button",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       },
       {
         "from": "@/components/ui/form",
-        "named": [
-          "FormControl",
-          "FormField",
-          "FormItem",
-          "FormLabel",
-          "FormMessage"
-        ]
+        "named": ["FormControl", "FormField", "FormItem", "FormLabel", "FormMessage"]
       }
     ],
     "field-input-valueobject": [],
     "primitive-modal": [
       {
         "from": "@/components/ui/button",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       },
       {
         "from": "@/components/ui/form",
-        "named": [
-          "Form",
-          "FormControl",
-          "FormField",
-          "FormItem",
-          "FormLabel",
-          "FormMessage"
-        ]
+        "named": ["Form", "FormControl", "FormField", "FormItem", "FormLabel", "FormMessage"]
       },
       {
         "from": "sonner",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       },
       {
         "from": "react",
-        "named": [
-          "useState"
-        ]
+        "named": ["useState"]
       },
       {
         "from": "@/components/ui/dialog",
-        "named": [
-          "Dialog",
-          "DialogContent",
-          "DialogHeader",
-          "DialogTitle",
-          "DialogTrigger"
-        ]
+        "named": ["Dialog", "DialogContent", "DialogHeader", "DialogTitle", "DialogTrigger"]
       },
       {
         "from": "../lib/apply-server-errors",
-        "named": [
-          "applyServerErrors"
-        ]
+        "named": ["applyServerErrors"]
       }
     ],
     "form-default-onsubmit": [
       {
         "from": "sonner",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       },
       {
         "from": "../lib/apply-server-errors",
-        "named": [
-          "applyServerErrors"
-        ]
+        "named": ["applyServerErrors"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "@/components/ui/textarea",
-        "named": [
-          "Textarea"
-        ]
+        "named": ["Textarea"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "@/components/ui/select",
-        "named": [
-          "Select",
-          "SelectContent",
-          "SelectItem",
-          "SelectTrigger",
-          "SelectValue"
-        ]
+        "named": ["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       }
     ],
     "realtime-toast": [
       {
         "from": "sonner",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "primitive-modal-controlled": [
       {
         "from": "@/components/ui/dialog",
-        "named": [
-          "Dialog",
-          "DialogContent",
-          "DialogHeader",
-          "DialogTitle"
-        ]
+        "named": ["Dialog", "DialogContent", "DialogHeader", "DialogTitle"]
       }
     ],
     "field-input-file": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "@/components/ui/input",
-        "named": [
-          "Input"
-        ]
+        "named": ["Input"]
       },
       {
         "from": "@/components/ui/label",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ]
   },

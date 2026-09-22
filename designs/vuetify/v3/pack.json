@@ -92,25 +92,19 @@
     "realtime-toast": [
       {
         "from": "../lib/toast",
-        "named": [
-          "pushToast"
-        ]
+        "named": ["pushToast"]
       }
     ],
     "field-input-file": [
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ]
   }

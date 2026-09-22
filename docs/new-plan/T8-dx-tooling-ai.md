@@ -50,8 +50,12 @@ Sources: [packaging-split](../old/plans/packaging-split.md), [backend-packages](
 IR-level mutation testing (mutate `ExprIR`, render via the shared dispatcher, kill/survive against emitted suites → `VERIFIED_WEAK` verdicts in `ddd verify`). The old global plan marked it out-of-scope; the proposal is complete. Revisit after T9's runtime tiers mature.
 Sources: [mutation-testing](../old/proposals/mutation-testing.md).
 
-## M-T8.9 — Static-analysis breadth — `open` · **S** · P3
+## M-T8.9 — Static-analysis breadth — `partial` (the biome JSON half landed in wave C4 packet 4f, 2026-09-22) · **S** · P3
 markdownlint + biome JSON/JSONC extension; Credo; `ddd fmt` stays a separate future proposal.
+
+**LANDED — biome now lints and formats the repo's CONFIG JSON.** `biome.json`'s `files.includes` was `src/**/*.ts` + `test/**/*.ts` + `scripts/**/*.mjs`, so every hand-authored JSON sat outside every static check: 20 design-pack manifests, 5 stack manifests, 7 `packages/*/package.json`, the tsconfigs, `langium-config.json`, the vscode extension manifests, `.claude/settings.json`. **17 of them were unformatted**, and `designs/mui/v5/pack.json` carried a one-line 15-element import array AND the expanded form of the same shape three lines apart. Scoped deliberately rather than `**/*.json`: `test/behavioral/wire-golden/` alone is 62 goldens that exist to be compared byte for byte, and `test/fixtures/**` is captured generator output — the include list names the config families and nothing else, and `package-lock.json` is excluded outright. No gate wiring was needed (`npm run lint` is `biome ci .`, already a required check); mutation-proved by seeding a blank line into `stacks/v1/stack.json` → `Found 1 error` naming the file.
+
+**DEFERRED, with the reason.** *markdownlint* — a new dev dependency, a config and a CI job over ~700 tracked `.md` whose content is prose-heavy with deliberate long lines and inline HTML; the rule set is a decision, not a default-config drop-in, and a default config would produce thousands of findings nobody will drain. *Credo* — needs the Elixir toolchain in a job that does not exist yet; it belongs beside the elixir compile gates (`corpus-elixir-build` / `elixir-vanilla-*`), not in the TypeScript lint step.
 Sources: [static-analysis-followups](../old/plans/…) — see [cross-stack-static-analysis](../old/proposals/cross-stack-static-analysis.md).
 
 ## M-T8.10 — Playground preview breadth — `open` · **M** · P3

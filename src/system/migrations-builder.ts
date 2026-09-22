@@ -579,7 +579,7 @@ function projectionTableShape(
  *  relations, so the diff must key by (schema, name) — keying by bare name
  *  collapses them and produces the wrong delta (audit finding 16/17). */
 function qkey(schema: string | undefined, name: string): string {
-  return `${schema ?? ""} ${name}`;
+  return `${schema ?? ""}\0${name}`;
 }
 
 function orderTablesByFkDependency(tables: TableShape[]): TableShape[] {

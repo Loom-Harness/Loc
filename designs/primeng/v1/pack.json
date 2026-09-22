@@ -70,129 +70,95 @@
     "realtime-toast": [
       {
         "from": "./loom-toast.service",
-        "named": [
-          "LoomToastService"
-        ]
+        "named": ["LoomToastService"]
       }
     ],
     "primitive-button": [
       {
         "from": "primeng/button",
-        "named": [
-          "ButtonModule"
-        ]
+        "named": ["ButtonModule"]
       }
     ],
     "primitive-card": [
       {
         "from": "primeng/card",
-        "named": [
-          "CardModule"
-        ]
+        "named": ["CardModule"]
       }
     ],
     "primitive-divider": [
       {
         "from": "primeng/divider",
-        "named": [
-          "DividerModule"
-        ]
+        "named": ["DividerModule"]
       }
     ],
     "primitive-loader": [
       {
         "from": "primeng/progressspinner",
-        "named": [
-          "ProgressSpinnerModule"
-        ]
+        "named": ["ProgressSpinnerModule"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "primeng/tabs",
-        "named": [
-          "TabsModule"
-        ]
+        "named": ["TabsModule"]
       }
     ],
     "primitive-badge": [
       {
         "from": "primeng/tag",
-        "named": [
-          "TagModule"
-        ]
+        "named": ["TagModule"]
       }
     ],
     "primitive-field": [
       {
         "from": "primeng/inputtext",
-        "named": [
-          "InputTextModule"
-        ]
+        "named": ["InputTextModule"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "@angular/forms",
-        "named": [
-          "FormsModule"
-        ]
+        "named": ["FormsModule"]
       },
       {
         "from": "primeng/inputnumber",
-        "named": [
-          "InputNumberModule"
-        ]
+        "named": ["InputNumberModule"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "primeng/textarea",
-        "named": [
-          "TextareaModule"
-        ]
+        "named": ["TextareaModule"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "@angular/forms",
-        "named": [
-          "FormsModule"
-        ]
+        "named": ["FormsModule"]
       },
       {
         "from": "primeng/password",
-        "named": [
-          "PasswordModule"
-        ]
+        "named": ["PasswordModule"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "@angular/forms",
-        "named": [
-          "FormsModule"
-        ]
+        "named": ["FormsModule"]
       },
       {
         "from": "primeng/toggleswitch",
-        "named": [
-          "ToggleSwitchModule"
-        ]
+        "named": ["ToggleSwitchModule"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "@angular/forms",
-        "named": [
-          "FormsModule"
-        ]
+        "named": ["FormsModule"]
       },
       {
         "from": "primeng/select",
-        "named": [
-          "SelectModule"
-        ]
+        "named": ["SelectModule"]
       }
     ]
   }
