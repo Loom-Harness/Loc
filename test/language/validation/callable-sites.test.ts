@@ -29,6 +29,7 @@ import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { CALLABLE_FEATURES, CALLABLE_SITES } from "../../../src/language/callable-sites.js";
 import { printStructural } from "../../../src/language/print/print-structural.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const CODE = "loom.callable-modifier-not-allowed-here";
@@ -55,7 +56,7 @@ async function report(
   const { diagnostics, doc } = await parseString(sys(body), { validate: true });
   return {
     codes: diagnostics.map((d) => d.code).filter((c): c is string => c !== undefined),
-    messages: diagnostics.map((d) => d.message ?? ""),
+    messages: diagnostics.map(diagText),
     parseErrors: doc.parseResult.parserErrors.map((e) => e.message),
   };
 }
