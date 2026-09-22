@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveToSource } from "../../src/ir/types/origin.js";
 import { generateSystems } from "../../src/system/index.js";
+import { toOriginRef, type WireOriginRef } from "../../src/trace/resolve.js";
 import { parseString, parseValid } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -652,10 +653,45 @@ describe(".loom/sourcemap.json", () => {
     // above) so this invariant stays about statement, not expression,
     // granularity.
     const opConstruct = "Orders.Order.confirm";
-    const stmtRegions = regions
-      .filter((r) => r.construct === opConstruct && r.targetCol === undefined)
+    // F-021 layered a MEMBER-level region onto the same construct: one region
+    // per operation body carrying the OPERATION's own origin (the `operation
+    // confirm() {` header span), so the declaration line resolves to the
+    // method's real generated line instead of `<file>:1`.  It is recognised
+    // here by exactly that — its origin resolves to the member HEADER, where a
+    // statement region's resolves to a statement — and pinned separately below,
+    // so this case keeps asking the one-per-statement question it was written
+    // to ask.
+    const isDeclarationRegion = (r: {
+      origin: import("../../src/ir/types/origin.js").OriginRef;
+      targetCol?: [number, number];
+    }): boolean => {
+      if (r.targetCol) return false;
+      // NOTE the `toOriginRef`: a region read back off the JSON carries a WIRE
+      // origin, whose `span` is a two-element ARRAY — `resolveToSource` wants
+      // `{start, end}`, and handed the wire shape it returns a span whose
+      // `start`/`end` are `undefined` (so `SOURCE.slice(...)` silently yields
+      // the WHOLE source).  Converting first is what makes this predicate — and
+      // the per-token assertion at the end of this case — read the real span.
+      const resolved = resolveToSource(toOriginRef(r.origin as unknown as WireOriginRef));
+      return resolved !== undefined && SOURCE.slice(resolved.span.start).startsWith("operation ");
+    };
+    const opRegions = regions.filter((r) => r.construct === opConstruct);
+    const declRegions = opRegions.filter(isDeclarationRegion);
+    // Exactly one, on every backend, and it spans the whole rendered body.
+    expect(declRegions, `${platform}: one member-declaration region (F-021)`).toHaveLength(1);
+    const stmtRegions = opRegions
+      .filter((r) => r.targetCol === undefined && !isDeclarationRegion(r))
       .sort((a, b) => a.target[0] - b.target[0]);
     expect(stmtRegions).toHaveLength(tokens.length);
+    // It starts where the member's rendered body starts — the line a debugger
+    // can actually stop on — and covers that body fragment.  Only the FIRST
+    // statement's start is pinned, not the last statement's end: elixir hoists
+    // the `emit` into a fragment of its own (`renderEmitDispatchLines`), so
+    // there the declaration region covers the main body fragment and the
+    // hoisted one sits further down the file.
+    expect(declRegions[0]!.target[0]).toBe(stmtRegions[0]!.target[0]);
+    expect(declRegions[0]!.target[1]).toBeGreaterThanOrEqual(declRegions[0]!.target[0]);
+    expect(declRegions[0]!.target[1]).toBeLessThanOrEqual(fileLineCount);
     if (wholeFile) {
       expect(regions.length).toBeGreaterThan(stmtRegions.length);
     } else {

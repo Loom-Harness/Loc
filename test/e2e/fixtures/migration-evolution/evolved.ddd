@@ -8,17 +8,23 @@
 //     backfill, so the add is the safe add-nullable → UPDATE → SET NOT NULL
 //     sequence (M-T2.3), no flag needed.
 //   • `description: string?` added     — a plain nullable column.
+//   • `status: string` narrowed to `status: Status` — same TEXT column, new
+//     value set.  Non-destructive: the constraint is added `NOT VALID`, so the
+//     seeded v1 row survives whatever it holds (the harness seeds a value the
+//     enum still admits, so the surviving-row assertion stays exact).
 //
 // The `migration` block is ledger-style: permanent in source, inert once baked
 // into the baseline snapshot.
 system ShopEvo {
   subdomain Catalog {
     context Catalog {
+      enum Status { draft, live }
       aggregate Product with crudish {
         name: string
         unitPrice: money
         sku: string
         description: string?
+        status: Status
       }
       repository Products for Product { }
     }

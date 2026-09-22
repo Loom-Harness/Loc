@@ -10,9 +10,22 @@
 //     is byte-identical to before, and the layout passes no `current_user`.
 //   - A non-currentUser predicate (one touching `this`/params) leaves the
 //     link ungated (the sidebar has no record context).
+//
+// The two no-auth cases below carry NO page gate, and that is load-bearing.
+// They used to keep the default `requires currentUser.role == "agent"` while
+// dropping `auth: required` — a model `loom.current-user-needs-auth-ui` exists
+// to refuse, which validated clean only because `currentUser` lowered to
+// `refKind: "unknown"` without a `user { }` block (F-046).  So the emitter
+// silently DROPPED the gate and this suite pinned that as "byte-identical",
+// when what the author wrote was an authorization rule that never ran.  Now the
+// model is refused; the no-auth behaviour these cases actually care about — no
+// gating machinery, no `current_user` attr, no layout forwarding — is proved
+// with an ungated page, which is a model a user can still obtain.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
+import { validateLoomModel } from "../../../src/ir/validate/validate.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
+import { buildLoomModel } from "../../_helpers/ir.js";
 
 /** Auth (or no-auth) Phoenix LiveView app with two pages — one gated by a
  *  currentUser-only `requires`, one ungated — plus an explicit menu so both
@@ -54,34 +67,12 @@ ${deployAuth}  }
 `;
 }
 
-async function sidebar(opts: {
-  auth: boolean;
-  gate?: string;
-  /** Why this fixture is one the product refuses — see the `open == true`
-   *  case below.  Omitted for every valid fixture. */
-  unchecked?: string;
-}): Promise<string> {
-  const source = system(opts);
-  const files = opts.unchecked
-    ? await generateSystemFilesUnchecked(source, opts.unchecked)
-    : await generateSystemFiles(source);
+async function sidebar(opts: { auth: boolean; gate?: string }): Promise<string> {
+  const files = await generateSystemFiles(system(opts));
   const src = files.get("app/lib/app_web/components/sidebar.ex");
   expect(src, "sidebar.ex not emitted").toBeDefined();
   return src!;
 }
-
-// A page carrying a `requires` gate in an app with NO auth is a model the
-// product REFUSES — `loom.page-gate-not-client-evaluable` (phase ⑦) rejects a
-// gate naming a `currentUser` claim no `user { … }` block declares, and
-// `loom.current-user-needs-auth-ui` rejects the same page once the block is
-// added but the deployable still binds no session user.  So the emitter's
-// auth-off branch — "no `@current_user` exists, therefore gate nothing" — is
-// only REACHABLE on a rejected model, and the fixture has to stay one.
-// Dropping the gate instead would make "emits NO gating" trivially true and
-// stop the assertion from reaching the branch it names.
-const NO_AUTH_WHY =
-  "the sidebar's auth-off branch (no @current_user, so no gating) is only reachable on a " +
-  "model phase ⑦ rejects — a `requires` gate on a page in an app that binds no session user";
 
 describe("phoenix sidebar — menu-link gate", () => {
   it("wraps a gated page's link in `<%= if (@current_user.…) do %>` when auth is on", async () => {
@@ -108,7 +99,7 @@ describe("phoenix sidebar — menu-link gate", () => {
   });
 
   it("emits NO gating when the app has no auth (byte-identical)", async () => {
-    const src = await sidebar({ auth: false, unchecked: NO_AUTH_WHY });
+    const src = await sidebar({ auth: false, gate: "" });
     expect(src).not.toContain("<%= if (");
     expect(src).not.toContain("attr :current_user");
     // Both links still render, just ungated.
@@ -116,25 +107,38 @@ describe("phoenix sidebar — menu-link gate", () => {
     expect(src).toContain('navigate={~p"/public"}');
   });
 
-  it("leaves a non-currentUser predicate ungated (no record context in the sidebar)", async () => {
-    // `open` is not a currentUser claim — the sidebar can't evaluate it, so
-    // the link stays ungated even though auth is on.
+  it("REFUSES a non-currentUser predicate instead of silently leaving the link ungated", async () => {
+    // This case used to assert the sidebar emitted NO `if` wrapper for
+    // `requires open == true` — "the sidebar can't evaluate it, so the link
+    // stays ungated even though auth is on".  That is the same degrade the
+    // header above calls out for the two no-auth cases: an authorization rule
+    // the author wrote, turned into an ungated link with no diagnostic.
     //
-    // Phase ⑦ now REFUSES this model outright (`loom.page-gate-not-client-
-    // evaluable`: a page gate is re-evaluated in the browser, and `open` is
-    // not bound there), so the fixture has to stay invalid for the emitter
-    // behaviour it pins to be reachable at all — the sidebar's own
-    // "ungated unless the predicate is currentUser-only" rule is the last
-    // line of defence behind that gate, and a silently-gated link would be a
-    // security bug if the gate ever stopped firing.
-    const src = await sidebar({
-      auth: true,
-      gate: "requires open == true",
-      unchecked:
-        "the sidebar's non-currentUser-predicate fallback is only reachable on a model " +
-        "`loom.page-gate-not-client-evaluable` rejects — it is the defence behind that gate",
-    });
-    expect(src).not.toContain("<%= if (");
+    // `loom.page-gate-not-client-evaluable` now refuses it at phase ⑦ — `open`
+    // is an aggregate field, and a page gate is evaluated in the BROWSER before
+    // the page's data is read, so there is nothing to evaluate it against.  The
+    // model never reaches the emitter, which is why this asserts the refusal
+    // rather than the emitted output.  The sidebar's genuinely-ungated path is
+    // still covered, by the ungated-page cases above.
+    const loom = await buildLoomModel(system({ auth: true, gate: "requires open == true" }));
+    const errs = validateLoomModel(loom).filter((d) => d.severity === "error");
+    expect(errs.map((d) => d.code)).toContain("loom.page-gate-not-client-evaluable");
+    expect(errs.find((d) => d.code === "loom.page-gate-not-client-evaluable")!.message).toContain(
+      "`open` is outside that set",
+    );
+  });
+
+  it("REFUSES a no-auth ui whose page gate reads currentUser", async () => {
+    // The combination the two no-auth cases above used to rely on.  A page gate
+    // reading `currentUser` with no verified session user has nothing to
+    // evaluate against, so it is refused rather than silently dropped — which
+    // is what the sidebar emitter did before, turning an authorization rule
+    // into an ungated link with no diagnostic.
+    const loom = await buildLoomModel(system({ auth: false }));
+    const codes = validateLoomModel(loom)
+      .filter((d) => d.severity === "error")
+      .map((d) => d.code);
+    expect(codes).toContain("loom.current-user-needs-auth-ui");
   });
 
   it("forwards @current_user from the app layout to the sidebar when auth is on", async () => {
@@ -145,7 +149,7 @@ describe("phoenix sidebar — menu-link gate", () => {
   });
 
   it("the no-auth app layout passes no current_user (byte-identical)", async () => {
-    const files = await generateSystemFilesUnchecked(system({ auth: false }), NO_AUTH_WHY);
+    const files = await generateSystemFiles(system({ auth: false, gate: "" }));
     const layout = files.get("app/lib/app_web/components/layouts/app.html.heex");
     expect(layout, "app layout not emitted").toBeDefined();
     expect(layout!).not.toContain("current_user=");

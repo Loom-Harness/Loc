@@ -35,6 +35,7 @@ import {
   checkFixedSlotArity,
   checkFrontendCollectionOps,
   checkPrimitiveNamedArgs,
+  checkPrimitiveNamedArgValues,
   checkTableFilterSupport,
 } from "./ui-collection-display-checks.js";
 import { checkUserComponentSupport } from "./ui-component-deferral-checks.js";
@@ -223,6 +224,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkUnresolvedPageRefs(page, pageWhere(page), callableNames, diags);
         checkFixedSlotArity(page, pageWhere(page), diags);
         checkPrimitiveNamedArgs(page, pageWhere(page), diags);
+        checkPrimitiveNamedArgValues(page, pageWhere(page), diags);
         // The scaffolded list page is the only one whose filter bar the macro
         // builds, so the drop is only reportable there.
         const pageKind = classifyPage(page, {
@@ -301,6 +303,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           diags,
         );
         checkPrimitiveNamedArgs(comp, `component '${comp.name}'`, diags);
+        checkPrimitiveNamedArgValues(comp, `component '${comp.name}'`, diags);
         checkSubPrimitivePlacement(comp, `component '${comp.name}'`, diags);
         checkDataGridSelection(comp.body, comp.state, `component '${comp.name}'`, diags);
         checkChartArgs(

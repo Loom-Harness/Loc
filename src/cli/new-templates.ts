@@ -247,7 +247,7 @@ export function renderStarter(opts: {
 
   return `// ${sys} — scaffolded by \`ddd new\` (template: ${opts.template}, platform: ${opts.platform}).
 // Edit this model, then regenerate:
-//   ddd generate system main.ddd -o . && docker compose up
+//   npx ddd generate system main.ddd -o . && docker compose up
 
 system ${sys} {
 
@@ -261,9 +261,13 @@ system ${sys} {
   // Two limits to know before you turn it on.  The synthesised LIST read is
   // coverable — declare \`find all(): <T>[] requires <expr>\` on the repository
   // and the gate lands on \`GET /<plural>\`.  The synthesised BY-ID read is not:
-  // \`GET /<plural>/{id}\` has no author surface to attach a gate to, so under
-  // denyByDefault it still serves to any authenticated caller, and nothing
-  // warns (mission M-T3.19).  And \`with crudish\` generates its
+  // \`GET /api/<plural>/{id}\` has no author surface to attach a gate to, so
+  // under denyByDefault it still serves to any authenticated caller — the
+  // build now WARNS about each one (\`loom.default-deny-by-id-ungated\`) rather
+  // than passing silently, until the gate surface lands (mission M-T3.19).
+  // A tenancy filter still covers that route (a foreign tenant reads 404); what
+  // it does not cover is role separation within a tenant.
+  // And \`with crudish\` generates its
   // create/update/destroy, which likewise cannot carry a gate today:
   // hand-write those three on any aggregate you want gated until
   // \`crudish(requires: <Policy>)\` lands.  In both cases the gate is named at
@@ -325,27 +329,43 @@ A Loom project scaffolded with \`ddd new\` — platform **${opts.platform}**${
 
 \`\`\`bash
 # 1. Generate the project tree + docker-compose.yml in place
-ddd generate system main.ddd -o .
+npx ddd generate system main.ddd -o .
 
 # 2. Build and start the stack
 docker compose up --build
 \`\`\`
+
+(\`npx ddd\` — a bare \`ddd\` only works if you linked the CLI yourself; from a
+clone of the Loom repo the spelling is \`node bin/cli.js\`.)
 
 Then open:
 
 - Backend API:          http://localhost:${backendPort}
 ${frontendLine}
 
+Every REST route is mounted under \`/api\`, named by the aggregate's
+snake_cased plural — \`curl localhost:${backendPort}/api/<aggregates>\`, e.g. a
+\`Project\` aggregate serves \`GET /api/projects\` and \`GET /api/projects/{id}\`.
+The full surface is always \`GET /openapi.json\`.
+
 ## Edit the model
 
-Change \`main.ddd\` and re-run \`ddd generate system main.ddd -o .\`.
+Change \`main.ddd\` and re-run \`npx ddd generate system main.ddd -o .\`.
 Generation overwrites its own output every run; pin any file you hand-edit
 in \`.loomignore\` so it survives (see the comments in that file).
 
+Schema changes become migrations, so two files have to be **committed** for
+the next regenerate to produce a correct delta rather than a fresh baseline:
+\`.loom/snapshots/\` (the schema the migrations have built up) and
+\`.loom/main.migration-history.json\` (which versions this model has emitted).
+Without the second, generating into a directory that carries no migrations —
+a CI job, a fresh clone — re-issues the first migration under a version your
+database has already applied, and the change silently never lands.
+
 ## Learn more
 
-- Language reference: https://github.com/lemmit/loc/blob/main/docs/language.md
-- CLI & workflow:     https://github.com/lemmit/loc/blob/main/docs/tools.md
+- Language reference: https://github.com/Loom-Harness/loc/blob/main/docs/language.md
+- CLI & workflow:     https://github.com/Loom-Harness/loc/blob/main/docs/tools.md
 `;
 }
 
@@ -354,7 +374,7 @@ in \`.loomignore\` so it survives (see the comments in that file).
 export function renderLoomignore(): string {
   return `# .loomignore — pin files you hand-edit so \`ddd generate system\` leaves
 # them alone. gitignore syntax; paths are relative to this directory.
-# See https://github.com/lemmit/loc/blob/main/docs/tools.md#loomignore
+# See https://github.com/Loom-Harness/loc/blob/main/docs/tools.md#loomignore
 #
 # Uncomment the entrypoints/config you customise:
 # Program.cs
@@ -385,13 +405,13 @@ export const GENERATED_OUTPUT_LICENSE = `MIT License
 
 Copyright (c) ${new Date().getFullYear()} the authors of this generated project.
 
-This project was scaffolded by Loom (https://github.com/lemmit/loc), a
+This project was scaffolded by Loom (https://github.com/Loom-Harness/loc), a
 source-available DDD code generator licensed under FSL-1.1-Apache-2.0.
 The generator's license does NOT extend to this output: every file in
 this directory is licensed to you under the MIT License below.  Any
 runtime helper snippets that Loom embedded verbatim into this project
 are dual-licensed MIT OR Apache-2.0 in this context.  See
-https://github.com/lemmit/loc/blob/main/docs/license-faq.md for the
+https://github.com/Loom-Harness/loc/blob/main/docs/license-faq.md for the
 full posture.
 
 Permission is hereby granted, free of charge, to any person obtaining

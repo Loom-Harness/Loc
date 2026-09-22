@@ -2,6 +2,7 @@ import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
+import { validateCreateCallSites } from "./checks/create-call-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -26,6 +27,7 @@ import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
+  validateContainmentCycles,
   validateCurrentUserScope,
   validateDuplicateTables,
   validateEventSourcedDiscipline,
@@ -41,6 +43,7 @@ import {
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
   validateResourceOpPlacement,
+  validateUiPermissionRefs,
   validateUnionFindShapes,
   validateUnionsUnimplemented,
   validateUniqueColumns,
@@ -75,7 +78,6 @@ import {
   validateFieldMask,
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
-  validateFindPredicateAdapterSupport,
   validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
@@ -98,6 +100,7 @@ import {
   validateSavingShapeSupport,
   validateStampSupport,
   validateSystem,
+  validateTenancyFilterBypass,
   validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
@@ -113,6 +116,7 @@ import {
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
+import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 
@@ -164,6 +168,11 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
+    // Page gates and bodies name permissions too, and `validatePermissionRefs`
+    // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
+    // `ui` lowered to the sentinel and rendered as a literal no principal can
+    // hold, silently forbidding the page.  Same code, same sentinel, ui walk.
+    for (const ui of sys.uis) validateUiPermissionRefs(ui, diags);
     validateComposeUniqueness(sys, diags);
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
@@ -174,12 +183,14 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);
+    // F-005: dropping a TENANCY filter with `ignoring` is loud on its own
+    // merits, in every `auth { enforcement: }` mode.
+    validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
     validateTphFilterExpressibility(sys, diags);
-    validateFindPredicateAdapterSupport(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
@@ -229,6 +240,13 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // the normal IR-warning channel (api → LSP / playground / `parse --json`).
     // Warning-only, so it can't flip `ok` or block generation (both error-gated).
     validateIndexSuggestions(sys, diags);
+    // Advisory update-gate lint (audit D3) — WARNING-severity
+    // `loom.update-gate-suggestion` for a field that a `requires`-gated
+    // operation assigns AND `crudish`'s generic `update` mass-assigns, so the
+    // gate is bypassable through `update`.  Points at `immutable`, which
+    // removes the field from the update input while leaving the operation free
+    // to assign it.  Same advisory channel as the index lint above.
+    validateUpdateGateSuggestions(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking
@@ -283,6 +301,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateApplicationHandlers(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
+    validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
     validateGenericInstancesUnimplemented(
@@ -314,6 +333,11 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);
+  // `Agg.create({ … })` CALL SITES against the factory the emitters actually
+  // emit — `isConstructible` (no factory at all) + the required create-input
+  // set.  Whole-model: the call sites live in tests, workflow bodies, handlers
+  // and page actions alike, and `forEachModelExpr` reaches all of them.
+  validateCreateCallSites(loom, diags);
   // Migration-block data steps (M-T2.3): expression renderability / target /
   // type fit.
   validateMigrationDataSteps(loom, diags);

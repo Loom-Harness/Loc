@@ -125,22 +125,35 @@ describe("page requires gate — client-evaluable subset", () => {
     ).toEqual([]);
   });
 
-  it("rejects `permissions.<name>` on a hand-written page, quoting the chain and the runtime string", async () => {
+  // `permissions.<name>` USED to be this check's motivating case: it lowered to
+  // an unresolved `ref` and reached `renderGateExpr`, which threw a bare JS
+  // `Error` with no code and no page name.  main has since fixed that at the
+  // root — the name now lowers to its runtime string literal
+  // (`"warehouse.manage"`), so the gate is inside the subset and this check is
+  // correctly silent on it.  The acceptance case above pins that.
+  //
+  // The check is NOT obsolete: it is a fail-closed guard over three renderers
+  // that still throw on everything outside the subset, so it is re-pointed at a
+  // shape that is still outside it — a string method that is not the one
+  // collection membership the gate grammar allows.
+  it("rejects a method the gate grammar has no client form for, naming the page", async () => {
     const ds = await gateDiags({
-      pageGate: `currentUser.permissions.contains(permissions.manage)`,
+      pageGate: `currentUser.role.startsWith("staff")`,
     });
     expect(ds).toHaveLength(1);
     expect(ds[0]!.message).toContain("page 'Secret'");
-    // The whole chain, not just the unbound root — `permissions` alone sends
-    // the author looking for a reference they never spelled.
-    expect(ds[0]!.message).toContain("`permissions.manage` is outside that set");
-    // The mechanical rewrite, with the real runtime string filled in.
-    expect(ds[0]!.message).toContain(`currentUser.permissions.contains("warehouse.manage")`);
+    expect(ds[0]!.message).toContain("`.startsWith(…)` is outside that set");
+  });
+
+  it("stays silent on `permissions.<name>`, which main now resolves to its runtime string", async () => {
+    expect(
+      await gateDiags({ pageGate: `currentUser.permissions.contains(permissions.manage)` }),
+    ).toEqual([]);
   });
 
   it("rejects the workflow-instance pages the scaffold copies a header gate onto, and names the workflow", async () => {
     const ds = await gateDiags({
-      workflowGate: `currentUser.permissions.contains(permissions.manage)`,
+      workflowGate: `currentUser.role.startsWith("staff")`,
     });
     // Both synthesised instance pages carry the copied gate.
     expect(ds.map((d) => d.message.match(/page '(\w+)'/)?.[1]).sort()).toEqual([
@@ -149,7 +162,7 @@ describe("page requires gate — client-evaluable subset", () => {
     ]);
     for (const d of ds) {
       expect(d.message).toContain("COPY of the header `requires` on workflow 'Restock'");
-      expect(d.message).toContain("`permissions.manage` is outside that set");
+      expect(d.message).toContain("`.startsWith(…)` is outside that set");
     }
   });
 
@@ -182,7 +195,7 @@ describe("the accepted subset is exactly what the frontend gate renderers can re
 
   it("the gate the check REJECTS is the one all three renderers throw on", async () => {
     const ir = (
-      await pageGateIR({ pageGate: `currentUser.permissions.contains(permissions.manage)` })
+      await pageGateIR({ pageGate: `currentUser.role.startsWith("staff")` })
     ).Secret!;
     expect(firstNonUiGateNode(ir)).not.toBeNull();
     for (const [name, render] of RENDERERS) {

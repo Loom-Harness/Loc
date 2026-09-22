@@ -36,20 +36,22 @@ async function appFs(): Promise<string> {
 describe("feliz per-field form validation", () => {
   it("wires the touched-set state (Model / init / Msg / update)", async () => {
     const app = await appFs();
-    expect(app).toContain("ProductFormTouched: Set<string>");
-    expect(app).toContain("ProductFormTouched = Set.empty");
-    expect(app).toContain("| TouchProductForm of string");
+    expect(app).toContain("ProductCreateFormTouched: Set<string>");
+    expect(app).toContain("ProductCreateFormTouched = Set.empty");
+    expect(app).toContain("| TouchProductCreateForm of string");
     expect(app).toContain(
-      "| TouchProductForm field -> { model with ProductFormTouched = Set.add field model.ProductFormTouched }, Cmd.none",
+      "| TouchProductCreateForm field -> { model with ProductCreateFormTouched = Set.add field model.ProductCreateFormTouched }, Cmd.none",
     );
   });
 
   it("emits a per-field error fn alongside the whole-form validity guard", async () => {
     const app = await appFs();
     // The submit-gate predicate stays.
-    expect(app).toContain("let productFormValid (form: ProductForm) : bool =");
+    expect(app).toContain("let productCreateFormValid (form: ProductCreateForm) : bool =");
     // Plus a per-field error function returning a message option.
-    expect(app).toContain("let productFormNameError (form: ProductForm) : string option =");
+    expect(app).toContain(
+      "let productCreateFormNameError (form: ProductCreateForm) : string option =",
+    );
     expect(app).toContain(
       'if System.String.IsNullOrWhiteSpace form.name then Some "Required" else None',
     );
@@ -58,7 +60,7 @@ describe("feliz per-field form validation", () => {
   it("renders the inline error via the View.fieldError helper, gated on touched", async () => {
     const app = await appFs();
     // The input marks the field touched on blur.
-    expect(app).toContain('prop.onBlur (fun _ -> dispatch (TouchProductForm "name"))');
+    expect(app).toContain('prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "name"))');
     // The repeated touched+error matching is factored into a `View.fieldError`
     // helper (beside View.remoteList) — not inlined at every input.  It takes the
     // error element's id (for the input's aria-describedby).
@@ -66,7 +68,7 @@ describe("feliz per-field form validation", () => {
       "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: string option) : ReactElement =",
     );
     expect(app).toContain(
-      '(View.fieldError model.ProductFormTouched "name" "ProductForm-name-error" (Validation.productFormNameError model.ProductForm))',
+      '(View.fieldError model.ProductCreateFormTouched "name" "ProductCreateForm-name-error" (Validation.productCreateFormNameError model.ProductCreateForm))',
     );
     // The error <p> carries that id so a screen reader can associate it.
     expect(app).toContain("Html.p [ prop.id fieldId;");
@@ -78,14 +80,14 @@ describe("feliz per-field form validation", () => {
     // (the same condition that reveals the visible message), and points at the
     // error element via aria-describedby.
     expect(app).toContain(
-      'prop.ariaInvalid ((model.ProductFormTouched |> Set.contains "name") && (Validation.productFormNameError model.ProductForm |> Option.isSome)); prop.ariaDescribedBy "ProductForm-name-error"',
+      'prop.ariaInvalid ((model.ProductCreateFormTouched |> Set.contains "name") && (Validation.productCreateFormNameError model.ProductCreateForm |> Option.isSome)); prop.ariaDescribedBy "ProductCreateForm-name-error"',
     );
   });
 
   it("leaves an optional field free of touched/error wiring", async () => {
     const app = await appFs();
     // `note` is optional → no onBlur, no error element, no touched entry.
-    expect(app).not.toContain('TouchProductForm "note"');
-    expect(app).not.toContain("productFormNoteError");
+    expect(app).not.toContain('TouchProductCreateForm "note"');
+    expect(app).not.toContain("productCreateFormNoteError");
   });
 });

@@ -6,8 +6,10 @@ import type {
   OperationIR,
   TestIR,
   TestStmtIR,
+  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
 import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
@@ -209,7 +211,7 @@ end
 function renderTest(t: TestIR, env: Env): string[] {
   try {
     const used = usedRefNames(t.statements);
-    const lines = t.statements.flatMap((s) => renderStmt(s, env, used));
+    const lines = t.statements.flatMap((s, i) => renderStmt(s, env, used, i));
     return [`test ${elixirString(t.name)} do`, ...lines.map((l) => `  ${l}`), "end"];
   } catch (err) {
     // ONLY a deliberate "can't lower this shape" signal degrades to a skip
@@ -221,7 +223,7 @@ function renderTest(t: TestIR, env: Env): string[] {
   }
 }
 
-function renderStmt(s: TestStmtIR, env: Env, used: Set<string>): string[] {
+function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): string[] {
   switch (s.kind) {
     case "let": {
       const name = used.has(s.name) ? escapeElixirIdent(snake(s.name)) : `_${snake(s.name)}`;
@@ -234,7 +236,7 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>): string[] {
     case "expect":
       return [renderExpect(s.expr, env)];
     case "expect-throws":
-      return [renderThrows(s.expr, env)];
+      return renderThrows(s.expr, env, s.throwKind, index);
     case "expression": {
       // A bare operation call is state-threading setup: `p.confirm()` →
       // rebind the receiver to the returned (mutated) struct.
@@ -251,6 +253,22 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>): string[] {
   }
 }
 
+/** `string?` is still a string for containment; `string[]?` still a list. */
+function unwrapOptionalType(t: TypeIR): TypeIR {
+  return t.kind === "optional" ? unwrapOptionalType(t.inner) : t;
+}
+
+/** The asserted subject's resolved type, with `.not.` peeled.
+ *
+ *  `receiverType` is the type of the matcher's RECEIVER, and for a negated
+ *  assertion that receiver is the synthetic `.not` member rather than the
+ *  value under test — so read the type off the `.not` node's own receiverType
+ *  in that case, or the dispatch below sees the wrong type. */
+function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): TypeIR {
+  const recv = expr.receiver;
+  return recv.kind === "member" && recv.member === "not" ? recv.receiverType : expr.receiverType;
+}
+
 export function renderExpect(expr: ExprIR, env: Env): string {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) {
     throw new UnsupportedTestShapeError("expect requires a matcher");
@@ -263,11 +281,42 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   }
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
   const op = MATCHER_OP[expr.member];
-  if (!op) throw new UnsupportedTestShapeError(`unsupported value matcher '${expr.member}'`);
   const actual = vtExpr(inner, env);
   const arg = expr.args[0];
   const expected = arg ? vtExpr(arg, env) : "";
   const verb = (s: string): string => (negate ? `refute ${s}` : `assert ${s}`);
+
+  // Absence.  An Elixir struct field that holds nothing holds `nil`, so the
+  // language's one absence value is `nil` here.  `is_nil/1` rather than
+  // `== nil` keeps the assertion a guard, which ExUnit reports more usefully.
+  // (`toBeAbsent` never reaches this emitter — it is e2e-only: a struct
+  // ALWAYS carries its declared keys, defaulted to nil, so in-process there is
+  // no absent form to observe.)
+  if (expr.member === "toBeNull") return verb(`is_nil(${actual})`);
+
+  // Containment — the one backend where the DSL's "two lowerings, chosen by
+  // the subject's type" is literally two different function calls.  Elixir has
+  // no operator covering both: `in` is membership in an enumerable and would
+  // raise `Protocol.UnimplementedError` on a binary, while `String.contains?/2`
+  // is substring and would raise `FunctionClauseError` on a list.  Picking the
+  // wrong one is a run-time crash in the generated suite, not a wrong answer,
+  // so read the SUBJECT'S RESOLVED TYPE off the IR — the same dispatch
+  // `checkContainReceiver` validated, which has already refused every third
+  // receiver type.
+  if (expr.member === "toContain") {
+    const t = unwrapOptionalType(matcherSubjectType(expr));
+    if (t.kind === "array") return verb(`${expected} in ${actual}`);
+    if (t.kind === "primitive" && t.name === "string") {
+      return verb(`String.contains?(${actual}, ${expected})`);
+    }
+    throw new UnsupportedTestShapeError(
+      `toContain over a '${t.kind}' subject: elixir spells collection membership and ` +
+        "substring as two different calls, and this subject is neither a collection nor " +
+        "a string",
+    );
+  }
+
+  if (!op) throw new UnsupportedTestShapeError(`unsupported value matcher '${expr.member}'`);
 
   if (isMoneyLike(inner, arg)) {
     if (expr.member === "toBe") return verb(`Decimal.equal?(${actual}, ${expected})`);
@@ -276,18 +325,53 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   return verb(`${actual} ${op} ${expected}`);
 }
 
-function renderThrows(expr: ExprIR, env: Env): string {
+function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): string[] {
   const inner = expr.kind === "paren" ? expr.inner : expr;
   if (isCreate(inner)) {
     // A failed create returns {:error, changeset}; it does not raise.
-    return `assert {:error, _} = ${renderCreate(inner, env)}`;
+    //
+    // The changeset IS this backend's invariant floor — `validate_invariants/1`
+    // is piped into `base_changeset` (changeset-invariant-emit.ts) — so an
+    // `invariant` rung reads honestly here.  A `precondition` does NOT: the
+    // pure `create/1` is `base_changeset |> apply_action(:insert)` with no
+    // guard in it at all, so there is nothing for that rung to trip.
+    if (kind === "precondition") {
+      throw new UnsupportedTestShapeError(
+        "toThrow(precondition) over a create: the vanilla pure `create/1` applies a " +
+          "changeset and runs no guard, so a precondition has no in-memory subject",
+      );
+    }
+    return [`assert {:error, _} = ${renderCreate(inner, env)}`];
   }
   if (inner.kind === "method-call" && isAggOp(inner, env)) {
     // A failed `precondition` / `requires` raises the typed `<App>.GuardError`
     // before any persist.  ONE exception type for both rungs (the `:kind` field
-    // separates them) is what lets this assertion stay shape-agnostic — a
+    // separates them) is what lets the BARE assertion stay shape-agnostic — a
     // `toThrow()` expression doesn't say which rung the op will trip.
-    return `assert_raise ${guardErrorModule(appModuleOf(env.ctxModule))}, fn -> ${renderOp(inner, env)} end`;
+    const guardError = guardErrorModule(appModuleOf(env.ctxModule));
+    const raises = `assert_raise ${guardError}, fn -> ${renderOp(inner, env)} end`;
+    if (kind === "invariant") {
+      // Unlike the other four backends, the vanilla pure op core does NOT run
+      // the invariant floor: `complete/2` is preconditions plus an in-memory
+      // struct update, and the aggregate's invariants live in the Ecto
+      // changeset, which only the PERSISTENCE path pipes through.  So an
+      // `invariant` rung has no in-memory subject on this backend — say so
+      // through the established seam rather than emitting an assertion that
+      // can only fail, or one that passes for the wrong reason.
+      throw new UnsupportedTestShapeError(
+        "toThrow(invariant) over an aggregate operation: the vanilla pure op core runs " +
+          "preconditions only — aggregate invariants are enforced in the Ecto changeset " +
+          "(`validate_invariants/1`), which no in-memory op call reaches",
+      );
+    }
+    if (kind === "precondition") {
+      // THE structural form, and the reason this backend needs no message
+      // prefix: `GuardError` is `defexception [:message, :kind]`, so the rung
+      // is a field rather than a substring an authored `message` could erase.
+      const bound = `__thrown${index}`;
+      return [`${bound} = ${raises}`, `assert ${bound}.kind == :${kind}`];
+    }
+    return [raises];
   }
   // A value-object construction invariant (F5): `expect(Money{-1}).toThrow()` →
   // the VO's validating constructor returns {:error, _}.  Only VOs that declare
@@ -297,8 +381,16 @@ function renderThrows(expr: ExprIR, env: Env): string {
     inner.callKind === "value-object-ctor" &&
     env.validatableVos.has(inner.name)
   ) {
+    // A value object declares `invariant`s and nothing else — it has no
+    // operation body, so no `precondition` can exist for that rung to name.
+    if (kind === "precondition") {
+      throw new UnsupportedTestShapeError(
+        "toThrow(precondition) over a value-object construction: a value object declares " +
+          "invariants only, so there is no precondition to trip",
+      );
+    }
     const voMod = `${env.ctxModule}.${upperFirst(inner.name)}`;
-    return `assert {:error, _} = ${voMod}.new(${vtExpr(inner, env)})`;
+    return [`assert {:error, _} = ${voMod}.new(${vtExpr(inner, env)})`];
   }
   throw new UnsupportedTestShapeError(
     "toThrow over a non-create/op/validatable-VO expression is not runnable on vanilla",

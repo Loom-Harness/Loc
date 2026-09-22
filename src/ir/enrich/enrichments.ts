@@ -1613,27 +1613,73 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
   });
   const redacted = lit("<redacted>");
 
-  /** Stringify a single primitive/id/enum/string LEAF access node.
-   * Caller picks the access (top-level `ref` to a stored property,
-   * or `member` access through a containing VO).  Out-of-scope
-   * shapes (entity refs, arrays, optionals) return the placeholder
-   * — see the type-shorthand fallback at the bottom. */
-  const stringifyLeaf = (access: ExprIR, fieldType: TypeIR, sensitive: boolean): ExprIR => {
-    if (sensitive) return redacted;
-    if (fieldType.kind === "primitive" && fieldType.name === "string") {
+  /** The rendered form of a single primitive/id/enum/string LEAF, or `null`
+   * when the type is not a stringifiable leaf (entity refs, arrays, VOs — the
+   * caller falls back to the type shorthand).  Takes the UNWRAPPED type: an
+   * optional's presence check is {@link stringifyLeaf}'s job. */
+  const leafText = (access: ExprIR, t: TypeIR): ExprIR | null => {
+    if (t.kind === "primitive" && t.name === "string") {
       // Wrap as `'<value>'` — open quote, value, close quote.
       return concat(concat(lit("'"), access), lit("'"));
     }
-    if (fieldType.kind === "primitive" || fieldType.kind === "id" || fieldType.kind === "enum") {
+    if (t.kind === "primitive" || t.kind === "id" || t.kind === "enum") {
       const fromPrimitive =
-        fieldType.kind === "primitive"
-          ? fieldType.name
-          : fieldType.kind === "id"
-            ? fieldType.valueType
-            : undefined;
+        t.kind === "primitive" ? t.name : t.kind === "id" ? t.valueType : undefined;
       return { kind: "convert", target: "string", from: fromPrimitive, value: access };
     }
-    return lit(`[${typeShorthand(fieldType)}]`);
+    return null;
+  };
+
+  /** Stringify a single LEAF access node.  Caller picks the access (top-level
+   * `ref` to a stored property, or `member` access through a containing VO).
+   *
+   * An OPTIONAL leaf renders as a presence ternary rather than the type
+   * shorthand.  It used to fall through to the shorthand with everything else,
+   * so `nickname: string?` printed the literal text `[string?]` on all five
+   * backends — and `inspect` is what `toString()` / `Inspect` delegate to, i.e.
+   * the string a developer reads out of an exception or a log line.  An
+   * optional scalar is a LEAF: it has a value or it does not, and both are
+   * printable.  (The shorthand stays right for arrays, entity refs and
+   * containments — those are unbounded or cyclic, which is what it is for.)
+   *
+   * The absent branch is a LITERAL the emitter controls, deliberately: letting
+   * a null ride the `convert`-to-string arm renders `"null"` on node/java,
+   * `"None"` on python and `""` on .NET/elixir, so the five backends would
+   * disagree on the same model.  A quoted string's quotes belong to the PRESENT
+   * branch only, so an absent one reads `nickname: null`, never `''`. */
+  const stringifyLeaf = (
+    access: ExprIR,
+    fieldType: TypeIR,
+    sensitive: boolean,
+    optional = false,
+  ): ExprIR => {
+    if (sensitive) return redacted;
+    const isOptional = optional || fieldType.kind === "optional";
+    const inner = fieldType.kind === "optional" ? fieldType.inner : fieldType;
+    const leaf = leafText(access, inner);
+    if (!leaf) return lit(`[${typeShorthand(fieldType)}]`);
+    if (!isOptional) return leaf;
+    // PARENTHESISED, and that is load-bearing.  Every use of this result is an
+    // operand of the surrounding `+` concat chain, and in C#/Java/TS `+` binds
+    // TIGHTER than `==` and `?:` — so a bare ternary reassociates into
+    // `("nickname: " + this.Nickname) == null ? … : …`, which still COMPILES
+    // (comparing a string to null is legal) and silently prints the wrong
+    // string.  Measured on the first build of this change, on .NET and Java.
+    const guarded: ExprIR = {
+      kind: "ternary",
+      cond: {
+        kind: "binary",
+        op: "==",
+        left: access,
+        right: { kind: "literal", lit: "null", value: "null" },
+        leftType: fieldType,
+        resultType: { kind: "primitive", name: "bool" },
+      },
+      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then` across the IR
+      then: lit("null"),
+      otherwise: leaf,
+    };
+    return { kind: "paren", inner: guarded };
   };
 
   /** Inline a VO field's structural inspect: each VO field becomes a
@@ -1666,7 +1712,7 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
         receiverType: voType,
         memberType: f.type,
       };
-      pieces.push(stringifyLeaf(access, f.type, isSensitive));
+      pieces.push(stringifyLeaf(access, f.type, isSensitive, f.optional === true));
       first = false;
     }
     pieces.push(lit(")"));
@@ -1677,7 +1723,12 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
     return expr;
   };
 
-  const valueForField = (fieldName: string, fieldType: TypeIR, sensitive: boolean): ExprIR => {
+  const valueForField = (
+    fieldName: string,
+    fieldType: TypeIR,
+    sensitive: boolean,
+    optional = false,
+  ): ExprIR => {
     if (sensitive) return redacted;
     // Single (non-array, non-optional) VO with a known definition →
     // inline the VO's structural form so debug strings show the
@@ -1696,7 +1747,7 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
       refKind: "this-prop",
       type: fieldType,
     };
-    return stringifyLeaf(ref, fieldType, false);
+    return stringifyLeaf(ref, fieldType, false, optional);
   };
 
   const pieces: ExprIR[] = [lit(`${agg.name}(`)];
@@ -1720,7 +1771,7 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
   // Stored properties.
   for (const f of agg.fields) {
     const isSensitive = !!f.sensitivity && f.sensitivity.length > 0;
-    pushField(f.name, valueForField(f.name, f.type, isSensitive));
+    pushField(f.name, valueForField(f.name, f.type, isSensitive, f.optional === true));
   }
 
   // Containments: short structural placeholder.  Not recursed into —

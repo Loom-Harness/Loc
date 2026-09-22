@@ -1,7 +1,7 @@
 // Auto-generated.  Do not edit by hand.
 import { z } from "zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, seg } from "./client";
+import { api, ifMatch, seg } from "./client";
 
 export const OrderStatusSchema = z.enum(["Draft", "Confirmed", "Shipped", "Cancelled"]);
 
@@ -134,7 +134,8 @@ export function useUpdateOrder(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: UpdateOrderRequest) => {
-      await api.post(`/orders/${seg(id)}/update`, input);
+      const loaded = qc.getQueryData<OrderResponse>(["orders", id]);
+      await api.post(`/orders/${seg(id)}/update`, input, ifMatch(loaded?.version));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["orders", id] });

@@ -18,6 +18,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
+import { throwKindPatternSource } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
@@ -284,6 +285,13 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
  *  context-integration renderer, which shares the matcher mapping (its
  *  let-bound-find constraint keeps the actual expression await-free). */
 export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): string | null {
+  // `toBeNull` and `toContain` need NO arm here, and that is deliberate rather
+  // than an omission: both are native vitest matchers whose names line up 1:1
+  // with the DSL's, and vitest's `toContain` already performs at run time the
+  // same subject dispatch the other four backends have to spell out (element
+  // membership for an array, substring for a string).  The generic tail below
+  // renders them correctly.  `toBeAbsent` never reaches this emitter — it is
+  // e2e-only (`loom.unit-absent-invalid`).
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
   let receiver = expr.receiver;
   let negate = false;
@@ -314,7 +322,15 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)); got a bare expression.");
   }
   if (s.kind === "expect-throws") {
-    return `  expect(() => { ${renderTestExpr(s.expr, ctx)}; }).toThrow();`;
+    const call = `() => { ${renderTestExpr(s.expr, ctx)}; }`;
+    // `toThrow(<kind>)` — pin WHICH rung rejected, not merely that something
+    // did.  vitest's `toThrow` takes a RegExp, so the rung's derived message
+    // prefix becomes an anchored pattern; without it a deleted `precondition`
+    // reads as green the moment an `invariant` throws in its place (F11).
+    if (s.throwKind) {
+      return `  expect(${call}).toThrow(/${throwKindPatternSource(s.throwKind)}/);`;
+    }
+    return `  expect(${call}).toThrow();`;
   }
   if (s.kind === "let") {
     return `  const ${escapeTsIdent(s.name)} = ${renderTestExpr(s.expr, ctx)};`;

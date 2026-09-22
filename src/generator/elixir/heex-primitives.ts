@@ -684,29 +684,80 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   const idAttr = testidArg ? attrValue(testidArg, ctx) : `"data-table${seq > 1 ? `-${seq}` : ""}"`;
   const testidAttr = testIdAttr(expr, ctx);
 
-  // ---- Interactive controls (M-T1.1, HEEx leg) ----------------------------
-  // `sortKey:`/`sortDir:`/`page:` are bare page-state refs; `serverPaged:` +
-  // `totalPages:` come from the scaffold's paged `all` QueryView.  Sorting and
-  // paging are SERVER-driven here: the header buttons and pager write state,
-  // and the hoisted `handle_event` clauses (liveview-emit.ts) re-run
-  // `list_<agg>s/4` with the new arguments.  Absent args ⇒ every branch below
-  // is skipped and the emitted table is byte-identical to before.
+  // ---- Interactive controls (M-T1.1 / F2-MT640-SORT-DEAD, HEEx leg) -------
+  // `sortKey:`/`sortDir:`/`page:`/`filter:` are bare page-state refs;
+  // `serverPaged:` + `totalPages:` come from the scaffold's paged `all`
+  // QueryView.  Absent args ⇒ every branch below is skipped and the emitted
+  // table is byte-identical to before.  There are two modes:
   //
-  // They are ALSO skipped for a CLIENT-paged table (`serverPaged:` absent —
-  // the shape a document/embedded/event-sourced/inheritance aggregate's
-  // non-paged `find all` produces).  The JSX targets slice and sort such a list
-  // in the browser; HEEx has no client-side sort, so the refetch the hoisted
-  // clause performs calls the argument-less `list_<agg>s/0` and returns the
-  // very same rows — clickable headers that flip an arrow and change nothing
-  // (F2-MT640-SORT-DEAD).  Emitting no affordance is the honest rendering: the
-  // UI stops advertising a capability the repository does not expose.
+  //  SERVER mode (`serverPaged: true`) — the bound rows are ALREADY the
+  //    server's window.  The header buttons and the pager write state, and the
+  //    hoisted `handle_event` clauses (liveview-emit.ts) re-run
+  //    `list_<agg>s/4` with the new arguments, letting the repository's
+  //    whitelisted `ORDER BY` + `LIMIT`/`OFFSET` do the work.
+  //
+  //  CLIENT mode (`serverPaged:` absent — a document / embedded /
+  //    event-sourced / inheritance aggregate's non-paged `find all`, and every
+  //    hand-written `Table`) — the bound rows are the WHOLE list, so the
+  //    filter, the sort and the page window are applied IN THE TEMPLATE over
+  //    the shared `LoomTable` helper module, which is what the four JSX
+  //    frontends do in the browser for the very same `.ddd`.  Until wave C2
+  //    packet 2m these args were dropped here, so Phoenix rendered an
+  //    unsorted, unpaged, unfiltered table for a model that sorts, pages and
+  //    filters everywhere else (F2-MT640-SORT-DEAD, the ledger's one P1 — the
+  //    dead `sort_key`/`sort_dir`/`page_num` mount assigns were its residue,
+  //    not the defect).  The refetch the hoisted clause performs is the one
+  //    thing client mode must NOT do: `list_<agg>s/0` answers the same rows,
+  //    which is why the clauses are emitted reload-less there
+  //    (`TableControlBinding.server`).
   const serverPaged = isTrueLit(namedArg(expr, "serverPaged"));
-  const sortKey = serverPaged ? stateRefArg(expr, "sortKey", ctx) : undefined;
-  const sortDir = serverPaged ? stateRefArg(expr, "sortDir", ctx) : undefined;
-  const pageRef = serverPaged ? stateRefArg(expr, "page", ctx) : undefined;
-  const sortActive = sortKey !== undefined && sortDir !== undefined;
-  if (sortActive || pageRef !== undefined) {
-    ctx.tableControls.push({ sortKey, sortDir, page: pageRef });
+  const sortKey = stateRefArg(expr, "sortKey", ctx);
+  const sortDir = stateRefArg(expr, "sortDir", ctx);
+  const pageRef = stateRefArg(expr, "page", ctx);
+  // A client filter narrows the bound rows; a SERVER-paged table's rows are one
+  // server window, so narrowing them would filter that page rather than the
+  // result set — the shared walker gates it off the same way (`!serverPaged`),
+  // and `loom.table-filter-server-paged` refuses the shape upstream.
+  const filterRef = serverPaged ? undefined : stateRefArg(expr, "filter", ctx);
+  const pageSize = intArg(expr, "pageSize") ?? 10;
+  const helpers = `${ctx.appModule}Web.Components.LoomTable`;
+
+  // Client-side transforms, in the SAME order the shared walker applies them
+  // (filter → sort → slice), so both engines page over the same row set.
+  let filterMarkup = "";
+  // The row set the pager counts: after filtering, before slicing.  Sorting
+  // reorders and never changes the count, so it is not in this expression.
+  let countBase = rowsExpr;
+  if (filterRef !== undefined) {
+    ctx.tableHelpersUsed.value = true;
+    countBase = `${helpers}.filter_rows(${rowsExpr}, @${filterRef})`;
+    filterMarkup = `${renderTableFilterInput(filterRef, ctx)}\n`;
+  }
+  // A client sort needs a resolvable row field per sortable column — the
+  // helper matches the clicked `sort_field` against this whitelist and leaves
+  // the rows alone on anything else, so no atom is ever created from client
+  // input.  With none resolvable the affordance is not advertised at all
+  // (a header that cannot sort is the F2-MT640-SORT-DEAD defect in miniature).
+  const sortPairs = serverPaged ? [] : sortableColumnFields(expr);
+  const sortActive =
+    sortKey !== undefined && sortDir !== undefined && (serverPaged || sortPairs.length > 0);
+  let rowsAttr = countBase;
+  if (sortActive && !serverPaged) {
+    ctx.tableHelpersUsed.value = true;
+    rowsAttr = `${helpers}.sort_rows(${countBase}, @${sortKey}, @${sortDir}, ${renderSortWhitelist(sortPairs)})`;
+  }
+  const pageActive = pageRef !== undefined && (serverPaged || pageSize > 0);
+  if (pageActive && !serverPaged) {
+    ctx.tableHelpersUsed.value = true;
+    rowsAttr = `${helpers}.page_rows(${rowsAttr}, @${pageRef}, ${pageSize})`;
+  }
+  if (sortActive || pageActive) {
+    ctx.tableControls.push({
+      sortKey: sortActive ? sortKey : undefined,
+      sortDir: sortActive ? sortDir : undefined,
+      page: pageActive ? pageRef : undefined,
+      server: serverPaged,
+    });
   }
   // The active sort feeds the header indicator + `aria-sort`.
   const sortAttrs = sortActive ? ` sort_key={@${sortKey}} sort_dir={@${sortDir}}` : "";
@@ -719,22 +770,84 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     )
     .join("\n");
   const table = [
-    `<.table id=${idAttr}${testidAttr}${sortAttrs} rows={${rowsExpr}}>`,
+    `<.table id=${idAttr}${testidAttr}${sortAttrs} rows={${rowsAttr}}>`,
     colSlots.length > 0 ? indent(colSlots, 2) : `  <:col :let={_row} label="Data"></:col>`,
     `</.table>`,
   ].join("\n");
 
-  // The pager renders as a sibling BELOW the table (HEEx tolerates multiple
-  // roots, so no fragment wrapper is needed — the JSX `wrapMultiRoot` seam has
-  // no HEEx analogue).  Server mode reads the page count off the envelope's
-  // `totalPages`; a client-side (non-server-paged) list has no count to show
-  // without slicing in the template, so the pager is server-only here.
+  // The filter box renders ABOVE the table and the pager BELOW it (HEEx
+  // tolerates multiple roots, so no fragment wrapper is needed — the JSX
+  // `wrapMultiRoot` seam has no HEEx analogue).  Server mode reads the page
+  // count off the envelope's `totalPages`; client mode counts the filtered
+  // rows itself, which is what `LoomTable.total_pages/2` exists for.
   const totalPagesArg = namedArg(expr, "totalPages");
-  if (pageRef !== undefined && totalPagesArg) {
-    const totalPages = renderPagedEnvelopeRead(totalPagesArg, ctx);
-    return `${table}\n<.pager page={@${pageRef}} total_pages={${totalPages}} />`;
+  let pager = "";
+  if (pageActive && serverPaged && totalPagesArg) {
+    pager = `\n<.pager page={@${pageRef}} total_pages={${renderPagedEnvelopeRead(totalPagesArg, ctx)}} />`;
+  } else if (pageActive && !serverPaged) {
+    ctx.tableHelpersUsed.value = true;
+    pager = `\n<.pager page={@${pageRef}} total_pages={${helpers}.total_pages(${countBase}, ${pageSize})} />`;
   }
-  return table;
+  return `${filterMarkup}${table}${pager}`;
+}
+
+/** The search box a `Table { filter: <state> }` binds, rendered above the
+ *  table — the HEEx leg of the shared walker's `renderFilterInput` seam
+ *  (`loom.table-filter-unsupported`, M-T1.1).
+ *
+ *  Same shape as every other bound input on this target (`controlledInput`):
+ *  an `<.input>` whose `phx-change` writes the bound assign, with the
+ *  write-back clause hoisted once into the host LiveView.  The re-render that
+ *  follows re-runs `LoomTable.filter_rows/2` in the template — there is
+ *  nothing to refetch, which is why `withQueryReload` leaves this clause alone
+ *  (no list read depends on the assign).
+ *
+ *  The attributes mirror the React seam's (`type="search"`, the `Filter…`
+ *  placeholder, `aria-label`, `data-testid="table-filter"`) so one Playwright
+ *  selector drives both frontends. */
+function renderTableFilterInput(field: string, ctx: WalkContext): string {
+  const eventName = `update_${field}`;
+  if (!ctx.handlers.some((h) => h.name === eventName)) {
+    ctx.handlers.push({
+      name: eventName,
+      paramsPattern: `%{"${field}" => value}`,
+      body: [`    {:noreply, assign(socket, :${field}, value)}`],
+    });
+  }
+  return (
+    `<.input type="search" name="${field}" value={@${field}} placeholder="Filter…" ` +
+    `aria-label="Filter table" phx-change="${eventName}" data-testid="table-filter" />`
+  );
+}
+
+/** Every `sortable:` column's `(wire key, Elixir struct field)` pair, in
+ *  declaration order — the whitelist `LoomTable.sort_rows/4` matches the
+ *  clicked `sort_field` against.  The two spellings differ: the header sends
+ *  the `.ddd` field name (`unitPrice`, what the server path also receives),
+ *  while the row is an Ecto struct keyed `:unit_price`. */
+function sortableColumnFields(
+  expr: Extract<ExprIR, { kind: "call" }>,
+): { key: string; field: string }[] {
+  const out: { key: string; field: string }[] = [];
+  for (const c of expr.args) {
+    if (c.kind !== "call" || c.name !== "Column") continue;
+    const key = columnSortField(c);
+    if (key !== undefined) out.push({ key, field: snake(key) });
+  }
+  return out;
+}
+
+/** `[{"unitPrice", :unit_price}, {"sku", :sku}]` — an Elixir list literal. */
+function renderSortWhitelist(pairs: readonly { key: string; field: string }[]): string {
+  return `[${pairs.map((p) => `{"${p.key}", :${p.field}}`).join(", ")}]`;
+}
+
+/** An integer-literal named arg (`pageSize: 10`), or undefined. */
+function intArg(expr: Extract<ExprIR, { kind: "call" }>, name: string): number | undefined {
+  const arg = namedArg(expr, name);
+  if (arg?.kind !== "literal") return undefined;
+  const n = Number(arg.value);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** Read a field off the paged envelope (`rows.totalPages` → `@items.totalPages`).

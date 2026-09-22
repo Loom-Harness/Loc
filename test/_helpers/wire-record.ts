@@ -30,6 +30,7 @@
 // `test/behavioral/wire-differential.mjs` is the thin booted-runner wrapper.
 // ---------------------------------------------------------------------------
 
+import { TEST_RESET_PATH } from "../../src/util/test-reset.js";
 import {
   DEFAULT_NORMALIZE,
   type DivergenceKind,
@@ -209,6 +210,34 @@ export const WIRE_NORMALIZE: NormalizeOpts = {
  *  (empty 204, a text/plain error) is kept as a string so the differ still sees
  *  it; JSON is parsed then normalized (uuids/timestamps → tokens, keys sorted,
  *  keys NEVER dropped — absence is contract). */
+/**
+ * Whether a request is INFRA rather than part of the domain wire contract, and
+ * so must not enter the recording at all.
+ *
+ * Only the dev-only state reset (`src/util/test-reset.ts`) qualifies today.
+ * The emitted e2e suite calls it before every test, which would otherwise put
+ * one extra entry in front of every block and shift every `seq` after it — the
+ * goldens went `golden 16 ≠ node 17` on all 40-odd cases the moment the reset
+ * landed.  Regenerating them to absorb that would have been the wrong fix
+ * twice over: it buries a 40-file diff that says nothing about the wire, and
+ * it would freeze into the answer key an endpoint whose response
+ * (`{status, tables}`) legitimately differs per backend — a different table
+ * count is a fact about where that backend keeps its migration ledger, not a
+ * contract divergence.
+ *
+ * Excluded here rather than in the recorder so the rule is one predicate with
+ * a unit test, not a condition inside a generated preamble string.
+ */
+export function isInfraRequest(url: string): boolean {
+  try {
+    return new URL(url).pathname === TEST_RESET_PATH;
+  } catch {
+    // Not a parseable URL — the recorder is best-effort and must never throw;
+    // a request it cannot classify is recorded rather than silently dropped.
+    return false;
+  }
+}
+
 export function toWireEntry(
   seq: number,
   method: string,
@@ -589,7 +618,14 @@ export function staleWaivers(
 const WAIVED_SHOWN = 6;
 
 const short = (v: Json | undefined): string => {
-  const s = JSON.stringify(v ?? null);
+  // `undefined` is NOT `null` here, and collapsing them hides exactly the
+  // divergence class this report exists to name: a `key-set` row is raised
+  // when a key is on one side only, and the missing side arrives as
+  // `undefined`.  Rendering it as `null` made an absent-vs-null divergence
+  // print as "golden null \u2260 node null" — a row that names a real
+  // disagreement and then describes both sides identically (RS-35).
+  if (v === undefined) return "(absent)";
+  const s = JSON.stringify(v);
   return s.length > 120 ? `${s.slice(0, 117)}…` : s;
 };
 

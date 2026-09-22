@@ -12,11 +12,22 @@ import type {
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import {
+  E2E_WORKFLOW_VERBS,
+  findWorkflowBySlug,
+  workflowRouteSlug,
+  workflowSlugHints,
+} from "../ir/util/e2e-workflow-accessor.js";
+import { walkExprDeep } from "../ir/util/walk.js";
+import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
+import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { lowerFirst, plural, snake } from "../util/naming.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
+import { TEST_RESET_PATH } from "../util/test-reset.js";
 import { renderExpectStmt } from "./expect-stmt.js";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +66,17 @@ import { renderExpectStmt } from "./expect-stmt.js";
 //
 //   api.orderBoard.byKey(key)        → GET  /projections/<proj_snake>/{key}
 //   api.orderBoard.list()            → GET  /projections/<proj_snake>
+//
+// …and so is a WORKFLOW's, which is the orchestration tier the DSL could not
+// reach at all before M-T5.36 (finding F5) — three verbs onto the three routes
+// every backend already mounts:
+//
+//   api.scheduleVisit.run({…})       → POST /workflows/<wf_snake>
+//   api.scheduleVisit.instances()    → GET  /workflows/<wf_snake>/instances
+//   api.scheduleVisit.instance(key)  → GET  /workflows/<wf_snake>/instances/{key}
+//
+// `.instance(key)` takes the CORRELATION key, and like every other accessor a
+// `let`-bound argument gets `.id` appended.
 //
 // Each call awaits, parses JSON, and returns the response.  An `expect`
 // statement maps directly to vitest `expect(<expr>).toBe(true)`.
@@ -181,6 +203,24 @@ function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = ""): string[] {
   const out: string[] = [];
   out.push(`it(${JSON.stringify(t.name + nameSuffix)}, async () => {`);
   out.push(`  const base = ENDPOINTS.${serviceSlug(ctx.deployable.name)};`);
+  // Emitted in EVERY test body, though by default it only fires for the first
+  // one: `__resetState` owns the per-file / per-test choice (see its note), so
+  // the mode is one runtime switch rather than two emission shapes.
+  //
+  // Inside the `it()` rather than as a `beforeEach` because each test knows its
+  // own `base` — one block replays against every compatible backend, each with
+  // its own database — and because this leaves the describe/it structure, and
+  // therefore the test NAMES that `verifies` joins on, completely untouched.
+  //
+  // Cost when it does fire: one loopback round trip and one
+  // `TRUNCATE ... CASCADE`, measured over 200 sequential calls against a local
+  // Postgres at median 6.0 ms (min 4.7, p95 7.2).
+  //
+  // Emitted INSIDE the `it()` body rather than as a `beforeEach`: each test
+  // knows its own `base` (one block replays against every compatible backend,
+  // each with its own database), and this leaves the describe/it structure —
+  // and therefore the test NAMES that `verifies` joins on — untouched.
+  out.push(`  await __resetState(base);`);
   for (const s of t.statements) {
     const rendered = renderE2EStmt(s, ctx);
     if (rendered) out.push(...rendered.split("\n").map((l) => `  ${l}`));
@@ -205,31 +245,18 @@ function collectReferencedAggregateSlugs(statements: readonly TestStmtIR[]): Set
  *  the census credit a caller the emitter never emits. */
 export function collectApiCallShapes(statements: readonly TestStmtIR[]): ApiCallShape[] {
   const calls: ApiCallShape[] = [];
+  // Rides `walkExprDeep` rather than enumerating kinds by hand.  The hand-rolled
+  // version listed ten kinds and stopped at anything else, so an api call nested
+  // inside an unlisted kind was invisible HERE — and this collector is what the
+  // CALLER CENSUS reads, so the census could not see it either.  The shared
+  // walker is exhaustively `never`-checked, which is the whole point of the
+  // convention (CLAUDE.md → "No hand-rolled IR walks").  Pre-order, so the
+  // documented visit order is unchanged.
   const visit = (e: ExprIR): void => {
-    const call = matchApiCall(e);
-    if (call) calls.push(call);
-    // Recurse regardless — the api call's args may carry further
-    // api.* receivers (`api.x.op(api.y.create(...).id)` etc.).
-    if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      const call = matchApiCall(n);
+      if (call) calls.push(call);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -257,6 +284,27 @@ function isBackendPlatform(platform: string): boolean {
  *  bounded-context name that owns the aggregate.  Returns undefined
  *  if no context declares an aggregate whose plural-snake name
  *  matches the slug. */
+/** Does `slug` name this aggregate in an e2e body?
+ *
+ *  ONE definition, because there used to be two and they disagreed.
+ *  `findAggregateBySlug` accepted three spellings; `findContextForSlug`
+ *  accepted only `snake(plural(name))`.  For a single-word aggregate those
+ *  coincide (`Bar` → `bars` either way), so the divergence was invisible —
+ *  until a MULTI-WORD name, where `lowerFirst(plural())` is `workOrders` and
+ *  `snake(plural())` is `work_orders`.  `findContextForSlug` then returned
+ *  undefined, `requiredContexts` stayed empty, the cover-check in
+ *  `compatibleBackends` passed VACUOUSLY for every backend, and the test was
+ *  replayed against a deployable that does not host the aggregate — where
+ *  `findAggregateBySlug` threw a raw Node stack trace out of `ddd generate`
+ *  on a model that had just validated `0 error(s), 0 warning(s)` (F-012). */
+function slugNamesAggregate(slug: string, aggName: string): boolean {
+  return (
+    lowerFirst(aggName) === slug ||
+    snake(plural(aggName)) === slug ||
+    lowerFirst(plural(aggName)) === slug
+  );
+}
+
 function findContextForSlug(
   slug: string,
   modulesByName: Map<string, SubdomainIR>,
@@ -264,13 +312,21 @@ function findContextForSlug(
   for (const m of modulesByName.values()) {
     for (const c of m.contexts) {
       for (const a of c.aggregates) {
-        if (snake(plural(a.name)) === slug) return c.name;
+        if (slugNamesAggregate(slug, a.name)) return c.name;
       }
       // A folded projection's read verbs (`byKey`/`list`) reference it by its
       // own slug (`lowerFirst`/`snake` of the name), so a projection-only e2e
       // body still resolves to its owning context for backend compatibility.
       for (const p of c.projections) {
         if (lowerFirst(p.name) === slug || snake(p.name) === slug) return c.name;
+      }
+      // …and a workflow's three verbs reference it by the same pair of
+      // spellings.  Without this arm a body that only drove workflows required
+      // NO context, so the replay offered it to every backend in the system —
+      // including ones that host none of the contexts the workflow lives in,
+      // whose `/api/workflows/<slug>` is a 404.
+      for (const w of c.workflows) {
+        if (lowerFirst(w.name) === slug || snake(w.name) === slug) return c.name;
       }
     }
   }
@@ -317,28 +373,16 @@ function compatibleBackends(
  *  not a ref, so unused lets fall out naturally.) */
 function collectUsedLetNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
+  // Same migration, and this one had a LIVE defect: the hand-rolled walk did not
+  // reach a `ref` nested inside an unlisted kind, so a `let` whose only use was
+  // (say) `decimal(x.field)` was judged DEAD — the `const … =` binding was
+  // dropped while the reference survived, and the emitted test died with
+  // `ReferenceError: x is not defined` at runtime.  Found by wave-3 row 3.3's
+  // drain of `projection-agg-filters`.
   const visit = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    else if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      if (n.kind === "ref") used.add(n.name);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -701,13 +745,21 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
 
   const agg = findAggregateBySlug(call.aggregateSlug, ctx.contexts);
   if (!agg) {
+    // The workflow accessor (M-T5.36 F5) — `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`.  Tried once the aggregate lookup has failed, the same
+    // precedence the two validate-time checks use, so a workflow whose slug
+    // collides with an aggregate's plural changes no existing call.
+    const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
+    if (wf) return renderWorkflowCall(wf, call, ctx);
     const known = ctx.contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    const knownWorkflows = workflowSlugHints(ctx.contexts).join(", ");
     throw new Error(
       `e2e: unknown aggregate 'api.${call.aggregateSlug}' on this deployable. ` +
-        `Available aggregates: ${known || "(none)"}.`,
+        `Available aggregates: ${known || "(none)"}. ` +
+        `Workflows: ${knownWorkflows || "(none)"}.`,
     );
   }
   const slug = snake(plural(agg.name));
@@ -827,6 +879,70 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
   return rendered;
 }
 
+/**
+ * Render a workflow accessor call — the three verbs of M-T5.36 §1.
+ *
+ *   api.<wf>.run({…})        → POST /api/workflows/<snake>
+ *   api.<wf>.instances()     → GET  /api/workflows/<snake>/instances
+ *   api.<wf>.instance(key)   → GET  /api/workflows/<snake>/instances/{key}
+ *
+ * All three paths are already mounted by every backend — hono's
+ * `workflowsRoutes` under `app.route("/api/workflows", …)`, python's
+ * `APIRouter(prefix="/workflows")`, java's `@RequestMapping("/api/workflows")`,
+ * elixir's `workflow_instances_controller`, and .NET's workflow controller —
+ * so this arm adds no wire surface, it only lets a `test e2e` body reach one.
+ *
+ * `.run()` answers 204 with an empty body, which `__post` already returns as
+ * `{}`; the instance reads answer the persisted correlation row's
+ * `instanceWireShape`, which is what makes a folded saga's scalars assertable
+ * (the verb M-T9.12's follow-up said the DSL did not have).
+ *
+ * The two route-existence conditions are re-checked here rather than assumed:
+ * `generate system` can run on IR that never passed the validator (the
+ * `api.workflows` split brain is the cautionary case — a validator arm with no
+ * renderer arm crashed generation with a bare stack trace), so the emitter
+ * refuses in its own words instead of emitting a request nothing answers.
+ */
+function renderWorkflowCall(wf: WorkflowIR, call: ApiCallShape, ctx: RenderCtx): string {
+  const slug = workflowRouteSlug(wf);
+  const prefix = ctx.apiBasePath;
+  if (call.method === "run") {
+    if (!emitsCommandRoute(wf)) {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.run(…) has no route — workflow '${wf.name}' is ` +
+          `event-triggered, so no backend mounts POST ${prefix}/workflows/${slug}.`,
+      );
+    }
+    // One argument, and it IS the body: the facade's `create` params by name,
+    // exactly like `api.<aggs>.create({…})`.
+    const body = call.args[0] ? renderE2EExpr(call.args[0], ctx) : "{}";
+    return `await __post(\`\${base}${prefix}/workflows/${slug}\`, ${body})`;
+  }
+  if (call.method === "instances" || call.method === "instance") {
+    if (!emitsInstanceRoutes(wf)) {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.${call.method}(…) has no route — workflow ` +
+          `'${wf.name}' declares no correlation field, so it persists no instance row.`,
+      );
+    }
+    if (call.method === "instances") {
+      return `await __get(\`\${base}${prefix}/workflows/${slug}/instances\`)`;
+    }
+    if (call.args.length < 1) {
+      throw new Error(`e2e: api.${call.aggregateSlug}.instance(key) requires a key argument`);
+    }
+    // The CORRELATION key, through the same `renderIdArg` every other accessor
+    // uses — so a `let` bound to a create gets `.id` appended automatically and
+    // `api.<wf>.instance(ord)` reads the row the saga keyed on that order.
+    const keyExpr = renderIdArg(call.args[0], ctx);
+    return `await __get(\`\${base}${prefix}/workflows/${slug}/instances/\${${keyExpr}}\`)`;
+  }
+  throw new Error(
+    `e2e: unknown workflow verb 'api.${call.aggregateSlug}.${call.method}'. ` +
+      `Available: ${E2E_WORKFLOW_VERBS.join(", ")}.`,
+  );
+}
+
 /** Render a folded-projection read (`api.<proj>.byKey(k)` / `.list()`).  The
  *  route is `GET /projections/<snake(name)>[/{key}]` on every backend (the
  *  read-model row surface projection.md emits), so one assertion runs against
@@ -860,9 +976,7 @@ function findProjectionBySlug(
 function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): AggregateIR | undefined {
   for (const c of contexts) {
     for (const a of c.aggregates) {
-      if (lowerFirst(a.name) === slug) return a;
-      if (snake(plural(a.name)) === slug) return a;
-      if (lowerFirst(plural(a.name)) === slug) return a;
+      if (slugNamesAggregate(slug, a.name)) return a;
     }
   }
   return undefined;
@@ -1027,6 +1141,170 @@ function __authHeaders(): Record<string, string> {
   const claims = process.env.E2E_DEV_CLAIMS;
   if (claims) headers["x-loom-dev-claims"] = Buffer.from(claims).toString("base64");
   return headers;
+}
+
+// ── Test isolation ─────────────────────────────────────────────────────────
+// This suite drives a REAL database through a RUNNING backend, so without a
+// reset between blocks it is not idempotent: an exact count assertion is
+// green on a fresh database and red on the second run of the same one, and
+// every \`it()\` is coupled to the blocks that ran before it.  A per-test
+// TRANSACTION cannot close that — the suite talks HTTP to a separate process,
+// so it has no transaction to share — so each block instead asks the backend
+// to put its own state back.
+//
+// SAFETY.  A suite pointed at staging must never truncate anything, so the
+// reset is gated TWICE and the gate that matters needs no configuration:
+//
+//   • here — the request is only SENT when the target is a loopback address.
+//     Pointing this suite at a deployed environment
+//     (\`E2E_<DEPLOYABLE>_BASE=https://staging.example.com\`) disables it by
+//     construction.  There is deliberately NO override: a remote-enable flag
+//     is exactly the thing that gets copied into a CI config and then points
+//     at the wrong host one refactor later.
+//
+//   • on the backend — the reset answers 404 unless it is switched on, so in
+//     a real deployment it does nothing.  (Three of the five backends go
+//     further and do not register the route at all.)
+//
+// \`E2E_RESET=off\` turns it off entirely, for a suite whose blocks are written
+// to accumulate on purpose.
+const __RESET_PATH = ${JSON.stringify(TEST_RESET_PATH)};
+
+function __isLoopbackBase(base: string): boolean {
+  let host: string;
+  try {
+    host = new URL(base).hostname.toLowerCase();
+  } catch {
+    // Not a URL this can reason about — treat as remote and reset nothing.
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  // \`URL.hostname\` KEEPS the brackets on an IPv6 literal (and normalizes the
+  // long form, so \`[0:0:0:0:0:0:0:1]\` already arrives as \`[::1]\`); strip them
+  // anyway so this does not rest on that normalization.
+  if (host.replace(/^\\[|\\]$/g, "") === "::1") return true;
+  // The whole 127.0.0.0/8 block, not just 127.0.0.1.
+  return /^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/.test(host);
+}
+
+// Bases already reset in this process, for the default per-file mode.
+const __resetOnce = new Set<string>();
+// Bases that answered 404 — warned about once, then left alone.
+const __resetUnavailable = new Set<string>();
+
+/** Print a warning without ever being the reason a suite fails.
+ *
+ *  Two hosts, two different gaps, both measured:
+ *
+ *    • under vitest, \`console\` output from a PASSING test is swallowed by the
+ *      default reporter — and this warning prints exactly when the suite goes
+ *      on to pass — so \`process.stderr\` is tried first;
+ *    • under a harness that evaluates this file with a partial \`process\` shim,
+ *      \`process.stderr\` is UNDEFINED, and reaching for \`.write\` on it threw
+ *      "Cannot read properties of undefined" out of the reset and took 59 cases
+ *      down with it.
+ *
+ *  So: try stderr, fall back to console, and swallow anything either throws.
+ *  A diagnostic must never become the fault it was describing. */
+function __warnOnce(message: string): void {
+  try {
+    const err = typeof process !== "undefined" ? process.stderr : undefined;
+    if (err && typeof err.write === "function") {
+      err.write(message);
+      return;
+    }
+  } catch {
+    // fall through to console
+  }
+  try {
+    console.warn(message);
+  } catch {
+    // nowhere left to print — still not a reason to fail the suite
+  }
+}
+
+/** Put the target back to its just-migrated-and-seeded state.
+ *
+ *  \`E2E_RESET\` picks WHEN:
+ *
+ *    per-file  (default)  once per target, before the first test that uses it
+ *    per-test             before every test
+ *    off                  never
+ *
+ *  The default is per-FILE because per-test changes what a \`test e2e\` block
+ *  MEANS.  A block is free to build on rows an earlier block created — several
+ *  do on purpose, one of them named "the second … beside the first" — and
+ *  resetting between them turns those into failures.  Per-file is what the
+ *  finding actually asks for: the suite starts from the same state every run,
+ *  so a second \`npm test\` against the same stack behaves exactly like the
+ *  first, and nothing that passed before stops passing.
+ *
+ *  \`per-test\` is the stronger contract — each block sees only the rows it
+ *  creates, so a count assertion no longer depends on block ORDER — and is
+ *  worth opting into for a suite written that way.  It costs one extra round
+ *  trip per block (measured: median 6.0 ms against a local Postgres). */
+async function __resetState(base: string): Promise<void> {
+  const mode = process.env.E2E_RESET ?? "per-file";
+  if (mode === "off") return;
+  if (mode !== "per-test" && __resetOnce.has(base)) return;
+  if (!__isLoopbackBase(base)) return;
+  __resetOnce.add(base);
+  const url = \`\${base}\${__RESET_PATH}\`;
+  let r: Response;
+  try {
+    r = await fetch(url, { method: "POST", headers: __authHeaders() });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(\`E2E state reset could not reach \${url}: \${message}\`);
+  }
+  if (r.ok) return;
+  const detail = await r.text().catch(() => "");
+  if (r.status === 404) {
+    // NOT fatal, and the reason matters.  404 is the NORMAL answer from a
+    // backend that has not been told the reset is allowed — and two of the
+    // five (python, java) ship no production-profile marker, so they require
+    // \`LOOM_TEST_RESET=1\` and answer 404 until someone sets it.  Failing here
+    // would turn "you did not opt in" into a suite that cannot run at all,
+    // against a backend started any way other than through the generated
+    // compose file.
+    //
+    // So this degrades to what the suite did before the reset existed —
+    // shared state — and SAYS SO once, rather than surfacing it later as a
+    // bare \`expected 6 to be 2\` in whichever block happened to count rows.
+    if (!__resetUnavailable.has(base)) {
+      __resetUnavailable.add(base);
+      __warnOnce(
+        [
+          "",
+          \`[e2e] No state reset at \${base} (404) — these tests SHARE a database.\`,
+          "      They are green on a fresh one and can fail on a re-run.",
+          "      Enable it by starting the backend with LOOM_TEST_RESET=1; the",
+          "      generated docker-compose.yml already sets that on every backend",
+          "      service. Otherwise use a fresh database per run:",
+          "        docker compose down -v && docker compose up --build -d",
+          "",
+        ].join("\\n"),
+      );
+    }
+    return;
+  }
+  // Anything else IS a fault the author has to see — a 500 from the truncate,
+  // a proxy in the way — and silently carrying on would hide it.
+  throw new Error(
+    [
+      \`E2E state reset failed: POST \${url} → \${r.status}\${detail ? ": " + detail.slice(0, 200) : ""}\`,
+      "",
+      "Without it this suite is NOT idempotent — it passes on a fresh database",
+      "and fails on the second run of the same one, because every test shares",
+      "state with the tests before it.",
+      "",
+      "Otherwise: run against a FRESH database each time (docker compose down -v),",
+      "or set E2E_RESET=off to accept shared state and write assertions that",
+      "tolerate it.",
+    ]
+      .filter(Boolean)
+      .join("\\n"),
+  );
 }
 
 async function __post(url: string, body: unknown): Promise<__WireBody> {

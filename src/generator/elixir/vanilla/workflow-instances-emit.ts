@@ -34,6 +34,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { emitWorkflowStateSchemas, stateModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
+import { effectiveGate } from "./gate.js";
 import { renderPathIdCastPlug } from "./problem-details-emit.js";
 
 /** Emit the saga-state schema(s) + the `WorkflowInstancesController` for one
@@ -124,7 +125,8 @@ function renderInstanceActions(
   // is bound only when the predicate reads it: an unused binding fails
   // `mix compile --warnings-as-errors`.
   const gate = wf.instanceReadGate;
-  const gateExpr = gate ? renderExpr(gate, { thisName: "record", contextModule }) : null;
+  const effGate = effectiveGate(gate);
+  const gateExpr = effGate ? renderExpr(effGate, { thisName: "record", contextModule }) : null;
   const cuBind =
     gate && exprUsesCurrentUser(gate)
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"

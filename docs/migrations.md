@@ -149,17 +149,64 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   collection (`Other.xs: Order id[]`) is not yet cascaded — that sibling join
   table's `targetFk` change falls under the destructive gate (never silent).
 - **Rename detection (heuristic fallback).** With no explicit block, a table with
-  *exactly one* `dropColumn` and *one* `addColumn` **of identical type** is an
-  unambiguous rename → the pair collapses into a single non-destructive
+  *exactly one* `dropColumn` and *one* `addColumn` of **identical type *and*
+  nullability** is an unambiguous rename → the pair collapses into a single non-destructive
   `renameColumn` (`ALTER TABLE … RENAME COLUMN a TO b`). Any other drop/add mix on
   one table — the two shapes the heuristic **cannot** collapse (a rename that also
   changes type, or two renames at once) — is *rename-shaped* but ambiguous. Rather
   than silently degrade to a data-losing drop+add, it **aborts** with the dedicated
   **`loom.migration-ambiguous-rename`** error, which names the drop/add columns and
   points at the explicit `migration "…" { Agg.old -> new }` block (the non-lossy
-  remedy). A backfilled add is an explicit new column, never treated as a rename.
+  remedy).
   As with every destructive step, `--allow-destructive` is the deliberate opt-in
   that accepts the drop+add (and its data loss).
+
+  **The heuristic yields to the author.** It is a *guess*, and structurally it
+  cannot be anything else: a rename (`binLocation` → `binCode`) and an unrelated
+  drop+add (drop `binCode`, add `supplierRef`) produce a byte-identical diff —
+  one `dropColumn`, one `addColumn`, same type, one table. Guessing wrong is not
+  a failed migration but **silent misattribution**: every row's bin code becomes
+  its supplier reference. So the collapse fires only where the author has given
+  **no contrary signal**, and any contrary signal wins. Three signals count —
+  the first says the two columns aren't even the same *shape*; the other two are
+  the author positively asserting the added column is NEW (a renamed column
+  arrives carrying its own data, so neither statement would mean anything about
+  it):
+
+  1. a **nullability change** between the two columns — a rename leaves a
+     column's shape alone, so `binCode: string` becoming `note: string?` is a
+     shape change on top of a name change, the same family as a rename that
+     changes type. (It matters more than it looks: that shape needs neither a
+     backfill nor a default to clear every other gate, so it was the last one
+     that could collapse silently.)
+  2. a **declared backfill** on the added column — `migration "…" { Agg.newField
+     = <expr> }`. *A backfilled add is an explicit new column, never treated as
+     a rename.*
+  3. a **scalar-literal field default** on the added column — `supplierRef:
+     string = "NO-SUPPLIER"` (§ Field defaults).
+
+  No signal costs data when the author really did mean a rename: the uncollapsed
+  `dropColumn` is destructive, so the run **aborts** and names the
+  explicit-rename remedy rather than writing anything.
+
+  **Expressing a genuine drop + unrelated add in one change** is therefore the
+  ordinary destructive path — declare the new column's value and pass
+  `--allow-destructive`:
+
+  ```ddd
+  migration "add-supplier-ref" { Part.supplierRef = "NO-SUPPLIER" }
+  aggregate Part { sku: string  supplierRef: string }   // binCode deleted
+  ```
+  ```sql
+  ALTER TABLE "ops"."parts" DROP COLUMN "bin_code";
+  ALTER TABLE "ops"."parts" ADD COLUMN "supplier_ref" TEXT NULL;
+  UPDATE "ops"."parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;
+  ALTER TABLE "ops"."parts" ALTER COLUMN "supplier_ref" SET NOT NULL;
+  ```
+
+  The flag is doing exactly what it says — the old column's data is dropped,
+  deliberately — and the new column is populated from the declared backfill
+  rather than from the dropped column's rows.
 - **Drops.** A `dropColumn` or `dropTable` that survives rename-collapse is
   destructive → blocked unless `--allow-destructive`.
 - **Column type changes.** An `alterColumnType` is destructive (`USING col::t`
@@ -251,8 +298,14 @@ ALTER TABLE "sales"."orders" ALTER COLUMN "status" SET NOT NULL;
 ```
 
 Naturally **ledger-inert** like renames: once the column is baked into the
-baseline snapshot the step matches nothing. Backfills target single scalar
-columns only — value-object leaves are excluded (Phoenix stores a VO as one
+baseline snapshot the step matches nothing. That inertness is the *only*
+silent outcome a backfill has: if the column is **not** in the baseline — so
+this migration is adding it — and nothing consumed the step, the derivation
+aborts with **`loom.migration-backfill-discarded`** rather than writing a
+migration in which the author's declared value never runs. (That is a compiler
+invariant, not a model error: it is what the rename heuristic used to produce
+when it swallowed the `addColumn` the backfill was waiting for.)
+Backfills target single scalar columns only — value-object leaves are excluded (Phoenix stores a VO as one
 `:map` column, so a leaf UPDATE would not be portable).
 
 **Raw SQL — `sql "…"`** — the escape hatch for one-shot DML the backfill
@@ -328,37 +381,113 @@ CREATE TABLE "carts" ("id" UUID NOT NULL, "data" JSONB NOT NULL, "version" INTEG
 -- TODO reshape (…): copy data from "carts__pre_reshape" into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
 ```
 
-## Baseline safety — the `--allow-rebaseline` gate (M-T2.2)
+## Baseline safety — the `--allow-rebaseline` gate (M-T2.2, F-029)
 
 The snapshot at `.loom/snapshots/<module>.snapshot.json` **is** the migration
 baseline. A *corrupt* snapshot fails loudly (`SnapshotReadError`), but a
 *missing* one used to read as `null` — a first run — so `buildMigrations` would
 re-emit a full `Initial` migration and reset the version/history chain, silently
-re-baselining against a database that already has migrations applied. Three
+re-baselining against a database that already has migrations applied. Five
 generate-time guards ([`migration-artifacts.ts`](../src/system/migration-artifacts.ts),
-`checkMigrationBaseline`) close that window by comparing the freshly-built
-`MigrationsIR` against the migration files already in the output tree:
+`checkMigrationBaseline`) close that window.
+
+Guards (a)–(c) read the **output tree**:
 
 - **(a) Missing snapshot over existing files → refuse.** If the snapshot is gone
-  but migration files exist for the module, the run **aborts** rather than
-  re-baselining. `--allow-rebaseline` overrides it for a deliberate reset.
-- **(b) Files ↔ history drift → refuse.** With a snapshot present, its
-  `migrationHistory` versions must match the files on disk; a recorded version
-  with no file, or a file with no history entry (a stale baseline), aborts.
+  but migration files exist *in the module's own version block*, the run
+  **aborts** rather than re-baselining. `--allow-rebaseline` overrides it.
+  The per-module narrowing matters: `MigrationArtifactIndex` can only answer per
+  *deployable*, and one deployable hosts many modules, so without it a brand-new
+  module was refused for a **sibling's** files — prescribing the one flag that
+  would have discarded the sibling's history. Version blocks
+  (`BASE_TIMESTAMP + block * MODULE_VERSION_STRIDE`) are the only per-module
+  attribution a flat migrations directory supports.
+- **(b) Recorded history missing from disk → refuse.** With a snapshot present,
+  every version in its `migrationHistory` must have a file on disk. This is
+  deliberately **one-directional** (history ⊆ files, not files ⊆ history):
+  backends legitimately emit migration files the version chain never records —
+  the feature-local audit/provenance late migrations at fixed far-future
+  `2999…` versions. Flagging those as "extra" would false-positive on every
+  audited system; the stale-baseline case it would otherwise catch is caught by
+  (c) on the next real delta.
 - **(c) Version reuse → refuse.** The version this run would emit must not
   already exist on disk — the tell of a stale baseline whose `lastVersion` lags
   the files.
 
-The check runs on the platform-neutral `MigrationsIR`, so it's backend-agnostic
-(it recognises every backend's migration filenames — `<version>_…` and Flyway's
-`V<version>.<n>__…`). It's wired only where there's a real output tree to scan
-(the CLI passes `fsMigrationArtifactIndex(outDir, loom)`); the web playground,
-with no filesystem, omits it and keeps the prior behaviour.
+(b) and (c) ask about a version *number*, so they read the whole directory;
+only (a) needs attribution.
+
+### The source-side ledger — guards (d) and (e) (F-029)
+
+All of (a)–(c)'s evidence lives in the output tree, which makes them
+structurally blind to the case where **the output tree is the thing that is
+missing**. A *clean* `-o` has no snapshot **and** no migration files, which is
+indistinguishable from a genuine first run: the re-issued `Initial` carries the
+current schema under the **same** base version the earlier tree used. Deployed
+against a database that already ran that version, the migrator matches the tag,
+considers it applied, and **skips the changed contents** — the new column never
+lands, the container reports healthy, and every request naming it 500s.
+`ddd generate system … -o ../build` in CI, a fresh clone that never committed
+the output tree, and a second environment all take this path.
+
+The missing fact is not in the output tree, so it is recorded next to the
+**source**: [`<source-dir>/.loom/<source>.migration-history.json`](../src/system/migration-ledger.ts),
+written after every successful non-dry run and **meant to be committed with the
+`.ddd`**. It records *which versions* each module has emitted plus a fingerprint
+of that module's schema — never the schema itself (that is still the snapshot's
+job), so it is a detector, not a second baseline.
+
+- **(d) Recorded history the run would not reproduce → refuse.** The module is
+  about to emit an `Initial`, and the ledger says it already has history.
+- **(e) A recorded version this output tree lacks → refuse.** The snapshot and
+  the files agree with each other, so (b) and (c) pass, but the ledger records a
+  version this run is about to emit: an older *copy* of the output tree,
+  internally consistent and behind the model.
+
+(a), (d) and (e) are overridden by `--allow-rebaseline`.
+
+**Guard (d) compares content, not presence.** Regenerating an **unchanged**
+model into a fresh directory is a reproducible build — CI, a second
+environment, a clone that never committed its output tree — and the tree it
+writes *is* the tree that already exists, so it must stay silent. A
+presence-only guard would refuse it, and `-o` would become a one-directory
+lock. (d) therefore refuses only when the `Initial` this run would emit does
+**not** reproduce the recorded one, which requires all three of:
+
+1. the record is a **single** version — a longer history cannot be reproduced by
+   one migration. A fresh generate *collapses* `Initial + delta` into one file:
+   the end state matches, but a database that applied only the `Initial` would
+   never receive the delta, and the file that delivers it is gone from the tree;
+2. that version is the one this run would emit (the module's version block has
+   not shifted);
+3. the recorded schema fingerprint is this run's schema. A record written
+   without one cannot *prove* reproduction, and an unproven reproduction is read
+   conservatively — refuse, and let `--allow-rebaseline` be the way through.
+
+The fingerprint is canonicalised through `serializeSnapshot` over `tables`
+alone, so `lastVersion` / `migrationHistory` / `versionBlock` /
+`appliedDataMigrations` — which differ between a fresh tree and an incremental
+one for the same model — are excluded by construction.
+
+The checks run on the platform-neutral `MigrationsIR`, so they're
+backend-agnostic (every backend's migration filenames are recognised —
+`<version>_…` and Flyway's `V<version>.<n>__…`). (a)–(c) are wired only where
+there's a real output tree to scan (the CLI passes
+`fsMigrationArtifactIndex(outDir, loom)`); (d)/(e) need only the ledger. The web
+playground has neither and keeps the prior behaviour.
 
 ```bash
-ddd generate system app.ddd -o out                     # aborts if the snapshot is lost but files remain
+ddd generate system app.ddd -o out                     # aborts if the module has history this run would not reproduce
 ddd generate system app.ddd -o out --allow-rebaseline  # overwrites the migration history deliberately
 ```
+
+**Where the baseline lives.** The *baseline* stays in the output tree, and has
+to: it describes the schema the migration files build up, and a delta is only
+meaningful beside the files it follows. The ledger is the smaller, separate
+fact — "this module has history" — which must survive being read in a tree that
+carries none of it, so it lives with the model. Committing
+`.loom/<source>.migration-history.json` alongside the `.ddd` is what makes the guard
+work in a fresh clone.
 
 ## `migrationsOwner` — one backend per module owns schema
 
@@ -472,8 +601,9 @@ comment names the `ALTER TABLE … VALIDATE CONSTRAINT …` an operator runs to
 back-check the old rows deliberately. A `createTable` carries its checks inline,
 where there is nothing to validate.
 
-Phoenix emits none — Ecto stores a value object as one `:map` cell, so the group
-cannot be half-written and the leaf columns the constraint names do not exist.
+Phoenix emits none of *this kind* — Ecto stores a value object as one `:map`
+cell, so the group cannot be half-written and the leaf columns the constraint
+names do not exist. It does emit the enum kind below.
 
 Checks are derived for the **domain** tables only: the aggregate root, its TPH
 shared table, its contained-part tables, and its value-collection child table —
@@ -482,6 +612,51 @@ read-model and workflow-state tables also flatten, but both make their non-key
 columns nullable *on purpose* (a fold or a workflow step upserts only the fields
 the event it is handling carries), so a half-filled row there is the designed
 state and a constraint could fail on legitimate data.
+
+**An `enum` column carries its VALUE SET as a `CHECK`.** An enum persists as
+`TEXT` on every backend, so without this the set of legal values is not part of
+the schema at all — and two ordinary evolutions were therefore complete
+no-ops, emitting **no migration, no constraint and no warning**:
+
+| change | before | now |
+|---|---|---|
+| `skill: string` → `skill: Skill` | column type unchanged (`TEXT` → `TEXT`) ⇒ empty diff | `addCheck` |
+| `enum Skill { physio, gp, dentist }` → `{ physio, gp }` | the enum is not in the schema ⇒ empty diff | `dropCheck` + `addCheck` |
+
+In both cases the database went on accepting a value the model had just
+outlawed, while the *same generation's* OpenAPI `$ref`-ed the field to the enum
+and the *same generation's* zod / pydantic client refused it — the server
+serving data its own published contract forbids.
+
+```ddd
+enum Skill { physio, gp, dentist }
+aggregate Appt { skill: Skill  backup: Skill? }
+```
+
+```sql
+CONSTRAINT "appts_skill_enum"  CHECK ("skill" IN ('physio', 'gp', 'dentist')),
+CONSTRAINT "appts_backup_enum" CHECK ("backup" IS NULL OR "backup" IN ('physio', 'gp', 'dentist'))
+```
+
+The same `NOT VALID` rule as above is what makes this safe to land on a
+populated database: the `ALTER` leaves already-stored rows alone (so narrowing
+an enum can never fail a deploy) while refusing every future write of a removed
+value; the emitted comment names the `VALIDATE CONSTRAINT` an operator runs to
+audit the old rows deliberately.
+
+Covered: a scalar enum column, at either nullability, on the aggregate root, a
+TPH shared table (where a concrete's column is forced nullable, so it gains the
+null arm), a part table, and an enum nested inside a **flattened** value object
+(`shipTo: Address?` with `Address { country: Country }` → `ship_to_country`).
+Not covered, each because the constraint is a different expression rather than a
+missing case: an enum **array** (`skills: Skill[]` → `TEXT[]`, which needs
+`<@ ARRAY[…]`), an enum inside a VO the lookup cannot resolve (it collapses to
+one `json` cell — no column to constrain), and the projection / workflow-state
+tables, excluded for the same partial-upsert reason as above.
+
+**All five backends carry this kind, Phoenix included** — it names one real
+column that exists everywhere, and an elixir app that skipped it would be the
+single backend whose database still accepted a deleted value.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a
@@ -638,6 +813,11 @@ Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
 - **`.loom/snapshots/<module>.snapshot.json`** *is* the migration baseline — the
   serialized `SchemaSnapshot` (`next`) written on every `generate system` run and
   diffed on the next regen. Tracked in git so the diff is stable across machines.
+- **`<source-dir>/.loom/<source>.migration-history.json`** is the *ledger* — versions +
+  a schema fingerprint per module, kept beside the `.ddd` **source** rather than
+  under `-o`. It is not a baseline: nothing diffs against it, and the SQL is not
+  in it. Its only job is to let the guard refuse a re-baseline into an output
+  tree that carries no history. Commit it with the model.
 - **`.loom/wire-spec.json`** is the JSON-Schema-shaped derivation of every
   aggregate's `wireShape` — the network contract, not the database schema. Both are
   diffable change detectors, but they describe different surfaces (the JSON over the

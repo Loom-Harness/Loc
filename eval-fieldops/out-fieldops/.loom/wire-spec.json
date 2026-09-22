@@ -1,0 +1,523 @@
+{
+  "system": "FieldOps",
+  "aggregates": {
+    "Organization": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Customer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "contactEmail": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "updatedBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "contactEmail",
+        "tenantId",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "updatedBy",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Site": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "label": {
+          "type": "string"
+        },
+        "addressLine": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "label",
+        "addressLine",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Asset": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "siteId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "serialNumber": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "warrantyExpiry": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "requiredSkill": {
+          "type": "string",
+          "enum": [
+            "Electrical",
+            "Plumbing",
+            "HVAC",
+            "Refrigeration"
+          ]
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "siteId",
+        "serialNumber",
+        "model",
+        "requiredSkill",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Technician": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "userId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "fullName": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "Electrical",
+              "Plumbing",
+              "HVAC",
+              "Refrigeration"
+            ]
+          }
+        },
+        "costRate": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "fullName",
+        "skills",
+        "costRate",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Part": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "binCode": {
+          "type": "string"
+        },
+        "onHand": {
+          "type": "integer"
+        },
+        "unitPrice": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sku",
+        "binCode",
+        "onHand",
+        "unitPrice",
+        "currency",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "WorkOrder": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "siteId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "technicianId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "technicianUserId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Scheduled",
+            "InProgress",
+            "Completed",
+            "Cancelled"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "Low",
+            "Normal",
+            "High",
+            "Urgent"
+          ]
+        },
+        "currency": {
+          "type": "string"
+        },
+        "scheduledAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resolutionNote": {
+          "type": "string"
+        },
+        "photo": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "url",
+            "key",
+            "contentType",
+            "size"
+          ],
+          "additionalProperties": false
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "updatedBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/parts/WorkOrderLine"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "display": {
+          "type": "string"
+        },
+        "timeToComplete": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "siteId",
+        "status",
+        "priority",
+        "currency",
+        "tenantId",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "updatedBy",
+        "version",
+        "lines",
+        "total",
+        "display",
+        "timeToComplete"
+      ],
+      "additionalProperties": false
+    },
+    "Invoice": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workOrderId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "amount": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "updatedBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "issued": {
+          "type": "boolean"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workOrderId",
+        "amount",
+        "currency",
+        "tenantId",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "updatedBy",
+        "version",
+        "issued",
+        "display"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "parts": {
+    "WorkOrderLine": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "unitPrice": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "string",
+          "format": "decimal"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "quantity",
+        "unitPrice",
+        "currency",
+        "amount"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "valueObjects": {}
+}
