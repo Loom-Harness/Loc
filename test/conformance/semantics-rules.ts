@@ -555,7 +555,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-23",
-    title: "An absent collection is `[]` on every PERSISTENCE ADAPTER, not just the default",
+    title: "An absent collection is `[]` on every PERSISTENCE ADAPTER",
     trigger:
       "an optional value-object collection (`surcharges: Money[]?`) never written, read back on a non-default persistence adapter — `persistence: dapper` (.NET) or `persistence: mikroorm` (node)",
     observable:
@@ -587,7 +587,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-24",
-    title: "A plain `decimal` is a JSON NUMBER on the wire; only `money` is a string",
+    title: "A plain `decimal` is a JSON NUMBER; only `money` is a string",
     trigger: "a GET returning an aggregate (or nested value object) with a `decimal` field",
     observable:
       'the value is a JSON number (`9.99`, `5`) — and the SAME number every other backend sends: the wire width is an IEEE-754 double (≤17 significant digits), whatever the backend computes in. This is the deliberate counterpart to RS-12, where `money` is a fixed-scale STRING (`"19.5000"`) so no float rounding can touch a monetary amount — the two types differ on the wire, and a backend must not collapse them.',
@@ -706,7 +706,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-27",
-    title: 'A 404-BY-ID carries the sentence `"<Aggregate> <id> not found"` in `detail`',
+    title: 'A 404-BY-ID carries the sentence `"<Aggregate> <id> not found"`',
     trigger:
       "`GET /api/<aggs>/{id}` (or `GET /api/<aggs>/{id}/history`) for an id that does not exist",
     observable:
@@ -974,6 +974,250 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the golden records both directions, so every backend leg
     // gates it per-PR.
     tier: "behavioral",
+  },
+  {
+    id: "RS-32",
+    title: "A malformed path `{id}` answers the declared 422, not a framework default",
+    trigger:
+      "any route binding `{id}` — `getById`, `destroy`, the canonical `update`, a named operation, a `can_<op>` probe, the entity-history read, the workflow-instance read — called with a value that will not parse as a uuid",
+    observable:
+      'GET /api/orders/not-a-uuid answers **422** carrying the same `errors[]` envelope the body tier emits (`{"pointer":"/id"}`), not a framework default. It is a CLIENT fault, so reporting it as a 500 (or a bare 400 with no `errors[]`) tells the caller to retry a request that can never succeed.',
+    // Not a judgement call: every backend already PUBLISHES the 422. The
+    // per-operation error matrix (`src/ir/util/openapi-errors.ts`) says a path
+    // `{id}` is parsed as a uuid and a failure answers the same 422 the body
+    // tier does, and each emitted spec declares the parameter `format: uuid`.
+    // What differed was what they ANSWERED: node's `z.string().uuid()` param →
+    // defaultHook and .NET's `[FromRoute] Guid` →
+    // InvalidModelStateResponseFactory both answered 422; java raised
+    // MethodArgumentTypeMismatchException, which does not implement
+    // ErrorResponse, so the catch-all reported 500; python bound the param as a
+    // bare `str` carrying a documentation-only `format: uuid`, so nothing
+    // rejected it and the malformed value reached the repository.
+    //
+    // Elixir was never measured in that pass and was the fifth arm: it handed
+    // the raw string to `Repo.get/2`, where a malformed `:binary_id` raises
+    // `Ecto.Query.CastError`, leaving only the app-global fault floor — measured
+    // on a booted app as `400 {"title":"Bad Request"}`, no `errors[]`, no
+    // pointer. (The ledger row said 500; the boot corrected it. Wrong rung
+    // either way.) On Phoenix the guard is a controller `plug`, not a per-action
+    // `case`: a controller gains actions over time and a per-action guard is the
+    // one the next action's emitter forgets. It is opt-in per controller rather
+    // than living in the shared `<App>Web` `controller` quote, because an api's
+    // explicit `route` list may declare a `{id}` of its own that is not an
+    // aggregate id.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "four backends aligned by #2652 (node/.NET already 422; java gained a MethodArgumentTypeMismatchException arm, python's `{id}` Path() gained the uuid pattern it only published)",
+      "elixir added in the W1b elixir packet: `renderPathIdCastPlug` + `ProblemDetails.invalid_path_id_response/2`, src/generator/elixir/vanilla/problem-details-emit.ts",
+      'RUNTIME-PROVEN on elixir, not inferred: a generated Phoenix app booted against Postgres answers `422 {"errors":[{"pointer":"/id","message":"Expected UUID."}]}`; with the plug reverted (file-copy, regenerate, recompile, re-boot) the same request answers `400 {"title":"Bad Request"}` with no `errors[]`',
+      "statically pinned per backend by test/generator/malformed-path-id-status.test.ts (one `it` per arm: java, python, elixir, and node/.NET keeping their mechanism)",
+    ],
+    // STATIC: every arm is asserted against emitted source with no boot (the
+    // doc calls this tier "generator"). The runtime half was measured per
+    // backend when the rule was established, but the per-PR gate is the
+    // generator test above.
+    tier: "static",
+  },
+  {
+    id: "RS-33",
+    title: "An `errors[]` pointer names the whole path to the offending field",
+    trigger:
+      "a violation inside a containment part, a value-object collection row, or a value-object field — anything whose failing field is not top-level",
+    observable:
+      "a 422 `errors[]` entry carries an RFC 6901 JSON pointer to the field that failed, however deeply nested (`/lines/0/qty`, `/sku/code`) — never just the top-level container it sits under, and never an empty array. It is what lets a frontend ACL (`applyServerErrors`) bind the denial to the form control that caused it.",
+    // The split when raised was 3-vs-1-vs-1. .NET's `PointerOf` converts
+    // `Items[0].Qty` to `/items/0/qty`, node joins the whole zod `issue.path`,
+    // python keeps every pydantic `loc` segment. Java emitted
+    // `/lineTotals[0].unitPrice` — a Java property path, not a pointer. Elixir
+    // was structurally depth-1: the body was built from a flat
+    // `changeset.errors` walk into `pointer_of([field])`, and
+    // `Ecto.Changeset.errors` holds only the top level, so a `cast_embed` /
+    // `cast_assoc` child violation answered `errors: []` — a 422 naming no
+    // field at all.
+    //
+    // A VALUE OBJECT is a third carrier, not a nested changeset: on Phoenix it
+    // persists as one jsonb `:map` column and is checked by
+    // `validate_change/3`, so there is no child changeset for the walk to find.
+    // It has to forward its own errors explicitly — inner field path AND
+    // authored message AND the `loom_code` the i18n catalog is keyed by.
+    // Collapsing it to `[{field, "is invalid"}]` discarded all three.
+    //
+    // NOTE — the prose in docs/conformance-semantics.md still lists java under
+    // "Open" (the bracket spelling). That is STALE: java's advice now routes
+    // both `errors[]` call sites through a `pointerOf(String)` helper that
+    // splits on `.`, turns each `[i]` indexer into its own numeric segment and
+    // applies the RFC 6901 escapes, and the conversion is pinned. Java is
+    // listed as conforming here on that evidence, not on the prose.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "ledger rows `F2-W-03` and `nested-errors-pointer-shape`",
+      "elixir arm fixed in the W1b elixir packet (`collect_changeset_errors/2` + the `loom_path` opt on `validate_vo/3`), pinned by test/generator/elixir/nested-error-pointers.test.ts",
+      'elixir RUNTIME-PROVEN: a booted Phoenix app answers a `{"sku":{"code":"ab"}}` create with `422 {"errors":[{"pointer":"/sku/code","message":"SKU code needs at least 3 characters"}]}`; with `validate_vo/3` reverted the same request answers `{"pointer":"/sku","message":"is invalid"}` — inner field, authored text and wire code all gone',
+      "java arm closed under M-T9.25 / F1 nested-errors-pointer-shape: `pointerOf` in src/generator/java/emit/api.ts, wired at every `errors[]` call site, pinned by test/generator/java/errors-pointer-rfc6901.test.ts (`lineTotals[0].unitPrice` → `/lineTotals/0/unitPrice`, consecutive indexers, both RFC 6901 escapes, and the raw-concatenation form asserted GONE)",
+      'node `pointerOf(issue.path)` (src/platform/hono/v4/emit.ts, shared emitter), .NET `ValidationProblem.PointerOf` (src/generator/dotnet/emit/api.ts), python `_pointer(tuple(e["loc"]))` (src/generator/python/index.ts) were correct from the start',
+    ],
+    // STATIC: each arm is asserted against emitted source (plus a transcribed
+    // pure-function table for the java converter's arithmetic). A wire golden
+    // carrying a VO-collection violation is still wanted — only 4 of 31 record
+    // any error body — which is why this is not listed behavioral.
+    tier: "static",
+  },
+  {
+    id: "RS-34",
+    title:
+      "A query-time projection `join` is LEFT, not INNER — the joined field is wire `null` when the target is absent",
+    trigger:
+      "any query-time `projection … join <Agg> as c on <idRef> … select f = c.<member>` where the target aggregate can genuinely be absent from its own bulk-load: `softDeletable`, `tenantOwned`, or simply a reference with no live row",
+    observable:
+      "the source row SURVIVES and the joined field reads wire `null` — the join is LEFT. It is never a 500 from an unguarded map index, and the source row is never dropped.",
+    // When raised (wave 1, ledger row `G2667-D3`) all five backends indexed the
+    // bulk-load map UNGUARDED: .NET `customerById[d.CustomerId].Name`
+    // (KeyNotFoundException), node `customerById.get(...)!.name` (undefined
+    // deref), python `customer_by_id[str(...)].name` (KeyError), java
+    // `customerById.get(...).name()` (NullPointerException), elixir
+    // `Map.get(customer_by_id, record.customer_id).name` (nil.name) — every one
+    // a 500 on data the model PERMITS, on a route that is not even about the
+    // missing row.
+    //
+    // Rejected: dropping the source row instead. A FOREIGN aggregate's filters
+    // would then change THIS projection's row count while the source
+    // aggregate's own list still shows the row unfiltered — one silent failure
+    // traded for a worse one.
+    //
+    // WHY DOTNET IS A TARGET, NOT CONFORMING. The other four emit an absent
+    // branch that is literally `null`: node `__j0 === undefined ? null : …`,
+    // python `(… if (__j0 := m.get(…)) is not None else None)`, elixir's total
+    // `__joined/2` reader (`defp __joined(nil, _field), do: nil`), java's
+    // null-guarded ternary with the wire coercion INSIDE the true branch.
+    // .NET's guarded arm ends `: default!`
+    // (src/generator/dotnet/query-projection-emit.ts), which is `null` only for
+    // a REFERENCE-typed joined field. For a joined `int`/`decimal`/`bool`/
+    // `datetime` it is `0`/`false`/`DateTime.MinValue` — a value, not absence,
+    // so .NET does not satisfy the guarantee as stated for those kinds. No
+    // fixture in the corpus or the pinned suites exercises a joined field of
+    // those kinds today, so the gap is UNVERIFIED as well as unfixed; the
+    // reference-typed case (the one the unguarded-index fix was proven on) does
+    // conform. Listing dotnet under `targets` records exactly that: the rule is
+    // asserted against it defensively, not proven. The doc's `Conforms` line
+    // lists dotnet and then names this gap under `Open`; this entry resolves
+    // that contradiction in the safe direction.
+    conforms: ["node", "java", "python", "elixir"],
+    targets: ["dotnet"],
+    provenance: [
+      "raised as ledger row `G2667-D3-projection-join-unguarded-index`",
+      "landed dotnet (`b75ce2c`) and node (`40202d9`) in wave 1 packets 1b/1c; python in wave 1 packet 1e; elixir in wave 1 packet 1d",
+      "java landed in the wave-2 residue (`renderSelectWire`, src/generator/java/emit/query-projection-reads.ts), pinned by test/generator/java/query-projection-join-missing.test.ts and the java arm of test/ir/projection-comprehension.test.ts",
+      "MUTATION-PROVEN (java): reverting `renderSelectWire` to the pre-fix unguarded `<mapVar>.get(<key>).<member>()` (file-copy revert, never `git checkout --`) fails 4 named assertions across those two files",
+      "OPEN (dotnet): the value-typed joined-field gap — the guarded arm's `: default!` in src/generator/dotnet/query-projection-emit.ts reads `0`/`false`/`DateTime.MinValue` for a joined `int`/`decimal`/`bool`/`datetime`, not wire `null`. Unverified and unfixed; flipping it to an explicitly-nullable wire type (and widening the Response schema's field to nullable for a joined member) is the wave-1 dotnet hand-off",
+    ],
+    // STATIC: string-pinned per backend. No wire golden carries a
+    // join-target-absent row — the corpus fixtures never declare a query-time
+    // projection `join` at all (grepped empty across `examples/**` and
+    // `web/src/examples/**`), so this rule's coverage is entirely the dedicated
+    // fixture tests above, not the corpus/behavioral legs.
+    tier: "static",
+  },
+  {
+    id: "RS-35",
+    title: "An absent optional is `null` on the wire, never an omitted key",
+    trigger:
+      "`absent-optional.ddd`: an aggregate with an optional scalar (`estimate: int?`) and a null-guard invariant over it, created by a body that OMITS the field entirely, then read back by id and by list",
+    observable:
+      'the key is PRESENT carrying an explicit null — `{"estimate": null}` — on every backend and every persistence adapter. The key is never dropped from the payload, so a client can tell "declared but unset" from "not a field of this resource" without consulting the schema.',
+    // The structural gate cannot see this: both spellings satisfy the same
+    // emitted schema — an `estimate?: number` member is happy with a null and
+    // equally happy with nothing. Loom has ONE absence value; JSON has TWO
+    // spellings of it; nothing in the OpenAPI diff chooses between them.
+    //
+    // Unlike most rules here, RS-35 records a contract the tier ALREADY
+    // enforced (M-T5.36/P11b verified the gate rather than building one).
+    // Three things have to hold and all three were checked at the code face:
+    //   1. `normalizeBody` (test/_helpers/response-diff.ts) collapses volatile
+    //      VALUES to tokens but never drops KEYS, and returns `null` unchanged
+    //      — "absence is contract, so it must remain visible to `diffBodies`".
+    //   2. `diffBodies` unions both sides' key sets and raises a `key-set`
+    //      divergence when a key is on one side only (`null-vs-empty` is a
+    //      separate kind, covering `[]`/`{}` against null).
+    //   3. `wire-golden/absent-optional.json` records `"estimate": null` on
+    //      both read bodies — the golden CARRIES the optional key, so it is
+    //      able to FALSIFY the rule. A golden that omitted `estimate` could not.
+    //
+    // Reach was DERIVED, not read: `WIRE_GATED_LEGS`/`requiredGoldenCases()`
+    // (test/_helpers/golden-coverage.ts) lists all seven wire-gated legs —
+    // run.mjs, run-mikroorm.mjs, run-dotnet.mjs, run-dapper.mjs, run-java.mjs,
+    // run-python.mjs, run-elixir.mjs — as recorders of `absent-optional`, and
+    // none of the three escape hatches covers it (WIRE_WAIVERS empty,
+    // GOLDEN_OPT_OUT empty, BEHAVIOURAL_SKIP drained for every platform
+    // clause). Each leg is diffed against the committed NODE-ORACLE golden, so
+    // what is enforced is "all five agree with the reviewed recording", not
+    // "all five were compared to each other"; moving the contract means
+    // rebaselining a checked-in file (`LOOM_WIRE_UPDATE=1`), a visible diff a
+    // human approves.
+    //
+    // DSL surface: `expect(<read>.<field>).toBeNull()` asserts this spelling;
+    // `toBeAbsent()` asserts the other one and therefore has NO passing subject
+    // on any backend today. That is intentional — it is not special-cased into
+    // passing, so a backend that starts omitting a key turns a test red instead
+    // of drifting silently. `toBeAbsent()` is e2e-only
+    // (`loom.unit-absent-invalid`): in-process a declared field always exists.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "contract enforced since #2577 / M-T9.11 (the per-PR wire differential); the golden is test/behavioral/wire-golden/absent-optional.json",
+      "named, derived and written down by M-T5.36 / P11b (#3001), which also added the `toBeNull()` / `toBeAbsent()` matchers and recorded the RS-registry drift this entry closes",
+      "four sibling optional-carrying cases (`embedded-optional`, `optional-reference`, `optional-valueobject`, `union-find-absence`) derive the same seven legs",
+    ],
+    // BEHAVIORAL: the guarantee is a booted round-trip recorded by the seven
+    // wire-gated legs; there is no source-level assertion that can see the
+    // difference between a null and an omitted key.
+    tier: "behavioral",
+  },
+  {
+    id: "RS-36",
+    title:
+      "`.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form",
+    trigger:
+      "any `.first` whose receiver can be empty: `lines.first.sku` after a `where` that matched nothing, a `find` result bound and read positionally, a `derived` over an empty containment",
+    observable:
+      'the read FAILS rather than yielding a value that lies about its own type — `first` is declared non-optional `T` in src/util/collection-ops.ts. The failure surfaces as the sanitized 500 RS-28 already governs, not a domain-floor 422: the request was valid and the MODEL\'s assumption ("this collection has a first element") was not. `firstOrNull` is declared `T?` and is the TOTAL form: null/nil on empty, never raising.',
+    // The split when raised (`F2-EXPR-7`): three targets already failed at the
+    // point of the mistake — dotnet `.First()` (InvalidOperationException),
+    // java `.get(0)` (IndexOutOfBoundsException), python `[0]` (IndexError) —
+    // and two degraded silently: node `${recv}[0]` (undefined) and elixir
+    // `List.first(${recv})` (nil). Elixir's `first` and `firstOrNull` were
+    // LITERALLY THE SAME SNIPPET, so the non-optional form had no distinct
+    // meaning at all; on node a `string`-typed getter returned `undefined`,
+    // which then shipped on the wire or died later somewhere that never
+    // mentions the collection.
+    //
+    // Rejected: making `first` total (`T?`). That contradicts the declared
+    // signature and would break every `lines.first.sku` in the language for a
+    // case authors can already express with `firstOrNull`. A failure AT the
+    // read is diagnosable; a null that ships is not. (This is RS-34's argument
+    // reaching the opposite conclusion, and for the stated reason: there the
+    // absent value has a MEANING — no joined row — and here it does not.)
+    //
+    // Per-backend shape: node emits an arrow IIFE guard rather than a bare
+    // `[0]`, so the receiver is evaluated once and the message names the total
+    // form (src/generator/_expr/js-collection-ops.ts, shared with the JS
+    // frontend walkers); elixir moves `first` to `hd/1` (ArgumentError on `[]`)
+    // and keeps `List.first/1` for `firstOrNull`
+    // (src/generator/elixir/render-expr.ts); dotnet / java / python are
+    // unchanged — their natural renderings already raise.
+    //
+    // The FRONTEND half is vacuous by construction today: a stdlib collection
+    // op in a page body is refused outright by
+    // `loom.frontend-collection-op-unsupported`, so the guard is
+    // backend-reachable only. Should that gate ever widen, the frontends follow
+    // this same rule rather than degrading to `undefined`.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "ruled as D-FIRST-ON-EMPTY (docs/decisions.md); raised as ledger row `F2-EXPR-7`; built in wave C2 packet 2n",
+      "the edge itself is pinned as prose in src/util/collection-ops.ts (`first` → `T`, `firstOrNull` → `T?`), the way src/util/intrinsics.ts pins scalar edge behaviour",
+      "statically pinned per backend by test/generator/collection-op-first-partial.test.ts, which drives all five leaf tables (TS_/CS_/JAVA_/PY_/ELIXIR_COLLECTION_RENDERERS) and asserts three things per backend: `first` renders a form that FAILS on empty, `first` and `firstOrNull` are DIFFERENT renderings (the assertion that catches the elixir shape), and `firstOrNull` stays total",
+    ],
+    // STATIC: the per-backend arm test reads the renderer leaf tables directly
+    // — no boot. The doc calls this tier "generator".
+    tier: "static",
   },
 ];
 
