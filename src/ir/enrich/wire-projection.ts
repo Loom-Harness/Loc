@@ -167,14 +167,37 @@ export function isRequiredUpdateInput(f: RequirableInput): boolean {
 }
 
 /** Whether a type has a language-defined implicit default, so an omitted
- *  value is well-defined without an explicit `= default`.  Only `bool`
- *  qualifies: an absent request bool is treated as `false` (the behaviour
- *  .NET model-binding applies, and the Hono request schema approximates with
+ *  value is well-defined without an explicit `= default`.  Two kinds qualify:
+ *
+ *  `bool` — an absent request bool is treated as `false` (the behaviour .NET
+ *  model-binding applies, and the Hono request schema approximates with
  *  `.default(false)`).  No other primitive has a domain-safe omission —
- *  `""`/`0` are not valid stand-ins for an absent `name`/`age`. */
+ *  `""`/`0` are not valid stand-ins for an absent `name`/`age`.
+ *
+ *  `array` — an absent collection is the EMPTY collection.  "None yet" is a
+ *  well-defined state for a list in a way it is not for a scalar, and the
+ *  language already behaves that way for the other spelling of the same
+ *  modelling intent: an entity CONTAINMENT (`contains legs: Leg[]`) is not a
+ *  create-input field at all, so a parent is constructible without its
+ *  children.  Re-spelling `entity Leg` as `valueobject Leg` — which changes
+ *  where the rows live, not what the model means — used to flip `legs` to a
+ *  REQUIRED create input, so the same domain demanded `legs: []` from every
+ *  caller (audit #2864 G4).  This closes that asymmetry from the side that
+ *  keeps the field in the contract: a collection stays suppliable, it just
+ *  stops being mandatory.
+ *
+ *  Deliberately ALL collections, not only value-object ones.  A containment is
+ *  omittable irrespective of its element type, so scoping the relaxation to
+ *  value-object elements would replace one arbitrary asymmetry (`entity` vs
+ *  `valueobject`) with a narrower one (`Leg[]` vs `string[]`), and "absent
+ *  means empty" is no less true of `tags: string[]`.
+ *
+ *  CREATE-side only.  {@link isRequiredUpdateInput} must not consult this —
+ *  Loom's update contract is full-replacement, so an absent collection there
+ *  means "a required field is missing", not "empty" (RS-26). */
 function hasImplicitDefault(t: TypeIR): boolean {
   const base = t.kind === "optional" ? t.inner : t;
-  return base.kind === "primitive" && base.name === "bool";
+  return base.kind === "array" || (base.kind === "primitive" && base.name === "bool");
 }
 
 /** Names of the create-input fields the client MAY OMIT (`requiredInput`
@@ -215,12 +238,21 @@ export function omittableCreateInputs(agg: AggregateIR): ReadonlySet<string> {
 export type CreateOmissionValue =
   | { readonly kind: "default"; readonly expr: ExprIR }
   | { readonly kind: "false" }
+  | { readonly kind: "empty-collection" }
   | { readonly kind: "null" };
 
 export function createOmissionValue(f: FieldIR): CreateOmissionValue {
   if (f.default !== undefined) return { kind: "default", expr: f.default };
   const base = f.type.kind === "optional" ? f.type.inner : f.type;
   if (base.kind === "primitive" && base.name === "bool") return { kind: "false" };
+  // A NON-nullable collection omits to the empty collection; a nullable one
+  // keeps omitting to `null`, so `legs: Leg[]?` still distinguishes "not
+  // supplied" from "supplied empty".  Order matters: the nullable test is the
+  // `f.type.kind === "optional"` peel above, so reaching here with an `array`
+  // base and a nullable field must still fall through to `null`.
+  if (base.kind === "array" && f.type.kind !== "optional" && f.optional !== true) {
+    return { kind: "empty-collection" };
+  }
   return { kind: "null" };
 }
 

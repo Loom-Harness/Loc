@@ -825,6 +825,10 @@ function renderEntity(
         return isServerSourcedDefault(omission.expr) ? undefined : renderPyExpr(omission.expr);
       }
       if (omission.kind === "false") return "False";
+      // A non-nullable collection materializes as the empty list.  Safe as a
+      // rendered default because the caller emits it in the BODY (the `| None
+      // = None` param above), never as a shared mutable default argument.
+      if (omission.kind === "empty-collection") return "[]";
       return undefined; // plain optional — already `= None`
     };
     const factoryParams = inputs.map((f) => {
