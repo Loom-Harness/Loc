@@ -1,0 +1,650 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": ".loom/architecture.c4"
+    },
+    {
+      "path": ".loom/asyncapi.yaml"
+    },
+    {
+      "path": ".loom/coverage.md"
+    },
+    {
+      "path": ".loom/datasources.md"
+    },
+    {
+      "path": ".loom/deployment.mmd"
+    },
+    {
+      "path": ".loom/domain.mmd"
+    },
+    {
+      "path": ".loom/er.mmd"
+    },
+    {
+      "path": ".loom/gaps.md"
+    },
+    {
+      "path": ".loom/manifest.json"
+    },
+    {
+      "path": ".loom/messages.en.json"
+    },
+    {
+      "path": ".loom/sequence.mmd"
+    },
+    {
+      "path": ".loom/snapshots/Ops.snapshot.json"
+    },
+    {
+      "path": ".loom/sourcemap.json"
+    },
+    {
+      "path": ".loom/traceability-matrix.md"
+    },
+    {
+      "path": ".loom/traceability.json"
+    },
+    {
+      "path": ".loom/traceability.md"
+    },
+    {
+      "path": ".loom/traceability.mmd"
+    },
+    {
+      "path": ".loom/wire-spec.json"
+    },
+    {
+      "path": ".loom/workflows.mmd"
+    },
+    {
+      "path": ".vscode/launch.json"
+    },
+    {
+      "path": "api/.dockerignore"
+    },
+    {
+      "path": "api/Dockerfile"
+    },
+    {
+      "path": "api/auth/handshake.ts"
+    },
+    {
+      "path": "api/auth/middleware.ts"
+    },
+    {
+      "path": "api/auth/oidc.ts"
+    },
+    {
+      "path": "api/auth/user-types.ts"
+    },
+    {
+      "path": "api/auth/verifier.ts"
+    },
+    {
+      "path": "api/certs/.gitkeep"
+    },
+    {
+      "path": "api/db/audit-stamp.ts"
+    },
+    {
+      "path": "api/db/migrations/20260101000000_ops_initial.sql"
+    },
+    {
+      "path": "api/db/migrations/20260101500001_ops_add_technician_user_id_to_work_orders.sql"
+    },
+    {
+      "path": "api/db/migrations/20260101500002_ops_migrate.sql"
+    },
+    {
+      "path": "api/db/migrations/20260101500003_ops_migrate.sql"
+    },
+    {
+      "path": "api/db/migrations/20260101500004_ops_migrate.sql"
+    },
+    {
+      "path": "api/db/migrations/20260101500005_ops_migrate.sql"
+    },
+    {
+      "path": "api/db/migrations/meta/_journal.json"
+    },
+    {
+      "path": "api/db/repositories/asset-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/asset-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/customer-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/customer-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/invoice-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/invoice-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/organization-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/organization-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/part-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/site-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/site-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/technician-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/technician-repository.ts.map"
+    },
+    {
+      "path": "api/db/repositories/workOrder-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/workOrder-repository.ts.map"
+    },
+    {
+      "path": "api/db/schema.ts"
+    },
+    {
+      "path": "api/domain/asset.ts"
+    },
+    {
+      "path": "api/domain/asset.ts.map"
+    },
+    {
+      "path": "api/domain/customer.ts"
+    },
+    {
+      "path": "api/domain/customer.ts.map"
+    },
+    {
+      "path": "api/domain/errors.ts"
+    },
+    {
+      "path": "api/domain/events.ts"
+    },
+    {
+      "path": "api/domain/ids.ts"
+    },
+    {
+      "path": "api/domain/invoice.ts"
+    },
+    {
+      "path": "api/domain/invoice.ts.map"
+    },
+    {
+      "path": "api/domain/organization.ts"
+    },
+    {
+      "path": "api/domain/organization.ts.map"
+    },
+    {
+      "path": "api/domain/part.test.ts"
+    },
+    {
+      "path": "api/domain/part.test.ts.map"
+    },
+    {
+      "path": "api/domain/part.ts"
+    },
+    {
+      "path": "api/domain/part.ts.map"
+    },
+    {
+      "path": "api/domain/repository-ports.ts"
+    },
+    {
+      "path": "api/domain/site.ts"
+    },
+    {
+      "path": "api/domain/site.ts.map"
+    },
+    {
+      "path": "api/domain/technician.ts"
+    },
+    {
+      "path": "api/domain/technician.ts.map"
+    },
+    {
+      "path": "api/domain/value-objects.ts"
+    },
+    {
+      "path": "api/domain/workOrder.ts"
+    },
+    {
+      "path": "api/domain/workOrder.ts.map"
+    },
+    {
+      "path": "api/drizzle.config.ts"
+    },
+    {
+      "path": "api/http/asset.routes.ts"
+    },
+    {
+      "path": "api/http/asset.routes.ts.map"
+    },
+    {
+      "path": "api/http/channels.ts"
+    },
+    {
+      "path": "api/http/customer.routes.ts"
+    },
+    {
+      "path": "api/http/customer.routes.ts.map"
+    },
+    {
+      "path": "api/http/index.ts"
+    },
+    {
+      "path": "api/http/invoice.routes.ts"
+    },
+    {
+      "path": "api/http/invoice.routes.ts.map"
+    },
+    {
+      "path": "api/http/organization.routes.ts"
+    },
+    {
+      "path": "api/http/organization.routes.ts.map"
+    },
+    {
+      "path": "api/http/part.routes.ts"
+    },
+    {
+      "path": "api/http/part.routes.ts.map"
+    },
+    {
+      "path": "api/http/problem-details.ts"
+    },
+    {
+      "path": "api/http/query-projections.ts"
+    },
+    {
+      "path": "api/http/realtime.ts"
+    },
+    {
+      "path": "api/http/site.routes.ts"
+    },
+    {
+      "path": "api/http/site.routes.ts.map"
+    },
+    {
+      "path": "api/http/technician.routes.ts"
+    },
+    {
+      "path": "api/http/technician.routes.ts.map"
+    },
+    {
+      "path": "api/http/workOrder.routes.ts"
+    },
+    {
+      "path": "api/http/workOrder.routes.ts.map"
+    },
+    {
+      "path": "api/http/workflows.ts"
+    },
+    {
+      "path": "api/http/workflows.ts.map"
+    },
+    {
+      "path": "api/index.ts"
+    },
+    {
+      "path": "api/lib/schemas.ts"
+    },
+    {
+      "path": "api/obs/als.ts"
+    },
+    {
+      "path": "api/obs/log.ts"
+    },
+    {
+      "path": "api/obs/metrics.ts"
+    },
+    {
+      "path": "api/obs/request-id.ts"
+    },
+    {
+      "path": "api/obs/tracing.ts"
+    },
+    {
+      "path": "api/package.json"
+    },
+    {
+      "path": "api/resources/s3.ts"
+    },
+    {
+      "path": "api/resources/smtp.ts"
+    },
+    {
+      "path": "api/tsconfig.json"
+    },
+    {
+      "path": "api/tsup.config.ts"
+    },
+    {
+      "path": "db-init/00-create-databases.sql"
+    },
+    {
+      "path": "docker-compose.obs.yml"
+    },
+    {
+      "path": "keycloak/realm.json"
+    },
+    {
+      "path": "monitoring/prometheus.yml"
+    },
+    {
+      "path": "web_app/.dockerignore"
+    },
+    {
+      "path": "web_app/.npmrc"
+    },
+    {
+      "path": "web_app/Dockerfile"
+    },
+    {
+      "path": "web_app/certs/.gitkeep"
+    },
+    {
+      "path": "web_app/e2e/fixtures.ts"
+    },
+    {
+      "path": "web_app/e2e/package.json"
+    },
+    {
+      "path": "web_app/e2e/pages/asset.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/customer.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/invoice.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/organization.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/part.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/site.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/technician.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/workOrder.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/workflows/schedule_work_order.ts"
+    },
+    {
+      "path": "web_app/e2e/playwright.config.ts"
+    },
+    {
+      "path": "web_app/e2e/smoke.spec.ts"
+    },
+    {
+      "path": "web_app/e2e/tsconfig.json"
+    },
+    {
+      "path": "web_app/index.html"
+    },
+    {
+      "path": "web_app/package.json"
+    },
+    {
+      "path": "web_app/src/App.tsx"
+    },
+    {
+      "path": "web_app/src/ErrorBoundary.tsx"
+    },
+    {
+      "path": "web_app/src/api/asset.ts"
+    },
+    {
+      "path": "web_app/src/api/client.ts"
+    },
+    {
+      "path": "web_app/src/api/config.ts"
+    },
+    {
+      "path": "web_app/src/api/customer.ts"
+    },
+    {
+      "path": "web_app/src/api/invoice.ts"
+    },
+    {
+      "path": "web_app/src/api/organization.ts"
+    },
+    {
+      "path": "web_app/src/api/part.ts"
+    },
+    {
+      "path": "web_app/src/api/projections.ts"
+    },
+    {
+      "path": "web_app/src/api/realtime.ts"
+    },
+    {
+      "path": "web_app/src/api/site.ts"
+    },
+    {
+      "path": "web_app/src/api/technician.ts"
+    },
+    {
+      "path": "web_app/src/api/workOrder.ts"
+    },
+    {
+      "path": "web_app/src/api/workflows.ts"
+    },
+    {
+      "path": "web_app/src/i18n.ts"
+    },
+    {
+      "path": "web_app/src/lib/apply-server-errors.ts"
+    },
+    {
+      "path": "web_app/src/lib/format.tsx"
+    },
+    {
+      "path": "web_app/src/lib/schemas.ts"
+    },
+    {
+      "path": "web_app/src/lib/strict-field-map.ts"
+    },
+    {
+      "path": "web_app/src/locales/en.json"
+    },
+    {
+      "path": "web_app/src/logger.ts"
+    },
+    {
+      "path": "web_app/src/main.tsx"
+    },
+    {
+      "path": "web_app/src/pages/assets/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/assets/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/assets/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/assets/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/assets/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/assets/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/customers/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/customers/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/customers/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/customers/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/customers/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/customers/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/home.tsx"
+    },
+    {
+      "path": "web_app/src/pages/home.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/invoices/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/invoices/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/invoices/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/invoices/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/organizations/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/organizations/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/organizations/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/organizations/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/organizations/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/organizations/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/parts/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/parts/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/parts/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/parts/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/parts/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/parts/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/sites/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/sites/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/sites/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/sites/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/sites/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/sites/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/technicians/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/technicians/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/technicians/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/technicians/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/technicians/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/technicians/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/work_orders/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/work_orders/detail.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/work_orders/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/work_orders/list.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/work_orders/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/work_orders/new.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/workflows/index.tsx"
+    },
+    {
+      "path": "web_app/src/pages/workflows/index.tsx.map"
+    },
+    {
+      "path": "web_app/src/pages/workflows/schedule_work_order.tsx"
+    },
+    {
+      "path": "web_app/src/pages/workflows/schedule_work_order.tsx.map"
+    },
+    {
+      "path": "web_app/src/theme.ts"
+    },
+    {
+      "path": "web_app/src/vite-env.d.ts"
+    },
+    {
+      "path": "web_app/tsconfig.json"
+    },
+    {
+      "path": "web_app/tsconfig.node.json"
+    },
+    {
+      "path": "web_app/vite.config.ts"
+    }
+  ]
+}

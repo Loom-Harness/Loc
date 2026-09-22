@@ -526,21 +526,33 @@ const REGISTERED: Ratchet[] = [
     // five-emitter slice of its own, reported on #2864 rather than smuggled in
     // here.  When it lands, this fixture gains its unit block and this entry
     // drains one.
+    // 23 -> 22 on main (wave-3 row 3.3 DRAINED `projection-agg-filters`), then
+    // 22 -> 24 here (audit F-013 + F-014, the two elixir S1 compile defects).
+    // The arithmetic is against main's CURRENT value, exactly as main's own note
+    // on the drain insists: restoring a remembered literal (this branch had 25,
+    // computed off the pre-drain 23) is how a ratchet silently loses somebody
+    // else's lowering.  Both movements are real and both survive.
     //
-    // 23 -> 22: wave-3 row 3.3 DRAINED `projection-agg-filters` — the first
-    // lowering on this list since the direction reversed.  The arithmetic is
-    // against `main`'s CURRENT value, not this branch's: `main` raised 22 -> 23
-    // for `vo-id-reference` while this branch was open, so the drain subtracts
-    // one from 23.  Restoring a remembered literal is how a ratchet silently
-    // loses somebody else's raise.  Its signed reason
-    // argued the leak "is a RUNTIME value; the compile tier cannot see a wrong
-    // number", which was an argument FOR a behavioural block rather than
-    // against one.  The real blocker was undocumented and narrower: with the
-    // `softDeletable` CAPABILITY alone nothing could set `isDeleted` through
-    // the api (a capability is a pure mixin and supplies no operation), so the
-    // conjunct was unobservable at ANY tier; composing the `softDelete` MACRO
-    // made it assertable with one principal.
-    max: 22,
+    // The two RAISES are the same shape as the four above rather than new
+    // M-T9.13 debt: each new fixture's subject is a STATIC contract whose defect
+    // made `mix compile` FAIL on the emitted project, which is exactly what the
+    // corpus compile legs read.
+    //   * `enum-collection` — the enum × array crossing.  `field :skills,
+    //     {:array, Ecto.Enum, values: [...]}` →  `** (ArgumentError) invalid
+    //     type … for field :skills`.  Booting it would re-record a generic CRUD
+    //     round-trip and mint a golden over an enum-array JSON encoding no
+    //     cross-backend ruling has been asked for.
+    //   * `principal-read-filter` — an author-written `currentUser` predicate
+    //     in a `find`/`retrieval` `where`.  `** (Ecto.Query.CompileError)
+    //     unbound variable current_user in query`, then `error: undefined
+    //     variable "current_user"` once pinned.  This one IS a drain candidate,
+    //     but not yet: the row-level filter's runtime oracle needs the
+    //     principal's id to MATCH a seeded row's `technicianUserId`, and
+    //     `devClaimKind` carries `string` / `string[]` claims only — so a
+    //     booted leg would assert over the empty fail-closed result and prove
+    //     nothing about the filter.  Drain it (and lower this by one) when the
+    //     harness can seed a row owned by the authenticated principal.
+    max: 24,
   },
 ];
 

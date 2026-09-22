@@ -35,7 +35,7 @@ import { snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
-import { statementSubRegions } from "../../_trace/sourcemap.js";
+import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   MONEY_MAX_EXCLUSIVE,
   MONEY_PRECISION,
@@ -49,7 +49,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
 import { denialTerm } from "./denial.js";
 import {
@@ -540,10 +540,13 @@ function renderContextModule(
             `dir \\\\ "asc"`,
           ]
         : [];
+      // A find whose own `where` reads `currentUser` carries the actor arg too —
+      // the repository fn declares it (see `findUsesPrincipal`), so a delegate
+      // built from the aggregate-level `principal` alone would mismatch arity.
       const findArgs = [
         ...baseArgs,
         ...pageArgs,
-        ...(principal ? ["current_user \\\\ nil"] : []),
+        ...(principal || findUsesPrincipal(f) ? ["current_user \\\\ nil"] : []),
       ].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
     });
@@ -1352,7 +1355,11 @@ function renderNamedOpFunction(
   if (opFragments && bodyLines.length > 0) {
     opFragments.push({
       fragmentText: bodyLines.join("\n"),
-      subRegions: statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      subRegions: [
+        // F-021 — see `declarationSubRegion`.
+        ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+        ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      ],
     });
   }
 

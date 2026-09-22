@@ -68,7 +68,7 @@ export function renderPyStatementChunks(
   return renderStmtChunksWith(stmts, pyStmtTarget(indent, ctx));
 }
 
-export { statementSubRegions } from "../_trace/sourcemap.js";
+export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.js";
 
 /** Splice provenance trace capture around a write-site `base` line:
  *  snapshot the leaf inputs *before* the mutation (so a self-referential

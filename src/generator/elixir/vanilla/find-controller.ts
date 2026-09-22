@@ -21,7 +21,7 @@ import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { plugRelativePath } from "./api-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
@@ -205,11 +205,18 @@ export function renderFindActions(
     // `requires true` is the always-public escape; on elixir it emits NO guard
     // (a dead `if not (true)` is a 1.18 typing violation) — see gate.ts.
     const requiresGate = effectiveGate(f.requires);
+    // Read the EFFECTIVE gate, not the raw `f.requires`: `requires true` emits
+    // no guard, so it binds no actor either.
     const gateUsesUser = !!requiresGate && exprUsesCurrentUser(requiresGate);
+    // A find whose own `where` reads `currentUser` takes the actor as a repo
+    // argument too (see `findUsesPrincipal`), so it binds + passes one exactly
+    // like a principal-scoped find.  Orthogonal to the gate above — a find can
+    // need the actor for its `where` while carrying no `requires` at all.
+    const findActor = principal || findUsesPrincipal(f);
     // Bind `current_user` when the find is principal-scoped (repo arg) or its
     // gate reads the actor; `requires true` on a non-principal find binds none.
     const cuLine =
-      principal || gateUsesUser ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
+      findActor || gateUsesUser ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
     // A find that reads NO params (param-less and non-paged) binds `_params` so
     // it doesn't trip the unused-variable check; a paged find always reads
     // `page`/`pageSize` off `params`.
@@ -230,7 +237,7 @@ export function renderFindActions(
             `Map.get(params, "dir", "asc")`,
           ]
         : []),
-      ...(principal ? ["current_user"] : []),
+      ...(findActor ? ["current_user"] : []),
     ].join(", ");
     const call = `${ctxModule}.${findSnake}_${aggSnake}(${argReads})`;
 

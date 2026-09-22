@@ -651,8 +651,29 @@ export function runMethod(
     eagerContains.length > 0 ||
     associationsOf(agg).length > 0 ||
     valueCollectionsFor(agg).length > 0;
+  // An AUTHOR-WRITTEN `currentUser` predicate in the retrieval's own `where`
+  // (`where: this.technicianUserId == currentUser.id`) renders a bare
+  // `currentUser` into the Drizzle expression — but `run<Name>` is a plain
+  // method with no principal in scope, so the emitted project failed `tsc`
+  // with `TS2304: Cannot find name 'currentUser'`.  The FIND path threads a
+  // trailing `currentUser: User` parameter (`findUsesCurrentUser` above); the
+  // retrieval path cannot, because its own trailing `page?` is optional and
+  // TypeScript forbids a required parameter after an optional one.  So it
+  // binds the AMBIENT accessor instead, exactly as the criterion and
+  // document read paths already do (`repository-document-builder.ts`, and the
+  // `principalAccessor: "requireCurrentUser()"` criterion arm above).  The
+  // import rides the body scan in `repository-builder.ts`, which greps the
+  // emitted text for `requireCurrentUser(`.
+  //
+  // The DERIVED tenancy filter reaches this method through `filterPred` and
+  // was already correct — which is why the gap stayed invisible: an aggregate
+  // carrying a tenancy capability got the accessor bound for the derived half
+  // and the author's half rode along.  This fixture deliberately declares no
+  // tenancy capability, so nothing masks it.
+  const bindsPrincipal = exprUsesCurrentUser(retrieval.where);
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
+    bindsPrincipal && `    const currentUser = requireCurrentUser();`,
     // `page` is optional — apply limit / offset only when supplied.
     `    let query = this.db.select().from(schema.${tableName})${whereClause}${orderByClause}.$dynamic();`,
     `    if (page?.limit !== undefined) query = query.limit(page.limit);`,

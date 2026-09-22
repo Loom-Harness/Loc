@@ -132,7 +132,7 @@ system PC {
         status := "confirmed"
       }
       test "a fresh customer can be built" {
-        let c = Customer.create({ name: "acme" })
+        let c = Customer.create({ name: "acme", status: "new" })
         expect(c.name).toBe("acme")
       }
     }

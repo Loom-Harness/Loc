@@ -1049,6 +1049,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `'action(${p.argBase})' is not allowed — the callback argument must be a data type (primitive, aggregate, value object, …), not another UI marker.`,
   "loom.bare-aggregate-in-type": (p: { aggName: unknown }) =>
     `References across aggregate boundaries need an id link — write '${p.aggName} id' (or '${p.aggName} id[]' for many-to-many).`,
+  "loom.containment-cycle#ast": (p: { cycle: unknown; name: unknown; target: unknown }) =>
+    `Cyclic containment in aggregate '${p.name}': ${p.cycle}. ` +
+    `'contains' is ownership, so an aggregate's parts must form a tree — a cycle can be neither loaded nor persisted ` +
+    `(every backend's eager-load walks 'contains' recursively). ` +
+    `Break the loop: drop this containment, or reference the other aggregate's root with '<Aggregate> id' instead of containing '${p.target}'.`,
   "loom.cross-aggregate-entity-part": (p: { name: unknown; ownerName: unknown }) =>
     `Entity part '${p.name}' belongs to aggregate '${p.ownerName}'; cross-aggregate references must go through the root: use '${p.ownerName} id'.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
@@ -1569,6 +1574,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' over a collection needs a lambda — write '<collection>.${p.member}(x => …)'. A bare '.${p.member}' has no renderable form.`,
   "loom.unknown-member": (p: { member: unknown; record: unknown }) =>
     `'${p.member}' is not a member of '${p.record}'.`,
+  "loom.rule-expr-impure#unaddressable": (p: { where: unknown; name: unknown; kind: unknown }) =>
+    `This ${p.where} references '${p.name}', which is a ${p.kind} — not something a rule expression can reach. ` +
+    `An invariant / check / derived is a PURE predicate over the instance: it runs in the per-instance floor with only 'this' in scope, ` +
+    `so it may not call a repository, an operation, or a workflow (the same rule a pure 'function' follows). ` +
+    `Emitting it anyway produces an unresolvable identifier in the generated backend. ` +
+    `Denormalize the value onto this aggregate (copy the field at write time) and assert over that, or move the rule into the operation / workflow that already loads '${p.name}'.`,
+  "loom.rule-expr-impure#operation": (p: { where: unknown; name: unknown }) =>
+    `This ${p.where} calls '${p.name}', which is an action (operation / create / destroy) on this aggregate. ` +
+    `A rule expression is a PURE predicate over the instance — it runs inside the invariant floor that the action itself triggers, ` +
+    `so calling back into the mutating layer is both unrenderable and unbounded. ` +
+    `Extract the logic into a pure 'function' and call that from both places.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
   "loom.collection-op-in-ui#avg":
@@ -1878,6 +1894,16 @@ export const DIAGNOSTIC_MESSAGES = {
     expected: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': expression type '${p.got}' does not fit the field's type '${p.expected}'.`,
+
+  // ----------------------------------------------------------------------
+  // src/system/migrations-builder.ts — phase ⑨ (migration derivation)
+  // ----------------------------------------------------------------------
+  /** A declared backfill whose column is arriving in THIS migration, yet no
+   *  step consumed it — the silent-discard shape (F-018). A backfill is
+   *  legitimately inert once its column is in the baseline; this fires only
+   *  when it is NOT, so nothing will ever run the author's declared value. */
+  "loom.migration-backfill-discarded": (p: { module: unknown; columns: unknown }) =>
+    `migration for module "${p.module}" declares backfill(s) for column(s) that this migration ADDS, but nothing consumed them — the declared value would never run:\n${p.columns}\nThis is an internal inconsistency in the derived migration, not a mistake in the model. Report it: the migration was NOT written.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -2649,6 +2675,19 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
   }) =>
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
+  // The SYNTHESISED by-id read (F-009 / M-T3.19).  A WARNING with its own code
+  // rather than an arm of `loom.default-deny-ungated`, because it is the one
+  // ungated read the author cannot currently gate — see the long-form reason
+  // at the call site in `default-deny-checks.ts`.
+  "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
+    `denyByDefault: the synthesised by-id read '${p.path}' on aggregate '${p.name}' serves to ` +
+    `ANY authenticated caller — it is compiler-generated and has no author surface to attach a ` +
+    `\`requires\` gate to, so gating '${p.name}' elsewhere (an admin-only \`find all\`, gated ` +
+    `operations) does NOT cover reading a single record by id. Under a \`tenancy by\` system the ` +
+    `tenant filter still applies (a foreign tenant gets 404); what is NOT enforced is role ` +
+    `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
+    `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
+    `whole api is restricted.`,
   "loom.default-deny-ungated#denybydefault-projection": (p: { name: unknown }) =>
     `denyByDefault: projection '${p.name}' is served as a read endpoint on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its declaration header (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-workflow-instances": (p: { name: unknown }) =>
@@ -2737,6 +2776,23 @@ export const DIAGNOSTIC_MESSAGES = {
     `channel — the SSE relay can't legally serve those events, so the handler receives ` +
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
+  "loom.create-call-not-constructible": (p: { agg: unknown; blocking: unknown }) =>
+    `\`${p.agg}.create({ … })\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
+    `so every backend deliberately emits no \`create\`.${p.blocking}  ` +
+    `An aggregate is constructible only when every invariant can be satisfied from the create input alone; ` +
+    `one that reads containments, managed fields or post-create state cannot be built by a plain create. ` +
+    `Build it through an explicit \`create(...)\` action (or \`with crudish\`), or relax the invariant to the create payload. ` +
+    `Left alone this emits \`${p.agg}.create(...)\` against a class that has none — the generated project fails its own compiler.`,
+  "loom.create-call-missing-field": (p: {
+    agg: unknown;
+    missing: unknown;
+    plural: unknown;
+    input: unknown;
+  }) =>
+    `\`${p.agg}.create({ … })\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
+    `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
+    `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
+    `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
   "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
     `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
     `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
@@ -2895,6 +2951,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.site} on aggregate '${p.ctxName}.${p.aggName}' ignores ` +
     `capability '${p.cap}', but that aggregate does not implement '${p.cap}'. Implement it ` +
     `(with ${p.cap} / implements ${p.cap}) or correct the capability name in the 'ignoring' clause.`,
+  // The tenancy half of the `ignoring` surface, and the one that is
+  // categorically different from its siblings: bypassing `softDeletable`
+  // widens a read to rows the caller's own tenant already owns, bypassing the
+  // tenant filter drops the isolation boundary itself.  A WARNING, not an
+  // error — the deliberate platform-admin cross-tenant report is a real,
+  // supported shape — but an unconditional one: it does not consult
+  // `auth { enforcement: }` (the default `opt` mode gates nothing, and
+  // `requires true` satisfies `denyByDefault` while leaking exactly as hard).
+  "loom.tenancy-filter-bypass": (p: {
+    site: unknown;
+    ctxName: unknown;
+    aggName: unknown;
+    dropped: unknown;
+    clause: unknown;
+    claim: unknown;
+  }) =>
+    `${p.site} on aggregate '${p.ctxName}.${p.aggName}' bypasses ${p.dropped}, so the ` +
+    `generated query carries NO tenant predicate and returns rows from every tenant to ` +
+    `any caller, whatever their 'currentUser.${p.claim}'. If that cross-tenant read is ` +
+    `deliberate (a platform-admin report), gate it behind an explicit platform-admin ` +
+    `'requires' and keep it off tenant-facing APIs; otherwise drop '${p.clause}' from the ` +
+    `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
+    `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
+    `'enforcement: denyByDefault' while still leaking.`,
   "loom.filter-bypass-no-filter": (p: {
     site: unknown;
     ctxName: unknown;

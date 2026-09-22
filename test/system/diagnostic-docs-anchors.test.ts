@@ -141,7 +141,15 @@ describe("the undocumented-codes ratchet", () => {
 // D-PROJECTION-IMPLICIT-SUB (its reactor twin `loom.reactor-event-uncarried`
 // went with it, but that one carried a docs anchor, so only one leaves this
 // list).
-const UNDOCUMENTED_BASELINE = 365;
+// 366 -> 365 on main, then 365 -> 366 (F-018):
+// `loom.migration-backfill-discarded` is a phase-⑨ derivation invariant — "this
+// migration adds the column your backfill names, and nothing consumed the step"
+// — not a complaint about a `.ddd` construct. There is no language-reference
+// section for it to anchor to, and inventing one would document a compiler bug
+// as a language rule. Its remedy lives in docs/migrations.md § Rename
+// detection, where the rest of the migration-policy prose is; this baseline is
+// raised deliberately for that reason.
+const UNDOCUMENTED_BASELINE = 366;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

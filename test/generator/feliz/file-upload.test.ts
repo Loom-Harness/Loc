@@ -192,29 +192,31 @@ describe("feliz in-form File field (CreateForm)", () => {
     );
     // A file input is uncontrolled — no `prop.value` bound to the cell (which is
     // a FileRef option, not a string), and no text placeholder.
-    expect(app).not.toContain("prop.value model.AttachmentForm.attachment");
+    expect(app).not.toContain("prop.value model.AttachmentCreateForm.attachment");
     expect(app).not.toContain('prop.placeholder "attachment"');
   });
 
   it("projects the pick + upload-result Msg pair per File field", async () => {
     const app = await formAppFs();
-    expect(app).toContain("| SelectAttachmentFormAttachmentFile of Browser.Types.File");
-    expect(app).toContain("| AttachmentFormAttachmentUploaded of Result<FileRef, string>");
-    expect(app).toContain("| SelectAttachmentFormThumbFile of Browser.Types.File");
-    expect(app).toContain("| AttachmentFormThumbUploaded of Result<FileRef, string>");
+    expect(app).toContain("| SelectAttachmentCreateFormAttachmentFile of Browser.Types.File");
+    expect(app).toContain("| AttachmentCreateFormAttachmentUploaded of Result<FileRef, string>");
+    expect(app).toContain("| SelectAttachmentCreateFormThumbFile of Browser.Types.File");
+    expect(app).toContain("| AttachmentCreateFormThumbUploaded of Result<FileRef, string>");
     // The string setter a text field would have contributed is NOT emitted.
-    expect(app).not.toContain("| SetAttachmentFormAttachment of string");
+    expect(app).not.toContain("| SetAttachmentCreateFormAttachment of string");
   });
 
   it("uploads on pick and writes the FileRef into the form cell", async () => {
     const app = await formAppFs();
     expect(app).toContain(
-      "  | SelectAttachmentFormAttachmentFile file -> model, Cmd.OfAsync.perform Api.uploadFile file AttachmentFormAttachmentUploaded",
+      "  | SelectAttachmentCreateFormAttachmentFile file -> model, Cmd.OfAsync.perform Api.uploadFile file AttachmentCreateFormAttachmentUploaded",
     );
     expect(app).toContain(
-      "  | AttachmentFormAttachmentUploaded (Ok fileRef) -> { model with AttachmentForm = { model.AttachmentForm with attachment = Some fileRef } }, Cmd.none",
+      "  | AttachmentCreateFormAttachmentUploaded (Ok fileRef) -> { model with AttachmentCreateForm = { model.AttachmentCreateForm with attachment = Some fileRef } }, Cmd.none",
     );
-    expect(app).toContain("  | AttachmentFormAttachmentUploaded (Error _) -> model, Cmd.none");
+    expect(app).toContain(
+      "  | AttachmentCreateFormAttachmentUploaded (Error _) -> model, Cmd.none",
+    );
   });
 
   it("guards submit on the OPTION, not on a string being non-blank", async () => {
@@ -244,7 +246,7 @@ describe("feliz in-form File field (CreateForm)", () => {
     expect(await formFsproj()).toContain('Include="Fable.Browser.Dom"');
     // The record must precede the form types that reference it (F# is
     // order-sensitive) and the encoder must precede the `Encoders` module.
-    expect(app.indexOf("type FileRef =")).toBeLessThan(app.indexOf("type AttachmentForm ="));
+    expect(app.indexOf("type FileRef =")).toBeLessThan(app.indexOf("type AttachmentCreateForm ="));
     expect(app.indexOf("let fileRefEncoder")).toBeLessThan(app.indexOf("module Encoders ="));
   });
 });

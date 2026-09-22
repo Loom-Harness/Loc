@@ -356,6 +356,7 @@ export function renderAuthFiles(
       `    private static final String[] BYPASS_PREFIXES = {`,
       `        "/health",`,
       `        "/ready",`,
+      `        "/metrics",`,
       `        "/openapi.json",`,
       `        "/swagger",`,
       // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
