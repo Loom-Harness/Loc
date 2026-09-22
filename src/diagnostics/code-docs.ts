@@ -256,6 +256,22 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
+  // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
+  "loom.resource-kind-storage-mismatch":
+    "14-apis-storage-resources-channels.md#the-kind--storage-matrix",
+  "loom.resource-knob-kind-mismatch":
+    "14-apis-storage-resources-channels.md#the-knobs-and-their-guards",
+  "loom.resource-knob-storage-mismatch":
+    "14-apis-storage-resources-channels.md#the-knobs-and-their-guards",
+  // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
+  "loom.requirement-property-unknown": "19-requirements-traceability.md#requirement",
+  "loom.requirement-property-duplicate": "19-requirements-traceability.md#requirement",
+  "loom.requirement-property-missing": "19-requirements-traceability.md#requirement",
+  "loom.requirement-type-invalid": "19-requirements-traceability.md#requirement",
+  "loom.requirement-status-invalid": "19-requirements-traceability.md#requirement",
+  "loom.requirement-title-not-string": "19-requirements-traceability.md#requirement",
+  "loom.requirement-priority-not-int": "19-requirements-traceability.md#requirement",
+  "loom.requirement-parent-cycle": "19-requirements-traceability.md#relations-summary",
   "loom.datasource-context-unlisted": "14-apis-storage-resources-channels.md#resource",
   "loom.datasource-duplicate": "14-apis-storage-resources-channels.md#resource",
   "loom.serves-on-frontend":

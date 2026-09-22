@@ -57,40 +57,45 @@ export function checkDataSource(ds: Resource, accept: ValidationAcceptor): void 
     if (!supportsSurfaceKind(storage.type, kind as DataSourceKind)) {
       accept(
         "error",
-        `resource '${ds.name}' kind '${kind}' is incompatible with storage '${storage.name}' of type '${storage.type}'.  ` +
-          `kind '${kind}' requires a storage of type ${formatList(sourceTypesForSurfaceKind(kind as DataSourceKind))}.`,
-        { node: ds, property: "use" },
+        diagMessage("loom.resource-kind-storage-mismatch", {
+          name: ds.name,
+          kind,
+          storageName: storage.name,
+          storageType: storage.type,
+          requires: formatList(sourceTypesForSurfaceKind(kind as DataSourceKind)),
+        }),
+        { node: ds, property: "use", code: "loom.resource-kind-storage-mismatch" },
       );
     }
   }
 
   // (2) kind ↔ knob compatibility.
   if (ds.ttl != null && kind && kind !== "cache") {
-    accept(
-      "error",
-      `resource '${ds.name}': 'ttl' is only meaningful on kind: cache.  Got kind: ${kind}.`,
-      { node: ds, property: "ttl" },
-    );
+    accept("error", diagMessage("loom.resource-knob-kind-mismatch#ttl", { name: ds.name, kind }), {
+      node: ds,
+      property: "ttl",
+      code: "loom.resource-knob-kind-mismatch",
+    });
   }
   if (ds.every != null && kind && kind !== "eventLog" && kind !== "snapshot") {
     accept(
       "error",
-      `resource '${ds.name}': 'every' is a snapshot-policy knob; valid on kind: eventLog or kind: snapshot.  Got kind: ${kind}.`,
-      { node: ds, property: "every" },
+      diagMessage("loom.resource-knob-kind-mismatch#every", { name: ds.name, kind }),
+      { node: ds, property: "every", code: "loom.resource-knob-kind-mismatch" },
     );
   }
   if (ds.retain != null && kind && kind !== "eventLog" && kind !== "snapshot") {
     accept(
       "error",
-      `resource '${ds.name}': 'retain' is a snapshot-policy knob; valid on kind: eventLog or kind: snapshot.  Got kind: ${kind}.`,
-      { node: ds, property: "retain" },
+      diagMessage("loom.resource-knob-kind-mismatch#retain", { name: ds.name, kind }),
+      { node: ds, property: "retain", code: "loom.resource-knob-kind-mismatch" },
     );
   }
   if (ds.isolationLevel && kind === "cache") {
     accept(
       "error",
-      `resource '${ds.name}': 'isolationLevel' is not meaningful on kind: cache (no transactional semantics).`,
-      { node: ds, property: "isolationLevel" },
+      diagMessage("loom.resource-knob-kind-mismatch#isolation-on-cache", { name: ds.name }),
+      { node: ds, property: "isolationLevel", code: "loom.resource-knob-kind-mismatch" },
     );
   }
 
@@ -101,29 +106,41 @@ export function checkDataSource(ds: Resource, accept: ValidationAcceptor): void 
     if (ds.schema != null && !isRelational(storage.type)) {
       accept(
         "error",
-        `resource '${ds.name}': 'schema' is only meaningful on a relational storage (postgres / mysql / sqlite / inMemory).  Got '${storage.type}'.`,
-        { node: ds, property: "schema" },
+        diagMessage("loom.resource-knob-storage-mismatch#schema", {
+          name: ds.name,
+          storageType: storage.type,
+        }),
+        { node: ds, property: "schema", code: "loom.resource-knob-storage-mismatch" },
       );
     }
     if (ds.tablePrefix != null && !isRelational(storage.type)) {
       accept(
         "error",
-        `resource '${ds.name}': 'tablePrefix' is only meaningful on a relational storage (postgres / mysql / sqlite / inMemory).  Got '${storage.type}'.`,
-        { node: ds, property: "tablePrefix" },
+        diagMessage("loom.resource-knob-storage-mismatch#table-prefix", {
+          name: ds.name,
+          storageType: storage.type,
+        }),
+        { node: ds, property: "tablePrefix", code: "loom.resource-knob-storage-mismatch" },
       );
     }
     if (ds.keyPrefix != null && !isCacheStore(storage.type)) {
       accept(
         "error",
-        `resource '${ds.name}': 'keyPrefix' is only meaningful on a key-value storage (redis / inMemory).  Got '${storage.type}'.`,
-        { node: ds, property: "keyPrefix" },
+        diagMessage("loom.resource-knob-storage-mismatch#key-prefix", {
+          name: ds.name,
+          storageType: storage.type,
+        }),
+        { node: ds, property: "keyPrefix", code: "loom.resource-knob-storage-mismatch" },
       );
     }
     if (ds.isolationLevel && !isRelational(storage.type)) {
       accept(
         "error",
-        `resource '${ds.name}': 'isolationLevel' is only meaningful on a relational storage (postgres / mysql / sqlite / inMemory).  Got '${storage.type}'.`,
-        { node: ds, property: "isolationLevel" },
+        diagMessage("loom.resource-knob-storage-mismatch#isolation", {
+          name: ds.name,
+          storageType: storage.type,
+        }),
+        { node: ds, property: "isolationLevel", code: "loom.resource-knob-storage-mismatch" },
       );
     }
   }

@@ -46,9 +46,7 @@
 export const UNCODED_SITES: Readonly<Record<string, number>> = {
   "src/language/ddd-validator.ts": 6,
   "src/language/validators/_shared.ts": 1,
-  "src/language/validators/datasource.ts": 9,
   "src/language/validators/structural.ts": 6,
-  "src/language/validators/traceability.ts": 9,
 };
 
 /** The one number to watch shrink.  Derived, so a row edit cannot forget it. */

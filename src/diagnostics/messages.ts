@@ -258,6 +258,39 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/datasource.ts
   // ----------------------------------------------------------------------
+  // --- the M-T9.56 drain of `datasource.ts` -------------------------------
+  // Three codes for nine sites, because there are three RULES: the kind must
+  // suit the storage, a knob must suit the kind, and a knob must suit the
+  // storage.  The `#slug`s name which knob, so a reader still gets the exact
+  // sentence and the Problems panel still gets one code per rule.
+  "loom.resource-kind-storage-mismatch": (p: {
+    name: unknown;
+    kind: unknown;
+    storageName: unknown;
+    storageType: unknown;
+    requires: unknown;
+  }) =>
+    `resource '${p.name}' kind '${p.kind}' is incompatible with storage '${p.storageName}' of type '${p.storageType}'. ` +
+    `kind '${p.kind}' requires a storage of type ${p.requires}.`,
+  "loom.resource-knob-kind-mismatch#ttl": (p: { name: unknown; kind: unknown }) =>
+    `resource '${p.name}': 'ttl' is only meaningful on kind: cache. Got kind: ${p.kind}.`,
+  "loom.resource-knob-kind-mismatch#every": (p: { name: unknown; kind: unknown }) =>
+    `resource '${p.name}': 'every' is a snapshot-policy knob; valid on kind: eventLog or kind: snapshot. Got kind: ${p.kind}.`,
+  "loom.resource-knob-kind-mismatch#retain": (p: { name: unknown; kind: unknown }) =>
+    `resource '${p.name}': 'retain' is a snapshot-policy knob; valid on kind: eventLog or kind: snapshot. Got kind: ${p.kind}.`,
+  "loom.resource-knob-kind-mismatch#isolation-on-cache": (p: { name: unknown }) =>
+    `resource '${p.name}': 'isolationLevel' is not meaningful on kind: cache (no transactional semantics).`,
+  "loom.resource-knob-storage-mismatch#schema": (p: { name: unknown; storageType: unknown }) =>
+    `resource '${p.name}': 'schema' is only meaningful on a relational storage (postgres / mysql / sqlite / inMemory). Got '${p.storageType}'.`,
+  "loom.resource-knob-storage-mismatch#table-prefix": (p: {
+    name: unknown;
+    storageType: unknown;
+  }) =>
+    `resource '${p.name}': 'tablePrefix' is only meaningful on a relational storage (postgres / mysql / sqlite / inMemory). Got '${p.storageType}'.`,
+  "loom.resource-knob-storage-mismatch#key-prefix": (p: { name: unknown; storageType: unknown }) =>
+    `resource '${p.name}': 'keyPrefix' is only meaningful on a key-value storage (redis / inMemory). Got '${p.storageType}'.`,
+  "loom.resource-knob-storage-mismatch#isolation": (p: { name: unknown; storageType: unknown }) =>
+    `resource '${p.name}': 'isolationLevel' is only meaningful on a relational storage (postgres / mysql / sqlite / inMemory). Got '${p.storageType}'.`,
   "loom.resource-api-target-kind": (p: { name: unknown; apiName: unknown; kind: unknown }) =>
     `resource '${p.name}' binds api '${p.apiName}', which is only valid on kind: api.  ` +
     `Got kind: ${p.kind}.  Bind a storage for kind '${p.kind}', or change the kind to 'api'.`,
@@ -1266,6 +1299,31 @@ export const DIAGNOSTIC_MESSAGES = {
     `Context integration tests emit on the node, python, dotnet, java, and elixir ` +
     `backends (test-placement.md). Context '${p.name}' is not hosted ` +
     `by an integration-capable deployable, so this 'test' produces no runnable test yet.`,
+
+  // ----------------------------------------------------------------------
+  // src/language/validators/traceability.ts  (M-T9.56 drain)
+  // ----------------------------------------------------------------------
+  // The `requirement { … }` property block: an unknown key, a repeated key,
+  // the four per-value shape rules, the two required keys and the parent-chain
+  // cycle.  The menus are DERIVED from the same sets the checks test against.
+  "loom.requirement-property-unknown": (p: { name: unknown; known: unknown }) =>
+    `Unknown requirement property '${p.name}'; expected one of ${p.known}.`,
+  "loom.requirement-property-duplicate": (p: { name: unknown }) =>
+    `Duplicate requirement property '${p.name}'.`,
+  "loom.requirement-type-invalid": (p: { known: unknown }) =>
+    `requirement type must be one of ${p.known}.`,
+  "loom.requirement-status-invalid": (p: { known: unknown }) =>
+    `requirement status must be one of ${p.known}.`,
+  "loom.requirement-title-not-string": "requirement title must be a string literal.",
+  "loom.requirement-priority-not-int": "requirement priority must be an integer.",
+  // One code, two slugs — `type` and `title` are the two required properties,
+  // and "you left out a required property" is one rule.
+  "loom.requirement-property-missing#type": (p: { name: unknown }) =>
+    `requirement '${p.name}' is missing the required 'type' property.`,
+  "loom.requirement-property-missing#title": (p: { name: unknown }) =>
+    `requirement '${p.name}' is missing the required 'title' property.`,
+  "loom.requirement-parent-cycle": (p: { name: unknown }) =>
+    `requirement '${p.name}' has a cyclic parent chain.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/timer.ts

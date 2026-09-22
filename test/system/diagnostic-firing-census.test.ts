@@ -143,6 +143,31 @@ system P {
   deployable web { platform: ${platform} targets: api port: 3001 }
 }`;
 
+/** One context plus a relational AND a key-value storage, so the
+ *  `datasource.ts` drain (M-T9.56) can state a `resource` whose kind, knob or
+ *  storage is the mismatch under test. */
+const resourced = (resources: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  storage pg { type: postgres }
+  storage kv { type: redis }
+  ${resources}
+}`;
+
+/** Top-level `requirement` declarations (they are Model members, not system
+ *  members) over a minimal system, for the `traceability.ts` drain. */
+const requirements = (decls: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+}
+${decls}`;
+
 /** One in-process `test … for <Aggregate>` block holding a single `expect`,
  *  for the matcher-vocabulary half of the `match.ts` drain (M-T9.56). */
 const matcherTest = (expectStmt: string): string => `
@@ -1696,6 +1721,44 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------
+  // Three rules, nine sites: the kind must suit the storage's type, a knob
+  // must suit the kind, and a knob must suit the storage.  One fixture per
+  // CODE; the `#slug`s are the individual knobs.
+  "loom.resource-kind-storage-mismatch": resourced("resource bad { for: C, kind: state, use: kv }"),
+  "loom.resource-knob-kind-mismatch": resourced(
+    "resource ttlBad { for: C, kind: state, use: pg, ttl: 60 }",
+  ),
+  "loom.resource-knob-storage-mismatch": resourced(
+    'resource schemaBad { for: C, kind: cache, use: kv, schema: "s" }',
+  ),
+
+  // --- the M-T9.56 drain of `src/language/validators/traceability.ts` -----
+  // The `requirement { … }` prop bag: an unknown key, a repeated key, the four
+  // per-value shape rules, the two required keys and the parent-chain cycle.
+  "loom.requirement-property-unknown": requirements(
+    'requirement R1 { bogus: 1 type: UserStory title: "t" }',
+  ),
+  "loom.requirement-property-duplicate": requirements(
+    'requirement R2 { type: UserStory type: UserStory title: "t" }',
+  ),
+  "loom.requirement-type-invalid": requirements('requirement R3 { type: Nonsense title: "t" }'),
+  "loom.requirement-status-invalid": requirements(
+    'requirement R4 { type: UserStory title: "t" status: Nonsense }',
+  ),
+  "loom.requirement-title-not-string": requirements("requirement R5 { type: UserStory title: 7 }"),
+  "loom.requirement-priority-not-int": requirements(
+    'requirement R6 { type: UserStory title: "t" priority: "high" }',
+  ),
+  // Both `#slug`s: the missing `type` and the missing `title`.
+  "loom.requirement-property-missing": requirements(
+    'requirement R7 { title: "t" }\nrequirement R8 { type: UserStory }',
+  ),
+  "loom.requirement-parent-cycle": requirements(
+    'requirement R9 parent R10 { type: UserStory title: "t" }\n' +
+      'requirement R10 parent R9 { type: UserStory title: "t" }',
+  ),
+
   // --- the M-T9.56 drain of `src/language/validators/match.ts` ------------
   // The `match { … }` shape rules, and the `expect(<actual>).<matcher>(…)`
   // vocabulary's arity / placement / literal rules.  `matcherTest(...)` puts
