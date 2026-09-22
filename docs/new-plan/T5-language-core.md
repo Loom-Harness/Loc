@@ -288,36 +288,6 @@ Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workfl
 
 Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
 
-## M-T5.37 — test surface v2: a workflow accessor and three matchers — `in progress` · **M** · P1
-
-Design: [`missions/M-T5.37-test-surface-v2-design.md`](missions/M-T5.37-test-surface-v2-design.md).
-Wave 3 of the testability-audit fleet ([findings](../audits/2026-09-13-testability-audit.md) F5 + F11,
-[plan](../audits/2026-09-14-testability-fleet-plan.md)). Six owner decisions are recorded in the
-design doc against who made them; the syntax is signed off.
-
-**Two halves, deliberately sized apart.** The **workflow accessor** (`api.<wf>.run()` /
-`.instances()` / `.instance(key)`) touches ONE emitter — the e2e suite is backend-agnostic HTTP,
-emitted once by `src/system/e2e-render.ts` and replayed against every compatible backend — and
-needs no new route: all five backends already mount the command and instance reads (python states
-it plainest, `APIRouter(prefix="/workflows")`). The **matchers** touch FIVE, because unit tests run
-in-process. The cheap-looking half is the expensive one.
-
-- **P9 — the workflow accessor** ([#2985](https://github.com/Loom-Harness/Loc/pull/2985)). Closes
-  F5 and M-T9.12's own follow-up, which says asserting a folded workflow instance's scalars "needs a
-  workflow-instance read verb the `test e2e` DSL doesn't have yet".
-- **P11a — `toThrow(precondition)` / `toThrow(invariant)`** — **LANDED**
-  ([#2987](https://github.com/Loom-Harness/Loc/pull/2987)). Unit tier only; refused in an e2e body,
-  where both kinds are a 422 whose only discriminator is a `detail` sentence an authored
-  `invariant … message` can overwrite. Motivated by a measured false pass: the audit deleted a
-  `precondition` from generated source and the test stayed GREEN, because an invariant threw instead.
-- **P11b — `toBeNull` / `toBeAbsent` / `toContain`** + verify-and-document the absence conformance
-  contract. Stacked on P11a (shared `intrinsic-matchers.ts`).
-
-**Deferred by the owner, recorded so it is not mistaken for an oversight:** a principal clause for
-`test e2e` (F6) — "a gap, not a bug". Consequence: `requires` / `policy` / `mask unless` and tenancy
-denial stay untestable from a user's model, and the repo's own coverage of them stays in
-`AUTHZ_LADDERS`, harness-side, shipped to nobody.
-
 ## M-T5.38 — the IR's TWO SPELLINGS of a `this` property read, normalised at lowering — `open` · **M** · P2 ⚠ not byte-identical on three backends
 
 `this.<prop>` lowers to a `member` node whose receiver is `this`; the BARE `<prop>` spelling of the same field lowers to a `ref` with `refKind: "this-prop"` / `"this-derived"`. Two IR shapes for one source meaning, and every consumer that special-cases one of them silently misses the other. (Wave C2 packet 2a closed the CALL half — `this.<fn>(…)` now lowers to the bare form's `call` node — and left the READ half; packet 2f censused it on all five and recommended its own mission. This is it.)
