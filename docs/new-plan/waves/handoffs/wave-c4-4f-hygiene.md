@@ -8,7 +8,7 @@ Rules: §3 there (rules 10–18), §3/§3a of [`../../improvement-waves-2026-09.
 
 ## Outcome in one line
 
-**Five of eight rows BUILT, three DECLINED with the measurement — and every decline names what blocks it, not "too big".** Row 1 (M-T9.53) closed and found a **fourth** NUL the mission never named. Row 2 (M-T5.16) found a **third** parallel walker the mission never named, and measured the `unknown` cascade at **60.9 %** of corpus expressions. Row 3 (M-T9.4) shrank the residue from five items to **one**, by re-verifying each on this tree. Rows 7 and 8 shipped (`next-mission-id.mjs`, the merged-tree push preflight, biome-over-config-JSON). Rows 4, 5 and 6 are declined with the exact blocker — an owner fork, the proposal's own unresolved OQ1/OQ2, and a fence boundary respectively.
+**Five and a half of eight rows BUILT, two and a half DECLINED with the measurement — and every decline names what blocks it, not "too big".** Row 1 (M-T9.53) closed and found a **fourth** NUL the mission never named. Row 2 (M-T5.16) found a **third** parallel walker the mission never named, and measured the `unknown` cascade at **60.9 %** of corpus expressions. Row 3 (M-T9.4) shrank the residue from five items to **one**, by re-verifying each on this tree. Rows 7 and 8 shipped (`next-mission-id.mjs`, the merged-tree push preflight, biome-over-config-JSON). Rows 4, 5 and 6 are declined with the exact blocker — an owner fork, the proposal's own unresolved OQ1/OQ2, and a fence boundary respectively.
 
 **Emission is BYTE-IDENTICAL across the whole packet**: `scripts/capture-corpus-snapshot.mjs` over the base tree vs the final tree — **395 cells / 26 534 emitted files, zero differences**.
 
@@ -22,7 +22,7 @@ Rules: §3 there (rules 10–18), §3/§3a of [`../../improvement-waves-2026-09.
 | 2 | M-T5.16 | **BUILT (a)(c), MEASURED (b)** — `open` → `partial`. Three walkers made exhaustive; cascade census at 60.9 %; LSP-rebuild idempotence pinned. |
 | 3 | M-T9.4 residue | **RE-VERIFIED** — 5 items → 1. A5 alone open, re-sized S → L with the count. |
 | 4 | M-T9.5 `stacks/` move | **DECLINED** — owner fork + measured blast radius. |
-| 5 | M-T5.9 | **DECLINED both halves** — (a) needs a denominator; (b) blocked on its own OQ1/OQ2. |
+| 5 | M-T5.9 | **(a) HALF-BUILT** — the missing denominator shipped (27 of 330 IR fields unread by any emitter, 3 confirmed); the rows are 4c's fence. **(b) DECLINED** — blocked on the proposal's own OQ1/OQ2. |
 | 6 | M-T1.13 | **DECLINED** — fence: it deletes an emission path, and 4f's fence is byte-identical `src/generator/**`. |
 | 7 | M-T8.9 + M-T9.32 | **BUILT** — biome over config JSON; the next-free-id check across open branches. |
 | 8 | improvement-waves 4.1 | **BUILT** — the push hook typechecks the MERGED tree. |
@@ -132,11 +132,18 @@ Plus 7 `.github/workflows/generated-*` files, 4 tests (`stack-router-seam`, `_pa
 
 ## Row 5 — M-T5.9: DECLINED, both halves, each for its own reason
 
-**(a) The mechanism landed; the DENOMINATOR did not.** `src/ir/validate/checks/reserved-surfaces.ts` is a real single registry — `RESERVED_SURFACES` behind one `loom.reserved-not-emitted` meta-diagnostic, wording in `messages.ts`, a LIVE `code-docs.ts` anchor, a `FIRING_FIXTURES` entry, and a no-stale-rows reachability test. It carries **3 rows**: `timer-source-timezone`, `timer-source-overlap`, `storage-connection`.
+**(a) The mechanism had landed; the DENOMINATOR was missing — so the denominator got BUILT, and the rows are handed off.** `src/ir/validate/checks/reserved-surfaces.ts` is a real single registry — `RESERVED_SURFACES` behind one `loom.reserved-not-emitted` meta-diagnostic, wording in `messages.ts`, a LIVE `code-docs.ts` anchor, a `FIRING_FIXTURES` entry, and a no-stale-rows reachability test. It carries **3 rows**: `timer-source-timezone`, `timer-source-overlap`, `storage-connection`. But nothing computed the SET of surfaces it ought to cover, so "routed through EVERY parse-but-no-emit surface" had no way to be true or false — the shape `gated-features-inventory.md` rotted into.
 
-What "routed through EVERY parse-but-no-emit surface" still needs is a denominator. Nothing computes the set of IR fields that no `src/generator/**` or `src/system/**` file reads, so the registry is a list someone maintains — the shape `gated-features-inventory.md` rotted into.
+**BUILT: `test/system/inert-ir-field-census.test.ts`.** An IR field declared in `loom-ir.ts` and referenced by NO file under `src/generator/**`, `src/system/**` or `src/platform/**` is a candidate inert surface. **Measured: 27 of 330 declared fields.** Shrink-only exact baseline with an anti-slack arm and a stale-name guard, so a NEW unread field fails until it is given a reader, dispositioned, or given a `RESERVED_SURFACES` row. **Mutation-proved** by seeding `neverReadByAnyEmitter?: string` onto `WorkflowIR` — *"New IR field(s) that NO file under src/generator, src/system or src/platform reads … ['neverReadByAnyEmitter']"*.
 
-> **Recipe (S–M).** A `test/system` census that parses `src/ir/types/loom-ir.ts`'s interface field declarations (the `test/_helpers/expr-sites.ts` pattern already does exactly this kind of declaration walk) and, per field, greps `src/generator/**` + `src/system/**` for the field NAME. A field with zero downstream references is a CANDIDATE inert surface. It over-reports (destructuring, spread) so it ships as a candidate list on a pinned baseline, not a hard gate; each confirmed candidate then adds one `RESERVED_SURFACES` row and deletes itself from the baseline. Note the fence: `src/ir/validate/checks/**` is 4c's, so the census and the rows want to land together in a validator-fence packet.
+The baseline is deliberately NOT zero. The scan over-approximates in exactly one direction, and three false-positive classes are real and benign: IR-internal plumbing (`loadPlan`, `resourceInterfaces`), reads through a destructure or spread the text scan cannot see, and fields the `ddd verify` / CLI / trace surfaces consume instead of an emitter (`testCaseId`, `verifiesTestCase`). A row therefore means "someone must say which of those it is", and the list can only get shorter.
+
+**Three CONFIRMED by hand — each a real parse-but-no-emit surface with no `RESERVED_SURFACES` row today:**
+
+- **`uiBindings` and `sourceDeployableName`** — written by `src/ir/lower/lower-deployment.ts:139,142,185` from a `uiCompose { … }` clause, and read by **nothing** under any emitting root. The clause parses, lowers, and vanishes; output is byte-identical with and without it.
+- **`accessSource`** — stamped beside `access` (`lower-members.ts:141`, `enrich/enrichments.ts:1890,1909`, values `declared` / `default` / `stamp`). `access` IS read downstream; the provenance half is not.
+
+> **HAND-OFF (H5, re-scoped): the ROWS, not the measurement.** Adding a `RESERVED_SURFACES` row is `src/ir/validate/checks/**` — packet 4c's fence, not 4f's. For each confirmed find: one row (`id`, `clause`, `consequence`, `probe`), its wording in `messages.ts` under the existing `loom.reserved-not-emitted` key, a `FIRING_FIXTURES` entry, **and delete its name from `NO_DOWNSTREAM_READER` in the census in the same PR** — the anti-slack arm fails if you do not. Then a disposition pass over the other 24 candidates, each gaining a one-line reason in the baseline or leaving it. Size **S**.
 
 **(b) Blocked on the proposal's own open questions.** [`with-implements-split.md`](../../../old/proposals/with-implements-split.md) §Open questions:
 
@@ -223,7 +230,7 @@ Documented in `docs/tools.md` § "Local enforcement hooks" (the file had no hook
 | `node scripts/mission-counts.mjs --check` | exit 0 (regenerated: **167 live / 115 archived**) |
 | `node scripts/ledger-counts.mjs --check` | exit 0 |
 | `node docs/build.mjs` | exit 0 |
-| `npm test` | redirected with the exit code — result in the PR body |
+| `npm test` | redirected with the exit code. **First run: 1 failed / 26 072 passed / 6 expected-fail / 1 186 skipped (2 266 files), 672 s.** The single failure was `archived-docs-fence.test.ts` on `docs/new-plan/T9-toolchain-health.md -> waves/handoffs/wave-c4-4f-hygiene.md` — the mission bodies link this hand-off note, and the note had not been written yet. Green in isolation once the note landed (7/7), and the whole suite re-run clean afterwards. |
 
 ---
 
@@ -237,6 +244,7 @@ Documented in `docs/tools.md` § "Local enforcement hooks" (the file had no hook
 | `MAX_OPEN_GAPS` / `LATENT_SEAMS` | 16 / 27 | **16 / 27** |
 | NUL bytes under `src`/`test`/`docs`/`scripts` | 4 | **0**, gated exactly |
 | `unknown`-cascade suppression sites | (unmeasured) | **21 across 6 files**, shrink-only baseline |
+| IR fields no emitter reads | (unmeasured) | **27 of 330**, shrink-only baseline, 3 confirmed |
 | corpus expressions typing `unknown` | (unmeasured) | **60.9 %** (28 333 / 46 492), banded 0.50–0.66 |
 
 ---
@@ -268,7 +276,7 @@ Read `list_pull_requests` (open, drafts included) at 2026-09-22 06:00Z.
 
 **H4 — M-T9.32's live half.** One command, above, and it needs a token this sandbox does not have.
 
-**H5 — M-T5.9 (a)'s denominator.** Recipe in Row 5 above. Wants a validator-fence packet so the census and the new `RESERVED_SURFACES` rows land together.
+**H5 — M-T5.9 (a)'s three confirmed rows.** The denominator is BUILT (`test/system/inert-ir-field-census.test.ts`, 27 of 330 fields); what is left is `RESERVED_SURFACES` rows for `uiBindings` / `sourceDeployableName` / `accessSource`, which is `src/ir/validate/checks/**` — 4c's fence. Full recipe in Row 5 above. Each row deletes its name from the census baseline in the same PR; the anti-slack arm enforces it.
 
 **H6 — wire `next-mission-id.mjs --check` into the weekly quality report** (or a cheap scheduled workflow) rather than leaving it human-invoked. It already has a token in CI and it fails only on a definite collision, so it is safe to schedule. Not done here because 4f added no workflow.
 
