@@ -420,7 +420,7 @@
     },
     {
       "id": "RS-23",
-      "title": "An absent collection is `[]` on every PERSISTENCE ADAPTER, not just the default",
+      "title": "An absent collection is `[]` on every PERSISTENCE ADAPTER",
       "trigger": "an optional value-object collection (`surcharges: Money[]?`) never written, read back on a non-default persistence adapter — `persistence: dapper` (.NET) or `persistence: mikroorm` (node)",
       "observable": "the collection reads back as `[]`. This is RS-8's absence shape, but the point of THIS rule is that it holds per ADAPTER: the wire contract for a collection is the empty array, never null, so a client can iterate without a guard.",
       "conforms": [
@@ -439,7 +439,7 @@
     },
     {
       "id": "RS-24",
-      "title": "A plain `decimal` is a JSON NUMBER on the wire; only `money` is a string",
+      "title": "A plain `decimal` is a JSON NUMBER; only `money` is a string",
       "trigger": "a GET returning an aggregate (or nested value object) with a `decimal` field",
       "observable": "the value is a JSON number (`9.99`, `5`) — and the SAME number every other backend sends: the wire width is an IEEE-754 double (≤17 significant digits), whatever the backend computes in. This is the deliberate counterpart to RS-12, where `money` is a fixed-scale STRING (`\"19.5000\"`) so no float rounding can touch a monetary amount — the two types differ on the wire, and a backend must not collapse them.",
       "conforms": [
@@ -505,7 +505,7 @@
     },
     {
       "id": "RS-27",
-      "title": "A 404-BY-ID carries the sentence `\"<Aggregate> <id> not found\"` in `detail`",
+      "title": "A 404-BY-ID carries the sentence `\"<Aggregate> <id> not found\"`",
       "trigger": "`GET /api/<aggs>/{id}` (or `GET /api/<aggs>/{id}/history`) for an id that does not exist",
       "observable": "the RFC 9457 body's `detail` is the sentence `\"<Aggregate> <id> not found\"` — the aggregate's PascalCase name, the requested id, and the words \"not found\" — on every backend. Not a machine token, not a framework default. The 404 an OPTIONAL FIND answers is a DIFFERENT class and keeps the `\"not_found\"` token; the rule is about reads addressed BY ID.",
       "conforms": [
@@ -610,6 +610,108 @@
         "elixir closed 2026-08-30 (the last hold-out): `elixirCodePointLength` in the same shared module feeds render-expr.ts, the ExUnit value renderer, and a hand-rolled `validate_change/3` length arm in changeset-validators.ts — both carriers in one change, since moving one alone made elixir disagree with itself"
       ],
       "tier": "behavioral"
+    },
+    {
+      "id": "RS-32",
+      "title": "A malformed path `{id}` answers the declared 422, not a framework default",
+      "trigger": "any route binding `{id}` — `getById`, `destroy`, the canonical `update`, a named operation, a `can_<op>` probe, the entity-history read, the workflow-instance read — called with a value that will not parse as a uuid",
+      "observable": "GET /api/orders/not-a-uuid answers **422** carrying the same `errors[]` envelope the body tier emits (`{\"pointer\":\"/id\"}`), not a framework default. It is a CLIENT fault, so reporting it as a 500 (or a bare 400 with no `errors[]`) tells the caller to retry a request that can never succeed.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "four backends aligned by #2652 (node/.NET already 422; java gained a MethodArgumentTypeMismatchException arm, python's `{id}` Path() gained the uuid pattern it only published)",
+        "elixir added in the W1b elixir packet: `renderPathIdCastPlug` + `ProblemDetails.invalid_path_id_response/2`, src/generator/elixir/vanilla/problem-details-emit.ts",
+        "RUNTIME-PROVEN on elixir, not inferred: a generated Phoenix app booted against Postgres answers `422 {\"errors\":[{\"pointer\":\"/id\",\"message\":\"Expected UUID.\"}]}`; with the plug reverted (file-copy, regenerate, recompile, re-boot) the same request answers `400 {\"title\":\"Bad Request\"}` with no `errors[]`",
+        "statically pinned per backend by test/generator/malformed-path-id-status.test.ts (one `it` per arm: java, python, elixir, and node/.NET keeping their mechanism)"
+      ],
+      "tier": "static"
+    },
+    {
+      "id": "RS-33",
+      "title": "An `errors[]` pointer names the whole path to the offending field",
+      "trigger": "a violation inside a containment part, a value-object collection row, or a value-object field — anything whose failing field is not top-level",
+      "observable": "a 422 `errors[]` entry carries an RFC 6901 JSON pointer to the field that failed, however deeply nested (`/lines/0/qty`, `/sku/code`) — never just the top-level container it sits under, and never an empty array. It is what lets a frontend ACL (`applyServerErrors`) bind the denial to the form control that caused it.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "ledger rows `F2-W-03` and `nested-errors-pointer-shape`",
+        "elixir arm fixed in the W1b elixir packet (`collect_changeset_errors/2` + the `loom_path` opt on `validate_vo/3`), pinned by test/generator/elixir/nested-error-pointers.test.ts",
+        "elixir RUNTIME-PROVEN: a booted Phoenix app answers a `{\"sku\":{\"code\":\"ab\"}}` create with `422 {\"errors\":[{\"pointer\":\"/sku/code\",\"message\":\"SKU code needs at least 3 characters\"}]}`; with `validate_vo/3` reverted the same request answers `{\"pointer\":\"/sku\",\"message\":\"is invalid\"}` — inner field, authored text and wire code all gone",
+        "java arm closed under M-T9.25 / F1 nested-errors-pointer-shape: `pointerOf` in src/generator/java/emit/api.ts, wired at every `errors[]` call site, pinned by test/generator/java/errors-pointer-rfc6901.test.ts (`lineTotals[0].unitPrice` → `/lineTotals/0/unitPrice`, consecutive indexers, both RFC 6901 escapes, and the raw-concatenation form asserted GONE)",
+        "node `pointerOf(issue.path)` (src/platform/hono/v4/emit.ts, shared emitter), .NET `ValidationProblem.PointerOf` (src/generator/dotnet/emit/api.ts), python `_pointer(tuple(e[\"loc\"]))` (src/generator/python/index.ts) were correct from the start"
+      ],
+      "tier": "static"
+    },
+    {
+      "id": "RS-34",
+      "title": "A query-time projection `join` is LEFT, not INNER — the joined field is wire `null` when the target is absent",
+      "trigger": "any query-time `projection … join <Agg> as c on <idRef> … select f = c.<member>` where the target aggregate can genuinely be absent from its own bulk-load: `softDeletable`, `tenantOwned`, or simply a reference with no live row",
+      "observable": "the source row SURVIVES and the joined field reads wire `null` — the join is LEFT. It is never a 500 from an unguarded map index, and the source row is never dropped.",
+      "conforms": [
+        "node",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "targets": [
+        "dotnet"
+      ],
+      "provenance": [
+        "raised as ledger row `G2667-D3-projection-join-unguarded-index`",
+        "landed dotnet (`b75ce2c`) and node (`40202d9`) in wave 1 packets 1b/1c; python in wave 1 packet 1e; elixir in wave 1 packet 1d",
+        "java landed in the wave-2 residue (`renderSelectWire`, src/generator/java/emit/query-projection-reads.ts), pinned by test/generator/java/query-projection-join-missing.test.ts and the java arm of test/ir/projection-comprehension.test.ts",
+        "MUTATION-PROVEN (java): reverting `renderSelectWire` to the pre-fix unguarded `<mapVar>.get(<key>).<member>()` (file-copy revert, never `git checkout --`) fails 4 named assertions across those two files",
+        "OPEN (dotnet): the value-typed joined-field gap — the guarded arm's `: default!` in src/generator/dotnet/query-projection-emit.ts reads `0`/`false`/`DateTime.MinValue` for a joined `int`/`decimal`/`bool`/`datetime`, not wire `null`. Unverified and unfixed; flipping it to an explicitly-nullable wire type (and widening the Response schema's field to nullable for a joined member) is the wave-1 dotnet hand-off"
+      ],
+      "tier": "static"
+    },
+    {
+      "id": "RS-35",
+      "title": "An absent optional is `null` on the wire, never an omitted key",
+      "trigger": "`absent-optional.ddd`: an aggregate with an optional scalar (`estimate: int?`) and a null-guard invariant over it, created by a body that OMITS the field entirely, then read back by id and by list",
+      "observable": "the key is PRESENT carrying an explicit null — `{\"estimate\": null}` — on every backend and every persistence adapter. The key is never dropped from the payload, so a client can tell \"declared but unset\" from \"not a field of this resource\" without consulting the schema.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "contract enforced since #2577 / M-T9.11 (the per-PR wire differential); the golden is test/behavioral/wire-golden/absent-optional.json",
+        "named, derived and written down by M-T5.36 / P11b (#3001), which also added the `toBeNull()` / `toBeAbsent()` matchers and recorded the RS-registry drift this entry closes",
+        "four sibling optional-carrying cases (`embedded-optional`, `optional-reference`, `optional-valueobject`, `union-find-absence`) derive the same seven legs"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-36",
+      "title": "`.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form",
+      "trigger": "any `.first` whose receiver can be empty: `lines.first.sku` after a `where` that matched nothing, a `find` result bound and read positionally, a `derived` over an empty containment",
+      "observable": "the read FAILS rather than yielding a value that lies about its own type — `first` is declared non-optional `T` in src/util/collection-ops.ts. The failure surfaces as the sanitized 500 RS-28 already governs, not a domain-floor 422: the request was valid and the MODEL's assumption (\"this collection has a first element\") was not. `firstOrNull` is declared `T?` and is the TOTAL form: null/nil on empty, never raising.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "ruled as D-FIRST-ON-EMPTY (docs/decisions.md); raised as ledger row `F2-EXPR-7`; built in wave C2 packet 2n",
+        "the edge itself is pinned as prose in src/util/collection-ops.ts (`first` → `T`, `firstOrNull` → `T?`), the way src/util/intrinsics.ts pins scalar edge behaviour",
+        "statically pinned per backend by test/generator/collection-op-first-partial.test.ts, which drives all five leaf tables (TS_/CS_/JAVA_/PY_/ELIXIR_COLLECTION_RENDERERS) and asserts three things per backend: `first` renders a form that FAILS on empty, `first` and `firstOrNull` are DIFFERENT renderings (the assertion that catches the elixir shape), and `firstOrNull` stays total"
+      ],
+      "tier": "static"
     }
   ]
 }
