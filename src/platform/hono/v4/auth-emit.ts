@@ -492,35 +492,51 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   // Deploy env overrides the declared value — see envOverridableExpr (the
   // 401-from-the-bundled-IdP failure mode caught live by the parity 403 test).
   const issuerExpr = envOverridableExpr("OIDC_ISSUER", auth.oidc.issuer);
-  // Audience is optional — only emit the const + the verify option when
-  // configured, so the generated code carries no always-falsy constant.
-  const audienceConst = auth.oidc.audience
-    ? `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`
-    : "";
-  const verifyOptions = auth.oidc.audience
-    ? "{ issuer: ISSUER, audience: AUDIENCE }"
-    : "{ issuer: ISSUER }";
-  // The doc comment must describe the options actually emitted above.  It used
-  // to claim "validates signature (JWKS), issuer, and audience" unconditionally
-  // — which is false on the no-`audience:` arm, and that arm is the DEFAULT:
-  // `audience` is optional in the grammar, absent from every `oidc { … }`
-  // example in the docs, and omitting it silently disables the check.  Reading
-  // the generated source is how an engineer audits this, so a comment asserting
-  // a control the file does not implement is worse than no comment.  The
-  // "not verified" wording is deliberately the thing a reviewer greps for.
+  // Audience is ALWAYS env-reachable, declared or not (CR1-b / P0-4).  The
+  // other four backends read OIDC_AUDIENCE even with no `audience:` in the
+  // `.ddd`, so node used to be the one deployment where an operator could set
+  // OIDC_AUDIENCE in compose and get no `aud` check, no error, no log line —
+  // the same model shipping enforceable isolation on four backends and an
+  // unenforceable one on the fifth.  `envOverridableExpr` already collapses
+  // both cases: declared → `process.env.OIDC_AUDIENCE ?? "<declared>"`,
+  // undeclared → `process.env.OIDC_AUDIENCE ?? ""`.  An EMPTY value (unset, or
+  // an explicit `OIDC_AUDIENCE=""`) skips the `aud` check — the same documented
+  // opt-out the Phoenix verifier carries.
+  const audienceConst = `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`;
+  // The doc comment must describe the options actually emitted above — a
+  // comment asserting a control the file does not implement is worse than no
+  // comment, and reading the generated source is how an engineer audits this.
+  // The "not verified" wording is deliberately the thing a reviewer greps for.
+  //
+  // COMPOSED with the honesty fix that landed on main while this branch was
+  // open (both sides answered the same finding; neither alone is right now).
+  // That fix split the doc on `auth.oidc.audience` — a COMPILE-time question —
+  // because when it was written an undeclared audience meant the check could
+  // not be turned on at all.  CR1-b made it a RUNTIME one: `AUDIENCE` is now
+  // always emitted, so an undeclared audience is off *by default* rather than
+  // off *by construction*, and the remedy is no longer only "edit the .ddd".
+  // Keeping main's two arms verbatim would now state something false on the
+  // undeclared arm — it would send an operator to the `.ddd` when setting
+  // OIDC_AUDIENCE in the deploy env is enough.
   const verifierDoc = auth.oidc.audience
     ? `/** Generated OIDC verifier — validates signature (JWKS), issuer and
- *  audience, then maps claims onto User.  Returns null to reject (→ 401). */`
+ *  audience, then maps claims onto User.  Returns null to reject (→ 401).
+ *
+ *  \`audience:\` is declared, so the \`aud\` check is ON unless the deploy env
+ *  overrides it — \`OIDC_AUDIENCE\` replaces the declared value, and an
+ *  explicit \`OIDC_AUDIENCE=""\` turns the check off (the documented opt-out). */`
     : `/** Generated OIDC verifier — validates signature (JWKS) and issuer, then
  *  maps claims onto User.  Returns null to reject (→ 401).
  *
- *  The \`aud\` claim is NOT verified: this system's \`auth { oidc { … } }\`
- *  block declares no \`audience:\`, so any token this issuer minted is
- *  accepted here — including one issued to a DIFFERENT client of the same
- *  realm, carrying that client's roles.  Where one IdP realm serves several
- *  applications (the shape the generated Keycloak realm sets up), add
- *  \`audience: env("OIDC_AUDIENCE")\` to the \`oidc { … }\` block to turn the
- *  check on. */`;
+ *  The \`aud\` claim is NOT verified BY DEFAULT: this system's
+ *  \`auth { oidc { … } }\` block declares no \`audience:\`, so unless the deploy
+ *  env sets one, any token this issuer minted is accepted here — including one
+ *  issued to a DIFFERENT client of the same realm, carrying that client's
+ *  roles.  Where one IdP realm serves several applications (the shape the
+ *  generated Keycloak realm sets up), turn the check on EITHER by setting
+ *  \`OIDC_AUDIENCE\` in this service's environment — no regeneration needed,
+ *  \`AUDIENCE\` above already reads it — or by declaring
+ *  \`audience: env("OIDC_AUDIENCE")\` in the \`oidc { … }\` block. */`;
   // One `field: claim(payload, "<path>") as <T>` line per user field.
   const toUserLines = user.fields.map((f) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
@@ -534,6 +550,12 @@ import { registerUserVerifier } from "./verifier";
 // Resolved from the system \`auth { oidc { … } }\` block.  Env-bound values
 // read process.env at boot; an empty issuer fails loudly at first verify.
 const ISSUER = ${issuerExpr};${audienceConst}
+
+// \`aud\` is validated only when an audience is actually configured — an empty
+// AUDIENCE (nothing declared and OIDC_AUDIENCE unset, or an explicit
+// OIDC_AUDIENCE="") skips the check, which is the documented opt-out.  With one
+// set, a token minted for a DIFFERENT client of the same issuer is rejected.
+const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
 
 // Lazily discover the issuer's JWKS endpoint via the OIDC discovery
 // document, then cache a remote JWK set (jose refreshes + caches keys).
@@ -608,7 +630,7 @@ export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => 
   const token = bearer(req);
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, await getJwks(), ${verifyOptions});
+    const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
     return toUser(payload);
   } catch {
     return null;

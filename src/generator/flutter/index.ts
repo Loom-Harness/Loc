@@ -38,7 +38,7 @@ import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/p
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
-import { humanize, snake, upperFirst } from "../../util/naming.js";
+import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";

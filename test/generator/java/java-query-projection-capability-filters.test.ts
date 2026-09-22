@@ -18,7 +18,6 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
-import { parseValid } from "../../_helpers/parse.js";
 
 const SRC = `
   system S {

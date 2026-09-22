@@ -358,8 +358,33 @@ function filterValue(e: ExprIR, acc: string): string {
         default:
           throw new Error("mikroorm: unsupported literal in find");
       }
-    default:
+    // The rest of `ExprIR` has no FilterQuery value form.  Enumerated instead
+    // of left to a bare `default` so a new expression kind is a compile error
+    // here (the `never` below) and has to be classified — rendered or refused —
+    // rather than silently inheriting the refusal.
+    case "this":
+    case "id":
+    case "call":
+    case "method-call":
+    case "new":
+    case "object":
+    case "list":
+    case "lambda":
+    case "action-ref":
+    case "authz-filter":
+    case "paren":
+    case "unary":
+    case "binary":
+    case "ternary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "match":
       throw new Error(`mikroorm: unsupported value '${e.kind}' in find`);
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }
 

@@ -1,11 +1,10 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
-import { humanize } from "../../util/naming.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
-import { type AngularFormControlSpec, addNg, fieldErrorId } from "./form-fields.js";
+import { type AngularFormControlSpec, addNg } from "./form-fields.js";
 
 // ---------------------------------------------------------------------------
 // Angular Reactive-Forms validator derivation.

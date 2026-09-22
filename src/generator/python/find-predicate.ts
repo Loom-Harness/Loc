@@ -387,7 +387,7 @@ function lower(
             principalAccessor,
             nullBools,
           );
-          if (operand != null && operand.startsWith(`${row}.`)) {
+          if (operand?.startsWith(`${row}.`)) {
             // `is_not` is the SQLAlchemy 2.0 spelling; the `.isnot` sites
             // elsewhere in this file are the retained 1.4 synonym, left alone
             // so their emission stays byte-identical.

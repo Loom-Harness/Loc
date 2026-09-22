@@ -665,7 +665,7 @@ describe("cross-pack spacing contract", () => {
   });
 
   describe("navSection.label — one style across every pack", () => {
-    for (const { p, pack } of loaded) {
+    for (const { p } of loaded) {
       const id = packId(p);
       const deviates = structuralDeviation(id, "navSection.label");
       it(deviates ? `${id} still deviates` : id, () => {

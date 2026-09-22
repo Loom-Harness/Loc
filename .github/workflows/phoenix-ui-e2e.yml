@@ -36,7 +36,33 @@ on:
       - 'src/generator/elixir/**'
       - 'src/platform/elixir.ts'
       - 'src/generator/_frontend/**'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_walker/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/phoenix-ui-smoke-e2e.test.ts'
+      # The embed-react-runtime job below rides this same trigger.
+      - 'test/e2e/embed-react-elixir.test.ts'
+      - 'test/e2e/fixtures/elixir-vanilla-build/vanilla-embed-react.ddd'
       - 'web/src/examples/storefront-elixir.ddd'
       - 'package.json'
       - '.github/workflows/phoenix-ui-e2e.yml'
@@ -119,3 +145,82 @@ jobs:
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the runtime-e2e step above for the captured server stdout + Playwright output.' >> $GITHUB_STEP_SUMMARY
           echo 'The test boots the generated Phoenix app against postgres, then runs the emitted Playwright smoke (every param-less LiveView route navigates + asserts its URL).' >> $GITHUB_STEP_SUMMARY
+
+  # The OTHER way a generated Phoenix app serves a UI: not LiveView, but an
+  # embedded React SPA built into priv/static/app (D-PHOENIX-SURFACE).  The
+  # mix-compile gate (elixir-vanilla-build.yml) proves that project COMPILES;
+  # this proves it SERVES — `GET /app` returns the SPA shell and
+  # `GET /api/<agg>` still returns the JSON API on the same origin, so a
+  # Plug.Static mount or a SpaController fallback pointed at the wrong path
+  # fails here instead of at a user's first `docker compose up`.
+  #
+  # Same sidecar + BEAM setup and the same LOOM_OBS_PG_URL handshake as the
+  # job above, which is why it lives here.  Its own header used to claim it
+  # "reuses the phoenix-obs-e2e.yml workflow" — that file was RENAMED to
+  # elixir-vanilla-obs-e2e.yml, and the rename left the suite unreachable:
+  # LOOM_EMBED_E2E_PHOENIX was set by no script and no workflow for months,
+  # so 268 lines skipped silently on every run (code review 2026-09-13 P1-1).
+  # test/system/skip-gate-reachability.test.ts now fails on exactly that
+  # shape, so the next rename cannot orphan a suite in silence.
+  embed-react-runtime:
+    runs-on: ubuntu-latest
+    # Same trigger discipline as the sibling above: push, manual dispatch, or
+    # the `run-e2e` label on a PR — never an unlabeled PR.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'run-e2e'
+    # Cold path: hex deps + Phoenix compile + postgres + the SPA's own npm
+    # install and vite build is ~5-8min.  20min leaves headroom.
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: api
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.3'
+          elixir-version: '1.18.4'
+
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Cache hex deps + _build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+          key: hex-mix-vanilla-${{ hashFiles('src/generator/elixir/vanilla/shell-emit.ts') }}
+          restore-keys: |
+            hex-mix-vanilla-
+
+      - name: Run Phoenix-embeds-React runtime e2e
+        env:
+          LOOM_OBS_PG_URL: 'postgres://postgres:postgres@127.0.0.1:5432'
+          LOOM_OBS_PG_DB: 'api'
+        run: npm run test:embed-phoenix -- --reporter=verbose
+
+      - name: Surface failure context
+        if: failure()
+        run: |
+          echo '## Phoenix-embeds-React runtime e2e failed' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo 'See the runtime-e2e step above for the captured Phoenix stdout and the vite build log.' >> $GITHUB_STEP_SUMMARY
+          echo 'Asserts the embedded SPA is served from one origin: `GET /app` returns the SPA shell out of priv/static/app, and `GET /api/<agg>` still returns the Phoenix JSON API.' >> $GITHUB_STEP_SUMMARY

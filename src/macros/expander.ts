@@ -398,7 +398,7 @@ function existingDeletedAtMember(agg: Aggregate): Property | undefined {
  *  the `softDeletable` capability splices for the timestamp. */
 function isOptionalDatetimeProperty(p: Property): boolean {
   const t = p.type;
-  if (!t || !t.optional || t.array || t.alternatives.length > 0) return false;
+  if (!t?.optional || t.array || t.alternatives.length > 0) return false;
   return t.base?.$type === "PrimitiveType" && (t.base as PrimitiveType).name === "datetime";
 }
 

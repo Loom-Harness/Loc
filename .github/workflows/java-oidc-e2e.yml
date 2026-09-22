@@ -50,7 +50,30 @@ on:
       - 'src/util/**'
       - 'src/generator/java/**'
       - 'src/platform/java.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-java-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e-java.ddd'
       - 'package.json'
       - '.github/workflows/java-oidc-e2e.yml'
@@ -81,7 +104,30 @@ on:
       # handshake entry exercises).
       - 'src/generator/_auth/**'
       - 'src/generator/_frontend/auth-ui.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-java-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e-java.ddd'
       - '.github/workflows/java-oidc-e2e.yml'
   workflow_dispatch:

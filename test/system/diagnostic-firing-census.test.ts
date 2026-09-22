@@ -892,6 +892,20 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // An `oidc { … }` block with no `audience:` — the verifier then validates
+  // signature / iss / exp and accepts ANY token that issuer minted, for any of
+  // its clients.  Warning, not error: single-client deployments are legitimate
+  // and every backend can still be switched on with OIDC_AUDIENCE at deploy
+  // time.  What was not legitimate is the silence (CR1-b / P0-4).
+  "loom.auth-oidc-no-audience": `
+system S {
+  user { id: string }
+  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
+
   // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
   // (the detector wants the whole chain), so no read port is threaded in and
   // every backend emits the bare repository name.

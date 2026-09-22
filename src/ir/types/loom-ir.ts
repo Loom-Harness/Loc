@@ -4164,7 +4164,7 @@ export function workflowCanAnswerNotFound(
     walkWorkflowStmtExprsDeep(top, (e) => {
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
-      if (!read || read.readKind !== "named") return;
+      if (read?.readKind !== "named") return;
       if (readThrows(read.repo, read.method)) canNotFound = true;
     });
   }
