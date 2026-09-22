@@ -18,6 +18,11 @@ Seven commits, largest file first. "sites" is the per-file row in
 `diagnostic-uncoded-baseline.ts`; "codes" is how many `loom.*` codes those
 sites were given (fewer than sites wherever two call sites state one rule).
 
+(The commit subjects read `drain 1/12` … `drain 6/12` and then `drain 7/7`: the
+plan budgeted ~10–12 slices, the drain closed in **seven** because four files
+turned out to share condition families with a larger one and two more were small
+enough to fold together. The table below is the authoritative mapping.)
+
 | commit | file | sites before → after | codes | notes |
 |---|---|---:|---:|---|
 | 1/12 `c7a34b379` | `src/language/validators/deployable.ts` | **24 → 0** (row deleted) | 21 | `loom.ui-binding-unknown-param` covers 2 sites; `loom.ui-binding-missing` carries `#no-compose` + `#param` |
