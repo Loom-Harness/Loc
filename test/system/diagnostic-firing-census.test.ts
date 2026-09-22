@@ -19,6 +19,7 @@ import {
   PROJECTION_WF_SOURCE_SUPPORTED,
   REMOTE_API_OP_UNSUPPORTED,
 } from "../../src/ir/validate/checks/system-checks.js";
+import { TABLE_FILTER_FRAMEWORKS } from "../../src/ir/validate/checks/ui-collection-display-checks.js";
 import {
   allAdapterNames,
   hasAdapters,
@@ -217,7 +218,103 @@ ${uiBody}
   deployable app { platform: flutter, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
+/** The `toThrow(<kind>)` probe (audit F11 / design M-T5.36 § 2a): one operation
+ *  carrying BOTH a `precondition` and a guarded collection `invariant`, with
+ *  the assertion spliced into whichever tier the fixture is about. */
+function throwKindProbe(opts: {
+  unitBody?: string;
+  contextTest?: string;
+  e2eTest?: string;
+  precondMessage?: string;
+}): string {
+  return `
+system Probe {
+  subdomain Ops {
+    context Work {
+      enum WorkStatus { Draft, InProgress, Completed }
+
+      aggregate WorkOrder {
+        reference: string
+        status: WorkStatus = Draft
+        contains tasks: Task[]
+        entity Task { label: string }
+
+        invariant tasks.count > 0 when status == Completed
+
+        create(reference: string, status: WorkStatus) { }
+
+        operation complete() {
+          precondition status == InProgress${opts.precondMessage ?? ""}
+          status := Completed
+        }
+${
+  opts.unitBody
+    ? `
+        test "probe" {
+          let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+${opts.unitBody}
+        }`
+    : ""
+}
+      }
+
+      repository WorkOrders for WorkOrder { }
+${
+  opts.contextTest
+    ? `
+      test "integration" {
+        let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+${opts.contextTest}
+      }`
+    : ""
+}
+    }
+  }
+${
+  opts.e2eTest
+    ? `
+  test e2e "wire" against d {
+    let wo = api.workOrders.create({ reference: "WO-1", status: Draft })
+${opts.e2eTest}
+  }`
+    : ""
+}
+
+  api WorkApi from Ops
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+
+  deployable d {
+    platform: node
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+}`;
+}
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // A part that contains itself.  The natural domain is ordinary (a sub-task
+  // tree), and before the check this parsed clean and then killed `generate`
+  // with a bare `RangeError: Maximum call stack size exceeded`.
+  // A tenancy registry nothing can create — the signup loop's step one is
+  // missing, so the first tenant can never exist.
+  "loom.tenant-registry-not-constructible": `
+system Billder {
+  user { id: guid  email: string  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Billing {
+    context Accounts {
+      aggregate Organization { name: string }
+      repository Organizations for Organization { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Accounts, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
+}`,
+
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on
@@ -263,6 +360,31 @@ system VanillaActor {
   storage pg { type: postgres }
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
+}`,
+  // A `crudish` aggregate whose `status` field is BOTH mass-assigned by the
+  // macro's generic `update` and written by a `requires`-gated `approve()` —
+  // audit D3.  `POST /invoices/{id}/update {"status":…}` skips the gate.  The
+  // advisory points at `immutable`, which removes the field from the update
+  // input while leaving the operation free to assign it.
+  "loom.update-gate-suggestion": `
+system UpdateGate {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    enum InvoiceStatus { Draft, Approved }
+    aggregate Invoice with crudish {
+      total: int
+      status: InvoiceStatus
+      operation approve() {
+        requires currentUser.role == "admin"
+        status := Approved
+      }
+    }
+    repository Invoices for Invoice { }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
 }`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -328,7 +450,69 @@ system S {
     }
     repository Invoices for Invoice { }`),
 
+  // --- create call sites ---------------------------------------------------
+  // An invariant over a CONTAINED collection cannot be satisfied from the create
+  // input, so the aggregate is not constructible and every backend emits no
+  // `static create(...)` — while the unit-test emitter kept emitting the call.
+  "loom.create-call-not-constructible": repoOnly(`    aggregate Order {
+      currency: string
+      contains lines: Line[]
+      derived display: string = currency
+      invariant lines.all(l => l.currency == currency)
+      entity Line { currency: string }
+      test "an order can be built" {
+        let o = Order.create({ currency: "EUR" })
+        expect(o.display).toBe("EUR")
+      }
+    }
+    repository Orders for Order { }`),
+
+  // A create call site that omits a REQUIRED create-input field.  The factory
+  // input is the field-derived contract, so the emitted `.test.ts` fails the
+  // generated project's own tsc (TS2345, "Property 'binCode' is missing").
+  "loom.create-call-missing-field": repoOnly(`    aggregate Part {
+      sku: string
+      binCode: string
+      onHand: int
+      derived display: string = sku
+      test "part is built" {
+        let p = Part.create({ sku: "a", onHand: 1 })
+        expect(p.display).toBe("a")
+      }
+    }
+    repository Parts for Part { }`),
+
   // --- structural ---------------------------------------------------------
+  // Two entity parts that contain each other.  `contains` is ownership, so the
+  // graph must be a tree; the cycle used to parse clean and then blow the JS
+  // stack inside the TypeScript repository emitter's `nestedContainLoads`.
+  // This census keys by bare code, so `loom.containment-cycle` gets ONE fixture.
+  // Two arrived at once — a direct self-cycle and this INDIRECT one (X -> Y -> X).
+  // The indirect chain is kept because it is the harder case: an implementation
+  // that walks only one level catches the direct cycle and misses this.  The
+  // direct case keeps its own coverage in `test/ir/containment-cycle.test.ts`
+  // ("direct self-containment raises loom.containment-cycle").
+  "loom.containment-cycle": repoOnly(`    aggregate A {
+      n: string
+      contains xs: X[]
+      derived display: string = n
+      entity X { contains ys: Y[] }
+      entity Y { contains zs: X[] }
+    }
+    repository As for A { }`),
+
+  // A cross-aggregate invariant that reads through a repository.  It validated
+  // clean and emitted `Technicians.getById(...)` into the per-instance floor —
+  // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
+  // rule was silently emitted nowhere at all.
+  "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
+    aggregate WorkOrder with crudish {
+      technicianId: Technician id
+      invariant Technicians.getById(technicianId).skill.length > 0
+    }
+    repository Technicians for Technician { }
+    repository WorkOrders for WorkOrder { }`),
+
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
   // saw the site, because its `message` was a shorthand property.
@@ -1053,7 +1237,9 @@ system S {
   // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
   // residue is exactly the types that would need a RECORD codec — a value
   // object here; `datetime` (the fixture's old subject) now has a total
-  // `System.DateTime.TryParse` codec and rides the ladder.
+  // `System.DateTime.TryParse` codec and rides the ladder.  Packet 2l added the
+  // `optional` arm, which does NOT widen this fixture: an optional of a record
+  // is refused for the same reason the bare record is.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {
@@ -1233,32 +1419,6 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // HEEx's parallel engine never reads `filter:` at all (M-T1.1).
-  "loom.table-filter-unsupported": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: phoenixLiveView
-    api C: Api
-    page Home {
-      route: "/"
-      state { q: string = "" }
-      body: QueryView {
-        of: C.Thing.all,
-        data: rows => Table { rows: rows, filter: q, Column { "Name", o => Text { o.name } } }
-      }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api {
-    platform: elixir contexts: [C] dataSources: [st] serves: Api
-    ui: WebApp { C: api } port: 4000
-  }
-}`,
   // The state-controlled shell and the operation-form dialog do not combine on
   // react / vue / svelte / flutter — the WHOLE modal becomes a comment
   // (F2-CFE-12).  Angular, Feliz and HEEx render it, so the gate is per-target.
@@ -1299,6 +1459,26 @@ system S {
     framework: react
     api C: Api
     page Home { route: "/"  body: Card { title: "Caption", Text { "body" } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+  // A closed-vocabulary argument VALUE: `variant:` accepts primary/secondary/
+  // ghost, and every pack's template falls to `ghost` for anything else — so
+  // `"filled"` (the value this repo's own primitive reference used) rendered a
+  // borderless text button where a primary action was written.
+  "loom.page-primitive-unknown-arg-value": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home { route: "/"  body: Button { "Save", variant: "filled" } }
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -1433,6 +1613,108 @@ system S {
   test e2e "t" against d {
     let p = api.products.create({ sku: "W-1" })
     expect(p.sku).toBe("W-1")
+  }
+}`,
+
+  // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
+  // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
+  // because a routed handler's arguments bind POSITIONALLY, the miscount does
+  // not merely drop the last one: it shifts every later argument into the
+  // wrong slot and renders a literal `undefined` into a URL segment.
+  "loom.e2e-routed-handler-arity": `
+system S {
+  subdomain D { context Sales {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    queryHandler Sum(a: int, b: int): int { return a + b }
+  } }
+  api A from D { route GET "/sum/{a}/{b}" -> Sales.Sum }
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable d {
+    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4104
+  }
+  test e2e "t" against d {
+    expect(api.sales.sum(2)).toBe(5)
+  }
+}`,
+
+  // The same binding on a BODYLESS method whose param no `{token}` binds.
+  // Every backend reads `sku` from a request body; `fetch` cannot send one on
+  // a GET, so the argument would silently vanish and the assertion would be
+  // testing the handler's default rather than what the body passed.
+  "loom.e2e-routed-handler-bodyless-method": `
+system S {
+  subdomain D { context Sales {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    queryHandler Quote(sku: string): string { return sku }
+  } }
+  api A from D { route GET "/quote" -> Sales.Quote }
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable d {
+    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4105
+  }
+  test e2e "t" against d {
+    expect(api.sales.quote("SKU-1")).toBe("SKU-1")
+  }
+}`,
+
+  // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
+  // route — `Widget with crudish` — so the only defect left is the one under
+  // test, and the diagnostic cannot be the routing one wearing a new code.
+  "loom.e2e-unknown-body-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4101 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ kode: "W-1" })
+  }
+}`,
+
+  "loom.e2e-missing-required-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4102 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+  }
+}`,
+
+  "loom.e2e-body-type-mismatch": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
+}`,
+
+  "loom.e2e-unknown-response-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let g = api.widgets.getById(w)
+    expect(g.nonesuch).toBe("x")
   }
 }`,
 
@@ -1736,24 +2018,53 @@ system P {
   // `// TODO(flutter full-parity)` comment: the button was wired and did
   // nothing.  (The `match await` on a standard agg op is the same code's other
   // slug; one fixture per code is what the census asks for.)
+  // The `toast(…)` arm this fixture used to drive is DRAINED (wave C2 packet
+  // 2l gave the Notifier the `lib/toast.dart` bridge), so the fixture moved to
+  // the arm that survives: a `match await` on a STANDARD aggregate op, which
+  // the Flutter async-effect emitter resolves through `agg.operations` and so
+  // cannot find.  `create` is deliberately NOT one of `Order`'s declared
+  // operations here.
   "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
       route: "/edit"
       state { n: int = 0 }
-      action go() { toast("hi") }
+      action go() {
+        match await Shop.Order.create(code: "c") {
+          Order o => n := 1,
+          else => n := 2
+        }
+      }
       body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
     }`),
 
-  // A `component` param whose declared type the shared TypeScript prop layer
-  // has no spelling for.  `money` rides the wire as a decimal string re-parsed
-  // to a `Decimal`, so this is portable work — until it lands it was a raw
-  // `Error: component prop: unsupported primitive 'money'.` mid-generate.
-  "loom.frontend-prop-type-unsupported": uiPages(
+  // A `component` whose NAME is a walker primitive.  The page-body dispatcher
+  // resolves a call by name, primitives first, so the component is emitted to
+  // `src/components/<Name>.tsx` and the PACK's primitive renders at the call
+  // site — the author's body appears nowhere, at `0 error(s), 0 warning(s)`.
+  // The `extern function` twin (`loom.extern-function-shadows-stdlib`) has
+  // always been refused; this arm was missing.  See D-PAGE-PRIMITIVE-SHADOW.
+  "loom.component-shadows-stdlib": uiPages(
     "",
-    `    component Price(amount: money) { body: Text { "price" } }
+    `    component Alert(msg: string) { body: Heading { msg, level: 3 } }
     page Home {
       route: "/"
-      state { total: money = 0.00 }
-      body: Stack { Heading { "Home", level: 1 }, Price(amount: total) }
+      body: Stack { Heading { "Home", level: 1 }, Alert("hi") }
+    }`,
+  ),
+
+  // A `component` param whose declared type the shared TypeScript prop layer
+  // has no spelling for.  This USED to be `amount: money` — wave C2 packet 2k
+  // taught the layer `money` (`Decimal`), `File` and a `valueobject` (both
+  // structural) on all four TS-prop frontends, so those three no longer fire
+  // and the fixture moves to what still does: a CARRIER kind.  `A or B` is the
+  // only one a param position can even spell, and it is also refused by
+  // `loom.union-position` — which is exactly why the register row is now a
+  // latent `seam` rather than a drained gap.
+  "loom.frontend-prop-type-unsupported": uiPages(
+    "",
+    `    component Picker(x: Order or Order) { body: Text { "pick" } }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 } }
     }`,
   ),
 
@@ -1848,6 +2159,74 @@ system S {
     expect(ui.technicians.create({ name: "" })).toThrow(422)
   }
 }`,
+  // --- P11a / audit F11: `toThrow(<kind>)`, the discriminating throw ---------
+  //
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.  All four
+  // share the audit's probe shape: ONE operation carrying BOTH rungs, a
+  // `precondition` and a guarded collection `invariant`, so that deleting the
+  // precondition leaves the invariant to throw in its place.  That substitution
+  // is what `toThrow()` could not see and what the kind form exists to name.
+  "loom.e2e-throw-kind-invalid": throwKindProbe({
+    e2eTest: `    expect(api.workOrders.complete(wo, { })).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-integration-unsupported": throwKindProbe({
+    contextTest: `        expect(wo.complete()).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-custom-message": throwKindProbe({
+    unitBody: `          expect(wo.complete()).toThrow(precondition)`,
+    precondMessage: ` message "finish the work first"`,
+  }),
+  "loom.throw-kind-outside-tothrow": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBe(invariant)`,
+  }),
+  // --- M-T5.36 / P11b: the absence pair + containment ----------------------
+  // `toBeAbsent()` is a claim about a SERIALIZED PAYLOAD, so it is e2e-only:
+  // a unit `test` asserts against an in-memory aggregate whose declared fields
+  // always exist.  Fire it from the unit tier, which is the refusal.
+  "loom.unit-absent-invalid": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBeAbsent()`,
+  }),
+  // `toContain` has exactly two lowerings, picked by the subject's type
+  // (collection membership / string substring).  An ENUM subject is neither,
+  // so it has no lowering and is refused at the IR, where the resolved type is
+  // available.
+  "loom.contain-receiver-invalid": throwKindProbe({
+    unitBody: `          expect(wo.status).toContain("Draft")`,
+  }),
+  // `toBeAbsent()` rewrites onto the receiver (`"<key>" in <obj>`), so it needs
+  // a FIELD READ to name a key.  A bare let-bound name supplies none — and in
+  // the e2e tier, which is the only one where the matcher is legal at all.
+  "loom.absent-receiver-invalid": throwKindProbe({
+    e2eTest: `    expect(wo).toBeAbsent()`,
+  }),
+  // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
+  // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
+  // absence spelling is observable there.  Needs a full react-targeting system,
+  // because the diagnostic reads the target deployable's platform.
+  "loom.e2e-ui-absence-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot assert an absence" against webApp {
+    let t = ui.technicians.create({ name: "Grace" })
+    let read = ui.technicians.getById(t)
+    expect(read.name).toBeNull()
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
@@ -1862,6 +2241,50 @@ system S {
     repository Invoices for Invoice { }
     seed default { Invoice { label: "Seeded" } }
   } }
+}`,
+  // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
+  // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
+  // so — the admin-only `find all` next to it is no protection at all.
+  "loom.default-deny-by-id-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+    repository Secrets for Secret {
+      find all(): Secret[] requires currentUser.role == "admin"
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
+  // projection under the LANGUAGE-DEFAULT `enforcement: opt` — 0 errors /
+  // 0 warnings before the gate, while the emitted route served every
+  // tenant's revenue to any authenticated caller.
+  "loom.tenancy-filter-bypass": `
+system S {
+  user { id: guid  orgId: string }
+  auth { enforcement: opt  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  tenancy by user.orgId of Org
+  subdomain Ops { context Work {
+    aggregate Org with crudish { name: string }
+    aggregate WorkOrder with tenantOwned, crudish { ref: string  amount: money }
+    repository Orgs for Org { }
+    repository WorkOrders for WorkOrder { }
+    projection PlatformRevenue {
+      revenue: money
+      from WorkOrder as w ignoring tenantOwned
+      select revenue = sum(w.amount)
+    }
+  } }
+  api Api from Ops
+  storage pg { type: postgres }
+  resource st { for: Work, kind: state, use: pg }
+  deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
   // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
@@ -2024,6 +2447,13 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "`REMOTE_API_OP_UNSUPPORTED` is the EMPTY set and the gate fires only for its members " +
     "(`if (!REMOTE_API_OP_UNSUPPORTED.has(dep.platform)) continue`), so every platform skips.  " +
     "Checked by `LATENT_GATES`.",
+  "loom.table-filter-unsupported":
+    "`TABLE_FILTER_FRAMEWORKS` (ui-collection-display-checks.ts) now covers every `framework:` " +
+    "the grammar admits: the six `walkBody` targets declare `renderFilteredRows` + " +
+    "`renderFilterInput`, and phoenixLiveView's parallel engine grew the equivalent in wave C2 " +
+    'packet 2m (`renderTable` emits the bound `<.input type="search">` plus ' +
+    "`LoomTable.filter_rows/2`).  The gate's SIBLING, `loom.table-filter-server-paged`, is the " +
+    "one that still bites and is driven by a fixture.  Checked by `LATENT_GATES`.",
   "loom.flutter-primitive-unsupported":
     "`FLUTTER_UNRENDERED_PRIMITIVES` is the EMPTY set — every page primitive has a Flutter " +
     "renderer today — and the gate only rejects a primitive that is a member.  Its own source " +
@@ -2168,11 +2598,24 @@ const BACKEND_OWNING = [
   "static",
 ].filter((p) => parseBuiltinPlatformRef(p) !== null);
 
+/** Every `framework:` an author can write, read off the GRAMMAR rather than
+ *  listed here — the grammar is what decides which frontends exist, so a
+ *  seventh one lands in this roster the moment its alternative is added and
+ *  any "covers every frontend" pin below turns red until it is ported. */
+const FRONTEND_FRAMEWORKS: readonly string[] = (() => {
+  const grammar = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../src/language/ddd.langium"),
+    "utf8",
+  );
+  const rule = /Framework returns string:\s*([^;]+);/.exec(grammar)?.[1] ?? "";
+  return [...rule.matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]!);
+})();
+
 const LATENT_GATES: ReadonlyArray<{
   code: string;
   setName: string;
   set: ReadonlySet<string>;
-  kind: "covers-every-backend" | "empty";
+  kind: "covers-every-backend" | "covers-every-frontend" | "empty";
 }> = [
   // system-checks.ts — the `!platformOwnsBackend(d.platform) || SET.has(...)`
   // skip shape.  No second arm: a context nothing hosts iterates zero
@@ -2260,6 +2703,15 @@ const LATENT_GATES: ReadonlyArray<{
     set: FLUTTER_UNRENDERED_PRIMITIVES,
     kind: "empty",
   },
+  // The frontend twin of the shape above: the set covers every `framework:`
+  // the grammar admits, so no ui can reach the push.  HEEx was the last
+  // member, added in wave C2 packet 2m when its engine grew the filter.
+  {
+    code: "loom.table-filter-unsupported",
+    setName: "TABLE_FILTER_FRAMEWORKS",
+    set: TABLE_FILTER_FRAMEWORKS,
+    kind: "covers-every-frontend",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -2307,6 +2759,13 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // unsupported-primitive arm and the two procedural packs' missing-renderer
   // fallback.
   "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  // Phase ⑨, and not reachable from a `.ddd` at all: the discarded-backfill
+  // invariant (F-018 §4) needs a BASELINE SNAPSHOT to diff against — one
+  // generation's schema plus a second source that adds the backfilled column.
+  // `validate()` has no baseline, so no fixture here can drive it. The pointed
+  // -at file builds the pair and asserts the code, both directions (it also
+  // pins the inert cases that must stay silent).
+  "loom.migration-backfill-discarded": "test/ir/migrations-builder.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
@@ -2373,12 +2832,31 @@ describe("diagnostic firing census", () => {
       expect(BACKEND_OWNING).toContain("node");
     });
 
+    // Same guard for the frontend roster: it is scraped out of the grammar, so
+    // a rule rename would empty it and make every `covers-every-frontend` pin
+    // pass without checking anything.
+    it("the frontend roster is scraped from the grammar and complete", () => {
+      expect(FRONTEND_FRAMEWORKS.length).toBeGreaterThanOrEqual(7);
+      expect(FRONTEND_FRAMEWORKS).toContain("react");
+      expect(FRONTEND_FRAMEWORKS).toContain("phoenixLiveView");
+    });
+
     it.each(LATENT_GATES.map((g) => [g.code, g] as const))("%s", (_code, gate) => {
       if (gate.kind === "empty") {
         expect(
           [...gate.set],
           `${gate.setName} is no longer empty, so ${gate.code} can fire again — it needs a real ` +
             `FIRING_FIXTURES entry, and its UNREACHABLE_PINS entry must go`,
+        ).toEqual([]);
+        return;
+      }
+      if (gate.kind === "covers-every-frontend") {
+        const missing = FRONTEND_FRAMEWORKS.filter((f) => !gate.set.has(f));
+        expect(
+          missing,
+          `${gate.setName} no longer covers every \`framework:\` the grammar admits (missing ` +
+            `${missing.join(", ")}), so ${gate.code} is reachable again — either port the ` +
+            `feature on those frontends or replace its pin with a FIRING_FIXTURES entry`,
         ).toEqual([]);
         return;
       }

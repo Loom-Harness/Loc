@@ -90,6 +90,12 @@ const PINNED: Record<string, Pin> = {
     discipline: "per-run-reset",
     reason: "Reassigned wholesale before any type is lowered.",
   },
+  "src/language/validators/types.ts:unaddressableIndexCache": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakMap keyed by the AST ROOT node the index was built from; a re-parse " +
+      "produces a fresh root, so the entry dies with the document version it describes.",
+  },
   "src/language/print/print-expr.ts:printStatement": {
     discipline: "wiring-injection",
     reason:

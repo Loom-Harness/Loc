@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { offsetToLineCol } from "../../../src/generator/_trace/sourcemap.js";
-import { weaveLineDirectives } from "../../../src/generator/dotnet/emit/entity.js";
+import {
+  lineDirectivePath,
+  weaveLineDirectives,
+} from "../../../src/generator/dotnet/emit/entity.js";
 import type { OriginRef } from "../../../src/ir/types/origin.js";
 
 // ---------------------------------------------------------------------------
@@ -14,11 +17,58 @@ import type { OriginRef } from "../../../src/ir/types/origin.js";
 const DDD = "line one\nline two\nline three\n";
 const PATH = "/proj/main.ddd";
 const TEXTS = new Map([[PATH, DDD]]);
+// What the directive NAMES: the path relative to the common root of the
+// model's sources, so the emitted C# does not depend on where the generator
+// ran (see `lineDirectivePath`).  One source ⇒ the bare file name.
+const REL = "main.ddd";
 
 const withOrigin = (start: number, end: number): { origin?: OriginRef } => ({
   origin: { kind: "source", path: PATH, span: { start, end } },
 });
 const noOrigin: { origin?: OriginRef } = {};
+
+// The path a `#line` directive names used to be the ABSOLUTE path the
+// generator ran from, which made the emitted C# depend on the machine: the
+// same `.ddd` built in two checkouts produced two different `Order.cs`.  It
+// was the only reason the .NET output was not byte-identical across otherwise
+// identical runs.
+describe("lineDirectivePath", () => {
+  it("reduces a single-source model to the bare file name", () => {
+    expect(lineDirectivePath("/home/alice/shop/model.ddd", ["/home/alice/shop/model.ddd"])).toBe(
+      "model.ddd",
+    );
+  });
+
+  it("is the same whatever absolute prefix the model sits under", () => {
+    const a = lineDirectivePath("/home/alice/deep/nested/model.ddd", [
+      "/home/alice/deep/nested/model.ddd",
+    ]);
+    const b = lineDirectivePath("/srv/ci/w/model.ddd", ["/srv/ci/w/model.ddd"]);
+    expect(a).toBe(b);
+  });
+
+  it("keeps two same-named files in different directories distinct", () => {
+    // Why the COMMON ROOT and not a bare basename: a multi-file model may hold
+    // `sales/model.ddd` and `billing/model.ddd`, and collapsing both to
+    // "model.ddd" would point a debugger at the wrong file.
+    const sources = ["/w/m/sales/model.ddd", "/w/m/billing/model.ddd"];
+    expect(lineDirectivePath("/w/m/sales/model.ddd", sources)).toBe("sales/model.ddd");
+    expect(lineDirectivePath("/w/m/billing/model.ddd", sources)).toBe("billing/model.ddd");
+  });
+
+  it("leaves a path that does not share the common root alone", () => {
+    // Nothing sensible to relativize against; an absolute path is still better
+    // than a wrong relative one.
+    expect(lineDirectivePath("/other/x.ddd", ["/w/a.ddd", "/w/b.ddd"])).toBe("/other/x.ddd");
+  });
+
+  it("never emits an absolute path for a normally-rooted model", () => {
+    const sources = ["/home/someone/proj/a.ddd", "/home/someone/proj/sub/b.ddd"];
+    for (const src of sources) {
+      expect(lineDirectivePath(src, sources).startsWith("/")).toBe(false);
+    }
+  });
+});
 
 describe("weaveLineDirectives", () => {
   it("prepends an enhanced directive per mapped statement and #line hidden per unmapped one", () => {
@@ -27,9 +77,9 @@ describe("weaveLineDirectives", () => {
     const { chunks: woven, wove } = weaveLineDirectives(stmts, chunks, TEXTS);
     expect(wove).toBe(true);
     expect(woven).toEqual([
-      `#line (1,1)-(1,9) "${PATH}"\n        var a = 1;`,
+      `#line (1,1)-(1,9) "${REL}"\n        var a = 1;`,
       "#line hidden\n        Glue();",
-      `#line (2,1)-(2,9) "${PATH}"\n        var b = 2;`,
+      `#line (2,1)-(2,9) "${REL}"\n        var b = 2;`,
     ]);
   });
 
@@ -61,35 +111,35 @@ describe("weaveLineDirectives", () => {
     const chunks = ["        this.A = b;"];
     const { chunks: woven } = weaveLineDirectives(stmts, chunks, TEXTS);
     // (3,8) is inside "line one" — offsets 3..8 map to (1,4)-(1,9).
-    expect(woven[0]).toBe(`#line (1,4)-(1,9) "${PATH}"\n        this.A = b;`);
+    expect(woven[0]).toBe(`#line (1,4)-(1,9) "${REL}"\n        this.A = b;`);
   });
 
   it("narrows a `return` statement to its `value` expression's origin", () => {
     const stmts = [{ kind: "return", ...withOrigin(0, 8), value: withOrigin(9, 17) }];
     const chunks = ["        return b;"];
     const { chunks: woven } = weaveLineDirectives(stmts, chunks, TEXTS);
-    expect(woven[0]).toBe(`#line (2,1)-(2,9) "${PATH}"\n        return b;`);
+    expect(woven[0]).toBe(`#line (2,1)-(2,9) "${REL}"\n        return b;`);
   });
 
   it("narrows a `let` statement to its `expr`'s origin", () => {
     const stmts = [{ kind: "let", ...withOrigin(0, 17), expr: withOrigin(9, 17) }];
     const chunks = ["        var tag = b;"];
     const { chunks: woven } = weaveLineDirectives(stmts, chunks, TEXTS);
-    expect(woven[0]).toBe(`#line (2,1)-(2,9) "${PATH}"\n        var tag = b;`);
+    expect(woven[0]).toBe(`#line (2,1)-(2,9) "${REL}"\n        var tag = b;`);
   });
 
   it("falls back to the statement's own origin when the inner expression has none", () => {
     const stmts = [{ kind: "assign", ...withOrigin(0, 8), value: noOrigin }];
     const chunks = ["        this.A = b;"];
     const { chunks: woven } = weaveLineDirectives(stmts, chunks, TEXTS);
-    expect(woven[0]).toBe(`#line (1,1)-(1,9) "${PATH}"\n        this.A = b;`);
+    expect(woven[0]).toBe(`#line (1,1)-(1,9) "${REL}"\n        this.A = b;`);
   });
 
   it("leaves a non-narrowed statement kind (e.g. `emit`) on its own statement span", () => {
     const stmts = [{ kind: "emit", ...withOrigin(0, 8) }];
     const chunks = ["        _domainEvents.Add(new Foo());"];
     const { chunks: woven } = weaveLineDirectives(stmts, chunks, TEXTS);
-    expect(woven[0]).toBe(`#line (1,1)-(1,9) "${PATH}"\n        _domainEvents.Add(new Foo());`);
+    expect(woven[0]).toBe(`#line (1,1)-(1,9) "${REL}"\n        _domainEvents.Add(new Foo());`);
   });
 });
 

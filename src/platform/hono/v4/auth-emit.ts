@@ -1,4 +1,4 @@
-import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import type {
@@ -12,6 +12,7 @@ import type {
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 
 // ---------------------------------------------------------------------------
 // Hono-side auth scaffolding emitted per deployable when `auth: required`.
@@ -31,8 +32,8 @@ import { lines } from "../../../util/code-builder.js";
 // Without an `auth { … }` block the user calls `registerUserVerifier(fn)`
 // by hand (index.ts ships a permissive dev stub).  With one, the
 // generated OIDC verifier is registered automatically.  The middleware
-// bypass list mirrors the .NET side: /health, /ready, /openapi.json,
-// /swagger (plus /auth for the OIDC handshake).
+// bypass list mirrors the .NET side: /health, /ready, /metrics,
+// /openapi.json, /swagger (plus /auth for the OIDC handshake).
 // ---------------------------------------------------------------------------
 
 export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
@@ -148,15 +149,6 @@ function authValueExpr(v: AuthValueIR | undefined, fallback = '""'): string {
 function envOverridableExpr(envVar: string, v: AuthValueIR | undefined): string {
   if (v?.kind === "env" && v.env === envVar) return authValueExpr(v);
   return `process.env.${envVar} ?? ${authValueExpr(v)}`;
-}
-
-/** The IdP claim path projected onto a given `user { … }` field.  An
- *  explicit `claims:` mapping wins; otherwise `id` defaults to the
- *  standard `sub` claim and every other field reads its own name. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
 }
 
 /** The `Ids` namespace import an auth module needs when the claim shape names
@@ -356,12 +348,23 @@ function rootOrgOf(orgPath: string): string {
 `
     : "";
   // Only the handshake's redirect endpoints bypass auth — they must be
-  // reachable without a verified principal.  `/api/auth/me` (the session probe
+  // reachable without a verified principal.  `/metrics` is on the list for
+  // the same reason `/health` and `/ready` are, and because the compose stack
+  // this generator ALSO emits scrapes it: `monitoring/prometheus.yml` carries
+  // no credentials, so a gated `/metrics` made the two generated halves
+  // disagree — every scrape 401'd (finding F-022).  `/api/auth/me` (the session probe
   // the frontend guard reads) is deliberately NOT bypassed, so the
   // middleware populates `currentUser` or rejects with 401.
+  //
+  // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
+  // same reason as the probes: it is infra, not domain surface, and an
+  // auth-bearing system's e2e suite would otherwise have to mint a principal
+  // just to empty a table.  It costs nothing to bypass — the route is not
+  // REGISTERED outside a dev profile, so on a real deployment there is no
+  // handler behind the bypassed path.
   const bypass = oidc
-    ? `["/health", "/ready", "/openapi.json", "/swagger", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
-    : '["/health", "/ready", "/openapi.json", "/swagger"]';
+    ? `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
+    : `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
   return `// Auto-generated.
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";

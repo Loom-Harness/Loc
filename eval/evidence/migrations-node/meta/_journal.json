@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1767225600000,
+      "tag": "20260101000000_accounts_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1767312000001,
+      "tag": "20260102000000_ops_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1767492001002,
+      "tag": "20260102500001_ops_migrate",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1767492002003,
+      "tag": "20260102500002_ops_migrate",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1767492003004,
+      "tag": "20260102500003_ops_alter_address_line_on_sites",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1767492004005,
+      "tag": "20260102500004_ops_migrate",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1767492005006,
+      "tag": "20260102500005_ops_add_account_number_to_customers",
+      "breakpoints": true
+    }
+  ]
+}

@@ -155,6 +155,16 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // value_computed / invariant_evaluated trace lines must stay
   // ruff-/mypy-clean (the domain fixture exercises all three).
   ["test/e2e/fixtures/python-build/domain.ddd", "api", "--trace"],
+  // F2: an `<Agg> id` / `datetime` LITERAL written in a `test` block, in BOTH
+  // positions that take a declared type — an operation parameter and a
+  // `create({ ... })` create-input field, required and optional.  This is the
+  // cell that typechecks an EMITTED TEST FILE on this backend: the run below
+  // widens to `mypy --strict app tests` whenever a fixture emits `tests/`, and
+  // then executes it with `pytest`.  Nothing reached it before — pytest does
+  // not typecheck, so a raw literal against a `NewType`/`datetime` signature
+  // ran green while `mypy` (the generated project's own bar) rejected it, and
+  // the `datetime` half additionally STORED a `str` in a `datetime` field.
+  ["test/e2e/fixtures/python-build/typed-test-literals.ddd", "api"],
 ];
 
 describe.skipIf(!ENABLED)(

@@ -1,4 +1,9 @@
-import type { AggregateIR, ContextStampIR, ExprIR } from "../../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  ContextStampAssignmentIR,
+  ContextStampIR,
+  ExprIR,
+} from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { inheritanceDepth } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
@@ -154,8 +159,17 @@ function renderArm(
   actorIdProp?: string,
 ): string {
   const argName = "e"; // local for the matched entity inside the arm
-  const onCreate = rules.find((r) => r.event === "create")?.assignments ?? [];
-  const onUpdate = rules.find((r) => r.event === "update")?.assignments ?? [];
+  // COLLECT every rule for the event, don't take the first.  `contextStamps`
+  // composes additively: `with tenantOwned, auditable` contributes TWO `create`
+  // rules, and a `.find()` here would stamp only whichever capability lowered
+  // first — leaving `createdAt`/`createdBy` null against the NOT NULL columns
+  // this same backend emits.  Matches the collecting form every other consumer
+  // already uses (`dapper.ts:1042`, python `routes-builder.ts:828`, elixir
+  // `stamp-emit.ts:161`).
+  const assignmentsFor = (event: ContextStampIR["event"]): readonly ContextStampAssignmentIR[] =>
+    rules.filter((r) => r.event === event).flatMap((r) => r.assignments);
+  const onCreate = assignmentsFor("create");
+  const onUpdate = assignmentsFor("update");
 
   // A bare `currentUser` value stamps the ambient principal's ID; a
   // claim-valued one (`tenantId := currentUser.tenantId`) renders the member

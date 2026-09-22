@@ -307,6 +307,10 @@ export function emitLiveViewPages(args: {
   // Whether any page renders a `Chart { … }` — drives the one-per-deployable
   // `LoomChart` function-component emission below.
   let anyChart = false;
+  // Same, for the one-per-deployable `LoomTable` helper module: set by any
+  // CLIENT-side `Table` control (filter / sort / page window over rows the
+  // server did not page).
+  let anyTableHelpers = false;
 
   // Walk each user component once to capture its `Action` bindings +
   // nested component usage, so each page can hoist the handlers for the
@@ -353,6 +357,7 @@ export function emitLiveViewPages(args: {
       componentUses: w.componentUses,
     });
     anyChart ||= w.usesChart;
+    anyTableHelpers ||= w.usesTableHelpers;
   }
 
   // Name-context for `pageEmitName` (derives the emitted name from
@@ -383,7 +388,7 @@ export function emitLiveViewPages(args: {
     const emitName = pageEmitName(page, nameCtx);
     const liveModule = `${appModule}Web.${upperFirst(emitName)}Live`;
     const filePath = `lib/${appName}_web/live/${snake(emitName)}_live.ex`;
-    const { source, usesChart } = renderLiveView({
+    const { source, usesChart, usesTableHelpers } = renderLiveView({
       page,
       liveModule,
       appName,
@@ -404,6 +409,7 @@ export function emitLiveViewPages(args: {
       i18nEnabled,
     });
     anyChart ||= usesChart;
+    anyTableHelpers ||= usesTableHelpers;
     out.set(filePath, source);
     sourcemap?.file(filePath, source, page.origin, pageConstructId(ui.name, page));
     routes.push({ route: page.route, liveModule });
@@ -479,6 +485,14 @@ export function emitLiveViewPages(args: {
   // a chart is actually rendered — a chartless app is byte-identical.
   if (anyChart) {
     out.set(`lib/${appName}_web/components/loom_chart.ex`, renderLoomChartComponent(webModule));
+  }
+
+  // The client-side `Table` transforms (filter / sort / page window), shared by
+  // the page LiveViews and the components module.  One per deployable, and only
+  // when a non-server-paged Table actually asks for one — a project whose
+  // tables are all server-paged (or control-less) is byte-identical.
+  if (anyTableHelpers) {
+    out.set(`lib/${appName}_web/components/loom_table.ex`, renderLoomTableModule(webModule));
   }
 
   return { files: out, routes };
@@ -786,7 +800,11 @@ function buildActionHandlers(
   });
 }
 
-function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
+function renderLiveView(a: RenderArgs): {
+  source: string;
+  usesChart: boolean;
+  usesTableHelpers: boolean;
+} {
   const {
     page,
     liveModule,
@@ -948,6 +966,7 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
 
   return {
     usesChart: walked.usesChart,
+    usesTableHelpers: walked.usesTableHelpers,
     source: `# Auto-generated.
 defmodule ${liveModule} do
   use ${webModule}, :live_view
@@ -1056,15 +1075,22 @@ function withQueryReload(
 /** Sort / pagination `handle_event` clauses for a page whose `Table(...)` asked
  *  for interactive controls (M-T1.1, HEEx leg).
  *
- *  SERVER-driven, unlike the JSX targets' client-side sort/slice: each clause
- *  updates the page/sort assigns and then re-runs the SAME list-load block
- *  `handle_params` uses, so the new values flow straight into the repository's
- *  paged `list/4` (whitelisted `ORDER BY` + `LIMIT`/`OFFSET`).  That is only
- *  possible here because a LiveView calls its context function directly — there
- *  is no refetch hook to re-trigger.
+ *  SERVER mode (a `serverPaged:` Table): each clause updates the page/sort
+ *  assigns and then re-runs the SAME list-load block `handle_params` uses, so
+ *  the new values flow straight into the repository's paged `list/4`
+ *  (whitelisted `ORDER BY` + `LIMIT`/`OFFSET`).  That is only possible here
+ *  because a LiveView calls its context function directly — there is no
+ *  refetch hook to re-trigger.
  *
- *  Emits nothing (byte-identical output) when the page has no Table controls or
- *  no list query to reload. */
+ *  CLIENT mode (F2-MT640-SORT-DEAD): the same clauses WITHOUT the reload.  The
+ *  assign already holds the whole list, and the template re-derives the sorted,
+ *  filtered, sliced window from it through `LoomTable` on re-render — the
+ *  refetch would call `list_<agg>s/0` and answer the identical rows, which is
+ *  how Phoenix came to ship clickable headers that flip an arrow and change
+ *  nothing.
+ *
+ *  Emits nothing (byte-identical output) when the page has no Table controls,
+ *  or when a SERVER-driven page has no list query to reload. */
 function renderTableControlClauses(
   tableControls: readonly TableControlBinding[],
   queryBindings: readonly QueryBinding[],
@@ -1076,7 +1102,16 @@ function renderTableControlClauses(
   const listBindings = queryBindings.filter(
     (qb) => qb.kind === "list" && qb.source !== "projection",
   );
-  if (tableControls.length === 0 || listBindings.length === 0) return "";
+  if (tableControls.length === 0) return "";
+  // CLIENT mode (no `serverPaged:` Table on the page): the clauses write the
+  // assigns and stop.  The rows in the assign are already the whole list, and
+  // the template re-derives the sorted/sliced window from them through
+  // `LoomTable` on re-render — a refetch here would call `list_<agg>s/0` and
+  // answer the identical rows, which is the dead control surface
+  // F2-MT640-SORT-DEAD named.  It ALSO means a client-paged page needs no list
+  // binding at all to get working controls, where the server path does.
+  const serverDriven = tableControls.some((c) => c.server);
+  if (serverDriven && listBindings.length === 0) return "";
 
   // One page carries one set of list controls; collapse (a second Table sharing
   // the page's state would otherwise emit duplicate clauses, which Elixir
@@ -1087,16 +1122,22 @@ function renderTableControlClauses(
 
   // Data reload only — operation forms are left untouched (same call the
   // realtime refetch makes).
-  const reload = listBindings
-    .map((qb) => {
-      const ctxModule = contextModuleByAggName.get(qb.aggregate);
-      return ctxModule
-        ? renderQueryLoadBlock(qb, ctxModule, [], listReadGateByAggName.get(qb.aggregate))
-        : null;
-    })
-    .filter((b): b is string => b !== null)
-    .join("\n\n");
-  if (reload === "") return "";
+  const reload = !serverDriven
+    ? ""
+    : listBindings
+        .map((qb) => {
+          const ctxModule = contextModuleByAggName.get(qb.aggregate);
+          return ctxModule
+            ? renderQueryLoadBlock(qb, ctxModule, [], listReadGateByAggName.get(qb.aggregate))
+            : null;
+        })
+        .filter((b): b is string => b !== null)
+        .join("\n\n");
+  if (serverDriven && reload === "") return "";
+  // In client mode the clause is just the assign + `{:noreply, socket}`; the
+  // blank-line-wrapped reload block collapses away rather than leaving the
+  // three-blank-line hole a `""` splice would.
+  const reloadBlock = reload === "" ? "" : `\n${reload}\n`;
 
   const clauses: string[] = [];
   if (sortKey && sortDir) {
@@ -1115,9 +1156,7 @@ function renderTableControlClauses(
       socket
       |> assign(:${sortKey}, key)
       |> assign(:${sortDir}, dir)${resetPage}
-
-${reload}
-
+${reloadBlock}
     {:noreply, socket}
   end\n`);
   }
@@ -1136,9 +1175,7 @@ ${reload}
       end
 
     socket = assign(socket, :${pageAssign}, page_num)
-
-${reload}
-
+${reloadBlock}
     {:noreply, socket}
   end\n`);
   }
@@ -2161,6 +2198,138 @@ void plural;
  *  in Elixir spelling: a `money` column rides the wire as a STRING (RS-24) and
  *  a `decimal` as a float, so `number_of/1` accepts binary / Decimal / number
  *  and anything unplottable degrades to 0.0 rather than raising mid-render. */
+/** The shared client-side `Table` helpers — the HEEx analogue of the sort /
+ *  slice / filter the four JSX frontends run in the browser (M-T1.1 client leg,
+ *  F2-MT640-SORT-DEAD).
+ *
+ *  Why a MODULE and not per-page `defp`s: the same calls are emitted into both
+ *  a page LiveView's `~H` template and the shared `UiComponents` module (a
+ *  `Table` inside a `component`), so they have to be callable from either.
+ *  Same shape as `LoomChart` beside it, which exists for the same reason.
+ *
+ *  Three things this must get right, none of which `mix compile` can see:
+ *
+ *   1. NO ATOM IS CREATED FROM CLIENT INPUT.  `sort_rows/4` takes the emitter's
+ *      whitelist of `{wire key, struct field}` pairs and matches the clicked
+ *      `sort_field` against it — `String.to_atom/1` on a `phx-value-key` would
+ *      be an unbounded atom-table leak from an unauthenticated event.
+ *   2. THE COMPARISON IS TOTAL.  `sort_key/1` maps each cell to a comparable
+ *      term: Erlang term order sorts a `%Decimal{}` by its struct fields
+ *      (`coef` before `exp`, so 1.5 > 2) and a `%DateTime{}` by `:calendar`
+ *      then `:day`, both silently wrong, and `nil` in a Decimal comparison
+ *      raises mid-render.  Numbers normalise to floats and temporals to
+ *      ISO-8601, which sorts lexicographically because every stored value is
+ *      UTC.  A cell no clause matches falls through rather than raising.
+ *   3. FILTERING MATCHES THE JSX SEAM.  React filters over `Object.values(row)`
+ *      — every field, case-insensitively, substring — so this walks the whole
+ *      struct rather than a column list, and `text/1` answers `""` for the
+ *      Ecto internals (`__meta__`, an unloaded association) instead of raising
+ *      on a value with no `String.Chars` implementation. */
+function renderLoomTableModule(webModule: string): string {
+  return `# Auto-generated.
+defmodule ${webModule}.Components.LoomTable do
+  @moduledoc """
+  Client-side \`Table\` transforms for a list the server did not page:
+  substring filter, whitelisted sort, and the page window.
+
+  The four JSX frontends do this in the browser over the fetched array; a
+  LiveView already holds the rows in an assign, so the same three transforms
+  run here during render.  A \`serverPaged\` table uses none of this — its
+  window and order come from the repository's \`list/4\`.
+  """
+
+  @doc """
+  Case-insensitive substring match across every value of each row.
+
+  An empty (or blank) query passes every row through, so the unfiltered table
+  is what an untouched search box shows.
+  """
+  def filter_rows(rows, query) when is_list(rows) and is_binary(query) do
+    case String.trim(query) do
+      "" ->
+        rows
+
+      q ->
+        needle = String.downcase(q)
+        Enum.filter(rows, fn row -> Enum.any?(row_values(row), &haystack?(&1, needle)) end)
+    end
+  end
+
+  def filter_rows(rows, _query), do: rows
+
+  @doc """
+  Sort by the clicked column, ascending unless \`dir\` is \`"desc"\`.
+
+  \`fields\` is the emitter's whitelist of \`{wire key, struct field}\` pairs:
+  a key that is not in it leaves the rows untouched, so no atom is ever built
+  from the event payload.
+  """
+  def sort_rows(rows, key, dir, fields) when is_list(rows) and is_list(fields) do
+    case List.keyfind(fields, to_string(key), 0) do
+      {_key, field} ->
+        sorter = if to_string(dir) == "desc", do: :desc, else: :asc
+        Enum.sort_by(rows, fn row -> sort_key(Map.get(row, field)) end, sorter)
+
+      nil ->
+        rows
+    end
+  end
+
+  def sort_rows(rows, _key, _dir, _fields), do: rows
+
+  @doc "The 1-based page window of \`size\` rows."
+  def page_rows(rows, page, size) when is_list(rows) and is_integer(size) and size > 0 do
+    Enum.slice(rows, max(page_number(page) - 1, 0) * size, size)
+  end
+
+  def page_rows(rows, _page, _size), do: rows
+
+  @doc "How many pages of \`size\` these rows make — at least one, so the pager always renders."
+  def total_pages(rows, size) when is_list(rows) and is_integer(size) and size > 0 do
+    max(1, ceil(length(rows) / size))
+  end
+
+  def total_pages(_rows, _size), do: 1
+
+  defp page_number(page) when is_integer(page), do: page
+
+  defp page_number(page) do
+    case Integer.parse(to_string(page)) do
+      {n, _} -> n
+      :error -> 1
+    end
+  end
+
+  defp row_values(row) when is_struct(row), do: row |> Map.from_struct() |> Map.values()
+  defp row_values(row) when is_map(row), do: Map.values(row)
+  defp row_values(_row), do: []
+
+  defp haystack?(value, needle) do
+    value |> text() |> String.downcase() |> String.contains?(needle)
+  end
+
+  defp text(nil), do: ""
+  defp text(v) when is_binary(v), do: v
+  defp text(v) when is_number(v) or is_boolean(v) or is_atom(v), do: to_string(v)
+  defp text(%Decimal{} = v), do: Decimal.to_string(v, :normal)
+  defp text(%Date{} = v), do: Date.to_iso8601(v)
+  defp text(%DateTime{} = v), do: DateTime.to_iso8601(v)
+  defp text(%NaiveDateTime{} = v), do: NaiveDateTime.to_iso8601(v)
+  defp text(%Time{} = v), do: Time.to_iso8601(v)
+  defp text(_v), do: ""
+
+  defp sort_key(nil), do: nil
+  defp sort_key(%Decimal{} = v), do: Decimal.to_float(v)
+  defp sort_key(%Date{} = v), do: Date.to_iso8601(v)
+  defp sort_key(%DateTime{} = v), do: DateTime.to_iso8601(v)
+  defp sort_key(%NaiveDateTime{} = v), do: NaiveDateTime.to_iso8601(v)
+  defp sort_key(%Time{} = v), do: Time.to_iso8601(v)
+  defp sort_key(v) when is_binary(v), do: String.downcase(v)
+  defp sort_key(v), do: v
+end
+`;
+}
+
 function renderLoomChartComponent(webModule: string): string {
   return `# Auto-generated.
 defmodule ${webModule}.Components.LoomChart do

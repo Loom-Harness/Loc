@@ -293,9 +293,14 @@ const FRACTIONAL_INT: Record<Platform, Seam[]> = {
   ],
   elixir: [
     {
+      // Since Schemathesis F11 the `int` guard also carries the DECLARED int32
+      // range, so it is `__loom_int32_param` (a `long` keeps the type-only
+      // `__loom_int_param`, whose ceiling is the `D-LONG-AVG-DEFAULTS` one).
+      // The probe this file runs is unchanged: 1.5 is not an integer however
+      // wide the range, so it still lands on the typed-error clause below.
       why: "int op-param guard",
       shape:
-        /defp __loom_int_param\(_record, _field, value\) when is_integer\(value\), do: \{:ok, value\}/,
+        /defp __loom_int32_param\(_record, _field, value\)\s+when is_integer\(value\) and value >= -2147483648 and value <= 2147483647,\s+do: \{:ok, value\}/,
     },
     {
       why: "everything else is a typed error",
@@ -303,7 +308,7 @@ const FRACTIONAL_INT: Record<Platform, Seam[]> = {
     },
     {
       why: "guard is in the with-chain",
-      shape: /__loom_int_param\(record, :new_qty, Map\.get\(params, "newQty"\)\)/,
+      shape: /__loom_int32_param\(record, :new_qty, Map\.get\(params, "newQty"\)\)/,
     },
     { why: "int column is :integer, so cast/3 rejects 1.5", shape: /field :qty, :integer/ },
   ],

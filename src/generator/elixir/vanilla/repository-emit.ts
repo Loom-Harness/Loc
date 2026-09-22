@@ -35,6 +35,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
   combineWhere,
+  findUsesPrincipal,
   vanillaCapabilityFilter,
   vanillaWriteScopeFilter,
 } from "./capability-filter.js";
@@ -220,7 +221,19 @@ function renderRepository(
   const preloadRels = readPreloadRels(agg, ctx, sys);
   const preload = preloadRels.length > 0 ? ` |> Repo.preload([${preloadRels.join(", ")}])` : "";
   const findFns = finds.map((f) =>
-    renderFindFn(f, agg, aggModule, contextModule, principal, preload, kindFilter),
+    renderFindFn(
+      f,
+      agg,
+      aggModule,
+      contextModule,
+      // A find whose OWN `where` reads `currentUser` needs the actor threaded
+      // just as much as one scoped by a principal capability filter — without it
+      // the rendered `^(current_user && …)` pin names a variable the function
+      // never bound ("undefined variable current_user" at `mix compile`).
+      principal || findUsesPrincipal(f),
+      preload,
+      kindFilter,
+    ),
   );
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}\n` : "";
 

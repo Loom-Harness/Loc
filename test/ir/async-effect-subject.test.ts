@@ -142,3 +142,85 @@ describe("the Feliz row keeps only its own, genuinely Feliz-specific case", () =
     expect(cs).not.toContain(FELIZ_CODE);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The SUBJECT CENSUS (wave C2 packet 2l).  The row's `what` used to say "a
+// workflow, a collection read or a plain state field" from reading the
+// classifier.  This pins what is actually REACHABLE, by spelling each candidate
+// and running the pipeline — which matters because the row's drain condition
+// depends on it: only ONE of the three is buildable, so the row does not reach
+// zero by building and re-classes `scope` when the workflow subject lands.
+//
+// Two shapes a reader might expect in this population are NOT in it: a dotted
+// workflow (`<api>.<Workflow>.run(…)`) and a domain-service call are both
+// refused EARLIER, by scope resolution ("Aggregate 'X' not found in api"), so
+// they never reach the classifier and are somebody else's gate.
+// ---------------------------------------------------------------------------
+
+const CENSUS_SYS = (actionBody: string) => `
+system Subj {
+  api A from D
+  subdomain D { context C {
+    error Rejected { reason: string }
+    aggregate Order {
+      code: string
+      operation confirm(): Order or Rejected { code := "c" }
+    }
+    repository Orders for Order { }
+    workflow Settle {
+      create(code: string) {
+        let o = Order.create({ code: code })
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  ui App {
+    api Shop: A
+    page Edit {
+      route: "/edit/:id"
+      state { message: string = "" }
+      action go() {
+${actionBody}
+      }
+      body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
+    }
+  }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
+  deployable web { platform: react, targets: api, ui: App { Shop: api }, port: 3006 }
+}`;
+
+const CENSUS_ARMS = `{
+          Order o    => { message := o.code }
+          Rejected r => { message := r.reason }
+        }`;
+
+describe("the reachable subject population — exactly three shapes", () => {
+  it("(1) a WORKFLOW run — the ONE drainable subject", async () => {
+    const cs = await codes(CENSUS_SYS(`        match await Shop.Settle(code: "x") ${CENSUS_ARMS}`));
+    expect(cs).toContain(CODE);
+  });
+
+  it("(2) a COLLECTION read — permanent nonsense, no command to await", async () => {
+    const cs = await codes(CENSUS_SYS(`        match await Shop.Order.all ${CENSUS_ARMS}`));
+    expect(cs).toContain(CODE);
+  });
+
+  it("(3) a plain STATE field — permanent nonsense", async () => {
+    const cs = await codes(CENSUS_SYS(`        match await message ${CENSUS_ARMS}`));
+    expect(cs).toContain(CODE);
+  });
+
+  it("CONTROL: a declared aggregate instance op is clean, and so is a STANDARD op", async () => {
+    // The standard-op control is the one that separates this row from
+    // `loom.flutter-action-body-unsupported`: `create` resolves fine on a JS
+    // frontend and is refused only on Flutter, whose async-effect emitter
+    // resolves through `agg.operations` (M-T1.32 half 2).
+    expect(
+      await codes(CENSUS_SYS(`        match await Shop.Order.confirm() ${CENSUS_ARMS}`)),
+    ).not.toContain(CODE);
+    expect(
+      await codes(CENSUS_SYS(`        match await Shop.Order.create(code: "x") ${CENSUS_ARMS}`)),
+    ).not.toContain(CODE);
+  });
+});
