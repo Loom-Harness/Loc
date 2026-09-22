@@ -618,7 +618,14 @@ export function staleWaivers(
 const WAIVED_SHOWN = 6;
 
 const short = (v: Json | undefined): string => {
-  const s = JSON.stringify(v ?? null);
+  // `undefined` is NOT `null` here, and collapsing them hides exactly the
+  // divergence class this report exists to name: a `key-set` row is raised
+  // when a key is on one side only, and the missing side arrives as
+  // `undefined`.  Rendering it as `null` made an absent-vs-null divergence
+  // print as "golden null \u2260 node null" — a row that names a real
+  // disagreement and then describes both sides identically (RS-35).
+  if (v === undefined) return "(absent)";
+  const s = JSON.stringify(v);
   return s.length > 120 ? `${s.slice(0, 117)}…` : s;
 };
 

@@ -1529,6 +1529,89 @@ nothing and the test passes vacuously.
   entirely the dedicated fixture tests named above, not the corpus/behavioral
   legs.
 
+### RS-35 · An absent optional is `null` on the wire, never an omitted key
+- **Guarantee.** An optional scalar (`estimate: int?`) that a create body
+  **omitted** reads back as the key CARRYING an explicit null —
+  `{"estimate": null}` — on every backend and every persistence adapter. The
+  key is never dropped from the payload, so a client can tell "declared but
+  unset" from "not a field of this resource" without consulting the schema.
+- **Trigger.** `absent-optional.ddd`: an aggregate with an optional scalar and
+  a null-guard invariant over it (`estimate == null || estimate >= 0`), created
+  by a body that omits the field entirely, then read back by id and by list.
+- **Why the structural gate can't see it.** Both spellings satisfy the same
+  emitted schema — an `estimate?: number` member is happy with a null and
+  equally happy with nothing. Loom has **one** absence value; JSON has **two**
+  spellings of it; nothing in the OpenAPI diff chooses between them.
+- **Why this is documented rather than established.** Unlike most rules here,
+  RS-35 records a contract the tier **already enforced** — the M-T5.36 packet
+  that added the `toBeNull()` / `toBeAbsent()` matchers verified the gate
+  rather than building one. Three things have to hold, and all three were
+  checked at the code face:
+
+  1. **Normalization keeps the evidence.** `normalizeBody`
+     (`test/_helpers/response-diff.ts`) collapses volatile *values* to tokens
+     but never drops *keys*, and returns `null` unchanged. Absent and null stay
+     distinguishable through it — as its own comment puts it, "absence is
+     contract, so it must remain visible to `diffBodies`".
+  2. **The differ raises on it.** `diffBodies` unions both sides' key sets and
+     raises a **`key-set`** divergence when a key is on one side only;
+     `null-vs-empty` is a separate kind, covering `[]`/`{}` against null.
+  3. **The subject is actually compared.** `wire-golden/absent-optional.json`
+     records `"estimate": null` on both read bodies — the golden CARRIES the
+     optional key, rather than only the fields a non-conforming backend would
+     also have sent. (This is the "make the fixture able to falsify the rule"
+     test above: a golden that omitted `estimate` could not fail on it.)
+- **Reach, confirmed by derivation rather than assumed.** The recurring failure
+  shape in this repo is a check that never reaches the thing it names, so the
+  case-to-leg mapping was *derived*, not read: `requiredGoldenCases()` lists
+  **all seven wire-gated legs** — `run.mjs` (node), `run-mikroorm.mjs`,
+  `run-dotnet.mjs`, `run-dapper.mjs`, `run-java.mjs`, `run-python.mjs`,
+  `run-elixir.mjs` — as recorders of `absent-optional`, and none of the three
+  escape hatches covers it: `WIRE_WAIVERS` is empty, `GOLDEN_OPT_OUT` is empty,
+  and `BEHAVIOURAL_SKIP` is drained for every platform clause. Four sibling
+  optional-carrying cases (`embedded-optional`, `optional-reference`,
+  `optional-valueobject`, `union-find-absence`) derive the same seven legs.
+- **The shape of the guarantee, stated plainly.** Each leg is diffed against
+  the committed **node-oracle** golden, so what is enforced is "all five agree
+  with the reviewed recording", not "all five were compared to each other".
+  Moving the contract means rebaselining a checked-in file
+  (`LOOM_WIRE_UPDATE=1`), which lands as a visible diff a human approves —
+  deliberate, not silent.
+- **The DSL surface.** The absence **pair** (`docs/language.md`):
+  `expect(<read>.<field>).toBeNull()` asserts the spelling above;
+  `expect(<read>.<field>).toBeAbsent()` asserts the other one and therefore has
+  **no passing subject on any backend today**. That is intentional — it is not
+  special-cased into passing, so a backend that starts omitting a key turns a
+  test red instead of drifting silently. `toBeAbsent()` is e2e-only
+  (`loom.unit-absent-invalid`): in-process a declared field always exists.
+- **Conforms.** node, dotnet, java, python, elixir (all adapters).
+- **Provenance.** Contract enforced since #2577 / M-T9.11 (the per-PR wire
+  differential); named and written down by M-T5.36/P11b. Tier: **behavioral**.
+- **⚠ Registry entry pending — and why (a finding, not an oversight).** Step 1
+  of *Adding a rule* above says the `RS-N` entry goes in
+  `test/conformance/semantics-rules.ts`, and `semantics-rules.test.ts` is meant
+  to make a prose-only rule impossible. **It currently cannot be followed.**
+  That registry holds `RS-1 … RS-31` and its `ids are unique and gap-free`
+  assertion requires the numbers to be *contiguous* — but **RS-32, RS-33 and
+  RS-34 were merged into this document with no registry entries** (RS-32/RS-33
+  in #2704, RS-34 in the wave-2 packet 2.7). So the registry is three rules
+  behind the prose, and **any** new rule is now unlandable there: taking `RS-35`
+  fails the contiguity assertion, and taking `RS-32` would collide with a number
+  this document already uses, which the `id` contract ("never renumbered")
+  forbids.
+
+  The gate that was supposed to prevent prose-only rules only checks the
+  registry's *internal* consistency, never prose-vs-registry parity — which is
+  exactly how three rules slipped past it.
+
+  **Remedy, for whoever picks this up:** backfill registry entries for RS-32,
+  RS-33 and RS-34 from their prose above, then add RS-35, then regenerate the
+  mirror (`UPDATE_SEMANTICS_SPEC=1 npx vitest run
+  test/conformance/semantics-spec-sync.test.ts`). Authoring three other
+  packets' entries is a mission of its own — misstating another rule's
+  `conforms`/`targets` is worse than the gap — so P11b records the blocker here
+  rather than guessing at them. A prose-vs-registry parity assertion belongs in
+  the same change, or this recurs.
 ### RS-36 · `.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form
 - **Guarantee.** `first` is declared `T` — **non-optional** — in
   `src/util/collection-ops.ts`, so reading it from an empty receiver FAILS on

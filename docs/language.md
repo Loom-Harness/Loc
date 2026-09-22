@@ -1216,11 +1216,14 @@ test "negative money rejected" {
 Assertions are **method-based**: every `expect` carries a matcher — a bare
 `expect <bool>` is a validation error.  The matcher set is a closed,
 compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
-`toBeLessThan(OrEqual)` / `toBeSameInstant` / `toHaveText` / `toHaveCount` /
+`toBeLessThan(OrEqual)` / `toBeSameInstant` / `toBeNull` / `toBeAbsent` /
+`toContain` / `toHaveText` / `toHaveCount` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
 assertions the compiler type-checks and lowers per backend.  Some are context-
-restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body, and `toThrow(<kind>)` only in a unit `test` —
+restricted (validator-enforced): `toThrow(<status>)`, `toBeSameInstant` and
+`toBeAbsent` are
+only valid in a `test e2e` body, `toThrow(<kind>)` only in a unit `test`, and
+neither `toBeNull` nor `toBeAbsent` is legal in a **ui** e2e body —
 and `toThrow` in *any* form is rejected in
 a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
 exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
@@ -1237,6 +1240,66 @@ operation statements are allowed plus:
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
+| `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
+| `expect(<read>.<field>).toBeAbsent()` | api e2e only — `expect("<field>" in <read>).toBe(false)` (the key is not in the payload). |
+| `expect(<actual>).toContain(<x>)` | membership for a collection, substring for a string — chosen by the subject's type. |
+
+###### absence — `toBeNull()` / `toBeAbsent()`
+
+Loom has **one** absence value; the wire has **two spellings of it**.  A
+`int?` holding nothing can be serialized either as `"estimate": null` or by
+omitting the `estimate` key altogether, and the five backends have genuinely
+disagreed about which they send — which is why
+`test/fixtures/corpus/absent-optional.ddd` exists.  The two matchers let a test
+pin the spelling **deliberately**:
+
+```ddd
+expect(read.estimate).toBeNull()      // present, explicitly null
+expect(read.estimate).toBeAbsent()    // the key is not in the payload at all
+```
+
+What keeps that from being backend-roulette is not the author's care but the
+**conformance gate**: every behavioural leg diffs its recording against the
+committed wire golden with `diffBodies`, which unions both key sets and raises
+a `key-set` divergence.  The enforced contract today is **explicit null on all
+five backends** — [RS-35](conformance-semantics.md) — so `toBeNull()` asserts
+the gated reality and `toBeAbsent()` currently has **no passing subject**.  That
+is deliberate: it is not special-cased into passing, so a backend that starts
+omitting a key turns a test red instead of drifting silently.
+
+Neither absence matcher is legal in a **ui** `test e2e` body
+(`loom.e2e-ui-absence-invalid`): a ui assertion reads rendered text off a
+Playwright locator, which is always a string — so `toBeNull()` can never hold
+and `toBeAbsent()` is not a runtime matcher at all. Assert what the page shows
+(`toHaveText("")` / `toBeVisible()`), or move the absence claim to a block
+targeting a backend deployable. This is the same ruling
+`loom.e2e-ui-throw-invalid` makes for `toThrow`. `toContain` **is** legal
+there — a substring of the rendered text is a real claim.
+
+`toBeAbsent()` is **e2e-only** (`loom.unit-absent-invalid`).  "The key is not in
+the payload" needs a payload to be about; a unit `test` asserts against an
+in-memory aggregate, where a declared field always exists — on three of the five
+backends (C# `int?`, Java `Integer`, an Elixir struct's `nil` default) in-process
+absence is not observable at all.  Use `toBeNull()` there; in-process, that is
+the whole of Loom's absence.
+
+###### `toContain()` — membership or substring
+
+One matcher, two lowerings, chosen by the **subject's type**:
+
+```ddd
+expect(read.tags).toContain("urgent")   // collection membership
+expect(read.title).toContain("Ship")    // substring
+```
+
+Any other subject is refused (`loom.contain-receiver-invalid`) — there is no
+third lowering.  Most targets spell both the same way (`in` in Python,
+`.contains(...)` in Java, `Contain` in AwesomeAssertions, and vitest's
+`toContain` dispatches at run time), but Elixir does not: membership is
+`x in list` and substring is `String.contains?(s, x)`, and picking the wrong one
+crashes the generated suite rather than returning a wrong answer.  The dispatch
+therefore reads the subject's resolved type off the IR.
+
 
 ##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
 
