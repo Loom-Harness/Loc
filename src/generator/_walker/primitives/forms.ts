@@ -952,7 +952,7 @@ function emitControlledModal(
   // every other container primitive: JSX children juxtapose (empty separator),
   // but a Dart `<Widget>[…]` list needs the commas, and this emitter was the one
   // container that hardcoded the JSX assumption.
-  const children = positionalArgs(call).map((c) => walk(c, ctx, depth + 1));
+  const children = positionalArgs(call).map((c) => walk(c, ctx, depth + 1, "children"));
   const childrenJsx = children.join(`${ctx.target.interChildSeparator ?? ""}\n${indent}`);
   return renderPrimitive(ctx, "primitive-modal-controlled", {
     opened: stateName,

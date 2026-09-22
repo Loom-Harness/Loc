@@ -18,9 +18,11 @@
 // The strict-template frameworks put the branch in a markup BLOCK (Vue
 // `v-if`, Svelte `{#if}`, Angular `@if`) where a child form is already legal,
 // and they omit `wrapMultiRoot` — so their output is untouched.  Feliz and
-// Flutter have the same class of defect through their own emitters (a bare
-// `yield!` inside a lambda body; a `...` spread in expression position) and
-// belong to those packets, not this seam.
+// Flutter had the same class of defect through their own emitters (a bare
+// `yield!` inside a lambda body; a `...` spread in expression position); both
+// are closed now, by the walker telling every target which SLOT a child lands
+// in rather than by sniffing the rendered string — `ChildSlot` in
+// `_walker/target.ts`, gated by `test/generator/_walker/for-value-slot.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
