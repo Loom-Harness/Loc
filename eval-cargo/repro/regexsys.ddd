@@ -1,0 +1,11 @@
+system RegexSys {
+  subdomain S { context C {
+    valueobject Code { value: string  invariant value.matches("^[A-Z]{5}$") message "must be 5 uppercase letters" }
+    valueobject Route { origin: Code  destination: Code  invariant origin != destination }
+    aggregate Thing with crudish { spec: Route }
+    repository R for Thing { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable apiDotnet { platform: dotnet, contexts: [C], dataSources: [st], port: 8080 }
+}

@@ -1,0 +1,12 @@
+context RegexCs2 {
+  valueobject Code {
+    value: string
+    invariant value.matches("^[A-Z]{5}$")
+  }
+  valueobject Route {
+    origin: Code
+    destination: Code
+  }
+  aggregate Thing with crudish { spec: Route }
+  repository R for Thing { }
+}

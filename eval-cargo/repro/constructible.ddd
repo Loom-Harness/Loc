@@ -1,0 +1,23 @@
+context Ctor {
+  enum S { Draft, Done }
+
+  // A: guarded invariant over a containment — the ordinary "rule applies later" shape.
+  aggregate WithGuard {
+    status: S immutable = Draft
+    contains lines: Line[]
+    invariant lines.count > 0 when status == Done
+    entity Line { note: string }
+    operation finish() { status := Done }
+  }
+
+  // B: identical, minus the invariant.
+  aggregate NoGuard {
+    status: S immutable = Draft
+    contains lines: Line2[]
+    entity Line2 { note: string }
+    operation finish() { status := Done }
+  }
+
+  repository A for WithGuard { }
+  repository B for NoGuard { }
+}

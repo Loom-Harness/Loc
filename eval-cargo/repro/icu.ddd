@@ -1,0 +1,13 @@
+context IcuProbe {
+  aggregate Order {
+    total: money
+    qty: int
+    placedAt: datetime
+    name: string
+    derived m: string = `{total, number, ::currency/USD}`
+    derived p: string = `{qty, plural, one {# item} other {# items}}`
+    derived d: string = `{placedAt, date}`
+    derived pct: string = `{qty, number, ::percent}`
+    derived sel: string = `{name, select, vip {VIP} other {std}}`
+  }
+}

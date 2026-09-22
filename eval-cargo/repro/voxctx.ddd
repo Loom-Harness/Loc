@@ -1,0 +1,15 @@
+system VoXCtx {
+  subdomain S1 { context Owner {
+    valueobject Code { value: string }
+    aggregate Home with crudish { spot: Code }     // same-context use
+    repository RH for Home { }
+  } }
+  subdomain S2 { context Consumer {
+    aggregate Away with crudish { spot: Code }     // CROSS-context use
+    repository RA for Away { }
+  } }
+  storage primary { type: postgres }
+  resource s1 { for: Owner, kind: state, use: primary }
+  resource s2 { for: Consumer, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Owner, Consumer], dataSources: [s1, s2], port: 3000 }
+}

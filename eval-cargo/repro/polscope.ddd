@@ -1,0 +1,17 @@
+system P {
+  user { id: guid, role: string }
+  subdomain S1 { context A {
+      policy IsAdmin(): bool = currentUser.role == "admin"
+      aggregate X with crudish { n: string }
+      repository RX for X { }
+  } }
+  subdomain S2 { context B {
+      aggregate Y { n: string
+        operation touch() requires IsAdmin() { n := "x" } }
+      repository RY for Y { }
+  } }
+  storage primary { type: postgres }
+  resource sa { for: A, kind: state, use: primary }
+  resource sb { for: B, kind: state, use: primary }
+  deployable api { platform: node, contexts: [A, B], dataSources: [sa, sb], port: 3000, auth: required }
+}

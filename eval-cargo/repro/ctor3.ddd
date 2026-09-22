@@ -1,0 +1,18 @@
+context Ctor3 {
+  enum S { Draft, Done }
+  // Guarded invariant + explicit create. The guard means a fresh (Draft) instance
+  // can never violate it, so the aggregate IS satisfiable from the create input.
+  aggregate Guarded {
+    status: S immutable = Draft
+    contains lines: Line[]
+    invariant lines.count > 0 when status == Done
+    entity Line { note: string }
+    create(status: S) { }
+    operation finish() { precondition lines.count > 0  status := Done }
+  }
+  repository R for Guarded { }
+  test "construct a draft" for Guarded {
+    let g = Guarded.create({ status: Draft })
+    expect(g.status).toBe(Draft)
+  }
+}

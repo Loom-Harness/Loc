@@ -1,0 +1,13 @@
+context CreateBody {
+  event Opened { thing: Thing id, at: datetime }
+  aggregate Thing {
+    name: string
+    tier: int
+    create(name: string, tier: int) {
+      precondition name.length > 0 message "name is required"
+      precondition tier >= 1 && tier <= 3
+      emit Opened { thing: id, at: now() }
+    }
+  }
+  repository R for Thing { }
+}

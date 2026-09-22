@@ -1,0 +1,20 @@
+system DenyCreate {
+  user { id: guid, role: string, permissions: string[] }
+  auth {
+    oidc { issuer: env("OIDC_ISSUER") clientId: "x" }
+    enforcement: denyByDefault
+  }
+  subdomain S {
+    context C {
+      policy IsAdmin(): bool = currentUser.role == "admin"
+      aggregate Thing with crudish(requires: IsAdmin) {
+        name: string
+        operation rename(n: string) requires IsAdmin() { name := n }
+      }
+      repository R for Thing { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000, auth: required }
+}

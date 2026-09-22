@@ -1,0 +1,17 @@
+system ES {
+  user { id: guid, role: string, permissions: string[] }
+  auth { oidc { issuer: env("OIDC_ISSUER") clientId: "x" } enforcement: denyByDefault }
+  subdomain S { context C {
+    policy IsAdmin(): bool = currentUser.role == "admin"
+    event Opened { a: Acct id, owner: string }
+    aggregate Acct persistedAs: eventLog {
+      owner: string
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository R for Acct { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  resource el { for: C, kind: eventLog, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st, el], port: 3000, auth: required }
+}

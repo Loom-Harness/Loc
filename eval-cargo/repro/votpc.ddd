@@ -1,0 +1,29 @@
+system VoTpc {
+  subdomain S { context C {
+    valueobject Code { value: string }
+
+    // 1. plain aggregate with a single-field VO
+    aggregate Plain with crudish { spot: Code }
+
+    // 2. TPC inheritance: abstract base + concrete subtype with a single-field VO
+    abstract aggregate Base inheritanceUsing: ownTable {
+      label: string
+      derived display: string = label
+    }
+    aggregate Sub extends Base { spot: Code }
+
+    // 3. TPH inheritance
+    abstract aggregate BaseT inheritanceUsing: sharedTable {
+      label: string
+      derived display: string = label
+    }
+    aggregate SubT extends BaseT { spot: Code }
+
+    repository RP for Plain { }
+    repository RS for Sub { }
+    repository RT for SubT { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

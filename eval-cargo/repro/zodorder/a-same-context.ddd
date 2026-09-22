@@ -1,0 +1,13 @@
+system A {
+  subdomain S { context C {
+    valueobject Inner { value: string }
+    valueobject Outer { a: Inner  b: Inner }
+    aggregate Thing with crudish { spec: Outer }
+    repository R for Thing { }
+  } }
+  ui U with scaffold(subdomains: [S]) { }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web { platform: react, targets: api, ui: U, port: 3001 }
+}

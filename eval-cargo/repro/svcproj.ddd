@@ -1,0 +1,21 @@
+context SvcProj {
+  enum St { Draft, Done }
+  aggregate Bill with crudish {
+    st: St immutable = Draft
+    amount: money
+  }
+  repository R for Bill { }
+  // (1) domainService whose operation carries a precondition
+  domainService Calc {
+    operation quote(km: int, rate: money): money {
+      precondition km > 0
+      return rate * km
+    }
+  }
+  // (2) query-time projection with a group-by + aggregates
+  projection ByStatus {
+    from Bill as b
+    group by b.st
+    select st = b.st, n = count(), tot = sum(b.amount)
+  }
+}

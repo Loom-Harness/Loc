@@ -1,0 +1,11 @@
+// Shared kernel — ambient across every context in the Meridian system.
+
+enum Currency { USD, EUR, GBP }
+
+// A currency-tagged amount.  `money` is the precise-decimal primitive.
+valueobject MoneyAmount {
+  value: money
+  currency: Currency
+  invariant value >= money("0")
+  derived label: string = `{value, number, ::currency/USD}`
+}

@@ -1,0 +1,19 @@
+import "./inner.ddd"
+system B {
+  subdomain S { context C {
+    valueobject Outer { a: Code  b: Code }
+    aggregate Thing with crudish { spec: Outer }
+    repository R for Thing { }
+  } }
+  ui U  with scaffold(subdomains: [S]) { }
+  ui UV with scaffold(subdomains: [S]) { framework: vue }
+  ui US with scaffold(subdomains: [S]) { framework: svelte }
+  ui UN with scaffold(subdomains: [S]) { framework: angular }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web  { platform: react,   targets: api, ui: U,  port: 3001 }
+  deployable webV { platform: vue,     targets: api, ui: UV, port: 3002 }
+  deployable webS { platform: svelte,  targets: api, ui: US, port: 3003 }
+  deployable webN { platform: angular, targets: api, ui: UN, port: 3004 }
+}

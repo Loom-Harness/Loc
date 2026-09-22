@@ -1,0 +1,8 @@
+context CreateReq {
+  policy CanMake(): bool = currentUser.role == "admin"
+  aggregate Thing {
+    name: string
+    create(name: string) requires CanMake() { }
+  }
+  repository R for Thing { }
+}

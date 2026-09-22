@@ -1,0 +1,8 @@
+context RegexCs {
+  valueobject Code {
+    value: string
+    invariant value.matches("^[A-Z]{5}$")
+  }
+  aggregate Thing with crudish { code: Code }
+  repository R for Thing { }
+}

@@ -1,0 +1,472 @@
+import "./model/shared.ddd"
+
+requirement US-001 {
+  type: UserStory
+  title: "A dispatcher can book a cargo and route it"
+  status: InProgress
+  priority: 1
+}
+
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "A cargo cannot be routed until it has at least one leg"
+}
+
+testCase TC-001 verifies AC-001 {
+  title: "Book, leg, route"
+}
+
+// Meridian — freight forwarding / cargo booking & tracking.
+
+system Meridian {
+
+  user {
+    id: guid
+    role: string
+    orgId: string
+    permissions: string[]
+  }
+
+  auth {
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: "meridian-web"
+      clientSecret: env("OIDC_CLIENT_SECRET")
+      audience: "meridian-api"
+      scopes: ["openid", "profile", "email"]
+    }
+    sessions: jwt
+    claims: { role: "role", orgId: "org_id", permissions: "realm_access.roles" }
+    enforcement: denyByDefault
+  }
+
+  tenancy by user.orgId of Org
+
+  theme { primary: "#0f766e" neutral: "#64748b" radius: "md" }
+
+  subdomain Shipping {
+
+    permissions {
+      bookCargo
+      routeCargo
+      invoiceRead
+      invoiceIssue
+      admin implies [bookCargo, routeCargo, invoiceRead, invoiceIssue]
+    }
+
+  
+  context Booking {
+  
+        // NOTE: named policies are context-local (not ambient as documented),
+        // so this block is repeated in every context that gates on it.
+        policy CanBook(): bool         = currentUser.permissions.contains(permissions.bookCargo)
+        policy CanRoute(): bool        = currentUser.permissions.contains(permissions.routeCargo)
+        policy CanReadInvoices(): bool = currentUser.permissions.contains(permissions.invoiceRead)
+        policy CanIssue(): bool        = currentUser.permissions.contains(permissions.invoiceIssue)
+        policy IsAdmin(): bool         = currentUser.role == "admin"
+  
+  
+    // UN/LOCODE — the 5-letter port/place code (e.g. NLRTM = Rotterdam).
+  valueobject UnLocode {
+    value: string
+    invariant value.matches("^[A-Z]{5}$") message "UN/LOCODE must be 5 uppercase letters"
+    derived label: string = value
+  }
+
+  enum RoutingStatus   { NotRouted, Routed, Misrouted }
+    enum TransportStatus { NotReceived, InPort, OnboardCarrier, Claimed, Unknown }
+  
+    event CargoBooked    { cargo: Cargo id, trackingId: string, at: datetime }
+    event CargoRouted    { cargo: Cargo id, legs: int }
+    event CargoDelivered { cargo: Cargo id, at: datetime }
+  
+    // The customer's requirement: get it from A to B by a deadline.
+    valueobject RouteSpecification {
+      origin: UnLocode
+      destination: UnLocode
+      arrivalDeadline: datetime
+      invariant origin != destination message "origin and destination must differ"
+    }
+  
+    aggregate Customer with crudish(requires: IsAdmin), tenantOwned {
+      name: string check name.length > 0
+      email: string sensitive(pii) check email.matches("^[^@]+@[^@]+\\.[^@]+$") mask unless IsAdmin()
+      derived display: string = name
+    }
+  
+    aggregate Cargo with tenantOwned, crudish(requires: CanBook) {
+      trackingId: string immutable
+      customer: Customer id
+      routeSpec: RouteSpecification
+      routingStatus: RoutingStatus immutable = NotRouted
+      transportStatus: TransportStatus immutable = NotReceived
+      bookedAt: datetime
+      contains legs: Leg[]
+  
+      unique (tenantId, trackingId)
+  
+  
+      derived display: string = trackingId
+      derived legCount: int = legs.count
+      derived isRouted: bool = routingStatus == Routed
+      derived etaBreached: bool = now() > routeSpec.arrivalDeadline
+  
+      // A routed cargo must have an itinerary.
+      invariant legs.count > 0 when routingStatus == Routed
+  
+      function isDraft(): bool = routingStatus == NotRouted
+  
+      // Itinerary leg — an entity part, owned by the cargo.
+      entity Leg {
+        voyageNumber: string
+        loadLocation: UnLocode
+        unloadLocation: UnLocode
+        loadTime: datetime
+        unloadTime: datetime
+        invariant unloadTime > loadTime message "a leg must unload after it loads"
+      }
+  
+      operation addLeg(voyageNumber: string, loadLocation: UnLocode, unloadLocation: UnLocode,
+                       loadTime: datetime, unloadTime: datetime) requires CanRoute() {
+        precondition isDraft() message "the itinerary is frozen once the cargo is routed"
+        precondition unloadTime > loadTime
+        legs += Leg {
+          voyageNumber: voyageNumber,
+          loadLocation: loadLocation,
+          unloadLocation: unloadLocation,
+          loadTime: loadTime,
+          unloadTime: unloadTime
+        }
+      }
+  
+      // Freeze the itinerary.
+      operation markRouted() requires CanRoute() when routingStatus == NotRouted {
+        precondition legs.count > 0 message "cannot route a cargo with no legs"
+        routingStatus := Routed
+        emit CargoRouted { cargo: id, legs: legs.count }
+      }
+  
+      operation claim() requires CanRoute() when transportStatus == InPort {
+        transportStatus := Claimed
+        emit CargoDelivered { cargo: id, at: now() }
+      }
+    }
+  
+    repository Customers for Customer { }
+    repository Cargos for Cargo { }
+  
+    criterion IsRouted() of Cargo = routingStatus == Routed
+    criterion ForCustomer(c: Customer id) of Cargo = customer == c
+  
+    // Cross-aggregate orchestration: book a cargo and lay in its first leg.
+  workflow bookShipment {
+    create(trackingId: string, customer: Customer id, origin: UnLocode, destination: UnLocode,
+           arrivalDeadline: datetime, voyageNumber: string, loadTime: datetime, unloadTime: datetime)
+        requires CanBook() {
+      let cargo = Cargo.create({
+        trackingId: trackingId,
+        customer: customer,
+        routeSpec: RouteSpecification {
+          origin: origin, destination: destination, arrivalDeadline: arrivalDeadline
+        },
+        bookedAt: now()
+      })
+      cargo.addLeg(voyageNumber, origin, destination, loadTime, unloadTime)
+      cargo.markRouted()
+    }
+  }
+
+  retrieval RoutedCargos of Cargo {
+      where: IsRouted()
+      sort: [bookedAt desc]
+    }
+  }
+  }
+
+  subdomain Operations {
+
+    permissions {
+      bookCargo
+      routeCargo
+      invoiceRead
+      invoiceIssue
+      admin implies [bookCargo, routeCargo, invoiceRead, invoiceIssue]
+    }
+
+  
+  context Handling {
+  
+        // NOTE: named policies are context-local (not ambient as documented),
+        // so this block is repeated in every context that gates on it.
+        policy CanBook(): bool         = currentUser.permissions.contains(permissions.bookCargo)
+        policy CanRoute(): bool        = currentUser.permissions.contains(permissions.routeCargo)
+        policy CanReadInvoices(): bool = currentUser.permissions.contains(permissions.invoiceRead)
+        policy CanIssue(): bool        = currentUser.permissions.contains(permissions.invoiceIssue)
+        policy IsAdmin(): bool         = currentUser.role == "admin"
+  
+  
+      event VoyageDeparted  { voyage: Voyage id, at: datetime }
+    event VoyageArrived   { voyage: Voyage id, at: datetime }
+  
+    // NOTE: modelled as event-sourced originally; downgraded to state-based because
+    // `persistedAs: eventLog` cannot be gated under `enforcement: denyByDefault` (F-004).
+    aggregate Voyage crossTenant with crudish(requires: CanRoute) {
+      voyageNumber: string immutable
+      capacityTeu: int
+      departed: bool immutable = false
+      arrived: bool immutable = false
+
+      derived display: string = voyageNumber
+      unique (voyageNumber)
+
+      operation depart() requires CanRoute() when !departed {
+        departed := true
+        emit VoyageDeparted { voyage: id, at: now() }
+      }
+
+      operation arrive() requires CanRoute() when departed && !arrived {
+        arrived := true
+        emit VoyageArrived { voyage: id, at: now() }
+      }
+    }
+
+    repository Voyages for Voyage { }
+  
+    // ---- Handling activities: one table per concrete kind (TPC). ----
+    abstract aggregate HandlingActivity inheritanceUsing: ownTable with tenantOwned {
+      cargoTrackingId: string
+      occurredAt: datetime
+      derived display: string = cargoTrackingId
+    }
+  
+    aggregate CargoReceived extends HandlingActivity with tenantOwned {
+      location: UnLocode
+    }
+  
+    aggregate CargoLoaded extends HandlingActivity with tenantOwned {
+      voyageNumber: string
+      location: UnLocode
+    }
+  
+    aggregate CargoClaimed extends HandlingActivity with tenantOwned {
+      claimant: string check claimant.length > 0
+    }
+  
+    repository ReceivedActivities for CargoReceived { }
+    repository LoadedActivities   for CargoLoaded { }
+    repository ClaimedActivities  for CargoClaimed { }
+  }
+  
+  }
+
+  subdomain Finance {
+
+    permissions {
+      bookCargo
+      routeCargo
+      invoiceRead
+      invoiceIssue
+      admin implies [bookCargo, routeCargo, invoiceRead, invoiceIssue]
+    }
+
+  
+  context Billing {
+  
+        // NOTE: named policies are context-local (not ambient as documented),
+        // so this block is repeated in every context that gates on it.
+        policy CanBook(): bool         = currentUser.permissions.contains(permissions.bookCargo)
+        policy CanRoute(): bool        = currentUser.permissions.contains(permissions.routeCargo)
+        policy CanReadInvoices(): bool = currentUser.permissions.contains(permissions.invoiceRead)
+        policy CanIssue(): bool        = currentUser.permissions.contains(permissions.invoiceIssue)
+        policy IsAdmin(): bool         = currentUser.role == "admin"
+  
+  
+    enum InvoiceStatus { Draft, Issued, Paid, Void }
+  
+    event InvoiceIssued { invoice: Invoice id, total: money, at: datetime }
+    event InvoicePaid   { invoice: Invoice id, at: datetime }
+  
+    aggregate Invoice with tenantOwned, crudish(requires: CanIssue) {
+      cargoTrackingId: string immutable
+      status: InvoiceStatus immutable = Draft
+      issuedAt: datetime
+      currency: Currency
+      // Denormalised running total, maintained by the domain and lineage-tracked.
+      total: money managed provenanced = money("0")
+      contains lines: InvoiceLine[]
+  
+  
+      derived display: string = cargoTrackingId
+      derived subtotal: money = lines.sum(l => l.amount)
+      derived dueAt: datetime = issuedAt + days(30)
+      derived overdue: bool = now() > dueAt && status != Paid
+  
+      invariant lines.count > 0 when status == Issued message "an issued invoice needs at least one line"
+  
+      entity InvoiceLine {
+        description: string check description.length > 0
+        amount: money
+        invariant amount >= money("0")
+      }
+  
+      operation addLine(description: string, amount: money) requires CanIssue() {
+        precondition status == Draft message "only a draft invoice can be edited"
+        precondition amount >= money("0")
+        lines += InvoiceLine { description: description, amount: amount }
+        total := total + amount
+      }
+  
+      operation issue() requires CanIssue() when status == Draft {
+        precondition lines.count > 0 message "cannot issue an empty invoice"
+        status := Issued
+        emit InvoiceIssued { invoice: id, total: total, at: now() }
+      }
+  
+      operation markPaid() requires CanIssue() when status == Issued {
+        status := Paid
+        emit InvoicePaid { invoice: id, at: now() }
+      }
+  
+      test "an empty invoice cannot be issued" {
+        let inv = Invoice.create({
+          cargoTrackingId: "TRK-1",
+          issuedAt: now(),
+          currency: USD
+        })
+        expect(inv.issue()).toThrow()
+      }
+    }
+  
+    repository Invoices for Invoice { }
+  
+    criterion Unpaid() of Invoice = status != Paid && status != Void
+    retrieval UnpaidInvoices of Invoice {
+      where: Unpaid()
+      sort: [issuedAt asc]
+    }
+  
+    // Stateless cross-aggregate calculator.
+    domainService TariffCalculator {
+      operation quote(distanceKm: int, weightKg: int, rate: money): money {
+        precondition distanceKm > 0
+        precondition weightKg > 0
+        return rate * distanceKm * weightKg
+      }
+    }
+  
+    // Query-time read model: money outstanding per status.
+    projection OutstandingByStatus requires CanReadInvoices() {
+      from Invoice as i
+      group by i.status
+      select status = i.status, invoiceCount = count(), outstanding = sum(i.total)
+    }
+  }
+  
+  }
+
+  subdomain Platform {
+  
+    permissions {
+      bookCargo
+      routeCargo
+      invoiceRead
+      invoiceIssue
+      admin implies [bookCargo, routeCargo, invoiceRead, invoiceIssue]
+    }
+  
+    context Tenants {
+  
+        // NOTE: named policies are context-local (not ambient as documented),
+        // so this block is repeated in every context that gates on it.
+        policy CanBook(): bool         = currentUser.permissions.contains(permissions.bookCargo)
+        policy CanRoute(): bool        = currentUser.permissions.contains(permissions.routeCargo)
+        policy CanReadInvoices(): bool = currentUser.permissions.contains(permissions.invoiceRead)
+        policy CanIssue(): bool        = currentUser.permissions.contains(permissions.invoiceIssue)
+        policy IsAdmin(): bool         = currentUser.role == "admin"
+  
+      // The tenant registry: a tree, so a group forwarder can see its branches.
+      aggregate Org with tenantRegistry, crudish(requires: IsAdmin) {
+        name: string check name.length > 0
+        derived display: string = name
+      }
+  
+      repository Orgs for Org { }
+  
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Shipping, Operations, Finance, Platform]) { }
+
+  ui WebVue with scaffold(subdomains: [Shipping, Operations, Finance, Platform]) {
+    framework: vue
+ }
+
+  ui WebSvelte with scaffold(subdomains: [Shipping, Operations, Finance, Platform]) {
+    framework: svelte
+ }
+
+  ui WebNg with scaffold(subdomains: [Shipping, Operations, Finance, Platform]) {
+    framework: angular
+ }
+
+  ui WebFeliz with scaffold(subdomains: [Shipping, Operations, Finance, Platform]) {
+    framework: feliz
+ }
+
+  ui WebFlutter with scaffold(subdomains: [Shipping, Operations, Finance, Platform]) {
+    framework: flutter
+ }
+
+  storage primary { type: postgres }
+  resource bookingState  { for: Booking,  kind: state, use: primary }
+  resource handlingState    { for: Handling, kind: state,    use: primary }
+  resource billingState     { for: Billing,  kind: state,    use: primary }
+  resource tenantState      { for: Tenants,  kind: state,    use: primary }
+
+  deployable api       { platform: node,   contexts: [Booking, Handling, Billing, Tenants], dataSources: [bookingState, handlingState, billingState, tenantState], port: 3000, auth: required }
+  deployable apiDotnet { platform: dotnet, contexts: [Booking, Handling, Billing, Tenants], dataSources: [bookingState, handlingState, billingState, tenantState], port: 8080, auth: required }
+  deployable apiJava   { platform: java,   contexts: [Booking, Handling, Billing, Tenants], dataSources: [bookingState, handlingState, billingState, tenantState], port: 8082, auth: required }
+  deployable apiPython { platform: python, contexts: [Booking, Handling, Billing, Tenants], dataSources: [bookingState, handlingState, billingState, tenantState], port: 8000, auth: required }
+  deployable apiElixir { platform: elixir, contexts: [Booking, Handling, Billing, Tenants], dataSources: [bookingState, handlingState, billingState, tenantState], port: 4000, auth: required }
+
+  deployable webApp     { platform: react,   targets: api, ui: WebApp,     port: 3001, design: mantine }
+  deployable webVue     { platform: vue,     targets: api, ui: WebVue,     port: 3002, design: vuetify }
+  deployable webSvelte  { platform: svelte,  targets: api, ui: WebSvelte,  port: 3003, design: shadcnSvelte }
+  deployable webNg      { platform: angular, targets: api, ui: WebNg,      port: 3004, design: angularMaterial }
+  deployable webFeliz   { platform: feliz,   targets: api, ui: WebFeliz,   port: 3005 }
+  deployable webFlutter { platform: flutter, targets: api, ui: WebFlutter, port: 3006 }
+
+  test e2e "book a cargo, add a leg, route it" against api verifies TC-001 {
+    let cust = api.customers.create({ name: "Rotterdam Forwarding", email: "ops@rf.example" })
+    let cargo = api.cargos.create({
+      trackingId: "TRK-001",
+      customer: cust.id,
+      routeSpec: { origin: { value: "NLRTM" }, destination: { value: "USNYC" },
+                   arrivalDeadline: "2026-12-01T00:00:00Z" },
+      bookedAt: "2026-09-01T00:00:00Z"
+    })
+    api.cargos.addLeg(cargo, {
+      voyageNumber: "V-100",
+      loadLocation: { value: "NLRTM" }, unloadLocation: { value: "USNYC" },
+      loadTime: "2026-09-05T00:00:00Z", unloadTime: "2026-09-20T00:00:00Z"
+    })
+    api.cargos.markRouted(cargo, {})
+    let read = api.cargos.getById(cargo)
+    expect(read.routingStatus).toBe("Routed")
+    expect(read.legs.length).toBe(1)
+  }
+
+  test e2e "an empty cargo cannot be routed" against api {
+    let cust = api.customers.create({ name: "Empty Co", email: "e@rf.example" })
+    let cargo = api.cargos.create({
+      trackingId: "TRK-002",
+      customer: cust.id,
+      routeSpec: { origin: { value: "NLRTM" }, destination: { value: "DEHAM" },
+                   arrivalDeadline: "2026-12-01T00:00:00Z" },
+      bookedAt: "2026-09-01T00:00:00Z"
+    })
+    expect(api.cargos.markRouted(cargo, {})).toThrow()
+  }
+
+}

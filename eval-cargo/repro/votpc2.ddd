@@ -1,0 +1,20 @@
+system VoTpc2 {
+  subdomain S { context C {
+    valueobject Plainvo  { value: string }
+    valueobject WithInv  { value: string  invariant value.matches("^[A-Z]{5}$") }
+    valueobject WithDer  { value: string  derived label: string = value }
+    valueobject WithBoth { value: string  invariant value.matches("^[A-Z]{5}$")  derived label: string = value }
+
+    aggregate A1 with crudish { f: Plainvo }
+    aggregate A2 with crudish { f: WithInv }
+    aggregate A3 with crudish { f: WithDer }
+    aggregate A4 with crudish { f: WithBoth }
+    repository R1 for A1 { }
+    repository R2 for A2 { }
+    repository R3 for A3 { }
+    repository R4 for A4 { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

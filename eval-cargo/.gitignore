@@ -1,0 +1,21 @@
+# Generated output trees and installed deps — regenerate with `ddd generate system`.
+**/node_modules/
+**/.loom/
+**/dist/
+**/locales/
+*-out/
+*-out2/
+**/out/
+gen-rich/
+repro/ten-multi*/
+repro/voroot/
+repro/zodorder/out-*/
+meridian/api/
+meridian/web_app/
+meridian/e2e/
+meridian/db-init/
+meridian/monitoring/
+meridian/keycloak/
+meridian/docker-compose.yml
+meridian/docker-compose.obs.yml
+matrix/out/

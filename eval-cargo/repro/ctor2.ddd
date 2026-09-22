@@ -1,0 +1,23 @@
+context Ctor2 {
+  enum S { Draft, Done }
+  // C: flat aggregate, no containment, no crudish, no explicit create.
+  aggregate Flat {
+    name: string
+    status: S immutable = Draft
+    operation finish() { status := Done }
+  }
+  // D: flat + explicit create action.
+  aggregate Explicit {
+    name: string
+    status: S immutable = Draft
+    create(name: string) { }
+    operation finish() { status := Done }
+  }
+  // E: flat + crudish.
+  aggregate Crud with crudish {
+    name: string
+  }
+  repository R1 for Flat { }
+  repository R2 for Explicit { }
+  repository R3 for Crud { }
+}
