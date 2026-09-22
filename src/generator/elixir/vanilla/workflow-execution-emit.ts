@@ -1649,6 +1649,33 @@ function renderWorkflowModule(
     params.length > 0
       ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${snake(n)}`).join(", ")}} = params\n`
       : "";
+  // That destructure is a BARE MATCH: a request missing one of these keys
+  // raises `MatchError` rather than returning, so it never reaches the
+  // controller's `{:error, _}` arms and the fault handler answers 500 — on a
+  // route whose own OpenAPI declares 422, and where node/dotnet/java/python
+  // all validate and answer 422.  A guard on the public `run/1` plus a
+  // fallback clause turns the raise into a value the controller can map,
+  // without touching the body or its indentation.
+  //
+  // Scoped to the params the body actually DESTRUCTURES (`referencedParams`),
+  // which is exactly the set that can raise.  A declared-but-unreferenced
+  // param stays unchecked here: requiring it would be a new refusal this
+  // defect does not call for, and the other backends' request schemas already
+  // cover that case at the wire boundary.
+  const requiredKeysGuard =
+    params.length > 0
+      ? params.map((n) => ` and is_map_key(params, ${JSON.stringify(n)})`).join("")
+      : "";
+  const missingParamsClause =
+    params.length > 0
+      ? `
+  # The request omitted a param the body destructures.  Returned, not raised,
+  # so the controller answers the 422 this route publishes instead of a 500.
+  def run(params${userParam}) when is_map(params) do
+    {:error, {:invalid_params, Enum.reject([${params.map((n) => JSON.stringify(n)).join(", ")}], &is_map_key(params, &1))}}
+  end
+`
+      : "";
   // `workflow_started` runs first thing in the body (before the destructure +
   // the with-chain), so it fires at run/1 entry on every invocation.
   const finalBody = `    ${startedCall}\n` + paramDestructure + statePrelude + aliasedBody;
@@ -1679,7 +1706,7 @@ defmodule ${moduleName} do
   alias ${repoMod}${contextAlias}
 
   @spec run(map()${needsUser ? ", term()" : ""}) :: {:ok, term()} | {:error, term()}
-  def run(params${userParam}) when is_map(params) do
+  def run(params${userParam}) when is_map(params)${requiredKeysGuard} do
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
@@ -1688,7 +1715,7 @@ defmodule ${moduleName} do
     end)
     |> report_result()
   end
-${failureReporter}
+${missingParamsClause}${failureReporter}
 
   # Public (not defp): Elixir 1.18 narrows a private fn's parameter to
   # run_inner's inferred result, which flags whichever arm this workflow's
@@ -1714,7 +1741,7 @@ defmodule ${moduleName} do
   require Logger${corrParam ? `\n  alias ${repoMod}` : ""}${hasContextCall ? `${contextAlias}\n` : ""}
 
   @spec run(map()${needsUser ? ", term()" : ""}) :: {:ok, term()} | {:error, term()}
-  def run(params${userParam}) when is_map(params) do
+  def run(params${userParam}) when is_map(params)${requiredKeysGuard} do
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
@@ -1723,7 +1750,7 @@ ${finalBody}
     end)
     |> report_result()
   end
-${failureReporter}${helperDefs}
+${missingParamsClause}${failureReporter}${helperDefs}
 end
 `;
   return { content, statementRegions };
@@ -1796,7 +1823,7 @@ ${actions}
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),
     do: ProblemDetails.validation_error_response(conn, changeset)
 
-${respondErrorTail("respond", "  ", groups[0] ? denialOverrides(groups[0].ctx) : undefined, contextsHaveWireDenials(groups.map((g) => g.ctx)))}
+${respondErrorTail("respond", "  ", groups[0] ? denialOverrides(groups[0].ctx) : undefined, contextsHaveWireDenials(groups.map((g) => g.ctx)), true)}
 end
 `;
 }
