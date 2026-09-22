@@ -104,6 +104,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   {
+    id: "enum-collection",
+    title: "an enum COLLECTION field (`skills: Skill[]`) — the enum × array crossing",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by audit F-014 (S1).  The corpus carried scalar enums and scalar/VO arrays, but never the two CROSSED, so every compile gate was blind to it by construction — and elixir's Ecto mapper folded the enum's `values:` (an option of `field/3`) into the array TYPE tuple: `field :skills, {:array, Ecto.Enum, values: [...]}` → `** (ArgumentError) invalid type … for field :skills`, i.e. `mix compile` fails on the emitted project.  A SCALAR enum sits on the same aggregate so a fix that simply stopped emitting `values:` for arrays cannot pass.",
+  },
+  {
     id: "vo-id-reference",
     title:
       "a value object holding a CROSS-AGGREGATE REFERENCE (`ship: Ship id`) — in a field, a `derived` type and a `function` parameter",
@@ -206,7 +213,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
     doc: "tenancy",
     backends: ALL,
-    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.",
+    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
   },
   {
     id: "projection-document-aggregation",
@@ -257,6 +264,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   { id: "tenancy-filter", title: "principal-referencing (tenancy) capability filter", doc: "capabilities", backends: ALL },
+  {
+    id: "principal-read-filter",
+    title:
+      "an AUTHOR-WRITTEN `currentUser` predicate in a `find` / `retrieval` `where` — the row-level \"my own records\" query, as opposed to a DERIVED tenancy filter",
+    doc: "auth",
+    backends: ALL,
+    note: "Minted by audit F-013 (S1).  `currentUser` appeared in the corpus only inside GATES (`requires …`) and inside the tenancy filters the ENRICHMENT synthesises — never inside a predicate an author wrote on a query, which is a different emitter path on every backend.  Elixir broke twice on that path: the principal was interpolated UNPINNED into the Ecto `where:` (`Ecto.Query.CompileError: unbound variable current_user in query` — the fail-closed `^(current_user && …)` pin came from a post-pass that only saw the derived filters, so the compiler-generated tenancy filter on the NEXT emitted line pinned while the author's did not), and the actor was never THREADED into the find/retrieval head, since the \"needs the principal\" predicate read the aggregate's capability `filter`s only.  Both are hard `mix compile` failures.  The fixture carries NO tenancy capability on purpose — with one, the derived filter threads the actor and MASKS the author-written half, which is exactly why this survived.",
+  },
   { id: "tenancy-owned", title: "first-class tenancy — `tenancy by` + tenantOwned + crossTenant", doc: "tenancy", backends: ALL },
   { id: "tenancy-hierarchy", title: "tenancy hierarchy — `implements tenantRegistry` + `policy` deep/global/local read ladder", doc: "tenancy", backends: ALL },
   { id: "tenancy-claim-name", title: "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter", doc: "tenancy", backends: ALL },

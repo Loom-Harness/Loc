@@ -18,6 +18,7 @@ export {
   FILTER_BYPASS_FAMILIES,
   validateContextFilterSupport,
   validateFilterBypassSupport,
+  validateTenancyFilterBypass,
 } from "./context-filter-checks.js";
 export {
   validateDataSourceCoverage,

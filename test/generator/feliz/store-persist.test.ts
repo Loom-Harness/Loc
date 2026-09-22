@@ -172,14 +172,22 @@ describe("feliz `persist:` — datetime / guid / enum / decimal arrays", () => {
       action setMode(m: Status) { mode := m }
     }`;
 
-  it("loads datetime / guid through a TOTAL TryParse, defaulting to the type zero", async () => {
+  it("loads a datetime through a TOTAL TryParse, defaulting to the type zero", async () => {
     const fs = await app(WIDE_STORE);
     expect(fs).toContain(
       "if isNull raw then System.DateTime.MinValue else (match System.DateTime.TryParse raw",
     );
-    expect(fs).toContain(
-      "if isNull raw then System.Guid.Empty else (match System.Guid.TryParse raw",
-    );
+  });
+
+  // A guid does NOT get a TryParse: on this frontend a Loom `guid` IS an F#
+  // `string` (`type-fs.ts` has no `guid` arm, `decoderExprFor` decodes one with
+  // `Decode.string`, the query encoder passes it verbatim).  `System.Guid.TryParse`
+  // bound a `System.Guid` into a `string`-typed cell — `FS0001`, the mirror image
+  // of the mismatch the missing `fsPrimitive` arm exists to prevent.  The written
+  // form is already the canonical guid string, so the identity load round-trips it.
+  it("loads a guid as the string it is, with no Guid parse", async () => {
+    const fs = await app(WIDE_STORE);
+    expect(fs).not.toContain("System.Guid");
   });
 
   it("writes datetime back as ISO-8601 and a guid as its canonical string", async () => {

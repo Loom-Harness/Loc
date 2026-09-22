@@ -30,6 +30,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import {
+  declarationSubRegion,
   renderTsStatementChunks,
   renderTsStatements,
   statementExprMarks,
@@ -626,12 +627,14 @@ function renderEntity(
       const exprMarks = opBody.map((s, i) => statementExprMarks(s, chunks[i]!));
       opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(
-          opBody,
-          chunks,
-          `${ctx.name}.${e.name}.${op.name}`,
-          exprMarks,
-        ),
+        subRegions: [
+          // The member's own declaration region first (F-021) — what
+          // `ddd breakpoints --line <the `operation` header>` resolves
+          // through; the per-statement regions below stay narrower in origin
+          // terms and keep winning for the lines they cover.
+          ...declarationSubRegion(op.origin, chunks, `${ctx.name}.${e.name}.${op.name}`),
+          ...statementSubRegions(opBody, chunks, `${ctx.name}.${e.name}.${op.name}`, exprMarks),
+        ],
       });
     }
     if (body.length > 0) ops.push(body);

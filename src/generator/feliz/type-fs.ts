@@ -41,8 +41,28 @@ function fsPrimitive(name: PrimitiveName): string {
       // (`typescript/emit/schema.ts`: "expression-only and never reaches a
       // column").
       return "System.TimeSpan";
-    case "guid":
-      return "System.Guid";
+    // NO `guid` arm — a Loom `guid` is a STRING everywhere else in this
+    // frontend, and spelling it `System.Guid` here was a type error in every
+    // emitted file that carried one:
+    //
+    //   * `decoderExprFor` (wire.ts) decodes a guid with `Decode.string`, so
+    //     the record field said `System.Guid` while its decoder produced a
+    //     `string` — `FS0001: The type 'System.Guid' does not match the type
+    //     'string'`, once per guid field per decoder/encoder/form site;
+    //   * `fsZeroValue` below falls through to `""` for a guid, so a
+    //     `state { x: guid }` cell initialised a `System.Guid` from a string;
+    //   * `findParamQueryValue` (wire.ts) passes a guid find parameter into
+    //     the query string verbatim, i.e. as a `string`;
+    //   * an `X id` — a guid on every backend — already lowers to the `id`
+    //     arm of `typeToFs` below, which is `string`.
+    //
+    // The other frontends agree: `z.string()` on react/vue/svelte/angular
+    // (`_frontend/zod-schemas.ts`) and Dart `String` on flutter
+    // (`flutter/dart-types.ts`).  Making the guid a real `System.Guid` instead
+    // would mean `Decode.guid`/`Encode.guid`, a Guid-typed query-string
+    // renderer and Guid-aware form text parsing — a different, much larger
+    // change, and one no backend's wire asks for (they all serialise a guid as
+    // a JSON string).
     default:
       return "string"; // string, guid-as-string, json, etc.
   }
@@ -97,15 +117,20 @@ export function fsZeroValue(t: TypeIR): string {
           // Pairs with `typeToFs`'s `System.TimeSpan` — the fallthrough `""`
           // would not typecheck against it.
           return "System.TimeSpan.Zero";
-        // Same reason as `duration`: `typeToFs` spells these `System.DateTime`
-        // / `System.Guid`, so the `""` fallthrough declared a string zero
+        // Same reason as `duration`: `typeToFs` spells a datetime
+        // `System.DateTime`, so the `""` fallthrough declared a string zero
         // against a .NET-typed field (`FiltersAt = ""`) and the app did not
-        // compile.  `MinValue` / `Empty` are the types' own zeros, and Fable
-        // supports both.
+        // compile.  `MinValue` is the type's own zero, and Fable supports it.
+        //
+        // NO `guid` arm, for the mirror-image reason: `fsPrimitive` above
+        // deliberately has none either, so a Loom `guid` IS an F# `string` on
+        // this frontend (`Decode.string` decodes it, the query encoder passes
+        // it verbatim).  `System.Guid.Empty` here would seed a `string`-typed
+        // cell with a `System.Guid` — the same FS0001 the missing arm exists
+        // to prevent, just pointing the other way.  The `""` fallthrough is
+        // the right zero for a guid-as-string.
         case "datetime":
           return "System.DateTime.MinValue";
-        case "guid":
-          return "System.Guid.Empty";
         default:
           return '""';
       }

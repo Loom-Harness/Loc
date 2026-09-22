@@ -692,6 +692,26 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the per-backend compile tiers; a behavioural block would add uncalled
   // routes and unrecorded goldens for no additional oracle.
   "collection-op-shapes",
+  // COMPILE-TIER WITNESS (audit F-014, S1) — an enum COLLECTION field
+  // (`skills: Skill[]`).  The corpus carried scalar enums and scalar/VO arrays
+  // but never the CROSSING, so every compile gate was blind to it and elixir
+  // folded the enum's `values:` (a `field/3` OPTION) into the array TYPE tuple:
+  // `** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field
+  // :skills` — `mix compile` fails on the emitted project.  The oracle is
+  // therefore a COMPILE one; a behavioural block would boot a generic CRUD
+  // round-trip and mint a wire golden over an enum-array JSON encoding that no
+  // cross-backend ruling has been asked for.
+  "enum-collection",
+  // COMPILE-TIER WITNESS (audit F-013, S1) — an AUTHOR-WRITTEN `currentUser`
+  // predicate in a `find` / `retrieval` `where`.  Both halves of the defect are
+  // hard `mix compile` failures (an unpinned `current_user` in the Ecto
+  // `where:`, then an actor never threaded into the head), so the compile legs
+  // are the oracle.  The runtime half is not assertable from the harness: the
+  // row-level filter needs the principal's id to MATCH a seeded row's
+  // `technicianUserId`, and `devClaimKind` carries `string` / `string[]` only —
+  // every assertion would read the empty fail-closed result.  A drain candidate
+  // once the harness can seed a row owned by the authenticated principal.
+  "principal-read-filter",
   // COMPILE + UNIT-TIER WITNESS (numeric-types audit F7 / M-T6.44) — the
   // right-hand money/decimal operand shapes (`int * money`, `int + decimal`,
   // `int < decimal`) the leftType-only TS/Elixir gates broke on.  The pure-

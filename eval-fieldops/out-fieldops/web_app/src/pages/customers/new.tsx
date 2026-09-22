@@ -1,0 +1,55 @@
+// Auto-generated.  Do not edit by hand.
+import { useNavigate, Link as RouterLink } from "react-router";
+import { CreateCustomerRequest, useCreateCustomer } from "../../api/customer";
+import { t } from "../../i18n";
+import { applyServerErrors } from "../../lib/apply-server-errors";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Anchor, Breadcrumbs, Button, Card, Group, Stack, Text, TextInput, Title } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { useForm } from "react-hook-form";
+
+export default function CustomerNew() {
+  const navigate = useNavigate();
+  const create = useCreateCustomer();
+  const { register, handleSubmit, setError, formState: { errors } } = useForm<CreateCustomerRequest>({
+    resolver: zodResolver(CreateCustomerRequest),
+    defaultValues: { name: "", contactEmail: "" },
+  });
+  return (
+    <Stack gap="md" data-testid="customers-new-page">
+      <Breadcrumbs>
+        <Anchor component={RouterLink} to="/">{t("page.New.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/customers">{t("page.New.anchor.vweyym", "Customers")}</Anchor>
+        <Text>{t("page.New.text.2ludo1", "New")}</Text>
+      </Breadcrumbs>
+      <Title order={2}>{t("page.New.heading.m0eqrn", "Create customer")}</Title>
+      <Card withBorder padding="md">
+        <form onSubmit={handleSubmit(async (vals) => {
+                  try {
+                    const out = await create.mutateAsync(vals);
+                    notifications.show({ color: "green", message: "Customer created" });
+                    navigate(`/customers/${out.id}`);
+                  } catch (e) {
+                    const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
+                    if (outcome.kind === "global") {
+                      notifications.show({ color: "red", message: outcome.title });
+                    } else if (outcome.kind === "unhandled") {
+                      notifications.show({ color: "red", message: (e as Error).message });
+                    }
+                  }
+                })} data-testid="customers-new">
+          <Stack gap="md">
+            <TextInput label="Name" {...register("name")} data-testid="customers-new-input-name" error={errors.name?.message} />
+    
+            <TextInput label="Contact Email" {...register("contactEmail")} data-testid="customers-new-input-contactEmail" error={errors.contactEmail?.message} />
+    
+            <Group justify="flex-end" gap="xs" mt="md">
+              <Button type="submit" loading={ create.isPending } data-testid="customers-new-submit">Create</Button>
+            </Group>
+          </Stack>
+        </form>
+      </Card>
+    </Stack>
+  );
+}
+//# sourceMappingURL=new.tsx.map

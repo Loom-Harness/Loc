@@ -531,6 +531,23 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   ) {
     return snake(e.member);
   }
+  // PRINCIPAL CLAIM INSIDE AN ECTO QUERY (`ctx.filterArgs`).  `current_user` is
+  // an ordinary Elixir local, and Ecto's `where:` admits no unbound locals — a
+  // bare `current_user.id` raises `Ecto.Query.CompileError: unbound variable
+  // \`current_user\` in query` at COMPILE time.  It has to be interpolated, the
+  // same way `param` / `enum-value` refs already are in this mode (`renderRef`).
+  // Nil-safe, because the actor may be absent on an internal / unauthenticated
+  // read: a pinned `nil` matches no rows (Ecto binds `= NULL`, never `IS NULL`),
+  // so the read fails CLOSED instead of raising `KeyError` on `nil.id`.
+  //
+  // This is the ONE place the pin is applied, so every Ecto read path gets it:
+  // the derived capability/tenancy filters (`capability-filter.ts`) AND the
+  // author-written `find … where` / `retrieval … where:` / query-projection
+  // `where` predicates, which previously emitted the unpinned form.
+  if (ctx.filterArgs && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
+    const claim = snake(e.member);
+    return `^(current_user && current_user.${claim})`;
+  }
   // Array/list size shorthand.  The DSL admits both `.count` and
   // `.length` on arrays (see the .NET renderer's matching comment);
   // both map to Elixir `Enum.count/1`.  Without the `.length` arm an

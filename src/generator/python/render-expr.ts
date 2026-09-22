@@ -1,5 +1,6 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
@@ -186,6 +187,23 @@ export function renderPyNegatedGuard(e: ExprIR, ctx: PyRenderContext = DEFAULT):
     const recv = renderPyExpr(e.receiver, ctx);
     const arg = e.args[0] ? renderPyExpr(e.args[0], ctx) : "None";
     return `${arg} not in ${recv}`;
+  }
+  // `x == null` / `x != null` negate by FLIPPING the identity test, not by
+  // wrapping it: `renderBinary` renders these as `x is None` / `x is not None`
+  // (E711), and `not (x is None)` is then ruff **E714** ("test for object
+  // identity should be `is not`").  The parentheses do not help — ruff's E714
+  // is AST-based, unlike pycodestyle's regex, so it sees `UnaryOp(Not,
+  // Compare(Is))` whatever the source spelling.  Two emitted sites hit it: an
+  // `operation … when <field> == null` state gate, in the aggregate method AND
+  // in its route pre-check (F-015).
+  {
+    const inner = e.kind === "paren" ? e.inner : e;
+    const nullTest =
+      inner.kind === "binary" ? nullComparison(inner.op, inner.left, inner.right) : null;
+    if (nullTest) {
+      // `negated` is `!=` (`is not None`), whose negation is `is None`.
+      return `${renderPyExpr(nullTest.operand, ctx)} is ${nullTest.negated ? "" : "not "}None`;
+    }
   }
   return `not (${renderPyExpr(e, ctx)})`;
 }

@@ -134,13 +134,55 @@ const DELIBERATELY_INVALID = [
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
+  // The error-QUALITY corpus from the external evaluation in `eval/`: ten models,
+  // each carrying one realistic authoring mistake, written to measure whether the
+  // diagnostic points at the right line and is actionable.  Being refused IS the
+  // assertion, so they belong here rather than being "fixed".
+  //
+  // Pinning them buys something beyond silencing this gate: the control below
+  // asserts each still produces at least one error, so this list is now a
+  // regression net for the eight diagnostics the evaluation measured.  If a
+  // validator change ever made one of these validate clean, that control fails.
+  //
+  // Only the AST-level nine are listed.  Two of the ten are absent on purpose:
+  // `broken/08-page-wrong-aggregate.ddd` and `broken/09-unqueryable-filter.ddd`
+  // are refused at the IR layer (phase (7)), which this census does not run.
+  //
+  // `broken/05-cyclic-containment.ddd` joined this list when F-020 was fixed, as
+  // the earlier revision of this comment said it must: it used to validate clean
+  // and crash the generator with a `RangeError` naming an `out/**.js` frame, and
+  // now `checkContainmentCycles` refuses it at the AST layer with a real
+  // file:line ("Cyclic containment in aggregate 'A': X -> Y -> X").
+  "eval-fieldops/repro/H-rowlevel-currentuser.ddd",
+  "eval-fieldops/repro/broken/05-cyclic-containment.ddd",
+  // Joined when F-003 was fixed, for the same reason as 05: the cross-aggregate
+  // `invariant Technicians.getById(...)` used to validate clean and emit an
+  // unresolvable identifier on four backends (and nothing at all on Phoenix);
+  // `checkRuleExprPurity` now refuses it at the rule's own line.
+  "eval-fieldops/repro/A-cross-agg-invariant.ddd",
+  "eval-fieldops/repro/broken/01-typo-type.ddd",
+  "eval-fieldops/repro/broken/02-invariant-unknown-field.ddd",
+  "eval-fieldops/repro/broken/03-wrong-arity.ddd",
+  "eval-fieldops/repro/broken/04-bare-aggregate-ref.ddd",
+  "eval-fieldops/repro/broken/06-duplicate-names.ddd",
+  "eval-fieldops/repro/broken/07-bad-enum-value.ddd",
+  "eval-fieldops/repro/broken/10-type-mismatch.ddd",
+  // A SECOND, independent evaluation's repro corpus (`eval-clinica/`), already on
+  // main.  It found two of the same defects this branch fixes, which is useful
+  // corroboration in itself: r02 is a cross-aggregate `invariant` reaching a
+  // repository (F-003) and r18 is cyclic containment (F-020).  Both were written
+  // as deliberately-broken evidence and validated clean until these gates landed,
+  // so they belong here for exactly the reason the entries above do.
+  "eval-clinica/repro/r02-overlap.ddd",
+  "eval-clinica/repro/r02-overlap-system.ddd",
+  "eval-clinica/repro/r18-recursive-containment-crash.ddd",
   // `eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
   // they belong here rather than being fixed or untracked.  Only the seven
-  // that fail at the AST layer are listed; `b05` (cyclic containment) and
-  // `b09` (a typo'd field in a page body) validate CLEAN and are findings in
-  // their own right (F-040, F-041), so they stay in the positive population
+  // that fail at the AST layer are listed, plus `b05` — see below; `b09` (a
+  // typo'd field in a page body) still validates CLEAN and is a finding in its
+  // own right (F-041), so it stays in the positive population
   // above — the day either starts being refused, its pin is what should be
   // added, not this comment.
   //
@@ -151,6 +193,13 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b02-missing-field.ddd",
   "eval/repro/broken/b03-wrong-arity.ddd",
   "eval/repro/broken/b04-bare-aggregate-ref.ddd",
+  // `b05` was this corpus's F-040 — cyclic containment validating clean — and
+  // it is now REFUSED, by the `loom.containment-cycle` AST gate this branch adds
+  // for the same defect it found independently as F-020.  Per the note above
+  // ("the day either starts being refused, its pin is what should be added"),
+  // here is the pin.  Two evaluations reaching the same defect, one of them
+  // closing it, is the corroboration both registers were written to produce.
+  "eval/repro/broken/b05-cyclic-containment.ddd",
   "eval/repro/broken/b06-duplicate-names.ddd",
   "eval/repro/broken/b07-bad-enum-value.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",

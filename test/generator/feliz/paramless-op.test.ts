@@ -46,17 +46,17 @@ describe("feliz param-less operation forms", () => {
     expect(app).toContain('prop.custom("data-testid", "orders-op-confirm-form")');
     expect(app).toContain('prop.custom("data-testid", "orders-op-confirm-submit")');
     // The submit dispatches the id-carrying op Msg.
-    expect(app).toContain("prop.onClick (fun _ -> dispatch (SubmitConfirmOrderForm id))");
+    expect(app).toContain("prop.onClick (fun _ -> dispatch (SubmitConfirmOrderOpForm id))");
   });
 
   it("wires a Submit(id) + Done Msg but NO form record / setters", async () => {
     const app = await appFs();
-    expect(app).toContain("| SubmitConfirmOrderForm of string");
-    expect(app).toContain("| ConfirmOrderDone of Result<unit, string>");
+    expect(app).toContain("| SubmitConfirmOrderOpForm of string");
+    expect(app).toContain("| ConfirmOrderOpDone of Result<unit, string>");
     // A param-less op has no form state — no record type, no Model field, no setters.
-    expect(app).not.toContain("type ConfirmOrderForm =");
-    expect(app).not.toContain("ConfirmOrderForm: ConfirmOrderForm");
-    expect(app).not.toContain("SetConfirmOrderForm");
+    expect(app).not.toContain("type ConfirmOrderOpForm =");
+    expect(app).not.toContain("ConfirmOrderOpForm: ConfirmOrderOpForm");
+    expect(app).not.toContain("SetConfirmOrderOpForm");
   });
 
   it("emits an id-qualified Api fn that POSTs an empty `{}` body", async () => {
@@ -69,9 +69,9 @@ describe("feliz param-less operation forms", () => {
   it("wires the update arm — submit posts `()`, done navigates (no form reset)", async () => {
     const app = await appFs();
     expect(app).toContain(
-      "  | SubmitConfirmOrderForm id -> model, Cmd.OfAsync.perform (Api.confirmOrder id) () ConfirmOrderDone",
+      "  | SubmitConfirmOrderOpForm id -> model, Cmd.OfAsync.perform (Api.confirmOrder id) () ConfirmOrderOpDone",
     );
-    expect(app).toContain('  | ConfirmOrderDone (Ok ()) -> model, Cmd.navigatePath("orders")');
-    expect(app).toContain("  | ConfirmOrderDone (Error _) -> model, Cmd.none");
+    expect(app).toContain('  | ConfirmOrderOpDone (Ok ()) -> model, Cmd.navigatePath("orders")');
+    expect(app).toContain("  | ConfirmOrderOpDone (Error _) -> model, Cmd.none");
   });
 });

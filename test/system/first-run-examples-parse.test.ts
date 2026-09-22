@@ -56,7 +56,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseErrorsOf, parseString } from "../_helpers/index.js";
+import { parseErrorsOf, parseRawResult, parseString } from "../_helpers/index.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -182,5 +182,73 @@ describe("the examples a new user copies actually parse", () => {
         expect(parseErrorsOf(asSystem(b))).toEqual([]);
       });
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The REFERENCE docs — a weaker question, asked of many more blocks (F-010).
+//
+// Two of them had drifted from the grammar with nothing to catch it: the
+// formal reference (`docs/language.md`) documented `channel Name { carries:
+// [Event, …] }`, a bracketed list the grammar has never taken (`Expecting token
+// of type 'ID' but found '['`), and chapter 06 told the reader that "omitting
+// the parens" silences `loom.create-params-not-wire` when `create { }` does not
+// parse at all.  Both are lines a new user reads FIRST.
+//
+// The question here is SYNTAX ONLY — `parseRawResult`, not `parseString` — and
+// that is deliberate, not laziness.  A reference doc's job is to show the
+// SHAPE of a construct, so its examples legitimately name types, events and
+// aggregates that are declared nowhere ("Could not resolve reference to
+// NamedDecl named 'Status'"); demanding a linkable model would either fail on
+// every honest illustration or push authors to pad each snippet into a whole
+// runnable system.  Grammar drift is the failure these two exhibited, and
+// syntax is exactly the half that detects it.
+// ---------------------------------------------------------------------------
+
+const REFERENCE_DOCS = [
+  "docs/language.md",
+  "docs/language-reference/06-behavior-and-statements.md",
+];
+
+/** The block population for the SYNTAX-ONLY sweep below.  Deliberately NOT
+ *  `blocksOf`: that one classifies whole-vs-fragment and drops elided or
+ *  brace-unbalanced fences, because its caller then VALIDATES (names must
+ *  resolve).  This sweep asks a weaker question of a wider set — it accepts a
+ *  `requirement` head too, and judges only whether the grammar accepts the
+ *  text.  Narrowing it to `blocksOf` would quietly shrink what the reference
+ *  docs are checked against, so the two populations stay separate on purpose. */
+function wholeBlocks(md: string): string[] {
+  return [...md.matchAll(/```(?:ddd|loom)\n([\s\S]*?)```/g)]
+    .map((m) => m[1] ?? "")
+    .filter((b) => /^\s*(system|context|requirement)\b/m.test(b));
+}
+
+/** The standard embeddings a reference snippet may be written against: as
+ *  written (a whole `system`), inside a system's subdomain (a bare `context …`),
+ *  or directly inside a system (a snippet mixing a `context` with system-scope
+ *  members like `api` / a root `function`).  A block passes when ANY of them
+ *  parses — the doc chose which surrounding to elide, and all three are real. */
+function embeddings(block: string): string[] {
+  return [
+    block,
+    `system DocExample {\n  subdomain DocSub {\n${block}\n  }\n}\n`,
+    `system DocExample {\n${block}\n}\n`,
+  ];
+}
+
+describe("the reference docs show syntax the grammar accepts", () => {
+  for (const rel of REFERENCE_DOCS) {
+    it(`${rel}`, () => {
+      const blocks = wholeBlocks(readFileSync(join(ROOT, rel), "utf8"));
+      expect(blocks.length, `${rel} has at least one whole example`).toBeGreaterThan(0);
+      for (const [i, block] of blocks.entries()) {
+        const attempts = embeddings(block).map((text) => parseRawResult(text).parserErrors);
+        const best = attempts.find((errs) => errs.length === 0) ?? attempts[1]!;
+        expect(
+          best.map((e) => e.message),
+          `${rel} block ${i} (first line: ${block.trim().split("\n")[0]}) parses`,
+        ).toEqual([]);
+      }
+    });
   }
 });

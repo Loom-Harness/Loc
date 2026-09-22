@@ -156,14 +156,27 @@ system P {
     expect(fs).not.toContain("FiltersMode: Status");
   });
 
-  it("seeds a datetime / guid cell with the .NET zero its field type accepts", async () => {
+  it("seeds a datetime cell with the .NET zero its field type accepts", async () => {
     const fs = await cellsApp();
     expect(fs).toContain("FiltersAt: System.DateTime");
-    expect(fs).toContain("FiltersRef: System.Guid");
     expect(fs).toContain("FiltersAt = System.DateTime.MinValue");
-    expect(fs).toContain("FiltersRef = System.Guid.Empty");
     expect(fs).not.toContain('FiltersAt = ""');
-    expect(fs).not.toContain('FiltersRef = ""');
+  });
+
+  // The guid half of the same cell goes the OTHER way, and for the same
+  // reason — the zero has to match the field's declared type, and on this
+  // frontend a Loom `guid` IS an F# `string`: `fsPrimitive` has no `guid` arm,
+  // `decoderExprFor` decodes one with `Decode.string`, and the query encoder
+  // passes it verbatim.  Spelling the cell `System.Guid` made the RECORD field
+  // disagree with its own decoder (`FS0001: The type 'System.Guid' does not
+  // match the type 'string'`) on every guid-carrying wire record, which is a
+  // strictly worse failure than the `""` seed it was meant to fix.  String
+  // field, string zero.
+  it("seeds a guid cell as the string it is", async () => {
+    const fs = await cellsApp();
+    expect(fs).toContain("FiltersRef: string");
+    expect(fs).toContain('FiltersRef = ""');
+    expect(fs).not.toContain("System.Guid");
   });
 });
 

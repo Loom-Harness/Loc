@@ -124,8 +124,11 @@ function fromRaw(scalar: FelizPersistScalar, dflt: string): string {
     // the ISO-8601 / canonical-guid string the JS frontends hold verbatim.
     case "datetime":
       return `(match System.DateTime.TryParse raw with | true, v -> v | _ -> ${dflt})`;
-    case "guid":
-      return `(match System.Guid.TryParse raw with | true, v -> v | _ -> ${dflt})`;
+    // NO `guid` arm — a Loom `guid` is an F# `string` on this frontend
+    // (`type-fs.ts` `fsPrimitive` has no guid arm, and `decoderExprFor`
+    // decodes one with `Decode.string`).  `System.Guid.TryParse` would bind a
+    // `System.Guid` into a `string`-typed cell: FS0001.  The written form IS
+    // the canonical guid string, so the `raw` fallthrough round-trips it.
     default:
       return "raw";
   }
@@ -178,8 +181,7 @@ function listFromCells(element: FelizPersistScalar): string {
       return per(
         "match System.DateTime.TryParse raw with | true, v -> v | _ -> System.DateTime.MinValue",
       );
-    case "guid":
-      return per("match System.Guid.TryParse raw with | true, v -> v | _ -> System.Guid.Empty");
+    // No `guid` arm — see `cellFrom` above: a guid is a string here.
     default:
       return "List.ofArray cells";
   }
