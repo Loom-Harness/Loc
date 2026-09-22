@@ -1133,3 +1133,63 @@ first, since it resolves the full dependency set when the proxy allows it.
 
 > `vitest --reporter=basic` no longer exists in vitest 4 — it fails at startup
 > with "Failed to load custom Reporter from basic". Use the default reporter.
+
+---
+
+## Local enforcement hooks (`.claude/hooks/`)
+
+Three checked-in Claude Code hooks, wired by `.claude/settings.json`, so the
+gates CI runs anyway cannot be forgotten locally. `.claude/` is gitignored
+except `settings.json` and `hooks/`, so the hooks ship with the repo while
+worktrees and `settings.local.json` stay local.
+
+| hook | script | what it does |
+|---|---|---|
+| `SessionStart` | `session-start.sh` | `npm install` (the `prepare` lifecycle) on a fresh remote container. Idempotent, remote-only (`$CLAUDE_CODE_REMOTE`). |
+| `Stop` | `biome-gate.sh` | `npm run lint` (`biome ci .`, the exact `test.yml` step) when a turn ends with work in the tree. Blocks and feeds the output back, then releases with a loud warning after **one** fix cycle so it cannot loop. Never blocks when Biome isn't installed. |
+| `PreToolUse(Bash)` | `pre-push-merge-check.sh` | Gates `git push` — see below. Non-push Bash calls early-exit, so it costs nothing per call. |
+
+### The push preflight
+
+`pre-push-merge-check.sh` runs **two** gates on a `git push`, in order:
+
+1. **Textual** — `git merge-tree --write-tree origin/main HEAD`. A definite
+   conflict denies the push, listing the conflicting paths.
+2. **Semantic** — on a clean merge, the hook materialises `origin/main + HEAD`
+   in a throwaway worktree (`git commit-tree` + `git worktree add --detach`,
+   borrowing the checkout's `node_modules` by symlink so nothing installs) and
+   runs there:
+
+   ```
+   npx tsc -b
+   node scripts/test-typecheck.mjs
+   ```
+
+   Either failing denies the push with the failing output attached.
+
+**Why the second gate exists.** A clean merge is necessary, not sufficient.
+Two branches merge textually and still fail to compile together — one renames a
+symbol the other starts using, one adds a field the other's new test constructs
+without. `git merge-tree` cannot see that, and neither can a green local `tsc`
+on the un-merged branch. It is the same combined tree the **merge queue**
+re-runs, which means today the feedback arrives hours later and after a runner
+slot; the hook moves it to ~1 minute before the push.
+
+**It fails open on everything else.** No `npx`, no borrowable `node_modules`,
+an unparsable merged-tree OID, a worktree that will not create, a 900 s
+timeout per gate, not a git repo, no `origin/main`, an offline fetch, git older
+than 2.38, or pushing trunk itself — all ALLOW. It denies on exactly two
+things: a definite conflict, and a gate that ran to completion on the merged
+tree and failed.
+
+**Opting out deliberately:**
+
+```bash
+LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 only; gate 1 still runs
+```
+
+**Cost, measured:** ~51 s for the full preflight on a warm `node_modules`;
+~1 s with the opt-out set. The throwaway worktree is removed by a top-level
+`EXIT` trap — top-level rather than function-scoped `RETURN`, because the deny
+path `exit`s the script and an `exit` from inside a function never runs that
+function's `RETURN` trap.
