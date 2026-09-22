@@ -7,6 +7,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   DeployableIR,
   ExprIR,
@@ -21,6 +22,11 @@ import {
   findWorkflowBySlug,
   workflowSlugHints,
 } from "../../util/e2e-workflow-accessor.js";
+import {
+  apisServedBy,
+  resolveRoutedHandler,
+  routedHandlerCallHints,
+} from "../../util/routed-handler.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
@@ -277,6 +283,9 @@ export function validateE2ETest(
     return;
   }
   const contexts = collectContexts(target, modulesByName);
+  // The apis the target deployable `serves:` — the only place an explicit
+  // `route … -> <Ctx>.<Handler>` binding this body may address can come from.
+  const apis = apisServedBy(target, sys.apis);
   const source = `${sys.name}/${test.name}`;
   const magicId = test.kind === "ui" ? "ui" : "api";
 
@@ -320,7 +329,7 @@ export function validateE2ETest(
       });
       continue;
     }
-    walkStmt(stmt, (e) => checkMagicCall(e, magicId, contexts, source, diags));
+    walkStmt(stmt, (e) => checkMagicCall(e, magicId, contexts, apis, source, diags));
   }
 }
 
@@ -533,6 +542,7 @@ function checkMagicCall(
   e: ExprIR,
   magicId: "api" | "ui",
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
   source: string,
   diags: LoomDiagnostic[],
 ): void {
@@ -568,12 +578,25 @@ function checkMagicCall(
   if (r.receiver.kind !== "ref" || r.receiver.name !== magicId) return;
   const aggregateSlug = r.member;
   const method = e.member;
-  // The reserved `workflows` slug routes to system-level orchestration:
-  // `<magicId>.workflows.<name>(...)` resolves to a workflow.
-  // The React UI generator wires `ui` invocations; the reserved slug
-  // validates against `api` for symmetry so backend-side dispatchers see a
-  // consistent IR shape.
-  if (aggregateSlug === "workflows") {
+  // The reserved `workflows` slug — `ui.workflows.<name>({…})` drives the
+  // workflow FORM page object (`renderWorkflowCall`, `ui-e2e-render.ts`).
+  //
+  // SCOPED TO `ui` DELIBERATELY.  This arm used to accept `api` too, "for
+  // symmetry so backend-side dispatchers see a consistent IR shape" — but no
+  // backend-side dispatcher was ever written: `renderApiCall` has no
+  // `workflows` case, so `api.workflows.<name>(…)` validated clean and then
+  // killed `generate system` with an unhandled `Error: e2e: unknown aggregate
+  // 'api.workflows'` and a Node stack trace, on a source `ddd parse` had just
+  // reported as `0 error(s), 0 warning(s)`.  A validator arm with no renderer
+  // arm is not a feature, it is a crash with a certificate.
+  //
+  // The api side reaches the orchestration tier through the WORKFLOW'S OWN
+  // NAME instead (M-T5.36 F5): `api.<wf>.run(…)` / `.instances()` /
+  // `.instance(key)`, resolved a few lines below by `findWorkflowBySlug`.  So
+  // `api.workflows.<name>` now falls through to the unresolved-slug arm and
+  // gets `loom.e2e-unknown-aggregate`, whose message lists the deployable's
+  // workflows under exactly that shipped spelling — the refusal names the fix.
+  if (magicId === "ui" && aggregateSlug === "workflows") {
     const wf = contexts
       .flatMap((c) => c.workflows)
       .find((w) => lowerFirst(w.name) === method || snake(w.name) === method);
@@ -655,10 +678,18 @@ function checkMagicCall(
         return;
       }
     }
+    // An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` binding, addressed
+    // as `api.<contextSlug>.<handlerName>(…)` — the same two-level shape, with
+    // the context in the slug position.  Tried only after the aggregate AND
+    // workflow lookups fail, mirroring `renderApiCall`'s own precedence
+    // (`e2e-render.ts`), so a context whose name slugs like an aggregate or a
+    // workflow changes nothing.
+    if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
     const known = contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    const routed = magicId === "api" ? routedHandlerCallHints(contexts, apis) : [];
     // …and the workflows too.  This message used to name only aggregates, so a
     // body reaching for the orchestration tier was told its workflow was an
     // unknown AGGREGATE — which reads as a typo and sent the testability audit
@@ -673,6 +704,7 @@ function checkMagicCall(
         aggregateSlug,
         known: known || "(none)",
         knownWorkflows: knownWorkflows || "(none)",
+        routed: routed.length > 0 ? ` Routed handlers: ${routed.join(", ")}.` : "",
       }),
       source,
     });
@@ -701,6 +733,10 @@ function checkMagicCall(
   // so an aggregate that is not `audited` has no history to call and the
   // unknown-method error below is the right answer.
   if (method === "history" && repo?.historyFind) return;
+  // Same fallback as the unresolved-slug arm above, one level along: the slug
+  // named an aggregate but the verb is none of its own, and a routed handler
+  // whose CONTEXT slugs the same way may still answer it.
+  if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
 
   // ONE MISTAKE, ONE DIAGNOSTIC.  This arm and `e2e-route-checks.ts` ask two
   // different questions of the same call — does the verb NAME resolve, and does
@@ -720,7 +756,8 @@ function checkMagicCall(
   // The predicate is a call INTO that check's own decision, never a second copy
   // of the routing rule: a copy would drift and leave a call with two
   // diagnostics again — or, worse, with none.
-  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts)) return;
+  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts, apis))
+    return;
 
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (repo?.finds ?? []).map((f) => f.name);
