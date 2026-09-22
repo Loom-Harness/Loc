@@ -614,9 +614,26 @@ export function generateTypeScriptForContexts(
   // Foreign events a hosted workflow consumes through a wired channel join
   // the deployable's event vocabulary: `domain/events.ts` needs the type
   // (the reactor handler references it) and the DomainEvent union carries it.
+  //
+  // EVERY broker-carried event joins too, subscribed or not.  A wired channel
+  // delivers everything it `carries:` to every subscriber, so the consumer's
+  // codec must be able to decode a carried type it has no reactor for — the
+  // dispatch then no-ops, which is the correct outcome.  Without it the
+  // consumer loop reads "no decoder" as "malformed envelope" and refuses the
+  // message at `error` level, which is both a lie and a silent loss of the
+  // `channel_consumed` record downstream readers count.  The other four
+  // backends have unioned the carried set since the 8a python fix; node got
+  // its codec later (F-019, #2944) and inherited the subscribed-only
+  // vocabulary with it, which is what made `channels-e2e-kafka (node)` red on
+  // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const foreignConsumedEvents = system
-    ? [...new Set(mergedSubscriptions.map((s) => s.event))]
+    ? [
+        ...new Set([
+          ...mergedSubscriptions.map((s) => s.event),
+          ...channelBindings.flatMap((b) => b.events),
+        ]),
+      ]
         .filter((name) => !knownEventNames.has(name))
         .flatMap((name) => {
           for (const sub of system.sys.subdomains) {
@@ -1285,7 +1302,7 @@ export function generateTypeScriptForContexts(
   // consumers.  A deployable with no wired bindings stays byte-identical.
   const hasChannels = channelBindings.length > 0;
   if (hasChannels) {
-    out.set("http/channels.ts", renderChannelsModule(channelBindings));
+    out.set("http/channels.ts", renderChannelsModule(channelBindings, merged.events));
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
   // hosted OR wired channel); a pure producer skips the loop and the
@@ -1935,7 +1952,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 // Multi-stage Dockerfile: build stage installs all deps and compiles
 // TypeScript; runtime stage uses a smaller production-only image.
-const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
+export const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM node:24-alpine AS build
@@ -1965,7 +1982,13 @@ COPY --from=build /app/package.json ./package.json
 # "Can't find meta/_journal.json file".
 COPY --from=build /app/db/migrations ./db/migrations
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+# --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
+# without it every stack-trace frame names dist/index.js and \`ddd trace\`
+# resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
+# the emitted dist/index.js.map and frames come back as the real \`api/domain/
+# <agg>.ts:<line>\`, which is what the .loom/sourcemap.json keys are cut
+# against.  The flag costs a one-off map parse on first throw.
+CMD ["node", "--enable-source-maps", "dist/index.js"]
 `;
 
 const DOCKERIGNORE_TS = `# Auto-generated.

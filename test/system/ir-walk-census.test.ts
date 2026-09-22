@@ -612,8 +612,6 @@ const WAIVERS: Record<string, Waiver> = {
   // surfaced that param into the `run/1` destructure and the emitted Elixir
   // named an undefined variable.  Migrated onto `walkWorkflowStmtChildren`
   // (F58 / M-T6.62); the waiver goes with the fix, per the ratchet convention.
-  "src/system/e2e-render.ts#visit": TRAVERSAL_TIME_BOXED,
-  "src/system/e2e-render.ts#visit$2": TRAVERSAL_TIME_BOXED,
 };
 
 describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/WorkflowStmtIR", () => {

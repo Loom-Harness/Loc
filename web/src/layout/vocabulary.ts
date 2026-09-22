@@ -164,8 +164,8 @@ export const HELP = {
   reference: "Language reference",
   shortcuts: "Keyboard shortcuts",
   report: "Report a problem",
-  docsUrl: "https://lemmit.github.io/Loc/",
-  referenceUrl: "https://lemmit.github.io/Loc/language-reference/README.html",
+  docsUrl: "https://loom-harness.github.io/Loc/",
+  referenceUrl: "https://loom-harness.github.io/Loc/language-reference/README.html",
 } as const;
 
 /** The ⌘K command palette. */

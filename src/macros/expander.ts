@@ -386,6 +386,22 @@ function existingIsDeletedMember(agg: Aggregate): Property | undefined {
   );
 }
 
+/** The aggregate's own `deletedAt` PROPERTY, or undefined — the second half of
+ *  `softDeletable`'s splice, same member-namespace rule as its twins above. */
+function existingDeletedAtMember(agg: Aggregate): Property | undefined {
+  return agg.members.find(
+    (m): m is Property => m.$type === "Property" && (m as Property).name === "deletedAt",
+  );
+}
+
+/** True iff the property is an OPTIONAL, non-array `datetime` — the exact shape
+ *  the `softDeletable` capability splices for the timestamp. */
+function isOptionalDatetimeProperty(p: Property): boolean {
+  const t = p.type;
+  if (!t?.optional || t.array || t.alternatives.length > 0) return false;
+  return t.base?.$type === "PrimitiveType" && (t.base as PrimitiveType).name === "datetime";
+}
+
 /** True iff the property is a plain (non-optional, non-array) `bool` — the
  *  exact shape the `softDeletable` capability would have spliced. */
 function isBoolProperty(p: Property): boolean {
@@ -667,6 +683,30 @@ function expandCapability(
             name2: lowerFirstSafe(agg.name),
           }),
           node: declared,
+          property: "name",
+        });
+        continue;
+      }
+      // The `deletedAt` TWIN of the check above (corpus-mutation cell
+      // M1.aggregate.deletedAt).  `softDeletable` splices TWO members and only
+      // the flag was guarded: a user `deletedAt` of any other shape won the
+      // name, the splice was dropped, and the `softDelete` macro's
+      // `deletedAt := now()` then assigned a datetime onto (say) a string.
+      // That was rejected — but by the TYPE CHECKER, with no `loom.*` code, so
+      // it reached the user as `loom.unknown` pointing at macro-generated
+      // source they never wrote.  Found by wave-3 row 3.3: the gap was
+      // unreachable until a corpus fixture composed `softDelete` on its FIRST
+      // aggregate, which is the member the mutation harness renames.
+      const declaredAt = existingDeletedAtMember(agg);
+      if (declaredAt && !isOptionalDatetimeProperty(declaredAt)) {
+        recordDiagnostic(doc, {
+          severity: "error",
+          code: "loom.softdelete-field-collision",
+          message: diagMessage("loom.softdelete-field-collision#timestamp", {
+            name: agg.name,
+            name2: lowerFirstSafe(agg.name),
+          }),
+          node: declaredAt,
           property: "name",
         });
         continue;

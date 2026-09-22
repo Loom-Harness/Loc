@@ -6,6 +6,7 @@ import {
   exprUsesCurrentUser,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { baseOf, isTphConcrete, ownFieldsOf, tableOwnerName } from "../../ir/util/inheritance.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -350,6 +351,49 @@ function lower(
           nullBools,
         );
         if (temporal != null) return temporal;
+      }
+      // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL, spelled
+      // explicitly.
+      //
+      // This is a CLEANUP, not a defect fix, and the distinction matters: the
+      // generic arm below renders `(col == None)`, which SQLAlchemy compiles to
+      // `IS NULL` (it overloads `__eq__` on `InstrumentedAttribute`), so the
+      // query was always right.  The emitted `pyproject.toml` already carries
+      // `ignore = ["E711", …]` with a comment saying exactly that — "in
+      // SQLAlchemy predicates `== True` / `!= None` are the operator-overloaded
+      // forms, not style slips".  So nothing was red.
+      //
+      // The explicit spelling is still worth having: it is the same SQL, it
+      // matches what the node half emits after F-007 (`isNull`/`isNotNull`,
+      // which there was a genuine TS2769), and it removes the predicate side of
+      // the reason the E711 waiver exists.  Measured after this change: with
+      // the waiver dropped (`ruff --isolated --select E4,E7,E9,F`), E711 no
+      // longer fires anywhere on the showcase python deployable — only E712
+      // (`== True`, the bool-column twin) does, which is untouched here and
+      // would be its own slice.
+      //
+      // Restricted to an operand that lowered to a ROW COLUMN: `.is_(None)` is
+      // a method on a SQLAlchemy column element, so applying it to a bound
+      // host value (`where: someParam == null`) would be an AttributeError at
+      // request time rather than a predicate.  Those keep the plain form.
+      {
+        const nullTest = nullComparison(e.op, e.left, e.right);
+        if (nullTest) {
+          const operand = lower(
+            nullTest.operand,
+            row,
+            associations,
+            ops,
+            principalAccessor,
+            nullBools,
+          );
+          if (operand?.startsWith(`${row}.`)) {
+            // `is_not` is the SQLAlchemy 2.0 spelling; the `.isnot` sites
+            // elsewhere in this file are the retained 1.4 synonym, left alone
+            // so their emission stays byte-identical.
+            return `${operand}.${nullTest.negated ? "is_not" : "is_"}(None)`;
+          }
+        }
       }
       const l = lower(e.left, row, associations, ops, principalAccessor, nullBools);
       const r = lower(e.right, row, associations, ops, principalAccessor, nullBools);

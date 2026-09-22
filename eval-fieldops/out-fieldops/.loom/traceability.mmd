@@ -1,0 +1,16 @@
+flowchart LR
+  r0["US-001: A dispatcher can schedule a work order to a qualified technician"]
+  r1["AC-001: A work order can only be scheduled to a technician holding the asset's required skill"]
+  r2["US-002: Completing a work order decrements parts stock atomically"]
+  r3["US-003: A technician may only see their own work orders"]
+  r0 --> r1
+  s4{{"SOL-001"}}
+  r1 -->|for| s4
+  c5{{"Ops.Field.scheduleWorkOrder"}}
+  s4 -->|entitles| c5
+  t6["TC-001"]
+  t6 -->|verifies| r1
+  t7["TC-002"]
+  t7 -->|verifies| r2
+  t8["TC-003"]
+  t8 -->|verifies| r3

@@ -4,5 +4,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Playground diagnostics
-    url: https://github.com/lemmit/Loc/blob/main/docs/playground.md#crash-reporting--diagnostics
+    url: https://github.com/Loom-Harness/Loc/blob/main/docs/playground.md#crash-reporting--diagnostics
     about: How to read the on-device diagnostics ring and what a crash report contains.

@@ -1,0 +1,22 @@
+system P {
+  user { id: guid  email: string  orgId: string  role: string  permissions: string[] }
+  auth { enforcement: opt  oidc { issuer: env("I")  clientId: env("C") } }
+  subdomain S { context C {
+    aggregate Tech { userId: guid  n: string  derived display: string = n }
+    aggregate WorkOrder {
+      technicianId: Tech id?
+      technicianUserId: guid?    // denormalized so the row-level filter is queryable
+      ref: string
+      derived display: string = ref
+    }
+    repository Techs for Tech {}
+    repository WorkOrders for WorkOrder {
+      // "a technician sees only their own work orders"
+      find mine(): WorkOrder[] requires currentUser.role == "technician"
+        where this.technicianUserId == currentUser.id
+    }
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], auth: required, port: 3000 }
+}

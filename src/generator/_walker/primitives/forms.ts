@@ -8,7 +8,14 @@
 
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { typeReachesMoney } from "../../_frontend/api-module.js";
 import {
   idTargetHookVar,
@@ -18,7 +25,7 @@ import {
 } from "../../_frontend/form-helpers.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
-import { giveUp } from "../give-up.js";
+import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import {
   localizedNamedAttr,
   localizedNamedText,
@@ -288,7 +295,7 @@ function renderBareOperationFormTrigger(ctx: WalkContext, aggOpLabel: string, op
     label: aggOpLabel,
     emphasisPrimary: true,
     opPascal: upperFirst(opName),
-    opCamel: lowerFirst(opName),
+    opCamel: escapeTsIdent(lowerFirst(opName)),
     testidAttr: "",
     recordVar: undefined,
   });
@@ -769,10 +776,20 @@ function emitFormOfOperation(
   const opName = opRef.member;
   const aggName = instanceName ? ctx.paramTypes?.get(instanceName) : undefined;
   if (!instanceName || !aggName) {
+    // A ROW binding (`For`/`Table`/`DataGrid` over a list query) is a known
+    // aggregate instance — `ctx.listRowAggregates` holds its type — but it is
+    // NOT an op-form instance: the mutation hook this primitive records is
+    // hoisted to function top by the page shell, and a row binding only exists
+    // inside the iteration callback.  Say which of the two refusals this is, so
+    // the reader of the generated page is not told a resolvable name is
+    // unresolvable.
+    const rowAgg = instanceName ? ctx.listRowAggregates?.get(instanceName) : undefined;
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
-      `Form(${instanceName ?? "?"}.${opName}): '${instanceName ?? "?"}' is not an in-scope aggregate instance`,
+      rowAgg
+        ? `Form(${instanceName}.${opName}): '${instanceName}' binds a ROW of ${rowAgg}; an operation form needs an instance in scope where the mutation hook is declared (a page/component param, or a single-record QueryView 'data:' binding) — not a per-row one`
+        : `Form(${instanceName ?? "?"}.${opName}): '${instanceName ?? "?"}' is not an in-scope aggregate instance`,
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
@@ -991,7 +1008,23 @@ export function emitModal(
   }
   // Walk the form child first — records the OperationFormState
   // (and returns "" — the form has no inline JSX).
-  walk(formChild, ctx, depth);
+  //
+  // …UNLESS it DECLINED.  The op-form emitters give up whenever the instance
+  // receiver is not an in-scope aggregate instance — which is exactly the
+  // `For { each: rows, o => Modal { OperationForm { o.confirm } } }` shape: a
+  // row binding is a lambda param of a `.map(…)` callback, so the mutation
+  // hook the shell hoists at function top cannot bind that row's id (React
+  // forbids a hook inside the iteration, and the same is true of every other
+  // frontend's hoisting).  The refusal used to be DROPPED here — `walk`'s
+  // result was discarded and the trigger rendered anyway, calling an
+  // `open<Op>Modal` opener the shell never emits because nothing was pushed
+  // onto `ctx.formOfs`.  react/vue/svelte therefore emitted an undeclared
+  // symbol at 0 errors / 0 warnings (on react, `openConfirmModal(confirm)`,
+  // where `confirm` even resolves to `window.confirm`); only Angular, which
+  // forks the whole primitive, degraded visibly.  Propagate the child's
+  // give-up instead, so the Modal is a refusal on every target.
+  const formChildOut = walk(formChild, ctx, depth);
+  if (formChildOut.includes(GIVE_UP_SENTINEL)) return formChildOut;
   // The op-form names its operation either through an instance-
   // member shape (`OperationForm(data.confirm)` — the scaffold's Detail modals,
   // instance-qualified inside the QueryView data lambda) or through the
@@ -1052,7 +1085,7 @@ export function emitModal(
     label,
     emphasisPrimary: triggerPrimary,
     opPascal: upperFirst(opName),
-    opCamel: lowerFirst(opName),
+    opCamel: escapeTsIdent(lowerFirst(opName)),
     testidAttr: testidAttr(triggerArg, ctx),
     recordVar,
   });

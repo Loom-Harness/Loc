@@ -1,0 +1,18 @@
+// The spec requirement: "a computed total in Money (multi-currency — an invariant
+// that all lines share the order's currency)".
+system P {
+  subdomain S { context C {
+    aggregate Order {
+      currency: string
+      contains lines: Line[]
+      derived display: string = currency
+      // THIS LINE alone removes the aggregate's create factory AND its POST route.
+      invariant lines.all(l => l.currency == currency)
+      entity Line { currency: string  amt: money }
+    }
+    repository Orders for Order {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

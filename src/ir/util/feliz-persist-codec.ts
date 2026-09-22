@@ -29,10 +29,26 @@
 //   guid                      → F# `System.Guid`     — `System.Guid.TryParse`,
 //                               written back as its canonical string
 //   arrays of any of the above → F# `'T list`
+//   an OPTIONAL of any scalar  → the same codec over a `'T option` cell
+//
+// The `optional` arm is the LAST divergence against the Dart table (ledger
+// `feliz-flutter-persist-codec-asymmetry`) and it closes at ALL THREE tiers,
+// including `url` — which is where Feliz differs from Flutter for a structural
+// reason worth stating.  Flutter refuses a nullable cell under `persist: url`
+// because its back/forward re-seed goes through `copyWith`, whose `x ?? this.x`
+// cannot set a cell to null, so removing the param and pressing Back would KEEP
+// the old value.  The Feliz re-seed is `{ model with X = loadPrefsX () }` — a
+// full F# record update that re-runs the loader — so an absent param restores
+// `None` rather than the stale `Some v`.  The refusal has no cause here, and
+// copying it would have been a gate with no defect behind it.
 //
 // Everything still gated: `File` (the Model cell is a `FileRef option`, not a
 // scalar) and `entity`/`valueobject` (and arrays of them), which would need a
-// record codec the store path does not emit.  `duration` is expression-only —
+// record codec the store path does not emit.  An optional ARRAY and an optional
+// record stay gated for the same reason: one nullable layer over a scalar is a
+// cell type, one over a collection is a second kind of emptiness the flat blob
+// cannot distinguish (the Dart table draws the line in the same place).
+// `duration` is expression-only —
 // it has no spelling in the grammar's `PrimitiveType` rule, so it can never
 // reach a `state {}` field position at all (`flutter-persist-codec.ts` records
 // the same fact).
@@ -74,7 +90,11 @@ export type FelizPersistScalar =
 
 /** How one persisted store field crosses the JS boundary. */
 export type FelizPersistCodec =
-  | { kind: "scalar"; scalar: FelizPersistScalar }
+  /** A single cell.  `nullable` makes the Model cell `'T option` and every
+   *  conversion option-typed — an absent key / absent query param restores as
+   *  the field's declared default (`None` unless it declares otherwise), which
+   *  for an optional cell is the RIGHT value rather than a lost one. */
+  | { kind: "scalar"; scalar: FelizPersistScalar; nullable?: true }
   /** An F# `'T list` over a scalar element — every scalar codec has a total
    *  per-CELL conversion, so the element set is the scalar set. */
   | { kind: "list"; element: FelizPersistScalar };
@@ -112,6 +132,15 @@ function scalarCodec(t: TypeIR): FelizPersistScalar | undefined {
 /** The codec for a persisted Feliz store field, or `undefined` when the type
  *  has none (→ `loom.store-lifetime-target-unsupported`, `#field` variant). */
 export function felizPersistCodec(t: TypeIR): FelizPersistCodec | undefined {
+  if (t.kind === "optional") {
+    // One nullable layer over a SCALAR is just an `'T option` cell.  Over a
+    // collection or a record it is a second kind of emptiness (an absent list
+    // vs an empty one), which the flat blob cannot distinguish — gated.
+    const inner = felizPersistCodec(t.inner);
+    return inner?.kind === "scalar" && !inner.nullable
+      ? { kind: "scalar", scalar: inner.scalar, nullable: true }
+      : undefined;
+  }
   if (t.kind === "array") {
     const el = scalarCodec(t.element);
     if (el === undefined) return undefined;

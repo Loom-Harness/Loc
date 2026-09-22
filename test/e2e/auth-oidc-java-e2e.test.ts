@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { expectAudienceEnforced } from "./support/audience-probe.js";
 import { hasDocker } from "./support/docker-probe.js";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e on the Java backend (D-AUTH-OIDC).  The Java sibling of
@@ -41,7 +42,15 @@ function hasGradle(): boolean {
   }
 }
 
-const RUN = ENABLED && hasDocker() && hasGradle();
+const RUN = declareRunPrecondition({
+  suite: "auth OIDC e2e (Java)",
+  gate: "LOOM_AUTH_E2E_JAVA=1",
+  enabled: ENABLED,
+  requirements: [
+    { name: "a reachable docker daemon", ok: hasDocker() },
+    { name: "gradle on PATH", ok: hasGradle() },
+  ],
+});
 
 async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

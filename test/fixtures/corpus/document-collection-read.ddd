@@ -93,6 +93,12 @@ system DocCollectionRead {
     expect(bulked.total).toBe(16)
     expect(bulked.lines.length).toBe(2)
 
+    // `toContain` over a COLLECTION subject — membership in the scalar array
+    // that survived the re-embed.  Same matcher as the substring assertion
+    // below; the lowering is chosen by the subject's TYPE, which is why this
+    // fixture exercises both kinds in one body.
+    expect(bulked.tags).toContain("bulk")
+
     let listed = api.orders.all()
     expect(listed.length).toBe(1)
 
@@ -101,6 +107,9 @@ system DocCollectionRead {
     api.orders.update(o, { reference: "R2", total: 16, lineCount: 2, tags: ["bulk"] })
     let updated = api.orders.getById(o)
     expect(updated.reference).toBe("R2")
+    // `toContain` over a STRING subject — substring, the matcher's other
+    // lowering, on a plain scalar field.
+    expect(updated.reference).toContain("R")
     expect(updated.lines.length).toBe(2)
 
     api.orders.destroy(o)

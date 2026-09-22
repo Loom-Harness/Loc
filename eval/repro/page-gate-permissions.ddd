@@ -1,0 +1,27 @@
+// A page `requires` gate that names a `permissions.<x>` identifier CRASHES codegen.
+// docs/auth.md §"UI gate — `page { requires <expr> }`" says the gate is currentUser-only;
+// docs/auth.md §"Permissions surface" says `permissions.<name>` lowers to a string literal,
+// so `currentUser.permissions.contains(permissions.x)` IS currentUser-only.
+system X {
+  user { id: string  permissions: string[] }
+  auth { oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    permissions { read }
+    context C {
+      aggregate Thing with crudish { name: string  derived display: string = name }
+      repository Things for Thing { }
+    }
+  }
+  ui Web {
+    framework: react
+    page Secret {
+      route: "/secret"
+      requires currentUser.permissions.contains(permissions.read)
+      body: Heading { "Top secret" }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], auth: required, port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web, auth: ui, port: 3001 }
+}

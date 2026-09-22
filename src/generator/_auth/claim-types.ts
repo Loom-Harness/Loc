@@ -53,3 +53,37 @@ function collectIdTargets(t: TypeIR, into: Set<string>): void {
       return;
   }
 }
+
+/** The IdP claim path projected onto a `user { … }` field.
+ *
+ * An explicit `claims: { field: "path" }` mapping wins; otherwise `id` reads
+ * the standard `sub` claim and every other field reads ITS OWN NAME, verbatim.
+ *
+ * WHY THIS IS SHARED.  Six backends each carried a private copy, and two of
+ * them had drifted: python and elixir applied `snake()` to the default, so a
+ * single `user { technicianId: string }` made node/java/.NET read the claim
+ * `technicianId` while python/elixir read `technician_id`.  An IdP mints ONE
+ * name, so the same token could not satisfy both halves of a mixed system —
+ * the claim decoded to `null` on the snake_case side, which is silent: the
+ * tenant filter then matches nothing and every permission gate 403s, with no
+ * diagnostic anywhere.
+ *
+ * The field name wins because a claim path is an EXTERNAL WIRE NAME, not a
+ * language identifier — the same reason those two backends already camelCase
+ * their HTTP wire (`problem_details.ex`: "matching the JsonCamelCase wire").
+ * Applying a language's local casing convention to a name the IdP owns is the
+ * bug; `claims: { … }` is the supported way to say the IdP spells it
+ * differently.
+ */
+export function claimPathFor(field: string, auth: { claims: ReadonlyArray<ClaimMapping> }): string {
+  const mapped = auth.claims.find((c) => c.field === field);
+  if (mapped) return mapped.path;
+  return field === "id" ? "sub" : field;
+}
+
+/** The shape `claimPathFor` reads — structural so it accepts `AuthIR` without
+ *  this module importing the whole auth IR surface. */
+interface ClaimMapping {
+  readonly field: string;
+  readonly path: string;
+}

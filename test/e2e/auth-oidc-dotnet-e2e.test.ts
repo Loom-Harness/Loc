@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { expectAudienceEnforced } from "./support/audience-probe.js";
 import { hasDocker } from "./support/docker-probe.js";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e on the .NET backend (D-AUTH-OIDC).  The .NET sibling of
@@ -42,7 +43,15 @@ function hasDotnet(): boolean {
   }
 }
 
-const RUN = ENABLED && hasDocker() && hasDotnet();
+const RUN = declareRunPrecondition({
+  suite: "auth OIDC e2e (.NET)",
+  gate: "LOOM_AUTH_E2E_DOTNET=1",
+  enabled: ENABLED,
+  requirements: [
+    { name: "a reachable docker daemon", ok: hasDocker() },
+    { name: "the dotnet SDK on PATH", ok: hasDotnet() },
+  ],
+});
 
 async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

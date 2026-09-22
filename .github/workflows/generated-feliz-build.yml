@@ -183,6 +183,17 @@ jobs:
                   // encoders + the numeric form guard compile here too.
                   weight:   decimal
                   sold:     long
+                  // F-017 Bug B — a `guid`-typed PROPERTY.  No .ddd on any
+                  // feliz gate declared one, so nothing ever compiled the pair
+                  // `typeToFs` and `decoderExprFor` disagreed about: the record
+                  // field said `System.Guid` while `Decode.string` filled it
+                  // (`error FS0001: The type 'System.Guid' does not match the
+                  // type 'string'`, once per decoder/encoder/form site).
+                  // OPTIONAL on purpose — an optional cell is exempt from the
+                  // create form's validity guard, so the smoke's
+                  // "enabled once required fields are filled" step is untouched,
+                  // and `string option` still pins the type/decoder pair.
+                  serial:   guid?
                   inStock:  bool
                   note:     string?
                   status:   Status
@@ -197,6 +208,22 @@ jobs:
                   }
                 }
                 repository Products for Product { }
+                // F-017 Bug A — a `<verb><Aggregate>` workflow standing beside
+                // the `<verb>` operation declared on that aggregate
+                // (`Product.rename` above).  Both used to lower to one F#
+                // record named `ScheduleWorkOrderForm`-style
+                // (`RenameProductForm`), which F# cannot declare twice: FS0037
+                // plus a cascade of wrong-field errors from the SHADOWED
+                // record.  No fixture on any feliz gate paired an operation
+                // with a same-stem workflow, which is how this shipped.  The
+                // two take DIFFERENT parameters so a regression is a
+                // wrong-fields error, not merely a duplicate declaration.
+                workflow renameProduct {
+                  create(sku: string, label: string) {
+                    precondition sku != ""
+                    let c = Category.create(name: label)
+                  }
+                }
                 // Realtime toast (channels.md Part I).  Carried here because the
                 // Feliz realtime emitter had NO compile gate: no fixture on any
                 // gate declared a `channel` on a `ui`, so `renderFsToastMessage`
@@ -461,6 +488,16 @@ jobs:
                   Heading { "New product", level: 1 },
                   CreateForm { of: Product },
                   Button { "Cancel", to: "/products" }
+                }
+              }
+              // F-017 Bug A — hosts the colliding `WorkflowForm` (its own route so
+              // the existing pages' smoke assertions stay untouched).
+              page ProductRename {
+                route: "/products/rename"
+                body: Stack {
+                  Heading { "Rename a product", level: 1 },
+                  WorkflowForm { runs: renameProduct },
+                  Button { "Back to products", to: "/products" }
                 }
               }
               page ProductDetail {

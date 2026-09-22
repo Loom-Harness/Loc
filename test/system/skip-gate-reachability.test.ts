@@ -142,8 +142,58 @@ function skipGatesIn(file: string): SkipGate[] {
   return [...found.values()];
 }
 
-const allGates: SkipGate[] = tsFilesUnder(testDir).flatMap(skipGatesIn);
-const requiredGates = allGates.filter((g) => !g.escapeHatch);
+/** Escape hatches declared through the shared run-precondition helper.
+ *
+ *  `skipGatesIn` reads the skip CALL and expands identifiers local to that
+ *  file.  That was enough while every suite spelled its own
+ *  `process.env.LOOM_E2E_ALLOW_NO_DOCKER !== "1"` inline in the guard — and it
+ *  stopped being enough the moment `declareRunPrecondition` centralised the
+ *  guard, because the hatch read moved INTO the helper and its name moved into
+ *  a `const` in another module.  Nothing about the tree got less safe; the
+ *  classifier simply went blind to the only example it had.
+ *
+ *  That blindness is exactly what the "an escape-hatch read is classified as
+ *  one" case below exists to catch, and it caught it. Following the
+ *  indirection is the fix — the same shape as the workflow gate following
+ *  `npm run` into a nested `package.json` rather than pinning a second list.
+ *
+ *  Both spellings count: the helper's `DEFAULT_ALLOW_SKIP_ENV`, and any
+ *  per-suite `allowSkipEnv: "LOOM_…"` override at a call site. */
+function preconditionEscapeHatches(): SkipGate[] {
+  const out: SkipGate[] = [];
+  const helper = path.join(testDir, "e2e/support/run-precondition.ts");
+  if (existsSync(helper)) {
+    const src = stripComments(readFileSync(helper, "utf8"));
+    for (const m of src.matchAll(/DEFAULT_ALLOW_SKIP_ENV\s*=\s*["'](LOOM_[A-Z0-9_]+)["']/g)) {
+      out.push({
+        file: "test/e2e/support/run-precondition.ts",
+        varName: m[1],
+        escapeHatch: true,
+      });
+    }
+  }
+  for (const f of tsFilesUnder(testDir)) {
+    const src = stripComments(readFileSync(f, "utf8"));
+    for (const m of src.matchAll(/allowSkipEnv\s*:\s*["'](LOOM_[A-Z0-9_]+)["']/g)) {
+      out.push({
+        file: path.relative(repoRoot, f).split(path.sep).join("/"),
+        varName: m[1],
+        escapeHatch: true,
+      });
+    }
+  }
+  return out;
+}
+
+const allGates: SkipGate[] = [
+  ...tsFilesUnder(testDir).flatMap(skipGatesIn),
+  ...preconditionEscapeHatches(),
+];
+// An escape hatch declared through the helper must not also be DEMANDED of CI
+// because some other suite happens to read it inline: the hatch classification
+// wins wherever the var appears.
+const hatchVars = new Set(allGates.filter((g) => g.escapeHatch).map((g) => g.varName));
+const requiredGates = allGates.filter((g) => !g.escapeHatch && !hatchVars.has(g.varName));
 
 /** Every `LOOM_*` a `package.json` script or a workflow actually SETS. */
 function settableVars(): Set<string> {

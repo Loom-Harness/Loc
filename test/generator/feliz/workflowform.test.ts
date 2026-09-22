@@ -54,16 +54,18 @@ describe("feliz workflow forms", () => {
   it("emits a workflow-param form record + encoder", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "type OpenAccountForm =\n  {\n    name: string\n    initial: string\n  }",
+      "type OpenAccountWorkflowForm =\n  {\n    name: string\n    initial: string\n  }",
     );
-    expect(app).toContain("let openAccountForm (form: OpenAccountForm) : JsonValue =");
-    expect(app).toContain("OpenAccountForm: OpenAccountForm");
+    expect(app).toContain(
+      "let openAccountWorkflowForm (form: OpenAccountWorkflowForm) : JsonValue =",
+    );
+    expect(app).toContain("OpenAccountWorkflowForm: OpenAccountWorkflowForm");
   });
 
   it("emits a paramless workflow Api fn (POST /api/workflows/<wf>, 204 → unit)", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "let runOpenAccount (form: OpenAccountForm) : Async<Result<unit, string>> =",
+      "let runOpenAccountWorkflow (form: OpenAccountWorkflowForm) : Async<Result<unit, string>> =",
     );
     expect(app).toContain('Http.request "/api/workflows/open_account"');
     expect(app).toContain("|> Http.method POST");
@@ -72,19 +74,19 @@ describe("feliz workflow forms", () => {
 
   it("wires per-param Set Msgs + a paramless Submit + Done", async () => {
     const app = await appFs(WF);
-    expect(app).toContain("| SetOpenAccountFormName of string");
-    expect(app).toContain("| SetOpenAccountFormInitial of string");
-    expect(app).toContain("| SubmitOpenAccountForm\n"); // paramless (no `of`)
-    expect(app).toContain("| OpenAccountDone of Result<unit, string>");
+    expect(app).toContain("| SetOpenAccountWorkflowFormName of string");
+    expect(app).toContain("| SetOpenAccountWorkflowFormInitial of string");
+    expect(app).toContain("| SubmitOpenAccountWorkflowForm\n"); // paramless (no `of`)
+    expect(app).toContain("| OpenAccountWorkflowDone of Result<unit, string>");
   });
 
   it("wires the update arms (setters, paramless submit Cmd, done)", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "  | SubmitOpenAccountForm -> model, Cmd.OfAsync.perform Api.runOpenAccount model.OpenAccountForm OpenAccountDone",
+      "  | SubmitOpenAccountWorkflowForm -> model, Cmd.OfAsync.perform Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone",
     );
     expect(app).toContain(
-      '  | OpenAccountDone (Ok ()) -> { model with OpenAccountForm = emptyOpenAccountForm }, Cmd.navigatePath("")',
+      '  | OpenAccountWorkflowDone (Ok ()) -> { model with OpenAccountWorkflowForm = emptyOpenAccountWorkflowForm }, Cmd.navigatePath("")',
     );
   });
 
@@ -94,13 +96,13 @@ describe("feliz workflow forms", () => {
     // carries the `workflow-<snake(wf)>-input-<param>` testid the shared workflow
     // page object fills.
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "workflow-open_account-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.OpenAccountForm.name; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountFormName v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountForm "name"))',
+      'Html.input [ prop.custom("data-testid", "workflow-open_account-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.OpenAccountWorkflowForm.name; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormName v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountWorkflowForm "name"))',
     );
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "workflow-open_account-input-initial"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "initial"; prop.value model.OpenAccountForm.initial; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountFormInitial v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountForm "initial"))',
+      'Html.input [ prop.custom("data-testid", "workflow-open_account-input-initial"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "initial"; prop.value model.OpenAccountWorkflowForm.initial; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormInitial v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountWorkflowForm "initial"))',
     );
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "workflow-open_account-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.openAccountFormValid model.OpenAccountForm)); prop.onClick (fun _ -> dispatch SubmitOpenAccountForm); prop.text "Run OpenAccount" ]',
+      'Html.button [ prop.custom("data-testid", "workflow-open_account-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.openAccountWorkflowFormValid model.OpenAccountWorkflowForm)); prop.onClick (fun _ -> dispatch SubmitOpenAccountWorkflowForm); prop.text "Run OpenAccount" ]',
     );
   });
 

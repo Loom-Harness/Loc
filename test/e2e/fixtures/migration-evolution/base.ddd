@@ -11,6 +11,13 @@
 //   • a plain nullable add            (`description: string?`)
 //   • a NOT-NULL add with a backfill  (`sku: string` + `Product.sku = "SEED"`)
 //   • a column rename                 (`price -> unitPrice`, value preserved)
+//   • an unconstrained `string` NARROWED to an `enum` (`status`) — the column
+//     type does not change (an enum persists as TEXT), so until the value set
+//     became a CHECK constraint this move emitted NO migration at all.  It is
+//     here because the fresh-create side inlines that constraint while the
+//     chain adds it as an ALTER, and on Phoenix those are two different
+//     renderers: CHECK 1 (migrate-chain ≡ fresh-create) is what proves they
+//     agree.
 //
 // `__PLATFORM__` is swapped per backend by the harness (node/dotnet/java/
 // python/elixir).  Deployable name `d` matches the other e2e fixtures.
@@ -20,6 +27,7 @@ system ShopEvo {
       aggregate Product with crudish {
         name: string
         price: money
+        status: string
       }
       repository Products for Product { }
     }
