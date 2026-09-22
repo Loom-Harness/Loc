@@ -1,8 +1,8 @@
 # Wave C4 · packet 4a (Wave 2 follow-through) — hand-off
 
 *Branch: `claude/c4-wave2`. Base: `0a00c3723` (the C4 coordinator head =
-`main` @ `a45fc948b` + the wave log). Commit range `0a00c3723..6b890f821`,
-four commits. Tree fence: `src/generator/**` (no emission change),
+`main` @ `a45fc948b` + the wave log). Commit range `0a00c3723..HEAD`,
+six commits. Tree fence: `src/generator/**` (no emission change),
 `test/system/**` (new files only), `scripts/**`,
 `docs/new-plan/waves/wave-2.md`, the rows closed. Never pushed; the wave PR is
 the claim.*
@@ -212,7 +212,7 @@ escapes `\`, `"`, `\n`, `\t`. Beside it:
 | `feliz-target.ts:938` `escapeText` (the `WalkerTarget` seam every markup text slot goes through) | `\`, `"` | no `\n`, no `\t` |
 | `feliz-target.ts:942` `escapeAttr` (the attribute twin, added by wave 2 packet 2.2) | `\`, `"` | no `\n`, no `\t` |
 | `feliz-target.ts:913` `renderStringLiteral` (the i18n-off spelling of a user-visible VALUE) | `\`, `"` | no `\n`, no `\t` |
-| `feliz-target.ts:901` `renderNotice` | `"` only | no `\`, no `\n`, no `\t` — a backslash in the notice text emits a broken F# literal |
+| `feliz-target.ts:900` `renderNotice` | `"` only | no `\`, no `\n`, no `\t` — a backslash in the notice text emits a broken F# literal |
 | `feliz-target.ts:763` `modalTriggerLabel(call).replace(…)` | `\`, `"` | inline, at one call site |
 
 **Recipe:** make `fsString` (or a bare-body sibling of it, since `fsString`
@@ -234,7 +234,7 @@ land after them.
 | `flutter/dart-expr.ts:29` `dartString` (canonical) | `\`, `'`, `$`, `\n`, `\t` |
 | `flutter/forms-emit.ts:914` `dartStr` | `\`, `'`, `$` |
 | `flutter/form-validators.ts:50` `dartStr` | `\`, `'`, `$` |
-| `flutter/auth-gate.ts:252` `dartGateString` | `\`, `'`, `$` |
+| `flutter/auth-gate.ts:251` `dartGateString` | `\`, `'`, `$` |
 | `flutter/pack.ts:49` `dartStr` | **identity** — and this one is *correct*: its header states the pack contract (the walker already escaped through `flutterTarget.escapeText`, re-escaping would double every backslash). Not a defect; it is the naming hazard — three `dartStr` in three files, two of which do escape |
 
 Live call sites of the weak copies: `forms-emit.ts:1272`, `:1402` (form
@@ -293,7 +293,22 @@ refusal or a real runtime `Regex.compile` path.
 
 ### npm test
 
-<!-- filled in below by the packet before hand-off -->
+Redirected with the exit code appended, per the rules (a piped `npm test | tail`
+can never fail):
+
+```
+npm test > npm-test.log 2>&1; echo NPM_TEST_EXIT=$? >> npm-test.log
+
+ Test Files  2148 passed | 89 skipped (2237)
+      Tests  25408 passed | 6 expected fail | 1185 skipped (26599)
+NPM_TEST_EXIT=0
+```
+
+No failures, no starvation timeouts, nothing re-run. Two narrower runs were
+taken first as an early signal and are green on their own:
+`test/system/` (112 files / 2382 tests, the two new scans included) and
+`test/generator/{elixir,_persistence,feliz,flutter}` (343 files / 2196 tests —
+the directories the one `src/` hunk and the census's three roots touch).
 
 ## Ratchet numbers after this packet
 
