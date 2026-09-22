@@ -294,7 +294,7 @@ The highest-traffic neighbours to watch at fold time:
 | `node scripts/mission-counts.mjs --check` | region up to date |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | exit 0 |
-| `npm test` (redirected, exit appended) | see §10 |
+| `npm test` (redirected, exit appended) | **exit 0** — 2146 files / 25404 passed (§10) |
 
 Per-directory suite runs as each commit landed, each the same pass/fail set as
 the coordinator head:
@@ -312,10 +312,17 @@ the coordinator head:
 
 ## 10. `npm test` — the full suite
 
-Recorded at hand-off time; see the packet's final message for the numbers and
-the exit code. The builders are type-level only, so the expectation is an
-identical pass/fail set to the coordinator head — with two deliberate
-exceptions, both strengthenings recorded above:
+`npm test > log 2>&1; echo NPM_TEST_EXIT=$? >> log` on the merged tree:
+
+| | |
+|---|---|
+| Test Files | **2146 passed** · 89 skipped (2235) |
+| Tests | **25404 passed** · 6 expected-fail · 1185 skipped (26595) |
+| `NPM_TEST_EXIT` | **0** |
+| Duration | 1460s (three packets sharing a 4-core box; load ~14) |
+
+The builders are type-level only, so this is the coordinator head's pass/fail
+set — with two deliberate exceptions, both strengthenings recorded above:
 
 - `test/ir/util/walk.test.ts` gains 6 tests (41 → 47), for the six IR kinds its
   exhaustiveness tables were missing;
