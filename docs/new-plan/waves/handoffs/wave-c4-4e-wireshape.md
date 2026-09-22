@@ -224,7 +224,37 @@ that.
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | 0 errors |
 | `test/system/unsupported-register.test.ts` | 9 passed (the mission-id check that guards a newly minted `## M-T5.x`) |
-| full `npm test` | see the trailing note appended to this file |
+| full `npm test` | **2167 files passed / 1 failed, 25 997 tests passed / 2 failed, `NPM_TEST_EXIT=1`** — the one failing file is INHERITED, not this packet's; see below |
+
+**The one red file is a 4c×`main` collision, reproduced on the base and handed
+back.** `test/system/diagnostic-code-coverage.test.ts` fails twice:
+
+```
+src/language/validators now has 0 codeless site(s), below the pinned baseline of 122.
+Lower BASELINE to 0 in this PR — a stale baseline is how a ratchet stops ratcheting.
+  expected +0 to be 122
+… > finds the whole population (guards the scanner): expected false to be true
+```
+
+That ratchet landed on `main` (`f1adfdaa3`, "122 of 320 AST-layer sites escape
+all three diagnostic gates"). Packet **4c** then drained
+`src/language/validators` to **0** codeless sites in the tree this packet is
+based on (`21af4ecc8`) without lowering the baseline — which is exactly the
+failure mode the assertion's own message names. Both assertions read only
+`src/language/validators/**` and that test file, and this branch's whole diff
+against the base is `docs/decisions.md`,
+`docs/new-plan/{README.md,T5-language-core.md}`, the hand-off,
+`src/generator/_walker/walker-core.ts` and
+`test/system/wire-contract-divergence.test.ts` — none of them an input to it.
+The failure is therefore present at the base and unaffected by this packet.
+
+**Fix (4c's fence, deliberately NOT taken here):** lower `BASELINE` to `0` in
+`test/system/diagnostic-code-coverage.test.ts` and drop (or invert) the
+`all.some((s) => !s.coded)` population guard, which can no longer hold once the
+drain reaches zero — a scanner guard written to assume the ratchet never
+finishes. Left to 4c / the coordinator because that file is 4c's fence and it
+may be mid-flight; naming it here so the fold does not discover it as a
+mystery red.
 
 ## 8. Open-PR overlaps — cited, not duplicated
 
@@ -275,6 +305,12 @@ item is closed (into M-T5.39 + D-WIRESHAPE-KEEP), but the line also carried
 `docs/new-plan/` tracks. Flipping the mission to `done` would have dropped it,
 so the mission now names that tail as the one remaining item. If the owner
 considers that tail dead, M-T5.10 moves to `archive/T5-done.md` in one edit.
+
+**H3 — `test/system/diagnostic-code-coverage.test.ts` is red on the folded tree
+and it is 4c's row.** Full detail and the one-line fix in §7. It is red at the
+base commit, before any of this packet's commits, so whoever folds 4e should not
+read it as a 4e regression — but the wave cannot exit with it red, and the
+`tests passed` check on the wave PR will fail until the baseline is lowered.
 
 **N1 — noted in passing, not acted on (4f's fence), with the exact site.**
 `src/ir/validate/checks/structural-checks.ts` reports as a **binary file** to
