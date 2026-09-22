@@ -48,6 +48,24 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
+  // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
+  "loom.operator-non-bool-operands": "05-expressions.md#comparison-logical--unary",
+  "loom.operator-operand-mismatch": "05-expressions.md#arithmetic--widening",
+  "loom.convert-aggregate-no-display": "05-expressions.md#conversions",
+  "loom.convert-non-primitive": "05-expressions.md#conversions",
+  "loom.convert-unsupported": "05-expressions.md#conversions",
+  "loom.property-check-not-bool":
+    "07-invariants-derived-functions.md#invariant--a-checked-predicate",
+  "loom.invariant-not-bool": "07-invariants-derived-functions.md#invariant--a-checked-predicate",
+  "loom.invariant-guard-not-bool":
+    "07-invariants-derived-functions.md#when--a-conditional-invariant",
+  "loom.mask-unless-not-bool":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.derived-type-mismatch":
+    "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
+  "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
+  "loom.parameter-default-type-mismatch":
+    "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",

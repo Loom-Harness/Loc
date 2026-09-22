@@ -1280,6 +1280,56 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/types.ts
   // ----------------------------------------------------------------------
+  // --- the M-T9.56 drain of `types.ts` ------------------------------------
+  "loom.operator-non-bool-operands": (p: { op: unknown; left: unknown; right: unknown }) =>
+    `Operator '${p.op}' requires boolean operands; got '${p.left}' and '${p.right}'.`,
+  "loom.operator-operand-mismatch": (p: {
+    op: unknown;
+    left: unknown;
+    right: unknown;
+    hint: unknown;
+  }) =>
+    `Operator '${p.op}' has incompatible operand types: left is '${p.left}', right is '${p.right}'.${p.hint}`,
+  "loom.convert-aggregate-no-display": (p: { name: unknown; lower: unknown }) =>
+    `Aggregate '${p.name}' has no display form — ` +
+    `declare \`derived display: string = ...\` on '${p.name}' ` +
+    `to enable \`string(${p.lower})\` and implicit string concatenation.`,
+  "loom.convert-non-primitive": (p: { source: unknown; target: unknown }) =>
+    `Cannot convert '${p.source}' to '${p.target}': ` +
+    `value objects, entities, and collections have no canonical string ` +
+    `form. Reference a specific field (e.g. \`string(value.<field>)\`) ` +
+    `or wait for a future toString derivation.`,
+  "loom.convert-unsupported": (p: { source: unknown; target: unknown }) =>
+    `Cannot convert '${p.source}' to '${p.target}': not supported. ` +
+    `Today's conversion vocabulary admits: string ← any primitive | enum | X id; ` +
+    `long ← int; decimal ← int | long | money; money ← int | long | decimal. ` +
+    `Fallible parses (string → numeric / datetime / bool) and narrowing ` +
+    `(long → int, decimal → long) are deferred pending a failure-model decision.`,
+  "loom.property-check-not-bool": (p: { name: unknown; actual: unknown }) =>
+    `Property check on '${p.name}' must be of type 'bool', got '${p.actual}'.`,
+  "loom.mask-unless-not-bool": (p: { name: unknown; actual: unknown }) =>
+    `'mask unless' on '${p.name}' must be of type 'bool', got '${p.actual}'.`,
+  // The field and the parameter default stay TWO codes: the wording names the
+  // declaration kind, and a fix-hint for one ("move it into `create`") makes no
+  // sense for the other.
+  "loom.property-default-type-mismatch": (p: {
+    name: unknown;
+    actual: unknown;
+    declared: unknown;
+  }) => `Default for '${p.name}' has type '${p.actual}' but the field is declared '${p.declared}'.`,
+  "loom.parameter-default-type-mismatch": (p: {
+    name: unknown;
+    actual: unknown;
+    declared: unknown;
+  }) =>
+    `Default for parameter '${p.name}' has type '${p.actual}' but the parameter is declared '${p.declared}'.`,
+  "loom.invariant-not-bool": (p: { actual: unknown }) =>
+    `Invariant must be of type 'bool', got '${p.actual}'.`,
+  "loom.invariant-guard-not-bool": (p: { actual: unknown }) =>
+    `Invariant guard ('when ...') must be of type 'bool', got '${p.actual}'.`,
+  "loom.derived-type-mismatch": (p: { name: unknown; actual: unknown; declared: unknown }) =>
+    `Derived '${p.name}' has expression of type '${p.actual}' but declared type is '${p.declared}'.`,
+
   "loom.slot-member-access": (p: { member: unknown }) =>
     `'${p.member}' is not accessible on a slot value — slots are opaque JSX and have no addressable members.  Use a primitive- or aggregate-typed param if the body needs to read fields off this value.`,
   "loom.bare-collection-accessor": (p: { member: unknown }) =>

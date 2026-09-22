@@ -602,7 +602,15 @@ interface UncodedSite {
  * reasons that have nothing to do with coding the diagnostic.
  */
 function uncodedSitesIn(file: string): UncodedSite[] {
-  const src = fs.readFileSync(path.join(repoRoot, file), "utf8");
+  return uncodedSitesInSource(file, fs.readFileSync(path.join(repoRoot, file), "utf8"));
+}
+
+/** The scanner itself, over source text rather than a path — so the
+ *  vacuous-pass guard can drive it with a KNOWN-uncoded fixture instead of
+ *  counting live offenders.  That distinction is what lets the guard survive
+ *  the drain reaching zero: "the scanner still recognises an uncoded site" is
+ *  a property of the scanner, not of how much debt is left. */
+function uncodedSitesInSource(file: string, src: string): UncodedSite[] {
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.ESNext, true);
   const out: UncodedSite[] = [];
   const at = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
@@ -653,11 +661,31 @@ describe("uncoded diagnostic sites — shrink-only (M-T9.56)", () => {
 
   it("scans a real surface (guard against a vacuous pass)", () => {
     // If the AST shapes stop matching, every assertion below passes on an
-    // empty census and the ratchet silently stops ratcheting.  `catalogedSources`
-    // is shared with the wording invariants, which pin >400 CODED sites, so the
-    // only way this can go to zero is the scanner breaking.
+    // empty census and the ratchet silently stops ratcheting.
+    //
+    // This guard used to read `ALL_UNCODED.length > 50` — it counted LIVE
+    // offenders, which made it a second, unlabelled ratchet running the wrong
+    // way: the drain had to keep lowering it, and at zero (the drain's whole
+    // point) the guard would have had to be deleted, taking the vacuous-pass
+    // protection with it.  It now drives the scanner with a FIXTURE holding
+    // one of each shape, which is a property of the scanner and holds at any
+    // debt level, including none.
     expect(catalogedSources().length).toBeGreaterThan(20);
-    expect(ALL_UNCODED.length).toBeGreaterThan(50);
+    const fixture = `
+      function f(accept: A, node: N): void {
+        accept("error", \`plain uncoded\`, { node, property: "name" });
+        accept("warning", \`coded\`, { node, property: "name", code: "loom.x" });
+        accept("error", \`no options at all\`);
+        push({ severity: "error", message: "uncoded object literal", source: "s" });
+        push({ severity: "error", message: "coded object literal", code: "loom.y" });
+      }`;
+    const found = uncodedSitesInSource("fixture.ts", fixture);
+    expect(
+      found.map((s) => s.severity),
+      "the scanner must see BOTH uncoded shapes (accept-with-options, accept-with-none, " +
+        "object literal) and NEITHER coded one — if this drifts, every assertion below " +
+        "passes on an empty census",
+    ).toEqual(["error", "error", "object-literal"]);
   });
 
   it("no file grows a NEW uncoded diagnostic", () => {

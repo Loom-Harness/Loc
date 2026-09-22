@@ -529,8 +529,12 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       if (!lBool || !rBool) {
         accept(
           "error",
-          `Operator '${op}' requires boolean operands; got '${typeToString(lt)}' and '${typeToString(rt)}'.`,
-          info,
+          diagMessage("loom.operator-non-bool-operands", {
+            op,
+            left: typeToString(lt),
+            right: typeToString(rt),
+          }),
+          { ...info, code: "loom.operator-non-bool-operands" },
         );
       }
       lt = T.prim("bool");
@@ -582,9 +586,13 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
             : ` Numeric arithmetic requires both operands in the int / long / decimal chain.`;
       accept(
         "error",
-        `Operator '${op}' has incompatible operand types: ` +
-          `left is '${typeToString(lt)}', right is '${typeToString(rt)}'.${moneyHint}`,
-        info,
+        diagMessage("loom.operator-operand-mismatch", {
+          op,
+          left: typeToString(lt),
+          right: typeToString(rt),
+          hint: moneyHint,
+        }),
+        { ...info, code: "loom.operator-operand-mismatch" },
       );
     }
     lt = result;
@@ -720,11 +728,11 @@ export function checkSinglePrimitiveConversion(
     }
     accept(
       "error",
-      `Aggregate '${valueType.ref.name}' has no display form — ` +
-        `declare \`derived display: string = ...\` on '${valueType.ref.name}' ` +
-        `to enable \`string(${valueType.ref.name.toLowerCase()})\` and implicit ` +
-        `string concatenation.`,
-      { node, property: "value" },
+      diagMessage("loom.convert-aggregate-no-display", {
+        name: valueType.ref.name,
+        lower: valueType.ref.name.toLowerCase(),
+      }),
+      { node, property: "value", code: "loom.convert-aggregate-no-display" },
     );
     return;
   }
@@ -733,26 +741,21 @@ export function checkSinglePrimitiveConversion(
   if (valueType.kind !== "primitive") {
     accept(
       "error",
-      `Cannot convert '${typeToString(valueType)}' to '${target}': ` +
-        `value objects, entities, and collections have no canonical string ` +
-        `form.  Reference a specific field (e.g. \`string(value.<field>)\`) ` +
-        `or wait for a future toString derivation.`,
-      { node, property: "value" },
+      diagMessage("loom.convert-non-primitive", {
+        source: typeToString(valueType),
+        target,
+      }),
+      { node, property: "value", code: "loom.convert-non-primitive" },
     );
     return;
   }
   const source = valueType.name;
   if (source === target) return; // identity no-op
   if (isInfallibleConversion(source, target)) return;
-  accept(
-    "error",
-    `Cannot convert '${source}' to '${target}': not supported.  ` +
-      `Today's conversion vocabulary admits: string ← any primitive | enum | X id; ` +
-      `long ← int; decimal ← int | long | money; money ← int | long | decimal.  ` +
-      `Fallible parses (string → numeric / datetime / bool) and narrowing ` +
-      `(long → int, decimal → long) are deferred pending a failure-model decision.`,
-    { node },
-  );
+  accept("error", diagMessage("loom.convert-unsupported", { source, target }), {
+    node,
+    code: "loom.convert-unsupported",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -766,8 +769,8 @@ export function checkPropertyCheck(p: Property, env: Env, accept: ValidationAcce
   if (t.kind !== "primitive" || t.name !== "bool") {
     accept(
       "error",
-      `Property check on '${p.name}' must be of type 'bool', got '${typeToString(t)}'.`,
-      { node: p, property: "check" },
+      diagMessage("loom.property-check-not-bool", { name: p.name, actual: typeToString(t) }),
+      { node: p, property: "check", code: "loom.property-check-not-bool" },
     );
   }
 }
@@ -784,8 +787,8 @@ export function checkPropertyMask(p: Property, env: Env, accept: ValidationAccep
   if (t.kind !== "primitive" || t.name !== "bool") {
     accept(
       "error",
-      `'mask unless' on '${p.name}' must be of type 'bool', got '${typeToString(t)}'.`,
-      { node: p, property: "maskUnless" },
+      diagMessage("loom.mask-unless-not-bool", { name: p.name, actual: typeToString(t) }),
+      { node: p, property: "maskUnless", code: "loom.mask-unless-not-bool" },
     );
   }
 }
@@ -811,8 +814,12 @@ export function checkPropertyDefault(p: Property, env: Env, accept: ValidationAc
   ) {
     accept(
       "error",
-      `Default for '${p.name}' has type '${typeToString(actual)}' but the field is declared '${typeToString(declared)}'.`,
-      { node: p, property: "default" },
+      diagMessage("loom.property-default-type-mismatch", {
+        name: p.name,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: p, property: "default", code: "loom.property-default-type-mismatch" },
     );
   }
   warnSensitivityDrop(actual, declared, accept, { node: p, property: "default" });
@@ -837,8 +844,12 @@ export function checkParameterDefault(p: Parameter, env: Env, accept: Validation
   ) {
     accept(
       "error",
-      `Default for parameter '${p.name}' has type '${typeToString(actual)}' but the parameter is declared '${typeToString(declared)}'.`,
-      { node: p, property: "default" },
+      diagMessage("loom.parameter-default-type-mismatch", {
+        name: p.name,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: p, property: "default", code: "loom.parameter-default-type-mismatch" },
     );
   }
 }
@@ -853,19 +864,20 @@ export function checkInvariant(inv: Invariant, env: Env, accept: ValidationAccep
   }
   const t = typeOf(inv.expr, env);
   if (t.kind !== "primitive" || t.name !== "bool") {
-    accept("error", `Invariant must be of type 'bool', got '${typeToString(t)}'.`, {
+    accept("error", diagMessage("loom.invariant-not-bool", { actual: typeToString(t) }), {
       node: inv,
       property: "expr",
+      code: "loom.invariant-not-bool",
     });
   }
   if (inv.guard) {
     const g = typeOf(inv.guard, env);
     if (g.kind !== "primitive" || g.name !== "bool") {
-      accept(
-        "error",
-        `Invariant guard ('when ...') must be of type 'bool', got '${typeToString(g)}'.`,
-        { node: inv, property: "guard" },
-      );
+      accept("error", diagMessage("loom.invariant-guard-not-bool", { actual: typeToString(g) }), {
+        node: inv,
+        property: "guard",
+        code: "loom.invariant-guard-not-bool",
+      });
     }
   }
 }
@@ -890,8 +902,12 @@ export function checkDerived(d: DerivedProp, env: Env, accept: ValidationAccepto
   ) {
     accept(
       "error",
-      `Derived '${d.name}' has expression of type '${typeToString(actual)}' but declared type is '${typeToString(declared)}'.`,
-      { node: d, property: "expr" },
+      diagMessage("loom.derived-type-mismatch", {
+        name: d.name,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: d, property: "expr", code: "loom.derived-type-mismatch" },
     );
   }
   warnSensitivityDrop(actual, declared, accept, { node: d, property: "expr" });

@@ -143,6 +143,24 @@ system P {
   deployable web { platform: ${platform} targets: api port: 3001 }
 }`;
 
+/** One aggregate with a field of every kind the `types.ts` drain (M-T9.56)
+ *  type-checks against — a string, an int, a bool and a value object — so each
+ *  fixture is the single member whose TYPE is wrong. */
+const orderTypes = (member: string): string => `
+system P {
+  subdomain D { context Orders {
+    valueobject Tag { label: string }
+    aggregate Order with crudish {
+      name: string
+      total: int
+      flag: bool
+      tag: Tag
+      ${member}
+    }
+    repository Orders for Order { }
+  } }
+}`;
+
 /** A system whose only content is a `theme { … }` block carrying one bad
  *  property — the shape every `theme` rule in the `ui.ts` drain (M-T9.56)
  *  needs, and nothing else. */
@@ -1665,6 +1683,25 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `src/language/validators/types.ts` ------------
+  // The expression type-checker's own refusals: the two operator arms, the
+  // three `string(x)` / `decimal(x)` conversion arms, and the six leaf checks
+  // on a property / invariant / derived / default.
+  "loom.operator-non-bool-operands": orderTypes("derived bad: bool = total && name"),
+  "loom.operator-operand-mismatch": orderTypes("derived bad: string = total + flag"),
+  "loom.convert-aggregate-no-display": orderTypes("derived self: string = string(this)"),
+  "loom.convert-non-primitive": orderTypes("derived bad: string = string(tag)"),
+  "loom.convert-unsupported": orderTypes("derived bad: decimal = decimal(name)"),
+  "loom.property-check-not-bool": orderTypes("checked: int  check total"),
+  "loom.mask-unless-not-bool": orderTypes("masked: string  mask unless total"),
+  "loom.property-default-type-mismatch": orderTypes('badDefault: int = "nope"'),
+  "loom.parameter-default-type-mismatch": orderTypes(
+    'operation withDefault(n: int = "x") { total := total + n }',
+  ),
+  "loom.invariant-not-bool": orderTypes("invariant name"),
+  "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
+  "loom.derived-type-mismatch": orderTypes("derived bad: int = name"),
+
   // --- the M-T9.56 drain of `src/language/validators/ui.ts` ---------------
   // The `theme { … }` block's five rules.  Each is one property in an
   // otherwise-valid block, so the fixture's diagnostic set is exactly one.
