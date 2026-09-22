@@ -361,15 +361,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `Static deployable '${p.name}' must declare a 'ui:' binding — there is nothing to serve without one.`,
   "loom.frontend-targets-missing": (p: { name: unknown }) =>
     `Frontend deployable '${p.name}' must declare 'targets: <backend-deployable>'.`,
-  "loom.frontend-targets-not-backend": (p: {
-    name: unknown;
-    targetName: unknown;
-    backends: unknown;
-  }) =>
+  // NAMING, for the next author here: a code may not END in `-backend` and may
+  // not CONTAIN `unsupported` unless it is a real
+  // "this backend does not implement this feature yet" row.
+  // `unsupported-register.test.ts` scans `src/` for those two shapes by NAME
+  // and demands a classified row in `src/diagnostics/unsupported-register.ts`
+  // for each — so `loom.frontend-targets-not-backend` / `loom.targets-on-backend`
+  // / `loom.convert-unsupported` (the first drafts of the three below) failed
+  // that gate for saying something about themselves that is not true.  These
+  // three are structural refusals about the `targets:` clause and the
+  // conversion vocabulary, not platform gaps.
+  "loom.frontend-targets-invalid": (p: { name: unknown; targetName: unknown; backends: unknown }) =>
     `Frontend deployable '${p.name}' cannot target another frontend ('${p.targetName}'). Pick a backend deployable (${p.backends}).`,
   "loom.frontend-contexts-ignored": (p: { name: unknown; targetName: unknown }) =>
     `Frontend deployable '${p.name}' inherits contexts from its target '${p.targetName}'; the explicit 'contexts:' list is ignored.`,
-  "loom.targets-on-backend": (p: { frontends: unknown }) =>
+  "loom.targets-misplaced": (p: { frontends: unknown }) =>
     `'targets:' is only valid on a frontend deployable (${p.frontends}).`,
   "loom.platform-unknown": (p: { raw: unknown; name: unknown; menu: unknown }) =>
     `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v4').`,
@@ -1411,7 +1417,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `value objects, entities, and collections have no canonical string ` +
     `form. Reference a specific field (e.g. \`string(value.<field>)\`) ` +
     `or wait for a future toString derivation.`,
-  "loom.convert-unsupported": (p: { source: unknown; target: unknown }) =>
+  "loom.convert-pair-invalid": (p: { source: unknown; target: unknown }) =>
     `Cannot convert '${p.source}' to '${p.target}': not supported. ` +
     `Today's conversion vocabulary admits: string ← any primitive | enum | X id; ` +
     `long ← int; decimal ← int | long | money; money ← int | long | decimal. ` +

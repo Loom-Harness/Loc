@@ -106,8 +106,8 @@ parked in `UNDOCUMENTED_CODES`**, so its pinned length is untouched at 365.
 ### `deployable.ts` → 21 codes
 
 `loom.static-deployable-missing-ui` · `loom.frontend-targets-missing` ·
-`loom.frontend-targets-not-backend` · `loom.frontend-contexts-ignored` ·
-`loom.targets-on-backend` · `loom.platform-unknown` ·
+`loom.frontend-targets-invalid` · `loom.frontend-contexts-ignored` ·
+`loom.targets-misplaced` · `loom.platform-unknown` ·
 `loom.platform-version-unknown` · `loom.design-pack-ignored` ·
 `loom.design-theme-unknown` · `loom.design-pack-custom-unchecked` ·
 `loom.design-pack-version-unknown` · `loom.design-pack-format-mismatch` ·
@@ -175,7 +175,7 @@ and the colorScheme set by hand).
 
 `loom.operator-non-bool-operands` · `loom.operator-operand-mismatch` ·
 `loom.convert-aggregate-no-display` · `loom.convert-non-primitive` ·
-`loom.convert-unsupported` · `loom.property-check-not-bool` ·
+`loom.convert-pair-invalid` · `loom.property-check-not-bool` ·
 `loom.mask-unless-not-bool` · `loom.property-default-type-mismatch` ·
 `loom.parameter-default-type-mismatch` · `loom.invariant-not-bool` ·
 `loom.invariant-guard-not-bool` · `loom.derived-type-mismatch`
@@ -293,6 +293,36 @@ synthesising the code for a new reason. The comment above it now says so.
 
 ---
 
+## 4b. Three codes had to be RENAMED — a code name is a claim
+
+Caught by the full `npm test` (nothing lighter reaches it):
+`test/system/unsupported-register.test.ts` scans all of `src/` for a `code:`
+whose value **ends in `-backend`** or **contains `unsupported`**, and demands a
+classified row in `src/diagnostics/unsupported-register.ts` for each — that
+register is the "this backend does not implement this feature yet" ledger, and a
+`gap` row there is a commitment under the no-permanent-skips policy.
+
+Three of the first-draft names matched that heuristic while meaning nothing of
+the sort:
+
+| first draft | renamed to | what it actually says |
+|---|---|---|
+| `loom.frontend-targets-not-backend` | **`loom.frontend-targets-invalid`** | a frontend deployable's `targets:` names another frontend |
+| `loom.targets-on-backend` | **`loom.targets-misplaced`** | `targets:` was written on a backend deployable at all |
+| `loom.convert-unsupported` | **`loom.convert-pair-invalid`** | this (source, target) pair is not in the conversion vocabulary |
+
+Registering them would have been the wrong fix — it would have added three fake
+platform-gap rows and moved `MAX_OPEN_GAPS` (pinned at 16 by the wave log for
+drift). Renaming keeps that pin and the `LATENT_SEAMS` 27 untouched, and the new
+names read better anyway (`loom.targets-misplaced` mirrors its sibling
+`loom.auth-ui-misplaced` in the same file).
+
+The rule is now written where the next author will hit it — a comment above the
+first of the three in `messages.ts` says a code may not end in `-backend` or
+contain `unsupported` unless it is a genuine platform-gap row.
+
+---
+
 ## 5. Two codes are UNREACHABLE, and are pinned rather than deleted
 
 Found by trying to write their firing fixtures — which is the point of the
@@ -346,7 +376,7 @@ reports **0** uncoded sites afterwards and the four diagnostic suites are green
 | `node scripts/mission-counts.mjs --check` | up to date (regenerated with `--write` after flipping M-T9.56) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | exit 0 |
-| `npm test` (redirected, exit code appended) | see the final message — the log is `scratchpad/c4-uncoded/npm-test.log` |
+| `npm test` (redirected, exit code appended) | first run **1 failed / 25 715 passed** (`unsupported-register.test.ts`, §4b) → fixed by the three renames; the four diagnostic suites + `unsupported-register` re-run **796 passed** |
 
 Pins, all moved DOWN or held, never up:
 

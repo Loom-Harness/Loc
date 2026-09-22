@@ -241,14 +241,14 @@ export function checkDeployable(
     if (isFrontendPlatform(target.platform)) {
       accept(
         "error",
-        diagMessage("loom.frontend-targets-not-backend", {
+        diagMessage("loom.frontend-targets-invalid", {
           name: d.name,
           targetName: target.name,
           backends: backendPlatformNames()
             .map((n) => `'${n}'`)
             .join(", "),
         }),
-        { node: d, property: "targets", code: "loom.frontend-targets-not-backend" },
+        { node: d, property: "targets", code: "loom.frontend-targets-invalid" },
       );
     }
     // `auth: ui` mounts the login redirect + route guard; it needs its
@@ -275,12 +275,12 @@ export function checkDeployable(
     if (d.targets) {
       accept(
         "error",
-        diagMessage("loom.targets-on-backend", {
+        diagMessage("loom.targets-misplaced", {
           frontends: frontendPlatformNames()
             .map((n) => `'${n}'`)
             .join(", "),
         }),
-        { node: d, property: "targets", code: "loom.targets-on-backend" },
+        { node: d, property: "targets", code: "loom.targets-misplaced" },
       );
     }
     // `auth: ui` is the frontend guard; a backend enforces auth via

@@ -752,9 +752,9 @@ export function checkSinglePrimitiveConversion(
   const source = valueType.name;
   if (source === target) return; // identity no-op
   if (isInfallibleConversion(source, target)) return;
-  accept("error", diagMessage("loom.convert-unsupported", { source, target }), {
+  accept("error", diagMessage("loom.convert-pair-invalid", { source, target }), {
     node,
-    code: "loom.convert-unsupported",
+    code: "loom.convert-pair-invalid",
   });
 }
 

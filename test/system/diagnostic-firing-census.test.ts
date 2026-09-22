@@ -1870,7 +1870,7 @@ system S {
   "loom.operator-operand-mismatch": orderTypes("derived bad: string = total + flag"),
   "loom.convert-aggregate-no-display": orderTypes("derived self: string = string(this)"),
   "loom.convert-non-primitive": orderTypes("derived bad: string = string(tag)"),
-  "loom.convert-unsupported": orderTypes("derived bad: decimal = decimal(name)"),
+  "loom.convert-pair-invalid": orderTypes("derived bad: decimal = decimal(name)"),
   "loom.property-check-not-bool": orderTypes("checked: int  check total"),
   "loom.mask-unless-not-bool": orderTypes("masked: string  mask unless total"),
   "loom.property-default-type-mismatch": orderTypes('badDefault: int = "nope"'),
@@ -1963,13 +1963,13 @@ system P {
     "deployable web { platform: static targets: api port: 3001 }",
   ),
   "loom.frontend-targets-missing": topology("deployable web { platform: react port: 3001 }"),
-  "loom.frontend-targets-not-backend": topology(`
+  "loom.frontend-targets-invalid": topology(`
   deployable web2 { platform: react targets: api port: 3002 }
   deployable web { platform: react targets: web2 port: 3001 }`),
   "loom.frontend-contexts-ignored": topology(
     "deployable web { platform: react targets: api contexts: [Orders] port: 3001 }",
   ),
-  "loom.targets-on-backend": topology(
+  "loom.targets-misplaced": topology(
     "deployable api2 { platform: node targets: api contexts: [Orders] dataSources: [st] port: 3002 }",
   ),
   "loom.platform-unknown": topology('deployable web { platform: "frobnicator" port: 3001 }'),
