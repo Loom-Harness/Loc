@@ -307,6 +307,129 @@ export const DIAGNOSTIC_MESSAGES = {
     supported: unknown;
   }) =>
     `'directoryLayout: ${p.layout}' on deployable '${p.name}' is not supported by the '${p.style}' emission style. Supported: ${p.supported}.`,
+  // `static` is the sixth member of the `*-deployable-missing-ui` family but
+  // keeps its OWN wording: it is not a framework SPA, it is a bare asset host,
+  // so "every page flows through the page metamodel" would name machinery it
+  // does not have.  Same rule, different reason — hence a sibling code rather
+  // than a seventh `spaDeployableMissingUi` label.
+  "loom.static-deployable-missing-ui": (p: { name: unknown }) =>
+    `Static deployable '${p.name}' must declare a 'ui:' binding — there is nothing to serve without one.`,
+  "loom.frontend-targets-missing": (p: { name: unknown }) =>
+    `Frontend deployable '${p.name}' must declare 'targets: <backend-deployable>'.`,
+  "loom.frontend-targets-not-backend": (p: {
+    name: unknown;
+    targetName: unknown;
+    backends: unknown;
+  }) =>
+    `Frontend deployable '${p.name}' cannot target another frontend ('${p.targetName}'). Pick a backend deployable (${p.backends}).`,
+  "loom.frontend-contexts-ignored": (p: { name: unknown; targetName: unknown }) =>
+    `Frontend deployable '${p.name}' inherits contexts from its target '${p.targetName}'; the explicit 'contexts:' list is ignored.`,
+  "loom.targets-on-backend": (p: { frontends: unknown }) =>
+    `'targets:' is only valid on a frontend deployable (${p.frontends}).`,
+  "loom.platform-unknown": (p: { raw: unknown; name: unknown; menu: unknown }) =>
+    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v4').`,
+  "loom.platform-version-unknown": (p: {
+    raw: unknown;
+    name: unknown;
+    version: unknown;
+    family: unknown;
+    available: unknown;
+  }) =>
+    `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
+  "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
+    `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
+  // The theme must be QUOTED.  `DesignPack` is a closed keyword set of pack
+  // families plus `STRING`, so a bare `design: light` is a PARSE error — this
+  // message used to list the themes bare, which meant pasting its own
+  // suggestion did not compile (the `dataSource`/`resource` mistake in another
+  // shape).  Show the spelling that works.
+  "loom.design-theme-unknown": (p: {
+    design: unknown;
+    name: unknown;
+    example: unknown;
+    themes: unknown;
+  }) =>
+    `Design '${p.design}' on Feliz deployable '${p.name}' is not a daisyUI theme. ` +
+    `Feliz's 'design:' selects a daisyUI theme, written as a QUOTED string ` +
+    `(\`design: "${p.example}"\`) — a bare theme name does not parse, ` +
+    `because the unquoted form is reserved for the component-library pack ` +
+    `families. Use one of: ${p.themes}.`,
+  "loom.design-pack-custom-unchecked": (p: {
+    design: unknown;
+    name: unknown;
+    framework: unknown;
+    expectedFormat: unknown;
+  }) =>
+    `Custom design pack '${p.design}' on deployable '${p.name}' — format compatibility with framework '${p.framework}' is not checked at parse time; ensure its pack.json declares format '${p.expectedFormat}'.`,
+  "loom.design-pack-version-unknown": (p: {
+    design: unknown;
+    name: unknown;
+    version: unknown;
+    family: unknown;
+    available: unknown;
+  }) =>
+    `Design pack '${p.design}' on deployable '${p.name}' — no version '${p.version}' of pack family '${p.family}'. Available: ${p.available}.`,
+  "loom.design-pack-format-mismatch": (p: {
+    design: unknown;
+    actualFormat: unknown;
+    framework: unknown;
+    expectedFormat: unknown;
+    menu: unknown;
+  }) =>
+    `Design pack '${p.design}' is a ${p.actualFormat} pack but framework '${p.framework}' renders ${p.expectedFormat}. Use one of: ${p.menu}.`,
+  "loom.datasource-context-unlisted": (p: { name: unknown; dsName: unknown; ctxName: unknown }) =>
+    `Deployable '${p.name}' lists resource '${p.dsName}' whose 'for: ${p.ctxName}' is not in 'contexts:'. Add ${p.ctxName} to 'contexts:' or remove the resource.`,
+  "loom.datasource-duplicate": (p: {
+    name: unknown;
+    ctxName: unknown;
+    kind: unknown;
+    prior: unknown;
+    dsName: unknown;
+  }) =>
+    `Deployable '${p.name}' has two dataSources for (${p.ctxName}, kind: ${p.kind}): '${p.prior}' and '${p.dsName}'. Pick exactly one per (context, kind).`,
+  "loom.serves-on-frontend": (p: { backends: unknown; platform: unknown }) =>
+    `'serves:' is only valid on a backend deployable (${p.backends}). Got platform '${p.platform}'.`,
+  "loom.serves-unknown-api": (p: { name: unknown; apiName: unknown }) =>
+    `Deployable '${p.name}' serves undeclared api '${p.apiName}'. Declare 'api ${p.apiName} from <Module>' at system scope.`,
+  "loom.serves-duplicate-api": (p: { name: unknown; apiName: unknown }) =>
+    `Deployable '${p.name}' lists api '${p.apiName}' more than once in its 'serves:' list.`,
+  // One condition, two call sites: the ui declares NO api params at all, and
+  // the ui declares some but not this one.  Both are "you bound a parameter
+  // that does not exist", so they share a code.
+  "loom.ui-binding-unknown-param": (p: { name: unknown; param: unknown; uiName: unknown }) =>
+    `Deployable '${p.name}' binds parameter '${p.param}' on ui '${p.uiName}' but the ui declares no 'api ${p.param}: <Api>' parameter.`,
+  "loom.ui-binding-duplicate": (p: { name: unknown; param: unknown }) =>
+    `Deployable '${p.name}' binds ui parameter '${p.param}' more than once.`,
+  "loom.ui-binding-unknown-source": (p: {
+    name: unknown;
+    uiName: unknown;
+    param: unknown;
+    sourceName: unknown;
+  }) =>
+    `Deployable '${p.name}' references undeclared source deployable '${p.sourceName}' in 'ui: ${p.uiName} { ${p.param}: ${p.sourceName} }'.`,
+  "loom.ui-binding-source-not-serving": (p: {
+    sourceName: unknown;
+    requiredApi: unknown;
+    param: unknown;
+    uiName: unknown;
+  }) =>
+    `Deployable '${p.sourceName}' does not 'serves: ${p.requiredApi}' — required to fill ui parameter '${p.param}: ${p.requiredApi}' on '${p.uiName}'.`,
+  // Two slugs, one code: the whole compose block is absent, or it is present
+  // and one parameter is unbound.  Same rule ("every `api X: <Api>` param needs
+  // a binding"), different remedy text.
+  "loom.ui-binding-missing#no-compose": (p: {
+    name: unknown;
+    uiName: unknown;
+    paramList: unknown;
+  }) =>
+    `Deployable '${p.name}' deploys ui '${p.uiName}' which declares api parameters; supply bindings via 'ui: ${p.uiName} { ${p.paramList} }'.`,
+  "loom.ui-binding-missing#param": (p: {
+    name: unknown;
+    param: unknown;
+    apiName: unknown;
+    uiName: unknown;
+  }) =>
+    `Deployable '${p.name}' is missing a binding for ui parameter '${p.param}: ${p.apiName}' on ui '${p.uiName}'.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/duplicates.ts

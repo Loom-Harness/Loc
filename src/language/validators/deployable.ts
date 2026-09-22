@@ -164,11 +164,11 @@ export function checkDeployable(
     );
   }
   if (d.platform === "static" && !hasUiBinding) {
-    accept(
-      "error",
-      `Static deployable '${d.name}' must declare a 'ui:' binding — there is nothing to serve without one.`,
-      { node: d, property: "name" },
-    );
+    accept("error", diagMessage("loom.static-deployable-missing-ui", { name: d.name }), {
+      node: d,
+      property: "name",
+      code: "loom.static-deployable-missing-ui",
+    });
   }
   // Rule 4b generalises to every frontend platform (`react`, `svelte`,
   // `vue`, `angular`, `feliz`, `flutter`) — a frontend deployable without a
@@ -231,20 +231,24 @@ export function checkDeployable(
   if (isFrontendPlatform(d.platform)) {
     const target = d.targets?.ref;
     if (!target) {
-      accept(
-        "error",
-        `Frontend deployable '${d.name}' must declare 'targets: <backend-deployable>'.`,
-        { node: d, property: "name" },
-      );
+      accept("error", diagMessage("loom.frontend-targets-missing", { name: d.name }), {
+        node: d,
+        property: "name",
+        code: "loom.frontend-targets-missing",
+      });
       return;
     }
     if (isFrontendPlatform(target.platform)) {
       accept(
         "error",
-        `Frontend deployable '${d.name}' cannot target another frontend ('${target.name}'). Pick a backend deployable (${backendPlatformNames()
-          .map((n) => `'${n}'`)
-          .join(", ")}).`,
-        { node: d, property: "targets" },
+        diagMessage("loom.frontend-targets-not-backend", {
+          name: d.name,
+          targetName: target.name,
+          backends: backendPlatformNames()
+            .map((n) => `'${n}'`)
+            .join(", "),
+        }),
+        { node: d, property: "targets", code: "loom.frontend-targets-not-backend" },
       );
     }
     // `auth: ui` mounts the login redirect + route guard; it needs its
@@ -259,8 +263,11 @@ export function checkDeployable(
     if ((d.contextRefs ?? []).length > 0) {
       accept(
         "warning",
-        `Frontend deployable '${d.name}' inherits contexts from its target '${target.name}'; the explicit 'contexts:' list is ignored.`,
-        { node: d, property: "contextRefs" },
+        diagMessage("loom.frontend-contexts-ignored", {
+          name: d.name,
+          targetName: target.name,
+        }),
+        { node: d, property: "contextRefs", code: "loom.frontend-contexts-ignored" },
       );
     }
     void siblings;
@@ -268,10 +275,12 @@ export function checkDeployable(
     if (d.targets) {
       accept(
         "error",
-        `'targets:' is only valid on a frontend deployable (${frontendPlatformNames()
-          .map((n) => `'${n}'`)
-          .join(", ")}).`,
-        { node: d, property: "targets" },
+        diagMessage("loom.targets-on-backend", {
+          frontends: frontendPlatformNames()
+            .map((n) => `'${n}'`)
+            .join(", "),
+        }),
+        { node: d, property: "targets", code: "loom.targets-on-backend" },
       );
     }
     // `auth: ui` is the frontend guard; a backend enforces auth via
@@ -302,6 +311,13 @@ export function checkDeployable(
  *    - anything else (`"frobnicator"`, a typo'd quoted platform)
  *      → unknown-platform error (the STRING alternative parses anything the
  *      grammar enum would have rejected). */
+/** The `platform:` menu the unknown-platform diagnostic lists, in the order it
+ *  has always listed them (backends first, then the frontend keywords).  Kept
+ *  as one constant so the wording in `messages.ts` carries no hand-typed list
+ *  of its own. */
+const KNOWN_PLATFORM_MENU =
+  "'dotnet', 'node', 'java', 'react', 'svelte', 'vue', 'angular', 'feliz', 'flutter', 'static', 'elixir', 'python'";
+
 export function checkDeployablePlatform(d: Deployable, accept: ValidationAcceptor): void {
   const raw = d.platform;
   if (raw == null) return;
@@ -312,8 +328,12 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
     if (!FRONTEND_KEYWORDS.has(raw)) {
       accept(
         "error",
-        `Unknown platform '${raw}' on deployable '${d.name}'. Valid: 'dotnet', 'node', 'java', 'react', 'svelte', 'vue', 'angular', 'feliz', 'flutter', 'static', 'elixir', 'python' (backends also accept a pinned form, e.g. 'node@v4').`,
-        { node: d, property: "platform" },
+        diagMessage("loom.platform-unknown", {
+          raw,
+          name: d.name,
+          menu: KNOWN_PLATFORM_MENU,
+        }),
+        { node: d, property: "platform", code: "loom.platform-unknown" },
       );
     }
     return;
@@ -325,8 +345,14 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
     const available = backendVersionsForFamily(parsed.family);
     accept(
       "error",
-      `Platform '${raw}' on deployable '${d.name}' — no version '${parsed.version}' of backend '${parsed.family}'. Available: ${available.map((v) => `'${parsed.family}@${v}'`).join(", ")}.`,
-      { node: d, property: "platform" },
+      diagMessage("loom.platform-version-unknown", {
+        raw,
+        name: d.name,
+        version: parsed.version,
+        family: parsed.family,
+        available: available.map((v) => `'${parsed.family}@${v}'`).join(", "),
+      }),
+      { node: d, property: "platform", code: "loom.platform-version-unknown" },
     );
   }
 }
@@ -427,8 +453,12 @@ export function checkDeployableDesignPack(
   if (!hasUiBinding && !platformMountsUi(d.platform)) {
     accept(
       "warning",
-      `Design pack '${d.design}' set on deployable '${d.name}' (platform '${d.platform}' has no UI mount) — value is ignored at generation.`,
-      { node: d, property: "design" },
+      diagMessage("loom.design-pack-ignored", {
+        design: d.design,
+        name: d.name,
+        platform: d.platform,
+      }),
+      { node: d, property: "design", code: "loom.design-pack-ignored" },
     );
     return;
   }
@@ -441,17 +471,13 @@ export function checkDeployableDesignPack(
     if (!DAISYUI_THEMES.includes(d.design)) {
       accept(
         "error",
-        // The theme must be QUOTED.  `DesignPack` is a closed keyword set of
-        // pack families plus `STRING`, so a bare `design: light` is a PARSE
-        // error — this message used to list the themes bare, which meant
-        // pasting its own suggestion did not compile (the `dataSource`/
-        // `resource` mistake in another shape).  Show the spelling that works.
-        `Design '${d.design}' on Feliz deployable '${d.name}' is not a daisyUI theme. ` +
-          `Feliz's 'design:' selects a daisyUI theme, written as a QUOTED string ` +
-          `(\`design: "${DAISYUI_THEMES[0]}"\`) — a bare theme name does not parse, ` +
-          `because the unquoted form is reserved for the component-library pack ` +
-          `families. Use one of: ${DAISYUI_THEMES.join(", ")}.`,
-        { node: d, property: "design" },
+        diagMessage("loom.design-theme-unknown", {
+          design: d.design,
+          name: d.name,
+          example: DAISYUI_THEMES[0],
+          themes: DAISYUI_THEMES.join(", "),
+        }),
+        { node: d, property: "design", code: "loom.design-theme-unknown" },
       );
     }
     return;
@@ -471,8 +497,13 @@ export function checkDeployableDesignPack(
     // ships the wrong format) doesn't slip through silently.
     accept(
       "warning",
-      `Custom design pack '${d.design}' on deployable '${d.name}' — format compatibility with framework '${framework ?? "(none)"}' is not checked at parse time; ensure its pack.json declares format '${expectedFormat ?? "tsx"}'.`,
-      { node: d, property: "design" },
+      diagMessage("loom.design-pack-custom-unchecked", {
+        design: d.design,
+        name: d.name,
+        framework: framework ?? "(none)",
+        expectedFormat: expectedFormat ?? "tsx",
+      }),
+      { node: d, property: "design", code: "loom.design-pack-custom-unchecked" },
     );
     return;
   }
@@ -484,8 +515,14 @@ export function checkDeployableDesignPack(
     const available = builtinVersionsForFamily(parsedRef.family);
     accept(
       "error",
-      `Design pack '${d.design}' on deployable '${d.name}' — no version '${parsedRef.version}' of pack family '${parsedRef.family}'. Available: ${available.map((v) => `'${parsedRef.family}@${v}'`).join(", ")}.`,
-      { node: d, property: "design" },
+      diagMessage("loom.design-pack-version-unknown", {
+        design: d.design,
+        name: d.name,
+        version: parsedRef.version,
+        family: parsedRef.family,
+        available: available.map((v) => `'${parsedRef.family}@${v}'`).join(", "),
+      }),
+      { node: d, property: "design", code: "loom.design-pack-version-unknown" },
     );
     return;
   }
@@ -494,8 +531,14 @@ export function checkDeployableDesignPack(
   if (expectedFormat && actualFormat !== expectedFormat) {
     accept(
       "error",
-      `Design pack '${d.design}' is a ${actualFormat} pack but framework '${framework}' renders ${expectedFormat}. Use one of: ${builtinPackNamesForFormat(expectedFormat)}.`,
-      { node: d, property: "design" },
+      diagMessage("loom.design-pack-format-mismatch", {
+        design: d.design,
+        actualFormat,
+        framework,
+        expectedFormat,
+        menu: builtinPackNamesForFormat(expectedFormat),
+      }),
+      { node: d, property: "design", code: "loom.design-pack-format-mismatch" },
     );
   }
 }
@@ -518,8 +561,12 @@ export function checkDeployableDataSources(d: Deployable, accept: ValidationAcce
     if (!contextNames.has(ctxName)) {
       accept(
         "error",
-        `Deployable '${d.name}' lists resource '${ds.name}' whose 'for: ${ctxName}' is not in 'contexts:'.  Add ${ctxName} to 'contexts:' or remove the resource.`,
-        { node: d, property: "dataSourceRefs" },
+        diagMessage("loom.datasource-context-unlisted", {
+          name: d.name,
+          dsName: ds.name,
+          ctxName,
+        }),
+        { node: d, property: "dataSourceRefs", code: "loom.datasource-context-unlisted" },
       );
       continue;
     }
@@ -528,8 +575,14 @@ export function checkDeployableDataSources(d: Deployable, accept: ValidationAcce
     if (prior) {
       accept(
         "error",
-        `Deployable '${d.name}' has two dataSources for (${ctxName}, kind: ${ds.kind}): '${prior}' and '${ds.name}'.  Pick exactly one per (context, kind).`,
-        { node: d, property: "dataSourceRefs" },
+        diagMessage("loom.datasource-duplicate", {
+          name: d.name,
+          ctxName,
+          kind: ds.kind,
+          prior,
+          dsName: ds.name,
+        }),
+        { node: d, property: "dataSourceRefs", code: "loom.datasource-duplicate" },
       );
     } else {
       seenKey.set(key, ds.name);
@@ -548,10 +601,13 @@ export function checkDeployableServes(d: Deployable, accept: ValidationAcceptor)
   if (!platformOwnsBackend(d.platform)) {
     accept(
       "error",
-      `'serves:' is only valid on a backend deployable (${backendPlatformNames()
-        .map((n) => `'${n}'`)
-        .join(", ")}).  Got platform '${d.platform}'.`,
-      { node: d, property: "serves" },
+      diagMessage("loom.serves-on-frontend", {
+        backends: backendPlatformNames()
+          .map((n) => `'${n}'`)
+          .join(", "),
+        platform: d.platform,
+      }),
+      { node: d, property: "serves", code: "loom.serves-on-frontend" },
     );
     return;
   }
@@ -559,19 +615,19 @@ export function checkDeployableServes(d: Deployable, accept: ValidationAcceptor)
   for (const ref of d.serves) {
     const name = ref?.$refText ?? "";
     if (!ref?.ref) {
-      accept(
-        "error",
-        `Deployable '${d.name}' serves undeclared api '${name}'.  Declare 'api ${name} from <Module>' at system scope.`,
-        { node: d, property: "serves" },
-      );
+      accept("error", diagMessage("loom.serves-unknown-api", { name: d.name, apiName: name }), {
+        node: d,
+        property: "serves",
+        code: "loom.serves-unknown-api",
+      });
       continue;
     }
     if (seen.has(name)) {
-      accept(
-        "error",
-        `Deployable '${d.name}' lists api '${name}' more than once in its 'serves:' list.`,
-        { node: d, property: "serves" },
-      );
+      accept("error", diagMessage("loom.serves-duplicate-api", { name: d.name, apiName: name }), {
+        node: d,
+        property: "serves",
+        code: "loom.serves-duplicate-api",
+      });
     } else {
       seen.add(name);
     }
@@ -628,8 +684,12 @@ function checkUiApiBindings(
     for (const b of bindings) {
       accept(
         "error",
-        `Deployable '${d.name}' binds parameter '${b.name}' on ui '${ui.name}' but the ui declares no 'api ${b.name}: <Api>' parameter.`,
-        { node: b, property: "name" },
+        diagMessage("loom.ui-binding-unknown-param", {
+          name: d.name,
+          param: b.name,
+          uiName: ui.name,
+        }),
+        { node: b, property: "name", code: "loom.ui-binding-unknown-param" },
       );
     }
     return;
@@ -642,8 +702,12 @@ function checkUiApiBindings(
       .join(", ");
     accept(
       "error",
-      `Deployable '${d.name}' deploys ui '${ui.name}' which declares api parameters; supply bindings via 'ui: ${ui.name} { ${paramList} }'.`,
-      { node: d, property: "name" },
+      diagMessage("loom.ui-binding-missing#no-compose", {
+        name: d.name,
+        uiName: ui.name,
+        paramList,
+      }),
+      { node: d, property: "name", code: "loom.ui-binding-missing" },
     );
     return;
   }
@@ -655,10 +719,15 @@ function checkUiApiBindings(
     const paramName = b.name;
     const sourceName = b.source?.$refText ?? "";
     if (seenNames.has(paramName)) {
-      accept("error", `Deployable '${d.name}' binds ui parameter '${paramName}' more than once.`, {
-        node: b,
-        property: "name",
-      });
+      accept(
+        "error",
+        diagMessage("loom.ui-binding-duplicate", { name: d.name, param: paramName }),
+        {
+          node: b,
+          property: "name",
+          code: "loom.ui-binding-duplicate",
+        },
+      );
       continue;
     }
     seenNames.add(paramName);
@@ -667,8 +736,12 @@ function checkUiApiBindings(
     if (!requiredApi) {
       accept(
         "error",
-        `Deployable '${d.name}' binds parameter '${paramName}' on ui '${ui.name}' but the ui declares no 'api ${paramName}: <Api>' parameter.`,
-        { node: b, property: "name" },
+        diagMessage("loom.ui-binding-unknown-param", {
+          name: d.name,
+          param: paramName,
+          uiName: ui.name,
+        }),
+        { node: b, property: "name", code: "loom.ui-binding-unknown-param" },
       );
       continue;
     }
@@ -677,8 +750,13 @@ function checkUiApiBindings(
     if (!b.source?.ref) {
       accept(
         "error",
-        `Deployable '${d.name}' references undeclared source deployable '${sourceName}' in 'ui: ${ui.name} { ${paramName}: ${sourceName} }'.`,
-        { node: b, property: "source" },
+        diagMessage("loom.ui-binding-unknown-source", {
+          name: d.name,
+          uiName: ui.name,
+          param: paramName,
+          sourceName,
+        }),
+        { node: b, property: "source", code: "loom.ui-binding-unknown-source" },
       );
       continue;
     }
@@ -687,8 +765,13 @@ function checkUiApiBindings(
     if (!sourceServes) {
       accept(
         "error",
-        `Deployable '${sourceName}' does not 'serves: ${requiredApi}' — required to fill ui parameter '${paramName}: ${requiredApi}' on '${ui.name}'.`,
-        { node: b, property: "source" },
+        diagMessage("loom.ui-binding-source-not-serving", {
+          sourceName,
+          requiredApi,
+          param: paramName,
+          uiName: ui.name,
+        }),
+        { node: b, property: "source", code: "loom.ui-binding-source-not-serving" },
       );
     }
   }
@@ -698,8 +781,13 @@ function checkUiApiBindings(
     if (!boundNames.has(name)) {
       accept(
         "error",
-        `Deployable '${d.name}' is missing a binding for ui parameter '${name}: ${apiName}' on ui '${ui.name}'.`,
-        { node: d, property: "name" },
+        diagMessage("loom.ui-binding-missing#param", {
+          name: d.name,
+          param: name,
+          apiName,
+          uiName: ui.name,
+        }),
+        { node: d, property: "name", code: "loom.ui-binding-missing" },
       );
     }
   }

@@ -47,7 +47,6 @@ export const UNCODED_SITES: Readonly<Record<string, number>> = {
   "src/language/ddd-validator.ts": 6,
   "src/language/validators/_shared.ts": 1,
   "src/language/validators/datasource.ts": 9,
-  "src/language/validators/deployable.ts": 24,
   "src/language/validators/match.ts": 12,
   "src/language/validators/repository.ts": 1,
   "src/language/validators/statements.ts": 22,

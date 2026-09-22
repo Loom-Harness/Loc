@@ -160,6 +160,32 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  // --- src/language/validators/deployable.ts (M-T9.56 drain) ---------------
+  "loom.static-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-unknown-param": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-unknown-source": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-source-not-serving": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-missing": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.frontend-targets-missing": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.frontend-targets-not-backend": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.frontend-contexts-ignored": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.targets-on-backend": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.platform-unknown": "02-systems-and-topology.md#deployable",
+  "loom.platform-version-unknown": "02-systems-and-topology.md#backend-platforms",
+  "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
+  "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
+  "loom.datasource-context-unlisted": "14-apis-storage-resources-channels.md#resource",
+  "loom.datasource-duplicate": "14-apis-storage-resources-channels.md#resource",
+  "loom.serves-on-frontend":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.serves-unknown-api":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.serves-duplicate-api":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":

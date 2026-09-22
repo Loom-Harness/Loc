@@ -144,6 +144,64 @@ system P {
 }`;
 
 /**
+ * The shared base for the `deployable.ts` drain (M-T9.56): one clean backend
+ * deployable serving one api over one context, plus whatever extra deployable
+ * or knob the fixture is proving.  Everything optional is off by default so
+ * each fixture's defect is the ONLY thing wrong with the source.
+ *
+ *   `ui`               — declare `ui WebApp { … }` (needed by every `ui:` /
+ *                        `design:` rule, since those read the mounted ui).
+ *   `uiApiParam`       — give `WebApp` an `api Sales: OrdersApi` parameter,
+ *                        which is what makes a compose binding required.
+ *   `secondContext`    — a second context + its own `resource other`, for the
+ *                        "resource's `for:` is not in `contexts:`" rule.
+ *   `duplicateResource`— a SECOND `kind: state` resource for `Orders`.
+ */
+function topology(
+  extra: string,
+  opts: {
+    ui?: boolean;
+    uiFramework?: string;
+    uiApiParam?: boolean;
+    secondContext?: boolean;
+    duplicateResource?: boolean;
+  } = {},
+): string {
+  return `
+system P {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { name: string }
+      repository Orders for Order { }
+    }${
+      opts.secondContext
+        ? `
+    context Billing {
+      aggregate Invoice with crudish { total: int }
+      repository Invoices for Invoice { }
+    }`
+        : ""
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }${
+    opts.secondContext ? "\n  resource other { for: Billing, kind: state, use: pg }" : ""
+  }${opts.duplicateResource ? "\n  resource st2 { for: Orders, kind: state, use: pg }" : ""}${
+    opts.ui
+      ? `
+  ui WebApp {
+    framework: ${opts.uiFramework ?? "react"}
+${opts.uiApiParam ? "    api Sales: OrdersApi\n" : ""}    page Home { route: "/"  body: Stack { Text { "hi" } } }
+  }`
+      : ""
+  }
+  deployable api { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi port: 3000 }
+${extra}
+}`;
+}
+
+/**
  * code → the `.ddd` source that must raise it.
  *
  * A fixture asserts ONE code.  It may legitimately raise others (an
@@ -1498,6 +1556,89 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `src/language/validators/deployable.ts` --------
+  // 24 uncoded sites, all of them deployable-composition rules that used to
+  // reach the user as `loom.unknown`.  One fixture each, over the shared
+  // `topology(...)` base above: the extra deployable / knob IS the defect.
+  "loom.static-deployable-missing-ui": topology(
+    "deployable web { platform: static targets: api port: 3001 }",
+  ),
+  "loom.frontend-targets-missing": topology("deployable web { platform: react port: 3001 }"),
+  "loom.frontend-targets-not-backend": topology(`
+  deployable web2 { platform: react targets: api port: 3002 }
+  deployable web { platform: react targets: web2 port: 3001 }`),
+  "loom.frontend-contexts-ignored": topology(
+    "deployable web { platform: react targets: api contexts: [Orders] port: 3001 }",
+  ),
+  "loom.targets-on-backend": topology(
+    "deployable api2 { platform: node targets: api contexts: [Orders] dataSources: [st] port: 3002 }",
+  ),
+  "loom.platform-unknown": topology('deployable web { platform: "frobnicator" port: 3001 }'),
+  "loom.platform-version-unknown": topology(
+    'deployable api2 { platform: "node@v999" contexts: [Orders] dataSources: [st] port: 3002 }',
+  ),
+  "loom.design-pack-ignored": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] design: mantine port: 3002 }",
+  ),
+  "loom.design-theme-unknown": topology(
+    "deployable web { platform: feliz targets: api ui: WebApp design: mantine port: 3001 }",
+    { ui: true, uiFramework: "feliz" },
+  ),
+  "loom.design-pack-custom-unchecked": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-version-unknown": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-format-mismatch": topology(
+    "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
+    { ui: true },
+  ),
+  "loom.datasource-context-unlisted": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
+    { secondContext: true },
+  ),
+  "loom.datasource-duplicate": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, st2] port: 3002 }",
+    { duplicateResource: true },
+  ),
+  "loom.serves-on-frontend": topology(
+    "deployable web { platform: react targets: api ui: WebApp serves: OrdersApi port: 3001 }",
+    { ui: true },
+  ),
+  "loom.serves-duplicate-api": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
+  ),
+  "loom.serves-unknown-api": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
+  ),
+  // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
+  // `api Sales: OrdersApi` parameter, so every shape below is a real binding
+  // defect rather than a missing declaration.
+  "loom.ui-binding-missing": topology(
+    "deployable web { platform: react targets: api ui: WebApp port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-unknown-param": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Nope: api } port: 3001 }",
+    { ui: true },
+  ),
+  "loom.ui-binding-duplicate": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Sales: api, Sales: api } port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-unknown-source": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Sales: ghost } port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-source-not-serving": topology(
+    `
+  deployable plain { platform: node contexts: [Orders] dataSources: [st] port: 3002 }
+  deployable web { platform: react targets: api ui: WebApp { Sales: plain } port: 3001 }`,
+    { ui: true, uiApiParam: true },
+  ),
   // --- `ui:` on a platform that mounts no UI (Rule 3) ---------------------
   "loom.ui-binding-unmountable-platform": `
 system P {
