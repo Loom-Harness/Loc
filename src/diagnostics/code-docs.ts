@@ -39,6 +39,21 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  // --- src/language/ddd-validator.ts (M-T9.56 drain) ----------------------
+  "loom.duplicate-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",
+  "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
+  "loom.duplicate-storage": "14-apis-storage-resources-channels.md#storage",
+  "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
+  // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
+  "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
+  "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
+  "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
+  "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
+  "loom.containment-foreign-part": "04-type-system.md#x-id--cross-aggregate-references",
+  "loom.duplicate-derived": "07-invariants-derived-functions.md#reserved-display-and-inspect",
+  // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
+  "loom.sensitivity-drop": "03-domain-modeling.md#sensitive",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",

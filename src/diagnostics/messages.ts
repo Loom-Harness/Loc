@@ -51,6 +51,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/_shared.ts
   // ----------------------------------------------------------------------
   "loom.blank-message": "A 'message' clause must not be blank.",
+  // `warnSensitivityDrop` is ONE forwarding helper called from every
+  // assignment / default / emit / derived type check, so the drain (M-T9.56)
+  // touched the helper, not its callers.
+  "loom.sensitivity-drop": (p: { dropped: unknown; actual: unknown; expected: unknown }) =>
+    `Implicit conversion drops sensitivity tag(s) {${p.dropped}}: '${p.actual}' flows into '${p.expected}'.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/a11y.ts
@@ -190,6 +195,13 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.duplicate-theme-block": (p: { themeCount: unknown }) =>
     `The project declares ${p.themeCount} 'theme { ... }' blocks, but a system admits at most one. ` +
     "Keep a single theme block (it may live in any file that composes into the system).",
+  // The SAME rule, checked a second time one scope down (M-T9.56 drain of
+  // `ddd-validator.ts`): `composition.ts` counts theme blocks across every file
+  // that composes into the project, this arm counts them inside one `system`
+  // block.  One code, two `#slug`s — a reader who looks the code up gets one
+  // rule, not two.
+  "loom.duplicate-theme-block#system-scope": (p: { name: unknown }) =>
+    `system '${p.name}' declares more than one 'theme { ... }' block; keep just the first.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/criterion.ts
@@ -905,6 +917,21 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/structural.ts
   // ----------------------------------------------------------------------
+  // --- the M-T9.56 drain of `structural.ts` -------------------------------
+  // The aggregate-shape rules the wording catalog never saw: an inert
+  // `audited`, the two duplicate-member rules, and the three containment
+  // rules.
+  "loom.audited-no-command": (p: { name: unknown }) =>
+    `'audited' on aggregate '${p.name}' has no effect — it declares no public command action (operation, create, or destroy), so no audit record is ever produced.`,
+  "loom.duplicate-entity-part": (p: { name: unknown; agg: unknown }) =>
+    `Duplicate entity part '${p.name}' in aggregate '${p.agg}'.`,
+  "loom.duplicate-derived": (p: { name: unknown; agg: unknown }) =>
+    `Aggregate '${p.agg}' declares multiple 'derived ${p.name}' fields; at most one is allowed.`,
+  "loom.valueobject-contains-entity": "Value objects cannot contain entities.",
+  "loom.containment-optional-collection": (p: { name: unknown }) =>
+    `Containment '${p.name}' is both a collection and optional — an empty collection already encodes absence; drop the '?'.`,
+  "loom.containment-foreign-part": (p: { name: unknown; owner: unknown }) =>
+    `Cannot 'contain' part '${p.name}' — it belongs to aggregate '${p.owner}'. Use '${p.owner} id' for a cross-aggregate link.`,
   "loom.slot-out-of-position": (p: { where: unknown }) =>
     `'slot' is only valid on a component's parameter list; found on ${p.where}.`,
   "loom.action-out-of-position": (p: { where: unknown }) =>
@@ -4205,6 +4232,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `Validator check '${p.name}' crashed and was skipped; the remaining checks still ran. (${p.message})`,
   "loom.duplicate-auth-block": (p: { name: unknown }) =>
     `system '${p.name}' declares more than one 'auth { ... }' block; keep just the first.`,
+  // --- the M-T9.56 drain of `ddd-validator.ts` ----------------------------
+  // The four system-scope name-uniqueness rules plus the api → subdomain
+  // resolution rule.  Four codes, not one: `ui` / `api` / `storage` /
+  // `resource` are four declaration kinds with four different fix hints, and
+  // the Problems panel dispatches on the code.
+  "loom.duplicate-ui": (p: { name: unknown }) =>
+    `Duplicate ui block '${p.name}'; ui names must be unique within a system.`,
+  "loom.duplicate-api": (p: { name: unknown }) =>
+    `Duplicate api '${p.name}'; api names must be unique within a system.`,
+  "loom.duplicate-storage": (p: { name: unknown }) =>
+    `Duplicate storage '${p.name}'; storage names must be unique within a system.`,
+  "loom.duplicate-resource": (p: { name: unknown }) =>
+    `Duplicate resource '${p.name}'; resource names must be unique within a system.`,
+  "loom.api-unknown-subdomain": (p: { name: unknown; sub: unknown }) =>
+    `api '${p.name}' references undeclared subdomain '${p.sub}'. Declare a 'subdomain ${p.sub} { … }' at system scope first.`,
   "loom.subdomain-conflicting-urlstyle": (p: {
     name: unknown;
     style: unknown;

@@ -28,7 +28,6 @@ import {
 import { parseBuiltinPlatformRef } from "../../src/platform/metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
-import { FIXTURES_RAISING_UNKNOWN } from "./diagnostic-uncoded-baseline.js";
 
 // ---------------------------------------------------------------------------
 // Diagnostic FIRING census (M-T9.33).
@@ -141,6 +140,31 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable api { platform: node contexts: [Orders] dataSources: [st] port: 3000 }
   deployable web { platform: ${platform} targets: api port: 3001 }
+}`;
+
+/** A system whose SYSTEM-SCOPE members are the defect — the five
+ *  name-uniqueness rules and the api → subdomain resolution rule that
+ *  `ddd-validator.ts` owns (M-T9.56). */
+const systemScope = (members: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+${members}
+}`;
+
+/** One aggregate whose MEMBERS are the defect, for the `structural.ts` shape
+ *  rules and the `_shared.ts` sensitivity-drop helper (M-T9.56).  `modifiers`
+ *  goes on the aggregate itself (`audited`). */
+const aggShape = (modifiers: string, members: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing ${modifiers} {
+${members}
+    }
+    repository Things for Thing { }
+  } }
 }`;
 
 /** One context plus a relational AND a key-value storage, so the
@@ -1721,6 +1745,51 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `ddd-validator.ts` + `structural.ts` + ---------
+  // --- `_shared.ts` (the last 13 uncoded sites) ---------------------------
+  // The five system-scope declaration rules live on one `systemScope(...)`
+  // base; the aggregate-shape rules and the one forwarding helper live on
+  // `aggShape(...)`.
+  "loom.duplicate-ui": systemScope(
+    '  ui WebApp { framework: react  page H { route: "/" body: Stack { Text { "x" } } } }\n' +
+      '  ui WebApp { framework: react  page H2 { route: "/2" body: Stack { Text { "x" } } } }',
+  ),
+  "loom.duplicate-api": systemScope("  api Api from D\n  api Api from D"),
+  "loom.api-unknown-subdomain": systemScope("  api Ghost from Nowhere"),
+  "loom.duplicate-storage": systemScope(
+    "  storage pg { type: postgres }\n  storage pg { type: postgres }",
+  ),
+  "loom.duplicate-resource": systemScope(
+    "  storage pg { type: postgres }\n" +
+      "  resource st { for: C, kind: state, use: pg }\n" +
+      "  resource st { for: C, kind: state, use: pg }",
+  ),
+  // Both `#slug`s of the theme rule: `composition.ts` counts across composing
+  // FILES, this arm counts inside one `system` block.  One source drives both.
+  "loom.duplicate-theme-block": systemScope(
+    '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
+  ),
+  "loom.audited-no-command": aggShape("audited", "      name: string"),
+  "loom.duplicate-entity-part": aggShape(
+    "",
+    "      entity Part { n: int }\n      entity Part { n: int }",
+  ),
+  "loom.duplicate-derived": aggShape(
+    "",
+    "      name: string\n      derived display: string = name\n      derived display: string = name",
+  ),
+  "loom.containment-optional-collection": aggShape(
+    "",
+    "      entity Part { n: int }\n      contains parts: Part[]?",
+  ),
+  // The one FORWARDING helper in the census (`warnSensitivityDrop`): a
+  // sensitivity-tagged value flowing into an untagged target.  Its callers do
+  // not word anything, so the drain touched the helper.
+  "loom.sensitivity-drop": aggShape(
+    "",
+    "      secret: string sensitive(pii)\n      derived leak: string = secret",
+  ),
+
   // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------
   // Three rules, nine sites: the kind must suit the storage's type, a knob
   // must suit the kind, and a knob must suit the storage.  One fixture per
@@ -2602,6 +2671,27 @@ system S {
  * can re-test the claim instead of inheriting it.
  */
 const UNREACHABLE_PINS: Record<string, string> = {
+  // M-T9.56 drain of `structural.ts`.  Two arms of `checkValueObject` /
+  // `checkContainment` that the GRAMMAR and the SCOPE PROVIDER already make
+  // unreachable, found by writing their fixtures:
+  //
+  //   `loom.valueobject-contains-entity` — `ValueObjectMember` is
+  //   `Property | DerivedProp | Invariant | FunctionDecl | TestBlock`; a
+  //   `contains` clause in a `valueobject` is a PARSE error, so the
+  //   `isContainment(m)` arm in `checkValueObject` never sees one.
+  //
+  //   `loom.containment-foreign-part` — the custom scope provider
+  //   (`ddd-scope.ts`) restricts a containment's `partType` to entity parts of
+  //   the SAME aggregate, so a cross-aggregate part never links: the check's
+  //   own `if (!part) return;` fires first and the author gets a linking error
+  //   naming the unresolved part. The arm's comment already calls itself a
+  //   "friendly double-check"; this pin records that the double-check is dead
+  //   in both directions rather than deleting a defensive arm the api toolkit
+  //   could still hand an un-linked model to.
+  "loom.valueobject-contains-entity":
+    "`ValueObjectMember` admits no `Containment`, so a `contains` inside a `valueobject` is a parse error and this arm never runs.",
+  "loom.containment-foreign-part":
+    "the scope provider hides other aggregates' entity parts, so a cross-aggregate `contains` fails to LINK and the check returns on its own `!part` guard first.",
   // M-T9.55.  The one give-up code in its family with no known reachable shape:
   // `walker-core.ts`'s markup-position expression `default:` arm, reached only
   // by an `ExprIR.kind` that appears as a primitive's CHILD and has no arm in
@@ -3264,23 +3354,29 @@ describe("diagnostic firing census", () => {
 });
 
 // ---------------------------------------------------------------------------
-// `loom.unknown` never reaches a user (M-T9.56, gate half).
+// `loom.unknown` never reaches a user (M-T9.56).
 //
 // The buckets above account for every CATALOGUED code.  `loom.unknown` is in no
 // bucket because it is in no catalogue: `src/api/report.ts` synthesises it for
-// any diagnostic that arrived with no `loom.*` code of its own, so it is the
-// one string on the wire that means "129 different conditions, take your pick".
+// any diagnostic that arrived with no `loom.*` code of its own, so it used to be
+// the one string on the wire that meant "129 different conditions, take your
+// pick".
 //
-// The per-file census in `diagnostic-uncoded-baseline.ts` counts those SITES.
-// This counts their EFFECT, on the only population where a defect diagnostic is
-// actually produced: the firing fixtures.  Every one of them is a deliberately
-// broken `.ddd`, so if an uncoded condition is reachable at all, this is where
-// it surfaces — and a fixture that raises `loom.unknown` alongside the code it
-// is proving is a user, today, reading a diagnostic with no name.
+// `diagnostic-catalog.test.ts` invariant 5 counts those SITES — zero of them
+// since wave C4.  This counts their EFFECT, on the only population where a
+// defect diagnostic is actually produced: the firing fixtures.  Every one of
+// them is a deliberately broken `.ddd`, so if an uncoded condition were
+// reachable at all, this is where it would surface.
 //
-// `FIXTURES_RAISING_UNKNOWN` is shrink-only and names the site each entry hits,
-// so the drain can aim at it; an entry that stops raising `loom.unknown` fails
-// as STALE, which is what makes the fix delete its own row.
+// The two halves are not redundant.  The site census reads the validator
+// SOURCES; this one reads what `validate()` actually hands a caller, so it also
+// covers a diagnostic built somewhere the site scanner does not look — a future
+// phase, a helper the AST shapes do not match — and it is the half that would
+// notice if `report.ts` started synthesising the code for a new reason.
+//
+// The `FIXTURES_RAISING_UNKNOWN` waiver table this used to consult is gone with
+// the drain: it shipped empty, and a waiver kept past the debt it waived is
+// slack (`allowlist-ratchet.test.ts`, same rule).
 // ---------------------------------------------------------------------------
 
 describe("the generic code `loom.unknown` reaches no user", () => {
@@ -3291,36 +3387,15 @@ describe("the generic code `loom.unknown` reaches no user", () => {
   for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
     it(`${code}'s fixture raises no uncoded diagnostic`, async () => {
       const raised = (await validate(source)).diagnostics.filter((d) => d.code === "loom.unknown");
-      const waived = code in FIXTURES_RAISING_UNKNOWN;
-      if (waived) {
-        expect(
-          raised.length,
-          `${code} is listed in FIXTURES_RAISING_UNKNOWN but no longer raises\n` +
-            `loom.unknown — the site it named was drained.  Delete its row from\n` +
-            `test/system/diagnostic-uncoded-baseline.ts in the same change.`,
-        ).toBeGreaterThan(0);
-        return;
-      }
       expect(
         raised.map((d) => `${d.severity ?? "?"}: ${d.message}`),
         `${code}'s fixture makes an UNCODED diagnostic reach the user.  ` +
           `src/api/report.ts stamps it \`loom.unknown\`, which is not a catalogue key: ` +
           `no wording entry, no docs anchor, no fix hint in the Problems panel.  Give ` +
-          `the validator site a \`loom.*\` code (see the invariant-5 message in ` +
-          `diagnostic-catalog.test.ts for the four edits), or — if the drain is not ` +
-          `this change's job — add the fixture to FIXTURES_RAISING_UNKNOWN naming the ` +
-          `site it hits.`,
+          `the validator site a \`loom.*\` code — the invariant-5 message in ` +
+          `diagnostic-catalog.test.ts lists what the code owes.  There is no waiver ` +
+          `table any more: the drain closed in wave C4 and the surface is zero.`,
       ).toEqual([]);
     });
   }
-
-  it("carries no stale waiver", () => {
-    const notAFixture = Object.keys(FIXTURES_RAISING_UNKNOWN).filter(
-      (c) => !(c in FIRING_FIXTURES),
-    );
-    expect(
-      notAFixture,
-      "FIXTURES_RAISING_UNKNOWN names a code with no FIRING_FIXTURES entry — delete it.",
-    ).toEqual([]);
-  });
 });

@@ -125,8 +125,12 @@ export function warnSensitivityDrop(
   if (!dropped) return;
   accept(
     "warning",
-    `Implicit conversion drops sensitivity tag(s) {${dropped.join(", ")}}: '${typeToString(actual)}' flows into '${typeToString(expected)}'.`,
-    info,
+    diagMessage("loom.sensitivity-drop", {
+      dropped: dropped.join(", "),
+      actual: typeToString(actual),
+      expected: typeToString(expected),
+    }),
+    { ...info, code: "loom.sensitivity-drop" },
   );
 }
 

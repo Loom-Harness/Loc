@@ -8,7 +8,6 @@ import {
   DIAGNOSTIC_MESSAGES,
   type DiagnosticMessageKey,
 } from "../../src/diagnostics/messages.js";
-import { UNCODED_SITES, UNCODED_TOTAL } from "./diagnostic-uncoded-baseline.js";
 
 // ---------------------------------------------------------------------------
 // The validator diagnostic-message catalog is the SINGLE HOME for the wording
@@ -41,17 +40,18 @@ import { UNCODED_SITES, UNCODED_TOTAL } from "./diagnostic-uncoded-baseline.js";
 // And a FIFTH invariant guards the sites the other four cannot see at all
 // (M-T9.56).  Every invariant above starts from a `code:` — so a site that
 // attaches NO code is not a violation of them, it is invisible to them.  That
-// is not a small residue: 129 conditions (118 errors, 11 warnings) reach the
-// user with no code, and `src/api/report.ts` stamps every one of them
-// `loom.unknown` — a string that is not a catalog key, has no docs anchor, no
-// fix hint and no firing-census bucket.  123 distinct conditions, one word on
-// the wire.
+// used to be 129 conditions (118 errors, 11 warnings) reaching the user with no
+// code, every one of them stamped `loom.unknown` by `src/api/report.ts` — a
+// string that is not a catalog key, has no docs anchor, no fix hint and no
+// firing-census bucket.  123 distinct conditions, one word on the wire.
 //
-//   5. The uncoded surface only shrinks — a per-file EXACT count, pinned in
-//      `diagnostic-uncoded-baseline.ts`.  A file that grows a new uncoded site
-//      fails with the site named; a file that drains one fails until its row is
-//      lowered, which is what makes a fix delete its own slack.  This is the
-//      GATE half of M-T9.56; the ~10-slice drain is Wave C4's.
+//   5. NO uncoded site, at all.  Wave C1 landed this as a per-file shrink-only
+//      ratchet over `diagnostic-uncoded-baseline.ts`; wave C4 drained the last
+//      row, so the baseline file is gone and the invariant is now an absolute
+//      gate: the first `accept(...)` that ships without a `code:` fails here
+//      with its file, line and source text named.  The list of what a new code
+//      owes (catalog entry, docs anchor, firing fixture) is in the failure
+//      message, which is where someone hitting it will read it.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -650,26 +650,20 @@ function uncodedSitesInSource(file: string, src: string): UncodedSite[] {
   return out;
 }
 
-describe("uncoded diagnostic sites — shrink-only (M-T9.56)", () => {
+describe("uncoded diagnostic sites — none, and none may return (M-T9.56)", () => {
   const ALL_UNCODED = catalogedSources().flatMap(uncodedSitesIn);
-  const live: Record<string, number> = {};
-  for (const s of ALL_UNCODED) live[s.file] = (live[s.file] ?? 0) + 1;
-  const sitesOf = (file: string): string =>
-    ALL_UNCODED.filter((s) => s.file === file)
-      .map((s) => `    ${s.file}:${s.line} [${s.severity}] ${s.text}`)
-      .join("\n");
 
   it("scans a real surface (guard against a vacuous pass)", () => {
-    // If the AST shapes stop matching, every assertion below passes on an
-    // empty census and the ratchet silently stops ratcheting.
+    // If the AST shapes stop matching, the assertion below passes on an empty
+    // census and the gate silently stops gating.
     //
     // This guard used to read `ALL_UNCODED.length > 50` — it counted LIVE
     // offenders, which made it a second, unlabelled ratchet running the wrong
     // way: the drain had to keep lowering it, and at zero (the drain's whole
     // point) the guard would have had to be deleted, taking the vacuous-pass
-    // protection with it.  It now drives the scanner with a FIXTURE holding
-    // one of each shape, which is a property of the scanner and holds at any
-    // debt level, including none.
+    // protection with it.  It drives the scanner with a FIXTURE instead, which
+    // is a property of the scanner and holds at any debt level, including the
+    // none we now have.
     expect(catalogedSources().length).toBeGreaterThan(20);
     const fixture = `
       function f(accept: A, node: N): void {
@@ -683,58 +677,27 @@ describe("uncoded diagnostic sites — shrink-only (M-T9.56)", () => {
     expect(
       found.map((s) => s.severity),
       "the scanner must see BOTH uncoded shapes (accept-with-options, accept-with-none, " +
-        "object literal) and NEITHER coded one — if this drifts, every assertion below " +
+        "object literal) and NEITHER coded one — if this drifts, the assertion below " +
         "passes on an empty census",
     ).toEqual(["error", "error", "object-literal"]);
   });
 
-  it("no file grows a NEW uncoded diagnostic", () => {
-    const grown = Object.keys(live)
-      .filter((f) => live[f]! > (UNCODED_SITES[f] ?? 0))
-      .sort()
-      .map(
-        (f) => `${f}: ${live[f]} uncoded site(s), pinned ${UNCODED_SITES[f] ?? 0}\n${sitesOf(f)}`,
-      );
+  it("no diagnostic site reaches the user without a `loom.*` code", () => {
+    const offenders = ALL_UNCODED.map(
+      (s) => `${s.file}:${s.line} [${s.severity}] ${s.text}`,
+    ).sort();
     expect(
-      grown,
-      "A new diagnostic reaches the user with no `loom.*` code, so `src/api/report.ts` " +
-        "stamps it `loom.unknown` — a string with no catalog entry, no docs anchor and no " +
-        "fix hint.  Give the site a code: add the wording to src/diagnostics/messages.ts " +
-        "keyed by that code, pass diagMessage(...) as the message, attach `code:` in the " +
-        "accept() options, and either add a docs anchor in src/diagnostics/code-docs.ts or " +
-        "list the code in diagnostic-docs-undocumented.ts.\n\n" +
-        grown.join("\n"),
+      offenders,
+      "A diagnostic reaches the user with no `loom.*` code, so `src/api/report.ts` stamps " +
+        "it `loom.unknown` — a string with no catalog entry, no docs anchor, no firing-" +
+        "census bucket and no fix hint.  There are ZERO such sites on this tree (M-T9.56 " +
+        "drained the last of 129 in wave C4); this gate keeps it that way.  Give the site " +
+        "a code: add the wording to src/diagnostics/messages.ts keyed by that code, pass " +
+        "diagMessage(...) as the message, attach `code:` in the accept() options, add a " +
+        "docs anchor in src/diagnostics/code-docs.ts (or a row in " +
+        "diagnostic-docs-undocumented.ts, which raises its own pinned length), and give " +
+        "the code a FIRING_FIXTURES entry in diagnostic-firing-census.test.ts.\n\n" +
+        offenders.join("\n"),
     ).toEqual([]);
-  });
-
-  it("no STALE row — a drained file deletes its own line", () => {
-    const overPinned = Object.keys(UNCODED_SITES)
-      .filter((f) => (live[f] ?? 0) < UNCODED_SITES[f]!)
-      .sort()
-      .map(
-        (f) => `${f}: ${live[f] ?? 0} uncoded site(s) left, still pinned at ${UNCODED_SITES[f]}`,
-      );
-    expect(
-      overPinned,
-      "The uncoded surface shrank but the baseline did not.  Lower the row in " +
-        "test/system/diagnostic-uncoded-baseline.ts in the SAME change (delete the row " +
-        "entirely when it reaches 0) — slack left in a ratchet is how it stops ratcheting " +
-        "(allowlist-ratchet.test.ts, same rule).\n\n" +
-        overPinned.join("\n"),
-    ).toEqual([]);
-  });
-
-  it("the per-file count is pinned EXACTLY", () => {
-    // Exact, not a ceiling.  A ceiling lets a new uncoded condition slip into
-    // an already-listed file — and `deployable.ts` alone holds 24, so there is
-    // plenty of cover.
-    expect(live).toEqual(UNCODED_SITES);
-  });
-
-  it("the total is pinned too (one number to watch shrink)", () => {
-    expect(
-      ALL_UNCODED.length,
-      `uncoded diagnostic sites: ${ALL_UNCODED.length} (pinned ${UNCODED_TOTAL})`,
-    ).toBe(UNCODED_TOTAL);
   });
 });
