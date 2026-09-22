@@ -20,6 +20,7 @@ import type {
   ParamIR,
   StmtIR,
 } from "../types/loom-ir.js";
+import { lowerCallableParams } from "./callable-params.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { collectSubjectTests } from "./lower-test.js";
 import { type Env, lowerType, withLocal } from "./lower-types.js";
@@ -52,13 +53,22 @@ function lowerDomainServiceOperation(
   // Fresh local scope per operation — no `this`, no aggregate candidate.
   // `serviceRepos` is threaded from the service env (it's context-scoped, not
   // operation-scoped) so each operation body resolves repository reads.
-  let inner: Env = { ...env, locals: new Map() };
-  const params: ParamIR[] = [];
-  for (const p of op.params) {
-    const t = lowerType(p.type, env);
-    params.push({ name: p.name, type: t });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  // A domain-service operation does NOT lower a parameter default today: the
+  // grammar parses `param: T = <expr>` (every site shares one `Parameter`
+  // rule) and this lowerer has always dropped it, so the emitters never see
+  // one.  Kept at today's behaviour deliberately — turning it on is a
+  // capability change on eleven targets, not a refactor — and named here
+  // rather than left as an unexplained difference between two copies of the
+  // same loop.
+  const bound = lowerCallableParams(
+    op.params,
+    { ...env, locals: new Map() },
+    {
+      defaults: false,
+    },
+  );
+  const params = bound.params;
+  let inner: Env = bound.env;
   const returnType = op.returnType ? lowerType(op.returnType, env) : undefined;
   // A union-returning operation threads its variants into the env so each
   // `return <expr>` can tag its value with the matching variant (producer).
