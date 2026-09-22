@@ -26,6 +26,14 @@ system Ops {
   subdomain Field {
     context Work {
       enum Priority { low high }
+      // Carried by the same channel, subscribed by NOBODY.  A broadcast
+      // channel delivers everything it carries to every subscriber, so this
+      // is the shape the consumer must still be able to decode.
+      event WorkOrderCancelled {
+        workOrder: WorkOrder id
+        at: datetime
+        reason: string
+      }
       event WorkOrderCompleted {
         workOrder: WorkOrder id
         at: datetime
@@ -50,9 +58,13 @@ system Ops {
             closedAt: now(), priority: Priority.high
           }
         }
+        operation cancel() {
+          state := "cancelled"
+          emit WorkOrderCancelled { workOrder: id, at: now(), reason: "no access" }
+        }
       }
       repository WorkOrders for WorkOrder { }
-      channel WorkOrderLifecycle { carries: WorkOrderCompleted  delivery: broadcast  retention: ephemeral }
+      channel WorkOrderLifecycle { carries: WorkOrderCompleted, WorkOrderCancelled  delivery: broadcast  retention: ephemeral }
     }
     context Notify {
       aggregate Notification with crudish {
@@ -206,6 +218,52 @@ describe("F-019 — broker consumer wire decode (node)", () => {
     const decode = loadDecoder(files.get("notifier/http/channels.ts") ?? "");
 
     expect(decode("SomethingElse", { ...WIRE_DATA }, "evt-1")).toBeNull();
+  });
+
+  // A wired channel delivers EVERYTHING it `carries:` to every subscriber, so
+  // "I have no reactor for this" and "this envelope is malformed" are
+  // different facts.  The consumer loop only has `decodeChannelEvent`'s
+  // `null` to tell them apart, so a carried type missing from the decoder
+  // table is read as the second: the message is refused at `error` level with
+  // "envelope discarded", and — the part that carries downstream — the
+  // `channel_consumed` record is never written for it.
+  //
+  // `notifier` reacts to `WorkOrderCompleted` only.  `WorkOrderCancelled`
+  // rides the same broadcast channel and must still decode; the dispatch
+  // behind it then no-ops, which is the correct outcome.
+  //
+  // This is the whole of the `main` red between #2944 and this change:
+  // `channels-e2e-kafka (node)` saw 6 of the 12 `channel_consumed` lines it
+  // requires, because half the events on the wire were the `OrderShipped` its
+  // consumer has no reactor for.  The other four backends reach the same
+  // contract by two different routes — .NET / Python / Elixir union the
+  // carried set into the codec (the 8a python fix), Java no-ops the
+  // unsubscribed type in the consumer BEFORE reaching its codec — and node
+  // had neither, because before #2944 it had no codec at all.
+  it("decodes a carried event it has no reactor for, rather than refusing it as unknown", async () => {
+    const files = await generateSystemFiles(FIXTURE);
+    const decode = loadDecoder(files.get("notifier/http/channels.ts") ?? "");
+
+    const event = decode(
+      "WorkOrderCancelled",
+      {
+        workOrder: "01a09c84-0000-7000-8000-000000000001",
+        at: "2026-09-13T20:45:54.243Z",
+        reason: "no access",
+      },
+      "evt-9",
+    );
+
+    expect(
+      event,
+      "a carried-but-unsubscribed event decoded to null, so the consumer loop logs " +
+        "channel_consume_failed and never records channel_consumed for it",
+    ).not.toBeNull();
+    expect(event?.type).toBe("WorkOrderCancelled");
+    expect(event?.reason).toBe("no access");
+    // Decoded, not cast: the same datetime revival the subscribed event gets.
+    expect(event?.at).toBeInstanceOf(Date);
+    expect(event?.__loomEventId).toBe("evt-9");
   });
 
   it("no longer casts the wire payload past the type system", async () => {
