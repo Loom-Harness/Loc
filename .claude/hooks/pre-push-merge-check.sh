@@ -60,6 +60,20 @@ git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || exit 0
 case "$branch" in main|master|HEAD|"") exit 0 ;; esac
 
+# --- throwaway-worktree cleanup --------------------------------------------
+# Registered at TOP LEVEL, not as a function-scoped RETURN trap: `deny` exits
+# the script, and an `exit` from inside a function never runs that function's
+# RETURN trap. Measured the hard way — the first two deny-path proofs each left
+# a live `git worktree` behind, which `git worktree list` then carried forever.
+PREFLIGHT_DIR=""
+cleanup_preflight() {
+  [ -n "$PREFLIGHT_DIR" ] || return 0
+  git worktree remove --force "$PREFLIGHT_DIR" >/dev/null 2>&1
+  rm -rf "$PREFLIGHT_DIR"
+  PREFLIGHT_DIR=""
+}
+trap cleanup_preflight EXIT
+
 # --- deny helper -----------------------------------------------------------
 deny() {
   jq -n --arg r "$1" '{
@@ -104,8 +118,7 @@ typecheck_merged() {
   commit="$(git commit-tree "$tree" -p HEAD -m 'merge-preflight (throwaway)' 2>/dev/null)" || return 0
   [ -n "$commit" ] || return 0
   dir="$(mktemp -d 2>/dev/null)" || return 0
-  # shellcheck disable=SC2064
-  trap "git worktree remove --force '$dir' >/dev/null 2>&1; rm -rf '$dir'" RETURN
+  PREFLIGHT_DIR="$dir"   # cleaned by the top-level EXIT trap, deny path included
   git worktree add --detach --quiet "$dir" "$commit" >/dev/null 2>&1 || return 0
   ln -s "$(cd "$mods" && pwd)" "$dir/node_modules" 2>/dev/null || return 0
 
