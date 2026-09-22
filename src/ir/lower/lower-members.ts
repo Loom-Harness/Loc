@@ -48,7 +48,6 @@ import type {
   InvariantIR,
   OperationIR,
   OperationKind,
-  ParamIR,
   StmtIR,
   TypeIR,
   UniqueKeyIR,

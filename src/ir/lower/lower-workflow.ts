@@ -50,7 +50,6 @@ import type {
   LoadPlanIR,
   LoadSegmentIR,
   OnIR,
-  ParamIR,
   PathIR,
   QueryHandlerIR,
   SortTermIR,

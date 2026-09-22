@@ -14,16 +14,11 @@
 // acyclic — the orchestrator imports this).
 import type { DomainService, Repository } from "../../language/generated/ast.js";
 import { isRepository } from "../../language/generated/ast.js";
-import type {
-  DomainServiceIR,
-  DomainServiceOperationIR,
-  ParamIR,
-  StmtIR,
-} from "../types/loom-ir.js";
+import type { DomainServiceIR, DomainServiceOperationIR, StmtIR } from "../types/loom-ir.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { collectSubjectTests } from "./lower-test.js";
-import { type Env, lowerType, withLocal } from "./lower-types.js";
+import { type Env, lowerType } from "./lower-types.js";
 
 export function lowerDomainService(decl: DomainService, env: Env): DomainServiceIR {
   // Index the enclosing context's repositories so a recognised repository READ
