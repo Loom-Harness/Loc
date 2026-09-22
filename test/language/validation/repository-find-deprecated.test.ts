@@ -5,8 +5,8 @@
 // `retrieval`.  A WARNING (existing `.ddd` keeps parsing).  A unique-key
 // reconstitution find (single `T` / `T?`) is NOT a list query and stays clean.
 
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
+import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const SYS = (finds: string): string => `

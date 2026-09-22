@@ -10,6 +10,7 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { loadProject } from "../../../src/language/project-loader.js";
 import { generateSystemsFromLoom } from "../../../src/system/index.js";
+import { diagText, type LspDiagnostic } from "../../_helpers/diagnostics.js";
 
 // Tier 1 of implicit-system-composition.md: a `subdomain` declared at the
 // top level of a sibling `.ddd` file folds into the project's single
@@ -24,11 +25,11 @@ function writeProject(rootDir: string, files: Record<string, string>): void {
   }
 }
 
-function errorsOf(docs: { uri: URI; diagnostics?: { severity?: number; message: string }[] }[]) {
+function errorsOf(docs: { uri: URI; diagnostics?: LspDiagnostic[] }[]) {
   return docs.flatMap((d) =>
     (d.diagnostics ?? [])
       .filter((x) => x.severity === 1)
-      .map((x) => `${path.basename(d.uri.fsPath)}: ${x.message}`),
+      .map((x) => `${path.basename(d.uri.fsPath)}: ${diagText(x)}`),
   );
 }
 

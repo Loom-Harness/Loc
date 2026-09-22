@@ -1,9 +1,9 @@
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { generateSystems } from "../../src/system/index.js";
+import type { LspDiagnostic as Diagnostic } from "../_helpers/diagnostics.js";
 import { parseString } from "../_helpers/parse.js";
 import { BACKEND_LABEL, type Backend, PLATFORM_CLAUSE } from "../fixtures/corpus/backends.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";

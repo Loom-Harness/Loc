@@ -5,26 +5,37 @@
 
 import { describe, expect, it } from "vitest";
 import type {
+  ContextMember,
   HandleDecl,
   Model,
   Operation,
+  Workflow,
   WorkflowCreateDecl,
 } from "../../../src/language/generated/ast.js";
 import {
   isAggregate,
+  isBoundedContext,
   isHandleDecl,
   isOperation,
   isSubdomain,
+  isSystem,
   isWorkflow,
   isWorkflowCreateDecl,
 } from "../../../src/language/generated/ast.js";
 import { printStructural } from "../../../src/language/print/index.js";
 import { parseString } from "../../_helpers/index.js";
 
-function contextMembers(model: Model) {
-  const out: unknown[] = [];
-  for (const sys of model.members) {
-    for (const sm of sys.members) {
+/** Every context member in the model — both shapes a `.ddd` root can take:
+ *  a bare top-level `context`, and `system → subdomain → context`. */
+function contextMembers(model: Model): ContextMember[] {
+  const out: ContextMember[] = [];
+  for (const top of model.members) {
+    if (isBoundedContext(top)) {
+      out.push(...top.members);
+      continue;
+    }
+    if (!isSystem(top)) continue;
+    for (const sm of top.members) {
       if (!isSubdomain(sm)) continue;
       for (const c of sm.contexts) out.push(...c.members);
     }
@@ -145,11 +156,7 @@ describe("operation / workflow requires gate parsing", () => {
 `;
     const { model, errors } = await parseString(src);
     expect(errors).toEqual([]);
-    const wf = model.members
-      .flatMap((m) => ("members" in m ? m.members : []))
-      .find(
-        (m) => m.$type === "Workflow",
-      ) as import("../../../src/language/generated/ast.js").Workflow;
+    const wf = contextMembers(model).find(isWorkflow) as Workflow;
     expect(wf.gate, "workflow header gate").toBeDefined();
     // The starter keeps its OWN gate — the header one did not swallow it.
     const create = wf.members.find((m) => m.$type === "WorkflowCreateDecl") as {
@@ -172,9 +179,7 @@ ${printed}
   it("an ungated workflow has no header gate (back-compat)", async () => {
     const { model, errors } = await parseString(wrap("operation close() { open := false }"));
     expect(errors).toEqual([]);
-    const wf = model.members
-      .flatMap((m) => ("members" in m ? m.members : []))
-      .find((m) => m.$type === "Workflow") as { gate?: unknown } | undefined;
+    const wf = contextMembers(model).find(isWorkflow);
     if (wf) expect(wf.gate).toBeUndefined();
   });
 });

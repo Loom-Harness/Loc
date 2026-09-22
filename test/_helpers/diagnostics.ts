@@ -30,3 +30,14 @@ export const diagText = (d: { message: LspDiagnostic["message"] }): string =>
 /** The `loom.*` codes of IR diagnostics, in order; an uncoded one yields `""`. */
 export const diagCodes = (diags: readonly LoomDiagnostic[]): string[] =>
   diags.map((d) => d.code ?? "");
+
+/** The string `code`s attached to LSP (Langium-side) diagnostics, in order,
+ *  dropping the uncoded ones.
+ *
+ *  LSP types `code` as `integer | string | undefined`; Loom only ever attaches
+ *  the `loom.*` string form, so narrowing on `typeof c === "string"` keeps the
+ *  result honestly `string[]`.  Seventeen validation suites carried a
+ *  byte-identical private copy of this, each declared over `{ code?: string }[]`
+ *  — a parameter type no real `Diagnostic` satisfies. */
+export const lspCodes = (diags: readonly { code?: LspDiagnostic["code"] }[]): string[] =>
+  diags.map((d) => d.code).filter((c): c is string => typeof c === "string");
