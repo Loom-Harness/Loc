@@ -21,18 +21,22 @@ describe("stubAdapter", () => {
         listed++;
         return ["efcore", "marten"];
       },
-      {
-        name: "dapper",
-        supportedStrategies: ["state"],
-        supports: (type) => type === "postgres",
-      },
+      { name: "dapper" },
     );
     expect(stub.name).toBe("dapper");
-    expect(stub.supportedStrategies).toEqual(["state"]);
-    expect(stub.supports("postgres", "state", "state")).toBe(true);
-    expect(stub.supports("redis", "state", "state")).toBe(false);
     // realImplementations() is only invoked on a throwing `emit*` call.
     expect(listed).toBe(0);
+
+    // A contract with MORE than one capability field answers each of them —
+    // `supportedLayouts` is the live example (it reaches the validator through
+    // the adapter-metadata mirror).  `PersistenceAdapter` publishes only
+    // `name` since M-T9.2 removed its unread `supports` / `supportedStrategies`.
+    const style = stubAdapter<StyleAdapter>("style", "fancy", "dotnet", () => ["layered"], {
+      name: "fancy",
+      supportedLayouts: ["byFeature"],
+    });
+    expect(style.name).toBe("fancy");
+    expect(style.supportedLayouts).toEqual(["byFeature"]);
   });
 
   it("throws AdapterNotImplementedError from a non-capability method call", () => {
@@ -46,11 +50,7 @@ describe("stubAdapter", () => {
       "dapper",
       "dotnet",
       () => ["efcore", "marten"],
-      {
-        name: "dapper",
-        supportedStrategies: ["state"],
-        supports: () => true,
-      },
+      { name: "dapper" },
     );
     const ctx = {} as never;
     expect(() => stub.emitProjectDeps(ctx)).toThrow(AdapterNotImplementedError);
@@ -62,7 +62,7 @@ describe("stubAdapter", () => {
       "dapper",
       "dotnet",
       () => ["marten", "efcore"], // intentionally unsorted
-      { name: "dapper", supportedStrategies: ["state"], supports: () => false },
+      { name: "dapper" },
     );
     try {
       stub.emitProjectDeps({} as never);
@@ -81,7 +81,6 @@ describe("stubAdapter", () => {
   it("falls back to 'No implementations…' when the sibling list is empty", () => {
     const stub = stubAdapter<StyleAdapter>("style", "fancy", "phoenixLiveView", () => [], {
       name: "fancy",
-      supportedStrategies: ["state"],
       supportedLayouts: ["byFeature"],
     });
     try {

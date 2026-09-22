@@ -165,7 +165,7 @@ export function caseId(c: PairwiseCase): string {
     c.read === OMITTED_FROM_ID.read ? undefined : c.read,
     c.persistence,
   ]
-    .filter((s): s is string => s !== undefined)
+    .filter((s) => s !== undefined)
     .join("-");
 }
 

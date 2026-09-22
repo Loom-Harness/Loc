@@ -21,6 +21,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 const UNKNOWN_SUBDOMAIN = /references unknown Subdomain/;
 
@@ -48,8 +49,8 @@ describe("cross-file scaffold ref-list resolution", () => {
     };
     const errors = (rel: string, match: RegExp): string[] =>
       (shared.workspace.LangiumDocuments.getDocument(uri(rel))?.diagnostics ?? [])
-        .filter((d) => (d.severity ?? 4) <= 2 && match.test(d.message))
-        .map((d) => d.message);
+        .filter((d) => (d.severity ?? 4) <= 2 && match.test(diagText(d)))
+        .map(diagText);
     const macroErrors = (rel: string): string[] => errors(rel, UNKNOWN_SUBDOMAIN);
     return { open, remove, errors, macroErrors };
   }

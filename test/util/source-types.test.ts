@@ -21,7 +21,13 @@ import {
 
 // The legacy matrix, transcribed verbatim from the pre-registry
 // `validators/datasource.ts` for the equivalence assertions below.
-const LEGACY: Record<DataSourceKind, string[]> = {
+/** The kinds the legacy matrix covered.  The registry has since grown
+ *  `objectStore` / `queue` / `api` / `mailer`, which the pre-registry validator
+ *  never knew — naming the subset keeps the record EXHAUSTIVE over what this
+ *  file claims to transcribe, instead of silently partial over what it does not. */
+type LegacyKind = Extract<DataSourceKind, "state" | "snapshot" | "replica" | "cache" | "eventLog">;
+
+const LEGACY: Record<LegacyKind, string[]> = {
   state: ["postgres", "mysql", "sqlite", "inMemory"],
   snapshot: ["postgres", "mysql", "sqlite", "inMemory"],
   replica: ["postgres", "mysql", "sqlite"],
@@ -53,7 +59,7 @@ const LEGACY_STORES = new Set(Object.values(LEGACY).flat());
 const BUILTIN_MAILERS = new Set(["sendgrid", "ses", "smtp"]);
 
 describe("sourceType registry — matrix equivalence", () => {
-  for (const kind of Object.keys(LEGACY) as DataSourceKind[]) {
+  for (const kind of Object.keys(LEGACY) as LegacyKind[]) {
     it(`sourceTypesForSurfaceKind('${kind}') matches the legacy matrix`, () => {
       expect(sourceTypesForSurfaceKind(kind).filter((t) => LEGACY_STORES.has(t))).toEqual(
         [...LEGACY[kind]].sort(),
@@ -63,7 +69,7 @@ describe("sourceType registry — matrix equivalence", () => {
 
   it("supportsSurfaceKind agrees with the legacy matrix across all known stores", () => {
     for (const sourceType of registeredSourceTypes().filter((t) => LEGACY_STORES.has(t))) {
-      for (const kind of Object.keys(LEGACY) as DataSourceKind[]) {
+      for (const kind of Object.keys(LEGACY) as LegacyKind[]) {
         expect(supportsSurfaceKind(sourceType, kind)).toBe(LEGACY[kind].includes(sourceType));
       }
     }
@@ -77,7 +83,7 @@ describe("sourceType registry — matrix equivalence", () => {
 
   it("search/analytics stores bind to no kind today", () => {
     for (const sourceType of ["elastic", "meilisearch", "clickhouse", "bigquery"]) {
-      for (const kind of Object.keys(LEGACY) as DataSourceKind[]) {
+      for (const kind of Object.keys(LEGACY) as LegacyKind[]) {
         expect(supportsSurfaceKind(sourceType, kind)).toBe(false);
       }
     }
