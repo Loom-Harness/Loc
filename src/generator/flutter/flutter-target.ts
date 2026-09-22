@@ -222,6 +222,14 @@ function dartPredicateSwitch(
   return `switch (0) { ${[...clauses, terminal].join(", ")} }`;
 }
 
+/** Wrap one or more Dart list-literal PARTS into a single Widget.  Dart has no
+ *  fragment and adjacent widgets are a parse error, so the container IS the
+ *  answer — shared by `joinRoots` (a multi-root `Table`) and `renderForEach`
+ *  in a value slot (whose `...` spread needs a list literal to live in). */
+function columnOf(parts: readonly string[]): string {
+  return `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[${parts.join(", ")}])`;
+}
+
 export const flutterTarget: WalkerTarget = {
   framework: "flutter",
 
@@ -511,8 +519,7 @@ export const flutterTarget: WalkerTarget = {
    *  MULTI-ROOT, and every slot the walker puts it in takes exactly one Widget.
    *  Wrap the parts in a `Column` — Dart has no fragment, and adjacent widgets
    *  with no separator are a parse error, not a layout quirk. */
-  joinRoots: (parts: readonly string[]) =>
-    `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[${parts.join(", ")}])`,
+  joinRoots: (parts: readonly string[]) => columnOf(parts),
 
   /** The server's page COUNT.  `LoomPage.fromJson` already clamps it to at
    *  least 1, so unlike the JS default (`Math.max(1, …)`) no extra guard is
@@ -527,7 +534,7 @@ export const flutterTarget: WalkerTarget = {
   // `For { each: coll, x => <markup> }` → `...coll.map((x) => <widget>)`, spliced
   // into the enclosing children list (Dart's collection spread).  An `empty:` arm
   // folds into a collection-`if`; the index binding is emitted only when used.
-  renderForEach: (coll, itemVar, indexVar, _keyExpr, body, _depth, emptyBody) => {
+  renderForEach: (coll, itemVar, indexVar, _keyExpr, body, _depth, emptyBody, slot) => {
     // Word-boundary match — a substring test would false-positive on a
     // single-letter index (`i`) inside any identifier (`x.id`).  Flutter's
     // `.map` spread emits NO list key (unlike React's keyed Fragment), so the
@@ -539,8 +546,17 @@ export const flutterTarget: WalkerTarget = {
     const mapped = usesIndex
       ? `...${coll}.asMap().entries.map((entry) { final ${indexVar} = entry.key; final ${itemVar} = entry.value; return ${body}; })`
       : `...${coll}.map((${itemVar}) => ${body})`;
-    if (emptyBody === undefined) return mapped;
-    return `if (${coll}.isEmpty) ${emptyBody} else ${mapped}`;
+    const spliced =
+      emptyBody === undefined ? mapped : `if (${coll}.isEmpty) ${emptyBody} else ${mapped}`;
+    // Both shapes above are COLLECTION syntax — a `...` spread and a
+    // collection-`if` parse only inside a list literal.  A VALUE slot (a
+    // `QueryView` branch, a `match` arm, a table cell, the page body root)
+    // takes exactly one Widget, so the splice has to become one: the same
+    // `Column` the multi-root `Table` reaches for through `joinRoots`, which
+    // is where the list literal comes from (ledger F2-CFE-3, flutter half).
+    // Tested against `"children"`, not `"value"`: the seam fails closed, so an
+    // absent flag takes the wrapper rather than the shape that cannot parse.
+    return slot === "children" ? spliced : columnOf([spliced]);
   },
 
   // --- Navigation seam — Navigator.pushNamed -------------------------------
@@ -934,6 +950,10 @@ export const flutterTarget: WalkerTarget = {
       // fold into a min-height Column — the same container the walker gives a
       // `Stack`, sized to its contents so it can sit anywhere the single child
       // could.
+      // Default `ChildSlot` — a VALUE slot: a lone child becomes the
+      // constructor's single `Widget? child`, where a `...` spread does not
+      // parse.  (Several children fold into the `<Widget>[…]` literal below,
+      // but the restrictive answer is valid there too.)
       const walked = children.map((c) => walk(c, ctx, 0).trim());
       const value =
         walked.length === 1

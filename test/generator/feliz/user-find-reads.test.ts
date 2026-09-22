@@ -150,7 +150,11 @@ describe("feliz user-find read — the view names the read's own field", () => {
     expect(fs).toContain("View.remoteList model.DocByVis");
     // The `data:` lambda binds the read's own binding, and the body iterates it.
     expect(fs).toContain("fun docByVis ->");
-    expect(fs).toContain("yield! docByVis |> List.map");
+    // ONE element, not a `yield!` splice: a `data:` lambda body is a value
+    // slot, and F# admits `yield!` only inside a list/seq expression (F-024 /
+    // ledger F2-CFE-3 — this assertion used to pin the FS0747 shape).
+    expect(fs).toContain("React.fragment (docByVis |> List.map");
+    expect(fs).not.toContain("yield! docByVis");
   });
 
   it("emits no F# that references an undeclared model field", async () => {
