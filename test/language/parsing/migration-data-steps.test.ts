@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { parseString } from "../../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../../_helpers/parse.js";
 
 const SYS = `
 system Shop {
@@ -22,15 +22,13 @@ system Shop {
 
 describe("migration data steps — parsing + lowering (M-T2.3)", () => {
   it("parses and lowers a backfill step with the expression in aggregate scope", async () => {
-    const { model, diagnostics } = await parseString(
-      `${SYS}
+    const src = `${SYS}
 migration "backfill-status" {
   Order.status = Pending
   Order.firstName = firstName + " "
-}`,
-      { validate: false },
-    );
-    expect(diagnostics.filter((d) => d.severity === 1)).toEqual([]);
+}`;
+    expect(parseErrorsOf(src)).toEqual([]);
+    const { model } = await parseString(src, { validate: false });
     const loom = lowerModel(model);
     expect(loom.backfillIntents).toHaveLength(2);
     const [status, first] = loom.backfillIntents;
@@ -51,16 +49,14 @@ migration "backfill-status" {
   });
 
   it("parses and lowers sql steps with their block-declaration index", async () => {
-    const { model, diagnostics } = await parseString(
-      `${SYS}
+    const src = `${SYS}
 migration "fixup" {
   Order.qty -> quantity
   sql "UPDATE orders SET quantity = 0 WHERE quantity IS NULL"
   sql "ANALYZE orders"
-}`,
-      { validate: false },
-    );
-    expect(diagnostics.filter((d) => d.severity === 1)).toEqual([]);
+}`;
+    expect(parseErrorsOf(src)).toEqual([]);
+    const { model } = await parseString(src, { validate: false });
     const loom = lowerModel(model);
     expect(loom.renameIntents).toHaveLength(1);
     expect(loom.renameIntents[0]).toMatchObject({ from: "qty", to: "quantity" });
@@ -75,14 +71,12 @@ migration "fixup" {
   });
 
   it("keeps `sql` usable as an ordinary field name (soft keyword)", async () => {
-    const { diagnostics } = await parseString(
-      `
+    expect(
+      parseErrorsOf(`
 context Reports {
   aggregate Query { sql: string }
   repository Queries for Query { }
-}`,
-      { validate: false },
-    );
-    expect(diagnostics.filter((d) => d.severity === 1)).toEqual([]);
+}`),
+    ).toEqual([]);
   });
 });

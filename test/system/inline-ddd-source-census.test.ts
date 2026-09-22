@@ -151,10 +151,6 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     why: "asserts what a keyword-where-a-name-was-legal REFUSAL says; a parseable fixture would reach no message at all",
   },
   {
-    file: "test/language/parsing/filter-bypass-parse.test.ts",
-    why: "pins the positions where `ignoring` does NOT parse (#2699)",
-  },
-  {
     file: "test/language/parsing/store.test.ts",
     why: "negative fixtures for the `store` grammar",
   },

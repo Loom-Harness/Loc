@@ -10,11 +10,23 @@ import type {
   StoreIR,
   TypeIR,
   UiApiParamIR,
+  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
-import { componentPropTsType } from "../../_frontend/component-prop-type.js";
+import {
+  componentPropTsType,
+  takeMoneyPropImport,
+  valueObjectIndex,
+} from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { pageEmitPath } from "../../_frontend/page-identity.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
@@ -460,7 +472,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   const dialogBlocks: string[] = [];
   for (const state of opFormStates) {
     if (state.kind !== "operation") continue;
-    const opCamel = lowerFirst(state.op.name);
+    const opCamel = escapeTsIdent(lowerFirst(state.op.name));
     const opPascal = upperFirst(state.op.name);
     const agg = state.agg.name;
     const from = `../api/${lowerFirst(agg)}`;
@@ -895,6 +907,7 @@ function paramPropType(
   p: ParamIR,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
   dtoImports: Map<string, string>,
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const t = p.type;
   const action =
@@ -905,10 +918,10 @@ function paramPropType(
         : undefined;
   if (action) {
     return action.arg
-      ? `(arg: ${componentPropTsType(action.arg, aggregatesByName, dtoImports)}) => void`
+      ? `(arg: ${componentPropTsType(action.arg, aggregatesByName, dtoImports, valueObjects)}) => void`
       : "() => void";
   }
-  return componentPropTsType(t, aggregatesByName, dtoImports);
+  return componentPropTsType(t, aggregatesByName, dtoImports, valueObjects);
 }
 
 // ---------------------------------------------------------------------------
@@ -930,6 +943,9 @@ export function renderVueExternComponentProps(
   name: string,
   params: readonly ParamIR[],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
+   *  `valueobject`-typed prop is spelled structurally from its fields. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   // Vue slots are template content (`<slot>`), not props — a `slot`
@@ -939,12 +955,20 @@ export function renderVueExternComponentProps(
   const propParams = params.filter((p) => !isSlotParam(p));
   const propLines = propParams.map((p) => {
     const optional = p.type.kind === "optional" && p.type.inner.kind === "action";
-    return `  ${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports)};`;
+    return `  ${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports, valueObjects)};`;
   });
-  const dtoImportLines = [...dtoImports.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
-    .join("");
+  // A money-typed prop asks for decimal.js by sentinel — a DEFAULT import, since
+  // the name is bound once per file (see `MONEY_IMPORT_SENTINEL`).  Draining it
+  // here is what keeps it out of the `import type { … }` serialization below.
+  const moneyPropImport = takeMoneyPropImport(dtoImports)
+    ? `import type Decimal from "decimal.js";\n`
+    : "";
+  const dtoImportLines =
+    moneyPropImport +
+    [...dtoImports.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .join("");
   const propsBody =
     propLines.length > 0
       ? `export interface ${name}Props {\n${propLines.join("\n")}\n}\n`
@@ -1064,12 +1088,20 @@ export function renderVueComponentFile(
   // params become callback props — matching the extern-component path and the
   // React/Svelte frontends.
   const dtoImports = new Map<string, string>();
+  // Declared value objects, for a `valueobject`-typed prop — spelled
+  // structurally from its fields by the shared prop layer.
+  const propValueObjects = valueObjectIndex(bcByAggregate);
   const propFields = params
     .filter((p) => !isSlotParam(p))
     .map((p) => {
       const optional = p.type.kind === "optional" && p.type.inner.kind === "action";
-      return `${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports)};`;
+      return `${p.name}${optional ? "?:" : ":"} ${paramPropType(p, aggregatesByName, dtoImports, propValueObjects)};`;
     });
+  // `Decimal` is bound at most once per <script setup>, by a default import.
+  // A money PROP is a type annotation, so nothing in the rendered body reveals
+  // it — the sentinel is the only signal, and draining it here also keeps it
+  // out of the `import type { … }` loop below.
+  const moneyProp = takeMoneyPropImport(dtoImports);
 
   // `Action(<inst>.<op>)` mutation hoists — the only api a component
   // body reaches (no apiParams in component scope).  Hoist args (when
@@ -1324,7 +1356,7 @@ export function renderVueComponentFile(
   }
   // A money-typed `state {}` field refs as `ref(new Decimal("0"))` —
   // pull decimal.js in, same as the page shell.
-  if (result.usesState && state.some((f) => typeUsesMoney(f.type))) {
+  if ((result.usesState && state.some((f) => typeUsesMoney(f.type))) || moneyProp) {
     script.push(`import Decimal from "decimal.js";`);
   }
   if (needsNavigate) {

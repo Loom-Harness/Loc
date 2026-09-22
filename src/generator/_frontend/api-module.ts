@@ -49,6 +49,7 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
+import { sendsIfMatchPrecondition } from "./occ.js";
 import { serverSourcedDefaultFields } from "./server-default.js";
 import { AUDIT_ENTRY_LIST_TYPE, emitAuditEntrySchemas, provenancedZod } from "./zod-schemas.js";
 
@@ -129,7 +130,12 @@ export function buildApiModule(
   if (isVueQuery && hasVueGetterHook) {
     lines.push(`import { type MaybeRefOrGetter, computed, toValue } from "vue";`);
   }
-  lines.push(`import { api, seg } from "./client";`);
+  // `ifMatch` only where an operation actually sends the precondition, so an
+  // aggregate with no guarded write emits the import line it always did.
+  const anyOcc = agg.operations.some(
+    (o) => o.visibility === "public" && sendsIfMatchPrecondition(agg, o),
+  );
+  lines.push(`import { api,${anyOcc ? " ifMatch," : ""} seg } from "./client";`);
   if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     // Shared `moneySchema` — single home for the precise-decimal
     // wire shape; emitted to `src/lib/schemas.ts` whenever any
@@ -462,14 +468,26 @@ export function buildApiModule(
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return useMutation({`);
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
+    // F-023 — the optimistic-concurrency precondition.  The version comes from
+    // the by-id query cache, which is the row the user is LOOKING AT: the same
+    // object the detail page rendered and the edit form was seeded from, under
+    // the key this hook already invalidates on success.  A cold cache (the form
+    // was reached without reading the record) yields `undefined` → no header →
+    // the previous behaviour, rather than a guess.
+    const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
+    if (occArg) {
+      lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id]);`);
+    }
     if (u) {
       // Union-returning op: parse + RETURN the tagged success variant so the
       // awaiting action's `match` arm carries the payload (the error variant
       // never reaches 200 — it's a thrown non-2xx reified at the call site).
-      lines.push(`      const r = await api.post(\`/${tag}/\${seg(id)}/${opSnake}\`, input);`);
+      lines.push(
+        `      const r = await api.post(\`/${tag}/\${seg(id)}/${opSnake}\`, input${occArg});`,
+      );
       lines.push(`      return ${upperFirst(op.name)}${agg.name}Response.parse(r);`);
     } else {
-      lines.push(`      await api.post(\`/${tag}/\${seg(id)}/${opSnake}\`, input);`);
+      lines.push(`      await api.post(\`/${tag}/\${seg(id)}/${opSnake}\`, input${occArg});`);
     }
     lines.push(`    },`);
     lines.push(`    onSuccess: () => {`);
@@ -928,5 +946,10 @@ function collectUsedTypes(
 function narrowSegImport(src: string): string {
   return /\$\{seg\(/.test(src)
     ? src
-    : src.replace('import { api, seg } from "./client";', 'import { api } from "./client";');
+    : src
+        .replace(
+          'import { api, ifMatch, seg } from "./client";',
+          'import { api, ifMatch } from "./client";',
+        )
+        .replace('import { api, seg } from "./client";', 'import { api } from "./client";');
 }

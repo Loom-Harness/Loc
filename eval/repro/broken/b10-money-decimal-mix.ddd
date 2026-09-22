@@ -1,0 +1,15 @@
+// 10. mixing money with decimal (the documented closed-arithmetic rule)
+system X {
+  subdomain S { context C {
+    aggregate Invoice with crudish {
+      amount: money
+      rate: decimal
+      derived bad: money = amount + rate
+      derived display: string = "x"
+    }
+    repository Invoices for Invoice { }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

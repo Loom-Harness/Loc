@@ -946,7 +946,12 @@ export const ELIXIR_COLLECTION_RENDERERS: Record<
   any: (recv, args) => `Enum.any?(${recv}, ${args[0] ?? "fn _ -> true end"})`,
   contains: (recv, args) => `Enum.member?(${recv}, ${args[0] ?? "nil"})`,
   where: (recv, args) => `Enum.filter(${recv}, ${args[0] ?? "fn _ -> true end"})`,
-  first: (recv) => `List.first(${recv})`,
+  // `first` is PARTIAL and `firstOrNull` TOTAL (D-FIRST-ON-EMPTY / RS-36).
+  // These two were literally the SAME snippet, so `first` — declared as a
+  // non-optional `T` — silently returned `nil` on an empty list.  `hd/1` raises
+  // `ArgumentError` on `[]`, which is the raise the other four targets already
+  // make natively; `List.first/1` stays the total form.
+  first: (recv) => `hd(${recv})`,
   firstOrNull: (recv) => `List.first(${recv})`,
   map: (recv, args) => `Enum.map(${recv}, ${args[0]})`,
   // The sorter is TYPE-AWARE for the same reason min/max's is (see

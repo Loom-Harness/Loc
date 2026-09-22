@@ -1,0 +1,14 @@
+// 4. cross-aggregate reference without `id`
+system X {
+  subdomain S {
+    context C {
+      aggregate Customer with crudish { name: string  derived display: string = name }
+      aggregate Order with crudish { buyer: Customer  derived display: string = "x" }
+      repository Orders for Order { }
+      repository Customers for Customer { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

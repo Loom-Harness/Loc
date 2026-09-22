@@ -377,6 +377,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `Abstract aggregate '${p.name}' cannot declare a '${p.kw}' action — abstract ` +
     `bases are never instantiated and have no polymorphic dispatch in v1. ` +
     `Declare it on each concrete subtype.`,
+  // A containment graph must be a tree: an aggregate is loaded whole, so a part
+  // that contains itself names a value with no finite serialisation.  The
+  // message carries the CHAIN because a two-part cycle is obvious and a
+  // three-part one is not, and it names the shape that does work — the natural
+  // domains here (sub-task tree, bill of materials, threaded comment) are ones
+  // an author will want to model some other way, not abandon.
+  // The tenant registry's id IS the tenant identity, so the signup loop starts
+  // by creating a registry row.  No create path means the first tenant can
+  // never exist — a bootstrap that cannot start, which is not obvious from the
+  // model and was not reported.
+  "loom.tenant-registry-not-constructible": (p: { name: unknown }) =>
+    `'${p.name}' is the tenant registry ('tenancy by user.<claim> of ${p.name}') but nothing can ` +
+    `create one: it declares no 'create', no workflow saves one, and no seed names it, so the ` +
+    `generated API is read-only. A tenant's claim value IS a ${p.name} row's id, so with no way ` +
+    `to create one the first tenant can never exist. Add 'with crudish' (or declare a 'create') ` +
+    `to open the signup loop, or seed the registry if tenants are provisioned out of band.`,
+
+  "loom.containment-cycle": (p: { agg: unknown; chain: unknown; part: unknown }) =>
+    `Aggregate '${p.agg}' has a containment cycle: ${p.chain}. An aggregate is loaded as a ` +
+    `whole, so a part that contains itself (directly or through a chain) has no finite shape. ` +
+    `Model the recursion as a separate aggregate with a self-reference instead — ` +
+    `'aggregate ${p.part} { parentId: ${p.part} id? … }' is a foreign key to the same table and ` +
+    `loads one level at a time.`,
+
   "loom.abstract-aggregate-contains": (p: { name: unknown; member: unknown }) =>
     `Abstract aggregate '${p.name}' cannot declare 'contains ${p.member}' — an abstract ` +
     `base owns no repository and its concretes do not inherit its parts, so the part's ` +
@@ -1008,6 +1032,18 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.unknown-permission": (p: { name: unknown }) =>
     `permissions.${p.name}: no permission named '${p.name}' is declared in this subdomain's 'permissions { ... }' block. ` +
     `Either add the declaration or fix the reference.`,
+  // A `ui` is a system member, so it sees the union of every subdomain's
+  // catalogue rather than one subdomain's — which means the name can fail to
+  // resolve for a SECOND reason the context-scoped wording cannot express: two
+  // subdomains declaring the same bare name give different runtime strings
+  // (`sales.read` / `billing.read`), and binding the gate to whichever lowered
+  // first would silently gate the page on the wrong subdomain's permission.
+  "loom.unknown-permission#ui": (p: { name: unknown }) =>
+    `permissions.${p.name}: no permission named '${p.name}' resolves from a 'ui'. ` +
+    `A ui sees every subdomain's 'permissions { ... }' catalogue, so either no subdomain ` +
+    `declares '${p.name}', or more than one does and the bare name is ambiguous — ` +
+    `two subdomains declaring it produce different runtime strings. ` +
+    `Declare it in exactly one subdomain, or rename so the gate names a single permission.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/template.ts
@@ -1157,6 +1193,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `menu link '${p.name}' does not name a page of ui '${p.uiName}'.  Linkable pages: ${p.linkable}.  Scaffolded pages are named by ROLE inside a per-aggregate area, so link them area-qualified (e.g. 'link Orders.List'); a workflow's form page is '<Workflow>Workflow'.`,
   "loom.extern-function-shadows-stdlib": (p: { name: unknown }) =>
     `extern function '${p.name}' shadows a walker-stdlib primitive.  Pick a different name.`,
+  "loom.component-shadows-stdlib": (p: { name: unknown }) =>
+    `component '${p.name}' shadows a walker-stdlib primitive — the page-body dispatcher ` +
+    `resolves '${p.name}(...)' to the primitive, so this component is emitted and never ` +
+    `rendered.  Pick a different name.`,
   "loom.store-lifetime-invalid": (p: {
     name: unknown;
     lifetime: unknown;
@@ -1682,10 +1722,11 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `field '${p.name}' cannot be persisted on the feliz frontend — ` +
     `\`persist: ${p.lifetime}\` crosses the JS boundary per field, and the F# codec covers ` +
-    `string / int / long / bool / decimal / money / id fields plus arrays of ` +
-    `string / int / long / bool.  A datetime, duration, guid, enum, entity or value-object ` +
-    `field would be silently dropped from the stored blob.  Give the field one of the ` +
-    `covered types, or use \`persist: memory\` for this store.`,
+    `string / id / enum / int / long / bool / decimal / money / datetime / guid fields, ` +
+    `arrays of those, and an OPTIONAL of any of them (at every tier, \`persist: url\` ` +
+    `included).  A File, entity or value-object field would need a RECORD codec the store ` +
+    `path does not emit, and would be silently dropped from the stored blob.  Give the ` +
+    `field one of the covered types, or use \`persist: memory\` for this store.`,
   "loom.store-lifetime-target-unsupported#flutter-field": (p: {
     where: unknown;
     name: unknown;
@@ -1782,25 +1823,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
   // ----------------------------------------------------------------------
-  // src/ir/validate/checks/ui-framework-checks.ts — the two Flutter
-  // action-body gaps (§18 sentinels: the `TODO(flutter full-parity)` arms in
-  // `riverpod-emit.ts`).  Both leave the effect out of the built app with no
-  // diagnostic anywhere; both name their successor mission.
+  // src/ir/validate/checks/ui-framework-checks.ts — the Flutter action-body
+  // gap (§18 sentinels: the `TODO(flutter full-parity)` arms in
+  // `riverpod-emit.ts`).  It leaves the effect out of the built app with no
+  // diagnostic anywhere, and names its successor mission.
+  //
+  // There were TWO.  The `#view-effect` arm (a `toast(…)` from a Notifier) is
+  // gone with its cause: wave C2 packet 2l gave `toast` the same out-of-tree
+  // bridge `navigate` already had (`lib/toast.dart`, a
+  // `GlobalKey<ScaffoldMessengerState>` on `MaterialApp`), so the effect ships
+  // rather than being refused.  What is left is the `match await` on a
+  // STANDARD aggregate op.
   // ----------------------------------------------------------------------
-  "loom.flutter-action-body-unsupported#view-effect": (p: {
-    where: unknown;
-    uiName: unknown;
-    dName: unknown;
-    detail: unknown;
-  }) =>
-    `${p.where} on ui '${p.uiName}' calls \`${p.detail}(…)\`, which the Flutter frontend ` +
-    `cannot run from an action body (deployable '${p.dName}'). A ui \`action\` projects to a ` +
-    `Riverpod \`Notifier\` method, and a Notifier holds no \`BuildContext\` — so it can reach ` +
-    `a \`ScaffoldMessenger\` (\`navigate\` reaches the router through the generated \`lib/nav.dart\` ` +
-    `bridge; \`toast\` has no such bridge yet), and the call would be emitted as a comment that ` +
-    `silently does nothing. Every other frontend renders it. Move the effect to the widget ` +
-    `layer, or host this ui on another frontend. Tracked as M-T1.32 in ` +
-    `docs/new-plan/T1-ui-frontend.md.`,
   "loom.flutter-action-body-unsupported#match-await-standard-op": (p: {
     where: unknown;
     uiName: unknown;
@@ -1814,7 +1848,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `among them, so the whole effect — the request, the error reification and every arm body — ` +
     `would be replaced by a comment. Await a declared \`operation\` that returns a union, or ` +
     `host this ui on another frontend. Tracked as M-T1.32 in docs/new-plan/T1-ui-frontend.md.`,
-  // The Riverpod emitter's internal floor for both — it replaces the three
+  // The Riverpod emitter's internal floor — it replaces the three
   // `// TODO(flutter full-parity)` comments that used to be emitted INTO the
   // Dart, where they compiled fine and left the action doing nothing.
   "loom.flutter-action-body-unsupported#emit-invariant": (p: { what: unknown }) =>
@@ -2531,16 +2565,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // `#schema-ignored`) — the self-provisioning limits this adapter's
   // `orm.schema.updateSchema()` boot-time schema owner genuinely cannot
   // express.)
-  "loom.find-predicate-unsupported": (p: {
-    name: unknown;
-    adapter: unknown;
-    subject: unknown;
-    label: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: ${p.adapter}', but ${p.subject} uses ` +
-    `a predicate the ${p.adapter} adapter cannot lower to SQL: ${p.label}. ` +
-    `The ${p.adapter} find-predicate subset is narrower than EF Core's — ` +
-    `use 'persistence: efcore'/'drizzle', or restructure the predicate.`,
   "loom.resource-missing-capability": (p: {
     name: unknown;
     sourceType: unknown;

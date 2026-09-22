@@ -30,12 +30,24 @@ import type {
   StoreIR,
   TypeIR,
   UiApiParamIR,
+  ValueObjectIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
-import { paramPropTsType } from "../../_frontend/component-prop-type.js";
+import {
+  paramPropTsType,
+  takeMoneyPropImport,
+  valueObjectIndex,
+} from "../../_frontend/component-prop-type.js";
 import { idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
@@ -243,7 +255,7 @@ function renderFormOpWiring(
     aggregateNameCamel: lowerFirst(agg.name),
     opName: op.name,
     opPascal,
-    opCamel: lowerFirst(op.name),
+    opCamel: escapeTsIdent(lowerFirst(op.name)),
     idExpr,
     humanOp: humanize(op.name),
     // The dialog title: the authored `Modal { title: … }` (already translated,
@@ -830,13 +842,16 @@ export function renderSvelteComponentFile(
   // Snippet type for slot params + children — Svelte 5's analog of
   // ReactNode props.
   const dtoImports = new Map<string, string>();
+  // Declared value objects, for a `valueobject`-typed prop — spelled
+  // structurally from its fields by the shared prop layer.
+  const propValueObjects = valueObjectIndex(bcByAggregate);
   const propType = (p: ParamIR): string => {
     if (p.type.kind === "entity" && aggregatesByName.has(p.type.name)) {
       dtoImports.set(`${p.type.name}Response`, `$lib/api/${lowerFirst(p.type.name)}`);
       return `${p.type.name}Response`;
     }
     if (isSlotShape(p.type)) return "Snippet";
-    return typeRefAsTsString(p);
+    return typeRefAsTsString(p, dtoImports, propValueObjects);
   };
   const propEntries = params.map((p) => {
     const optional = p.type.kind === "optional" && p.type.inner.kind === "slot";
@@ -845,9 +860,16 @@ export function renderSvelteComponentFile(
   if (usesChildren) propEntries.push({ name: "children", optional: true, type: "Snippet" });
   const needsSnippet = propEntries.some((e) => e.type === "Snippet");
   const snippetImport = needsSnippet ? `  import type { Snippet } from "svelte";\n` : "";
-  const dtoImportLines = [...dtoImports.entries()]
-    .map(([type, mod]) => `  import type { ${type} } from "${mod}";\n`)
-    .join("");
+  // `Decimal` is bound once per `<script>` by a DEFAULT import; a money PROP is
+  // only a type annotation, so `decimalImportFor`'s body scan cannot see it and
+  // the sentinel is the signal.  Drain it here or it serializes as a garbage
+  // `import type { … }` line.
+  const moneyProp = takeMoneyPropImport(dtoImports);
+  const dtoImportLines =
+    (moneyProp ? `  import type Decimal from "decimal.js";\n` : "") +
+    [...dtoImports.entries()]
+      .map(([type, mod]) => `  import type { ${type} } from "${mod}";\n`)
+      .join("");
   const propsDestructure =
     propEntries.length > 0
       ? `  let { ${propEntries.map((e) => e.name).join(", ")} }: { ${propEntries
@@ -905,6 +927,9 @@ export function renderSvelteExternComponentProps(
   name: string,
   params: ParamIR[],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
+   *  `valueobject`-typed prop is spelled structurally from its fields. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   const wireType = (t: ParamIR["type"]): string => {
@@ -922,7 +947,7 @@ export function renderSvelteExternComponentProps(
     if (isSlotShape(p.type)) return "Snippet";
     const action = actionShape(p.type);
     if (action) return action.arg ? `(arg: ${wireType(action.arg)}) => void` : "() => void";
-    return typeRefAsTsString(p);
+    return typeRefAsTsString(p, dtoImports, valueObjects);
   };
   const propLines = params.map((p) => {
     const optional =
@@ -932,9 +957,11 @@ export function renderSvelteExternComponentProps(
   });
   const needsSnippet = params.some((p) => isSlotShape(p.type));
   const snippetImport = needsSnippet ? `import type { Snippet } from "svelte";\n` : "";
-  const dtoImportLines = [...dtoImports.entries()]
-    .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
-    .join("");
+  const dtoImportLines =
+    (takeMoneyPropImport(dtoImports) ? `import type Decimal from "decimal.js";\n` : "") +
+    [...dtoImports.entries()]
+      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .join("");
   const body =
     propLines.length > 0
       ? `export interface ${name}Props {\n${propLines.join("\n")}\n}\n`
@@ -1182,7 +1209,15 @@ function stateTypeAsTsString(type: TypeIR): string {
   return "any";
 }
 
-function typeRefAsTsString(p: ParamIR): string {
+function typeRefAsTsString(
+  p: ParamIR,
+  /** Import sink — a `money` prop types as `Decimal` and asks for decimal.js
+   *  through it (by sentinel; see `MONEY_IMPORT_SENTINEL`).  Optional so the
+   *  route-param callers, which carry no import block of their own, keep
+   *  calling with no sink at all. */
+  dtoImports: Map<string, string> = new Map(),
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+): string {
   // Delegates to the shared component-prop mapping (`_frontend/
   // component-prop-type.ts`) — React, Vue and Svelte emit the same language,
   // so they must agree on what `component Badge(level: int)` types as.  This
@@ -1190,7 +1225,7 @@ function typeRefAsTsString(p: ParamIR): string {
   // handles `id` / `enum` / arrays / optionals.  Aggregate params never reach
   // here (the caller resolves those to their wire DTO first), so an empty
   // aggregate map and a throwaway import sink are correct.
-  return paramPropTsType(p, new Map(), new Map());
+  return paramPropTsType(p, new Map(), dtoImports, valueObjects);
 }
 
 /** Ensure the Svelte file imports decimal.js when anything in it names the

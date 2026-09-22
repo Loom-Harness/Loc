@@ -135,6 +135,8 @@ system Acme {
     context Orders {
       enum OrderStatus { Draft, Confirmed, Cancelled }
 
+      aggregate Customer { name: string }
+
       aggregate Order {
         customerId: Customer id
         status: OrderStatus
@@ -609,21 +611,28 @@ has **no candidate row** — pass row fields in as arguments).  Parentheses are
 function form from the `policy {}` read-ladder block ([tenancy](tenancy.md)).
 
 ```ddd
-context Orders {
+subdomain Sales {
+  // `permissions { … }` is a SUBDOMAIN member — the catalogue is the
+  // permission namespace, and `sales.approve` below is its qualified name.
   permissions { approve, manage }
 
-  policy CanApprove(cap: money): bool =
-    currentUser.permissions.contains(permissions.approve) && cap <= 10000
-  policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+  context Orders {
+    enum OrderStatus { Draft, Approved }
 
-  aggregate Order {
-    amount: money
-    status: OrderStatus
-    operation approve() {
-      requires CanApprove(amount)   // ← argument bound to the parameter
-      requires IsManager()
-      status := OrderStatus.Approved
+    policy CanApprove(cap: money): bool =
+      currentUser.permissions.contains(permissions.approve) && cap <= 10000
+    policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+
+    aggregate Order {
+      amount: money
+      status: OrderStatus
+      operation approve() {
+        requires CanApprove(amount)   // ← argument bound to the parameter
+        requires IsManager()
+        status := OrderStatus.Approved
+      }
     }
+    repository Orders for Order { }
   }
 }
 ```
@@ -1021,14 +1030,19 @@ it as the trailing argument to the aggregate method.
 
 Until you register a real verifier, every backend ships an **accept-all dev
 stub** so the stack boots and the routes are reachable in local dev. The stub
-reads an optional **`x-loom-dev-claims`** request header — a JSON object of user
-claims — and projects it onto the `User` shape, so you can exercise
+reads an optional **`x-loom-dev-claims`** request header — **base64-encoded
+JSON** — and overlays it on the `User` shape, so you can exercise
 `currentUser`/`requires` gates without wiring an identity provider:
 
 ```bash
-curl -H 'x-loom-dev-claims: {"id":"u-1","role":"manager","tenantId":"t-1"}' \
+curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
+> falls back to the built-in identity, so a **raw-JSON** header does not fail —
+> it is silently ignored, and the request runs as the built-in `admin`. A gate
+> that then passes looks like your claims were applied when they never were.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid

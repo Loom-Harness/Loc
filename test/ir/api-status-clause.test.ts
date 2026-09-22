@@ -7,7 +7,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
 const SYS = (apiBody: string) => `
   system Shop {
@@ -39,10 +39,7 @@ describe("api httpStatus clause — surface + lowering", () => {
   });
 
   it("does not collide with a `status:` field name (httpStatus is a distinct keyword)", async () => {
-    const { errors } = await parseString(`context C { aggregate A { status: string } }`, {
-      validate: false,
-    });
-    expect(errors).toEqual([]);
+    expect(parseErrorsOf(`context C { aggregate A { status: string } }`)).toEqual([]);
   });
 
   it("merges the override onto each context as errorStatusOverrides (enrichment)", async () => {

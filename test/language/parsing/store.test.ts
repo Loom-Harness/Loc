@@ -11,21 +11,19 @@
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import type { ActionDecl, Model, StateBlock, Store } from "../../../src/language/generated/ast.js";
-import { parseRawResult, parseString } from "../../_helpers/parse.js";
+import { parseErrorsOf, parseRawResult, parseString } from "../../_helpers/parse.js";
 
 async function storeOf(uiBody: string): Promise<Store> {
-  const { model, errors } = await parseString(
-    `
+  const src = `
     system Demo {
       subdomain S { context C { aggregate Order with crudish { customerId: string } } }
       ui Web { ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
       deployable web { platform: react, targets: api, ui: Web, port: 3001 }
     }
-  `,
-    { validate: false },
-  );
-  expect(errors).toEqual([]);
+  `;
+  expect(parseErrorsOf(src)).toEqual([]);
+  const { model } = await parseString(src, { validate: false });
   return [...AstUtils.streamAllContents(model as Model)].find(
     (n): n is Store => n.$type === "Store",
   )!;

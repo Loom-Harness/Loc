@@ -9,7 +9,7 @@
 The system DSL has five composable layers, each declared
 independently.  Deployables are the explicit composition root.
 
-```ddd
+```text
 context     →   domain primitives (aggregates / workflows / views)
 subdomain   →   group of contexts                                  [domain]
 
@@ -43,12 +43,13 @@ domain runs against Postgres in prod, in-memory in tests.
 ```ddd
 subdomain Sales {
   context Orders {
-    aggregate Customer { name: string; email: string }
+    aggregate Customer { name: string, email: string }
     repository Customers for Customer {
       find byEmail(email: string): Customer?
     }
-    aggregate Order { customerId: Customer id; total: decimal }
-    workflow checkout { input: { customerId: Customer id, items: int[] } }
+    aggregate Order { customerId: Customer id, total: decimal }
+    payload Checkout { customerId: Customer id, items: int[] }
+    workflow checkout { create(c: Checkout) { } }
   }
 }
 ```

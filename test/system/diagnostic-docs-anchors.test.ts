@@ -77,7 +77,7 @@ describe("codeDocsUrl — every anchor resolves", () => {
       "language-reference/04-type-system.md#x-id--cross-aggregate-references",
     );
     expect(codeDocsUrl("loom.bare-aggregate-in-type")).toBe(
-      "https://lemmit.github.io/Loc/language-reference/04-type-system.html#x-id--cross-aggregate-references",
+      "https://loom-harness.github.io/Loc/language-reference/04-type-system.html#x-id--cross-aggregate-references",
     );
     expect(codeDocsUrl("loom.no-such-code")).toBeUndefined();
     expect(codeDocsUrl("loom.blank-message")).toBeUndefined();
@@ -141,7 +141,7 @@ describe("the undocumented-codes ratchet", () => {
 // D-PROJECTION-IMPLICIT-SUB (its reactor twin `loom.reactor-event-uncarried`
 // went with it, but that one carried a docs anchor, so only one leaves this
 // list).
-const UNDOCUMENTED_BASELINE = 366;
+const UNDOCUMENTED_BASELINE = 365;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

@@ -29,7 +29,7 @@ export function githubHeadingSlug(heading: string): string {
 }
 
 /** The docs root every entry is relative to (the published site). */
-export const DOCS_SITE = "https://lemmit.github.io/Loc/";
+export const DOCS_SITE = "https://loom-harness.github.io/Loc/";
 
 const CHAPTER_DIR = "language-reference";
 
@@ -39,6 +39,9 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
+  "loom.tenant-registry-not-constructible":
+    "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
@@ -229,6 +232,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.throw-kind-integration-unsupported": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
+  "loom.component-shadows-stdlib": "15-ui-pages-structure.md#component--reusable-region-tree",
   "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",
   "loom.seed-foreign-aggregate":
     "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",

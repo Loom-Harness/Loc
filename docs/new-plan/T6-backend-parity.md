@@ -118,7 +118,7 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 **Divergence 3 was not that, and was scheduled apart from them (and has since landed).** There is no contract to narrow: nobody depends on "a 40-digit price answers 500". It is the same client-fault-reported-as-server-fault class M-T6.48 removed, surfacing one layer later at the database instead of at the parse. Its fix is a different shape too — a **range** check derived from the money column's precision, not a format guard — so it shares neither the decision nor the code with 1 and 2. Holding it behind an owner ruling stalls an unambiguous defect behind a contract question it does not raise. Land it as an ordinary P2 defect whenever a backend packet is open; land 1 and 2 only after the ruling.
 
-*(Recorded 2026-09-10 from the M-T6.48 matrix session. The wave plan's §5 ruling #4 currently bundles all three as one owner-only item — see the note on [#2849](https://github.com/lemmit/Loc/pull/2849).)*
+*(Recorded 2026-09-10 from the M-T6.48 matrix session. The wave plan's §5 ruling #4 currently bundles all three as one owner-only item — see the note on [#2849](https://github.com/Loom-Harness/Loc/pull/2849).)*
 
 **The fix, once ruled.** Strict: `model_config = ConfigDict(strict=True)` on python request models (or per-field `Strict()`, which is narrower and does not disturb datetime parsing), and a pre-cast wire-type guard on elixir's changeset path — the natural home is a `__loom_money_field` / `__loom_int_field` validation running before `cast/3`, reusing the `__loom_param_error` responder the op-param arm already emits. (Divergence 3's half of this paragraph is done — see its block above.)
 
@@ -126,7 +126,7 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F12 annex (the stringified-number skew was noted there but never dispositioned); M-T6.48 and its matrix. Relates to RS-12 (money wire scale, response direction) and RS-24 (decimal is a JSON number).
 
-## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `partial` (sites 1 + 3 landed by [#2752](https://github.com/lemmit/Loc/pull/2752), verified 2026-09-11; **site 2 is the only live half**, claimed by [#2850](https://github.com/lemmit/Loc/pull/2850) + wave-c1 packet 1a) · **S–M** · P1
+## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `partial` (sites 1 + 3 landed by [#2752](https://github.com/Loom-Harness/Loc/pull/2752), verified 2026-09-11; **site 2 is the only live half**, claimed by [#2850](https://github.com/Loom-Harness/Loc/pull/2850) + wave-c1 packet 1a) · **S–M** · P1
 
 Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (rows 14–16); two **reproduced** on `main` @ `aa236ae`, one latent.
 
@@ -414,6 +414,18 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 > aggregate `function` whose only `return`s sit inside an `if` is refused at phase ④ on EVERY
 > backend — the identical tail-return shape a `domainService` operation accepts. Not an elixir
 > row; the elixir renderer already handles it.
+
+> **Re-classed 2026-09-21 (wave C2, packet 2m) — `D-ELIXIR-IF-BRANCH`.** The four survivors above
+> were re-derived on a fresh head and the register row moved `gap` → `scope`, keeping
+> `mission: "M-T6.59"` and every arm that fires. The finding that decided it: three of the four
+> need a change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit; a
+> non-hoisted guard form; a statement spine for ES commands), and the two sharpest members of the
+> closed branch vocabulary are **not elixir-local at all** — a conditional `emit` is an event
+> ORDERING question the S5a persist-then-dispatch restructure cannot answer (walking deeper does
+> not fix it), and a PROVENANCED write in a branch is decided by the TARGET-NEUTRAL `opHasProvSite`
+> (`src/ir/util/prov-id.ts:49`), so deepening that scan changes all five backends. This mission
+> stays OPEN and owns the body-renderer question; what changed is the claim that a drain sprint
+> could close it.
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
