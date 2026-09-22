@@ -1,6 +1,7 @@
 import { isDescendingSort } from "../generator/typescript/render-expr.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   DeployableIR,
   ExprIR,
@@ -20,6 +21,13 @@ import {
   workflowRouteSlug,
   workflowSlugHints,
 } from "../ir/util/e2e-workflow-accessor.js";
+import {
+  apisServedBy,
+  type RoutedHandlerTarget,
+  resolveRoutedHandler,
+  routedHandlerCallHints,
+  routedHandlerNeedsUnsendableBody,
+} from "../ir/util/routed-handler.js";
 import { walkExprDeep } from "../ir/util/walk.js";
 import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
@@ -78,6 +86,23 @@ import { renderExpectStmt } from "./expect-stmt.js";
 // `.instance(key)` takes the CORRELATION key, and like every other accessor a
 // `let`-bound argument gets `.id` appended.
 //
+// Finally, an explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding in
+// an api the deployable `serves:` is reachable through the SAME two-level
+// shape, with the CONTEXT in the slug position and the HANDLER in the method
+// position — the exact spelling the route arrow already uses:
+//
+//   route POST "/echo/{text}" -> Sales.Echo
+//   api.sales.echo("hi")             → POST /echo/hi
+//
+// Arguments are positional in DECLARED param order; a param whose name is a
+// `{token}` in the path substitutes into the URL, and the rest ride the JSON
+// body (or, on the paged-run shape, the query string) — the same split every
+// backend's explicit-route emitter performs.  The lookup itself lives in
+// `src/ir/util/routed-handler.ts` so the two IR-validate checks that gate this
+// call and the renderer that emits it cannot drift apart.  Routed handlers are
+// resolved LAST, after aggregates, projections and workflows, so no call that
+// resolves today changes meaning.
+//
 // Each call awaits, parses JSON, and returns the response.  An `expect`
 // statement maps directly to vitest `expect(<expr>).toBe(true)`.
 // ---------------------------------------------------------------------------
@@ -85,6 +110,9 @@ import { renderExpectStmt } from "./expect-stmt.js";
 interface RenderCtx {
   deployable: DeployableIR;
   contexts: BoundedContextIR[];
+  /** The apis this deployable `serves:` — the only place an explicit
+   *  `route … -> <Ctx>.<Handler>` binding can come from. */
+  apis: ApiIR[];
   /** Locals introduced by `let`. */
   locals: Set<string>;
   /** `let` names that are actually referenced later in the test body.
@@ -160,6 +188,7 @@ export function renderE2EFile(
       const ctx: RenderCtx = {
         deployable: d,
         contexts,
+        apis: apisServedBy(d, sys.apis),
         locals: new Set(),
         usedLetNames: collectUsedLetNames(t.statements),
         apiBasePath: apiBasePath(d.platform),
@@ -328,6 +357,17 @@ function findContextForSlug(
       for (const w of c.workflows) {
         if (lowerFirst(w.name) === slug || snake(w.name) === slug) return c.name;
       }
+    }
+  }
+  // An explicit `route … -> <Ctx>.<Handler>` call puts the BOUNDED CONTEXT in
+  // the slug position (`api.sales.echo(…)`), so a routed-handler-only body
+  // still resolves to a context and the multi-backend replay covers every
+  // backend that serves it.  Checked last: an aggregate / projection /
+  // workflow slug that happens to equal a context name keeps its existing
+  // answer.
+  for (const m of modulesByName.values()) {
+    for (const c of m.contexts) {
+      if (lowerFirst(c.name) === slug || snake(c.name) === slug) return c.name;
     }
   }
   return undefined;
@@ -751,15 +791,23 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
     // collides with an aggregate's plural changes no existing call.
     const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
     if (wf) return renderWorkflowCall(wf, call, ctx);
+    // An explicit `route … -> <Ctx>.<Handler>` binding, addressed as
+    // `api.<contextSlug>.<handlerName>(…)`.  Tried only once the aggregate AND
+    // workflow lookups have failed, so a context whose name slugs like an
+    // aggregate or a workflow changes none of their existing calls.
+    const routed = matchRoutedHandlerCall(call, ctx);
+    if (routed) return renderRoutedHandlerCall(routed, call, ctx);
     const known = ctx.contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
     const knownWorkflows = workflowSlugHints(ctx.contexts).join(", ");
+    const hints = routedHandlerCallHints(ctx.contexts, ctx.apis);
     throw new Error(
       `e2e: unknown aggregate 'api.${call.aggregateSlug}' on this deployable. ` +
         `Available aggregates: ${known || "(none)"}. ` +
-        `Workflows: ${knownWorkflows || "(none)"}.`,
+        `Workflows: ${knownWorkflows || "(none)"}.` +
+        (hints.length > 0 ? ` Routed handlers: ${hints.join(", ")}.` : ""),
     );
   }
   const slug = snake(plural(agg.name));
@@ -810,6 +858,13 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   const find = findRepoQuery(call.method, agg, ctx);
   if (find) return renderFindCall(find, slug, args, ctx);
 
+  // The slug resolved to an aggregate but the verb is none of its own — it may
+  // still be a routed handler whose context name happens to slug like the
+  // aggregate (`context Sales` + `aggregate Sale`).  Same precedence rule as
+  // the arm above: every aggregate verb wins first.
+  const routedFallback = matchRoutedHandlerCall(call, ctx);
+  if (routedFallback) return renderRoutedHandlerCall(routedFallback, call, ctx);
+
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (
     ctx.contexts.flatMap((c) => c.repositories).find((r) => r.aggregateName === agg.name)?.finds ??
@@ -827,6 +882,83 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   throw new Error(
     `e2e: unknown method 'api.${call.aggregateSlug}.${call.method}'. ` + `Available: ${known}.`,
   );
+}
+
+/** `api.<contextSlug>.<handlerName>(…)` → the routed handler it names, or null.
+ *  A thin adapter over the shared resolver so the two arms above read the same. */
+function matchRoutedHandlerCall(
+  call: ApiCallShape,
+  ctx: RenderCtx,
+): RoutedHandlerTarget | undefined {
+  return resolveRoutedHandler(call.aggregateSlug, call.method, ctx.contexts, ctx.apis);
+}
+
+/**
+ * Emit the HTTP request an explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>`
+ * binding answers.
+ *
+ * Path `{token}`s are substituted from the positionally-matching argument;
+ * every other param rides the JSON body (or the query string on the paged-run
+ * shape).  One helper (`__route`) serves every method, because a routed call is
+ * shaped by the DECLARED route rather than by an aggregate verb — the method
+ * comes off the `.ddd`, not off the name.
+ */
+function renderRoutedHandlerCall(
+  t: RoutedHandlerTarget,
+  call: ApiCallShape,
+  ctx: RenderCtx,
+): string {
+  const hint = `api.${call.aggregateSlug}.${call.method}`;
+  if (call.args.length !== t.bindings.length) {
+    const sig = t.bindings.map((b) => b.param.name).join(", ");
+    throw new Error(
+      `e2e: '${hint}(…)' takes ${t.bindings.length} argument(s) (${sig || "none"}), ` +
+        `got ${call.args.length}. A routed handler's arguments are POSITIONAL, in declared ` +
+        `param order — '${t.route.method} ${t.route.path}' binds them by name.`,
+    );
+  }
+  if (routedHandlerNeedsUnsendableBody(t)) {
+    const body = t.bindings
+      .filter((b) => b.source === "body")
+      .map((b) => b.param.name)
+      .join(", ");
+    throw new Error(
+      `e2e: '${hint}(…)' cannot be driven — '${t.route.method} ${t.route.path}' is a ` +
+        `bodyless method, but the handler's param(s) '${body}' are not bound by a {token} in ` +
+        `the path, so every backend reads them from a request BODY a ${t.route.method} cannot ` +
+        `carry. Add the missing {token}(s) to the route path.`,
+    );
+  }
+  const rendered = t.bindings.map((b, i) => {
+    const arg = call.args[i] as ExprIR;
+    // An `Agg id` param takes a create result the same way `getById(id)` does,
+    // so it gets the same `.id` unwrapping — and only it: appending `.id` to a
+    // string/int argument would silently send `undefined`.
+    return b.param.type.kind === "id" ? renderIdArg(arg, ctx) : renderE2EExpr(arg, ctx);
+  });
+  const bySource = (want: string): { name: string; expr: string }[] =>
+    t.bindings
+      .map((b, i) => ({ b, expr: rendered[i] as string }))
+      .filter((x) => x.b.source === want)
+      .map((x) => ({ name: x.b.param.name, expr: x.expr }));
+
+  let path = t.route.path;
+  for (const p of bySource("path")) {
+    path = path.replace(`{${p.name}}`, `\${encodeURIComponent(String(${p.expr}))}`);
+  }
+  const url = `\`\${base}${ctx.apiBasePath}${path}\``;
+  const obj = (fields: { name: string; expr: string }[]): string =>
+    `{ ${fields.map((f) => `${f.name}: ${f.expr}`).join(", ")} }`;
+
+  const query = bySource("query");
+  if (query.length > 0) {
+    return `await __route(${JSON.stringify(t.route.method.toUpperCase())}, __qs(${url}, ${obj(query)}))`;
+  }
+  const body = bySource("body");
+  if (body.length > 0) {
+    return `await __route(${JSON.stringify(t.route.method.toUpperCase())}, ${url}, ${obj(body)})`;
+  }
+  return `await __route(${JSON.stringify(t.route.method.toUpperCase())}, ${url})`;
 }
 
 function renderOperationCall(
@@ -1105,6 +1237,50 @@ async function __delete(url: string): Promise<__WireBody> {
   }
   // 204 carries no body; there is nothing to bind.
   return null;
+}`,
+  },
+  {
+    // An explicit \`route <METHOD> <PATH> -> <Ctx>.<Handler>\` binding.  ONE
+    // helper for every method, because a routed call's method is DECLARED in
+    // the \`.ddd\` rather than implied by a verb name — so there is no
+    // \`__post\`/\`__get\` split to mirror, and adding a \`__put\`/\`__patch\` pair
+    // for the two methods no fixture uses today would ship dead symbols
+    // \`test:biome-gen\` flags.  Emitted on demand like its neighbours.
+    name: "__route",
+    src: `// One routed-handler call.  \`body\` is omitted for a bodyless method (GET /
+// DELETE), whose params are all path- or query-bound — \`fetch\` refuses a body
+// there, and the e2e renderer refuses the call rather than dropping an
+// argument silently.  The thrown message carries \`→ <status>\`, the shape
+// \`expect(...).toThrow(N)\` matches on.
+async function __route(method: string, url: string, body?: unknown): Promise<__WireBody> {
+  const headers: Record<string, string> = { ...__authHeaders() };
+  const init: RequestInit = { method, headers };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const r = await fetch(url, init);
+  const text = await r.text();
+  if (!r.ok) throw new Error(\`\${method} \${url} → \${r.status} \${r.statusText}\${text ? ": " + text : ""}\`);
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(\`\${method} \${url} → \${r.status}: expected JSON, got \${JSON.stringify(text.slice(0, 200))}\`);
+  }
+}`,
+  },
+  {
+    // Query-string append for the one routed shape whose non-path params ride
+    // the query string (a paged-run \`queryHandler\`).  Separate from
+    // \`__getQuery\` because that one also performs the GET.
+    name: "__qs",
+    src: `// Append query params to a URL (the paged-run routed handler's non-path args).
+function __qs(url: string, params: Record<string, unknown>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params ?? {})) {
+    if (v != null) qs.set(k, String(v));
+  }
+  return qs.toString().length > 0 ? \`\${url}?\${qs}\` : url;
 }`,
   },
 ];

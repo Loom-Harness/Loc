@@ -168,7 +168,38 @@ describe("Sales (integration)", () => {
 
 `test e2e name=STRING 'against' deployable=[Deployable] ('verifies' TraceId)? { … }` is a system-level test (declared in the `system` body, not inside an aggregate) that drives a deployment. The body talks to the deployable through a **magic dispatcher** — `api.<aggregate>.<verb>(…)` against a backend, `ui.<aggregate>.<verb>(…)` against a frontend — plus `let` and `expect`. Domain mutations and guards are rejected (`loom.e2e-unsupported-statement`); an e2e body resolves no domain names, so a bare enum value (`st: On` instead of `"On"`) is `loom.e2e-unresolved-ref` and an unknown function `loom.e2e-unresolved-call` (the conversions `money(…)`, `decimal(…)`, `string(…)`, `int(…)` are built in); an unknown aggregate / verb / workflow is caught against the deployable's hosted contexts (`loom.e2e-unknown-aggregate` — whose message names the deployable's workflows as well as its aggregates, `loom.e2e-unknown-method` — which also covers a folded projection's `byKey` / `list` and a workflow's three verbs, `loom.e2e-unknown-workflow`).
 
-The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus the reserved `api.workflows.<name>(…)`, `api.<projection>.byKey(…)` / `.list()`, and a workflow's own `api.<workflow>.run(…)` / `.instances()` / `.instance(key)` (below).
+The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus `api.<projection>.byKey(…)` / `.list()`, a workflow's own `api.<workflow>.run(…)` / `.instances()` / `.instance(key)`, and an explicit route's `api.<context>.<handler>(…)` (both below).
+
+#### Calling a routed handler
+
+An explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding in the api block (see [Apis, storage, resources, channels](14-apis-storage-resources-channels.md)) is reached through the **same two-level shape**, with the bounded CONTEXT in the slug position and the HANDLER in the method position — the spelling the route arrow already uses:
+
+```ddd
+api A from D {
+  route POST "/echo/{text}"                   -> Sales.Echo
+  route GET  "/sum/{a}/{b}"                   -> Sales.Sum
+  route GET  "/orders/{orderId}/replacements" -> Sales.CountReplacing
+}
+
+test e2e "routed handlers answer" against d {
+  expect(api.sales.echo("hi")).toBe("hi")
+  expect(api.sales.sum(2, 3)).toBe(5)
+  expect(api.sales.countReplacing("11111111-1111-4111-8111-111111111111")).toBe(0)
+}
+```
+
+```ts
+// e2e/HandlerTriad.e2e.test.ts
+expect(await __route("POST", `${base}/api/echo/${encodeURIComponent(String("hi"))}`)).toBe("hi");
+expect(await __route("GET", `${base}/api/sum/${encodeURIComponent(String(2))}/${encodeURIComponent(String(3))}`)).toBe(5);
+expect(await __route("GET", `${base}/api/orders/${encodeURIComponent(String("11111111-1111-4111-8111-111111111111"))}/replacements`)).toBe(0);
+```
+
+Arguments are **positional, in declared param order**. A param whose name is a `{token}` in the path substitutes into the URL; every other param rides the JSON request body — the same split each backend's explicit-route emitter performs. The method comes off the route, not off the verb name.
+
+Two refusals guard the shape: a wrong argument count is `loom.e2e-routed-handler-arity` (arguments bind positionally, so a miscount shifts every later one), and a `GET`/`DELETE` route whose handler declares a param no `{token}` binds is `loom.e2e-routed-handler-bodyless-method` — the backends read that param from a request body those methods cannot carry, so the argument would silently vanish.
+
+An aggregate verb always wins: a routed handler is consulted only when the slug names no aggregate, or names one that does not have the verb. So a context whose name slugs like an aggregate changes no existing call.
 
 Resolving the verb's NAME is only half the check. A second, phase-⑦ gate asks whether the route it lowers to is one **this same compilation emits**, resolving each verb against `deriveAggregateOperations` (`src/ir/util/api-surface.ts`) — the derivation all five backend route builders render from — and raising `loom.e2e-unrouted-verb` when it does not. This matters because several routes are conditional: `POST /api/<plural>` appears only for an aggregate with a canonical `create` (hand-written or `with crudish`), `DELETE /api/<plural>/{id}` only for an unnamed `destroy`, `GET /api/<plural>/{id}/history` only when `auditable`, and a find route only for a *declared* find. Until this gate landed, `api.products.create({…})` on a `create`-less aggregate compiled with `0 error(s), 0 warning(s)` and emitted a suite that POSTed to a route the same run had not mounted — `405 Method Not Allowed`, three failures out of three, from a model the compiler had just called clean. On the `ui` side the same code covers the page-object vocabulary: `create` (only where the scaffolded `New` page survives, i.e. the same create-surface gate), `getById`, and a public operation — a `ui.<agg>.<find>(…)` drives no page object.
 
