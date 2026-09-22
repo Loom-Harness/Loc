@@ -250,6 +250,12 @@ expect(started.status).toBe("Pending");
 
 Both halves are route-contract checked (`loom.e2e-unrouted-verb`), because both routes are conditional: an **event-triggered** workflow is a reactor the in-process dispatcher starts and mounts no `POST`, so `.run()` on one is refused (drive the operation that emits its trigger event instead); a workflow with **no correlation field** persists no row, so `.instances()` / `.instance(key)` on one is refused. The two conditions are independent — a reactor still has readable instances, and a stateless command workflow still has a `run`.
 
+The **body and the read are checked too**, against the same inputs the backends build their DTOs from — `wf.params` for `<Wf>Request`, `instanceWireShape` for `<Wf>InstanceResponse`:
+
+- `api.<wf>.run({…})` — a key the facade does not declare is `loom.e2e-unknown-body-key`, and an omitted required parameter `loom.e2e-missing-required-field`. Note the asymmetry, which the two messages state: a **missing** key really does fail the schema (422), but an **extra** one does not — `<Wf>Request` is a plain object schema on every backend, so an unknown key is silently dropped and the POST still answers `204`. The body sends something the workflow never receives, and an assertion resting on it goes green having proved nothing. A parameter carrying an `= default` is still required on the wire: the default is applied in the body, after the schema has already run.
+- `let one = api.<wf>.instance(key)` — a read of a field the row does not carry is `loom.e2e-unknown-response-field`. Readable is the correlation field followed by the state fields, in declaration order. `instances()` is deliberately **not** judged: its binding is a JSON array, so a member on it (`running.length`) is an array member and not an instance field, exactly as an aggregate's `all()` is excluded for its paged envelope.
+
+
 ### Against a frontend — Playwright over page objects
 
 The *same* DSL, retargeted at a frontend deployable, lowers to a Playwright spec. `ui.<agg>.create(...)` walks the generated List → New → Detail page objects; `getById` re-opens the Detail page; an operation calls the detail-page method. No fetch — it drives the rendered UI.
