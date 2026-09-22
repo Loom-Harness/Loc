@@ -14,6 +14,7 @@ import type {
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  TypeIR,
 } from "../../types/loom-ir.js";
 import {
   E2E_WORKFLOW_VERBS,
@@ -47,6 +48,7 @@ import { walkExpr } from "./shared.js";
 export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const agg of ctx.aggregates) {
     for (const test of agg.tests) {
+      checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
         checkThrowKindReadable(stmt, agg, ctx, test.name, diags);
         const reason = invalidTestStmt(stmt);
@@ -196,6 +198,7 @@ export function validateContextIntegrationTests(
     );
   };
   for (const test of ctx.tests) {
+    checkMatcherSubjects(test.statements, `${ctx.name}.test:${test.name}`, diags);
     for (const stmt of test.statements) {
       if (stmt.kind !== "expect" && stmt.kind !== "expect-throws") continue;
       // `toThrow(<kind>)` is UNIT-TIER ONLY, and the context-integration rung is
@@ -294,6 +297,8 @@ export function validateE2ETest(
   for (const stmt of test.statements) {
     walkStmt(stmt, (e) => checkUnresolvedRef(e, bound, test.name, source, diags));
   }
+
+  checkMatcherSubjects(test.statements, source, diags);
 
   for (const stmt of test.statements) {
     const badKind = unsupportedE2EStmtKind(stmt);
@@ -396,6 +401,131 @@ function walkStmt(s: TestStmtIR, visit: (e: ExprIR) => void): void {
   }
   if (s.kind === "call") {
     for (const a of s.args) walkExpr(a, visit);
+  }
+}
+
+/** Strip `optional` wrappers — `string?` is still a string for containment,
+ *  and `tags: string[]?` is still a collection. */
+function unwrapOptional(t: TypeIR): TypeIR {
+  return t.kind === "optional" ? unwrapOptional(t.inner) : t;
+}
+
+/** A short, author-facing spelling of a resolved type, for the refusal text. */
+function typeLabel(t: TypeIR): string {
+  switch (t.kind) {
+    case "primitive":
+      return t.name;
+    case "array":
+      return `${typeLabel(t.element)}[]`;
+    case "optional":
+      return `${typeLabel(t.inner)}?`;
+    case "id":
+      return `${t.targetName} id`;
+    default:
+      return t.kind === "enum" || t.kind === "valueobject" || t.kind === "entity" ? t.name : t.kind;
+  }
+}
+
+/** The SUBJECT of a matcher call, with `.not.` peeled — and its resolved type.
+ *
+ *  `expr.receiverType` is the type of `expr.receiver`, which for a negated
+ *  assertion is the synthetic `.not` member rather than the asserted value.
+ *  Peel it the same way every emitter does, and take the type from the `.not`
+ *  node's OWN receiverType so the subject's real type reaches the check. */
+function matcherSubject(expr: ExprIR & { kind: "method-call" }): {
+  subject: ExprIR;
+  type: TypeIR;
+} {
+  let receiver = expr.receiver;
+  let type = expr.receiverType;
+  if (receiver.kind === "member" && receiver.member === "not") {
+    type = receiver.receiverType;
+    receiver = receiver.receiver;
+  }
+  const subject = receiver.kind === "paren" ? receiver.inner : receiver;
+  return { subject, type };
+}
+
+/** `toContain` is ONE matcher with TWO lowerings, picked by the subject's
+ *  type: membership for a collection, substring for a string.  There is no
+ *  third lowering, so any other subject has to be refused — and the IR is the
+ *  first phase where the resolved type is available to refuse it.
+ *
+ *  Left unchecked, each backend's emitter would pick its own answer for, say,
+ *  an `int` subject: python would emit `assert 3 in 7` (a TypeError at run
+ *  time), java a `.contains` that does not compile, vitest a matcher that
+ *  fails with a confusing message.  One refusal here, at the author's span,
+ *  replaces five different downstream failures. */
+function checkContainReceiver(
+  e: ExprIR,
+  source: string,
+  diags: LoomDiagnostic[],
+  seen: Set<ExprIR>,
+): void {
+  if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toContain") return;
+  if (seen.has(e)) return;
+  seen.add(e);
+  const { subject, type } = matcherSubject(e);
+  const t = unwrapOptional(type);
+  if (t.kind === "array") return;
+  if (t.kind === "primitive" && t.name === "string") return;
+  diags.push({
+    severity: "error",
+    code: "loom.contain-receiver-invalid",
+    message: diagMessage("loom.contain-receiver-invalid", {
+      actual: exprLabel(subject),
+      type: typeLabel(t),
+    }),
+    source,
+  });
+}
+
+/** `toBeAbsent()` rewrites its assertion onto the RECEIVER — the generated
+ *  `expect("estimate" in read).toBe(false)` needs an object and a key, which
+ *  only a field read supplies.  Anything else would reach `renderExpectStmt`'s
+ *  compiler-invariant throw and kill `generate system` with a stack trace, so
+ *  name it here instead (the shape audit 2026-09-03 F6 found for locator
+ *  matchers: validates clean, then crashes the compiler). */
+function checkAbsentReceiver(
+  e: ExprIR,
+  source: string,
+  diags: LoomDiagnostic[],
+  seen: Set<ExprIR>,
+): void {
+  if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toBeAbsent") return;
+  if (seen.has(e)) return;
+  seen.add(e);
+  const { subject } = matcherSubject(e);
+  if (subject.kind === "member") return;
+  diags.push({
+    severity: "error",
+    code: "loom.absent-receiver-invalid",
+    message: diagMessage("loom.absent-receiver-invalid", { actual: exprLabel(subject) }),
+    source,
+  });
+}
+
+/** Best-effort author-facing rendering of an expression, for a message. */
+function exprLabel(e: ExprIR): string {
+  if (e.kind === "member") return `${exprLabel(e.receiver)}.${e.member}`;
+  if (e.kind === "ref") return e.name;
+  if (e.kind === "paren") return exprLabel(e.inner);
+  if (e.kind === "literal") return String(e.value);
+  return `the asserted expression`;
+}
+
+/** Both matcher-subject checks, over every expression in one test body. */
+export function checkMatcherSubjects(
+  statements: readonly TestStmtIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<ExprIR>();
+  for (const stmt of statements) {
+    walkStmt(stmt, (e) => {
+      checkContainReceiver(e, source, diags, seen);
+      checkAbsentReceiver(e, source, diags, seen);
+    });
   }
 }
 
