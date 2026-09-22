@@ -48,6 +48,18 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
+  // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
+  "loom.match-empty": "05-expressions.md#ternary--match",
+  "loom.match-no-else": "05-expressions.md#ternary--match",
+  "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.matcher-e2e-only": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.tothrow-arity": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.tothrow-status-not-int": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
+  "loom.matches-named-arg": "05-expressions.md#scalar-intrinsics",
+  "loom.matches-not-literal": "05-expressions.md#scalar-intrinsics",
+  "loom.matches-invalid-regex": "05-expressions.md#scalar-intrinsics",
   // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
   "loom.operator-non-bool-operands": "05-expressions.md#comparison-logical--unary",
   "loom.operator-operand-mismatch": "05-expressions.md#arithmetic--widening",

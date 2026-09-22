@@ -1163,6 +1163,33 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.join-non-string": "`.join` requires a string collection.",
   "loom.reduction-non-comparable":
     "`.min`/`.max` require a comparable projection (number, money, string, or datetime).",
+  // --- the M-T9.56 drain of `match.ts` ------------------------------------
+  // The `match { … }` shape rules and the `expect(…).<matcher>(…)` vocabulary,
+  // all of which used to arrive as `loom.unknown`.
+  "loom.match-empty": "Empty 'match { }' — must declare at least one arm or an 'else' branch.",
+  "loom.match-no-else":
+    "'match' expression has no 'else' arm — when no arm matches, the expression is undefined. Add 'else => …' for exhaustive coverage.",
+  "loom.matcher-arity": (p: { matcher: unknown; arity: unknown; got: unknown }) =>
+    `matcher '${p.matcher}' takes ${p.arity} argument(s), got ${p.got}.`,
+  "loom.expect-requires-matcher":
+    "'expect' requires a matcher — write 'expect(<actual>).toBe(<expected>)' (or .toThrow(), .toHaveText(…), …), not a bare expression.",
+  "loom.matcher-e2e-only#same-instant":
+    "'toBeSameInstant' compares wire timestamps and is only valid in a 'test e2e' block; compare in-memory values with 'toBe' in an in-process test.",
+  "loom.matcher-e2e-only#throw-status":
+    "'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.",
+  "loom.tothrow-arity": (p: { got: unknown }) =>
+    `'toThrow' takes at most one argument (an HTTP status), got ${p.got}.`,
+  "loom.tothrow-status-not-int":
+    "'toThrow(<status>)' requires an integer HTTP status literal, e.g. toThrow(404).",
+  // The four `matches(<regex>)` rules stay four codes: arity, named-argument,
+  // non-literal and un-compilable are four different fixes.
+  "loom.matches-arity": "'matches' takes exactly one argument (a string-literal regex pattern).",
+  "loom.matches-named-arg":
+    "'matches' takes a single positional argument; named arguments are not supported.",
+  "loom.matches-not-literal":
+    "'matches' argument must be a string literal — patterns must be known at codegen time.",
+  "loom.matches-invalid-regex": (p: { reason: unknown }) =>
+    `'matches' pattern is not a valid regular expression: ${p.reason}`,
   "loom.match-non-union-subject": (p: { subjectType: unknown }) =>
     `variant 'match' subject is not a union — its type is ${
       p.subjectType

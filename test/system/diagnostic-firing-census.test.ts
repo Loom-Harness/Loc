@@ -143,6 +143,19 @@ system P {
   deployable web { platform: ${platform} targets: api port: 3001 }
 }`;
 
+/** One in-process `test … for <Aggregate>` block holding a single `expect`,
+ *  for the matcher-vocabulary half of the `match.ts` drain (M-T9.56). */
+const matcherTest = (expectStmt: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string  total: int }
+    repository Things for Thing { }
+    test "matcher" for Thing {
+      ${expectStmt}
+    }
+  } }
+}`;
+
 /** One aggregate with a field of every kind the `types.ts` drain (M-T9.56)
  *  type-checks against — a string, an int, a bool and a value object — so each
  *  fixture is the single member whose TYPE is wrong. */
@@ -1683,6 +1696,40 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `src/language/validators/match.ts` ------------
+  // The `match { … }` shape rules, and the `expect(<actual>).<matcher>(…)`
+  // vocabulary's arity / placement / literal rules.  `matcherTest(...)` puts
+  // one `expect` in an in-process `test` block; the two tier-restricted forms
+  // need the opposite tier, so they carry their own source.
+  "loom.match-empty": orderTypes("derived b: string = match { }"),
+  "loom.match-no-else": orderTypes('derived a: string = match { total > 0 => "hi" }'),
+  "loom.matcher-arity": matcherTest('expect("x").toBe("x", "y")'),
+  "loom.expect-requires-matcher": matcherTest('expect("x")'),
+  // Both `#slug`s of the tier restriction: `toBeSameInstant` and
+  // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
+  "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
+  "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
+  "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
+  "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
+  "loom.matches-invalid-regex": matcherTest('expect("x").matches("[A-Z")'),
+  // The mirror of `#throw-status`: INSIDE a `test e2e`, the status argument
+  // must be an integer literal for the e2e renderer to pin it.
+  "loom.tothrow-status-not-int": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  test e2e "status must be an int literal" against api {
+    expect(api.things.create({ name: "x" })).toThrow("404")
+  }
+}`,
+
   // --- the M-T9.56 drain of `src/language/validators/types.ts` ------------
   // The expression type-checker's own refusals: the two operator arms, the
   // three `string(x)` / `decimal(x)` conversion arms, and the six leaf checks
