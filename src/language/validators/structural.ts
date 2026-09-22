@@ -32,6 +32,7 @@ import {
   isHandleDecl,
   isIdType,
   isInvariant,
+  isNamedType,
   isOnDecl,
   isOperation,
   isPreconditionStmt,
@@ -644,7 +645,101 @@ export function checkAggregate(agg: Aggregate, accept: ValidationAcceptor): void
       );
     }
   }
+  checkContainmentCycles(agg, accept);
   checkLifecycleConflicts(agg, accept);
+}
+
+// ---------------------------------------------------------------------------
+// `loom.containment-cycle` — an aggregate's containment graph must be a TREE.
+//
+// `contains` is ownership: the part row carries a `parentId` FK to its owner,
+// and every backend loads a part by joining on that FK.  Two parts that contain
+// each other (`entity X { contains ys: Y[] }` + `entity Y { contains xs: X[] }`)
+// describe a graph with no bottom — the aggregate can be neither hydrated nor
+// persisted.  Nothing rejected it: `ddd parse` reported `0 error(s)` and
+// `generate system` then blew the JS stack inside the TypeScript repository
+// emitter's `nestedContainLoads`, which recurses down `part.contains` with no
+// cycle guard.  The user got an internal `RangeError` stack trace naming an
+// `out/generator/**.js` frame and no `.ddd` line at all.
+//
+// The recursion is not unique to one emitter — every backend's eager-load /
+// schema walk has the same shape — so the guard belongs here, at the
+// declaration, where the offending `contains` clause has a source line and the
+// fix (`X id` for a reference instead of ownership) can be named.
+//
+// Reported ONCE per cycle, at the clause that closes it, with the full path
+// (`X → Y → X`).  Inferred containments (`ys: Y[]`, the `contains`-less sugar —
+// `isInferredContainment`) are edges too: they lower to exactly the same
+// ContainmentIR, so a cycle spelled in the sugar crashes identically.
+// ---------------------------------------------------------------------------
+
+/** One containment edge out of a part — the target part plus the AST node to
+ *  hang a diagnostic on.  Covers both spellings: an explicit `contains x: P`
+ *  member and an inferred `x: P[]` property. */
+interface ContainEdge {
+  target: EntityPart;
+  node: AstNode;
+  property: string;
+}
+
+function containmentEdges(part: EntityPart): ContainEdge[] {
+  const out: ContainEdge[] = [];
+  for (const m of part.members) {
+    if (isContainment(m)) {
+      const t = m.partType?.ref;
+      if (t) out.push({ target: t, node: m, property: "partType" });
+    } else if (isProperty(m) && isInferredContainment(m)) {
+      const base = m.type?.base;
+      const t = base && isNamedType(base) ? base.target?.ref : undefined;
+      if (t && isEntityPart(t)) out.push({ target: t, node: m, property: "type" });
+    }
+  }
+  return out;
+}
+
+function checkContainmentCycles(agg: Aggregate, accept: ValidationAcceptor): void {
+  const parts = agg.members.filter(isEntityPart);
+  if (parts.length === 0) return;
+  // Colour-marking DFS: `onStack` holds the current path, `done` the parts
+  // whose subtree is fully explored (so a diamond — two parts containing the
+  // same leaf — is walked once, not exponentially).  `reported` dedupes by the
+  // cycle's member SET, so one loop yields one diagnostic no matter how many
+  // entry points reach it.
+  const onStack = new Set<EntityPart>();
+  const done = new Set<EntityPart>();
+  const path: EntityPart[] = [];
+  const reported = new Set<string>();
+
+  const visit = (part: EntityPart): void => {
+    onStack.add(part);
+    path.push(part);
+    for (const edge of containmentEdges(part)) {
+      if (onStack.has(edge.target)) {
+        const from = path.indexOf(edge.target);
+        const cycle = [...path.slice(from), edge.target];
+        const key = [...new Set(cycle.map((p) => p.name))].sort().join(">");
+        if (!reported.has(key)) {
+          reported.add(key);
+          accept(
+            "error",
+            diagMessage("loom.containment-cycle#ast", {
+              cycle: cycle.map((p) => p.name).join(" → "),
+              name: agg.name,
+              target: edge.target.name,
+            }),
+            { node: edge.node, property: edge.property, code: "loom.containment-cycle" },
+          );
+        }
+        continue;
+      }
+      if (!done.has(edge.target)) visit(edge.target);
+    }
+    path.pop();
+    onStack.delete(part);
+    done.add(part);
+  };
+
+  for (const p of parts) if (!done.has(p)) visit(p);
 }
 
 /** Validate a `unique (...)` uniqueness invariant (uniqueness-and-indexes.md).

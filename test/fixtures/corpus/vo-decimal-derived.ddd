@@ -1,0 +1,90 @@
+// shape: a `derived` doing DECIMAL arithmetic over a value object's sub-fields.
+//
+// Minted by sweep F-029.  The same `decimal` has two runtime representations
+// on Phoenix — its own column loads as `%Decimal{}`, the same field inside an
+// embedded VO's jsonb loads as a float — and `Decimal.mult/2` refuses the
+// float.  The project compiled, booted, and accepted writes; every READ of the
+// aggregate then answered 500.  No fixture in the corpus crossed `valueobject`
+// with decimal arithmetic, so the whole compile tier was blind to it by
+// construction — and a compile tier is blind to it BY NATURE: nothing is wrong
+// with the emitted Elixir until a row comes back out of the database.  Hence
+// the `test e2e` block: this fixture is only worth having if something reads.
+//
+// THE VALUES ARE FRACTIONAL ON PURPOSE.  `Decimal.mult/2` accepts an INTEGER
+// operand implicitly and refuses only a float — so a first draft of this
+// fixture, written with `width: 2, height: 4`, passed with the fix REVERTED.
+// A jsonb `2` decodes to an Elixir integer and the arithmetic is happy; only a
+// jsonb `2.5` decodes to the float that raises.  An integer-valued fixture here
+// is a gate that never reaches the thing it names.
+//
+// `topLevel` is the control.  The identical expression over plain columns was
+// always correct, and keeping both in one fixture is what makes the boundary
+// (column vs. embedded) the thing under test rather than "decimals in general"
+// — a fix that coerced BOTH would hide a genuine type error behind the
+// coercion, and this fixture would not notice.
+system VoDecimalSys {
+  subdomain Catalog {
+    context Catalog {
+      valueobject Dimensions {
+        width: decimal
+        height: decimal
+      }
+      aggregate Product with crudish {
+        name: string
+        weight: decimal
+        size: Dimensions
+        derived topLevel: decimal = weight * weight
+        derived footprint: decimal = size.width * size.height
+      }
+      repository Products for Product { }
+    }
+  }
+  api CatalogApi from Catalog
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    serves: CatalogApi
+    port: 3001
+  }
+
+  // The read is the test.  The write path was never broken — F-029 took the
+  // POST, answered 201, and persisted correctly; the 500 arrived on the way
+  // back out, which is why `getById` and the list route are BOTH exercised
+  // (the defect was in the shared serializer, so either would have caught it,
+  // and a fixture that only creates would have caught neither).
+  test e2e "a derived over a value object's decimal fields survives the round trip" against d {
+    let p = api.products.create({ name: "widget", weight: 3.5, size: { width: 2.5, height: 4.5 } })
+    let read = api.products.getById(p)
+    expect(read.name).toBe("widget")
+    // The value object itself round-trips through the jsonb column.
+    expect(read.size.width).toBe(2.5)
+    expect(read.size.height).toBe(4.5)
+    // The control: arithmetic over a plain decimal COLUMN.
+    expect(read.topLevel).toBe(12.25)
+    // The defect: the identical arithmetic over the EMBEDDED value object.
+    expect(read.footprint).toBe(11.25)
+
+    // The list route runs the same serializer over a collection — the shape
+    // the original repro hit first (`GET /api/products` 500-ed alongside the
+    // by-id read).
+    let all = api.products.all()
+    expect(all.items.length).toBe(1)
+    expect(all.total).toBe(1)
+
+    // Rewriting the value object must move the derived with it — the read is
+    // the only place a stale or mis-typed jsonb decode shows, and the update
+    // route writes the same column the create route did.
+    api.products.update(p, { name: "widget2", weight: 5.5, size: { width: 3.5, height: 4.5 } })
+    let updated = api.products.getById(p)
+    expect(updated.topLevel).toBe(30.25)
+    expect(updated.footprint).toBe(15.75)
+
+    api.products.destroy(p)
+    expect(api.products.getById(p)).toThrow(404)
+    let empty = api.products.all()
+    expect(empty.items.length).toBe(0)
+  }
+}

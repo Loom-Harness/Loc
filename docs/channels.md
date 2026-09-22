@@ -16,7 +16,7 @@ system-wide, so the consuming deployable need not host the producing context.
 
 Design record: [`old/proposals/channels.md`](old/proposals/channels.md) Part I;
 signed-off broker design:
-[`new-plan/missions/M-T4.4-broker-eventing-design.md`](new-plan/missions/M-T4.4-broker-eventing-design.md).
+[`new-plan/archive/missions/M-T4.4-broker-eventing-design.md`](new-plan/archive/missions/M-T4.4-broker-eventing-design.md).
 
 ```ddd
 system Acme {

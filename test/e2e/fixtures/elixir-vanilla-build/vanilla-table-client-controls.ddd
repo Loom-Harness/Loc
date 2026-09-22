@@ -1,0 +1,77 @@
+// CLIENT-side Table controls on the LiveView seam, COMPILED.
+//
+// A non-paged `find all(): Order[]` binds the WHOLE list, so the sort, the
+// page window and the filter are applied in the TEMPLATE over the generated
+// `LoomTable` helper module (wave C2 packet 2m — F2-MT640-SORT-DEAD, the
+// `G2646` pager arm and `loom.table-filter-unsupported`).  None of that code
+// had ever reached `mix compile`, and the failure modes are exactly the ones
+// only a compiler sees:
+//
+//   * a `LoomTable` call in a `~H` template against a module the deployable
+//     never emitted, or emitted under a different name;
+//   * `defp sort_key(%Decimal{} = v)` when `Decimal` is not a dependency of
+//     the generated app (it is, through ecto — but that is a claim, and a
+//     claim about a compile-time struct expansion is what a compile gate is
+//     for);
+//   * a `handle_event("loom-sort", …)` clause whose body is only an `assign`
+//     — the client mode shape — leaving `socket` unused or rebound;
+//   * the search box's `update_<field>` clause colliding with the write-back
+//     clause `controlledInput` hoists for the same state field.
+//
+// Both shapes are present deliberately: a SCAFFOLDED list (sort + pager, no
+// filter) and a HAND-WRITTEN page whose Table carries `filter:` over the same
+// non-paged read.
+system Sales {
+  subdomain Sales {
+    context Sales {
+      aggregate Order {
+        code: string
+        total: money
+        placedAt: datetime
+        derived display: string = code
+      }
+      repository Orders for Order {
+        // NOT paged — this is what puts the frontend in client mode.  A paged
+        // `find all` would emit the server leg instead (already covered by
+        // `vanilla-list-read-gate.ddd`).
+        find all(): Order[]
+      }
+    }
+  }
+
+  api SalesApi from Sales
+
+  ui SalesAdmin with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+
+    // The hand-written half: a `filter:` bound to page state.  The scaffolded
+    // pages carry sort + page but never a filter, so without this page the
+    // filter emission (the `<.input type="search">` + its hoisted clause +
+    // `LoomTable.filter_rows/2`) would not be compiled at all.
+    page Search {
+      route: "/search"
+      state { q: string = "" }
+      body: QueryView {
+        of: SalesApi.Order.all,
+        data: rows => Table {
+          rows: rows,
+          filter: q,
+          Column { "Code", o => Text { o.code } },
+          Column { "Total", o => Text { o.total } }
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource salesState { for: Sales, kind: state, use: primary }
+
+  deployable phoenixApp {
+    platform: elixir
+    contexts: [Sales]
+    dataSources: [salesState]
+    serves: SalesApi
+    ui: SalesAdmin { Sales: phoenixApp }
+    port: 4000
+  }
+}

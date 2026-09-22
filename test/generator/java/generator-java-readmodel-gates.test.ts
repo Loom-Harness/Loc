@@ -195,7 +195,7 @@ describe("entity-typed read-model fields are unreachable (M-T6.36)", () => {
         "the containment part must stay unresolvable outside its aggregate; if this " +
           "passes, the java emitters' entity-typed guard throws have become reachable " +
           "and need a real gate again (see M-T6.36)",
-      ).toContain("Could not resolve reference to NamedDecl named 'Line'");
+      ).toContain("Unknown type 'Line'");
     });
   }
 });

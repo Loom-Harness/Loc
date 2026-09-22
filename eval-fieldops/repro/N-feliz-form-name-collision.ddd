@@ -1,0 +1,26 @@
+// An aggregate operation `schedule` on `WorkOrder` and a workflow `scheduleWorkOrder`
+// both lower to an F# record named `ScheduleWorkOrderForm` -> duplicate definition.
+system P {
+  subdomain S { context C {
+    aggregate Tech with crudish { n: string  derived display: string = n }
+    aggregate WorkOrder with crudish {
+      techId: Tech id?
+      at: datetime?
+      derived display: string = "w"
+      operation schedule(tech: Tech id, at: datetime) { techId := tech  at := at }
+    }
+    repository Techs for Tech {}
+    repository WorkOrders for WorkOrder {}
+    workflow scheduleWorkOrder {
+      create(workOrder: WorkOrder id, technician: Tech id, at: datetime) {
+        let w = WorkOrders.getById(workOrder)
+        w.schedule(technician, at)
+      }
+    }
+  } }
+  ui W with scaffold(subdomains: [S]) { }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web { platform: feliz, targets: api, ui: W, port: 3001 }
+}

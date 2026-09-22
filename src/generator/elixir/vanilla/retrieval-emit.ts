@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import type { BoundedContextIR, RetrievalIR, SortTermIR } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
@@ -56,7 +57,12 @@ export function emitVanillaRetrievals(
     // `opts[:current_user]`.  Retrievals are workflow-internal (no HTTP
     // controller), so a caller that omits it scopes to no rows (fail-closed) —
     // never a cross-tenant leak.
-    const principal = target ? aggregateUsesPrincipalContextFilter(target) : false;
+    // A retrieval whose OWN `where:` reads `currentUser` needs the actor bound
+    // too — the rendered `^(current_user && …)` pin otherwise names a variable
+    // `run/1` never bound ("undefined variable current_user" at `mix compile`).
+    const principal =
+      (target ? aggregateUsesPrincipalContextFilter(target) : false) ||
+      exprUsesCurrentUser(r.where);
     // Each capability filter is applied as a SEPARATELY-gated `where` pipe stage
     // (rather than baked into the base `where:`) so an inline `Repo.run(...)
     // ignoring <Cap>` / `ignoring *` at a call site can skip individual origins

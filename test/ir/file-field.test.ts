@@ -14,7 +14,7 @@ import { wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
 function fileSystem(opts: { objectStore: boolean }): string {
   return `
@@ -54,23 +54,20 @@ async function irErrors(source: string, code: string): Promise<string[]> {
 
 describe("File primitive — parsing", () => {
   it("a `File` field and a `type: localDisk` storage parse without error", async () => {
-    const { errors } = await parseString(fileSystem({ objectStore: true }), { validate: false });
-    expect(errors).toEqual([]);
+    expect(parseErrorsOf(fileSystem({ objectStore: true }))).toEqual([]);
   });
 
   it("a lowercase field named `file` still parses (only capital `File` is a keyword)", async () => {
-    const { errors } = await parseString(
-      `
+    expect(
+      parseErrorsOf(`
       context X {
         aggregate Doc {
           file: string
         }
         repository Docs for Doc { }
       }
-    `,
-      { validate: false },
-    );
-    expect(errors).toEqual([]);
+    `),
+    ).toEqual([]);
   });
 });
 

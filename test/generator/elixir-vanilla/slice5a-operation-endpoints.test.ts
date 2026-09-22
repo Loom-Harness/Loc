@@ -146,7 +146,7 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     // raise in Elixir, it would compare by term order and silently answer the
     // wrong thing.
     expect(fn).toContain(
-      'with {:ok, amount} <- __loom_int_param(record, :amount, Map.get(params, "amount"))',
+      'with {:ok, amount} <- __loom_int32_param(record, :amount, Map.get(params, "amount"))',
     );
     expect(fn).toContain(":ok <- ensure(record.balance >= amount, {:forbidden, ");
     expect(fn).toContain(":ok <- ensure(amount > 0, {:precondition_failed, ");
@@ -155,7 +155,7 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     // the wire-format guard now leads it (M-T6.48), so the `ensure` clauses no
     // longer sit directly after `with`. What this row is about — guards before
     // mutation before persist — is unchanged.
-    const withAt = fn.indexOf("with {:ok, amount} <- __loom_int_param");
+    const withAt = fn.indexOf("with {:ok, amount} <- __loom_int32_param");
     const mutAt = fn.indexOf("record = %{record | balance:");
     const persistAt = fn.indexOf("persist_change");
     expect(withAt).toBeGreaterThan(-1);

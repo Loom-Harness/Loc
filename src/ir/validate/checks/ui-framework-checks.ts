@@ -31,7 +31,6 @@ import { readableProjectionNames } from "../../util/projection-read.js";
 import { walkExprDeep, walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
-import { VIEW_EFFECT_BUILTINS } from "./ui-checks-shared.js";
 
 // `auth: ui` (the frontend OIDC guard) is emitted by every shipped frontend
 // generator: React, Vue, Svelte, Angular, Feliz (`generator/feliz/auth-gate.ts`
@@ -826,16 +825,6 @@ export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic
           source: `${ui.name}/${where}`,
         });
       };
-      const flagViewEffect = (where: string, detail: string): void =>
-        push(
-          where,
-          diagMessage("loom.flutter-action-body-unsupported#view-effect", {
-            where,
-            uiName: ui.name,
-            dName: d.name,
-            detail,
-          }),
-        );
       const flagStandardOp = (where: string, detail: string): void =>
         push(
           where,
@@ -853,16 +842,15 @@ export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic
       for (const host of actionHosts) {
         for (const action of host.actions) {
           const where = `${host.where} action '${action.name}'`;
-          const effects = new Set<string>();
           const unresolved = new Set<string>();
           for (const stmt of action.body) {
             walkStmtDeep(stmt, (s) => {
-              // `navigate` renders through the generated `lib/nav.dart` bridge
-              // (Wave C1 packet 1e-ii, ledger row F2-CFE-1); `toast` is the
-              // view effect that still has no way out of the Notifier.
-              if (s.kind === "call" && VIEW_EFFECT_BUILTINS.has(s.name) && s.name !== "navigate") {
-                effects.add(s.name);
-              }
+              // Both view effects now have a way out of the Notifier: a
+              // `GlobalKey<NavigatorState>` for `navigate` (`lib/nav.dart`,
+              // wave C1 packet 1e-ii, ledger row F2-CFE-1) and a
+              // `GlobalKey<ScaffoldMessengerState>` for `toast`
+              // (`lib/toast.dart`, wave C2 packet 2l).  The `#view-effect` arm
+              // that stood here is deleted with the second bridge.
               if (s.kind !== "variant-match") return;
               const op = awaitedAggregateOp(s.subject);
               if (!op) return;
@@ -875,7 +863,6 @@ export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic
               }
             });
           }
-          for (const name of [...effects].sort()) flagViewEffect(where, name);
           for (const name of [...unresolved].sort()) flagStandardOp(where, name);
         }
       }

@@ -46,8 +46,29 @@ test("Download .zip exports the generated tree as a valid archive", async ({
   // fixed part) so it pins an entry at the ARCHIVE ROOT: a bare
   // `toContain("README.md")` would also pass on a per-project `api/README.md`
   // the generator emits, which is not what this ships.
+  //
+  // WHICH README.  Two can supply it, and F12 changed which one does.  The
+  // playground appends its own (`web/src/util/export-readme.ts`) only
+  // `if (!entries.some(e => e.path === EXPORT_README_PATH))` — a deliberate
+  // don't-clobber guard — and `ddd generate system` now always emits one
+  // (`src/system/readme.ts`), so the TOOLCHAIN's README is what ships here and
+  // the playground's is the fallback for exports that are not a system tree.
+  //
+  // So the assertions below are deliberately toolchain-specific.  Asserting
+  // only `docker compose up --build` would not do: BOTH READMEs contain that
+  // line, which is why it kept passing while this test was failing on the
+  // sentence that was unique to the playground's wording.
   const text = buf.toString("latin1");
   expect(text).toMatch(/PK\x03\x04[\s\S]{26}README\.md/);
   expect(text).toContain("docker compose up --build");
-  expect(text).toContain("`.loom/` holds the model's derived views");
+  expect(text).toContain("## `.loom/`");
+  // ...and its closing sentence.  The middle of that section is a list built
+  // from what was actually emitted, so the varying part is deliberately not
+  // asserted.  Both of these strings appear ONLY in the toolchain README, so
+  // this test now fails if the playground's fallback ever ships here again.
+  //
+  // Kept ASCII on purpose: `text` is decoded as latin1 (the ZIP is STORE-only
+  // and read as raw bytes), so a UTF-8 em dash in the README would arrive as
+  // mojibake and never match a `\u2014` in the expectation.
+  expect(text).toContain("read them, don't edit them.");
 });

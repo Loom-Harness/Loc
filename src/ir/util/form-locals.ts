@@ -43,10 +43,25 @@
 // even reach generation while angular stayed listed here.  That is the ratchet
 // working in the direction it is supposed to: a drained arm deletes itself.
 //
+// A HOLE THIS GATE HAD FOR ITS FIRST LIFE: `WorkflowForm` was not modelled at
+// all, and the rule keyed on the MUTATION name alone.  `CreateForm` +
+// `WorkflowForm` name their mutations `create` and `run`, which genuinely do
+// not collide — so the pair walked straight past, and then both templates
+// emitted `const form = useForm(…)` into the same scope.  Measured on `main`:
+// `form` (and `outcome`) declared twice in the emitted page on react, vue AND
+// svelte, with `0 error(s), 0 warning(s)` from `ddd parse`.  Two workflow
+// forms collide the same way and on `run` besides, whatever workflows they
+// run.  The fix is `claimedLocals` below returning a LIST: a form claims its
+// mutation handle AND the form handle, and they collide on different axes.
+// Angular is clean here too, and was verified rather than assumed
+// (`thingCreate`/`thingForm` vs `makeThingRun`/`makeThingForm`).
+//
 // Shapes deliberately NOT flagged, because they were probed and are CLEAN on
-// all three covered frontends: `CreateForm` + `OperationForm` on one page, and
-// two `OperationForm`s over DIFFERENT ops.  A gate that fired on those would be
-// a false refusal.
+// all three covered frontends: `CreateForm` + `OperationForm` on one page,
+// two `OperationForm`s over DIFFERENT ops, and `DestroyForm` beside either —
+// an operation form's declarations go through the pack's `form-op-module`
+// template into their own scope, and a destroy form claims no page-scope
+// binding at all.  A gate that fired on those would be a false refusal.
 //
 // The second of those was NOT clean on svelte until M-T1.34 (#2864 T5), and the
 // hole is worth recording because it is the shape this module reasons about
@@ -72,13 +87,16 @@ import { walkExprDeep } from "./walk.js";
 export const FORM_LOCAL_FRAMEWORKS = new Set(["react", "vue", "svelte"]);
 
 /** One form primitive found in a body, reduced to the identity that decides
- *  collisions.  `kind` separates the two naming families (a create form and an
- *  operation form never claim the same names). */
+ *  collisions.  `kind` separates the naming families — an operation form never
+ *  claims the names a create or workflow form does. */
 interface FormSite {
-  kind: "create" | "operation";
+  kind: "create" | "operation" | "workflow";
   /** The `of:` aggregate, when the call spells one. */
   agg: string | undefined;
-  /** The operation name, for `kind === "operation"`. */
+  /** The operation name (`kind: "operation"`) or the workflow name
+   *  (`kind: "workflow"`).  The workflow name is carried for the LABEL only —
+   *  react/vue/svelte spell the mutation `run` flat, so two workflow forms
+   *  collide however differently their workflows are named. */
   op: string | undefined;
   /** Source spelling, for the diagnostic. */
   label: string;
@@ -113,6 +131,16 @@ function formSites(body: ExprIR | undefined): FormSite[] {
       });
       return;
     }
+    if (e.name === "WorkflowForm") {
+      const wf = refName(namedArgOf(e, "runs") ?? e.args[0]);
+      out.push({
+        kind: "workflow",
+        agg: undefined,
+        op: wf,
+        label: `WorkflowForm${wf ? ` { runs: ${wf} }` : ""}`,
+      });
+      return;
+    }
     if (e.name === "OperationForm") {
       const ofArg = namedArgOf(e, "of");
       const opArg = namedArgOf(e, "op");
@@ -143,19 +171,46 @@ function formSites(body: ExprIR | undefined): FormSite[] {
   return out;
 }
 
-/** The page-local binding family a form site claims.
+/** Every page-local binding a form site claims.
+ *
+ *  A LIST, not one key, because a form claims two different kinds of binding
+ *  and they collide on different axes:
+ *
+ *    - its MUTATION handle, named after the form's role (`create`, `run`) or
+ *      its operation (`rename`);
+ *    - the FORM HANDLE itself (`const form = useForm(…)` / the destructured
+ *      `{ register, handleSubmit, setError, control, formState: { errors } }`),
+ *      which is spelled `form` on every create and workflow form there is.
+ *
+ *  Keying on the mutation alone is why `CreateForm` + `WorkflowForm` walked
+ *  past this gate: their mutations are `create` and `run`, which genuinely do
+ *  not collide — and then both templates emit `const form = useForm(…)` into
+ *  the same scope, and the page does not compile.  Measured on react, vue and
+ *  svelte: `form` (and `outcome`) declared twice in the emitted page.
+ *
+ *  An OPERATION form claims no `form`: its declarations go through the pack's
+ *  `form-op-module` template into their own scope, which is why `CreateForm` +
+ *  `OperationForm` is clean and must stay unflagged.
  *
  *  No `framework` parameter: all three covered frontends name these locals the
- *  SAME way — bare, with no aggregate in the name — so the key is uniform.  The
- *  function used to branch on an aggregate-scoped set that held only `angular`,
- *  and angular is now out of scope entirely (it emits correctly), so the branch
- *  had exactly one live arm left. Collapsing it removes the temptation to read
- *  the dead arm as documentation of a frontend this gate still covers. */
-function localKey(site: FormSite): string {
-  // react/svelte/vue name it `create` flat out, so ALL create forms on a page
-  // share one key; an operation form is keyed by its OP name alone, which is
-  // likewise all these three put in the binding.
-  return site.kind === "create" ? "create" : `op:${site.op ?? "?"}`;
+ *  SAME way — bare, with no aggregate in the name — so the keys are uniform.
+ *  The function used to branch on an aggregate-scoped set that held only
+ *  `angular`, and angular is now out of scope entirely (it emits correctly). */
+function claimedLocals(site: FormSite): string[] {
+  switch (site.kind) {
+    // `const create = useCreate<Agg>()` — spelled flat, so ALL create forms on
+    // a page share it, whatever aggregates they are over.
+    case "create":
+      return ["create", "form"];
+    // `const run = use<Wf>Workflow()` — likewise flat, so two workflow forms
+    // collide even when they run DIFFERENT workflows (verified: `run` and
+    // `form` each declared twice for `makeThing` + `otherThing`).
+    case "workflow":
+      return ["run", "form"];
+    // Keyed by the op name alone, which is all these three put in the binding.
+    case "operation":
+      return [`op:${site.op ?? "?"}`];
+  }
 }
 
 /** The form sites in one body that would emit a COLLIDING page-local, grouped
@@ -165,14 +220,30 @@ export function collidingFormLocals(
 ): { local: string; labels: string[] }[] {
   const byKey = new Map<string, string[]>();
   for (const site of formSites(body)) {
-    const key = localKey(site);
-    const bucket = byKey.get(key);
-    if (bucket) bucket.push(site.label);
-    else byKey.set(key, [site.label]);
+    for (const key of claimedLocals(site)) {
+      const bucket = byKey.get(key);
+      if (bucket) bucket.push(site.label);
+      else byKey.set(key, [site.label]);
+    }
   }
-  return [...byKey]
-    .filter(([, labels]) => labels.length > 1)
-    .map(([local, labels]) => ({ local, labels }));
+  return (
+    [...byKey]
+      .filter(([, labels]) => labels.length > 1)
+      // One report per PAIR of forms, not one per binding they share: two
+      // create forms collide on `create` AND on `form`, and saying so twice
+      // reads as two problems.  The mutation key is the more specific of the
+      // two, so a `form`-only collision (create + workflow) still reports.
+      .filter(([local, labels], _i, all) =>
+        local === "form" ? !all.some(([k, ls]) => k !== "form" && sameLabels(ls, labels)) : true,
+      )
+      .map(([local, labels]) => ({ local, labels }))
+  );
+}
+
+/** Two collision buckets holding the same form labels are the same problem
+ *  reported against two of its bindings. */
+function sameLabels(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
 /** Every page/component of a ui whose forms would collide, labelled for a
