@@ -153,7 +153,8 @@ A `.ddd` source with a cross-aggregate bare type reference (which the scope prov
 ```ddd
 system Shop {
   context Sales {
-    aggregate Order { line Item }
+    aggregate Order { line: Item }
+    aggregate Item  { sku: string }
   }
 }
 ```
@@ -172,10 +173,10 @@ system Shop {
       "severity": "error",
       "phase": "ast-validate",
       "message": "...",
-      "node": "aggregate Sales.Order.line",
-      "range": { "start": { "line": 2, "character": 23 },
-                 "end":   { "line": 2, "character": 27 } },
-      "sourceText": "line Item"
+      "node": "aggregate Sales.Order",
+      "range": { "start": { "line": 2, "character": 28 },
+                 "end":   { "line": 2, "character": 32 } },
+      "sourceText": "Item"
     }
   ],
   "outline": { "systems": [ { "name": "Shop", "contexts": [ /* … */ ], "deployables": [] } ], "contexts": [] }

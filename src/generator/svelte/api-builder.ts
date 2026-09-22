@@ -22,6 +22,7 @@ import {
   historyHookName,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
   collectUsedTypes,
@@ -62,7 +63,12 @@ export function buildSvelteApiModule(
   lines.push(
     `import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";`,
   );
-  lines.push(`import { api, seg } from "./client";`);
+  // `ifMatch` only where an operation actually sends the optimistic-concurrency
+  // precondition (`_frontend/occ.ts` — the same predicate react/vue/angular use).
+  const anyOcc = agg.operations.some(
+    (o) => o.visibility === "public" && sendsIfMatchPrecondition(agg, o),
+  );
+  lines.push(`import { api,${anyOcc ? " ifMatch," : ""} seg } from "./client";`);
   if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     lines.push(`import { moneySchema } from "../schemas";`);
   }
@@ -295,14 +301,22 @@ export function buildSvelteApiModule(
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return createMutation(() => ({`);
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
+    // F-023 — the version comes from the by-id query cache: the row the user is
+    // looking at, under the key this hook already invalidates on success.
+    const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
+    if (occArg) {
+      lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id()]);`);
+    }
     if (u) {
       // Union-returning op: parse + RETURN the tagged success variant so the
       // awaiting action's `match` arm carries the payload (the error variant
       // never reaches 200 — it's a thrown non-2xx reified at the call site).
-      lines.push(`      const r = await api.post(\`/${tag}/\${seg(id())}/${opSnake}\`, input);`);
+      lines.push(
+        `      const r = await api.post(\`/${tag}/\${seg(id())}/${opSnake}\`, input${occArg});`,
+      );
       lines.push(`      return ${upperFirst(op.name)}${agg.name}Response.parse(r);`);
     } else {
-      lines.push(`      await api.post(\`/${tag}/\${seg(id())}/${opSnake}\`, input);`);
+      lines.push(`      await api.post(\`/${tag}/\${seg(id())}/${opSnake}\`, input${occArg});`);
     }
     lines.push(`    },`);
     lines.push(`    onSuccess: () => {`);
@@ -394,5 +408,10 @@ export function buildSvelteApiModule(
 function narrowSegImport(src: string): string {
   return /\$\{seg\(/.test(src)
     ? src
-    : src.replace('import { api, seg } from "./client";', 'import { api } from "./client";');
+    : src
+        .replace(
+          'import { api, ifMatch, seg } from "./client";',
+          'import { api, ifMatch } from "./client";',
+        )
+        .replace('import { api, seg } from "./client";', 'import { api } from "./client";');
 }

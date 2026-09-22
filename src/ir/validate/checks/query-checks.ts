@@ -58,7 +58,18 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
       // the generator emits SQL against a non-existent column and
       // the runtime fails (or silently returns nothing).
       if (agg) {
-        const unknown = firstUnknownColumnRef(find.filter, agg, ctx);
+        // `allowSelfId`: `agg` came out of `ctx.aggregates`, and every aggregate
+        // carries an implicit `<Name> id` that IS a stored column on every
+        // backend — so `this.id` here is not the read-model case the option's
+        // strictness was written for (a workflow-instance source has no id
+        // column, but it is not an aggregate either, so `agg` would not have
+        // resolved and this branch would not run).
+        //
+        // Without it the language contradicted itself: `criterion ById(i: Part
+        // id) of Part = this.id == i` VALIDATES — the criterion-side check
+        // admits `this.id` in as many words — and then every way of USING it
+        // was refused.  You could declare the predicate and not call it (F-003).
+        const unknown = firstUnknownColumnRef(find.filter, agg, ctx, { allowSelfId: true });
         if (unknown) {
           diags.push({
             severity: "error",
@@ -250,7 +261,10 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
         source: src,
       });
     } else if (agg) {
-      const unknown = firstUnknownColumnRef(r.where, agg, ctx);
+      // Same reasoning as the find site above — `agg` is an ordinary aggregate,
+      // so its id is a real column.  A criterion admitted at its declaration
+      // must remain admitted through the retrieval derived from it.
+      const unknown = firstUnknownColumnRef(r.where, agg, ctx, { allowSelfId: true });
       if (unknown) {
         diags.push({
           severity: "error",

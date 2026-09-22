@@ -19,13 +19,18 @@ system Billder {
 
   subdomain Billing {
     context Catalog {
-      crossTenant aggregate Plan { code: string  monthlyPrice: decimal }
+      aggregate Plan crossTenant { code: string  monthlyPrice: decimal }
     }
     context Invoicing {
       aggregate Invoice with tenantOwned { number: string  amountDue: decimal }
     }
     context Accounts {
-      aggregate Organization { name: string }   // the registry — named in `of`, no marker
+      // The registry — named in `of`, no tenancy marker.  `with crudish` is not
+      // decoration: the signup bootstrap two sections down turns on `POST
+      // /organizations` existing, and an aggregate with no `create` emits a
+      // read-only API.  `tenancy-owned.ddd` — the fixture that pins the
+      // bootstrap end-to-end — declares it the same way.
+      aggregate Organization with crudish { name: string }
     }
   }
   // deployables need `auth: required` — the filter/stamp read the principal

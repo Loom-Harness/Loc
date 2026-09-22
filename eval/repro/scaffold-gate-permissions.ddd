@@ -1,0 +1,21 @@
+// The DOCUMENTED "scaffolded pages inherit the gate their route is guarded by"
+// (docs/auth.md) crashes codegen when the find gate names a permission.
+// No custom page involved — this is the plain scaffold path.
+system X {
+  user { id: string  permissions: string[] }
+  auth { oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    permissions { read }
+    context C {
+      aggregate Thing with crudish { name: string  derived display: string = name }
+      repository Things for Thing {
+        find all(): Thing[] requires currentUser.permissions.contains(permissions.read)
+      }
+    }
+  }
+  ui Web with scaffold(subdomains: [S]) { framework: react }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], auth: required, port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web, auth: ui, port: 3001 }
+}

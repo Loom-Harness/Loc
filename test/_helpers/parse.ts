@@ -145,3 +145,17 @@ export const parseRawOk = (text: string): boolean =>
 
 /** Full link-free parse result (carries `.value` and `.parserErrors`). */
 export const parseRawResult = (text: string) => rawParser().parse(text);
+
+/** Parser (syntax) errors for `text`, as messages.
+ *
+ * This is the check `parseString(src, { validate: false })` CANNOT make.
+ * `parseString` reports `errors` out of `doc.diagnostics`, and Langium only
+ * populates that during VALIDATION — so with `validate: false` the field is
+ * unconditionally `[]` and `expect(errors).toEqual([])` passes vacuously, no
+ * matter how broken the source is.  That is the recurring failure shape in
+ * `experience_gathered.md` §59/§63: a check that never reaches the thing it
+ * names.  A test whose name says "parses" wants THIS. */
+export const parseErrorsOf = (text: string): string[] =>
+  rawParser()
+    .parse(text)
+    .parserErrors.map((e) => e.message);

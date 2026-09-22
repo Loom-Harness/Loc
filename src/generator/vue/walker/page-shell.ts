@@ -13,7 +13,14 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import {
   componentPropTsType,
@@ -465,7 +472,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   const dialogBlocks: string[] = [];
   for (const state of opFormStates) {
     if (state.kind !== "operation") continue;
-    const opCamel = lowerFirst(state.op.name);
+    const opCamel = escapeTsIdent(lowerFirst(state.op.name));
     const opPascal = upperFirst(state.op.name);
     const agg = state.agg.name;
     const from = `../api/${lowerFirst(agg)}`;

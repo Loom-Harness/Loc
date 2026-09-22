@@ -26,6 +26,7 @@ import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
+  validateContainmentCycles,
   validateCurrentUserScope,
   validateDuplicateTables,
   validateEventSourcedDiscipline,
@@ -41,6 +42,7 @@ import {
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
   validateResourceOpPlacement,
+  validateUiPermissionRefs,
   validateUnionFindShapes,
   validateUnionsUnimplemented,
   validateUniqueColumns,
@@ -163,6 +165,11 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
+    // Page gates and bodies name permissions too, and `validatePermissionRefs`
+    // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
+    // `ui` lowered to the sentinel and rendered as a literal no principal can
+    // hold, silently forbidding the page.  Same code, same sentinel, ui walk.
+    for (const ui of sys.uis) validateUiPermissionRefs(ui, diags);
     validateComposeUniqueness(sys, diags);
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
@@ -288,6 +295,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateApplicationHandlers(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
+    validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
     validateGenericInstancesUnimplemented(

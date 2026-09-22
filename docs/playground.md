@@ -4,8 +4,8 @@ The playground is Loom running entirely in your browser: type a `.ddd`
 source, watch the multi-project tree regenerate, then bundle and boot the
 generated Hono backend on an in-process Postgres and click through the
 generated React app — no server, no install, no Docker. It is live at
-<https://lemmit.github.io/Loc/playground/> (landing page at
-<https://lemmit.github.io/Loc/>) and lives in the `web/` workspace.
+<https://loom-harness.github.io/Loc/playground/> (landing page at
+<https://loom-harness.github.io/Loc/>) and lives in the `web/` workspace.
 
 The headline point: it runs **the exact same toolchain the `ddd` CLI
 runs**. There is no second, browser-flavoured compiler — `web/` imports

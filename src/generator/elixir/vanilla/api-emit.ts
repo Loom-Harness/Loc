@@ -62,6 +62,7 @@ import {
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { findRoutes, renderFindActions } from "./find-controller.js";
+import { effectiveGate } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -370,7 +371,7 @@ function renderController(
   // here, outside that loop (the list endpoint has its own paged shape), which
   // is how its `requires` came to be dropped on this backend while every named
   // find's was honoured.
-  const indexGate = listAllFind?.requires;
+  const indexGate = effectiveGate(listAllFind?.requires);
   const indexGateUsesUser = !!indexGate && exprUsesCurrentUser(indexGate);
   // `current_user` may already be bound by `cuBind` (principal-scoped reads);
   // bind it here only when the gate is the sole reason it's needed.

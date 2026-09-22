@@ -3,7 +3,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
-import { claimIdTargets } from "../_auth/claim-types.js";
+import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { renderPyType } from "./render-expr.js";
 
@@ -79,12 +79,6 @@ function pyAuthValue(v: AuthValueIR | undefined, fallback = '""'): string {
 /** The IdP claim path projected onto a user field — explicit `claims:` wins;
  *  else `id` → `sub`, every other field reads its own snake name.  Mirrors the
  *  Hono / .NET / Phoenix `claimPathFor`. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : snake(field);
-}
-
 /** Python kwargs for the dev-stub User — same defaults as Hono's
  *  `renderStubUserLiteral` (string claims "admin", arrays EMPTY — so
  *  permission-guarded surfaces deny by default — optionals None). */

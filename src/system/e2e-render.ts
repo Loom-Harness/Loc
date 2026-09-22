@@ -20,6 +20,7 @@ import {
   workflowRouteSlug,
   workflowSlugHints,
 } from "../ir/util/e2e-workflow-accessor.js";
+import { walkExprDeep } from "../ir/util/walk.js";
 import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
@@ -244,31 +245,18 @@ function collectReferencedAggregateSlugs(statements: readonly TestStmtIR[]): Set
  *  the census credit a caller the emitter never emits. */
 export function collectApiCallShapes(statements: readonly TestStmtIR[]): ApiCallShape[] {
   const calls: ApiCallShape[] = [];
+  // Rides `walkExprDeep` rather than enumerating kinds by hand.  The hand-rolled
+  // version listed ten kinds and stopped at anything else, so an api call nested
+  // inside an unlisted kind was invisible HERE — and this collector is what the
+  // CALLER CENSUS reads, so the census could not see it either.  The shared
+  // walker is exhaustively `never`-checked, which is the whole point of the
+  // convention (CLAUDE.md → "No hand-rolled IR walks").  Pre-order, so the
+  // documented visit order is unchanged.
   const visit = (e: ExprIR): void => {
-    const call = matchApiCall(e);
-    if (call) calls.push(call);
-    // Recurse regardless — the api call's args may carry further
-    // api.* receivers (`api.x.op(api.y.create(...).id)` etc.).
-    if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      const call = matchApiCall(n);
+      if (call) calls.push(call);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -296,6 +284,27 @@ function isBackendPlatform(platform: string): boolean {
  *  bounded-context name that owns the aggregate.  Returns undefined
  *  if no context declares an aggregate whose plural-snake name
  *  matches the slug. */
+/** Does `slug` name this aggregate in an e2e body?
+ *
+ *  ONE definition, because there used to be two and they disagreed.
+ *  `findAggregateBySlug` accepted three spellings; `findContextForSlug`
+ *  accepted only `snake(plural(name))`.  For a single-word aggregate those
+ *  coincide (`Bar` → `bars` either way), so the divergence was invisible —
+ *  until a MULTI-WORD name, where `lowerFirst(plural())` is `workOrders` and
+ *  `snake(plural())` is `work_orders`.  `findContextForSlug` then returned
+ *  undefined, `requiredContexts` stayed empty, the cover-check in
+ *  `compatibleBackends` passed VACUOUSLY for every backend, and the test was
+ *  replayed against a deployable that does not host the aggregate — where
+ *  `findAggregateBySlug` threw a raw Node stack trace out of `ddd generate`
+ *  on a model that had just validated `0 error(s), 0 warning(s)` (F-012). */
+function slugNamesAggregate(slug: string, aggName: string): boolean {
+  return (
+    lowerFirst(aggName) === slug ||
+    snake(plural(aggName)) === slug ||
+    lowerFirst(plural(aggName)) === slug
+  );
+}
+
 function findContextForSlug(
   slug: string,
   modulesByName: Map<string, SubdomainIR>,
@@ -303,7 +312,7 @@ function findContextForSlug(
   for (const m of modulesByName.values()) {
     for (const c of m.contexts) {
       for (const a of c.aggregates) {
-        if (snake(plural(a.name)) === slug) return c.name;
+        if (slugNamesAggregate(slug, a.name)) return c.name;
       }
       // A folded projection's read verbs (`byKey`/`list`) reference it by its
       // own slug (`lowerFirst`/`snake` of the name), so a projection-only e2e
@@ -364,28 +373,16 @@ function compatibleBackends(
  *  not a ref, so unused lets fall out naturally.) */
 function collectUsedLetNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
+  // Same migration, and this one had a LIVE defect: the hand-rolled walk did not
+  // reach a `ref` nested inside an unlisted kind, so a `let` whose only use was
+  // (say) `decimal(x.field)` was judged DEAD — the `const … =` binding was
+  // dropped while the reference survived, and the emitted test died with
+  // `ReferenceError: x is not defined` at runtime.  Found by wave-3 row 3.3's
+  // drain of `projection-agg-filters`.
   const visit = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    else if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      if (n.kind === "ref") used.add(n.name);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -979,9 +976,7 @@ function findProjectionBySlug(
 function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): AggregateIR | undefined {
   for (const c of contexts) {
     for (const a of c.aggregates) {
-      if (lowerFirst(a.name) === slug) return a;
-      if (snake(plural(a.name)) === slug) return a;
-      if (lowerFirst(plural(a.name)) === slug) return a;
+      if (slugNamesAggregate(slug, a.name)) return a;
     }
   }
   return undefined;
