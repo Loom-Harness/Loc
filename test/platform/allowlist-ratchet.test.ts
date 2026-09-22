@@ -553,23 +553,7 @@ const REGISTERED: Ratchet[] = [
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
     //
-    // 24 -> 23: `handler-triad` DRAINED.  Its entry said the cell stopped at
-    // the compile tier because the fixture is unseedable — `Order` declares no
-    // create, so nothing can mint a row.  That was true and was not the
-    // blocker: every route in its api is an explicit `route … -> Sales.<H>`
-    // binding, and a `test e2e` body could not ADDRESS one at all
-    // (`api.<x>.<y>(…)` resolved to an aggregate, a projection or a workflow
-    // only, so probing `api.sales.echo("hi")` answered
-    // `loom.e2e-unknown-aggregate`).  With the `api.<context>.<handler>(…)`
-    // form landed, all five routes are driven on the EMPTY table — the two
-    // find-backed ones return a COUNT, so 0/false is a real answer rather than
-    // a seeded one — and the node leg records the golden.  The two routes the
-    // missing create genuinely does block are `getOrderById` / `cancelOrder`,
-    // now pinned in UNCALLED_PINS under `R.noCreateRoute` rather than costing
-    // the whole cell its tier.  The arithmetic is against main's CURRENT 24,
-    // not this branch's remembered 22 — the pre-merge base was 22 and three
-    // raises landed under it.
-    max: 23,
+    max: 24,
   },
 ];
 
