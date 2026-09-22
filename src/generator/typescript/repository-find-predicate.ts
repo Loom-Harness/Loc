@@ -385,9 +385,12 @@ export function lowerToDrizzle(
   function booleanColumnRef(e: ExprIR): string | null {
     if (e.kind === "paren") return booleanColumnRef(e.inner);
     const isBool = (t: TypeIR | undefined): boolean => t?.kind === "primitive" && t.name === "bool";
-    if (e.kind === "member" && e.receiver.kind === "this" && isBool(e.memberType)) {
-      return `schema.${tableName}.${e.member}`;
-    }
+    // `this.<field>` AND `this.<vo>.<sub>` — both are columns (the schema
+    // flattens a value object to `<field>_<subField>`), so both can stand
+    // alone in a boolean position.  `renderColumnRef` owns the spelling of
+    // each; this only adds the bool TYPE requirement, so a bare non-bool
+    // column in a boolean slot stays the (correctly rejected) shape it was.
+    if (e.kind === "member" && isBool(e.memberType)) return renderColumnRef(e);
     if (e.kind === "ref" && e.refKind === "this-prop" && isBool(e.type)) {
       return `schema.${tableName}.${e.name}`;
     }

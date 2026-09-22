@@ -28,7 +28,7 @@ const UI_MODEL = `system Shop {
     aggregate Order { total: int }
   }
   ui Admin {
-    component Badge() { body: Text { "b" } }
+    component TierBadge() { body: Text { "b" } }
     store Cart { state { lines: int = 0 } }
     area Back {
       page Board { route: "/b" body: Text { "x" } }
@@ -79,7 +79,7 @@ describe("buildOutline — comprehensive addressing", () => {
     expect(admin?.members).toContain("area Admin.Back");
     expect(admin?.members).toContain("page Admin.Back.Board");
     expect(admin?.members).toContain("page Admin.Back.Deep.Nested");
-    expect(admin?.members).toContain("component Admin.Badge");
+    expect(admin?.members).toContain("component Admin.TierBadge");
     expect(admin?.members).toContain("store Admin.Cart");
   });
 });

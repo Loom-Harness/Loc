@@ -718,7 +718,7 @@ files are therefore the active shell for both versions.
 | `generator/typescript/emit/value-objects.ts` | Enums + value-object classes. |
 | `generator/typescript/emit/events.ts` | Domain-event union + dispatcher. |
 | `generator/typescript/emit/aggregate.ts` | Aggregate / part class shape. |
-| `generator/typescript/emit/schema.ts` | Drizzle `pgTable` / `pgEnum` declarations. |
+| `generator/typescript/emit/schema.ts` | Drizzle `pgTable` declarations + per-enum value tuples (an enum column is `TEXT`, as the migration emits). |
 | `generator/typescript/emit/routes.ts` | `http/index.ts` composer (CORS + sub-router mount + `/openapi.json`). |
 | `generator/typescript/emit/tests.ts` | Per-aggregate vitest spec when `test` blocks present. |
 | `generator/typescript/emit/migrations.ts` | Per-module Drizzle SQL migration file from the `MigrationsIR` slice. |

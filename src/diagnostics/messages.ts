@@ -1173,6 +1173,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `menu link '${p.name}' does not name a page of ui '${p.uiName}'.  Linkable pages: ${p.linkable}.  Scaffolded pages are named by ROLE inside a per-aggregate area, so link them area-qualified (e.g. 'link Orders.List'); a workflow's form page is '<Workflow>Workflow'.`,
   "loom.extern-function-shadows-stdlib": (p: { name: unknown }) =>
     `extern function '${p.name}' shadows a walker-stdlib primitive.  Pick a different name.`,
+  "loom.component-shadows-stdlib": (p: { name: unknown }) =>
+    `component '${p.name}' shadows a walker-stdlib primitive — the page-body dispatcher ` +
+    `resolves '${p.name}(...)' to the primitive, so this component is emitted and never ` +
+    `rendered.  Pick a different name.`,
   "loom.store-lifetime-invalid": (p: {
     name: unknown;
     lifetime: unknown;
@@ -1708,10 +1712,11 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `field '${p.name}' cannot be persisted on the feliz frontend — ` +
     `\`persist: ${p.lifetime}\` crosses the JS boundary per field, and the F# codec covers ` +
-    `string / int / long / bool / decimal / money / id fields plus arrays of ` +
-    `string / int / long / bool.  A datetime, duration, guid, enum, entity or value-object ` +
-    `field would be silently dropped from the stored blob.  Give the field one of the ` +
-    `covered types, or use \`persist: memory\` for this store.`,
+    `string / id / enum / int / long / bool / decimal / money / datetime / guid fields, ` +
+    `arrays of those, and an OPTIONAL of any of them (at every tier, \`persist: url\` ` +
+    `included).  A File, entity or value-object field would need a RECORD codec the store ` +
+    `path does not emit, and would be silently dropped from the stored blob.  Give the ` +
+    `field one of the covered types, or use \`persist: memory\` for this store.`,
   "loom.store-lifetime-target-unsupported#flutter-field": (p: {
     where: unknown;
     name: unknown;
@@ -1808,25 +1813,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
   // ----------------------------------------------------------------------
-  // src/ir/validate/checks/ui-framework-checks.ts — the two Flutter
-  // action-body gaps (§18 sentinels: the `TODO(flutter full-parity)` arms in
-  // `riverpod-emit.ts`).  Both leave the effect out of the built app with no
-  // diagnostic anywhere; both name their successor mission.
+  // src/ir/validate/checks/ui-framework-checks.ts — the Flutter action-body
+  // gap (§18 sentinels: the `TODO(flutter full-parity)` arms in
+  // `riverpod-emit.ts`).  It leaves the effect out of the built app with no
+  // diagnostic anywhere, and names its successor mission.
+  //
+  // There were TWO.  The `#view-effect` arm (a `toast(…)` from a Notifier) is
+  // gone with its cause: wave C2 packet 2l gave `toast` the same out-of-tree
+  // bridge `navigate` already had (`lib/toast.dart`, a
+  // `GlobalKey<ScaffoldMessengerState>` on `MaterialApp`), so the effect ships
+  // rather than being refused.  What is left is the `match await` on a
+  // STANDARD aggregate op.
   // ----------------------------------------------------------------------
-  "loom.flutter-action-body-unsupported#view-effect": (p: {
-    where: unknown;
-    uiName: unknown;
-    dName: unknown;
-    detail: unknown;
-  }) =>
-    `${p.where} on ui '${p.uiName}' calls \`${p.detail}(…)\`, which the Flutter frontend ` +
-    `cannot run from an action body (deployable '${p.dName}'). A ui \`action\` projects to a ` +
-    `Riverpod \`Notifier\` method, and a Notifier holds no \`BuildContext\` — so it can reach ` +
-    `a \`ScaffoldMessenger\` (\`navigate\` reaches the router through the generated \`lib/nav.dart\` ` +
-    `bridge; \`toast\` has no such bridge yet), and the call would be emitted as a comment that ` +
-    `silently does nothing. Every other frontend renders it. Move the effect to the widget ` +
-    `layer, or host this ui on another frontend. Tracked as M-T1.32 in ` +
-    `docs/new-plan/T1-ui-frontend.md.`,
   "loom.flutter-action-body-unsupported#match-await-standard-op": (p: {
     where: unknown;
     uiName: unknown;
@@ -1840,7 +1838,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `among them, so the whole effect — the request, the error reification and every arm body — ` +
     `would be replaced by a comment. Await a declared \`operation\` that returns a union, or ` +
     `host this ui on another frontend. Tracked as M-T1.32 in docs/new-plan/T1-ui-frontend.md.`,
-  // The Riverpod emitter's internal floor for both — it replaces the three
+  // The Riverpod emitter's internal floor — it replaces the three
   // `// TODO(flutter full-parity)` comments that used to be emitted INTO the
   // Dart, where they compiled fine and left the action doing nothing.
   "loom.flutter-action-body-unsupported#emit-invariant": (p: { what: unknown }) =>
@@ -2611,16 +2609,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // `#schema-ignored`) — the self-provisioning limits this adapter's
   // `orm.schema.updateSchema()` boot-time schema owner genuinely cannot
   // express.)
-  "loom.find-predicate-unsupported": (p: {
-    name: unknown;
-    adapter: unknown;
-    subject: unknown;
-    label: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: ${p.adapter}', but ${p.subject} uses ` +
-    `a predicate the ${p.adapter} adapter cannot lower to SQL: ${p.label}. ` +
-    `The ${p.adapter} find-predicate subset is narrower than EF Core's — ` +
-    `use 'persistence: efcore'/'drizzle', or restructure the predicate.`,
   "loom.resource-missing-capability": (p: {
     name: unknown;
     sourceType: unknown;
@@ -3544,6 +3532,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.verb}'. The operation body carries exactly the declared parameters and the backend ` +
     `rejects an unknown key (422), so the call fails for the typo rather than for whatever the ` +
     `test claims to prove. Accepted keys: ${p.known}.`,
+  "loom.e2e-unknown-body-key#workflow-run": (p: {
+    slug: unknown;
+    key: unknown;
+    workflow: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.run({…})' sends '${p.key}', which is not a parameter of workflow ` +
+    `'${p.workflow}'. Unlike an aggregate body this one is NOT rejected: the emitted ` +
+    `'${p.workflow}Request' is a plain object schema on every backend, so an unknown key is ` +
+    `DROPPED and the POST still answers 204 — the workflow never receives it, and an assertion ` +
+    `resting on it passes while proving nothing. Accepted keys: ${p.known}.`,
+  "loom.e2e-missing-required-field#workflow-run": (p: {
+    slug: unknown;
+    workflow: unknown;
+    missing: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.run({…})' omits ${p.missing} — a required parameter of workflow ` +
+    `'${p.workflow}'. The command body carries exactly the starter's declared parameters, and ` +
+    `only an optional one ('p: T?') may be left out: a parameter with an '= default' is still ` +
+    `required on the wire, because the default is applied in the BODY, not by the request ` +
+    `schema. The backend answers 422 without it. Required keys: ${p.known}.`,
   "loom.e2e-missing-required-field": (p: {
     slug: unknown;
     aggregate: unknown;
@@ -3554,6 +3564,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.aggregate}'. A field is omittable only when it is optional ('f: T?'), carries an ` +
     `'= default', or is a bare 'bool'; anything else the client must supply, and the backend ` +
     `answers 422 without it. Required keys: ${p.known}.`,
+  "loom.e2e-unknown-response-field#workflow-instance": (p: {
+    binding: unknown;
+    field: unknown;
+    slug: unknown;
+    workflow: unknown;
+    known: unknown;
+  }) =>
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `'${p.binding}' is 'api.${p.slug}.instance(…)', whose body is the persisted instance shape ` +
+    `of workflow '${p.workflow}': its correlation field, then its state fields. The read is ` +
+    `'undefined' at run time, so an assertion over it passes or fails for the wrong reason. ` +
+    `Readable: ${p.known}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;
     verb: unknown;
@@ -4042,6 +4064,18 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.parse-error#reserved-name": (p: { found: unknown; expected: unknown }) =>
     `'${p.found}' is a Loom keyword, so it cannot be used as a ${p.expected} here. ` +
     `Rename it — '${p.found}Ref' or a domain-specific synonym.`,
+  // The ASYMMETRIC half of the reserved-word case: a keyword the grammar
+  // admits where a name is DECLARED (`LooseName`) but not where one is READ
+  // (`NameRefIdent`).  The declaration is accepted, so the author has no
+  // reason to suspect the name — and the failure lands on the USE, in an
+  // alternation whose candidate dump describes expression syntax.  Naming the
+  // asymmetry is the only thing that makes the refusal learnable; `from` works
+  // as a parameter and `to` works everywhere, so there is otherwise no rule to
+  // infer.  The set is derived from the grammar (`src/language/soft-keywords.ts`).
+  "loom.parse-error#reserved-in-expression": (p: { found: unknown }) =>
+    `'${p.found}' is a Loom keyword and cannot be READ as a name, even though it ` +
+    `is accepted where a name is DECLARED — so a parameter, field or binding ` +
+    `called '${p.found}' parses and can then never be mentioned. Rename it.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

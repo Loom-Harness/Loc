@@ -179,3 +179,57 @@ system P {
     expect(fs).not.toContain("System.Guid");
   });
 });
+
+// Wave C2 packet 2l — the THIRD member of the same silent-codegen family, found
+// by compiling a store with an optional cell.  A `T?` state cell is `'T option`
+// on the Model (`typeToFs`), so an assignment of a bare value has to be lifted:
+//
+//   store Prefs { state { nickname: string? }  action set(n: string) { nickname := n } }
+//   → let model = { model with PrefsNickname = n }        // FS0001
+//
+// from a `.ddd` reporting `0 error(s), 0 warning(s)`.  Pinned on a MEMORY store,
+// so the fix is proven independent of `persist:` — the defect predates the
+// persistence ladder reaching optional cells at all.
+describe("feliz store — an OPTIONAL state cell (silent-codegen fix)", () => {
+  const OPTS = `
+system P {
+  subdomain S { context C { enum Status { open closed } } }
+  ui WebApp {
+    store Prefs {
+      state { nickname: string?  retries: int?  mode: Status? }
+      action setNick(n: string) { nickname := n }
+      action bump() { retries := 3 }
+    }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 } }
+    }
+  }
+  deployable api { platform: node contexts: [C] port: 3000 }
+  deployable web { platform: feliz targets: api ui: WebApp port: 3005 }
+}`;
+
+  async function optsApp(): Promise<string> {
+    const model = await buildLoomModel(OPTS);
+    const sys = model.systems[0]!;
+    const web = sys.deployables.find((d) => d.name === "web")!;
+    return generateFelizForContexts([], sys, web).get("src/App.fs")!;
+  }
+
+  it("declares the cell `'T option` and seeds it `None`", async () => {
+    const fs = await optsApp();
+    expect(fs).toContain("PrefsNickname: string option");
+    expect(fs).toContain("PrefsRetries: int option");
+    expect(fs).toContain("PrefsNickname = None");
+    expect(fs).toContain("PrefsRetries = None");
+  });
+
+  it("LIFTS a bare value assigned to an optional cell into `Some`", async () => {
+    const fs = await optsApp();
+    expect(fs).toContain("{ model with PrefsNickname = (Some n) }");
+    expect(fs).toContain("{ model with PrefsRetries = (Some 3) }");
+    // The pre-fix spellings, which do not typecheck against a `'T option` field.
+    expect(fs).not.toContain("{ model with PrefsNickname = n }");
+    expect(fs).not.toContain("{ model with PrefsRetries = 3 }");
+  });
+});

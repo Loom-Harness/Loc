@@ -125,7 +125,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.filter-bypass-unknown-capability",
   "loom.filter-bypass-unsupported",
   "loom.find-gate-not-current-user",
-  "loom.find-predicate-unsupported",
   "loom.find-reserved-name",
   "loom.findall-criterion-arity",
   "loom.findall-criterion-mismatch",

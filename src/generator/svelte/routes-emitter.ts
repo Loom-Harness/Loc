@@ -40,6 +40,7 @@ import {
   pageEmitName,
 } from "../../ir/util/page-kind.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
+import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -170,7 +171,10 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
-    out.set(`src/lib/extern/${fn.name}.signature.ts`, buildExternFunctionSignature(fn, "../api"));
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, "../api", valueObjectIndex(buildBcByAggregate(ctx))),
+    );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
 
@@ -198,6 +202,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
         c.name,
         [...c.params],
         ctx.aggregatesByName,
+        valueObjectIndex(buildBcByAggregate(ctx)),
       );
       out.set(propsPath, propsContent);
       ctx.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);

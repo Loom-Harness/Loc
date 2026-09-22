@@ -1044,6 +1044,29 @@ the conforming backends, and the fix that established it.
   > through all of the above — **no golden reached the route**, and none could:
   > the routes are emitted only for a system with BOTH a `File` field and an
   > `objectStore`, and no corpus fixture had one until `file-download.ddd`.
+  >
+  > **And a seventh — this time on the OTHER side of the scope line
+  > (2026-09-21).** Everything above concerns a read addressed BY KEY, which is
+  > what this rule governs. The sibling class it scopes out — the DECLARED-FIND
+  > miss, whose `detail` is the bare `"not_found"` token because a predicate has
+  > no id to name — turned out to be split too, and the scope note above
+  > understated it by naming only the `option` carrier. A single-row `find` has
+  > FOUR carriers (`: T`, `: T?`, `: T option`, `: T envelope`), and **node
+  > spelled the token `"not found"` — with a space — on two of them**: `: T` and
+  > `: T envelope` refuse the miss in the REPOSITORY
+  > (`typescript/repository-find-builder.ts`), where the space-spelling lived,
+  > while `: T?` and `: T option` refuse it in the ROUTE (`routes-builder.ts`),
+  > which already answered the token. So it was a 4-vs-1 cross-backend split AND
+  > an intra-backend one — the same "one service, two answers" shape as node's
+  > by-id bypass above, one carrier axis further out. Fixed on node (the other
+  > four already answered the token); gated per SITE across all five backends x
+  > all four carriers by `test/conformance/find-miss-detail-parity.test.ts`,
+  > whose last assertion pins the by-id SENTENCE alongside, so the two classes
+  > cannot be collapsed into one answer by a later "tidy-up". It survived
+  > because no fixture declares a non-optional single-row find AND drives it to
+  > a miss: `envelope.ddd` was authored with a `test e2e` block and the block
+  > was withdrawn precisely because the golden would have frozen node's
+  > spelling as the answer key and reddened the other four legs.
 - **The real rule: don't hand-roll a 404.** This was not five backends inventing
   five strings. **Two agreed out of the box**, because on each the message comes
   from one shared producer — the repository's `getById`
@@ -1505,3 +1528,49 @@ nothing and the test passes vacuously.
   `examples/**` and `web/src/examples/**`), so this rule's coverage is
   entirely the dedicated fixture tests named above, not the corpus/behavioral
   legs.
+
+### RS-36 · `.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form
+- **Guarantee.** `first` is declared `T` — **non-optional** — in
+  `src/util/collection-ops.ts`, so reading it from an empty receiver FAILS on
+  every target rather than yielding a value that lies about its own type.
+  `firstOrNull` is declared `T?` and is the TOTAL form: null/nil on empty,
+  never raising. The failure surfaces as the sanitized **500** RS-28 already
+  governs, not a domain-floor 422 — the request was valid and the MODEL's
+  assumption ("this collection has a first element") was not.
+- **Trigger.** Any `.first` whose receiver can be empty: `lines.first.sku`
+  after a `where` that matched nothing, a `find` result bound and read
+  positionally, a `derived` over an empty containment.
+- **The split when raised (`F2-EXPR-7`).** Three targets already failed at the
+  point of the mistake and two degraded silently: dotnet `.First()`
+  (`InvalidOperationException`), java `.get(0)` (`IndexOutOfBoundsException`)
+  and python `[0]` (`IndexError`) — against node `${recv}[0]` (`undefined`) and
+  elixir `List.first(${recv})` (`nil`). Elixir's `first` and `firstOrNull` were
+  **literally the same snippet**, so the non-optional form had no distinct
+  meaning at all, and on node a `string`-typed getter returned `undefined`,
+  which then shipped on the wire or died later somewhere that never mentions
+  the collection.
+- **Rejected: making `first` total (`T?`).** That contradicts the declared
+  signature and would break every `lines.first.sku` in the language for a case
+  authors can already express with `firstOrNull`. A failure AT the read is
+  diagnosable; a null that ships is not. (This is RS-34's argument reaching the
+  opposite conclusion, and for the stated reason: there the absent value has a
+  MEANING — no joined row — and here it does not.)
+- **Per-backend shape.** node emits an arrow IIFE guard rather than a bare
+  `[0]`, so the receiver is evaluated once and the message names the total
+  form: `((__c) => { if (__c.length === 0) throw new Error("'.first' on an
+  empty collection — use '.firstOrNull' for the total form"); return __c[0]; })(<recv>)`
+  (`src/generator/_expr/js-collection-ops.ts`, shared with the JS frontend
+  walkers — where a stdlib collection op in a page body is refused outright by
+  `loom.frontend-collection-op-unsupported`, so the guard is backend-reachable
+  only). elixir moves `first` to `hd/1` (`ArgumentError` on `[]`) and keeps
+  `List.first/1` for `firstOrNull` (`src/generator/elixir/render-expr.ts`).
+  dotnet / java / python are unchanged: their natural renderings already raise.
+- **Provenance.** Ruled as **D-FIRST-ON-EMPTY** (`docs/decisions.md`); raised as
+  ledger row `F2-EXPR-7`; built in wave C2 packet 2n. Tier: **generator**
+  (per-backend arm test,
+  `test/generator/collection-op-first-partial.test.ts`) — the edge itself is
+  pinned as prose in `src/util/collection-ops.ts` the way
+  `src/util/intrinsics.ts` pins scalar edge behaviour. The FRONTEND half is
+  vacuous by construction today (the page-body gate above); should that gate
+  ever widen, the frontends follow this same rule rather than degrading to
+  `undefined`.

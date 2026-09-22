@@ -299,7 +299,7 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > `projectionClauseFor` comment calls `"not_found"` "the canonical find-miss detail token on every
 > backend"). A golden captured on the node leg would redden the other four on `main`.
 > **TWO SPIN-OFFS, both pre-existing and neither envelope-specific:**
-> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it;
+> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it. **CLOSED 2026-09-21 (#2979).** It was worse than 1-vs-4: node answered the token on its `: T?` / `: T option` arms (thrown from `routes-builder.ts`) and the space-spelling on its `: T` / `: T envelope` arms (thrown from `repository-find-builder.ts`) — an INTRA-backend split as well as a cross-backend one. node aligned on `"not_found"`; gated per site across 5 backends x 4 carriers by `test/conformance/find-miss-detail-parity.test.ts`, which also pins RS-27's by-id SENTENCE beside it so the two 404 classes cannot be collapsed. The miss arm of a single-row-find e2e block is no longer blocked;
 > (b) a FILTERLESS single-return find on an EVENT-SOURCED aggregate emits
 > `Enum.find(all, fn a ->  end)` on elixir — an empty lambda body, invalid Elixir (identical for
 > `find pick(): Ev` with no carrier).
@@ -414,6 +414,18 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 > aggregate `function` whose only `return`s sit inside an `if` is refused at phase ④ on EVERY
 > backend — the identical tail-return shape a `domainService` operation accepts. Not an elixir
 > row; the elixir renderer already handles it.
+
+> **Re-classed 2026-09-21 (wave C2, packet 2m) — `D-ELIXIR-IF-BRANCH`.** The four survivors above
+> were re-derived on a fresh head and the register row moved `gap` → `scope`, keeping
+> `mission: "M-T6.59"` and every arm that fires. The finding that decided it: three of the four
+> need a change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit; a
+> non-hoisted guard form; a statement spine for ES commands), and the two sharpest members of the
+> closed branch vocabulary are **not elixir-local at all** — a conditional `emit` is an event
+> ORDERING question the S5a persist-then-dispatch restructure cannot answer (walking deeper does
+> not fix it), and a PROVENANCED write in a branch is decided by the TARGET-NEUTRAL `opHasProvSite`
+> (`src/ir/util/prov-id.ts:49`), so deepening that scan changes all five backends. This mission
+> stays OPEN and owns the body-renderer question; what changed is the claim that a drain sprint
+> could close it.
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 

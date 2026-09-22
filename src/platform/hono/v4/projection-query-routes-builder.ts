@@ -799,8 +799,8 @@ function mikroRowClassFor(p: ProjectionIR, source: string): string {
 /** A projection `where` as a MikroORM FilterQuery literal.
  *
  *  Throws on a predicate outside the adapter's subset, and that is deliberate:
- *  `validateFindPredicateAdapterSupport` now walks query-time projection filters
- *  too (`loom.find-predicate-unsupported`), so reaching here with an unlowerable
+ *  `validateQueryTimeProjectionWhere` walks query-time projection filters
+ *  too (`loom.projection-where-not-queryable`), so reaching here with an unlowerable
  *  predicate is an internal contradiction, exactly like `aggregateColumn`'s
  *  non-column argument.  Swallowing it would drop the filter and answer a
  *  plausible WRONG number. */

@@ -353,7 +353,7 @@ Raising one (`emit OrderPlaced { … }`) and the `apply(e: OrderPlaced) { … }`
 
 ## `enum`
 
-An `enum` is a closed set of bare-identifier values, referenced bare in expressions and defaults (`status := Confirmed`). It emits as a native enum on every backend and as a Postgres `pgEnum` / string-converted column for the DB layer — members re-quoted into string literals (the source `USD` arrives at the compiler as the 3-char string `USD`; see [Lexical structure](01-lexical-structure.md) §Literals). Duplicate members are `loom.duplicate-enum-value`; an enum may not share a name with an aggregate (`loom.enum-shadows-root`).
+An `enum` is a closed set of bare-identifier values, referenced bare in expressions and defaults (`status := Confirmed`). It emits as a native enum on every backend and as a **`TEXT` column** for the DB layer on every backend (`mapTypeToColumn` maps `enum → text`; node keeps the literal union via `text(col, { enum: … })`, .NET via `HasConversion<string>()`, java via `@Enumerated(STRING)`, Ecto via `Ecto.Enum`) — members re-quoted into string literals (the source `USD` arrives at the compiler as the 3-char string `USD`; see [Lexical structure](01-lexical-structure.md) §Literals). Duplicate members are `loom.duplicate-enum-value`; an enum may not share a name with an aggregate (`loom.enum-shadows-root`).
 
 ```ddd
 context Orders {
@@ -372,8 +372,10 @@ export const Currency = { USD: "USD", EUR: "EUR", GBP: "GBP" } as const;
 export type Currency = "USD" | "EUR" | "GBP";
 ```
 ```ts
-// db/schema.ts — bare members re-quoted into a pgEnum
-export const currencyEnum = pgEnum("currency", ["USD", "EUR", "GBP"]);
+// db/schema.ts — bare members re-quoted into the column's value tuple
+export const currencyValues = ["USD", "EUR", "GBP"] as const;
+// …and the column itself, TEXT with the literal union kept on the TS side:
+//   currency: text("currency", { enum: currencyValues }).notNull(),
 ```
 == dotnet
 ```csharp

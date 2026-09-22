@@ -40,6 +40,7 @@ import {
   persistNotifierMembers,
   renderUrlStoreSync,
 } from "./store-persist.js";
+import { FLUTTER_TOAST_MARKER } from "./toast-runtime.js";
 
 /** The state data class for a store (`Cart` → `CartState`). */
 function storeStateClass(storeName: string): string {
@@ -199,5 +200,6 @@ export function renderFlutterStores(
   // A store action that navigates pushes through the out-of-tree bridge — a
   // Riverpod `Notifier` has no `BuildContext` (F2-CFE-1).
   if (body.includes(FLUTTER_NAV_MARKER)) header.push("", "import 'nav.dart';");
+  if (body.includes(FLUTTER_TOAST_MARKER)) header.push("", "import 'toast.dart';");
   return `${[...header, "", body, ...urlSync].join("\n")}\n`;
 }
