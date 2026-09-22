@@ -605,7 +605,13 @@ projection SalesByStatus {
 }
 ```
 
-The read happens **in SQL** and returns the list shape, **ordered by the grouping columns** so it is deterministic across backends:
+The read happens **in SQL** and returns the list shape, **ordered by the grouping
+columns, ascending, by their stored column value** — so it is deterministic across
+backends.  For an ENUM key that means the **lexicographic order of the member name**,
+not the order the members are declared in: an enum column is stored as `TEXT` on every
+backend, so `enum OrderStatus { Draft Confirmed Cancelled }` grouped on comes back
+`Cancelled`, `Confirmed`, `Draft`.  (A projection has no `order by` clause yet; a read
+that wants declaration order selects an explicit rank column.)
 
 ::: tabs backend
 == node
@@ -714,7 +720,7 @@ One more condition bites the surviving document `count()`: a capability-filtered
 
 ### Folded — `keyed by` + `on(e: Event)`
 
-A projection with no query clauses and one or more `on(e: <Event>) { … }` handlers is a **materialized read model**: a table with one row per `keyed by` key, updated by a pure fold on each event. `keyed by` must name a declared id-shaped field (`loom.projection-key-unknown` / `-key-not-id`); the routing key is `e.<key>` unless `by <expr>` says otherwise (an event without the key field and no `by` is `loom.projection-event-unkeyed`). The grammar makes `keyed by` optional — but a *fold* without it has no key to route by and is refused by that same `loom.projection-event-unkeyed`; the keyless ("singleton") projection is the query-time whole-table aggregation above, not a fold. Each event type folds in exactly one handler (`loom.projection-duplicate-on`), and the body is a **pure fold** — `:=` assignments and `let` only; an `emit`, a call, a guard or a `return` is `loom.projection-fold-impure` (use a workflow `on(e)` reactor instead). In-process dispatch is channel-routed, so the event must be carried by a `channel` or the fold never runs (`loom.projection-event-uncarried`); folding an event that carries a `mask unless` field would launder the masked value into an unredacted row, so it is refused too (`loom.field-mask-projection-source` — see [chapter 17](17-auth.md)).
+A projection with no query clauses and one or more `on(e: <Event>) { … }` handlers is a **materialized read model**: a table with one row per `keyed by` key, updated by a pure fold on each event. `keyed by` must name a declared id-shaped field (`loom.projection-key-unknown` / `-key-not-id`); the routing key is `e.<key>` unless `by <expr>` says otherwise (an event without the key field and no `by` is `loom.projection-event-unkeyed`). The grammar makes `keyed by` optional — but a *fold* without it has no key to route by and is refused by that same `loom.projection-event-unkeyed`; the keyless ("singleton") projection is the query-time whole-table aggregation above, not a fold. Each event type folds in exactly one handler (`loom.projection-duplicate-on`), and the body is a **pure fold** — `:=` assignments and `let` only; an `emit`, a call, a guard or a `return` is `loom.projection-fold-impure` (use a workflow `on(e)` reactor instead). An `on(e: E)` handler IS the subscription (**D-PROJECTION-IMPLICIT-SUB**): a fold whose event no `channel` carries still dispatches in-process on all five backends, so no carrying channel is required. The warning that once demanded one, `loom.projection-event-uncarried`, was retired with the decision; folding an event that carries a `mask unless` field would launder the masked value into an unredacted row, so it is refused too (`loom.field-mask-projection-source` — see [chapter 17](17-auth.md)).
 
 ```ddd
 event OrderConfirmed { orderRef: Order id, at: datetime }

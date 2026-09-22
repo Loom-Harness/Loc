@@ -54,13 +54,17 @@ import type {
   TestE2EIR,
   TestStmtIR,
   TypeIR,
+  WorkflowIR,
 } from "../../types/loom-ir.js";
 import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { emitsCommandRoute } from "../../util/workflow-command-route.js";
+import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** One `<magicId>.<slug>.<verb>(…)` call found in an e2e body. */
@@ -98,7 +102,14 @@ export function validateE2ERouteContract(
     if (!checkApiVerb(call, contexts, source, diags)) continue;
     routed.add(`${call.slug}.${call.verb}`);
     const resolved = resolveAggregate(call.slug, contexts);
-    if (resolved) checkApiPayload(call, resolved.agg, contexts, source, diags);
+    if (resolved) {
+      checkApiPayload(call, resolved.agg, contexts, source, diags);
+      continue;
+    }
+    // The WORKFLOW accessor's body half — `api.<wf>.run({…})`.  Aggregate
+    // first, the same precedence every other arm in this file uses.
+    const wf = findWorkflowBySlug(call.slug, contexts);
+    if (wf) checkWorkflowPayload(call, wf, contexts, source, diags);
   }
   checkResponseFields(test, contexts, routed, source, diags);
   // The `ui.` half is scoped to a ui-kind test, mirroring `test-checks.ts`'s
@@ -136,6 +147,8 @@ type VerbVerdict =
   | { readonly tag: "history"; readonly aggregate: string }
   | { readonly tag: "find"; readonly aggregate: string }
   | { readonly tag: "verb"; readonly aggregate: string; readonly routed: string }
+  | { readonly tag: "workflow-run"; readonly workflow: string }
+  | { readonly tag: "workflow-instance"; readonly workflow: string }
   | { readonly tag: "ui-create"; readonly aggregate: string }
   | { readonly tag: "ui-verb"; readonly known: string };
 
@@ -149,9 +162,24 @@ function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerd
   if (call.slug === "workflows") return null;
   if (findProjectionBySlug(call.slug, contexts)) return null;
   const resolved = resolveAggregate(call.slug, contexts);
-  // An unresolved slug already raises `loom.e2e-unknown-aggregate`; a second
-  // diagnostic for the same call would just be noise.
-  if (!resolved) return null;
+  if (!resolved) {
+    // The WORKFLOW accessor — `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`.  Consulted AFTER the aggregate, the same precedence
+    // `test-checks.ts` and `renderApiCall` use, because what matters here is
+    // the route the RENDERER will emit.
+    //
+    // A projection read is skipped above because BOTH its verbs are
+    // unconditional once the projection exists.  A workflow's three routes are
+    // not: the command POST rides the facade's trigger kind and the two
+    // instance reads ride the correlation field, so the route-contract question
+    // is real here and is answered against the same two predicates every
+    // backend gates its own emission on.
+    const wf = findWorkflowBySlug(call.slug, contexts);
+    if (wf) return workflowVerbVerdict(call, wf);
+    // Otherwise an unresolved slug already raises `loom.e2e-unknown-aggregate`;
+    // a second diagnostic for the same call would just be noise.
+    return null;
+  }
   const { agg, repo, ctx } = resolved;
   const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return null;
@@ -169,6 +197,24 @@ function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerd
     aggregate: agg.name,
     routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
   };
+}
+
+/** The three workflow verbs against the two conditions the backends mount a
+ *  workflow's routes on.  An UNKNOWN verb answers `null` on purpose:
+ *  `test-checks.ts` owns that complaint (`loom.e2e-unknown-method#workflow`),
+ *  and the one-mistake-one-diagnostic rule below reads this verdict to decide
+ *  whether to stay out of the way. */
+function workflowVerbVerdict(call: MagicCall, wf: WorkflowIR): VerbVerdict | null {
+  // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
+  // every backend's workflow emitter skips the POST for it, so `.run()` would
+  // emit a request nothing answers.
+  if (call.verb === "run") {
+    return emitsCommandRoute(wf) ? null : { tag: "workflow-run", workflow: wf.name };
+  }
+  if (call.verb === "instances" || call.verb === "instance") {
+    return emitsInstanceRoutes(wf) ? null : { tag: "workflow-instance", workflow: wf.name };
+  }
+  return null;
 }
 
 /** Does `ui.<slug>.<verb>(…)` drive a page object the harness emits? */
@@ -309,6 +355,31 @@ function checkApiVerb(
     });
     return false;
   }
+  if (verdict.tag === "workflow-run") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
+        slug: call.slug,
+        workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "workflow-instance") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
+        slug: call.slug,
+        verb: call.verb,
+        workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
   if (verdict.tag === "verb") {
     diags.push({
       severity: "error",
@@ -323,6 +394,48 @@ function checkApiVerb(
     });
   }
   return false;
+}
+
+/** The three workflow verbs against the two conditions the backends mount their
+ *  workflow routes on.  An unknown verb is NOT diagnosed here — `test-checks.ts`
+ *  already raised `loom.e2e-unknown-method#workflow` for it, and a second
+ *  diagnostic for one call is noise (the same division the aggregate arms keep).
+ */
+function checkWorkflowVerb(
+  call: MagicCall,
+  wf: WorkflowIR,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.verb === "run") {
+    // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
+    // every backend's workflow emitter skips the POST for it, so calling
+    // `.run()` would emit a request nothing answers (405).
+    if (emitsCommandRoute(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
+        slug: call.slug,
+        workflow: wf.name,
+      }),
+    });
+    return;
+  }
+  if (call.verb === "instances" || call.verb === "instance") {
+    if (emitsInstanceRoutes(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
+        slug: call.slug,
+        verb: call.verb,
+        workflow: wf.name,
+      }),
+    });
+  }
 }
 
 /** Does the route `renderApiCall` will emit for `verb` exist in the derivation?
@@ -599,6 +712,42 @@ function checkApiPayload(
   }
 }
 
+/** `api.<wf>.run({…})` against the workflow facade's declared parameters.
+ *
+ *  `wf.params` is READ HERE because it is what the emitters read: every
+ *  backend builds `<Wf>Request` from exactly that list (hono
+ *  `zodForWorkflowParam(p.type)` over `wf.params`, python's `<Wf>Request`
+ *  BaseModel, and the java/.NET/elixir twins).  Taking the facade create's
+ *  params by a second route would be a copy of the rule that could drift.
+ *
+ *  Only `run` has a body; `instances()` takes none and `instance(key)` takes a
+ *  path segment, not a body. */
+function checkWorkflowPayload(
+  call: MagicCall,
+  wf: WorkflowIR,
+  contexts: BoundedContextIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.verb !== "run") return;
+  checkBody(
+    call,
+    // The command body is argument 0 — `renderWorkflowCall`: `args[0] ?? "{}"`.
+    call.args[0],
+    wf.params.map((p) => ({
+      name: p.name,
+      type: p.type,
+      // Required unless the TYPE is optional.  An `= default` does NOT relax
+      // it — see the note in `checkBody`'s omission arm.
+      required: p.type.kind !== "optional",
+    })),
+    contexts,
+    source,
+    diags,
+    { kind: "workflow-run", workflow: wf.name },
+  );
+}
+
 /** One object-literal body against one declared field/param contract. */
 function checkBody(
   call: MagicCall,
@@ -607,7 +756,7 @@ function checkBody(
   contexts: BoundedContextIR[],
   source: string,
   diags: LoomDiagnostic[],
-  site: { kind: "create" | "operation"; aggregate?: string },
+  site: { kind: "create" | "operation" | "workflow-run"; aggregate?: string; workflow?: string },
 ): void {
   // Only an object literal is a body this layer can read.  A bare `ref`
   // (`api.orders.confirm(id, payload)`) carries a shape from somewhere else.
@@ -622,7 +771,19 @@ function checkBody(
       sawUnknownKey = true;
       // ONE mistake, ONE diagnostic: an unknown key says nothing about the
       // value it carries, so the type arm below is not also run for it.
-      if (site.kind === "create") {
+      if (site.kind === "workflow-run") {
+        diags.push({
+          severity: "error",
+          code: "loom.e2e-unknown-body-key",
+          source,
+          message: diagMessage("loom.e2e-unknown-body-key#workflow-run", {
+            slug: call.slug,
+            key: entry.name,
+            workflow: site.workflow ?? "",
+            known: contract.map((c) => c.name).join(", ") || "(none)",
+          }),
+        });
+      } else if (site.kind === "create") {
         diags.push({
           severity: "error",
           code: "loom.e2e-unknown-body-key",
@@ -651,11 +812,18 @@ function checkBody(
     }
     checkLiteralAgainstType(call, entry.name, entry.value, declared.type, contexts, source, diags);
   }
-  // Missing required input — create only.  An operation's declared params are
-  // NOT all client-supplied on every backend (a defaulted param is seeded by
-  // the scaffolded form), and no corpus site exercises the omission, so
-  // claiming it here would be a guess.
-  if (site.kind !== "create") return;
+  // Missing required input — create and `run` only.  An OPERATION's declared
+  // params are NOT all client-supplied on every backend (a defaulted param is
+  // seeded by the scaffolded form), and no corpus site exercises the omission,
+  // so claiming it there would be a guess.
+  //
+  // A workflow `run` body is not that case and is admitted: the emitted
+  // `<Wf>Request` is built straight from the facade's params with no per-param
+  // optionality beyond the TYPE's (hono `zodFor(p.type)` over `wf.params`, and
+  // its four twins), so a non-optional param is required on the wire even when
+  // it carries an `= default` — the default is applied in the body, after the
+  // schema has already rejected the request.
+  if (site.kind === "operation") return;
   // ONE MISTAKE, ONE DIAGNOSTIC, again: a misspelled key makes the field it
   // meant to spell "missing" too, and `{ kode: "A" }` reporting both an unknown
   // `kode` AND an absent `code` is one typo described twice.  The unknown key
@@ -664,6 +832,24 @@ function checkBody(
   if (sawUnknownKey) return;
   const missing = contract.filter((c) => c.required && !seen.has(c.name)).map((c) => c.name);
   if (missing.length === 0) return;
+  if (site.kind === "workflow-run") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-missing-required-field",
+      source,
+      message: diagMessage("loom.e2e-missing-required-field#workflow-run", {
+        slug: call.slug,
+        workflow: site.workflow ?? "",
+        missing: missing.map((m) => `'${m}'`).join(", "),
+        known:
+          contract
+            .filter((c) => c.required)
+            .map((c) => c.name)
+            .join(", ") || "(none)",
+      }),
+    });
+    return;
+  }
   diags.push({
     severity: "error",
     code: "loom.e2e-missing-required-field",
@@ -822,7 +1008,58 @@ function describeLiteral(lit: LiteralKind, value: string): string {
  *  having to adjudicate which backends return the whole entity on 201.
  *
  *  Every other verb is skipped — see the header. */
-const SHAPED_RESPONSE_VERBS = new Set(["getById", "create"]);
+const SHAPED_RESPONSE_VERBS = new Set(["getById", "create", "instance"]);
+
+/** `.instance(key)` is in the set above; `.instances()` deliberately is NOT.
+ *  The list read answers a JSON ARRAY, so a member on its binding is an array
+ *  member (`running.length`) and not an instance field at all — judging it
+ *  against the row shape would reject the one read such a binding exists for.
+ *  Exactly why `all` is absent for aggregates (its paged envelope, same
+ *  reason), and the element shape is only reachable through a collection op
+ *  this layer does not follow. */
+const WORKFLOW_ROW_RESPONSE_VERB = "instance";
+
+/** One `<binding>.<field>` read off a workflow instance row.
+ *
+ *  Split out rather than inlined because the aggregate arm's two escape hatches
+ *  do not apply and saying so is the point: a workflow has no `extends`, so
+ *  there is no inherited-field case to be undecidable about, and
+ *  `instanceWireShape` is the WHOLE row (correlation token + state fields) with
+ *  no read-masking projection over it — `forApiRead` has nothing to drop. */
+function checkWorkflowInstanceRead(
+  binding: string,
+  field: string,
+  call: MagicCall,
+  wf: WorkflowIR,
+  seen: Set<string>,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  // Absent only for a stateless workflow — which has no instance route either,
+  // so `checkApiVerb` has already refused the call and this is unreachable
+  // through it.  Guarded anyway: this reads enriched state, and a caller
+  // reaching it another way should get silence, not a bogus "readable: none".
+  const shape = wf.instanceWireShape;
+  if (!shape) return;
+  const readable = shape.map((w) => w.name);
+  if (readable.includes(field)) return;
+  // One read, one diagnostic, however many times the body repeats it.
+  const key = `${binding}.${field}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  diags.push({
+    severity: "error",
+    code: "loom.e2e-unknown-response-field",
+    source,
+    message: diagMessage("loom.e2e-unknown-response-field#workflow-instance", {
+      binding,
+      field,
+      slug: call.slug,
+      workflow: wf.name,
+      known: readable.join(", ") || "(none)",
+    }),
+  });
+}
 
 function checkResponseFields(
   test: TestE2EIR,
@@ -850,7 +1087,18 @@ function checkResponseFields(
     const call = bound.get(e.receiver.name);
     if (!call) return;
     const resolved = resolveAggregate(call.slug, contexts);
-    if (!resolved) return;
+    if (!resolved) {
+      // The WORKFLOW accessor's read half — `let one = api.<wf>.instance(k)`.
+      // Its response is the persisted instance row, whose shape enrichment has
+      // already derived as `instanceWireShape`; that is the same list every
+      // backend builds `<Wf>InstanceResponse` from, so this judges the read
+      // against the emitted DTO rather than against a second opinion of it.
+      const wf = findWorkflowBySlug(call.slug, contexts);
+      if (wf && call.verb === WORKFLOW_ROW_RESPONSE_VERB) {
+        checkWorkflowInstanceRead(e.receiver.name, e.member, call, wf, seen, source, diags);
+      }
+      return;
+    }
     const readable = forApiRead(wireFieldsForAggregate(resolved.agg)).map((w) => w.name);
     if (readable.includes(e.member)) return;
     // An `extends` subtype does not carry its abstract base's fields in its own

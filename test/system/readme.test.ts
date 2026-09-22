@@ -263,16 +263,27 @@ describe("README.md — the test projects", () => {
     expect(md).toContain("E2E_BASE_URL");
   });
 
-  // F3, true on this merge base: the emitted suite has no reset hooks, so it
-  // is green on an empty database and can be red on a second run.  If a
-  // generated reset seam lands, this expectation is the one that must change
-  // with it — a README describing isolation the suite does not have would be
-  // worse than the silence it replaced.
-  it("states the fresh-database requirement wherever an e2e suite was emitted", async () => {
+  // This is the expectation the previous version flagged for replacement: the
+  // generated reset seam (`src/util/test-reset.ts`) has landed, so the README
+  // no longer tells the reader to recreate the database between runs.
+  //
+  // It must not swing too far the other way either.  The reset is PER FILE by
+  // default, so blocks within one run still share a database — deliberately,
+  // because a `test e2e` block may build on rows an earlier one created.  A
+  // README promising isolation the suite does not take is the same defect as
+  // the one this replaced, pointing the other way.
+  it("states the state contract wherever an e2e suite was emitted", async () => {
     const md = await readme(BACKEND_AND_UI);
-    expect(md).toContain("It expects a fresh database");
-    expect(md).toContain("no reset hooks");
+    expect(md).toContain("#### State between tests");
+    expect(md).toContain("once before it starts");
+    // The sharing that REMAINS, and the way out of it.
+    expect(md).toContain("Blocks within one run still share that database");
+    expect(md).toContain("E2E_RESET=per-test");
+    // The fresh-database fallback survives, for a backend that refuses.
+    expect(md).toContain("LOOM_TEST_RESET=1");
     expect(md).toContain("docker compose down -v");
+    // …and it must not claim per-test isolation it does not have by default.
+    expect(md).not.toContain("each test sees only the rows it creates itself");
   });
 
   // Measured: recreating the database under a RUNNING backend fails all four
@@ -293,7 +304,7 @@ describe("README.md — it is derived, not a static blob", () => {
     expect(md).not.toContain("playwright");
     // ...and therefore must not claim a state contract for a suite that
     // does not exist.
-    expect(md).not.toContain("It expects a fresh database");
+    expect(md).not.toContain("#### State between tests");
   });
 
   it("does not describe a frontend for a system that has none", async () => {
