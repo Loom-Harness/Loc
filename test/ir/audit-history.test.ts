@@ -22,6 +22,7 @@ import {
   maskedHistoryFields,
 } from "../../src/ir/util/audit-history.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { reEnrich } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** An audited aggregate carrying one of every access role the diff boundary
@@ -97,7 +98,7 @@ describe("entity history — derived find", () => {
   it("is idempotent — enrich(enrich(m)) derives exactly one history find", async () => {
     const { model } = await parseString(SRC, { validate: false });
     const once = enrichLoomModel(lowerModel(model));
-    const twice = enrichLoomModel(once);
+    const twice = reEnrich(once);
     expect(JSON.stringify(twice)).toEqual(JSON.stringify(once));
   });
 });
@@ -171,7 +172,7 @@ describe("entity history — denyByDefault", () => {
 
   const codesFor = async (src: string): Promise<string[]> => {
     const { model } = await parseString(src, { validate: false });
-    return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+    return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
   };
 
   it("errors when an audited aggregate's history is reachable ungated", async () => {

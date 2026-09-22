@@ -52,7 +52,7 @@ async function projection(src: string, name: string) {
 
 async function codes(src: string): Promise<string[]> {
   const { model } = await parseString(src, { validate: false });
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 describe("the startOfDay intrinsic", () => {
@@ -66,7 +66,7 @@ describe("the startOfDay intrinsic", () => {
 
   it("lowers as a plain zero-arg method-call on the column member — no new IR kind", async () => {
     const p = await projection(context(REVENUE_BY_DAY), "RevenueByDay");
-    const g = p.query!.groupBy[0]!;
+    const g = p.query!.groupBy![0]!;
     expect(g.kind).toBe("method-call");
     if (g.kind !== "method-call") throw new Error("unreachable");
     expect(g.member).toBe("startOfDay");
@@ -84,7 +84,7 @@ describe("the startOfDay intrinsic", () => {
 describe("groupKeyOf — column + transform", () => {
   it("names the column AND the transform for a bucketed key", async () => {
     const p = await projection(context(REVENUE_BY_DAY), "RevenueByDay");
-    expect(groupKeyOf(p.query!.groupBy[0]!)).toEqual({
+    expect(groupKeyOf(p.query!.groupBy![0]!)).toEqual({
       column: "placedAt",
       transform: "startOfDay",
     });
@@ -98,7 +98,7 @@ describe("groupKeyOf — column + transform", () => {
         select status = o.status, orders = count() }`),
       "SalesByStatus",
     );
-    expect(groupKeyOf(p.query!.groupBy[0]!)).toEqual({ column: "status" });
+    expect(groupKeyOf(p.query!.groupBy![0]!)).toEqual({ column: "status" });
   });
 
   it("reads the same key off the matching key SELECT, so the two compare equal", async () => {
@@ -119,7 +119,7 @@ describe("groupKeyOf — column + transform", () => {
         select bucket = o.total + 1, orders = count() }`),
       "Bogus",
     );
-    expect(groupKeyOf(p.query!.groupBy[0]!)).toBeNull();
+    expect(groupKeyOf(p.query!.groupBy![0]!)).toBeNull();
   });
 });
 

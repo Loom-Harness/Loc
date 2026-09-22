@@ -57,7 +57,7 @@ system S {
 describe("DataGrid selection — state binding", () => {
   it("accepts a `string[]` state field", async () => {
     const diags = await validateSource(sys("picked: string[]", "picked"));
-    expect(diags.filter((d) => d.code.startsWith("loom.datagrid-selection"))).toEqual([]);
+    expect(diags.filter((d) => (d.code ?? "").startsWith("loom.datagrid-selection"))).toEqual([]);
   });
 
   it("rejects a ref that isn't a declared state field", async () => {
@@ -87,6 +87,6 @@ describe("DataGrid selection — state binding", () => {
   it("stays quiet when the grid declares no `selection:`", async () => {
     const src = sys("picked: string[]", "picked").replace(", selection: picked", "");
     const diags = await validateSource(src);
-    expect(diags.filter((d) => d.code.startsWith("loom.datagrid-selection"))).toEqual([]);
+    expect(diags.filter((d) => (d.code ?? "").startsWith("loom.datagrid-selection"))).toEqual([]);
   });
 });

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ExprIR, InvariantIR } from "../../src/ir/types/loom-ir.js";
+import type { ExprIR, InvariantIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import {
   classifyForWire,
   pickErrorPath,
   singleFieldConstraints,
   singleFieldShape,
 } from "../../src/ir/validate/invariant-classify.js";
+import type { ExprOf } from "../_helpers/ir-builders.js";
 
 // ---------------------------------------------------------------------------
 // Pure-function tests for the wire-invariant classifier.  No file system, no
@@ -16,20 +17,20 @@ import {
 const IntT = { kind: "primitive" as const, name: "int" as const };
 const StrT = { kind: "primitive" as const, name: "string" as const };
 
-const litInt = (n: number): ExprIR => ({
+const litInt = (n: number): ExprOf<"literal"> => ({
   kind: "literal",
   lit: "int",
   value: String(n),
 });
 
-const refField = (name: string): ExprIR => ({
+const refField = (name: string): ExprOf<"ref"> => ({
   kind: "ref",
   name,
   refKind: "this-prop",
   type: IntT,
 });
 
-const refParam = (name: string, type = IntT): ExprIR => ({
+const refParam = (name: string, type: TypeIR = IntT): ExprOf<"ref"> => ({
   kind: "ref",
   name,
   refKind: "param",
@@ -177,7 +178,7 @@ describe("singleFieldShape", () => {
   // (the int-vs-decimal guard bug — `weight > 0.5` must NOT become `min(1.5)`)
   const DecT = { kind: "primitive" as const, name: "decimal" as const };
   const MoneyT = { kind: "primitive" as const, name: "money" as const };
-  const litDec = (v: string): ExprIR => ({ kind: "literal", lit: "decimal", value: v });
+  const litDec = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "decimal", value: v });
 
   it("recognises `f > 0.5` on a DECIMAL field as an EXCLUSIVE min with the raw literal (no +1)", () => {
     const i = inv({

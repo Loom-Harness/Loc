@@ -52,7 +52,7 @@ const RESERVE_ACTION = `action reserveNow() {
 async function codesOf(src: string): Promise<string[]> {
   const { model, errors } = await parseString(src);
   if (errors.length) throw new Error(`unexpected parse errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 describe("loom.instance-effect-needs-route-id (M-T6.17)", () => {

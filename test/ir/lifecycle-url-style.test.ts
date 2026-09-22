@@ -6,6 +6,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ApiIR, EnrichedAggregateIR } from "../../src/ir/types/loom-ir.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // Lifecycle URL style — Phase 2 (urlStyle on the api body + routeSlug
@@ -26,7 +27,7 @@ async function parseModel(
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
     codes: diags.map((d) => d.code),
   };
 }

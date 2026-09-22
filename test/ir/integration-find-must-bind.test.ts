@@ -18,7 +18,7 @@ async function codesFor(src: string): Promise<string[]> {
   const services = createDddServices(NodeFileSystem);
   const doc = await parseHelper<Model>(services.Ddd)(src, { validation: true });
   const diags = validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value)));
-  return diags.map((d) => d.code);
+  return diags.map((d) => d.code ?? "");
 }
 
 const wrap = (body: string): string => `

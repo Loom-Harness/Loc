@@ -66,7 +66,7 @@ system Demo {
 async function codes(ui: string, framework = "react", webPlatform = "static"): Promise<string[]> {
   const { model, errors } = await parseString(wrap(ui, framework, webPlatform));
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 /** The full diagnostics (not just codes) for message assertions. */
@@ -224,9 +224,9 @@ system Demo {
 }`;
     const { model, errors } = await parseString(src);
     if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-    expect(validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code)).toContain(
-      CODE,
-    );
+    expect(
+      validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? ""),
+    ).toContain(CODE);
   });
 
   it("reports ONE diagnostic per (host, op) — a repeated read is one mistake", async () => {
@@ -351,9 +351,9 @@ system Demo {
 }`;
     const { model, errors } = await parseString(src);
     if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-    expect(validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code)).not.toContain(
-      CODE,
-    );
+    expect(
+      validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? ""),
+    ).not.toContain(CODE);
   });
 
   it("leaves a BACKEND collection op alone — the gate is frontend-only", async () => {
@@ -378,9 +378,9 @@ system Demo {
 }`;
     const { model, errors } = await parseString(src);
     if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-    expect(validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code)).not.toContain(
-      CODE,
-    );
+    expect(
+      validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? ""),
+    ).not.toContain(CODE);
   });
 });
 
@@ -446,9 +446,9 @@ system Demo {
 }`;
     const { model, errors } = await parseString(src);
     if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-    expect(validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code)).not.toContain(
-      CODE,
-    );
+    expect(
+      validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? ""),
+    ).not.toContain(CODE);
   });
 
   it("refuses the SAME ops on Feliz as everywhere else — the split is uniform", async () => {

@@ -22,7 +22,7 @@ async function irErrorCodes(body: string): Promise<string[]> {
   );
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 async function lowerFirstWorkflow(body: string) {

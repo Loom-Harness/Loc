@@ -79,7 +79,7 @@ ${agg}
 
 async function codesFor(agg: string): Promise<string[]> {
   const diags = validateLoomModel(await buildLoomModel(wrap(agg)));
-  return diags.filter((d) => d.severity === "error").map((d) => d.code);
+  return diags.filter((d) => d.severity === "error").map((d) => d.code ?? "");
 }
 
 /** Codes from the IR validator ALONE, with the AST validation gate bypassed.
@@ -95,7 +95,7 @@ async function irCodesFor(agg: string): Promise<string[]> {
   const { model } = await parseString(wrap(agg), { validate: false });
   return validateLoomModel(toLoomModel(model))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 /** AST-level (phase ④) errors for a source — the layer above this contract. */

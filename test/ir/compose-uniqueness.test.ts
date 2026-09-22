@@ -15,7 +15,7 @@ async function codes(source: string): Promise<string[]> {
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 const twoDeployables = (a: string, b: string, auth = ""): string => `

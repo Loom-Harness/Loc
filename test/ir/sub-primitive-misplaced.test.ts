@@ -52,7 +52,7 @@ async function diagnostics(uiBody: string) {
 }
 
 const codes = async (uiBody: string): Promise<string[]> =>
-  (await diagnostics(uiBody)).map((d) => d.code);
+  (await diagnostics(uiBody)).map((d) => d.code ?? "");
 
 describe("loom.sub-primitive-misplaced — the gate", () => {
   it("flags a `Tab` under a `Stack` in a PAGE body", async () => {
