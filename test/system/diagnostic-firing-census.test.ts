@@ -2088,6 +2088,53 @@ system S {
   "loom.throw-kind-outside-tothrow": throwKindProbe({
     unitBody: `          expect(wo.reference).toBe(invariant)`,
   }),
+  // --- M-T5.36 / P11b: the absence pair + containment ----------------------
+  // `toBeAbsent()` is a claim about a SERIALIZED PAYLOAD, so it is e2e-only:
+  // a unit `test` asserts against an in-memory aggregate whose declared fields
+  // always exist.  Fire it from the unit tier, which is the refusal.
+  "loom.unit-absent-invalid": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBeAbsent()`,
+  }),
+  // `toContain` has exactly two lowerings, picked by the subject's type
+  // (collection membership / string substring).  An ENUM subject is neither,
+  // so it has no lowering and is refused at the IR, where the resolved type is
+  // available.
+  "loom.contain-receiver-invalid": throwKindProbe({
+    unitBody: `          expect(wo.status).toContain("Draft")`,
+  }),
+  // `toBeAbsent()` rewrites onto the receiver (`"<key>" in <obj>`), so it needs
+  // a FIELD READ to name a key.  A bare let-bound name supplies none — and in
+  // the e2e tier, which is the only one where the matcher is legal at all.
+  "loom.absent-receiver-invalid": throwKindProbe({
+    e2eTest: `    expect(wo).toBeAbsent()`,
+  }),
+  // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
+  // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
+  // absence spelling is observable there.  Needs a full react-targeting system,
+  // because the diagnostic reads the target deployable's platform.
+  "loom.e2e-ui-absence-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot assert an absence" against webApp {
+    let t = ui.technicians.create({ name: "Grace" })
+    let read = ui.technicians.getById(t)
+    expect(read.name).toBeNull()
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }

@@ -240,6 +240,19 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
     toBeGreaterThanOrEqual: "BeGreaterThanOrEqualTo",
     toBeLessThan: "BeLessThan",
     toBeLessThanOrEqual: "BeLessThanOrEqualTo",
+    // Absence: `int?` holding nothing is `null` in C#, so the wire's explicit
+    // null and the language's one absence value coincide here.  (`toBeAbsent`
+    // never reaches this emitter — it is e2e-only: a C# `int?` has no "absent"
+    // form to observe, only `null`.  `checkExpectMatcher` refuses it in a unit
+    // `test`.)
+    toBeNull: "BeNull",
+    // Containment: AwesomeAssertions resolves BOTH receiver kinds under one
+    // verb — `Contain` is defined on `GenericCollectionAssertions<T>` (element
+    // membership) and on `StringAssertions` (substring).  The overload the
+    // compiler picks is decided by the subject's static type, which is the same
+    // dispatch `checkContainReceiver` validated, so the two lowerings the DSL
+    // promises are one line of C# here.
+    toContain: "Contain",
   };
   const verb = VERBS[expr.member];
   if (!verb) return null;
