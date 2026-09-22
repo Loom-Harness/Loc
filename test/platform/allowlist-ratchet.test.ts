@@ -552,7 +552,21 @@ const REGISTERED: Ratchet[] = [
     //     booted leg would assert over the empty fail-closed result and prove
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
-    max: 24,
+    // 24 -> 23: wave-3 row 3.3 drained `projection-document-aggregation`.  Its
+    // reason said asserting the number "needs seeded rows the behavioural
+    // runners set up per-fixture" — it does not: `Article` carries `crudish`,
+    // so the api mints its own rows and the block counts what it just created.
+    // The generation gate proved the read EMITS; nothing proved the number was
+    // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
+    // to have, since every backend reaches it differently and a wrong one
+    // still compiles.
+    //
+    // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
+    // remembers: `main` stood at 24 when this was merged (slice 2's drain took
+    // it to 22, then `enum-collection` and `principal-read-filter` raised it
+    // by two), so this drain subtracts one from 24.  Restoring a remembered
+    // number is how a ratchet silently loses somebody else's raise.
+    max: 23,
   },
 ];
 

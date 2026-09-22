@@ -550,6 +550,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.orderVolume.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
   ],
+  // The document-source pair (wave-3 row 3.3).  `articleVolume` is the
+  // table-level `count(*)` over the `(id, data, version)` triple;
+  // `articleTitles` is the repository-hydrated per-row arm over the SAME
+  // source.  Both are projection reads, so neither lifts to a derived
+  // operation — the `notLifted` class, same as every sibling here.
+  "corpus/projection-document-aggregation": [
+    "api.articleTitles.list (no such aggregate)",
+    "api.articleVolume.list (no such aggregate)",
+  ],
   // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
   // its three siblings above and below — three projection reads, none of which
   // lifts to a derived operation.  `allTimeVolume` is the `ignoring` witness:
@@ -721,9 +730,10 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
-  // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
-  // `projection-agg-filters` directly above — same capabilities, same missing
-  // harness.  The assertion this fixture wants is "a SECOND tenant's rows
+  // COMPILE-TIER WITNESS (M-T6.54 F18), for the same reason `projection-agg-
+  // filters` carried until wave-3 row 3.3 drained it — same capabilities, same
+  // missing harness.  (It is no longer "directly above": it left this register
+  // when its tenant conjunct turned out to be the only part still blocked.)  The assertion this fixture wants is "a SECOND tenant's rows
   // appear under `ignoring tenantOwned` and are absent without it", which needs
   // two principals; the behavioural runners authenticate as one
   // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
@@ -732,7 +742,8 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
   // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
   // two-principal harness `tenancy-e2e.yml` owns — the same one
-  // `projection-agg-filters` waits on.
+  // `projection-agg-filters`'s tenant conjunct still waits on, which is why
+  // that fixture drained on its `softDeletable` conjunct alone.
   "find-bypass",
   // UNIT-TIER WITNESS (M-T6.55 F14/F15/F24), the `numeric-operands` shape: it
   // carries a DOMAIN `test` block and no `test e2e`, so the behavioural runners
@@ -745,13 +756,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // test asserts, in memory, on all five.  Drain: give the runner a nested create
   // plus a `toThrow(422)` on it.
   "part-rules-private-op",
-  // COMPILE-TIER WITNESS (generator review A1, document half) — the row count
-  // over a `shape: document` source, the one aggregation that shape can express.
-  // The gate it exists for is a GENERATION one (four backends emit it, java is
-  // refused), and asserting the number needs seeded rows the behavioural runners
-  // set up per-fixture; `document.ddd` already drives the document write path at
-  // runtime.
-  "projection-document-aggregation",
   // TWO DEPLOYABLES — the caller's client is derived from the callee's served
   // operation set (see the manifest note), and the behavioural corpus requires
   // exactly one `platform: node` deployable per case so dispatch is unambiguous.
@@ -785,6 +789,14 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `extern` throws honest fail-fast, and asserting that 500 would pin the
   // scaffold instead of the feature.
   "extern",
+  // `extern-handlers` shares the fixture-shape blocker above but NOT its exit.
+  // Its whole surface is two ROUTED extern handlers (`route POST "/orders" ->
+  // Sales.PlaceOrder`, `route GET "/quotes/{sku}" -> Sales.GetQuote`), and a
+  // `test e2e` block cannot address a routed handler — see the measured
+  // `loom.e2e-unknown-aggregate` refusal recorded on `handler-triad` below.
+  // `extern`'s own drain is unaffected, because the half it names is aggregate
+  // OPERATIONS (`confirm` / `flag` / `cancel`), which `api.orders.<op>()`
+  // reaches once a row can be minted.
   "extern-handlers",
   // SIDECAR-BOUND, like `channels-broker`/`outbox`: the two routed handlers
   // exist precisely to issue objectStore / queue / mailer I/O, and the node
@@ -819,8 +831,27 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // nothing can mint a row for `LoadOrder` / `CodeStatus` to read (the same
   // shape as `extern`'s pin).  The oracles that DO reach the bugs are the five
   // compile legs plus `test/generator/handler-triad.test.ts` (per backend,
-  // mutation-proven).  Drain: give `Order` a create, then drive `Echo` / `Sum`
-  // — the two pure-computation routes need no data at all.
+  // mutation-proven).
+  //
+  // THE DRAIN THIS ENTRY USED TO PRESCRIBE DOES NOT WORK, and the correction is
+  // the useful part of this note.  It said: "give `Order` a create, then drive
+  // `Echo` / `Sum` — the two pure-computation routes need no data at all".  The
+  // second half is true and irrelevant: a `test e2e` block cannot ADDRESS a
+  // routed handler at all.  `api.<slug>.<method>()` resolves to a projection or
+  // an aggregate and to nothing else (`matchApiCall` → `findProjectionBySlug` /
+  // `findAggregateBySlug` in `src/system/e2e-render.ts`), so `api.echo…` is
+  // refused outright — measured, not reasoned:
+  //
+  //     loom.e2e-unknown-aggregate: e2e: unknown aggregate 'api.echo' on this
+  //     deployable. Available aggregates: orders.
+  //
+  // So giving `Order` a create unblocks the two FIND-backed routes and still
+  // leaves `Echo`, `Sum` and `CountReplacing` undrivable — every route this
+  // fixture declares is a routed handler.  The real blocker is that routed
+  // handlers are a NOT-YET-LIFTED route class on the e2e surface, alongside the
+  // projection reads and workflow runs already in `UNATTRIBUTED_CALLS`; lifting
+  // them is an e2e-surface change and its own mission, not a fixture edit.
+  // (Found by wave-3 row 3.3 while picking this up as "the cheapest drain".)
   "handler-triad",
   // `lifecycle-guard` DRAINED — and, like `policy-document` before it, only
   // after the thing it was hiding was FIXED.  Its two named blockers both fell,

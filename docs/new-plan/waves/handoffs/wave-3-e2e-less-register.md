@@ -63,9 +63,8 @@ caller written before that would assert the wrong thing and pass.
 
 ## Order of work
 
-**Slice 1 is LANDED; slices 2–4 are not started.** This packet ships
-incrementally rather than as one PR: slice 1 is the instrument every later slice
-depends on, it stands on its own, and holding it back would only let it rot
+**Slices 1–3 are done; the packet ships incrementally** rather than as one PR —
+each slice stands on its own, and holding them back would only let them rot
 against a `main` that moves ~100 commits a week.
 
 1. ✅ **Second-tenant principal** in `test/behavioral/cases.mjs` — a distinct
@@ -91,16 +90,39 @@ against a `main` that moves ~100 commits a week.
    Still owed by a later slice: the registry-id principal (a claim that IS a
    registry id), which is the half `R.tenantRegistryRow` and `tenancy-hierarchy`
    share and which a static constant cannot supply.
-2. **The two leak cells** — `projection-agg-filters` and
-   `projection-document-aggregation`. These exist *because of* a cross-tenant
-   COUNT leak, so they are the cells the new principal was minted for.
-3. **`tenancy-hierarchy`** — deep-rung subtree scoping, same principal work.
-4. **The cheap real drains** — `handler-triad`'s `Echo`/`Sum` are pure-computation
-   routes needing no data at all, the single cheapest genuine drain in the
-   register. `extern` / `extern-handlers` / `handler-triad` share one fixture-shape
-   blocker: `Order` has no `crudish` and no author-declared create, so no route can
-   mint a row. Precedent for that fixture change is `scaffold-macros`' `Item`
-   (#2468) and `eventsourced-workflow`'s `Order` (M-T9.12).
+2. ✅ **The two leak cells** — `projection-agg-filters` (slice 2) and
+   `projection-document-aggregation` (slice 3), both drained. Neither needed the
+   cross-tenant principal in the end, and both waivers named the wrong blocker;
+   the slice commits carry the four defects the drains uncovered.
+
+3. **`tenancy-hierarchy`** — NOT STARTED, and the one cell that genuinely needs
+   the outstanding harness work: a claim that IS a registry id, which a static
+   constant cannot supply because row ids are minted at runtime.
+
+4. ~~**The cheap real drains** — `handler-triad`'s `Echo`/`Sum`, the single
+   cheapest genuine drain in the register.~~ **WRONG, and measured wrong rather
+   than argued wrong.** A `test e2e` block cannot ADDRESS a routed handler:
+   `api.<slug>.<method>()` resolves to a projection or an aggregate and to
+   nothing else, so `api.echo…` is refused outright with
+
+   ```
+   loom.e2e-unknown-aggregate: e2e: unknown aggregate 'api.echo' on this
+   deployable. Available aggregates: orders.
+   ```
+
+   `Echo`/`Sum` needing no data is true and irrelevant. Every route
+   `handler-triad` declares is a routed handler, and so is every route
+   `extern-handlers` declares — giving `Order` a create unblocks neither. Routed
+   handlers are a NOT-YET-LIFTED route class on the e2e surface, alongside the
+   projection reads and workflow runs already in `UNATTRIBUTED_CALLS`. **Lifting
+   them is an e2e-surface change and deserves its own mission, not a fixture
+   edit.**
+
+   `extern` is unaffected and is now the cheapest remaining drain: the half its
+   entry names is aggregate OPERATIONS (`confirm` / `flag` / `cancel`), which
+   `api.orders.<op>()` reaches once a row can be minted. Precedent for that
+   fixture change is `scaffold-macros`' `Item` (#2468) and
+   `eventsourced-workflow`'s `Order` (M-T9.12).
 
 Entries whose blocker is a genuine SIDECAR (`channels-broker`, `outbox`,
 `resources`, `handler-resource-ops`, `api-call`) are expected to stay waived —
