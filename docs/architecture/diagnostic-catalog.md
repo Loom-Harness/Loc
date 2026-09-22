@@ -1,10 +1,19 @@
 # Diagnostic catalog — the `loom.*` code registry
 
-> Convention spec. Status: ~9 codes attached today via the validator
-> `code:` property; many checks still emit codeless diagnostics. This
-> doc pins the naming + severity convention so new checks register a
-> stable code from day one, and seeds the registry with the codes the
-> in-flight proposals introduce.
+> Convention spec — and, since 2026-09-22, a fact rather than an
+> aspiration: **every** diagnostic site in
+> `src/language/validators/**`, `src/language/ddd-validator.ts`,
+> `src/ir/validate/checks/**`, `src/macros/expander.ts` and `src/api/`
+> attaches a `loom.*` code, and `test/system/diagnostic-catalog.test.ts`
+> (invariant 5) fails on the first one that does not. The 129 codeless
+> conditions this doc used to describe — every one of them stamped
+> `loom.unknown` by `src/api/report.ts` on the way to the user — were
+> measured and ratcheted in Wave C1 and drained to zero in Wave C4
+> (M-T9.56). The wording of every code lives in
+> `src/diagnostics/messages.ts`; its language-reference anchor lives in
+> `src/diagnostics/code-docs.ts`; a minimal `.ddd` that makes it fire
+> lives in `test/system/diagnostic-firing-census.test.ts`. A new code
+> owes all three.
 
 ## Why codes
 

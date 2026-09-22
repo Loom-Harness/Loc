@@ -5,6 +5,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { parseBuiltinPlatformRef, platformFor } from "../../src/platform/registry.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // The `python` platform (FastAPI + SQLAlchemy 2 backend) — wiring slice.
@@ -20,7 +21,7 @@ async function parse(source: string) {
   const doc = await parseHelper(services.Ddd)(source, { validation: true });
   const diags = doc.diagnostics ?? [];
   return {
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
     model: doc.parseResult.value as Model,
   };
 }

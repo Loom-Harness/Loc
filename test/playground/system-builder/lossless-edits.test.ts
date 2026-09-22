@@ -34,6 +34,7 @@ import {
   retypeFindParam,
   setFindReturnType,
 } from "../../../web/src/builder/system/find-params.js";
+import { contextMembersOf, nodeName } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
 const prim = (name: PrimitiveName): TypeSpec => ({
@@ -127,10 +128,9 @@ const expectHunk = (
 const BROKEN = SRC.replace("aggregate Order {", "aggregate Order {{");
 
 const fieldIndex = (name: string): number => {
-  const order = parse(SRC)
-    .members.flatMap((m) => ("members" in m ? m.members : []))
-    .flatMap((m) => ("members" in m ? m.members : []))
-    .find((m) => m.$type === "Aggregate" && (m as { name?: string }).name === "Order");
+  const order = contextMembersOf(parse(SRC)).find(
+    (m) => m.$type === "Aggregate" && nodeName(m) === "Order",
+  );
   if (!order) throw new Error("no Order aggregate");
   const at = listFields(order).findIndex((f) => f.name === name);
   if (at < 0) throw new Error(`no field ${name}`);

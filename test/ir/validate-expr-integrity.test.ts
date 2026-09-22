@@ -100,7 +100,7 @@ describe("validate-expr-integrity — un-expanded sentinel rejection", () => {
     // returns when it can't resolve the UI context — the sentinel
     // call node passes through unchanged.
     const page = loom.systems[0]!.uis[0]!.pages[0]!;
-    page.body = { kind: "call", name: "Home", args: [] } as ExprIR;
+    page.body = { kind: "call", callKind: "free", name: "Home", args: [] };
 
     const diags = validateLoomModel(loom);
     const scaffoldDiags = diags.filter((d) => d.message.includes("un-expanded scaffold primitive"));
@@ -116,7 +116,7 @@ describe("validate-expr-integrity — un-expanded sentinel rejection", () => {
     for (const name of names) {
       const loom = await loadFixture();
       const page = loom.systems[0]!.uis[0]!.pages[0]!;
-      page.body = { kind: "call", name, args: [] } as ExprIR;
+      page.body = { kind: "call", callKind: "free", name, args: [] };
       const diags = validateLoomModel(loom);
       const flagged = diags.some(
         (d) =>
@@ -133,9 +133,10 @@ describe("validate-expr-integrity — un-expanded sentinel rejection", () => {
     const page = loom.systems[0]!.uis[0]!.pages[0]!;
     page.body = {
       kind: "call",
+      callKind: "free",
       name: "Stack",
-      args: [{ kind: "call", name: "WorkflowsIndex", args: [] }],
-    } as ExprIR;
+      args: [{ kind: "call", callKind: "free", name: "WorkflowsIndex", args: [] }],
+    };
 
     const diags = validateLoomModel(loom);
     const scaffoldDiags = diags.filter(
@@ -156,7 +157,7 @@ async function irErrorCodes(source: string): Promise<string[]> {
   const loom = enrichLoomModel(lowerModel(doc.parseResult.value));
   return validateLoomModel(loom)
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 const wrapAgg = (aggBody: string) => `
@@ -251,7 +252,7 @@ describe("validate-expr-integrity — A4 collection-op-in-UI gate", () => {
     loom.systems[0]!.uis[0]!.pages[0]!.body = body;
     return validateLoomModel(loom)
       .filter((d) => d.severity === "error")
-      .map((d) => d.code);
+      .map((d) => d.code ?? "");
   }
 
   // The three that stay.  Each is refused for a reason the frontend walkers'

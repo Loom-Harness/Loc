@@ -683,7 +683,8 @@ PageProp:
 // reference resolves + carries the action's param type during
 // lowering so backends never re-resolve.
 ActionDecl:
-    'action' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'action' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers CallableGates
         '{' stmts+=Statement* '}';
 
 RouteProp:
@@ -970,11 +971,13 @@ ContextMember:
 // (`loom.extern-handler-has-body` / `loom.handler-missing-body`), not the
 // grammar.
 CommandHandler:
-    (extern?='extern')? 'commandHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' (':' returnType=TypeRef)?
+    CallableLeadModifiers (extern?='extern')? 'commandHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers (':' returnType=TypeRef)? CallableGates
         ( '{' body+=Statement* '}' | ';' );
 
 QueryHandler:
-    (extern?='extern')? 'queryHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ':' returnType=TypeRef
+    CallableLeadModifiers (extern?='extern')? 'queryHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers ':' returnType=TypeRef CallableGates
         ( '{' body+=Statement* '}' | ';' );
 
 EnumDecl:
@@ -1482,10 +1485,11 @@ WorkflowMember:
 // `by` reuses CorrelationExpr (the restricted name/postfix grammar `on` uses, so a
 // BuilderCall can't swallow the body block).
 WorkflowCreateDecl:
-    'create' (name=ID)?
+    CallableLeadModifiers 'create' (name=ID)?
         '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers
         ('by' correlation=CorrelationExpr)?
-        ('requires' gate=Expression)?
+        CallableGates
     '{'
         body+=Statement*
     '}';
@@ -1497,7 +1501,8 @@ WorkflowCreateDecl:
 // `handle` is a fresh keyword so it can never start a Statement.  Multiple
 // handles make a workflow a multi-command saga.
 HandleDecl:
-    'handle' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ('requires' gate=Expression)? '{'
+    CallableLeadModifiers 'handle' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1508,8 +1513,10 @@ HandleDecl:
 // correlation fields, and `by` collides with existing identifier usage until
 // handled as a soft keyword there).
 OnDecl:
-    'on' '(' param=LooseName ':' event=[EventDecl:ID] ')'
+    CallableLeadModifiers 'on' '(' param=LooseName ':' event=[EventDecl:ID] ')'
+        CallableSigModifiers
         ('by' correlation=CorrelationExpr)?
+        CallableGates
     '{'
         body+=Statement*
     '}';
@@ -1759,8 +1766,8 @@ DomainService:
 // NOT carry `private` / `extern` / `audited` / `when` — those are
 // aggregate-operation-only.
 DomainServiceOperation:
-    'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-    (':' returnType=TypeRef)? '{'
+    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         stmts+=Statement*
     '}';
 
@@ -1896,6 +1903,42 @@ Invariant:
 Unique:
     'unique' '(' columns+=LooseName (',' columns+=LooseName)* ')';
 
+// ---------------------------------------------------------------------------
+// The callable surface (M-T5.21)
+// ---------------------------------------------------------------------------
+//
+// Fifteen grammar rules mean "a named body of statements runs here", and each
+// one used to pick its OWN arbitrary subset of the modifier/clause surface —
+// so `audited` was legal on an aggregate `operation` and a PARSE ERROR on a
+// `domainService` operation, with nothing to tell the author why.  The three
+// fragments below are that surface, stated ONCE; every callable site includes
+// them, so the grammar ACCEPTS the whole set everywhere.
+//
+// What is legal WHERE is declared data, not grammar: `CALLABLE_SITES`
+// (`src/language/callable-sites.ts`) is the legality table, and ONE validator
+// (`src/language/validators/callable-sites.ts`, code
+// `loom.callable-modifier-not-allowed-here`) reads it and reports the REASON.
+// A capability is neither added nor removed by this: every combination the
+// grammar newly accepts is rejected by that validator, so emission is
+// unchanged (byte-identical across all eleven targets).
+//
+// Position follows the aggregate `Operation` spelling, which is the one every
+// other site is a fork of: `private` leads, `extern`/`audited` sit after the
+// parameter list, `requires`/`when` after the return type and before the body.
+// Phase 3 of the design collapses the three LEGACY `extern` positions (handler
+// prefix, `component`/ui-`function` suffix) onto the single infix spelling;
+// until then both spellings parse, which is why `CommandHandler` /
+// `QueryHandler` carry an `extern` assignment in two places.
+
+fragment CallableLeadModifiers:
+    (private?='private')?;
+
+fragment CallableSigModifiers:
+    (extern?='extern')? (audited?='audited')?;
+
+fragment CallableGates:
+    ('requires' gate=Expression)? ('when' when=Expression)?;
+
 // A pure helper over its parameters.  Two body forms:
 //   `= Expression`        — expression form; SQL-inlinable like a `criterion`.
 //   `{ Statement* }`      — block form; `let` + branch + bug-regime
@@ -1904,7 +1947,8 @@ Unique:
 //                           NOT queryable.  `'='` vs `'{'` is the discriminator
 //                           (distinct tokens — the AST stays non-recursive).
 FunctionDecl:
-    'function' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ':' returnType=TypeRef
+    CallableLeadModifiers 'function' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers ':' returnType=TypeRef CallableGates
         ( '=' body=Expression
         | '{' block+=Statement* '}'
         );
@@ -1915,7 +1959,8 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    (private?='private')? 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')' (extern?='extern')? (audited?='audited')? (':' returnType=TypeRef)? ('requires' gate=Expression)? ('when' when=Expression)? '{'
+    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1927,7 +1972,8 @@ Operation:
 // creator.  Lowers to an `OperationIR` with `kind: "create"`; never
 // joins `agg.operations` (which stays mutate-only).
 Create:
-    'create' (name=ID)? '(' (params+=Parameter (',' params+=Parameter)*)? ')' (audited?='audited')? '{'
+    CallableLeadModifiers 'create' (name=ID)? '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1938,7 +1984,8 @@ Create:
 // canonical hard delete reads `destroy { }`.  Lowers to an
 // `OperationIR` with `kind: "destroy"`.
 Destroy:
-    'destroy' (name=ID)? ('(' (params+=Parameter (',' params+=Parameter)*)? ')')? (audited?='audited')? '{'
+    CallableLeadModifiers 'destroy' (name=ID)? ('(' (params+=Parameter (',' params+=Parameter)*)? ')')?
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1951,7 +1998,8 @@ Destroy:
 // `-=`) and derivations only, no `emit` and no side-effecting calls.
 // Lowers to `ApplyIR`; never joins `agg.operations`.
 Apply:
-    'apply' '(' param=LooseName ':' event=[EventDecl:ID] ')' '{'
+    CallableLeadModifiers 'apply' '(' param=LooseName ':' event=[EventDecl:ID] ')'
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 

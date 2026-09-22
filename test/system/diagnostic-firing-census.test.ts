@@ -28,7 +28,6 @@ import {
 import { parseBuiltinPlatformRef } from "../../src/platform/metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
-import { FIXTURES_RAISING_UNKNOWN } from "./diagnostic-uncoded-baseline.js";
 
 // ---------------------------------------------------------------------------
 // Diagnostic FIRING census (M-T9.33).
@@ -165,6 +164,197 @@ system P {
   deployable api { platform: node contexts: [Orders] dataSources: [st] port: 3000 }
   deployable web { platform: ${platform} targets: api port: 3001 }
 }`;
+
+/** A system whose SYSTEM-SCOPE members are the defect — the five
+ *  name-uniqueness rules and the api → subdomain resolution rule that
+ *  `ddd-validator.ts` owns (M-T9.56). */
+const systemScope = (members: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+${members}
+}`;
+
+/** One aggregate whose MEMBERS are the defect, for the `structural.ts` shape
+ *  rules and the `_shared.ts` sensitivity-drop helper (M-T9.56).  `modifiers`
+ *  goes on the aggregate itself (`audited`). */
+const aggShape = (modifiers: string, members: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing ${modifiers} {
+${members}
+    }
+    repository Things for Thing { }
+  } }
+}`;
+
+/** One context plus a relational AND a key-value storage, so the
+ *  `datasource.ts` drain (M-T9.56) can state a `resource` whose kind, knob or
+ *  storage is the mismatch under test. */
+const resourced = (resources: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  storage pg { type: postgres }
+  storage kv { type: redis }
+  ${resources}
+}`;
+
+/** Top-level `requirement` declarations (they are Model members, not system
+ *  members) over a minimal system, for the `traceability.ts` drain. */
+const requirements = (decls: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+}
+${decls}`;
+
+/** One in-process `test … for <Aggregate>` block holding a single `expect`,
+ *  for the matcher-vocabulary half of the `match.ts` drain (M-T9.56). */
+const matcherTest = (expectStmt: string): string => `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string  total: int }
+    repository Things for Thing { }
+    test "matcher" for Thing {
+      ${expectStmt}
+    }
+  } }
+}`;
+
+/** One aggregate with a field of every kind the `types.ts` drain (M-T9.56)
+ *  type-checks against — a string, an int, a bool and a value object — so each
+ *  fixture is the single member whose TYPE is wrong. */
+const orderTypes = (member: string): string => `
+system P {
+  subdomain D { context Orders {
+    valueobject Tag { label: string }
+    aggregate Order with crudish {
+      name: string
+      total: int
+      flag: bool
+      tag: Tag
+      ${member}
+    }
+    repository Orders for Order { }
+  } }
+}`;
+
+/** A system whose only content is a `theme { … }` block carrying one bad
+ *  property — the shape every `theme` rule in the `ui.ts` drain (M-T9.56)
+ *  needs, and nothing else. */
+const themed = (props: string): string => `
+system S {
+  theme {
+    ${props}
+  }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+}`;
+
+/** A `ui { … }` whose members ARE the defect, over a minimal module + api so
+ *  an `api <P>: SubApi` parameter resolves.  `layouts` adds system-level
+ *  `layout` declarations for the slot rules. */
+const uiMembers = (members: string, opts: { layouts?: string } = {}): string => `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  api SubApi from Sub
+${opts.layouts ? `  ${opts.layouts}` : ""}
+  ui WebApp {
+    framework: react
+    ${members}
+  }
+}`;
+
+/** One aggregate carrying every shape the `statements.ts` drain (M-T9.56)
+ *  needs to reach — a derived field, a collection, a value-object member and
+ *  an event to `emit` — so each fixture is one line: the member whose body IS
+ *  the defect. */
+const orderOps = (members: string): string => `
+system P {
+  subdomain D { context Orders {
+    valueobject Tag { label: string }
+    event Bumped { by: int  note: string }
+    aggregate Order with crudish {
+      name: string
+      total: int
+      tags: string[]
+      tag: Tag
+      derived label: string = name
+      ${members}
+    }
+    repository Orders for Order { }
+  } }
+}`;
+
+/**
+ * The shared base for the `deployable.ts` drain (M-T9.56): one clean backend
+ * deployable serving one api over one context, plus whatever extra deployable
+ * or knob the fixture is proving.  Everything optional is off by default so
+ * each fixture's defect is the ONLY thing wrong with the source.
+ *
+ *   `ui`               — declare `ui WebApp { … }` (needed by every `ui:` /
+ *                        `design:` rule, since those read the mounted ui).
+ *   `uiApiParam`       — give `WebApp` an `api Sales: OrdersApi` parameter,
+ *                        which is what makes a compose binding required.
+ *   `secondContext`    — a second context + its own `resource other`, for the
+ *                        "resource's `for:` is not in `contexts:`" rule.
+ *   `duplicateResource`— a SECOND `kind: state` resource for `Orders`.
+ */
+function topology(
+  extra: string,
+  opts: {
+    ui?: boolean;
+    uiFramework?: string;
+    uiApiParam?: boolean;
+    secondContext?: boolean;
+    duplicateResource?: boolean;
+  } = {},
+): string {
+  return `
+system P {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { name: string }
+      repository Orders for Order { }
+    }${
+      opts.secondContext
+        ? `
+    context Billing {
+      aggregate Invoice with crudish { total: int }
+      repository Invoices for Invoice { }
+    }`
+        : ""
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }${
+    opts.secondContext ? "\n  resource other { for: Billing, kind: state, use: pg }" : ""
+  }${opts.duplicateResource ? "\n  resource st2 { for: Orders, kind: state, use: pg }" : ""}${
+    opts.ui
+      ? `
+  ui WebApp {
+    framework: ${opts.uiFramework ?? "react"}
+${opts.uiApiParam ? "    api Sales: OrdersApi\n" : ""}    page Home { route: "/"  body: Stack { Text { "hi" } } }
+  }`
+      : ""
+  }
+  deployable api { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi port: 3000 }
+${extra}
+}`;
+}
 
 /**
  * code → the `.ddd` source that must raise it.
@@ -338,6 +528,20 @@ system Billder {
   deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
 }`,
 
+  // M-T5.21 — `audited` on a `domainService` operation.  Before the callable
+  // fragments landed this was a bare parse error ("expecting '{' but found
+  // 'audited'"); the grammar now accepts the whole modifier surface at every
+  // callable site and `CALLABLE_SITES` refuses it WITH the reason.
+  "loom.callable-modifier-not-allowed-here": `
+system P {
+  subdomain S { context C {
+    domainService Pricing {
+      operation quote(base: int) audited : int { return base }
+    }
+    aggregate Thing { name: string }
+    repository Things for Thing { }
+  } }
+}`,
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on
@@ -1134,6 +1338,63 @@ system P {
     }
     repository Accounts for Account { }`),
 
+  // --- the M-T9.56 drain of `src/language/validators/statements.ts` --------
+  // 22 uncoded sites: the three "modifier on a private operation" warnings,
+  // the guard type checks, the assignment / collection-mutation ladder, the
+  // `emit` field checks and the l-value / call resolution chain.  All of them
+  // shared one `loom.unknown` on the wire.  `orderOps(...)` puts the defect in
+  // one aggregate body, which is where every one of them lives.
+  "loom.audited-private-operation": orderOps(
+    "private operation quiet() audited { total := total + 1 }",
+  ),
+  "loom.when-private-operation": orderOps(
+    "private operation p() when total > 0 { total := total + 1 }",
+  ),
+  "loom.requires-private-operation": orderOps(
+    "private operation p() requires true { total := total + 1 }",
+  ),
+  "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
+  // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
+  // `requires` statement, the workflow create/handle gate (`structural.ts`),
+  // the read-path find/projection gate (`repository.ts`) and the handler-body
+  // statement (`types.ts`) — share this code, so one fixture covers the family.
+  "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
+  "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
+  "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
+  "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
+  "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
+  "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
+  "loom.emit-field-type": orderOps('operation p() { emit Bumped { by: "no", note: "n" } }'),
+  "loom.emit-field-missing": orderOps("operation p() { emit Bumped { by: 1 } }"),
+  "loom.operation-self-call": orderOps("operation p() { p() }"),
+  "loom.unresolved-call": orderOps("operation p() { nope() }"),
+  // Both slugs of the code in one body: the mid-chain step (`tag.nope := …`)
+  // and the final member-call step, which can name the receiver type.
+  "loom.unresolved-member": orderOps(
+    'operation p() { tag.nope := "x" }\n      operation q() { tag.nope() }',
+  ),
+  "loom.member-not-callable": orderOps("operation p() { tag.label() }"),
+  "loom.bare-statement-invalid": orderOps("operation p() { name }"),
+  "loom.unresolved-lvalue-head": orderOps("operation p() { ghost := 1 }"),
+  // The member-function form.  Its two siblings — the top-level
+  // expression-form function (`toplevel-function.ts`) and the block-body
+  // `return` (`types.ts`) — share this code.
+  "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
+  // than the criterion reference this release admits.
+  "loom.retrieval-where-not-criterion": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order { }
+    criterion ActiveOrder of Order = region != ""
+    command C { region: string }
+    workflow W {
+      create(c: C) { let xs = Orders.run(retrieval { where: this.region == c.region }) }
+    }
+  } }
+}`,
+
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     event Happened { thing: Thing id, label: string }
@@ -1603,6 +1864,299 @@ system S {
   // raw `Error`, flutter emitted a placeholder app at exit 0.
   "loom.feliz-deployable-missing-ui": spaMissingUi("feliz"),
   "loom.flutter-deployable-missing-ui": spaMissingUi("flutter"),
+  // --- the M-T9.56 drain of `ddd-validator.ts` + `structural.ts` + ---------
+  // --- `_shared.ts` (the last 13 uncoded sites) ---------------------------
+  // The five system-scope declaration rules live on one `systemScope(...)`
+  // base; the aggregate-shape rules and the one forwarding helper live on
+  // `aggShape(...)`.
+  "loom.duplicate-ui": systemScope(
+    '  ui WebApp { framework: react  page H { route: "/" body: Stack { Text { "x" } } } }\n' +
+      '  ui WebApp { framework: react  page H2 { route: "/2" body: Stack { Text { "x" } } } }',
+  ),
+  "loom.duplicate-api": systemScope("  api Api from D\n  api Api from D"),
+  "loom.api-unknown-subdomain": systemScope("  api Ghost from Nowhere"),
+  "loom.duplicate-storage": systemScope(
+    "  storage pg { type: postgres }\n  storage pg { type: postgres }",
+  ),
+  "loom.duplicate-resource": systemScope(
+    "  storage pg { type: postgres }\n" +
+      "  resource st { for: C, kind: state, use: pg }\n" +
+      "  resource st { for: C, kind: state, use: pg }",
+  ),
+  // Both `#slug`s of the theme rule: `composition.ts` counts across composing
+  // FILES, this arm counts inside one `system` block.  One source drives both.
+  "loom.duplicate-theme-block": systemScope(
+    '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
+  ),
+  "loom.audited-no-command": aggShape("audited", "      name: string"),
+  "loom.duplicate-entity-part": aggShape(
+    "",
+    "      entity Part { n: int }\n      entity Part { n: int }",
+  ),
+  "loom.duplicate-derived": aggShape(
+    "",
+    "      name: string\n      derived display: string = name\n      derived display: string = name",
+  ),
+  "loom.containment-optional-collection": aggShape(
+    "",
+    "      entity Part { n: int }\n      contains parts: Part[]?",
+  ),
+  // The one FORWARDING helper in the census (`warnSensitivityDrop`): a
+  // sensitivity-tagged value flowing into an untagged target.  Its callers do
+  // not word anything, so the drain touched the helper.
+  "loom.sensitivity-drop": aggShape(
+    "",
+    "      secret: string sensitive(pii)\n      derived leak: string = secret",
+  ),
+
+  // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------
+  // Three rules, nine sites: the kind must suit the storage's type, a knob
+  // must suit the kind, and a knob must suit the storage.  One fixture per
+  // CODE; the `#slug`s are the individual knobs.
+  "loom.resource-kind-storage-mismatch": resourced("resource bad { for: C, kind: state, use: kv }"),
+  "loom.resource-knob-kind-mismatch": resourced(
+    "resource ttlBad { for: C, kind: state, use: pg, ttl: 60 }",
+  ),
+  "loom.resource-knob-storage-mismatch": resourced(
+    'resource schemaBad { for: C, kind: cache, use: kv, schema: "s" }',
+  ),
+
+  // --- the M-T9.56 drain of `src/language/validators/traceability.ts` -----
+  // The `requirement { … }` prop bag: an unknown key, a repeated key, the four
+  // per-value shape rules, the two required keys and the parent-chain cycle.
+  "loom.requirement-property-unknown": requirements(
+    'requirement R1 { bogus: 1 type: UserStory title: "t" }',
+  ),
+  "loom.requirement-property-duplicate": requirements(
+    'requirement R2 { type: UserStory type: UserStory title: "t" }',
+  ),
+  "loom.requirement-type-invalid": requirements('requirement R3 { type: Nonsense title: "t" }'),
+  "loom.requirement-status-invalid": requirements(
+    'requirement R4 { type: UserStory title: "t" status: Nonsense }',
+  ),
+  "loom.requirement-title-not-string": requirements("requirement R5 { type: UserStory title: 7 }"),
+  "loom.requirement-priority-not-int": requirements(
+    'requirement R6 { type: UserStory title: "t" priority: "high" }',
+  ),
+  // Both `#slug`s: the missing `type` and the missing `title`.
+  "loom.requirement-property-missing": requirements(
+    'requirement R7 { title: "t" }\nrequirement R8 { type: UserStory }',
+  ),
+  "loom.requirement-parent-cycle": requirements(
+    'requirement R9 parent R10 { type: UserStory title: "t" }\n' +
+      'requirement R10 parent R9 { type: UserStory title: "t" }',
+  ),
+
+  // --- the M-T9.56 drain of `src/language/validators/match.ts` ------------
+  // The `match { … }` shape rules, and the `expect(<actual>).<matcher>(…)`
+  // vocabulary's arity / placement / literal rules.  `matcherTest(...)` puts
+  // one `expect` in an in-process `test` block; the two tier-restricted forms
+  // need the opposite tier, so they carry their own source.
+  "loom.match-empty": orderTypes("derived b: string = match { }"),
+  "loom.match-no-else": orderTypes('derived a: string = match { total > 0 => "hi" }'),
+  "loom.matcher-arity": matcherTest('expect("x").toBe("x", "y")'),
+  "loom.expect-requires-matcher": matcherTest('expect("x")'),
+  // Both `#slug`s of the tier restriction: `toBeSameInstant` and
+  // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
+  "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
+  "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
+  "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
+  "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
+  "loom.matches-invalid-regex": matcherTest('expect("x").matches("[A-Z")'),
+  // The mirror of `#throw-status`: INSIDE a `test e2e`, the status argument
+  // must be an integer literal for the e2e renderer to pin it.
+  "loom.tothrow-status-not-int": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  test e2e "status must be an int literal" against api {
+    expect(api.things.create({ name: "x" })).toThrow("404")
+  }
+}`,
+
+  // --- the M-T9.56 drain of `src/language/validators/types.ts` ------------
+  // The expression type-checker's own refusals: the two operator arms, the
+  // three `string(x)` / `decimal(x)` conversion arms, and the six leaf checks
+  // on a property / invariant / derived / default.
+  "loom.operator-non-bool-operands": orderTypes("derived bad: bool = total && name"),
+  "loom.operator-operand-mismatch": orderTypes("derived bad: string = total + flag"),
+  "loom.convert-aggregate-no-display": orderTypes("derived self: string = string(this)"),
+  "loom.convert-non-primitive": orderTypes("derived bad: string = string(tag)"),
+  "loom.convert-pair-invalid": orderTypes("derived bad: decimal = decimal(name)"),
+  "loom.property-check-not-bool": orderTypes("checked: int  check total"),
+  "loom.mask-unless-not-bool": orderTypes("masked: string  mask unless total"),
+  "loom.property-default-type-mismatch": orderTypes('badDefault: int = "nope"'),
+  "loom.parameter-default-type-mismatch": orderTypes(
+    'operation withDefault(n: int = "x") { total := total + n }',
+  ),
+  "loom.invariant-not-bool": orderTypes("invariant name"),
+  "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
+  "loom.derived-type-mismatch": orderTypes("derived bad: int = name"),
+
+  // --- the M-T9.56 drain of `src/language/validators/ui.ts` ---------------
+  // The `theme { … }` block's five rules.  Each is one property in an
+  // otherwise-valid block, so the fixture's diagnostic set is exactly one.
+  "loom.theme-property-unknown": themed('bogus: "#fff"'),
+  "loom.theme-property-duplicate": themed('primary: "#3b82f6"\n    primary: "#3b82f6"'),
+  "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
+  "loom.theme-radius-invalid": themed('radius: "gigantic"'),
+  "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),
+  // The `ui { … }` member rules.
+  "loom.ui-api-param-duplicate": uiMembers("api Sales: SubApi\n    api Sales: SubApi"),
+  "loom.ui-api-unknown": uiMembers("api Ghost: NopeApi"),
+  "loom.ui-function-duplicate": uiMembers(
+    'function f(x: int): int extern from "./f"\n    function f(x: int): int extern from "./f"',
+  ),
+  "loom.ui-page-duplicate": uiMembers(
+    'page Twin { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    page Twin { route: "/b"  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-property-duplicate": uiMembers(
+    'page P { route: "/a"  route: "/b"  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-menu-key-unknown": uiMembers(
+    'page P { route: "/a"  menu { bogus: "x" }  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.page-layout-unknown": uiMembers(
+    'page P { route: "/a"  layout: Nonesuch  body: Stack { Text { "hi" } } }',
+  ),
+  "loom.ui-menu-duplicate": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    menu { section "Main" { link P } }\n' +
+      '    menu { section "Other" { link P } }',
+  ),
+  "loom.menu-link-property-unknown": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
+      '    menu { section "Main" { link P { bogusKey: "x" } } }',
+  ),
+  // The `<apiParam>.<Aggregate>.<op>` body chain — an aggregate the api's
+  // module does not hold, and an operation the aggregate does not declare.
+  "loom.ui-api-aggregate-unknown": uiMembers(
+    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Ghost.create({ name: "x" }) } } }',
+  ),
+  "loom.ui-api-operation-unknown": uiMembers(
+    'api Sales: SubApi\n    page P { route: "/a"  body: Stack { Button { "go", onClick: Sales.Thing.explode({ name: "x" }) } } }',
+  ),
+  // `api` and `channel` parameters share ONE namespace on a ui, which is what
+  // this rule is for — hence a channel param colliding with an api param.
+  "loom.ui-param-duplicate": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+    event OrderPlaced { order: Order id, at: datetime }
+    channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
+  } }
+  api Api from D
+  ui WebApp {
+    api Live: Api
+    channel Live: C.Lifecycle
+    page Home { route: "/" body: Stack { Heading { "home" } } }
+  }
+}`,
+  // `layout <Name> { … }` — the reserved-name and slot-count rules.
+  "loom.layout-name-reserved": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
+    layouts: "layout default { main }",
+  }),
+  "loom.layout-main-slot-missing": uiMembers(
+    'page P { route: "/a"  body: Stack { Text { "x" } } }',
+    { layouts: 'layout NoMain { header { Text { "h" } } }' },
+  ),
+  // Both slugs: the `main` slot counted on its own, and a named slot repeated.
+  "loom.layout-slot-duplicate": uiMembers('page P { route: "/a"  body: Stack { Text { "x" } } }', {
+    layouts:
+      'layout TwoMain { main  main }\n  layout Chrome { main  header { Text { "h" } }  header { Text { "i" } } }',
+  }),
+
+  // --- the M-T9.56 drain of `src/language/validators/deployable.ts` --------
+  // 24 uncoded sites, all of them deployable-composition rules that used to
+  // reach the user as `loom.unknown`.  One fixture each, over the shared
+  // `topology(...)` base above: the extra deployable / knob IS the defect.
+  "loom.static-deployable-missing-ui": topology(
+    "deployable web { platform: static targets: api port: 3001 }",
+  ),
+  "loom.frontend-targets-missing": topology("deployable web { platform: react port: 3001 }"),
+  "loom.frontend-targets-invalid": topology(`
+  deployable web2 { platform: react targets: api port: 3002 }
+  deployable web { platform: react targets: web2 port: 3001 }`),
+  "loom.frontend-contexts-ignored": topology(
+    "deployable web { platform: react targets: api contexts: [Orders] port: 3001 }",
+  ),
+  "loom.targets-misplaced": topology(
+    "deployable api2 { platform: node targets: api contexts: [Orders] dataSources: [st] port: 3002 }",
+  ),
+  "loom.platform-unknown": topology('deployable web { platform: "frobnicator" port: 3001 }'),
+  "loom.platform-version-unknown": topology(
+    'deployable api2 { platform: "node@v999" contexts: [Orders] dataSources: [st] port: 3002 }',
+  ),
+  "loom.design-pack-ignored": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] design: mantine port: 3002 }",
+  ),
+  "loom.design-theme-unknown": topology(
+    "deployable web { platform: feliz targets: api ui: WebApp design: mantine port: 3001 }",
+    { ui: true, uiFramework: "feliz" },
+  ),
+  "loom.design-pack-custom-unchecked": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-version-unknown": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
+    { ui: true },
+  ),
+  "loom.design-pack-format-mismatch": topology(
+    "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
+    { ui: true },
+  ),
+  "loom.datasource-context-unlisted": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
+    { secondContext: true },
+  ),
+  "loom.datasource-duplicate": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st, st2] port: 3002 }",
+    { duplicateResource: true },
+  ),
+  "loom.serves-on-frontend": topology(
+    "deployable web { platform: react targets: api ui: WebApp serves: OrdersApi port: 3001 }",
+    { ui: true },
+  ),
+  "loom.serves-duplicate-api": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
+  ),
+  "loom.serves-unknown-api": topology(
+    "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
+  ),
+  // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
+  // `api Sales: OrdersApi` parameter, so every shape below is a real binding
+  // defect rather than a missing declaration.
+  "loom.ui-binding-missing": topology(
+    "deployable web { platform: react targets: api ui: WebApp port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-unknown-param": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Nope: api } port: 3001 }",
+    { ui: true },
+  ),
+  "loom.ui-binding-duplicate": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Sales: api, Sales: api } port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-unknown-source": topology(
+    "deployable web { platform: react targets: api ui: WebApp { Sales: ghost } port: 3001 }",
+    { ui: true, uiApiParam: true },
+  ),
+  "loom.ui-binding-source-not-serving": topology(
+    `
+  deployable plain { platform: node contexts: [Orders] dataSources: [st] port: 3002 }
+  deployable web { platform: react targets: api ui: WebApp { Sales: plain } port: 3001 }`,
+    { ui: true, uiApiParam: true },
+  ),
   // --- `ui:` on a platform that mounts no UI (Rule 3) ---------------------
   "loom.ui-binding-unmountable-platform": `
 system P {
@@ -2427,6 +2981,27 @@ system S {
  * can re-test the claim instead of inheriting it.
  */
 const UNREACHABLE_PINS: Record<string, string> = {
+  // M-T9.56 drain of `structural.ts`.  Two arms of `checkValueObject` /
+  // `checkContainment` that the GRAMMAR and the SCOPE PROVIDER already make
+  // unreachable, found by writing their fixtures:
+  //
+  //   `loom.valueobject-contains-entity` — `ValueObjectMember` is
+  //   `Property | DerivedProp | Invariant | FunctionDecl | TestBlock`; a
+  //   `contains` clause in a `valueobject` is a PARSE error, so the
+  //   `isContainment(m)` arm in `checkValueObject` never sees one.
+  //
+  //   `loom.containment-foreign-part` — the custom scope provider
+  //   (`ddd-scope.ts`) restricts a containment's `partType` to entity parts of
+  //   the SAME aggregate, so a cross-aggregate part never links: the check's
+  //   own `if (!part) return;` fires first and the author gets a linking error
+  //   naming the unresolved part. The arm's comment already calls itself a
+  //   "friendly double-check"; this pin records that the double-check is dead
+  //   in both directions rather than deleting a defensive arm the api toolkit
+  //   could still hand an un-linked model to.
+  "loom.valueobject-contains-entity":
+    "`ValueObjectMember` admits no `Containment`, so a `contains` inside a `valueobject` is a parse error and this arm never runs.",
+  "loom.containment-foreign-part":
+    "the scope provider hides other aggregates' entity parts, so a cross-aggregate `contains` fails to LINK and the check returns on its own `!part` guard first.",
   // M-T9.55.  The one give-up code in its family with no known reachable shape:
   // `walker-core.ts`'s markup-position expression `default:` arm, reached only
   // by an `ExprIR.kind` that appears as a primitive's CHILD and has no arm in
@@ -3096,23 +3671,29 @@ describe("diagnostic firing census", () => {
 });
 
 // ---------------------------------------------------------------------------
-// `loom.unknown` never reaches a user (M-T9.56, gate half).
+// `loom.unknown` never reaches a user (M-T9.56).
 //
 // The buckets above account for every CATALOGUED code.  `loom.unknown` is in no
 // bucket because it is in no catalogue: `src/api/report.ts` synthesises it for
-// any diagnostic that arrived with no `loom.*` code of its own, so it is the
-// one string on the wire that means "129 different conditions, take your pick".
+// any diagnostic that arrived with no `loom.*` code of its own, so it used to be
+// the one string on the wire that meant "129 different conditions, take your
+// pick".
 //
-// The per-file census in `diagnostic-uncoded-baseline.ts` counts those SITES.
-// This counts their EFFECT, on the only population where a defect diagnostic is
-// actually produced: the firing fixtures.  Every one of them is a deliberately
-// broken `.ddd`, so if an uncoded condition is reachable at all, this is where
-// it surfaces — and a fixture that raises `loom.unknown` alongside the code it
-// is proving is a user, today, reading a diagnostic with no name.
+// `diagnostic-catalog.test.ts` invariant 5 counts those SITES — zero of them
+// since wave C4.  This counts their EFFECT, on the only population where a
+// defect diagnostic is actually produced: the firing fixtures.  Every one of
+// them is a deliberately broken `.ddd`, so if an uncoded condition were
+// reachable at all, this is where it would surface.
 //
-// `FIXTURES_RAISING_UNKNOWN` is shrink-only and names the site each entry hits,
-// so the drain can aim at it; an entry that stops raising `loom.unknown` fails
-// as STALE, which is what makes the fix delete its own row.
+// The two halves are not redundant.  The site census reads the validator
+// SOURCES; this one reads what `validate()` actually hands a caller, so it also
+// covers a diagnostic built somewhere the site scanner does not look — a future
+// phase, a helper the AST shapes do not match — and it is the half that would
+// notice if `report.ts` started synthesising the code for a new reason.
+//
+// The `FIXTURES_RAISING_UNKNOWN` waiver table this used to consult is gone with
+// the drain: it shipped empty, and a waiver kept past the debt it waived is
+// slack (`allowlist-ratchet.test.ts`, same rule).
 // ---------------------------------------------------------------------------
 
 describe("the generic code `loom.unknown` reaches no user", () => {
@@ -3123,36 +3704,15 @@ describe("the generic code `loom.unknown` reaches no user", () => {
   for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
     it(`${code}'s fixture raises no uncoded diagnostic`, async () => {
       const raised = (await validate(source)).diagnostics.filter((d) => d.code === "loom.unknown");
-      const waived = code in FIXTURES_RAISING_UNKNOWN;
-      if (waived) {
-        expect(
-          raised.length,
-          `${code} is listed in FIXTURES_RAISING_UNKNOWN but no longer raises\n` +
-            `loom.unknown — the site it named was drained.  Delete its row from\n` +
-            `test/system/diagnostic-uncoded-baseline.ts in the same change.`,
-        ).toBeGreaterThan(0);
-        return;
-      }
       expect(
         raised.map((d) => `${d.severity ?? "?"}: ${d.message}`),
         `${code}'s fixture makes an UNCODED diagnostic reach the user.  ` +
           `src/api/report.ts stamps it \`loom.unknown\`, which is not a catalogue key: ` +
           `no wording entry, no docs anchor, no fix hint in the Problems panel.  Give ` +
-          `the validator site a \`loom.*\` code (see the invariant-5 message in ` +
-          `diagnostic-catalog.test.ts for the four edits), or — if the drain is not ` +
-          `this change's job — add the fixture to FIXTURES_RAISING_UNKNOWN naming the ` +
-          `site it hits.`,
+          `the validator site a \`loom.*\` code — the invariant-5 message in ` +
+          `diagnostic-catalog.test.ts lists what the code owes.  There is no waiver ` +
+          `table any more: the drain closed in wave C4 and the surface is zero.`,
       ).toEqual([]);
     });
   }
-
-  it("carries no stale waiver", () => {
-    const notAFixture = Object.keys(FIXTURES_RAISING_UNKNOWN).filter(
-      (c) => !(c in FIRING_FIXTURES),
-    );
-    expect(
-      notAFixture,
-      "FIXTURES_RAISING_UNKNOWN names a code with no FIRING_FIXTURES entry — delete it.",
-    ).toEqual([]);
-  });
 });

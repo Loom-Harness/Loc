@@ -28,7 +28,7 @@ const sys = (fieldClause: string, plat = "node") => `system S {
 
 async function diags(fieldClause: string, plat = "node"): Promise<string[]> {
   const { model } = await parseString(sys(fieldClause, plat), { validate: false });
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 describe("field mask — IR gates", () => {
@@ -91,7 +91,7 @@ describe("field mask — IR gates", () => {
   deployable api { platform: node  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
 }`;
     const { model } = await parseString(src, { validate: false });
-    const codes = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+    const codes = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
     expect(codes).toContain("loom.field-mask-projection-source");
   });
 
@@ -131,7 +131,7 @@ describe("field mask — IR gates", () => {
 }`;
     const { model } = await parseString(src, { validate: false });
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model)));
-    expect(diags.map((d) => d.code)).toContain("loom.field-mask-projection-source");
+    expect(diags.map((d) => d.code ?? "")).toContain("loom.field-mask-projection-source");
     // The message must name the JOINED aggregate, not the `from` source —
     // pointing at `Order` would send the author to the wrong declaration.
     const d = diags.find((x) => x.code === "loom.field-mask-projection-source")!;
@@ -180,7 +180,7 @@ describe("field mask — IR gates", () => {
 
   it("rejects a projection that folds an event laundering a masked field", async () => {
     const ds = await foldDiags("who: id, newSalary: salary");
-    expect(ds.map((d) => d.code)).toContain("loom.field-mask-projection-source");
+    expect(ds.map((d) => d.code ?? "")).toContain("loom.field-mask-projection-source");
     const d = ds.find((x) => x.code === "loom.field-mask-projection-source")!;
     expect(d.message).toContain("folds event 'Raised'");
     expect(d.message).toContain("'P.salary'");
@@ -193,7 +193,7 @@ describe("field mask — IR gates", () => {
     );
     const { model } = await parseString(src, { validate: false });
     const ds = validateLoomModel(enrichLoomModel(lowerModel(model)));
-    expect(ds.map((d) => d.code)).toContain("loom.field-mask-projection-source");
+    expect(ds.map((d) => d.code ?? "")).toContain("loom.field-mask-projection-source");
   });
 
   it("leaves a fold that carries no masked value alone", async () => {
@@ -201,6 +201,6 @@ describe("field mask — IR gates", () => {
     // operation PARAM, not the masked column.  A gate that fired here would
     // ban every read model built off a masked aggregate.
     const ds = await foldDiags("who: id, newSalary: amount");
-    expect(ds.map((d) => d.code)).not.toContain("loom.field-mask-projection-source");
+    expect(ds.map((d) => d.code ?? "")).not.toContain("loom.field-mask-projection-source");
   });
 });

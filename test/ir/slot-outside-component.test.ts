@@ -51,7 +51,7 @@ async function diagnostics(uiBody: string) {
 }
 
 const codes = async (uiBody: string): Promise<string[]> =>
-  (await diagnostics(uiBody)).map((d) => d.code);
+  (await diagnostics(uiBody)).map((d) => d.code ?? "");
 
 describe("loom.slot-outside-component — the gate", () => {
   it("flags `Slot { }` in a page body", async () => {

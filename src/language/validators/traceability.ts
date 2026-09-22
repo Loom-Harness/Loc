@@ -3,6 +3,7 @@
 // and detects parent-chain cycles.
 
 import type { ValidationAcceptor } from "langium";
+import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, Requirement } from "../generated/ast.js";
 
 /** Validate `requirement` traceability artifacts: the `type`,
@@ -23,15 +24,19 @@ export function checkTraceability(model: Model, accept: ValidationAcceptor): voi
       if (!ALLOWED_KEYS.has(p.name)) {
         accept(
           "error",
-          `Unknown requirement property '${p.name}'; expected one of type, title, status, priority.`,
-          { node: p, property: "name" },
+          diagMessage("loom.requirement-property-unknown", {
+            name: p.name,
+            known: [...ALLOWED_KEYS].join(", "),
+          }),
+          { node: p, property: "name", code: "loom.requirement-property-unknown" },
         );
         continue;
       }
       if (seen.has(p.name)) {
-        accept("error", `Duplicate requirement property '${p.name}'.`, {
+        accept("error", diagMessage("loom.requirement-property-duplicate", { name: p.name }), {
           node: p,
           property: "name",
+          code: "loom.requirement-property-duplicate",
         });
       }
       seen.add(p.name);
@@ -43,45 +48,50 @@ export function checkTraceability(model: Model, accept: ValidationAcceptor): voi
         if (!name || !TYPES.has(name)) {
           accept(
             "error",
-            `requirement type must be one of UserStory, UseCase, AcceptanceCriteria, BusinessReq.`,
-            { node: p, property: "value" },
+            diagMessage("loom.requirement-type-invalid", { known: [...TYPES].join(", ") }),
+            { node: p, property: "value", code: "loom.requirement-type-invalid" },
           );
         }
       } else if (p.name === "status") {
         const name = v?.$type === "NameRef" ? (v as { name: string }).name : undefined;
         if (!name || !STATUSES.has(name)) {
-          accept("error", `requirement status must be one of Draft, Approved, InProgress, Done.`, {
-            node: p,
-            property: "value",
-          });
+          accept(
+            "error",
+            diagMessage("loom.requirement-status-invalid", { known: [...STATUSES].join(", ") }),
+            { node: p, property: "value", code: "loom.requirement-status-invalid" },
+          );
         }
       } else if (p.name === "title") {
         hasTitle = true;
         if (v?.$type !== "StringLit") {
-          accept("error", `requirement title must be a string literal.`, {
+          accept("error", diagMessage("loom.requirement-title-not-string"), {
             node: p,
             property: "value",
+            code: "loom.requirement-title-not-string",
           });
         }
       } else if (p.name === "priority") {
         if (v?.$type !== "IntLit") {
-          accept("error", `requirement priority must be an integer.`, {
+          accept("error", diagMessage("loom.requirement-priority-not-int"), {
             node: p,
             property: "value",
+            code: "loom.requirement-priority-not-int",
           });
         }
       }
     }
     if (!hasType) {
-      accept("error", `requirement '${req.name}' is missing the required 'type' property.`, {
+      accept("error", diagMessage("loom.requirement-property-missing#type", { name: req.name }), {
         node: req,
         property: "name",
+        code: "loom.requirement-property-missing",
       });
     }
     if (!hasTitle) {
-      accept("error", `requirement '${req.name}' is missing the required 'title' property.`, {
+      accept("error", diagMessage("loom.requirement-property-missing#title", { name: req.name }), {
         node: req,
         property: "name",
+        code: "loom.requirement-property-missing",
       });
     }
   }
@@ -94,9 +104,10 @@ export function checkTraceability(model: Model, accept: ValidationAcceptor): voi
     let cur = req.parent?.ref;
     while (cur) {
       if (path.has(cur.name)) {
-        accept("error", `requirement '${req.name}' has a cyclic parent chain.`, {
+        accept("error", diagMessage("loom.requirement-parent-cycle", { name: req.name }), {
           node: req,
           property: "parent",
+          code: "loom.requirement-parent-cycle",
         });
         break;
       }

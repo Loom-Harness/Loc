@@ -8,10 +8,8 @@
 // blocks, aggregate operations, and workflow `create`/`handle` bodies.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 const sys = (body: string) => `
 system Demo {
@@ -35,7 +33,7 @@ system Demo {
 
 async function codes(body: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(body), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 const TYPE = "loom.create-field-type";
@@ -112,6 +110,6 @@ system Demo {
 }`,
       { validate: true },
     );
-    expect(codesOf(diagnostics)).toContain(TYPE);
+    expect(lspCodes(diagnostics)).toContain(TYPE);
   });
 });

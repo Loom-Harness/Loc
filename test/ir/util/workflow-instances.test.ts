@@ -36,9 +36,9 @@ describe('workflowCorrWireField — the `source: "id"` row', () => {
     // wrong column the moment a workflow declares state before its correlation.
     const corr = wireField({ name: "correlation" });
     const shape = [
-      wireField({ name: "status", source: "state", type: idType("guid") }),
+      wireField({ name: "status", source: "property", type: idType("guid") }),
       corr,
-      wireField({ name: "step", source: "state", type: idType("guid") }),
+      wireField({ name: "step", source: "property", type: idType("guid") }),
     ];
     expect(workflowCorrWireField(wf(shape))).toBe(corr);
   });
@@ -46,7 +46,9 @@ describe('workflowCorrWireField — the `source: "id"` row', () => {
   it("THROWS, naming the workflow, when no row is id-sourced", () => {
     // Every observable workflow has one by construction, so the absence is a
     // pipeline bug — loud beats a silently wrong path param.
-    expect(() => workflowCorrWireField(wf([wireField({ source: "state" })]))).toThrow(/'Fulfil'/);
+    expect(() => workflowCorrWireField(wf([wireField({ source: "property" })]))).toThrow(
+      /'Fulfil'/,
+    );
   });
 
   it("throws for an empty shape and for a MISSING one", () => {

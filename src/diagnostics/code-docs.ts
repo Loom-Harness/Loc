@@ -37,11 +37,28 @@ const CHAPTER_DIR = "language-reference";
  *  construct has a documented section; extend it as the reference grows (the
  *  ratchet test then asks you to drop the code from its undocumented list). */
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
+  "loom.callable-modifier-not-allowed-here":
+    "06-behavior-and-statements.md#the-callable-modifier-surface",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
+  // --- src/language/ddd-validator.ts (M-T9.56 drain) ----------------------
+  "loom.duplicate-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",
+  "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
+  "loom.duplicate-storage": "14-apis-storage-resources-channels.md#storage",
+  "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
+  // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
+  "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
+  "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
+  "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
+  "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
+  "loom.containment-foreign-part": "04-type-system.md#x-id--cross-aggregate-references",
+  "loom.duplicate-derived": "07-invariants-derived-functions.md#reserved-display-and-inspect",
+  // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
+  "loom.sensitivity-drop": "03-domain-modeling.md#sensitive",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
@@ -51,9 +68,66 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
+  // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
+  "loom.match-empty": "05-expressions.md#ternary--match",
+  "loom.match-no-else": "05-expressions.md#ternary--match",
+  "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.matcher-e2e-only": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.tothrow-arity": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.tothrow-status-not-int": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
+  "loom.matches-named-arg": "05-expressions.md#scalar-intrinsics",
+  "loom.matches-not-literal": "05-expressions.md#scalar-intrinsics",
+  "loom.matches-invalid-regex": "05-expressions.md#scalar-intrinsics",
+  // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
+  "loom.operator-non-bool-operands": "05-expressions.md#comparison-logical--unary",
+  "loom.operator-operand-mismatch": "05-expressions.md#arithmetic--widening",
+  "loom.convert-aggregate-no-display": "05-expressions.md#conversions",
+  "loom.convert-non-primitive": "05-expressions.md#conversions",
+  "loom.convert-pair-invalid": "05-expressions.md#conversions",
+  "loom.property-check-not-bool":
+    "07-invariants-derived-functions.md#invariant--a-checked-predicate",
+  "loom.invariant-not-bool": "07-invariants-derived-functions.md#invariant--a-checked-predicate",
+  "loom.invariant-guard-not-bool":
+    "07-invariants-derived-functions.md#when--a-conditional-invariant",
+  "loom.mask-unless-not-bool":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.derived-type-mismatch":
+    "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
+  "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
+  "loom.parameter-default-type-mismatch":
+    "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
+  // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
+  "loom.emit-field-type": "06-behavior-and-statements.md#let--emit",
+  "loom.emit-field-missing": "06-behavior-and-statements.md#let--emit",
+  "loom.when-not-bool":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.requires-not-bool":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.precondition-not-bool":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.when-private-operation":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.requires-private-operation":
+    "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
+  "loom.audited-private-operation": "22-macros.md#audit--the-built-in-capability-auditable",
+  "loom.assign-to-derived": "06-behavior-and-statements.md#assignment-----",
+  "loom.assign-type-mismatch": "06-behavior-and-statements.md#assignment-----",
+  "loom.collection-mutation-non-collection": "06-behavior-and-statements.md#assignment-----",
+  "loom.collection-mutation-element-type": "06-behavior-and-statements.md#assignment-----",
+  "loom.operation-self-call": "06-behavior-and-statements.md#operation--a-mutating-method",
+  "loom.unresolved-call": "06-behavior-and-statements.md#operation--a-mutating-method",
+  "loom.unresolved-member": "05-expressions.md#member-access--calls",
+  "loom.member-not-callable": "05-expressions.md#member-access--calls",
+  "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
+  "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
+  "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.function-return-type-mismatch":
+    "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-call-missing-field":
@@ -170,6 +244,69 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  // --- src/language/validators/ui.ts (M-T9.56 drain) -----------------------
+  "loom.theme-property-unknown": "02-systems-and-topology.md#theme",
+  "loom.theme-property-duplicate": "02-systems-and-topology.md#theme",
+  "loom.theme-color-invalid": "02-systems-and-topology.md#theme",
+  "loom.theme-radius-invalid": "02-systems-and-topology.md#theme",
+  "loom.theme-color-scheme-invalid": "02-systems-and-topology.md#theme",
+  "loom.ui-page-duplicate": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.page-property-duplicate": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.ui-menu-duplicate": "15-ui-pages-structure.md#area--menu",
+  "loom.page-menu-key-unknown": "15-ui-pages-structure.md#area--menu",
+  "loom.menu-link-property-unknown": "15-ui-pages-structure.md#area--menu",
+  "loom.ui-api-param-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-api-unknown": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-param-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-function-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-api-aggregate-unknown": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-api-operation-unknown": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.page-layout-unknown": "15-ui-pages-structure.md#layout--named-app-frames",
+  "loom.layout-name-reserved": "15-ui-pages-structure.md#layout--named-app-frames",
+  "loom.layout-main-slot-missing": "15-ui-pages-structure.md#layout--named-app-frames",
+  "loom.layout-slot-duplicate": "15-ui-pages-structure.md#layout--named-app-frames",
+  // --- src/language/validators/deployable.ts (M-T9.56 drain) ---------------
+  "loom.static-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-unknown-param": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-duplicate": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-unknown-source": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-source-not-serving": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-binding-missing": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.frontend-targets-missing": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.frontend-targets-invalid": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.frontend-contexts-ignored": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.targets-misplaced": "02-systems-and-topology.md#frontend-platforms--targets",
+  "loom.platform-unknown": "02-systems-and-topology.md#deployable",
+  "loom.platform-version-unknown": "02-systems-and-topology.md#backend-platforms",
+  "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
+  "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
+  // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
+  "loom.resource-kind-storage-mismatch":
+    "14-apis-storage-resources-channels.md#the-kind--storage-matrix",
+  "loom.resource-knob-kind-mismatch":
+    "14-apis-storage-resources-channels.md#the-knobs-and-their-guards",
+  "loom.resource-knob-storage-mismatch":
+    "14-apis-storage-resources-channels.md#the-knobs-and-their-guards",
+  // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
+  "loom.requirement-property-unknown": "19-requirements-traceability.md#requirement",
+  "loom.requirement-property-duplicate": "19-requirements-traceability.md#requirement",
+  "loom.requirement-property-missing": "19-requirements-traceability.md#requirement",
+  "loom.requirement-type-invalid": "19-requirements-traceability.md#requirement",
+  "loom.requirement-status-invalid": "19-requirements-traceability.md#requirement",
+  "loom.requirement-title-not-string": "19-requirements-traceability.md#requirement",
+  "loom.requirement-priority-not-int": "19-requirements-traceability.md#requirement",
+  "loom.requirement-parent-cycle": "19-requirements-traceability.md#relations-summary",
+  "loom.datasource-context-unlisted": "14-apis-storage-resources-channels.md#resource",
+  "loom.datasource-duplicate": "14-apis-storage-resources-channels.md#resource",
+  "loom.serves-on-frontend":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.serves-unknown-api":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.serves-duplicate-api":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":

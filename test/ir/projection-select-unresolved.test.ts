@@ -26,7 +26,7 @@ import { parseString } from "../_helpers/parse.js";
  *  (and by this harness) — part of why the holes went unnoticed. */
 async function codes(src: string): Promise<string[]> {
   const { model } = await parseString(src, { validate: false });
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 async function projectionQuery(src: string, name: string) {

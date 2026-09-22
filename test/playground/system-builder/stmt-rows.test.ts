@@ -41,6 +41,7 @@ import {
 } from "../../../web/src/builder/system/body.js";
 import { listEmits, setEmitEvent } from "../../../web/src/builder/system/emit-event.js";
 import { slotExpr, workflowSlotOptions } from "../../../web/src/builder/system/expr-slots.js";
+import { contextMembersOf } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
 // One fixture carrying every statement form the grammar has, littered with the
@@ -594,10 +595,7 @@ describe("statement rows — the span helpers the UI rows splice with", () => {
 
 describe("workflow body reach — every statement-bearing member", () => {
   it("enumerates creates / handles / ons / applies with stable keys", () => {
-    const wf = parse(SRC)
-      .members.flatMap((m) => ("members" in m ? m.members : []))
-      .flatMap((m) => ("members" in m ? m.members : []))
-      .find((m) => m.$type === "Workflow");
+    const wf = contextMembersOf(parse(SRC)).find((m) => m.$type === "Workflow");
     expect(listBodies(wf as never).map((b) => b.key)).toEqual([
       "create",
       "create:retry",
@@ -656,10 +654,7 @@ describe("workflow body reach — every statement-bearing member", () => {
   });
 
   it("binds each member's own parameters for expression-slot scoping", () => {
-    const wf = parse(SRC)
-      .members.flatMap((m) => ("members" in m ? m.members : []))
-      .flatMap((m) => ("members" in m ? m.members : []))
-      .find((m) => m.$type === "Workflow") as never;
+    const wf = contextMembersOf(parse(SRC)).find((m) => m.$type === "Workflow") as never;
     expect(workflowBodyParamNames(wf)).toEqual(["orderId"]);
     expect(workflowBodyParamNames(wf, "handle:settle")).toEqual(["amount"]);
     expect(workflowBodyParamNames(wf, "on:Paid")).toEqual(["p"]);
@@ -668,10 +663,7 @@ describe("workflow body reach — every statement-bearing member", () => {
   });
 
   it("offers an expression slot per member body, primary keeping the bare key", () => {
-    const wf = parse(SRC)
-      .members.flatMap((m) => ("members" in m ? m.members : []))
-      .flatMap((m) => ("members" in m ? m.members : []))
-      .find((m) => m.$type === "Workflow") as never;
+    const wf = contextMembersOf(parse(SRC)).find((m) => m.$type === "Workflow") as never;
     const options = workflowSlotOptions(wf);
     expect(options.map((o) => o.value)).toEqual([
       "wf:0",
@@ -689,10 +681,7 @@ describe("workflow body reach — every statement-bearing member", () => {
 
 describe("the shared primary-create helper", () => {
   const wfOf = (src: string) =>
-    parse(src)
-      .members.flatMap((m) => ("members" in m ? m.members : []))
-      .flatMap((m) => ("members" in m ? m.members : []))
-      .find((m) => m.$type === "Workflow") as never;
+    contextMembersOf(parse(src)).find((m) => m.$type === "Workflow") as never;
 
   it("prefers the unnamed create over a named one declared first", () => {
     const src = `system S {

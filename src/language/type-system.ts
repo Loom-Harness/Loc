@@ -1096,6 +1096,59 @@ export function isDurationBuiltinCall(name: string, env: Env): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// The three member-resolution walkers — and why each is an EXHAUSTIVE switch.
+//
+// `typeAfterSuffix`, `stepInto` and `stepIntoNode` are three parallel walks
+// over the SAME question ("what does `<receiver>.<name>` denote?"), differing
+// only in what they return: the member's type, the member's type via a dotted
+// path, and the member's AST node.  They were written as `if (t.kind === …)`
+// chains falling through to a silent `unknown` / `undefined`, which is exactly
+// the shape M-T5.16 (a) names: **a new `DddType` kind resolves on one walker,
+// silently misses the other two, and nothing fails.**  The divergence is not
+// hypothetical — `userclaim`, `id`, `array` and `primitive` all resolve members
+// in `typeAfterSuffix` and resolve to `unknown` in `stepInto`.
+//
+// Each walker is now a `switch (t.kind)` covering EVERY member of the
+// `DddType` union with a `const _exhaustive: never` default (the `walk.ts`
+// idiom).  Adding a kind to `DddType` therefore fails `tsc` at all three sites
+// at once, and a kind that genuinely has no members carries an explicit arm
+// saying so instead of vanishing into a fallthrough.  The arms are a
+// behaviour-preserving transcription of the `if` chains they replace: every
+// kind returns exactly what it returned before.
+//
+// The DIVERGENCE ITSELF is deliberate and is pinned as data, not as silence —
+// `MEMBER_RESOLVING_KINDS` below, asserted by
+// `test/language/type-system-walker-exhaustiveness.test.ts`.
+// ---------------------------------------------------------------------------
+
+/** Which `DddType` kinds each member-resolution walker actually resolves a
+ *  member ON (as opposed to answering `unknown` / `undefined`).  This is the
+ *  divergence between the three walkers, stated as data so that widening one
+ *  of them is a visible edit here rather than an invisible one at the site. */
+export const MEMBER_RESOLVING_KINDS = {
+  /** Postfix `recv.member` — the widest walker; the one the validators and
+   *  LSP hover route through. */
+  typeAfterSuffix: [
+    "array",
+    "entity",
+    "aggregate",
+    "valueobject",
+    "payload",
+    "userclaim",
+    "primitive",
+    "id",
+  ],
+  /** Dotted-path step (`a.b.c` in an lvalue / projection source).  NARROWER
+   *  than `typeAfterSuffix` on purpose: a dotted path is a record walk, so
+   *  collection ops (`array`), scalar intrinsics (`primitive`), `X id`
+   *  dereference and the principal (`userclaim`) are not reachable through it
+   *  today.  Widening it is a language change, not a bug fix. */
+  stepInto: ["entity", "aggregate", "valueobject", "payload"],
+  /** AST-node twin of `stepInto`, for go-to-definition. Same kinds. */
+  stepIntoNode: ["entity", "aggregate", "valueobject", "payload"],
+} as const satisfies Record<string, ReadonlyArray<DddType["kind"]>>;
+
 export function typeAfterSuffix(recvType: DddType, suffix: PostfixSuffix, env: Env): DddType {
   if (isCallSuffix(suffix)) {
     // Invoking a non-NameRef receiver — without a signature the
@@ -1105,40 +1158,58 @@ export function typeAfterSuffix(recvType: DddType, suffix: PostfixSuffix, env: E
   }
   const ms = suffix as MemberSuffix;
   const memberName = ms.member;
-  // Collection ops on arrays.
-  if (recvType.kind === "array") {
-    return collectionOpType(recvType, memberName, ms, env);
-  }
-  if (recvType.kind === "entity" || recvType.kind === "aggregate") {
-    return lookupEntityMember(recvType.ref, memberName);
-  }
-  if (recvType.kind === "valueobject") {
-    return lookupValueObjectMember(recvType.ref, memberName);
-  }
-  if (recvType.kind === "payload") {
-    return lookupPayloadMember(recvType.ref, memberName);
-  }
-  if (recvType.kind === "userclaim") {
-    return lookupUserMember(recvType.ref, memberName);
-  }
-  if (recvType.kind === "primitive" && recvType.name === "string") {
-    if (memberName === "length") return T.prim("int");
-    if (memberName === "matches" && ms.call) return T.prim("bool");
-  }
-  if (recvType.kind === "primitive" && ms.call) {
-    // Scalar intrinsics (src/util/intrinsics.ts) — catalogue-driven, so a
-    // new op types here (and completes, via membersOfType) without code.
-    const sig = intrinsicFor(recvType.name, memberName);
-    if (sig) {
-      const ret = intrinsicReturnType(sig, recvType.name);
-      if (ret.endsWith("[]")) return T.array(T.prim(ret.slice(0, -2) as PrimitiveName));
-      return T.prim(ret as PrimitiveName);
+  switch (recvType.kind) {
+    // Collection ops on arrays.
+    case "array":
+      return collectionOpType(recvType, memberName, ms, env);
+    case "entity":
+    case "aggregate":
+      return lookupEntityMember(recvType.ref, memberName);
+    case "valueobject":
+      return lookupValueObjectMember(recvType.ref, memberName);
+    case "payload":
+      return lookupPayloadMember(recvType.ref, memberName);
+    case "userclaim":
+      return lookupUserMember(recvType.ref, memberName);
+    case "primitive": {
+      if (recvType.name === "string") {
+        if (memberName === "length") return T.prim("int");
+        if (memberName === "matches" && ms.call) return T.prim("bool");
+      }
+      if (ms.call) {
+        // Scalar intrinsics (src/util/intrinsics.ts) — catalogue-driven, so a
+        // new op types here (and completes, via membersOfType) without code.
+        const sig = intrinsicFor(recvType.name, memberName);
+        if (sig) {
+          const ret = intrinsicReturnType(sig, recvType.name);
+          if (ret.endsWith("[]")) return T.array(T.prim(ret.slice(0, -2) as PrimitiveName));
+          return T.prim(ret as PrimitiveName);
+        }
+      }
+      return T.unknown;
+    }
+    case "id":
+      return lookupEntityMember(recvType.target, memberName);
+    // Kinds with no member surface at all.  `enum` members are resolved as
+    // qualified VALUES by the name resolver, never as a postfix member on an
+    // enum-typed receiver; `optional` must be unwrapped (`if let` / `??`)
+    // before a member is reachable; `slot` / `action` are opaque markers whose
+    // member access the consumer-side validators reject; `any` / `unknown` /
+    // `never` are the placeholder types and stay placeholders.
+    case "enum":
+    case "optional":
+    case "slot":
+    case "action":
+    case "any":
+    case "never":
+    case "unknown":
+      return T.unknown;
+    default: {
+      const _exhaustive: never = recvType;
+      void _exhaustive;
+      return T.unknown;
     }
   }
-  if (recvType.kind === "id") {
-    return lookupEntityMember(recvType.target, memberName);
-  }
-  return T.unknown;
 }
 
 function lookupEntityMember(target: Aggregate | EntityPart, name: string): DddType {
@@ -1711,39 +1782,70 @@ export function lookupRootMember(agg: Aggregate, name: string): DddType {
   return T.unknown;
 }
 
-/** Walk a single dotted path step on a typed receiver. */
+/** Walk a single dotted path step on a typed receiver.  Exhaustive over
+ *  `DddType["kind"]` — see the note above `typeAfterSuffix`; the kinds it
+ *  deliberately does NOT resolve on are `MEMBER_RESOLVING_KINDS.stepInto`'s
+ *  complement, and each carries an explicit arm below. */
 export function stepInto(t: DddType, name: string): DddType {
-  if (t.kind === "entity" || t.kind === "aggregate") {
-    if (name === "id") return { kind: "id", target: t.ref };
-    for (const m of t.ref.members) {
-      if (isProperty(m) && m.name === name)
-        return withTags(resolveTypeRef(m.type), propertySensitivity(m));
-      if (isContainment(m) && m.name === name) {
-        const part = m.partType?.ref;
-        if (!part) return T.unknown;
-        const inner: DddType = { kind: "entity", ref: part };
-        return m.collection ? T.array(inner) : inner;
+  switch (t.kind) {
+    case "entity":
+    case "aggregate": {
+      if (name === "id") return { kind: "id", target: t.ref };
+      for (const m of t.ref.members) {
+        if (isProperty(m) && m.name === name)
+          return withTags(resolveTypeRef(m.type), propertySensitivity(m));
+        if (isContainment(m) && m.name === name) {
+          const part = m.partType?.ref;
+          if (!part) return T.unknown;
+          const inner: DddType = { kind: "entity", ref: part };
+          return m.collection ? T.array(inner) : inner;
+        }
+        if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
       }
-      if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
+      return T.unknown;
+    }
+    case "valueobject": {
+      for (const m of t.ref.members) {
+        if (isProperty(m) && m.name === name)
+          return withTags(resolveTypeRef(m.type), propertySensitivity(m));
+        if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
+      }
+      return T.unknown;
+    }
+    case "payload": {
+      // A transport record is a flat list of `Property` fields — no `id`,
+      // containment, or derived members.  Resolving the field type (instead of
+      // cascading to `unknown`) is what lets the binary-operand / assignment
+      // validators check expressions over event/payload param fields.
+      for (const f of t.ref.fields) {
+        if (f.name === name) return withTags(resolveTypeRef(f.type), propertySensitivity(f));
+      }
+      return T.unknown;
+    }
+    // Not reachable through a dotted path today.  `array` / `primitive` /
+    // `userclaim` / `id` DO resolve members in `typeAfterSuffix`; a dotted
+    // path is a record walk, so collection ops, scalar intrinsics, the
+    // principal and `X id` dereference are out of its surface. The remaining
+    // kinds have no member surface anywhere. Widening any of these is a
+    // language change — make it here and in `MEMBER_RESOLVING_KINDS`.
+    case "array":
+    case "primitive":
+    case "userclaim":
+    case "id":
+    case "enum":
+    case "optional":
+    case "slot":
+    case "action":
+    case "any":
+    case "never":
+    case "unknown":
+      return T.unknown;
+    default: {
+      const _exhaustive: never = t;
+      void _exhaustive;
+      return T.unknown;
     }
   }
-  if (t.kind === "valueobject") {
-    for (const m of t.ref.members) {
-      if (isProperty(m) && m.name === name)
-        return withTags(resolveTypeRef(m.type), propertySensitivity(m));
-      if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
-    }
-  }
-  if (t.kind === "payload") {
-    // A transport record is a flat list of `Property` fields — no `id`,
-    // containment, or derived members.  Resolving the field type (instead of
-    // cascading to `unknown`) is what lets the binary-operand / assignment
-    // validators check expressions over event/payload param fields.
-    for (const f of t.ref.fields) {
-      if (f.name === name) return withTags(resolveTypeRef(f.type), propertySensitivity(f));
-    }
-  }
-  return T.unknown;
 }
 
 export function findFunction(agg: Aggregate, name: string): FunctionDecl | undefined {
@@ -2111,28 +2213,55 @@ export function membersOfType(t: DddType): MemberCompletion[] {
 // ---------------------------------------------------------------------------
 
 export function stepIntoNode(t: DddType, name: string): AstNode | undefined {
-  if (t.kind === "entity" || t.kind === "aggregate") {
-    for (const m of t.ref.members) {
-      if (isProperty(m) && m.name === name) return m;
-      if (isContainment(m) && m.name === name) return m;
-      if (isDerivedProp(m) && m.name === name) return m;
-      if (isFunctionDecl(m) && m.name === name) return m;
-      if (isOperation(m) && m.name === name) return m;
+  switch (t.kind) {
+    case "entity":
+    case "aggregate": {
+      for (const m of t.ref.members) {
+        if (isProperty(m) && m.name === name) return m;
+        if (isContainment(m) && m.name === name) return m;
+        if (isDerivedProp(m) && m.name === name) return m;
+        if (isFunctionDecl(m) && m.name === name) return m;
+        if (isOperation(m) && m.name === name) return m;
+      }
+      return undefined;
+    }
+    case "valueobject": {
+      for (const m of t.ref.members) {
+        if (isProperty(m) && m.name === name) return m;
+        if (isDerivedProp(m) && m.name === name) return m;
+        if (isFunctionDecl(m) && m.name === name) return m;
+      }
+      return undefined;
+    }
+    case "payload": {
+      for (const f of t.ref.fields) {
+        if (f.name === name) return f;
+      }
+      return undefined;
+    }
+    // No declaration node to jump to: `array` / `primitive` / `id` members are
+    // synthetic (collection ops, scalar intrinsics, the derived `id`),
+    // `userclaim` members live on a `user { … }` block this walker has never
+    // reached, and the rest have no member surface. See the note above
+    // `typeAfterSuffix` and `MEMBER_RESOLVING_KINDS`.
+    case "array":
+    case "primitive":
+    case "userclaim":
+    case "id":
+    case "enum":
+    case "optional":
+    case "slot":
+    case "action":
+    case "any":
+    case "never":
+    case "unknown":
+      return undefined;
+    default: {
+      const _exhaustive: never = t;
+      void _exhaustive;
+      return undefined;
     }
   }
-  if (t.kind === "valueobject") {
-    for (const m of t.ref.members) {
-      if (isProperty(m) && m.name === name) return m;
-      if (isDerivedProp(m) && m.name === name) return m;
-      if (isFunctionDecl(m) && m.name === name) return m;
-    }
-  }
-  if (t.kind === "payload") {
-    for (const f of t.ref.fields) {
-      if (f.name === name) return f;
-    }
-  }
-  return undefined;
 }
 
 export interface CalleeSignature {

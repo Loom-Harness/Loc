@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { diagText } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
@@ -50,7 +51,7 @@ async function placementDiagnostics(fixture: string): Promise<Raised[]> {
     .filter((d) => PLACEMENT_CODES.includes(d.code as (typeof PLACEMENT_CODES)[number]))
     .map((d) => ({
       code: String(d.code),
-      message: d.message,
+      message: diagText(d),
       line: d.range.start.line + 1,
     }));
 }

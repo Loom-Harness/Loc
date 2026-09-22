@@ -55,7 +55,7 @@ async function ir(ui: string, webPlatform = "react") {
 
 /** IR-validation diagnostic codes for a `ui` body. */
 async function codes(ui: string, webPlatform = "react"): Promise<string[]> {
-  return validateLoomModel(await ir(ui, webPlatform)).map((d) => d.code);
+  return validateLoomModel(await ir(ui, webPlatform)).map((d) => d.code ?? "");
 }
 
 const STORE = `
@@ -273,7 +273,9 @@ system Demo {
 }`;
     const { model, errors } = await parseString(liveview);
     if (errors.length) throw new Error(errors.join("\n"));
-    const liveCodes = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+    const liveCodes = validateLoomModel(enrichLoomModel(lowerModel(model))).map(
+      (d) => d.code ?? "",
+    );
     expect(liveCodes).not.toContain("loom.store-on-liveview-unsupported");
     expect(liveCodes).not.toContain("loom.store-cross-store-on-liveview-invalid");
 
@@ -317,7 +319,7 @@ system Demo {
     const codesOf = async (body: string) => {
       const { model, errors } = await parseString(mk(body));
       if (errors.length) throw new Error(errors.join("\n"));
-      return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+      return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
     };
     expect(
       await codesOf(`
@@ -384,7 +386,7 @@ ${arms}
     const codesOf = async (src: string): Promise<string[]> => {
       const { model, errors } = await parseString(src);
       if (errors.length) throw new Error(`unexpected errors:\n${errors.join("\n")}`);
-      return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+      return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
     };
     const GATE = "loom.feliz-async-effect-unsupported";
 
@@ -489,8 +491,8 @@ system Demo {
       } as never,
       diags,
     );
-    expect(diags.map((d) => d.code)).not.toContain("loom.store-lifetime-unsupported");
-    expect(diags.map((d) => d.code)).not.toContain("loom.store-lifetime-liveview-invalid");
+    expect(diags.map((d) => d.code ?? "")).not.toContain("loom.store-lifetime-unsupported");
+    expect(diags.map((d) => d.code ?? "")).not.toContain("loom.store-lifetime-liveview-invalid");
   });
 
   it("loom.store-lifetime-liveview-invalid fires for a non-memory store mounted by a LiveView deployable", () => {
@@ -515,7 +517,7 @@ system Demo {
       } as never,
       diags,
     );
-    expect(diags.map((d) => d.code)).toContain("loom.store-lifetime-liveview-invalid");
+    expect(diags.map((d) => d.code ?? "")).toContain("loom.store-lifetime-liveview-invalid");
   });
 
   it("loom.store-url-field-invalid fires for an array/entity field in a `persist: url` store", () => {
@@ -536,7 +538,7 @@ system Demo {
       } as never,
       diags,
     );
-    expect(diags.map((d) => d.code)).toContain("loom.store-url-field-invalid");
+    expect(diags.map((d) => d.code ?? "")).toContain("loom.store-url-field-invalid");
   });
 });
 

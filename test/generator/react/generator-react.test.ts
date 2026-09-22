@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateSystems } from "../../../src/system/index.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -524,9 +525,9 @@ describe("react generator", () => {
         { validation: true },
       );
       const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-      expect(errors.some((e) => /unknown theme property 'wholeKitchenSink'/.test(e.message))).toBe(
-        true,
-      );
+      expect(
+        errors.some((e) => /unknown theme property 'wholeKitchenSink'/.test(diagText(e))),
+      ).toBe(true);
     });
 
     it("validator rejects duplicate theme property names", async () => {
@@ -545,7 +546,7 @@ describe("react generator", () => {
         { validation: true },
       );
       const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-      expect(errors.some((e) => /declared more than once/.test(e.message))).toBe(true);
+      expect(errors.some((e) => /declared more than once/.test(diagText(e)))).toBe(true);
     });
 
     it("validator rejects non-hex color values", async () => {
@@ -563,7 +564,7 @@ describe("react generator", () => {
         { validation: true },
       );
       const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-      expect(errors.some((e) => /must be a CSS hex color/.test(e.message))).toBe(true);
+      expect(errors.some((e) => /must be a CSS hex color/.test(diagText(e)))).toBe(true);
     });
 
     it("validator rejects radius values outside the enum", async () => {
@@ -582,7 +583,7 @@ describe("react generator", () => {
       );
       const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
       expect(
-        errors.some((e) => /must be one of none \| sm \| md \| lg \| xl/.test(e.message)),
+        errors.some((e) => /must be one of none \| sm \| md \| lg \| xl/.test(diagText(e))),
       ).toBe(true);
     });
 
@@ -600,7 +601,7 @@ describe("react generator", () => {
         { validation: true },
       );
       const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-      expect(errors.some((e) => /more than one 'theme \{ \.\.\. \}' block/.test(e.message))).toBe(
+      expect(errors.some((e) => /more than one 'theme \{ \.\.\. \}' block/.test(diagText(e)))).toBe(
         true,
       );
     });

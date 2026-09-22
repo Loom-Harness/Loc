@@ -69,7 +69,7 @@ system Shop {
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 describe("projection lowering", () => {

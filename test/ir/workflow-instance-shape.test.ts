@@ -11,6 +11,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { parseString } from "../_helpers/index.js";
+import { reEnrich } from "../_helpers/ir.js";
 
 async function enrichFirstWorkflow(members: string) {
   const srcText = `
@@ -107,7 +108,7 @@ describe("workflow instanceWireShape enrichment", () => {
       }}}`;
     const { model } = await parseString(srcText, { validate: false });
     const once = enrichLoomModel(lowerModel(model));
-    const twice = enrichLoomModel(once);
+    const twice = reEnrich(once);
     expect(allContexts(twice)[0].workflows[0].instanceWireShape).toEqual(
       allContexts(once)[0].workflows[0].instanceWireShape,
     );

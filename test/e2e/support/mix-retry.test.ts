@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MIX_DEPS_GET_ATTEMPTS, mixDepsGet, mixLocalInstall } from "./mix-retry";
+import { MIX_DEPS_GET_ATTEMPTS, mixDepsGet, mixLocalInstall } from "./mix-retry.js";
 
 // ---------------------------------------------------------------------------
 // Unit gate for the `mix deps.get` retry snippet (test/e2e/support/mix-retry.ts).

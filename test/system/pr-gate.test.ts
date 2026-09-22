@@ -14,8 +14,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — plain-JS module without a declaration file; the runtime
-// shape is pinned by the assertions below.
 import {
   API_MAX_ATTEMPTS,
   apiFetch,
@@ -37,6 +35,11 @@ import {
   TAIL_POLL_MS,
   verdict,
   watchTail,
+  // @ts-expect-error — plain-JS module with no declaration file, so its
+  // bindings are `any`.  The runtime shape is pinned by the assertions below;
+  // the real fix is a `scripts/pr-gate.d.mts`, which lives outside this
+  // packet's fence (handed off in wave-c4-4b).  If one lands, this directive
+  // goes unused and TS2578 says so.
 } from "../../scripts/pr-gate.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));

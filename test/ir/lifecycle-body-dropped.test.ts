@@ -71,12 +71,12 @@ ${agg}
 
 async function codesFor(agg: string): Promise<string[]> {
   const diags = validateLoomModel(await buildLoomModel(wrap(agg)));
-  return diags.filter((d) => d.severity === "error").map((d) => d.code);
+  return diags.filter((d) => d.severity === "error").map((d) => d.code ?? "");
 }
 
 async function codesForWithAuth(agg: string): Promise<string[]> {
   const diags = validateLoomModel(await buildLoomModel(wrapWithAuth(agg)));
-  return diags.filter((d) => d.severity === "error").map((d) => d.code);
+  return diags.filter((d) => d.severity === "error").map((d) => d.code ?? "");
 }
 
 describe("validator — the lifecycle body no backend renders", () => {

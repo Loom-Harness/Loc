@@ -442,7 +442,8 @@ const diagsOf = async (src: string) => {
   if (errors.length) throw new Error(`unexpected AST errors:\n${errors.join("\n")}`);
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
 };
-const diagCodes = async (src: string): Promise<string[]> => (await diagsOf(src)).map((d) => d.code);
+const diagCodes = async (src: string): Promise<string[]> =>
+  (await diagsOf(src)).map((d) => d.code ?? "");
 
 /** The emitted frontend pages, whichever frontend emitted them.  Every
  *  caller is an "emitter really drops it" leg: it generates from the very

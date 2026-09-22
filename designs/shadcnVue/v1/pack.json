@@ -129,319 +129,202 @@
     "primitive-button": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "primitive-card": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Card",
-          "CardContent",
-          "CardHeader",
-          "CardTitle"
-        ]
+        "named": ["Card", "CardContent", "CardHeader", "CardTitle"]
       }
     ],
     "primitive-badge": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-enum-badge": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-field": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Switch",
-          "Label"
-        ]
+        "named": ["Switch", "Label"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Textarea",
-          "Label"
-        ]
+        "named": ["Textarea", "Label"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Label",
-          "Select",
-          "SelectContent",
-          "SelectItem",
-          "SelectTrigger",
-          "SelectValue"
-        ]
+        "named": ["Label", "Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"]
       }
     ],
     "primitive-loader": [
       {
         "from": "lucide-vue-next",
-        "named": [
-          "Loader2"
-        ]
+        "named": ["Loader2"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Tabs",
-          "TabsContent",
-          "TabsList",
-          "TabsTrigger"
-        ]
+        "named": ["Tabs", "TabsContent", "TabsList", "TabsTrigger"]
       }
     ],
     "primitive-table": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Table",
-          "TableBody",
-          "TableCell",
-          "TableHead",
-          "TableHeader",
-          "TableRow"
-        ]
+        "named": ["Table", "TableBody", "TableCell", "TableHead", "TableHeader", "TableRow"]
       }
     ],
     "primitive-skeleton": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Skeleton"
-        ]
+        "named": ["Skeleton"]
       }
     ],
     "primitive-alert": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Alert",
-          "AlertDescription",
-          "AlertTitle"
-        ]
+        "named": ["Alert", "AlertDescription", "AlertTitle"]
       }
     ],
     "primitive-form-of": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "primitive-modal": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "field-input-string": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-int": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-decimal": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-money": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-bool": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Switch",
-          "Label"
-        ]
+        "named": ["Switch", "Label"]
       }
     ],
     "field-input-datetime": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-id-text": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-id-select": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Label",
-          "Select",
-          "SelectContent",
-          "SelectItem",
-          "SelectTrigger",
-          "SelectValue"
-        ]
+        "named": ["Label", "Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"]
       }
     ],
     "field-input-enum-select": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Label",
-          "Select",
-          "SelectContent",
-          "SelectItem",
-          "SelectTrigger",
-          "SelectValue"
-        ]
+        "named": ["Label", "Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"]
       }
     ],
     "field-input-array": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Button",
-          "Input",
-          "Label"
-        ]
+        "named": ["Button", "Input", "Label"]
       }
     ],
     "field-input-valueobject": [],
     "realtime-toast": [
       {
         "from": "@/lib/toast",
-        "named": [
-          "pushToast"
-        ]
+        "named": ["pushToast"]
       }
     ],
     "op-dialog": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Button",
-          "Dialog",
-          "DialogContent",
-          "DialogHeader",
-          "DialogTitle"
-        ]
+        "named": ["Button", "Dialog", "DialogContent", "DialogHeader", "DialogTitle"]
       }
     ],
     "primitive-modal-controlled": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Dialog",
-          "DialogContent",
-          "DialogHeader",
-          "DialogTitle"
-        ]
+        "named": ["Dialog", "DialogContent", "DialogHeader", "DialogTitle"]
       }
     ],
     "field-input-file": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "@/components/ui",
-        "named": [
-          "Label"
-        ]
+        "named": ["Label"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-data-grid": [

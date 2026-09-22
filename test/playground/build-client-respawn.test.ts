@@ -144,7 +144,7 @@ describe("LoomBuildClient.respawn", () => {
     new LoomBuildClient({
       seedWorkspace: () => {
         callCount++;
-        return [{ path: "/workspace/main.ddd", content: `v${callCount}` }];
+        return [{ kind: "file", path: "/workspace/main.ddd", content: `v${callCount}` }];
       },
     });
     expect(callCount).toBe(1);
@@ -164,7 +164,9 @@ describe("LoomBuildClient.respawn", () => {
     const client = new LoomBuildClient({
       seedWorkspace: () => {
         revision++;
-        const entries = [{ path: "/workspace/main.ddd", content: `rev-${revision}` }];
+        const entries = [
+          { kind: "file" as const, path: "/workspace/main.ddd", content: `rev-${revision}` },
+        ];
         seedSnapshots.push(entries.map((e) => e.content));
         return entries;
       },

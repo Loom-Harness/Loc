@@ -801,3 +801,44 @@ aggregate Order {
 The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.infra-call-from-aggregate`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
 
 Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).
+
+## The callable modifier surface
+
+Fifteen grammar rules mean *"a named body of statements runs here"* — `operation`, `create`, `destroy`, `apply`, `function`, `commandHandler`, `queryHandler`, a `domainService` `operation`, a workflow's `create` / `handle` / `on`, a page `action` — and each one used to hard-code its own subset of the modifier and clause surface. Writing `audited` on a `domainService` operation was a bare parse error with nothing to say why.
+
+Since M-T5.21 the grammar accepts the **whole** surface at every one of those sites, through three shared fragments (`CallableLeadModifiers` / `CallableSigModifiers` / `CallableGates` in `src/language/ddd.langium`), and what is legal *where* is declared data — `CALLABLE_SITES` in `src/language/callable-sites.ts`, read by one validator. Header order is the aggregate `operation` spelling every other site is a fork of:
+
+```
+[private] <keyword> <name>(<params>) [extern] [audited] [: <ReturnType>] [requires <expr>] [when <expr>] { … }
+```
+
+| site | `private` | `extern` | `audited` | `requires` | `when` |
+|---|---|---|---|---|---|
+| aggregate `operation` | yes | yes | yes | yes | yes |
+| `create` / `destroy` | — | — | yes | — | — |
+| `apply` | — | — | — | — | — |
+| `function` | — | — | — | — | — |
+| `commandHandler` / `queryHandler` | — | yes | — | — | — |
+| `domainService` `operation` | — | — | — | — | — |
+| workflow `create` / `handle` | — | — | — | yes | — |
+| workflow `on` | — | — | — | — | — |
+| page / component `action` | — | — | — | — | — |
+
+Anything outside a row is **`loom.callable-modifier-not-allowed-here`**, and the message says what the site *is* rather than only that the modifier is wrong:
+
+```ddd
+domainService Pricing {
+  operation quote(base: int) audited : int { return base }
+}
+```
+
+```
+error: 'audited' is not allowed on a domain-service operation. A domain service is a
+stateless, context-internal calculator: no instance to gate, no route to authorize, no
+persistence to audit — and its body already refuses repository / extern / emit /
+this-write. Move the rule to the aggregate operation that owns the state.
+```
+
+The table states **today's** surface exactly: no capability was added or removed when it landed, and emission is byte-identical across all eleven targets. A row that gains a modifier is an emitter obligation on every target, so widening one is a change to make deliberately, not a table edit.
+
+The two callable-*shaped* declarations that are deliberately **not** rows: `criterion` (it carries `of <T>` / `as <alias>` and is inlined at its call sites) and `component` (it returns markup, not a value). The ui-level `function` is a separate rule that is `extern` by construction — the `extern from "<path>"` clause *is* its body — so it has no modifier surface to police.

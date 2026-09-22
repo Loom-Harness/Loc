@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
-import snapshot from "../../web/scripts/worker-globals.json" with { type: "json" };
 // @ts-expect-error — plain .mjs helper, no types; exercised for behaviour only.
 import { createWorkerRealm, WORKER_INSTALLED_GLOBALS } from "../../web/scripts/worker-realm.mjs";
 
@@ -25,6 +24,15 @@ import { createWorkerRealm, WORKER_INSTALLED_GLOBALS } from "../../web/scripts/w
 
 const read = (rel: string): string =>
   readFileSync(fileURLToPath(new URL(`../../web/src/${rel}`, import.meta.url)), "utf8");
+
+// Read rather than `import … with { type: "json" }`: the repo compiles on
+// `module: Node16`, which does not support import attributes.
+const snapshot = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL("../../web/scripts/worker-globals.json", import.meta.url)),
+    "utf8",
+  ),
+) as { chromium: string; _comment: string; count: number; names: string[] };
 
 describe("worker-globals snapshot", () => {
   it("is a real measurement, not a hand-written list", () => {

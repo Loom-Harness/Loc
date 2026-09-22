@@ -15,6 +15,7 @@ import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Aggregate, Model } from "../../../src/language/generated/ast.js";
 import { generateSystems } from "../../../src/system/index.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 import { parseValid } from "../../_helpers/parse.js";
 
 async function parse(src: string) {
@@ -41,7 +42,7 @@ describe("aggregate inheritance — grammar (I1)", () => {
         aggregate Customer extends Party { creditLimit: decimal }
       }
     `);
-    expect(errors.map((e) => e.message)).toEqual([]);
+    expect(errors.map(diagText)).toEqual([]);
     const [party, customer] = aggs(model);
     expect(party.isAbstract).toBe(true);
     expect(party.inheritanceUsing).toBe("sharedTable");
@@ -56,7 +57,7 @@ describe("aggregate inheritance — grammar (I1)", () => {
         aggregate Ledger extends Party persistedAs: eventLog inheritanceUsing: ownTable { n: int }
       }
     `);
-    expect(errors.map((e) => e.message)).toEqual([]);
+    expect(errors.map(diagText)).toEqual([]);
     const [party, ledger] = aggs(model);
     expect(party.inheritanceUsing).toBe("ownTable");
     expect(ledger.persistedAs).toBe("eventLog");
@@ -65,7 +66,7 @@ describe("aggregate inheritance — grammar (I1)", () => {
 
   it("omits inheritance fields on a plain aggregate", async () => {
     const { model, errors } = await parse(`context T { aggregate Cart { name: string } }`);
-    expect(errors.map((e) => e.message)).toEqual([]);
+    expect(errors.map(diagText)).toEqual([]);
     const [cart] = aggs(model);
     expect(cart.isAbstract).toBe(false);
     expect(cart.superType).toBeUndefined();
@@ -287,7 +288,7 @@ describe("aggregate inheritance — validator (I1)", () => {
       }
     `);
     expect(codes(errors)).toContain("loom.tph-own-override-unsupported");
-    expect(errors.some((e) => /LegacyVendor/.test(e.message ?? ""))).toBe(true);
+    expect(errors.some((e) => /LegacyVendor/.test(diagText(e)))).toBe(true);
   });
 
   it("keeps the D-ES-TPH ownTable opt-out allowed (eventLog concrete is not a mixed-strategy override)", async () => {
@@ -729,7 +730,7 @@ system Sys {
       }
     `);
     expect(codes(errors)).toContain("loom.polymorphic-id-ref-mixed-strategy");
-    expect(errors.some((e) => /LegacyVendor/.test(e.message ?? ""))).toBe(true);
+    expect(errors.some((e) => /LegacyVendor/.test(diagText(e)))).toBe(true);
     // It's the mixed case specifically, not the all-ownTable case.
     expect(codes(errors)).not.toContain("loom.polymorphic-id-ref-unsupported");
   });

@@ -928,7 +928,10 @@ function printDomainServiceOperation(
 ): string {
   const params = node.params.map(printParameter).join(", ");
   const ret = node.returnType ? `: ${printTypeRef(node.returnType)}` : "";
-  return block(`operation ${node.name}(${params})${ret}`, () => node.stmts.map(printStmt));
+  return block(
+    `${callableLead(node)}operation ${node.name}(${params})${callableSig(node)}${ret}${callableGates(node)}`,
+    () => node.stmts.map(printStmt),
+  );
 }
 
 /** `retrieval <Name>[(<params>)] of <T>` — single-line `= <where>` when no
@@ -990,22 +993,27 @@ function printWorkflowCreateDecl(node: import("../generated/ast.js").WorkflowCre
   const name = node.name ? ` ${node.name}` : "";
   const params = node.params.map(printParameter).join(", ");
   const by = node.correlation ? ` by ${printExpr(node.correlation)}` : "";
-  // Authorization gate (authorization.md §11.3) — after `by`, before the body.
-  const gate = node.gate ? ` requires ${printExpr(node.gate)}` : "";
-  return block(`create${name}(${params})${by}${gate}`, () => node.body.map(printStmt));
+  // Authorization gate (authorization.md §11.3) — after `by`, before the body;
+  // the modifier slots bracket it exactly as the grammar orders them.
+  return block(
+    `${callableLead(node)}create${name}(${params})${callableSig(node)}${by}${callableGates(node)}`,
+    () => node.body.map(printStmt),
+  );
 }
 
 // `handle name(params) { … }` command-handler member (workflow-and-applier.md A2).
 function printHandleDecl(node: import("../generated/ast.js").HandleDecl): string {
   const params = node.params.map(printParameter).join(", ");
-  const gate = node.gate ? ` requires ${printExpr(node.gate)}` : "";
-  return block(`handle ${node.name}(${params})${gate}`, () => node.body.map(printStmt));
+  return block(
+    `${callableLead(node)}handle ${node.name}(${params})${callableSig(node)}${callableGates(node)}`,
+    () => node.body.map(printStmt),
+  );
 }
 
 // `on(e: Event) [by <expr>] { … }` reactor member (workflow-and-applier.md A2).
 function printOnDecl(node: OnDecl): string {
   const by = node.correlation ? ` by ${printExpr(node.correlation)}` : "";
-  const head = `on(${node.param}: ${node.event.$refText})${by}`;
+  const head = `${callableLead(node)}on(${node.param}: ${node.event.$refText})${callableSig(node)}${by}${callableGates(node)}`;
   return block(head, () => node.body.map(printStmt));
 }
 
@@ -1085,7 +1093,10 @@ function printDerivedProp(node: DerivedProp): string {
  *  through the shared statement printer, exactly like an operation body. */
 function printActionDecl(node: ActionDecl): string {
   const params = node.params.map(printParameter).join(", ");
-  return block(`action ${node.name}(${params})`, () => node.stmts.map(printStmt));
+  return block(
+    `${callableLead(node)}action ${node.name}(${params})${callableSig(node)}${callableGates(node)}`,
+    () => node.stmts.map(printStmt),
+  );
 }
 
 function printInvariant(node: Invariant): string {
@@ -1099,9 +1110,40 @@ function printUnique(node: import("../generated/ast.js").Unique): string {
   return `unique (${node.columns.join(", ")})`;
 }
 
+// ---------------------------------------------------------------------------
+// The shared callable modifier / clause surface (M-T5.21).
+//
+// Every callable site parses the SAME three grammar fragments
+// (`CallableLeadModifiers` / `CallableSigModifiers` / `CallableGates`), so
+// every printer re-emits the same header slots, in the same order.  These
+// three helpers are that order, stated once.
+//
+// This matters beyond tidiness: a printer that DROPPED one of the new slots
+// would turn source the legality table refuses into source it accepts —
+// silently, on `unfold`, which promises the expansion "re-parses to a working
+// program".  Printing the modifier keeps the refusal.
+// ---------------------------------------------------------------------------
+
+function callableLead(node: { private?: boolean }): string {
+  return node.private ? "private " : "";
+}
+
+function callableSig(node: { extern?: boolean; audited?: boolean }): string {
+  return `${node.extern ? " extern" : ""}${node.audited ? " audited" : ""}`;
+}
+
+function callableGates(node: {
+  gate?: import("../generated/ast.js").Expression;
+  when?: import("../generated/ast.js").Expression;
+}): string {
+  const gate = node.gate ? ` requires ${printExpr(node.gate)}` : "";
+  const when = node.when ? ` when ${printExpr(node.when)}` : "";
+  return `${gate}${when}`;
+}
+
 function printFunctionDecl(node: FunctionDecl): string {
   const params = node.params.map(printParameter).join(", ");
-  const head = `function ${node.name}(${params}): ${printTypeRef(node.returnType)}`;
+  const head = `${callableLead(node)}function ${node.name}(${params})${callableSig(node)}: ${printTypeRef(node.returnType)}${callableGates(node)}`;
   // Block form (domain-services.md rev. 4) prints as `head { stmts }`; the
   // expression form keeps the `= expr` single-line shape.
   if (node.body === undefined) {
@@ -1111,21 +1153,15 @@ function printFunctionDecl(node: FunctionDecl): string {
 }
 
 function printOperation(node: Operation): string {
-  const priv = node.private ? "private " : "";
   const params = node.params.map(printParameter).join(", ");
-  const extern = node.extern ? " extern" : "";
-  const audited = node.audited ? " audited" : "";
   // Exception-less `or`-union return (exception-less.md): `: X or NotFound`,
-  // grammar-positioned after extern/audited.
+  // grammar-positioned after extern/audited; the authorization gate
+  // (authorization.md §11.3) and the canCommand `when` gate (criterion.md use
+  // site 2) follow it, before the body — all three through the shared
+  // callable helpers above, which state that order once.
   const ret = node.returnType ? `: ${printTypeRef(node.returnType)}` : "";
-  // Authorization gate (authorization.md §11.3) — after the return type, before
-  // `when`, matching the grammar.
-  const gate = node.gate ? ` requires ${printExpr(node.gate)}` : "";
-  // canCommand state gate (criterion.md use site 2) — after the return type,
-  // before the body, matching the grammar.
-  const when = node.when ? ` when ${printExpr(node.when)}` : "";
   return block(
-    `${priv}operation ${node.name}(${params})${extern}${audited}${ret}${gate}${when}`,
+    `${callableLead(node)}operation ${node.name}(${params})${callableSig(node)}${ret}${callableGates(node)}`,
     () => node.body.map(printStmt),
   );
 }
@@ -1137,7 +1173,11 @@ function printOperation(node: Operation): string {
 function printCommandHandler(node: import("../generated/ast.js").CommandHandler): string {
   const params = node.params.map(printParameter).join(", ");
   const ret = node.returnType ? `: ${printTypeRef(node.returnType)}` : "";
-  const head = `${node.extern ? "extern " : ""}commandHandler ${node.name}(${params})${ret}`;
+  // The legacy PREFIX `extern` spelling is the one these two print (both
+  // positions parse since M-T5.21; Phase 3 collapses them), so the shared sig
+  // helper is handed the node with `extern` already consumed.
+  const sig = callableSig({ audited: node.audited });
+  const head = `${callableLead(node)}${node.extern ? "extern " : ""}commandHandler ${node.name}(${params})${sig}${ret}${callableGates(node)}`;
   return node.extern ? `${head};` : block(head, () => node.body.map(printStmt));
 }
 
@@ -1146,7 +1186,8 @@ function printCommandHandler(node: import("../generated/ast.js").CommandHandler)
 // `extern` handler is BODYLESS (`;`).
 function printQueryHandler(node: import("../generated/ast.js").QueryHandler): string {
   const params = node.params.map(printParameter).join(", ");
-  const head = `${node.extern ? "extern " : ""}queryHandler ${node.name}(${params}): ${printTypeRef(node.returnType)}`;
+  const sig = callableSig({ audited: node.audited });
+  const head = `${callableLead(node)}${node.extern ? "extern " : ""}queryHandler ${node.name}(${params})${sig}: ${printTypeRef(node.returnType)}${callableGates(node)}`;
   return node.extern ? `${head};` : block(head, () => node.body.map(printStmt));
 }
 
@@ -1155,8 +1196,10 @@ function printCreate(node: import("../generated/ast.js").Create): string {
   // a name is optional.  Parens are always present in the grammar.
   const name = node.name ? ` ${node.name}` : "";
   const params = node.params.map(printParameter).join(", ");
-  const audited = node.audited ? " audited" : "";
-  return block(`create${name}(${params})${audited}`, () => node.body.map(printStmt));
+  return block(
+    `${callableLead(node)}create${name}(${params})${callableSig(node)}${callableGates(node)}`,
+    () => node.body.map(printStmt),
+  );
 }
 
 function printDestroy(node: import("../generated/ast.js").Destroy): string {
@@ -1165,15 +1208,20 @@ function printDestroy(node: import("../generated/ast.js").Destroy): string {
   const name = node.name ? ` ${node.name}` : "";
   const params = node.params.map(printParameter).join(", ");
   const paramClause = node.params.length > 0 || node.name ? `(${params})` : "";
-  const audited = node.audited ? " audited" : "";
-  return block(`destroy${name}${paramClause}${audited}`, () => node.body.map(printStmt));
+  return block(
+    `${callableLead(node)}destroy${name}${paramClause}${callableSig(node)}${callableGates(node)}`,
+    () => node.body.map(printStmt),
+  );
 }
 
 function printApply(node: import("../generated/ast.js").Apply): string {
   // `$refText` (not `.ref`) — the printer must work on detached / not-yet-linked
   // nodes (the round-trip harness re-parses without a workspace), and the source
   // reference text is exactly what we re-emit.
-  return block(`apply(${node.param}: ${node.event.$refText})`, () => node.body.map(printStmt));
+  return block(
+    `${callableLead(node)}apply(${node.param}: ${node.event.$refText})${callableSig(node)}${callableGates(node)}`,
+    () => node.body.map(printStmt),
+  );
 }
 
 function printTestBlock(node: TestBlock): string {

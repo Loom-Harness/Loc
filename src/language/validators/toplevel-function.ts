@@ -66,8 +66,12 @@ export function checkTopLevelFunctions(model: Model, accept: ValidationAcceptor)
     ) {
       accept(
         "error",
-        `Function '${fn.name}' returns '${typeToString(actual)}' but is declared to return '${typeToString(declared)}'.`,
-        { node: fn, property: "body" },
+        diagMessage("loom.function-return-type-mismatch", {
+          name: fn.name,
+          actual: typeToString(actual),
+          declared: typeToString(declared),
+        }),
+        { node: fn, property: "body", code: "loom.function-return-type-mismatch" },
       );
     }
   }

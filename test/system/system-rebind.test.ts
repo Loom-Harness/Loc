@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AstNode } from "langium";
 import { describe, expect, it } from "vitest";
-import type { AstNode, Model } from "../../src/language/generated/ast.js";
+import type { Model } from "../../src/language/generated/ast.js";
 import {
   currentTarget,
   type RebindKind,

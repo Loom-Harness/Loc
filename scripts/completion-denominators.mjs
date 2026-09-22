@@ -30,6 +30,17 @@ export const ROOT = path.resolve(__dirname, "..");
 
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
+/** `read`, but `undefined` for a file that is not there — for a denominator
+ *  whose source is allowed to disappear once its drain lands. */
+const readIfPresent = (rel) => {
+  try {
+    return read(rel);
+  } catch (e) {
+    if (e && typeof e === "object" && e.code === "ENOENT") return undefined;
+    throw e;
+  }
+};
+
 /** How many times a `kind: "<k>"` literal appears in the register source.
  *  Counted from the TEXT rather than by importing the module, because the
  *  register is TypeScript and this script is a plain `.mjs` a human can run
@@ -150,9 +161,16 @@ export function objectLiteralKeys(rel, name) {
   return keys;
 }
 
-/** The `test/` typecheck baseline: a `{ file: errorCount }` map. */
+/** The `test/` typecheck baseline: a `{ file: errorCount }` map.
+ *
+ *  ABSENT means DRAINED, not broken.  M-T9.50's stated exit (and the completion
+ *  plan's §1 row) is "0 / 0 and the baseline file deleted" — the ratchet became
+ *  a plain gate in wave C4, so there is no file left to count and the honest
+ *  denominator is zero. */
 export function typecheckBaseline() {
-  const j = JSON.parse(read("test-typecheck-baseline.json"));
+  const raw = readIfPresent("test-typecheck-baseline.json");
+  if (raw === undefined) return { files: 0, errors: 0 };
+  const j = JSON.parse(raw);
   const files = Object.keys(j).length;
   const errors = Object.values(j).reduce((a, b) => a + b, 0);
   return { files, errors };
