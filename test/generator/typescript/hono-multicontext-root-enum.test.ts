@@ -8,7 +8,7 @@
 // contexts into one synthetic `merged` context to emit the shared domain
 // files.  A naive `flatMap` then carried one copy of each ambient type
 // per hosted context, producing duplicate top-level declarations —
-// `export const currencyEnum = pgEnum(...)` twice — which the Hono
+// `export const currencyValues = [...] as const` twice — which the Hono
 // bundler rejects with "Multiple exports with the same name".
 //
 // This reproduces the Acme ERP playground failure (coreApi hosts five
@@ -74,7 +74,11 @@ function countExports(body: string, decl: string): number {
 describe("multi-context Hono deployable — ambient root types are emitted once", () => {
   it("emits the ambient enum exactly once in db/schema.ts", async () => {
     const schema = fileEndingWith(await generate(SRC), "/db/schema.ts");
-    expect(countExports(schema, "const currencyEnum")).toBe(1);
+    // `<enum>Values`, not `<enum>Enum`: the schema declares an enum column as
+    // `text(col, { enum: <Enum>Values })` — the TEXT the migration actually
+    // creates — rather than `pgEnum(...)`, which claimed a `CREATE TYPE` no
+    // migration emits.  The dedupe this test guards is unchanged.
+    expect(countExports(schema, "const currencyValues")).toBe(1);
   });
 
   it("emits the ambient value object exactly once in domain/value-objects.ts", async () => {

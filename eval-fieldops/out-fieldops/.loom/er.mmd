@@ -1,0 +1,112 @@
+%% Loom ER diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+erDiagram
+  Organization {
+    guid id PK
+    string name
+    int version
+  }
+  Customer {
+    guid id PK
+    string name
+    string contactEmail
+    string tenantId
+    string dataKey
+    datetime createdAt
+    datetime updatedAt
+    guid createdBy
+    guid updatedBy
+    int version
+  }
+  Site {
+    guid id PK
+    Id_Customer customerId FK
+    string label
+    string addressLine
+    string tenantId
+    string dataKey
+    int version
+  }
+  Asset {
+    guid id PK
+    Id_Site siteId FK
+    string serialNumber
+    string model
+    datetime warrantyExpiry
+    Skill requiredSkill
+    string tenantId
+    string dataKey
+    int version
+  }
+  Technician {
+    guid id PK
+    guid userId
+    string fullName
+    Skill skills
+    money costRate
+    string tenantId
+    string dataKey
+    int version
+  }
+  Part {
+    guid id PK
+    string sku
+    string binCode
+    int onHand
+    money unitPrice
+    string currency
+    string tenantId
+    string dataKey
+    int version
+  }
+  WorkOrder {
+    guid id PK
+    Id_Customer customerId FK
+    Id_Site siteId FK
+    Id_Asset assetId FK
+    Id_Technician technicianId FK
+    guid technicianUserId
+    WorkOrderStatus status
+    Priority priority
+    string currency
+    datetime scheduledAt
+    datetime startedAt
+    datetime completedAt
+    string resolutionNote
+    File photo
+    string tenantId
+    string dataKey
+    datetime createdAt
+    datetime updatedAt
+    guid createdBy
+    guid updatedBy
+    int version
+  }
+  WorkOrderLine {
+    string description
+    decimal quantity
+    money unitPrice
+    string currency
+  }
+  Invoice {
+    guid id PK
+    Id_WorkOrder workOrderId FK
+    datetime issuedAt
+    money amount
+    string currency
+    string tenantId
+    string dataKey
+    datetime createdAt
+    datetime updatedAt
+    guid createdBy
+    guid updatedBy
+    int version
+  }
+  Site }o--|| Customer : "customerId"
+  Asset }o--|| Site : "siteId"
+  WorkOrder ||--o{ WorkOrderLine : "lines"
+  WorkOrder }o--|| Customer : "customerId"
+  WorkOrder }o--|| Site : "siteId"
+  WorkOrder }o--|| Asset : "assetId"
+  WorkOrder }o--|| Technician : "technicianId"
+  Invoice }o--|| WorkOrder : "workOrderId"

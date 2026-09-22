@@ -1,0 +1,28 @@
+### GET /work_orders/{id}
+{
+"detail": "One or more fields are invalid.",
+"errors": [
+{
+"message": "The value 'None' is not valid.",
+"pointer": "/id"
+}
+],
+"instance": "/api/work_orders/None",
+"status": 422,
+"title": "Validation failed",
+"type": "about:blank"
+}
+### GET /work_orders (paged envelope keys)
+['items', 'page', 'pageSize', 'total', 'totalPages'] total= 0
+### statuses
+unauth           200
+invariant(422?)  422
+check(422?)      422
+notfound(404?)   404
+forbidden(403?)  422
+whengate(409?)   422
+crosstenant(404?)422
+mask(null?)      None
+### error body shape (invariant)
+['detail', 'errors', 'instance', 'status', 'title', 'type']
+{"detail": "One or more fields are invalid.", "errors": [{"message": "'Billing Email' is not in the correct format.", "pointer": "/billingEmail"}], "status": 422, "title": "Validation failed", "type": "about:blank"}

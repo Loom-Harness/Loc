@@ -1,7 +1,9 @@
 // The two `MIKROORM_SUBSET` narrowings that were not what they said, drained.
 //
-// The descriptor (`src/ir/util/find-predicate-capability.ts`) refused two
-// queryable shapes under `persistence: mikroorm`:
+// The descriptor that refused them (`src/ir/util/find-predicate-capability.ts`,
+// deleted in wave C2 packet 2n once its last narrowings were shown to be
+// target-neutral holes) refused two queryable shapes under
+// `persistence: mikroorm`:
 //
 //  1. **A queryable scalar intrinsic** ("no scalar intrinsic at all").  REAL —
 //     `whereToMikroFilter` had no arm, so `prefix-filter.ddd` was refused at
@@ -213,12 +215,9 @@ const MEMBERSHIP_SYSTEM = `
     `;
 
 describe("reference-collection membership lowers on MikroORM", () => {
-  it("is no longer refused by the adapter capability gate", async () => {
+  it("is not refused on the mikroorm adapter", async () => {
     const es = await errors(system(MEMBERSHIP_SYSTEM));
-    expect(
-      es.filter((e) => /loom\.find-predicate-unsupported/.test(e)),
-      "the membership shape must not be refused on any adapter any more",
-    ).toEqual([]);
+    expect(es, "the membership shape must not be refused on any adapter any more").toEqual([]);
   });
 
   it("emits the join-table subquery as a raw FilterQuery fragment, with the id bound", async () => {

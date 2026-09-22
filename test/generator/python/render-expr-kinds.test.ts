@@ -85,9 +85,12 @@ describe("py renderPyExpr — refs (snake_case folding)", () => {
     );
   });
 
-  it("renders helper-fn refs `_`-prefixed", () => {
+  it("renders helper-fn refs by their public name", () => {
+    // Unprefixed: an aggregate `function` is public, so its bare reference and
+    // its `def` site spell one name
+    // (`aggregate-function-visibility.test.ts`).
     expect(renderPyExpr({ kind: "ref", name: "lineTotal", refKind: "helper-fn" })).toBe(
-      "self._line_total",
+      "self.line_total",
     );
   });
 
@@ -384,11 +387,13 @@ describe("py renderPyExpr — calls / new / object / list", () => {
     ).toBe('Money(5, "USD")');
   });
 
-  it("function calls render `_`-prefixed; op calls follow the target's privacy", () => {
-    // A `function` is always a private method (`def _line_total`).
+  it("function calls render unprefixed; op calls follow the target's privacy", () => {
+    // A `function` is a PUBLIC method (`def line_total`) — the routes file and
+    // a workflow body call it from outside the instance, and those call sites
+    // always spelt it unprefixed.
     expect(
       renderPyExpr({ kind: "call", callKind: "function", name: "lineTotal", args: [litInt("1")] }),
-    ).toBe("self._line_total(1)");
+    ).toBe("self.line_total(1)");
     // A public operation self-call has no underscore (`def reserve` ⇒ `self.reserve()`).
     expect(
       renderPyExpr({ kind: "call", callKind: "private-operation", name: "recalc", args: [] }),

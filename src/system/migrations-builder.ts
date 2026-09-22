@@ -1,3 +1,4 @@
+import { diagMessage } from "../diagnostics/messages.js";
 import { MONEY_PRECISION, MONEY_WIRE_SCALE } from "../generator/money-scale.js";
 import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
@@ -25,6 +26,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../ir/types/loom-ir.js";
 import type {
+  CheckKind,
   CheckShape,
   ColumnShape,
   ColumnType,
@@ -166,6 +168,13 @@ export function schemaFromModule(
   const voLookup: VoLookup = new Map(
     module.contexts.flatMap((c) => c.valueObjects.map((v) => [v.name, v.fields] as const)),
   );
+  // Enum member lists, for the `enumValues` CHECKs (see `enumChecksForFields`).
+  // Keyed by name across the whole module, exactly like `voLookup` — a
+  // same-named enum in sibling contexts would collide, and so would the VO
+  // lookup beside it; that pre-existing shape is not widened here.
+  const enumLookup: EnumLookup = new Map(
+    module.contexts.flatMap((c) => c.enums.map((e) => [e.name, e.values] as const)),
+  );
   // Produce the table(s) for one aggregate.  Returns an array so the
   // caller can stamp the schema uniformly — every table an aggregate
   // contributes lives in the same (context) schema.
@@ -186,10 +195,12 @@ export function schemaFromModule(
       // mirroring emit/schema.ts.  `tableOwnerName` resolves the concrete to
       // its base; the part's `parentId` holds the shared-table row id.
       const owner = tableOwnerName(agg, pool);
-      return agg.parts.map((part) => tableForPart(part, agg, module.name, voLookup, owner));
+      return agg.parts.map((part) =>
+        tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
+      );
     }
     if (isTphBase(agg, pool)) {
-      return [tphTableForAggregate(agg, pool, module.name, voLookup)];
+      return [tphTableForAggregate(agg, pool, module.name, voLookup, enumLookup)];
     }
     // Event-sourced (`persistedAs: eventLog`): no per-aggregate table — its
     // stream lives in the single per-context `<ctx>_events` log, emitted once in
@@ -205,9 +216,9 @@ export function schemaFromModule(
     if (shape === "embedded") {
       return [embeddedTableForAggregate(agg, module.name)];
     }
-    const out: TableShape[] = [tableForAggregate(agg, module.name, voLookup)];
+    const out: TableShape[] = [tableForAggregate(agg, module.name, voLookup, enumLookup)];
     for (const part of agg.parts) {
-      out.push(tableForPart(part, agg, module.name, voLookup));
+      out.push(tableForPart(part, agg, module.name, voLookup, enumLookup));
     }
     // Reference-collection fields (`Target id[]`) persist via a join
     // table rather than a column on the owner row — enrichment derives
@@ -222,11 +233,11 @@ export function schemaFromModule(
     // backends create it; Phoenix skips it (it stores the array inline as a
     // `{:array, :map}` column on the parent).
     for (const vc of valueCollectionsFor(agg)) {
-      out.push(valueCollectionTableShape(vc, agg, module.name, voLookup));
+      out.push(valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup));
     }
     for (const part of agg.parts) {
       for (const vc of valueCollectionsFor(part)) {
-        out.push(valueCollectionTableShape(vc, agg, module.name, voLookup, part.name));
+        out.push(valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup, part.name));
       }
     }
     return out;
@@ -1079,7 +1090,13 @@ function diffTable(
   for (const c of prevChecks.values()) {
     const n = nextChecks.get(c.name);
     if (!n || n.expression !== c.expression) {
-      buckets.dropCheck.push({ op: "dropCheck", table: next.name, schema, name: c.name });
+      buckets.dropCheck.push({
+        op: "dropCheck",
+        table: next.name,
+        schema,
+        name: c.name,
+        kind: c.kind ?? "voNullConsistent",
+      });
     }
   }
   for (const c of nextChecks.values()) {
@@ -1192,6 +1209,35 @@ export class MigrationAmbiguousRenameError extends MigrationDestructiveError {
   }
 }
 
+/** Raised when a declared `migration "…" { Agg.field = <expr> }` backfill
+ *  targets a column this migration ADDS, yet no step consumed it — the
+ *  silent-discard shape F-018 exposed (the rename heuristic swallowed the
+ *  `addColumn` the weave was waiting for, so the author's declared value
+ *  vanished without a word).  Deliberately NOT raised for the inert case a
+ *  backfill is designed to reach: once the column is in the baseline the step
+ *  matches nothing, on purpose, forever.
+ *
+ *  Unlike the destructive gate this is not a policy the author can opt out of
+ *  — `--allow-destructive` accepts data LOSS the author asked for, never a
+ *  declaration the compiler quietly dropped — so it fires under both flags. */
+export class MigrationBackfillDiscardedError extends Error {
+  readonly code = "loom.migration-backfill-discarded";
+  constructor(
+    readonly module: string,
+    readonly backfills: readonly ResolvedBackfill[],
+  ) {
+    super(
+      diagMessage("loom.migration-backfill-discarded", {
+        module,
+        columns: backfills
+          .map((b) => `  - ${qualifiedName(b.schema, b.table)}.${b.column} = ${b.valueSql}`)
+          .join("\n"),
+      }),
+    );
+    this.name = "MigrationBackfillDiscardedError";
+  }
+}
+
 function describeDestructive(s: MigrationStep): string {
   switch (s.op) {
     case "dropTable":
@@ -1255,23 +1301,72 @@ export function applyDestructivePolicy(
     arr.push(t);
     prevByBare.set(t.name, arr);
   }
-  const prevColType = (
+  const prevTable = (schema: string | undefined, table: string): TableShape | undefined => {
+    const t = prevByQ.get(qkey(schema, table));
+    if (t) return t;
+    const cands = prevByBare.get(table);
+    return cands && cands.length === 1 ? cands[0] : undefined;
+  };
+  const prevCol = (
     schema: string | undefined,
     table: string,
     col: string,
-  ): ColumnType | undefined => {
-    let t = prevByQ.get(qkey(schema, table));
-    if (!t) {
-      const cands = prevByBare.get(table);
-      if (cands && cands.length === 1) t = cands[0];
-    }
-    return t?.columns.find((c) => c.name === col)?.type;
-  };
+  ): ColumnShape | undefined => prevTable(schema, table)?.columns.find((c) => c.name === col);
+
+  // Index the declared backfills FIRST — the rename heuristic below has to
+  // consult them (F-018), not just the weaving pass further down.  Keyed by
+  // qualified table + column, exactly as the weave reads them.
+  const backfillByCol = new Map<string, ResolvedBackfill>();
+  for (const b of opts.backfills ?? []) {
+    backfillByCol.set(`${qkey(b.schema, b.table)}.${b.column}`, b);
+  }
+  const backfillFor = (
+    schema: string | undefined,
+    table: string,
+    column: string,
+  ): ResolvedBackfill | undefined => backfillByCol.get(`${qkey(schema, table)}.${column}`);
 
   // Rename detection: a table with EXACTLY one dropColumn + one addColumn of
-  // identical type is an unambiguous rename → collapse to a single
-  // `renameColumn` (non-destructive).  Anything else stays drop+add and falls
-  // under the gate below.
+  // identical type AND nullability is an unambiguous rename → collapse to a
+  // single `renameColumn` (non-destructive).  Anything else stays drop+add and
+  // falls under the gate below.
+  //
+  // The heuristic is a GUESS, and structurally it cannot be anything else: a
+  // rename (`binLocation` → `binCode`) and an unrelated drop+add (drop
+  // `binCode`, add `supplierRef`) produce a byte-identical diff — one
+  // dropColumn, one addColumn, same type, one table.  Guessing wrong is not a
+  // failed migration, it is SILENT MISATTRIBUTION: every row's bin code
+  // becomes its supplier reference, which on an audited system is worse than
+  // losing the column outright.  So the collapse only fires where the author
+  // has given NO contrary signal, and any contrary signal wins — the wrong
+  // call in the safe direction costs one declared `migration "…" { A.old ->
+  // new }` line and an exit code; the wrong call in the other direction costs
+  // a corrupted production table nobody is told about.
+  //
+  // Three contrary signals.  The first says the two columns are not even the
+  // same SHAPE; the other two are the author positively asserting the added
+  // column is NEW (a renamed column arrives carrying its own data, so neither
+  // statement would mean anything about it).  In source order below:
+  //
+  //   0. a NULLABILITY mismatch between the dropped and added columns — see
+  //      the note at the check itself (it is the one that has to read the
+  //      baseline column, so it sits after the type comparison);
+  //
+  //   1. a declared `migration "…" { Agg.newField = <expr> }` BACKFILL on the
+  //      added column — the documented rule ("a backfilled add is an explicit
+  //      new column, never treated as a rename", docs/migrations.md), which
+  //      this pass previously did not implement at all: the weave ran AFTER
+  //      the collapse and never got the chance to see the add, so the backfill
+  //      was discarded on top of the misattribution (F-018);
+  //   2. a scalar-literal FIELD DEFAULT on the added column (`supplierRef:
+  //      string = "NO-SUPPLIER"`, M-T2.16's `addColumnDefault`) — the same
+  //      assertion in the standing form. Collapsing it would both misattribute
+  //      the old column's rows AND drop the declared value for them on the
+  //      floor.
+  //
+  // Neither signal turns into data loss when the author DID mean a rename: the
+  // uncollapsed dropColumn is destructive, so the run aborts and names the
+  // explicit-rename remedy instead of writing anything.
   const dropByTable = new Map<string, MigrationStep[]>();
   const addByTable = new Map<string, MigrationStep[]>();
   for (const s of steps) {
@@ -1291,8 +1386,23 @@ export function applyDestructivePolicy(
     const d = drops[0]!;
     const a = adds[0]!;
     if (d.op !== "dropColumn" || a.op !== "addColumn") continue;
-    const dType = prevColType(d.schema, d.table, d.name);
-    if (!dType || !columnTypeEqual(dType, a.column.type)) continue;
+    // Contrary signal (1): the author declared a backfill for the added column.
+    if (backfillFor(a.schema, a.table, a.column.name)) continue;
+    // Contrary signal (2): the added column carries a scalar-literal field
+    // default, i.e. a declared value for the rows that already exist.
+    if (a.column.addColumnDefault !== undefined) continue;
+    const dropped = prevCol(d.schema, d.table, d.name);
+    if (!dropped || !columnTypeEqual(dropped.type, a.column.type)) continue;
+    // Contrary signal (3): the two columns don't even agree on NULLABILITY.
+    // A rename leaves the column's shape alone, so a NOT-NULL column becoming
+    // a nullable one is a shape change on top of the name change — the same
+    // family the docs already refuse to guess at ("a rename that also changes
+    // type").  It matters more than it looks: `drop bin_code NOT NULL` +
+    // `add note NULL` needs no backfill and no default to pass the other
+    // gates, so without this it was the last shape that could still collapse
+    // into a silent misattribution.  The explicit block handles a renaming
+    // shape change — it emits the follow-on alterColumnNullable.
+    if (dropped.nullable !== a.column.nullable) continue;
     collapsed.add(d);
     collapsed.add(a);
     renameFor.set(a, {
@@ -1322,15 +1432,8 @@ export function applyDestructivePolicy(
   // the add was blocking, the add is split nullable-first with a SET NOT NULL
   // after the UPDATE); a matching NULL→NOT-NULL flip gains the UPDATE before
   // it.  Flips made safe this way are exempted from the gate below.
-  const backfillByCol = new Map<string, ResolvedBackfill>();
-  for (const b of opts.backfills ?? []) {
-    backfillByCol.set(`${qkey(b.schema, b.table)}.${b.column}`, b);
-  }
-  const backfillFor = (
-    schema: string | undefined,
-    table: string,
-    column: string,
-  ): ResolvedBackfill | undefined => backfillByCol.get(`${qkey(schema, table)}.${column}`);
+  // (`backfillByCol` / `backfillFor` are built above — the rename heuristic
+  // needs them too.)
   const safeFlips = new Set<MigrationStep>();
   const woven = afterRename.flatMap((s): MigrationStep[] => {
     if (s.op === "addColumn") {
@@ -1431,6 +1534,65 @@ export function applyDestructivePolicy(
     }
     return [s];
   });
+
+  // A declared backfill must never be silently discarded (F-018 §4).
+  //
+  // A backfill is LEGITIMATELY inert once its column is baked into the
+  // baseline — that is the documented ledger-inert property, and the reason a
+  // `migration` block can stay in the source forever without re-running.  So
+  // this gate does NOT fire on "nothing matched"; it fires on the strictly
+  // narrower shape that can only be a bug: the column is NOT in the baseline
+  // (so it is arriving in THIS migration), it is not arriving as the target of
+  // a declared rename (where the data comes with it and the backfill is a
+  // deliberate no-op), and yet nothing consumed the step.  That is precisely
+  // what the pre-fix rename collapse produced — the addColumn the weave was
+  // waiting for had already been rewritten into a renameColumn — and it is the
+  // invariant that keeps any future pass from re-opening the same hole
+  // silently.
+  // Only a rename the DIFF declared (an explicit `migration { A.old -> new }`
+  // block) excuses a backfill on the new name — the data arrives with the
+  // column, so the step is a deliberate no-op.  A rename this pass INVENTED
+  // (`renameFor`) must not excuse anything: swallowing the addColumn a backfill
+  // was waiting for is precisely the F-018 bug, so this stays an independent
+  // backstop even if the heuristic's own guards are ever bypassed.
+  const invented = new Set<MigrationStep>(renameFor.values());
+  const renamedInto = new Set<string>();
+  for (const s of woven) {
+    if (s.op === "renameColumn" && !invented.has(s)) {
+      renamedInto.add(`${qkey(s.schema, s.table)}.${s.to}`);
+    }
+  }
+  const consumed = new Set<string>();
+  for (const s of woven) {
+    if (s.op === "backfillColumn") consumed.add(`${qkey(s.schema, s.table)}.${s.column}`);
+  }
+  // Tables this migration (re)creates or renames away carry no surviving rows
+  // under their baseline identity, so a backfill against them is inert for the
+  // same reason a first-run one is — notably the M-T2.4 RESHAPE path, where the
+  // old table becomes `<t>__pre_reshape` and the new shape is created empty
+  // (the data move is the operator's TODO).  Excluding them keeps this gate on
+  // the one shape that is always a bug: a table that SURVIVES, gaining a column
+  // whose declared value nothing runs.
+  const reborn = new Set<string>();
+  for (const s of woven) {
+    if (s.op === "createTable") reborn.add(qkey(s.table.schema, s.table.name));
+    else if (s.op === "renameTable") reborn.add(qkey(s.schema, s.from));
+  }
+  const discarded = (opts.backfills ?? []).filter((b) => {
+    const key = `${qkey(b.schema, b.table)}.${b.column}`;
+    if (consumed.has(key) || renamedInto.has(key)) return false;
+    if (reborn.has(qkey(b.schema, b.table))) return false;
+    // Baseline must HAVE the table but NOT the column — anything else is the
+    // inert case (column already there, or the whole table created this run).
+    let t = prevByQ.get(qkey(b.schema, b.table));
+    if (!t) {
+      const cands = prevByBare.get(b.table);
+      if (cands && cands.length === 1) t = cands[0];
+    }
+    if (!t) return false;
+    return !t.columns.some((c) => c.name === b.column);
+  });
+  if (discarded.length > 0) throw new MigrationBackfillDiscardedError(opts.module, discarded);
 
   // Classify what remains.  A NULL→NOT-NULL flip without a backfill joins
   // the destructive set (it fails at apply time on any row holding NULL) —
@@ -2376,6 +2538,9 @@ function tableForAggregate(
   // the optional-context-parameter sweep; pinned by
   // `optional-context-param-sweep.test.ts`.
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
 ): TableShape {
   const tableName = plural(snake(agg.name));
   const columns: ColumnShape[] = [
@@ -2425,7 +2590,13 @@ function tableForAggregate(
     primaryKey: ["id"],
     foreignKeys,
     indexes,
-    checks: finalizeChecks(checksForFields(tableName, agg.fields, voLookup), columns),
+    checks: finalizeChecks(
+      [
+        ...checksForFields(tableName, agg.fields, voLookup),
+        ...enumChecksForFields(tableName, agg.fields, voLookup, enumLookup),
+      ],
+      columns,
+    ),
   };
 }
 
@@ -2442,6 +2613,9 @@ function tphTableForAggregate(
   // REQUIRED — see `tableForAggregate` for why a defaulted-empty `voLookup`
   // silently misshapes value-object columns.
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
 ): TableShape {
   const tableName = plural(snake(base.name));
   const kindField: FieldIR = {
@@ -2478,6 +2652,7 @@ function tphTableForAggregate(
   const derivedChecks: DerivedCheck[] = [];
   for (const f of base.fields) pushField(f, false);
   derivedChecks.push(...checksForFields(tableName, base.fields, voLookup));
+  derivedChecks.push(...enumChecksForFields(tableName, base.fields, voLookup, enumLookup));
   for (const concrete of tphConcretesOf(base, pool)) {
     const own = ownFieldsOf(concrete, base);
     for (const f of own) pushField(f, true);
@@ -2490,6 +2665,10 @@ function tphTableForAggregate(
     // to condition on).  `finalizeChecks` drops any check whose columns lost the
     // by-name de-duplication above.
     derivedChecks.push(...checksForFields(tableName, own, voLookup));
+    // A TPH concrete's enum column is forced nullable for the shared table's
+    // sake, so the check gains its `IS NULL OR …` arm in `finalizeChecks` —
+    // which is right: a row of another `kind` leaves the column null.
+    derivedChecks.push(...enumChecksForFields(tableName, own, voLookup, enumLookup));
   }
 
   return {
@@ -2510,6 +2689,9 @@ function tableForPart(
   // REQUIRED — see `tableForAggregate` for why a defaulted-empty `voLookup`
   // silently misshapes value-object columns.
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
   // The aggregate that physically owns the parent table.  For a plain
   // aggregate this is `parent.name`; for a TPH concrete it's the shared base
   // table (the concrete has no table of its own), so the part's FK targets the
@@ -2567,7 +2749,13 @@ function tableForPart(
     primaryKey: ["id"],
     foreignKeys,
     indexes,
-    checks: finalizeChecks(checksForFields(tableName, part.fields, voLookup), columns),
+    checks: finalizeChecks(
+      [
+        ...checksForFields(tableName, part.fields, voLookup),
+        ...enumChecksForFields(tableName, part.fields, voLookup, enumLookup),
+      ],
+      columns,
+    ),
   };
 }
 
@@ -2632,6 +2820,9 @@ function valueCollectionTableShape(
   parentAgg: AggregateIR,
   ownerModule: string,
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
   partName?: string,
 ): TableShape {
   const ownerTable = partName ? plural(snake(partName)) : plural(snake(parentAgg.name));
@@ -2648,6 +2839,7 @@ function valueCollectionTableShape(
   // else and does.
   const derivedChecks: DerivedCheck[] = [];
   valueObjectChecks(vc.childTable, "", elementFields, voLookup, false, derivedChecks);
+  derivedChecks.push(...enumChecksForFields(vc.childTable, elementFields, voLookup, enumLookup));
   return {
     name: vc.childTable,
     ownerModule,
@@ -2680,6 +2872,13 @@ interface MappedColumn {
 /** VO name → its field list, so a value-object field can be flattened into
  *  the parent table's columns rather than collapsed to one `json` column. */
 type VoLookup = ReadonlyMap<string, readonly FieldIR[]>;
+
+/** Enum name → its declared member list.  An enum persists as `TEXT`, so
+ *  `mapTypeToColumn` erases which enum a column came from and the value set
+ *  never reached the schema — which is why narrowing one produced no migration
+ *  (see {@link CheckKind} `enumValues`).  This lookup is what lets the table
+ *  builders turn the set back into a `CHECK`. */
+type EnumLookup = ReadonlyMap<string, readonly string[]>;
 
 /** The migration column(s) a field contributes.  A value-object field
  *  destructures into one column per (recursively-flattened) VO field — the
@@ -2811,18 +3010,29 @@ function valueObjectChecks(
     if (!vfOptional) required.push(name);
   }
   if (nodeOptional && required.length >= 2) {
-    out.push({ name: `${table}_${prefix}_null_consistent`, table, columns: [...required] });
+    out.push({
+      name: `${table}_${prefix}_null_consistent`,
+      table,
+      columns: [...required],
+      kind: "voNullConsistent",
+    });
   }
   return required;
 }
 
 /** A check before it is rendered — the column list is kept alongside so
  *  {@link finalizeChecks} can verify every one of them actually landed in the
- *  table without re-parsing SQL out of the expression. */
+ *  table without re-parsing SQL out of the expression.
+ *
+ *  `expression` is set only by the `enumValues` kind, whose SQL depends on the
+ *  member list rather than on the column list alone; a `voNullConsistent`
+ *  check leaves it unset and `finalizeChecks` renders `nullConsistentSql`. */
 interface DerivedCheck {
   name: string;
   table: string;
   columns: string[];
+  kind: CheckKind;
+  expression?: string;
 }
 
 /** Every all-null-or-all-present CHECK a field list contributes, for the
@@ -2862,6 +3072,68 @@ function checksForFields(
   return out;
 }
 
+/** A Postgres string literal — the enum member list is author-controlled
+ *  identifier text, but the quote doubling is what makes this SQL rather than
+ *  interpolation. */
+function sqlStringLiteral(v: string): string {
+  return `'${v.replaceAll("'", "''")}'`;
+}
+
+/** Every `enumValues` CHECK a field list contributes.
+ *
+ *  One per ENUM-typed column: `CHECK ("skill" IN ('physio', 'gp'))`, widened
+ *  with `"skill" IS NULL OR …` when the column is nullable (SQL `IN` against
+ *  NULL is UNKNOWN, which a CHECK treats as satisfied — but spelling the null
+ *  arm keeps the constraint readable and its intent explicit).  Recurses into
+ *  FLATTENED value objects through `voLookup`, so an enum inside an embedded
+ *  VO (`shipTo: Address?` with `Address { country: Country }` →
+ *  `ship_to_country`) is covered on the same terms as a top-level one.
+ *
+ *  Deliberately NOT covered, and neither is silent — each is a column shape
+ *  whose check is a different expression, not a missing case:
+ *
+ *   * an enum ARRAY (`skills: Skill[]` → `TEXT[]`), which needs `<@ ARRAY[…]`
+ *     rather than `IN`;
+ *   * an enum stored inside a `json` column — a VO the lookup cannot resolve
+ *     collapses to one `json` cell, and there is no column to constrain;
+ *   * the projection and workflow-state tables, for the same reason
+ *     `checksForFields` excludes them (their rows are written by partial
+ *     upserts, so a constraint could fail a fold on legitimate data).
+ *
+ *  An enum the lookup does not know contributes nothing — the same
+ *  fail-quiet the VO lookup takes, and the only shape that reaches it is a
+ *  cross-module reference the schema could not constrain anyway. */
+function enumChecksForFields(
+  table: string,
+  fields: readonly FieldIR[],
+  voLookup: VoLookup,
+  enumLookup: EnumLookup,
+  prefix = "",
+): DerivedCheck[] {
+  const out: DerivedCheck[] = [];
+  for (const f of fields) {
+    if (isReferenceCollection(f.type) || isValueCollectionType(f.type)) continue;
+    const base = f.type.kind === "optional" ? f.type.inner : f.type;
+    const column = joinColumnPath(prefix, snake(f.name));
+    if (base.kind === "valueobject") {
+      const voFields = voLookup.get(base.name);
+      if (voFields) out.push(...enumChecksForFields(table, voFields, voLookup, enumLookup, column));
+      continue;
+    }
+    if (base.kind !== "enum") continue;
+    const values = enumLookup.get(base.name);
+    if (!values || values.length === 0) continue;
+    out.push({
+      name: `${table}_${column}_enum`,
+      table,
+      columns: [column],
+      kind: "enumValues",
+      expression: `"${column}" IN (${values.map(sqlStringLiteral).join(", ")})`,
+    });
+  }
+  return out;
+}
+
 /** Render the derived checks, dropping any whose columns did not all land in
  *  the table.  The TPH builder de-duplicates columns by NAME across concrete
  *  subtypes (first field wins), so two same-named fields of DIFFERENT value
@@ -2888,9 +3160,34 @@ function finalizeChecks(
     // Name collision mirrors the column collision it comes from (two TPH
     // subtypes declaring the same field name): first wins, same as `pushField`.
     if (seen.has(d.name)) continue;
-    if (!d.columns.every((n) => present.get(n)?.nullable === true)) continue;
+    const cols = d.columns.map((n) => present.get(n));
+    // Both kinds require every named column to have actually landed.
+    if (cols.some((c) => c === undefined)) continue;
+    // The NULLABLE-only rule is the `voNullConsistent` safety net (a check over
+    // NOT NULL columns is the tautology `NOT NULL AND NOT NULL`).  An
+    // `enumValues` check is the opposite case: it is most load-bearing exactly
+    // on a NOT NULL column, so it is admitted at either nullability — and its
+    // expression gains the null arm when the column allows one.
+    if (d.kind === "voNullConsistent") {
+      if (!cols.every((c) => c?.nullable === true)) continue;
+      seen.add(d.name);
+      checks.push({
+        name: d.name,
+        table: d.table,
+        expression: nullConsistentSql(d.columns),
+        kind: "voNullConsistent",
+      });
+      continue;
+    }
     seen.add(d.name);
-    checks.push({ name: d.name, table: d.table, expression: nullConsistentSql(d.columns) });
+    const nullable = cols.some((c) => c?.nullable === true);
+    const column = d.columns[0] as string;
+    checks.push({
+      name: d.name,
+      table: d.table,
+      expression: nullable ? `"${column}" IS NULL OR ${d.expression}` : (d.expression as string),
+      kind: "enumValues",
+    });
   }
   return checks.length > 0 ? checks : undefined;
 }

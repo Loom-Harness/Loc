@@ -244,7 +244,7 @@ preserved at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
 | `tenancy by user.<claim> of <RegistryAggregate>` | Multi-tenant partitioning: names the claim that partitions data and the aggregate that is the tenant registry.  Pairs with the `tenantOwned` / `tenantRegistry` capabilities, the per-aggregate `crossTenant` marker and the `policy { allow deep\|global … }` ladder; every aggregate must take an explicit stance (`loom.tenancy-stance-unmarked`).  See [`tenancy.md`](tenancy.md). |
 | `theme { primary: "#…", radius: "md", … }` | System-wide visual identity — design tokens consumed by the react / vue / svelte / angular frontends and the Phoenix LiveView shell (feliz and flutter render their own toolkit defaults and ignore it).  At most one per system.  Colour properties (`primary`, `secondary`, `accent`, `success`, `warning`, `error`, `neutral`) accept CSS hex values (`#RGB` / `#RRGGBB` / `#RRGGBBAA`).  `radius` is one of `none / sm / md / lg / xl`.  `fontFamily` and `fontFamilyMono` are free-form strings.  `colorScheme` is `light / dark / auto`.  Unknown property names and invalid values are validator errors. |
 | `api Name [with …] from <Subdomain> [{ urlStyle: literal\|resource, <statuses>, <routes> }]` | First-class API contract derived from a subdomain's domain (aggregates expose `all / byId / create / update / delete`, repositories expose their finds, workflows expose mutations).  Backend deployables `serves:` an api; UIs reference one via `api X: <ApiName>` parameters; the optional body adds `httpStatus <Error> -> <code>` mappings and hand-written routes (`route GET\|POST\|PUT\|PATCH\|DELETE "/path" -> <handler>`) over `commandHandler` / `queryHandler` declarations.  See [`architecture.md`](architecture.md). |
-| `storage Name { type: <sourceType>, connection: env("…")\|service(x)\|secret(x)\|literal("…"), config: { k: v } }` | Typed physical store / service reusable across deployables.  `type:` names the built-in **sourceType**: relational `postgres` / `mysql` / `sqlite` / `inMemory`, `redis`, `kafka`, object stores `s3` / `localDisk`, queue `rabbitmq`, `restApi`, mailers `smtp` / `ses` / `sendgrid` — these bind to a `resource kind:` and activate dev-compose sidecars + client emission per the kind × sourceType matrix in [`resources.md`](resources.md#kinds) (`postgres` is the fully-supported state store).  Five further literals **parse but bind to nothing**: `elastic` / `meilisearch` (search), `clickhouse` / `bigquery` (analytics) and `nats` — there is no search or analytics `kind`, and `queue` admits `rabbitmq` only, so a `resource` over one of these is refused by `loom.kind-incompatible` and nothing is emitted ([`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet)). |
+| `storage Name { type: <sourceType>, connection: env("…")\|service(x)\|secret(x)\|literal("…"), config: { k: v } }` | Typed physical store / service reusable across deployables.  `type:` names the built-in **sourceType**: relational `postgres` / `mysql` / `sqlite` / `inMemory`, `redis`, `kafka`, object stores `s3` / `localDisk`, queue `rabbitmq`, `restApi`, mailers `smtp` / `ses` / `sendgrid` — these bind to a `resource kind:` and activate dev-compose sidecars + client emission per the kind × sourceType matrix in [`resources.md`](resources.md#kinds) (`postgres` is the fully-supported state store).  Five further literals **parse but bind to nothing**: `elastic` / `meilisearch` (search), `clickhouse` / `bigquery` (analytics) and `nats` — there is no search or analytics `kind`, and `queue` admits `rabbitmq` only, so a `resource` over one of these is refused by the resource kind ↔ sourceType check (an uncoded error from `src/language/validators/datasource.ts`) and nothing is emitted ([`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet)). |
 | `resource Name { for: <Ctx>, kind: <k>, use: <storage>\|<api>, … }` | The configured binding (renamed from `dataSource`) from a bounded context's data of kind `state` / `eventLog` / `snapshot` / `cache` / `replica` / `objectStore` / `queue` / `api` / `mailer` to a physical `storage` (or, for `kind: api`, a sibling `api` served in the same system — a typed client).  Optional knobs: `schema`, `tablePrefix`, `keyPrefix`, `ttl`, `every`, `retain`, `isolationLevel`, `readonly`, `shape`, `index: [Entity.col, Entity.(a, b)]`, `config { … }`.  Every backend deployable hosting an aggregate must list a matching `resource` under its `dataSources:` field.  See [`resources.md`](resources.md) for the full model (sourceTypes, kinds, capabilities, interfaces) and workflow-level consumption. |
 | `channelSource Name { for: <channel>, use: <storage> }` / `timerSource Name { for: <Event>, cron: "…" \| every: 15s, in: "<tz>", overlap: allow }` | System-scope transports: a `channelSource` binds a context `channel` to a broker `storage` (redis / rabbitmq / kafka) and is attached to deployables via `channels:` ([`channels.md`](channels.md)); a `timerSource` is a cron / cadence tick that raises the named event into a context (`loom.timer-*`; the target aggregate must be state-based — `loom.timer-needs-state`). |
 | `ui Name [with scaffold(...)] { framework: react\|vue\|svelte\|angular\|feliz\|flutter\|phoenixLiveView, … }` | Block of pages, components, stores, areas, menu, and api / channel parameters that a deployable binds via `ui:`.  See [`page-metamodel.md`](page-metamodel.md). |
@@ -591,7 +591,7 @@ the implicit `editable`) form this matrix:
 | Modifier | Client read | In `create(...)` input | In `update(...)` input | In UI-read payloads |
 |---|---|---|---|---|
 | `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
-| `immutable` | ✓ | ✓ | ✗ (server rejects) | ✓ |
+| `immutable` | ✓ | ✓ | ✗ (server rejects) — *wire only; a domain operation may still assign it* | ✓ |
 | `managed` | ✓ | ✗ (server owns it) | ✗ | ✓ |
 | `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`version`) | ✓ |
 | `internal` | ✗ (never exposed via API) | ✗ | ✗ | ✓ (the UI may read it) |
@@ -611,6 +611,58 @@ shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 > against the API-read DTO, which omits them. Both are the same rule read off the
 > two ✗ columns above.
 
+#### `immutable` constrains the CLIENT UPDATE INPUT, not domain assignment
+
+Every ✗ in the matrix is a **wire** fact. `immutable` in particular reads
+"absent from the update input", **not** "never changes" — nothing stops a
+domain operation from assigning an `immutable` field, on any backend. That
+makes it the right modifier for a field whose only legitimate writer is a
+guarded operation:
+
+```ddd
+aggregate Claim with crudish {
+  status: ClaimStatus immutable          // off the generic update's input …
+  description: string
+
+  operation approve() {
+    requires currentUser.permissions.contains(permissions.claimsApprove)
+    precondition status == UnderReview
+    status := Approved                   // … but this still assigns it
+  }
+}
+```
+
+The client still **reads** `status`, `create` still **seeds** it, and only
+`approve()` can move it afterwards:
+
+```ts
+// generated: api/domain/claim.ts  (node — the other four backends are the same shape)
+public approve(): void {
+  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Precondition failed: status == UnderReview");
+  this._status = ClaimStatus.Approved;                 // immutable ≠ unassignable
+}
+
+public update(description: string): void {            // `status` is GONE from the update surface
+  this._description = description;
+}
+```
+
+Without the modifier, `status` is a writable update field like any other, so
+`POST /claims/{id}/update {"status":"Approved"}` sets it at whatever gate the
+*update* carries — skipping both the `requires` on `approve()` and its
+`precondition`. That is a state-machine bypass, not only an authorization one,
+and `with crudish(requires: <Policy>)` does not close it: that gate is
+per-member and identical across create/update/destroy, while the update still
+writes every field.
+
+The compiler will not decide this for you — a field with no modifier is
+*declared* `editable`, and there are legitimate models where the author really
+does want it writable both ways. It does point the case out: an aggregate whose
+`crudish` update mass-assigns a field that a `requires`-gated operation also
+writes earns the advisory `loom.update-gate-suggestion` (a `Suggestions:` hint
+from `ddd parse`, never an error). See also [`auth.md`](auth.md) → "Guarded
+state transitions".
+
 Examples:
 
 ```ddd
@@ -620,7 +672,7 @@ aggregate User {
   passwordHash: string secret              // accepted on create + update; never sent back
   version: int token                       // round-tripped for optimistic concurrency
   isDeleted: bool internal                 // hidden from clients; UI may read
-  slug: string immutable                   // set once at creation, never updated
+  slug: string immutable                   // off the update input; a domain operation may still assign it
 }
 ```
 
@@ -1096,7 +1148,7 @@ decimal`.
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
 | `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `create` / `handle` / `find` / `projection`.  See [`auth.md`](auth.md). |
-| `lhs := Expression` | Assignment to a property reachable from `this`.  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
+| `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |
@@ -1164,24 +1216,144 @@ test "negative money rejected" {
 Assertions are **method-based**: every `expect` carries a matcher — a bare
 `expect <bool>` is a validation error.  The matcher set is a closed,
 compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
-`toBeLessThan(OrEqual)` / `toBeSameInstant` / `toHaveText` / `toHaveCount` /
+`toBeLessThan(OrEqual)` / `toBeSameInstant` / `toBeNull` / `toBeAbsent` /
+`toContain` / `toHaveText` / `toHaveCount` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
-assertions the compiler type-checks and lowers per backend.  Two are context-
-restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body — and `toThrow` in *either* form is rejected in
+assertions the compiler type-checks and lowers per backend.  Some are context-
+restricted (validator-enforced): `toThrow(<status>)`, `toBeSameInstant` and
+`toBeAbsent` are
+only valid in a `test e2e` body, `toThrow(<kind>)` only in a unit `test`, and
+neither `toBeNull` nor `toBeAbsent` is legal in a **ui** e2e body —
+and `toThrow` in *any* form is rejected in
 a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
 exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
-first pins an HTTP status, the second
+status form pins an HTTP status, `toBeSameInstant`
 compares two ISO-8601 timestamps as *instants* (so a backend that serializes a
 datetime as `…00.0000000Z` still equals the canonical `…00Z` on the wire, while
-a real difference in time still fails).  Inside a test body the standard
+a real difference in time still fails), and the kind form is described just
+below.  Inside a test body the standard
 operation statements are allowed plus:
 
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
+| `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
+| `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
+| `expect(<read>.<field>).toBeAbsent()` | api e2e only — `expect("<field>" in <read>).toBe(false)` (the key is not in the payload). |
+| `expect(<actual>).toContain(<x>)` | membership for a collection, substring for a string — chosen by the subject's type. |
+
+###### absence — `toBeNull()` / `toBeAbsent()`
+
+Loom has **one** absence value; the wire has **two spellings of it**.  A
+`int?` holding nothing can be serialized either as `"estimate": null` or by
+omitting the `estimate` key altogether, and the five backends have genuinely
+disagreed about which they send — which is why
+`test/fixtures/corpus/absent-optional.ddd` exists.  The two matchers let a test
+pin the spelling **deliberately**:
+
+```ddd
+expect(read.estimate).toBeNull()      // present, explicitly null
+expect(read.estimate).toBeAbsent()    // the key is not in the payload at all
+```
+
+What keeps that from being backend-roulette is not the author's care but the
+**conformance gate**: every behavioural leg diffs its recording against the
+committed wire golden with `diffBodies`, which unions both key sets and raises
+a `key-set` divergence.  The enforced contract today is **explicit null on all
+five backends** — [RS-35](conformance-semantics.md) — so `toBeNull()` asserts
+the gated reality and `toBeAbsent()` currently has **no passing subject**.  That
+is deliberate: it is not special-cased into passing, so a backend that starts
+omitting a key turns a test red instead of drifting silently.
+
+Neither absence matcher is legal in a **ui** `test e2e` body
+(`loom.e2e-ui-absence-invalid`): a ui assertion reads rendered text off a
+Playwright locator, which is always a string — so `toBeNull()` can never hold
+and `toBeAbsent()` is not a runtime matcher at all. Assert what the page shows
+(`toHaveText("")` / `toBeVisible()`), or move the absence claim to a block
+targeting a backend deployable. This is the same ruling
+`loom.e2e-ui-throw-invalid` makes for `toThrow`. `toContain` **is** legal
+there — a substring of the rendered text is a real claim.
+
+`toBeAbsent()` is **e2e-only** (`loom.unit-absent-invalid`).  "The key is not in
+the payload" needs a payload to be about; a unit `test` asserts against an
+in-memory aggregate, where a declared field always exists — on three of the five
+backends (C# `int?`, Java `Integer`, an Elixir struct's `nil` default) in-process
+absence is not observable at all.  Use `toBeNull()` there; in-process, that is
+the whole of Loom's absence.
+
+###### `toContain()` — membership or substring
+
+One matcher, two lowerings, chosen by the **subject's type**:
+
+```ddd
+expect(read.tags).toContain("urgent")   // collection membership
+expect(read.title).toContain("Ship")    // substring
+```
+
+Any other subject is refused (`loom.contain-receiver-invalid`) — there is no
+third lowering.  Most targets spell both the same way (`in` in Python,
+`.contains(...)` in Java, `Contain` in AwesomeAssertions, and vitest's
+`toContain` dispatches at run time), but Elixir does not: membership is
+`x in list` and substring is `String.contains?(s, x)`, and picking the wrong one
+crashes the generated suite rather than returning a wrong answer.  The dispatch
+therefore reads the subject's resolved type off the IR.
+
+
+##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
+
+A bare `toThrow()` asserts only that *something* threw, and the domain floor has
+more than one rung.  A test that means "a fresh work order cannot be
+**completed**" and settles for "it threw" keeps passing when the rule it names
+is deleted and a different rule throws in its place — measured, not
+hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
+
+```ddd
+test "a fresh work order cannot be completed" {
+    let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+    expect(wo.complete()).toThrow(precondition)
+}
+```
+
+```ts
+// generated (node)
+expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+```
+
+```elixir
+# generated (elixir) — structural, because GuardError is `defexception [:message, :kind]`
+__thrown1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
+assert __thrown1.kind == :precondition
+```
+
+`precondition` and `invariant` are keywords, not values — they are legal only in
+this one argument position (`loom.throw-kind-outside-tothrow`).  Three rules
+bound the form, each for its own reason:
+
+- **Unit tier only.** In a `test e2e` body it is refused
+  (`loom.e2e-throw-kind-invalid`): over HTTP both rungs answer 422, and
+  their only discriminator is the RFC 7807 `detail` sentence — which an authored
+  `message` overwrites.  The e2e body keeps `toThrow(<status>)`.  It is likewise
+  refused in a context-integration `test`
+  (`loom.throw-kind-integration-unsupported`), which renders through a separate
+  emitter carrying no rung.
+- **Not against a rule with a custom `message`**
+  (`loom.throw-kind-custom-message`).  The node / python / java / .NET domain
+  layers discriminate on the derived `"Precondition failed: "` /
+  `"Invariant violated: "` prefix, and an authored `message "…"` *replaces* that
+  string rather than extending it.  Elixir alone is structural, but a unit test
+  is emitted for all five backends from one `.ddd`.  Drop the `message`, or
+  assert the bare `toThrow()` here and pin the wording in a `test e2e` block.
+- **`requires` is not a rung here.**  It is an authorization gate (403) needing a
+  principal the unit tier has no vocabulary for.
+
+One backend asymmetry is worth knowing before you reach for it: on **elixir**,
+`toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying
+its reason.  The vanilla pure op core runs preconditions and an in-memory struct
+update; aggregate invariants live in the Ecto changeset
+(`validate_invariants/1`), which no in-memory call reaches.  `toThrow(invariant)`
+over a `create` or a value-object construction runs normally there.
 
 Test blocks emit one file per subject on every backend:
 - TS: `domain/<aggregate>.test.ts` (vitest).
@@ -1228,7 +1400,6 @@ surface.  Member-access chains describe the call shape:
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
 | `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
-| `api.workflows.<name>(body?)` | `POST /workflows/<wf_snake>` with the body — the workflow's command route (204, empty body). Refused for an EVENT-triggered workflow, which mounts none. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
 nobody: the paged envelope (`{ items, page, pageSize, total, totalPages }`)

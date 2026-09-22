@@ -189,10 +189,32 @@ export type FileRef = {
   size: number;
 };
 
+/**
+ * The `If-Match` optimistic-concurrency precondition for a record the client
+ * has already read (RFC 9110 §13.1.1).
+ *
+ * A `versioned` aggregate's update is guarded server-side on the version the
+ * CLIENT expected -- think-time CAS, which is what catches the lost update
+ * where two people open the same record and both save.  With no header the
+ * server falls back to the version it just loaded itself, so the guard still
+ * runs but can only catch an interleave INSIDE the request: the user's stale
+ * read passes silently and overwrites.  That is the failure this header
+ * exists to prevent, so the generated hooks send it.
+ *
+ * The value is a strong entity-tag -- QUOTED, per RFC 9110 §8.8.3, and byte
+ * -identical to the `ETag` the read answered with.  `undefined` (the record
+ * was never read into the cache) yields no header, which is exactly the
+ * previous behaviour.
+ */
+export const ifMatch = (
+  version: number | undefined,
+): Record<string, string> | undefined =>
+  version === undefined ? undefined : { "If-Match": `"${version}"` };
+
 export const api = {
   get: (path: string) => request(path, { method: "GET" }),
-  post: (path: string, body: unknown) =>
-    request(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  post: (path: string, body: unknown, headers?: Record<string, string>) =>
+    request(path, { method: "POST", body: JSON.stringify(body ?? {}), headers }),
   upload: (path: string, form: FormData) => rawUpload(path, form),
   // Convenience for the FileUpload primitive: wraps a single File in a
   // FormData (the browser sets the multipart boundary) and POSTs it to the

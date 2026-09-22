@@ -68,7 +68,7 @@ function findNodeDeployable(genDir) {
 }
 
 /** Synthesise the per-case boot+run entry (bundled by esbuild). */
-function entrySource({ deplDir, e2eFile, unitFiles, traceFile, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles }) {
+function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken, authzLadder, seedFile, mountsFiles }) {
   const J = JSON.stringify;
   // When the deployable is `auth: required` the generated boot module
   // (index.ts) registers a verifier before serving — but we boot via
@@ -146,6 +146,7 @@ const UNAUTHORIZED_CREDS = ${J(unauthorizedCreds)};
 const OTHER_TENANT_CREDS = ${J(otherTenantCreds)};
 const UNIT_FILES = ${J(unitFiles)};
 const TRACE_FILE = ${J(traceFile)};
+const SERVICE_SLUGS = ${J(serviceSlugs)};
 const SHIM = ${J(SHIM)};
 
 export async function run() {
@@ -207,7 +208,17 @@ export async function run() {
     const outcomes = out
       .filter((r) => r.tier !== "authz")
       .map((r) => ({ name: r.name, suite: r.suite, status: r.status }));
-    verification = computeVerification(trace.index, trace.requirements.map((r) => r.id), outcomes);
+    // An api-e2e title carries an " against <serviceSlug>" suffix
+    // (e2e-render.ts replays one e2e block per compatible backend), so the
+    // join needs the slug set to undo it — without it every "verifies" on a
+    // "test e2e" block stayed UNVERIFIED while its test passed.
+    // (No backticks in this comment: it lives inside a template literal.)
+    verification = computeVerification(
+      trace.index,
+      trace.requirements.map((r) => r.id),
+      outcomes,
+      { serviceSlugs: SERVICE_SLUGS },
+    );
   } catch {
     /* no traceability emitted — verification stays null */
   }
@@ -240,6 +251,17 @@ async function runCase(c) {
     const unitFiles = walk(deplDir, (p) => p.endsWith(".test.ts") && !p.includes("/e2e/"));
 
     const traceFile = join(genDir, ".loom", "traceability.json");
+    // The ` against <serviceSlug>` suffix set for the verification join (see
+    // the `computeVerification` call in entrySource).  Every emitted project
+    // dir is named `serviceSlug(<deployable|storage>.name)`, so the tree's
+    // top-level dirs ARE that set — derived from the file map for the same
+    // reason the tiers above are, rather than re-parsing the `.ddd`.  A
+    // storage slug riding along is harmless: the join only ever strips a
+    // suffix that leaves a declared api-e2e name behind, and refuses any
+    // title that would resolve to two of them.
+    const serviceSlugs = readdirSync(genDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name !== ".loom")
+      .map((e) => e.name);
     // Auth flavour drives verifier re-registration (see entrySource):
     //   • auth/oidc.ts present → OIDC (`auth {}` block): register the real OIDC
     //     verifier + forward a mock-issuer bearer token.
@@ -265,7 +287,7 @@ async function runCase(c) {
     const entry = join(workDir, "entry.mts");
     const bundle = join(workDir, "bundle.mjs");
     writeFileSync(entry, entrySource({
-      deplDir, e2eFile, unitFiles, traceFile, authMode, bearerToken, unauthorizedToken,
+      deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, authMode, bearerToken, unauthorizedToken,
       authzLadder: AUTHZ_LADDERS[c.name] ?? null,
       seedFile, mountsFiles,
     }));

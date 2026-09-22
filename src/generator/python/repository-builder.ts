@@ -37,6 +37,7 @@ export interface AggregateReadShape {
 
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
+import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
 import {
   baseOf,
   discriminatorValue,
@@ -119,6 +120,49 @@ export function authUserImport(
     .filter((n): n is string => n != null)
     .sort();
   return names.length > 0 ? `from app.auth.user import ${names.join(", ")}` : null;
+}
+
+/** How a read whose predicate references `currentUser` must render it.
+ *
+ *  A `find` DECLARES its principal: `relationalFindMethod` appends a trailing
+ *  `current_user: User` parameter when `findUsesCurrentUser(find)`, and the
+ *  route handler passes the request principal in — so the bare `current_user`
+ *  name the lowerer defaults to is genuinely bound there.
+ *
+ *  A RETRIEVAL (`retrieval X of A { where: SomeCriterion() }`) and a query-time
+ *  projection (`view`) have no such parameter and gain none: their signatures
+ *  are `(self, <declared params>, offset, limit)`, fixed by the DSL.  Lowering
+ *  their `where` with the default accessor emitted
+ *  `WorkOrderRow.technician_user_id == current_user.id` into a method that
+ *  binds no `current_user` — an unbound name (F-013).  Python binds at
+ *  execution, so `python -m compileall` passes and the first request raises
+ *  `NameError`; ruff sees it statically as `F821 Undefined name`.
+ *
+ *  So these read the AMBIENT accessor instead — `require_current_user()`, the
+ *  module-level `ContextVar[User | None]` the auth middleware sets — exactly as
+ *  the always-on capability filter does (DEBT-02), and exactly as node's
+ *  reified criterion reads `requireCurrentUser()` and .NET's reads
+ *  `RequestContext.Current!.CurrentUser!`.
+ *
+ *  `undefined` for a principal-free predicate, so its emission stays
+ *  byte-identical. */
+function principalOpts(where: ExprIR | undefined): { principalAccessor: string } | undefined {
+  return exprUsesCurrentUser(where) ? { principalAccessor: "require_current_user()" } : undefined;
+}
+
+/** True when any read on `agg` that CANNOT take a `current_user` parameter — a
+ *  retrieval or a query-time projection — references the principal, and so
+ *  weaves the ambient accessor in.  Gates the `require_current_user` import
+ *  alongside the capability-filter and write-scope cases (an import that is not
+ *  used is ruff F401 on the generated project, so this must be actual usage). */
+export function aggUsesPrincipalParamlessRead(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): boolean {
+  return (
+    aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)) ||
+    queryProjectionViews(agg, ctx).some((v) => exprUsesCurrentUser(v.filter))
+  );
 }
 
 /** The `get_by_id_for_write` command-load method — a write-scope existence
@@ -355,12 +399,27 @@ export function buildPyRepositoryFile(
         ...agg.parts.map((p) => `${p.name}Id`),
         // Every id-typed field (own or part, singular or collection)
         // brands on hydrate — `order_ref=OrderId(row.order_ref)`.
-        ...[agg, ...agg.parts].flatMap((holder) =>
-          holder.fields
-            .map(idFieldTarget)
-            .filter((n): n is string => n != null)
-            .map((n) => `${n}Id`),
-        ),
+        ...[agg, ...agg.parts]
+          .flatMap((holder) => fieldIdTargets(holder.fields))
+          .map((n) => `${n}Id`),
+        // …and every id a VALUE OBJECT holds, which brands on hydrate through
+        // the VO constructor rather than through a field of this aggregate:
+        // `berth=Berth(ShipId(row.berth_ship), row.berth_position)`.  The
+        // aggregate's own field is typed `Berth`, so the scan above never sees
+        // `ShipId` and the module named it without importing it (`F821
+        // Undefined name`, and mypy the same) — freight audit D3 / M-T6.64.
+        // Over-generating candidates is free: every name here is dropped again
+        // by the `refersTo` body scan unless the module actually spells it.
+        // Sourced from `valueObjectPool`, not `ctx.valueObjects`, to match the
+        // `voEnumNames` line below: a VO declared in a SIBLING context is a legal
+        // reference whose declaration never enters this context's own list.  That
+        // branch is currently unobservable — the cross-context hydrate emits
+        // `berth=row.berth` against flattened `berth_ship`/`berth_position`
+        // columns, so it never reaches the brand at all (a separate, upstream
+        // defect; reported on #2864, not fixed here) — but the pool is the right
+        // source the moment it is, and costs nothing meanwhile since `refersTo`
+        // filters every candidate.
+        ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
       ].filter(refersTo),
     ),
   ].sort();
@@ -433,7 +492,12 @@ export function buildPyRepositoryFile(
       // not mere `writeScopeFilter` presence: a `deny write` carve-out
       // sets an always-false write scope that references NO principal, so an
       // unconditional import would be unused → ruff F401 on the generated project.
-      aggUsesPrincipalContextFilter(agg) || exprUsesCurrentUser(agg.writeScopeFilter),
+      aggUsesPrincipalContextFilter(agg) ||
+        exprUsesCurrentUser(agg.writeScopeFilter) ||
+        // …and a retrieval / query-time projection whose `where` reads the
+        // principal: those methods take no `current_user` parameter, so they
+        // weave the ambient accessor in too (F-013).
+        aggUsesPrincipalParamlessRead(agg, ctx),
       // `current_user` (the non-raising getter) rides in for the read-mask
       // projection's fail-closed principal read (`to_wire_masked`).
       aggHasFieldMask(agg),
@@ -461,15 +525,6 @@ export function buildPyRepositoryFile(
     body,
     "",
   );
-}
-
-/** Target aggregate of an id-typed field — `Order id`, `Order id?`,
- *  or `Order id[]` — else `null`. */
-function idFieldTarget(f: FieldIR): string | null {
-  const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (t.kind === "id") return t.targetName;
-  if (t.kind === "array" && t.element.kind === "id") return t.element.targetName;
-  return null;
 }
 
 // --- finds -------------------------------------------------------------------
@@ -755,7 +810,7 @@ function viewFindMethod(
   const pred = view.filter
     ? requireLowered(
         `query-time projection '${view.name}' on '${agg.name}'`,
-        lowerToSqlAlchemy(view.filter, agg, ctx),
+        lowerToSqlAlchemy(view.filter, agg, ctx, principalOpts(view.filter)),
       )
     : null;
   // A read `… ignoring <Cap>`/`ignoring *` OMITS the named capability
@@ -797,7 +852,7 @@ function runMethod(
   const methodFilterPred = bypass ? contextFilterPredicate(agg, ctx, bypass) : filterPred;
   const pred = requireLowered(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
-    lowerToSqlAlchemy(retrieval.where, agg, ctx),
+    lowerToSqlAlchemy(retrieval.where, agg, ctx, principalOpts(retrieval.where)),
   );
   const orderBy =
     retrieval.sort.length > 0

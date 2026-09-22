@@ -52,16 +52,18 @@ async function appFs(source: string): Promise<string> {
 describe("feliz create forms", () => {
   it("emits a string-typed form record + empty value", async () => {
     const app = await appFs(CREATE);
-    expect(app).toContain("type ProductForm =\n  {\n    name: string\n    price: string\n  }");
-    expect(app).toContain("let emptyProductForm : ProductForm =");
+    expect(app).toContain(
+      "type ProductCreateForm =\n  {\n    name: string\n    price: string\n  }",
+    );
+    expect(app).toContain("let emptyProductCreateForm : ProductCreateForm =");
     // The Model carries the in-progress form.
-    expect(app).toContain("ProductForm: ProductForm");
+    expect(app).toContain("ProductCreateForm: ProductCreateForm");
   });
 
   it("emits Thoth encoders lifting string fields to wire types", async () => {
     const app = await appFs(CREATE);
     expect(app).toContain("module Encoders =");
-    expect(app).toContain("let productForm (form: ProductForm) : JsonValue =");
+    expect(app).toContain("let productCreateForm (form: ProductCreateForm) : JsonValue =");
     expect(app).toContain('"name", Encode.string form.name');
     // money lifts the string with `decimal` — Thoth's `Encode.decimal` renders
     // `value.ToString()`, i.e. a JSON STRING, which is the money wire (RS-12).
@@ -119,9 +121,9 @@ describe("feliz create forms", () => {
     // full aggregate — the Api fn returns the id `string` so the success handler
     // can route to the new record's detail page.
     expect(app).toContain(
-      "let createProduct (form: ProductForm) : Async<Result<string, string>> =",
+      "let createProduct (form: ProductCreateForm) : Async<Result<string, string>> =",
     );
-    expect(app).toContain("let body = Encode.toString 0 (Encoders.productForm form)");
+    expect(app).toContain("let body = Encode.toString 0 (Encoders.productCreateForm form)");
     expect(app).toContain("|> Http.method POST");
     expect(app).toContain("|> Http.content (BodyContent.Text body)");
     expect(app).toContain('|> Http.header (Headers.contentType "application/json")');
@@ -133,9 +135,9 @@ describe("feliz create forms", () => {
 
   it("wires per-field Set Msgs + Submit + Created", async () => {
     const app = await appFs(CREATE);
-    expect(app).toContain("| SetProductFormName of string");
-    expect(app).toContain("| SetProductFormPrice of string");
-    expect(app).toContain("| SubmitProductForm");
+    expect(app).toContain("| SetProductCreateFormName of string");
+    expect(app).toContain("| SetProductCreateFormPrice of string");
+    expect(app).toContain("| SubmitProductCreateForm");
     // Created carries the new record's id (from the `{ id }` response).
     expect(app).toContain("| ProductCreated of Result<string, string>");
   });
@@ -143,15 +145,15 @@ describe("feliz create forms", () => {
   it("wires the update arms (setters, submit Cmd, created → detail navigate)", async () => {
     const app = await appFs(CREATE);
     expect(app).toContain(
-      "  | SetProductFormName v -> { model with ProductForm = { model.ProductForm with name = v } }, Cmd.none",
+      "  | SetProductCreateFormName v -> { model with ProductCreateForm = { model.ProductCreateForm with name = v } }, Cmd.none",
     );
     expect(app).toContain(
-      "  | SubmitProductForm -> model, Cmd.OfAsync.perform Api.createProduct model.ProductForm ProductCreated",
+      "  | SubmitProductCreateForm -> model, Cmd.OfAsync.perform Api.createProduct model.ProductCreateForm ProductCreated",
     );
     // On success, reset the form and route to the NEW record's detail page
     // (`/products/<id>`) using the id the create resolved.
     expect(app).toContain(
-      '  | ProductCreated (Ok created) -> { model with ProductForm = emptyProductForm }, Cmd.navigatePath("products", created)',
+      '  | ProductCreated (Ok created) -> { model with ProductCreateForm = emptyProductCreateForm }, Cmd.navigatePath("products", created)',
     );
     expect(app).toContain("  | ProductCreated (Error _) -> model, Cmd.none");
   });
@@ -163,20 +165,20 @@ describe("feliz create forms", () => {
     // the a11y aria-invalid/aria-describedby props follow the onBlur (asserted
     // below), so this is a PREFIX match up to and including the onBlur.
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-new-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.ProductForm.name; prop.onChange (fun (v: string) -> dispatch (SetProductFormName v)); prop.onBlur (fun _ -> dispatch (TouchProductForm "name"))',
+      'Html.input [ prop.custom("data-testid", "products-new-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.ProductCreateForm.name; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormName v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "name"))',
     );
     // A `money` field → a `type: number` input (browser-enforced numeric entry).
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-new-input-price"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "price"; prop.value model.ProductForm.price; prop.onChange (fun (v: string) -> dispatch (SetProductFormPrice v)); prop.onBlur (fun _ -> dispatch (TouchProductForm "price"))',
+      'Html.input [ prop.custom("data-testid", "products-new-input-price"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "price"; prop.value model.ProductCreateForm.price; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormPrice v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "price"))',
     );
     // a11y: each validated input wires aria-invalid (touched && error) +
     // aria-describedby to its error element.
-    expect(app).toContain('prop.ariaDescribedBy "ProductForm-name-error"');
-    expect(app).toContain('prop.ariaDescribedBy "ProductForm-price-error"');
+    expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-name-error"');
+    expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-price-error"');
     // The submit is disabled until the form validates (both fields non-empty);
     // it carries the `<plural>-new-submit` testid the page object clicks.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.productFormValid model.ProductForm)); prop.onClick (fun _ -> dispatch SubmitProductForm); prop.text "Create Product" ]',
+      'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.productCreateFormValid model.ProductCreateForm)); prop.onClick (fun _ -> dispatch SubmitProductCreateForm); prop.text "Create Product" ]',
     );
     // The form container carries the New-page root testid the page object waits for.
     expect(app).toContain('Html.div [ prop.custom("data-testid", "products-new"); prop.className');
@@ -188,7 +190,7 @@ describe("feliz create forms", () => {
   it("emits a Validation module — every field must be non-empty to submit", async () => {
     const app = await appFs(CREATE);
     expect(app).toContain("module Validation =");
-    expect(app).toContain("  let productFormValid (form: ProductForm) : bool =");
+    expect(app).toContain("  let productCreateFormValid (form: ProductCreateForm) : bool =");
     // `price` is numeric (money → fractional), so beyond non-emptiness its text
     // must also PARSE before the encoder's `decimal` conversion runs (M-T1.22).
     expect(app).toContain(
@@ -222,12 +224,12 @@ describe("feliz create forms", () => {
       }
     `);
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-new-input-inStock"); prop.className "checkbox"; prop.type\'.checkbox; prop.isChecked (model.ProductForm.inStock = "true"); prop.onChange (fun (v: bool) -> dispatch (SetProductFormInStock (if v then "true" else "false"))) ]',
+      'Html.input [ prop.custom("data-testid", "products-new-input-inStock"); prop.className "checkbox"; prop.type\'.checkbox; prop.isChecked (model.ProductCreateForm.inStock = "true"); prop.onChange (fun (v: bool) -> dispatch (SetProductCreateFormInStock (if v then "true" else "false"))) ]',
     );
     // The checkbox is EXCLUDED from validation — a bool is never "unfilled"
     // (unchecked = a legitimate false), so only the required text field guards.
     expect(app).toContain(
-      "  let productFormValid (form: ProductForm) : bool =\n    not (System.String.IsNullOrWhiteSpace form.name)",
+      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    not (System.String.IsNullOrWhiteSpace form.name)",
     );
     expect(app).not.toContain("form.inStock)");
   });
@@ -272,9 +274,9 @@ describe("feliz create forms", () => {
     // by the target's `display` derived; the option value is the target `id`.
     // (Prefix + tail: the a11y aria props sit between the onBlur and children.)
     expect(app).toContain(
-      'Html.select [ prop.custom("data-testid", "orders-new-input-customer"); prop.className "select select-bordered w-full"; prop.value model.OrderForm.customer; prop.onChange (fun (v: string) -> dispatch (SetOrderFormCustomer v)); prop.onBlur (fun _ -> dispatch (TouchOrderForm "customer"))',
+      'Html.select [ prop.custom("data-testid", "orders-new-input-customer"); prop.className "select select-bordered w-full"; prop.value model.OrderCreateForm.customer; prop.onChange (fun (v: string) -> dispatch (SetOrderCreateFormCustomer v)); prop.onBlur (fun _ -> dispatch (TouchOrderCreateForm "customer"))',
     );
-    expect(app).toContain('prop.ariaDescribedBy "OrderForm-customer-error"');
+    expect(app).toContain('prop.ariaDescribedBy "OrderCreateForm-customer-error"');
     expect(app).toContain(
       'prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions model.AllCustomers (fun x -> x.id) (fun x -> x.display)) ]',
     );
@@ -339,7 +341,7 @@ describe("feliz create forms", () => {
     // parse term (its encoder's `int` conversion throws on unparseable text),
     // while the optional TEXT `note` contributes nothing at all (M-T1.22).
     expect(app).toContain(
-      "  let productFormValid (form: ProductForm) : bool =\n    not (System.String.IsNullOrWhiteSpace form.name) && isWholeText form.rank",
+      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    not (System.String.IsNullOrWhiteSpace form.name) && isWholeText form.rank",
     );
     expect(app).not.toContain("IsNullOrWhiteSpace form.note");
     expect(app).not.toContain("IsNullOrWhiteSpace form.rank");
@@ -384,9 +386,9 @@ describe("feliz create forms", () => {
     // Required enum → a select of all values, NO blank option.  (Prefix + tail:
     // the a11y aria props sit between the onBlur and children.)
     expect(app).toContain(
-      'Html.select [ prop.custom("data-testid", "products-new-input-status"); prop.className "select select-bordered w-full"; prop.value model.ProductForm.status; prop.onChange (fun (v: string) -> dispatch (SetProductFormStatus v)); prop.onBlur (fun _ -> dispatch (TouchProductForm "status"))',
+      'Html.select [ prop.custom("data-testid", "products-new-input-status"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.status; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormStatus v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "status"))',
     );
-    expect(app).toContain('prop.ariaDescribedBy "ProductForm-status-error"');
+    expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-status-error"');
     expect(app).toContain(
       'prop.children [ Html.option [ prop.value "active"; prop.text "active" ]; Html.option [ prop.value "inactive"; prop.text "inactive" ]; Html.option [ prop.value "archived"; prop.text "archived" ] ] ]',
     );
@@ -396,7 +398,7 @@ describe("feliz create forms", () => {
     expect(app).toContain("IsNullOrWhiteSpace form.status");
     // Optional enum → a LEADING blank option, starts "", encodes null, exempt.
     expect(app).toContain(
-      'Html.select [ prop.custom("data-testid", "products-new-input-tier"); prop.className "select select-bordered w-full"; prop.value model.ProductForm.tier; prop.onChange (fun (v: string) -> dispatch (SetProductFormTier v)); prop.children [ Html.option [ prop.value ""; prop.text "" ]; Html.option [ prop.value "free"; prop.text "free" ]; Html.option [ prop.value "pro"; prop.text "pro" ] ] ]',
+      'Html.select [ prop.custom("data-testid", "products-new-input-tier"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.tier; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormTier v)); prop.children [ Html.option [ prop.value ""; prop.text "" ]; Html.option [ prop.value "free"; prop.text "free" ]; Html.option [ prop.value "pro"; prop.text "pro" ] ] ]',
     );
     expect(app).toContain('tier = ""');
     expect(app).toContain(
@@ -441,7 +443,7 @@ describe("feliz create forms", () => {
     `);
     // Flat form record — one string field per VO sub-field.
     expect(app).toContain(
-      "type OrderForm =\n  {\n    ref: string\n    addressStreet: string\n    addressCity: string\n    addressZip: string\n  }",
+      "type OrderCreateForm =\n  {\n    ref: string\n    addressStreet: string\n    addressCity: string\n    addressZip: string\n  }",
     );
     // Each VO sub-field renders its own input (bound to the flat field).
     expect(app).toContain('prop.placeholder "addressStreet"');
@@ -532,7 +534,7 @@ describe("feliz create forms", () => {
       }
     `);
     expect(app).not.toContain("module Encoders");
-    expect(app).not.toContain("ProductForm");
+    expect(app).not.toContain("ProductCreateForm");
     expect(app).not.toContain("Http.method POST");
   });
 

@@ -10,8 +10,9 @@
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { giveUp } from "../give-up.js";
 import { lambdaArg, namedArgValue, positionalArgs } from "../shared/args.js";
+import { cellRowAggregate, extendRowScope } from "../shared/row-field-type.js";
 import type { WalkContext } from "../walker-core.js";
-import { emitExpr, extendLambdaParams, propagateChildFlags, walk } from "../walker-core.js";
+import { emitExpr, propagateChildFlags, walk } from "../walker-core.js";
 
 /** `For { each: <coll>, empty?: <markup>, <item> => <markup> }`.
  *
@@ -72,11 +73,22 @@ export function emitFor(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth
 
   // Walk the per-item markup with the item param bound to the emitted
   // iteration variable (its own name — the target spells the loop
-  // binding identically).
-  const bodyCtx: WalkContext = {
-    ...ctx,
-    lambdaParams: extendLambdaParams(ctx, itemVar, itemVar),
-  };
+  // binding identically) AND with the aggregate that item IS recorded on
+  // `listRowAggregates`.
+  //
+  // The second half is `extendRowScope`, the same scope opener `Table` and
+  // `DataGrid` cells use: `For` is the third row-rendering primitive and it
+  // was the one left out, so every resolution built on the row-aggregate map
+  // (`apiReadMemberType` → `IdLink`'s optional guard; the op-form refusal's
+  // reason) answered "unknown" for a `For` item.  `cellRowAggregate` reads the
+  // enclosing `QueryView`'s recording through both the bare-ref and the
+  // server-paged `rows.items` spellings, exactly as the cell path does.
+  const bodyCtx: WalkContext = extendRowScope(
+    ctx,
+    itemVar,
+    itemVar,
+    cellRowAggregate(collArg, ctx),
+  );
   const body = walk(itemLam.body, bodyCtx, depth + 1);
   propagateChildFlags(ctx, bodyCtx);
 

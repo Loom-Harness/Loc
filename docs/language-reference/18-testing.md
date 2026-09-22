@@ -166,9 +166,9 @@ describe("Sales (integration)", () => {
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 
-`test e2e name=STRING 'against' deployable=[Deployable] ('verifies' TraceId)? { … }` is a system-level test (declared in the `system` body, not inside an aggregate) that drives a deployment. The body talks to the deployable through a **magic dispatcher** — `api.<aggregate>.<verb>(…)` against a backend, `ui.<aggregate>.<verb>(…)` against a frontend — plus `let` and `expect`. Domain mutations and guards are rejected (`loom.e2e-unsupported-statement`); an e2e body resolves no domain names, so a bare enum value (`st: On` instead of `"On"`) is `loom.e2e-unresolved-ref` and an unknown function `loom.e2e-unresolved-call` (the conversions `money(…)`, `decimal(…)`, `string(…)`, `int(…)` are built in); an unknown aggregate / verb / workflow is caught against the deployable's hosted contexts (`loom.e2e-unknown-aggregate`, `loom.e2e-unknown-method` — which also covers a folded projection's `byKey` / `list`, `loom.e2e-unknown-workflow`).
+`test e2e name=STRING 'against' deployable=[Deployable] ('verifies' TraceId)? { … }` is a system-level test (declared in the `system` body, not inside an aggregate) that drives a deployment. The body talks to the deployable through a **magic dispatcher** — `api.<aggregate>.<verb>(…)` against a backend, `ui.<aggregate>.<verb>(…)` against a frontend — plus `let` and `expect`. Domain mutations and guards are rejected (`loom.e2e-unsupported-statement`); an e2e body resolves no domain names, so a bare enum value (`st: On` instead of `"On"`) is `loom.e2e-unresolved-ref` and an unknown function `loom.e2e-unresolved-call` (the conversions `money(…)`, `decimal(…)`, `string(…)`, `int(…)` are built in); an unknown aggregate / verb / workflow is caught against the deployable's hosted contexts (`loom.e2e-unknown-aggregate` — whose message names the deployable's workflows as well as its aggregates, `loom.e2e-unknown-method` — which also covers a folded projection's `byKey` / `list` and a workflow's three verbs, `loom.e2e-unknown-workflow`).
 
-The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus the reserved `api.workflows.<name>(…)` and `api.<projection>.byKey(…)` / `.list()`.
+The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus `api.<projection>.byKey(…)` / `.list()`, a workflow's own `api.<workflow>.run(…)` / `.instances()` / `.instance(key)`, and an explicit route's `api.<context>.<handler>(…)` (both below).
 
 #### Calling a routed handler
 
@@ -200,25 +200,6 @@ Arguments are **positional, in declared param order**. A param whose name is a `
 Two refusals guard the shape: a wrong argument count is `loom.e2e-routed-handler-arity` (arguments bind positionally, so a miscount shifts every later one), and a `GET`/`DELETE` route whose handler declares a param no `{token}` binds is `loom.e2e-routed-handler-bodyless-method` — the backends read that param from a request body those methods cannot carry, so the argument would silently vanish.
 
 An aggregate verb always wins: a routed handler is consulted only when the slug names no aggregate, or names one that does not have the verb. So a context whose name slugs like an aggregate changes no existing call.
-
-#### Running a workflow
-
-`api.workflows.<name>(body?)` posts the workflow's command route — `POST /api/workflows/<snake(name)>` on every backend — with the single argument as the request body (the facade `create`'s params by name). The route answers `204` with an empty body:
-
-```ddd
-test e2e "file a claim" against d {
-  let cargo = api.cargos.create({ code: "C1" })
-  api.workflows.claimHandling({ c: { cargo: cargo.id, description: "d", amount: "10.0000", priority: 1, note: "n" } })
-  let filed = api.claim.all()
-  expect(filed.total).toBe(1)
-}
-```
-
-```ts
-await __post(`${base}/api/workflows/claim_handling`, ({ c: ({ cargo: cargo.id, description: "d", amount: "10.0000", priority: 1, note: "n" }) }));
-```
-
-An **event-triggered** workflow (`create(e: SomeEvent) by …`) mounts no POST — it is started by the in-process dispatcher when its trigger event is emitted — so calling one is `loom.e2e-unrouted-verb`, gated on the same `emitsCommandRoute` predicate every backend's workflow emitter uses. Drive the operation that emits the event instead.
 
 Resolving the verb's NAME is only half the check. A second, phase-⑦ gate asks whether the route it lowers to is one **this same compilation emits**, resolving each verb against `deriveAggregateOperations` (`src/ir/util/api-surface.ts`) — the derivation all five backend route builders render from — and raising `loom.e2e-unrouted-verb` when it does not. This matters because several routes are conditional: `POST /api/<plural>` appears only for an aggregate with a canonical `create` (hand-written or `with crudish`), `DELETE /api/<plural>/{id}` only for an unnamed `destroy`, `GET /api/<plural>/{id}/history` only when `auditable`, and a find route only for a *declared* find. Until this gate landed, `api.products.create({…})` on a `create`-less aggregate compiled with `0 error(s), 0 warning(s)` and emitted a suite that POSTed to a route the same run had not mounted — `405 Method Not Allowed`, three failures out of three, from a model the compiler had just called clean. On the `ui` side the same code covers the page-object vocabulary: `create` (only where the scaffolded `New` page survives, i.e. the same create-surface gate), `getById`, and a public operation — a `ui.<agg>.<find>(…)` drives no page object.
 
@@ -259,6 +240,52 @@ describe("SalesSystem e2e", () => {
 ```
 
 > The api-e2e suite is emitted as a single vitest+fetch file regardless of backend platform (it talks HTTP, so it is target-language-neutral) — there is no per-backend xUnit/ExUnit api-e2e variant. Only the in-process `test` blocks diverge per backend.
+
+### Driving a workflow — `run` / `instances` / `instance`
+
+A `test e2e` body reaches the **orchestration tier** through the workflow's own name in the slug position. Three verbs, onto the three routes every backend already mounts (`POST /api/workflows/<snake>`, `GET …/instances`, `GET …/instances/{key}`):
+
+```ddd
+test e2e "the command create persists a saga row and the reactor folds it" against d {
+  let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+  api.fulfillment.run({ orderId: ord.id })
+
+  let running = api.fulfillment.instances()
+  expect(running.length).toBe(1)
+  let started = api.fulfillment.instance(ord)
+  expect(started.status).toBe("Pending")
+
+  // The reactor's fold, over the wire: `ship()` emits, `on(e: OrderShipped)`
+  // folds, and the SAME row reads back changed.
+  api.orders.ship(ord)
+  let shipped = api.fulfillment.instance(ord)
+  expect(shipped.status).toBe("Shipped")
+  expect(shipped.attempts).toBe(1)
+}
+```
+
+```ts
+// e2e/WorkflowCreateState.e2e.test.ts
+const ord = await __post(`${base}/api/orders`, ({ sku: "SKU-1", status: "Placed" }));
+await __post(`${base}/api/workflows/fulfillment`, ({ orderId: ord.id }));
+const running = await __get(`${base}/api/workflows/fulfillment/instances`);
+expect(running.length).toBe(1);
+const started = await __get(`${base}/api/workflows/fulfillment/instances/${ord.id}`);
+expect(started.status).toBe("Pending");
+```
+
+- `run(body?)` POSTs the workflow's **command** route; the single argument is the facade's `create` params by name, exactly like `api.<aggs>.create({…})`. It answers `204`, so bind it only if you want the empty body.
+- `instances()` lists the persisted correlation rows; `instance(key)` reads one by its **correlation key**. Both return the workflow's instance wire shape — the correlation field plus its state fields — which is what makes a folded saga's scalars assertable.
+- Like every other e2e accessor, a `let`-bound argument gets `.id` appended: `api.fulfillment.instance(ord)` reads `…/instances/${ord.id}`.
+- The slug is the workflow's name (`fulfillment` / `schedule_visit`); the emitted path is always `snake`. An **aggregate** slug wins a collision, so no existing call changes meaning.
+
+Both halves are route-contract checked (`loom.e2e-unrouted-verb`), because both routes are conditional: an **event-triggered** workflow is a reactor the in-process dispatcher starts and mounts no `POST`, so `.run()` on one is refused (drive the operation that emits its trigger event instead); a workflow with **no correlation field** persists no row, so `.instances()` / `.instance(key)` on one is refused. The two conditions are independent — a reactor still has readable instances, and a stateless command workflow still has a `run`.
+
+The **body and the read are checked too**, against the same inputs the backends build their DTOs from — `wf.params` for `<Wf>Request`, `instanceWireShape` for `<Wf>InstanceResponse`:
+
+- `api.<wf>.run({…})` — a key the facade does not declare is `loom.e2e-unknown-body-key`, and an omitted required parameter `loom.e2e-missing-required-field`. Note the asymmetry, which the two messages state: a **missing** key really does fail the schema (422), but an **extra** one does not — `<Wf>Request` is a plain object schema on every backend, so an unknown key is silently dropped and the POST still answers `204`. The body sends something the workflow never receives, and an assertion resting on it goes green having proved nothing. A parameter carrying an `= default` is still required on the wire: the default is applied in the body, after the schema has already run.
+- `let one = api.<wf>.instance(key)` — a read of a field the row does not carry is `loom.e2e-unknown-response-field`. Readable is the correlation field followed by the state fields, in declaration order. `instances()` is deliberately **not** judged: its binding is a JSON array, so a member on it (`running.length`) is an array member and not an instance field, exactly as an aggregate's `all()` is excluded for its paged envelope.
+
 
 ### Against a frontend — Playwright over page objects
 
@@ -320,9 +347,96 @@ A bare `expect <bool>` is rejected: every `expect` **must** end in an intrinsic 
 | `toHaveCount(n)` | 1 | locator | auto-retrying row/element count (ui) |
 | `toBeVisible()` | 0 | locator | element is visible (ui) |
 | `toBeSameInstant(iso)` | 1 | value | two ISO-8601 timestamps compared as instants (forgives `…00.0000000Z` vs `…00Z`); **`test e2e` only** — in a unit test it is rejected (*"'toBeSameInstant' compares wire timestamps and is only valid in a 'test e2e' block"*) |
-| `toThrow()` / `toThrow(<status>)` | 0–1 | value | the throw assertion (below) |
+| `toBeNull()` | 0 | value | the value is the language's one absence value (below) |
+| `toBeAbsent()` | 0 | value | the KEY is not in the payload; **`test e2e` only** (below) |
+| `toContain(x)` | 1 | value | collection membership or substring, by the subject's type (below) |
+| `toThrow()` / `toThrow(<status>)` / `toThrow(<kind>)` | 0–1 | value | the throw assertion (below) |
 
 Each `on: "locator"` matcher is **web-first**: against a UI it asserts on the live, auto-retrying Playwright locator rather than a snapshotted value — `expect(read.status).toHaveText("Confirmed")` lowers to `await expect(read.field("status")).toHaveText("Confirmed")`, and `expect(read.lines).toHaveCount(1)` to `await expect(read.linesRows()).toHaveCount(1)`. A `not.` prefix negates any `negatable` matcher (every matcher except `toThrow`). Arity is enforced by `checkMatcherArity`; `toThrow` is exempt (variable arity) and validated separately.
+
+### Absence — `toBeNull()` / `toBeAbsent()`
+
+Loom has **one** absence value. The wire has **two spellings of it**, and the
+five backends have genuinely disagreed about which they send — which is why
+`test/fixtures/corpus/absent-optional.ddd` exists. The pair lets a test pin the
+spelling deliberately:
+
+```ddd
+expect(read.estimate).toBeNull()      // present, explicitly null
+expect(read.estimate).toBeAbsent()    // the key is not in the payload at all
+```
+
+```ts
+// generated (api e2e) — the second is rewritten onto the RECEIVER, because a
+// value that has already evaluated to `undefined` cannot tell you whether its
+// key was there.
+expect(read.estimate).toBeNull();
+expect("estimate" in read).toBe(false);
+```
+
+What stops that from being backend-roulette is not the author's care but the
+**conformance gate**: every behavioural leg diffs its recording against the
+committed wire golden with `diffBodies`, which unions both key sets and raises
+a `key-set` divergence. The enforced contract today is **explicit null on all
+five backends** — [RS-35](../conformance-semantics.md) — so `toBeNull()`
+asserts the gated reality, and `toBeAbsent()` has **no passing subject on any
+backend**. It is deliberately *not* special-cased into passing: a matcher that
+says "this backend omitted the key" is how the next divergence gets caught.
+
+`toBeAbsent()` is **`test e2e` only** (`loom.unit-absent-invalid`). "The key is
+not in the payload" needs a payload to be about; a unit `test` asserts against
+an in-memory aggregate, where a declared field always exists — on three of the
+five backends (C# `int?`, Java `Integer`, an Elixir struct's `nil` default)
+in-process absence is not observable at all. Lowering it there could only
+degrade it to a null check — making it a silent synonym for `toBeNull()`, one
+name carrying two strengths of claim — or emit an assertion that can never
+pass. Use `toBeNull()` in a unit test; in-process, that is the whole of Loom's
+absence.
+
+Its subject must be a **field read** (`loom.absent-receiver-invalid`): the
+generated form needs an object and a key to look for.
+
+**Neither absence matcher is legal in a ui `test e2e` body**
+(`loom.e2e-ui-absence-invalid`) — the same ruling `loom.e2e-ui-throw-invalid`
+makes for `toThrow`, for the same reason. A ui assertion lowers onto
+`(await <row>.field("…").innerText())`, which is always a string: `toBeNull()`
+can never hold there, and `toBeAbsent()` is not a matcher the test runtime
+defines at all, so the emitted spec would fail to run before asserting
+anything. Assert what the page actually shows — `toHaveText("")` for an empty
+cell, `toBeVisible()` for a field that should or should not be there — or move
+the absence claim to a block targeting a backend deployable.
+
+`toContain` is deliberately NOT swept up by that refusal: a substring of the
+text the page rendered is a real, useful claim, so it stays legal in all three
+tiers.
+
+### `toContain()` — membership or substring
+
+One matcher, two lowerings, chosen by the **subject's type**:
+
+```ddd
+expect(read.tags).toContain("urgent")   // collection membership
+expect(read.title).toContain("Ship")    // substring
+```
+
+```elixir
+# generated (elixir) — the one backend where the two lowerings are genuinely
+# two different calls:
+assert "urgent" in read.tags
+assert String.contains?(read.title, "Ship")
+```
+
+Most targets spell both the same way — `in` in Python, `.contains(...)` in
+Java, `Contain` in AwesomeAssertions, and vitest's own `toContain` dispatches
+at run time — so only Elixir has to branch, and it *must*: `in` on a binary
+raises `Protocol.UndefinedError` and `String.contains?/2` on a list raises
+`FunctionClauseError`, so the wrong choice crashes the generated suite rather
+than returning a wrong answer. The dispatch reads the subject's resolved type
+off the IR, which phase ⑤ has already fully resolved.
+
+Any other subject type is refused at the author's own source span
+(`loom.contain-receiver-invalid`) — there is no third lowering, and without the
+refusal each backend would invent its own answer.
 
 ### `toThrow()` — the throw assertion
 
@@ -346,6 +460,60 @@ expect(read.status).toHaveText("Draft")
 ```
 
 — or move the status assertion to a block written `against <backend-deployable>`, where a real response carries one.
+
+#### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
+
+A bare `toThrow()` asserts only that *something* threw, and the domain floor has more than one rung. The 2026-09-13 testability audit found out the hard way: it deleted a `precondition` from a generated aggregate as a mutation probe and **the test stayed green**, because a guarded collection `invariant` threw in its place. A test named *"a fresh work order cannot be completed"* went on claiming something it no longer proved (F11).
+
+The single-argument **kind** form pins the rung. It is legal only in a unit `test`.
+
+```ddd
+test "a fresh work order cannot be completed" {
+  let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+  expect(wo.complete()).toThrow(precondition)
+}
+```
+
+`precondition` and `invariant` are **keywords, not values** — they parse through a dedicated grammar slot and are legal only in this one argument position. Anywhere else (`expect(x).toBe(invariant)`, `wo.complete(precondition)`) the word would be silently dropped in lowering, so `loom.throw-kind-outside-tothrow` rejects it at the source span. `requires` is deliberately **not** a rung here: it is an authorization gate (403) needing a principal the unit tier has no vocabulary for.
+
+**Three refusals bound the form**, each for a different reason:
+
+| Code | When | Why |
+|---|---|---|
+| `loom.e2e-throw-kind-invalid` | in a `test e2e` body | Over HTTP both rungs answer **422**, and their only discriminator is the RFC 7807 `detail` sentence — which an authored `message "…"` on the rule overwrites. One matcher meaning two strengths of claim is the defect [#2959](https://github.com/Loom-Harness/Loc/pull/2959) fixed on the ui side. The e2e body keeps `toThrow(<status>)`. |
+| `loom.throw-kind-integration-unsupported` | in a context-integration `test` | That rung renders through each backend's separate `integration-tests.ts`, which carries no rung — the argument would be dropped and the test would quietly assert only that something threw. |
+| `loom.throw-kind-custom-message` | the rule under test carries `message "…"` | The node / python / java / .NET domain layers discriminate on the derived `"Precondition failed: "` / `"Invariant violated: "` prefix, and an authored message **replaces** that string. Elixir alone is structural — but one unit `test` is emitted for all five backends. Drop the `message`, or assert the bare `toThrow()` and pin the wording in a `test e2e` block, where the message is the RFC 7807 `detail`. |
+
+::: tabs backend
+== node
+```ts
+expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+```
+== python
+```python
+with pytest.raises(Exception, match=r"^Precondition failed: "):
+    wo.complete()
+```
+== java
+```java
+DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
+assertTrue(__thrown1.getMessage().startsWith("Precondition failed: "),
+    "expected a precondition to reject this call, but it threw: " + __thrown1.getMessage());
+```
+== dotnet
+```csharp
+var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
+Assert.StartsWith("Precondition failed: ", __thrown1.Message);
+```
+== elixir
+```elixir
+# structural, not textual: GuardError is `defexception [:message, :kind]`
+__thrown1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
+assert __thrown1.kind == :precondition
+```
+::: end
+
+**One backend asymmetry**, worth knowing before you reach for it. On **elixir**, `toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying its reason. The vanilla pure op core runs preconditions and an in-memory struct update; aggregate invariants live in the Ecto changeset (`validate_invariants/1`), which no in-memory op call reaches. `toThrow(invariant)` over a `create` or a value-object construction runs normally there — both go through the changeset.
 
 ::: tabs backend
 == node

@@ -6,12 +6,27 @@ import type {
   ExprIR,
   TestIR,
   TestStmtIR,
+  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
+
+/** C# leaves for the shared test-literal coercion rule
+ *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
+ *  `datetime` parses round-trip so the `Z` offset is honoured. */
+const CS_TEST_LITERAL: TestLiteralTarget = {
+  id: (rendered, targetName, valueType) =>
+    valueType === "guid"
+      ? `new ${targetName}Id(Guid.Parse(${rendered}))`
+      : `new ${targetName}Id(${rendered})`,
+  datetime: (rendered) =>
+    `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
+};
 
 // A currentUser-gated operation's method signature picks up a trailing
 // `User currentUser` parameter; a domain `test` block has no auth context, so
@@ -136,8 +151,8 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
   out.push(`[Fact(DisplayName = ${JSON.stringify(t.name)})]`);
   out.push(`public void ${methodName}()`);
   out.push(`{`);
-  for (const s of t.statements) {
-    const rendered = renderTestStmt(s, ctx);
+  for (const [i, s] of t.statements.entries()) {
+    const rendered = renderTestStmt(s, ctx, i);
     if (rendered) out.push(...rendered.split("\n"));
   }
   out.push(`}`);
@@ -166,24 +181,8 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
  *  string-literal types need a cast: ids (wrap in the Id struct; a `guid`
  *  value type wraps the string in `Guid.Parse` first) and `datetime`
  *  (`DateTime.Parse`, round-trip kind so the `Z` offset is honoured). */
-function coerceLiteralToCsType(
-  type: { kind: string; name?: string; targetName?: string; valueType?: string },
-  v: ExprIR,
-  rendered: string,
-): string {
-  // Only a raw STRING literal needs coercion — `now` renders as `DateTime.UtcNow`
-  // (already the target type), a ref is already typed, etc.  Wrapping those in
-  // `DateTime.Parse(...)` / an Id ctor would break them.
-  if (v.kind !== "literal" || v.lit !== "string") return rendered;
-  if (type.kind === "id" && type.targetName) {
-    return type.valueType === "guid"
-      ? `new ${type.targetName}Id(Guid.Parse(${rendered}))`
-      : `new ${type.targetName}Id(${rendered})`;
-  }
-  if (type.kind === "primitive" && type.name === "datetime") {
-    return `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`;
-  }
-  return rendered;
+function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: string): string {
+  return coerceTestLiteral(type, v, rendered, CS_TEST_LITERAL);
 }
 
 export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | null {
@@ -241,6 +240,19 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
     toBeGreaterThanOrEqual: "BeGreaterThanOrEqualTo",
     toBeLessThan: "BeLessThan",
     toBeLessThanOrEqual: "BeLessThanOrEqualTo",
+    // Absence: `int?` holding nothing is `null` in C#, so the wire's explicit
+    // null and the language's one absence value coincide here.  (`toBeAbsent`
+    // never reaches this emitter — it is e2e-only: a C# `int?` has no "absent"
+    // form to observe, only `null`.  `checkExpectMatcher` refuses it in a unit
+    // `test`.)
+    toBeNull: "BeNull",
+    // Containment: AwesomeAssertions resolves BOTH receiver kinds under one
+    // verb — `Contain` is defined on `GenericCollectionAssertions<T>` (element
+    // membership) and on `StringAssertions` (substring).  The overload the
+    // compiler picks is decided by the subject's static type, which is the same
+    // dispatch `checkContainReceiver` validated, so the two lowerings the DSL
+    // promises are one line of C# here.
+    toContain: "Contain",
   };
   const verb = VERBS[expr.member];
   if (!verb) return null;
@@ -248,7 +260,13 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   return `${actual}.Should().${method}(${arg});`;
 }
 
-function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
+function renderTestStmt(
+  s: TestStmtIR,
+  ctx: BoundedContextIR,
+  /** Position in the enclosing test body — only used to mint a collision-free
+   *  local for a `toThrow(<kind>)` assertion's bound exception. */
+  index = 0,
+): string {
   // See `validateAggregateTestBodies` in src/ir/validate/validate.ts — by the
   // time we reach the generator, only `expect` / `expect-throws` /
   // `let` / `expression` / pure-function `call` survive.
@@ -267,7 +285,21 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     // binding a void call to `var` is a CS0815 error, so never do it for calls.
     const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
     const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    return `    Assert.Throws<DomainException>(() => { ${body} });`;
+    const thrown = `Assert.Throws<DomainException>(() => { ${body} })`;
+    // `toThrow(<kind>)` — pin WHICH rung rejected.  `Assert.Throws` returns the
+    // caught exception, so the rung is one local plus `Assert.StartsWith` over
+    // the derived message prefix.  The local carries the statement index so
+    // two throw assertions in one `[Fact]` don't collide.
+    if (s.throwKind) {
+      const local = `__thrown${index}`;
+      return [
+        `    var ${local} = ${thrown};`,
+        `    Assert.StartsWith(${JSON.stringify(
+          THROW_KIND_PREFIX[s.throwKind],
+        )}, ${local}.Message);`,
+      ].join("\n");
+    }
+    return `    ${thrown};`;
   }
   if (s.kind === "let") {
     const expr = renderTestExpr(s.expr, ctx);

@@ -23,8 +23,43 @@
 // and adopted by the other two.
 
 import { diagMessage } from "../../diagnostics/messages.js";
-import type { AggregateIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  ParamIR,
+  TypeIR,
+  ValueObjectIR,
+} from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
+
+/** The TS spelling of the `File` primitive's wire shape.
+ *
+ *  Not an import and not a named type: `File` rides the wire as a fixed
+ *  four-field object, spelled INLINE by `api-module.ts`'s `REQUEST_PRIMITIVE` /
+ *  `RESPONSE_PRIMITIVE` (`z.object({ url, key, contentType, size })`) — there is
+ *  no emitted `FileRef` alias anywhere to import.  Spelling it structurally here
+ *  keeps the prop assignable from any `<Agg>Response["<field>"]` without minting
+ *  a name the rest of the frontend does not use.  The global DOM `File` is a
+ *  different type entirely and must NOT be what a `component Doc(f: File)`
+ *  binds — that mistake is exactly what `unknown` used to hide on Angular. */
+export const FILE_REF_TS = "{ url: string; key: string; contentType: string; size: number }";
+
+/** Index every declared value object by name, across every bounded context the
+ *  caller carries.
+ *
+ *  A `component Ship(at: Address)` prop needs `Address`'s FIELDS, and the
+ *  frontends carry contexts keyed per aggregate (`bcByAggregate`), so the same
+ *  context appears under several keys — dedupe is by name, first match wins,
+ *  the same rule `walker-core.ts`'s `declaredValueObject` already applies. */
+export function valueObjectIndex(
+  bcByAggregate: ReadonlyMap<string, BoundedContextIR>,
+): Map<string, ValueObjectIR> {
+  const out = new Map<string, ValueObjectIR>();
+  for (const bc of bcByAggregate.values()) {
+    for (const vo of bc.valueObjects ?? []) if (!out.has(vo.name)) out.set(vo.name, vo);
+  }
+  return out;
+}
 
 /** INTERNAL FLOOR for a prop type with no TS spelling.
  *
@@ -56,6 +91,10 @@ export function componentPropTsType(
   t: TypeIR,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
   dtoImports: Map<string, string>,
+  /** Declared value objects by name — see {@link valueObjectIndex}.  Optional
+   *  so a caller with no VO in reach (a route-param list) need not build one;
+   *  an absent entry is an emit-time floor, not a silent `unknown`. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   switch (t.kind) {
     case "primitive":
@@ -72,6 +111,18 @@ export function componentPropTsType(
           return "string";
         case "json":
           return "unknown";
+        // `money` is the ONE primitive whose wire form and its in-memory form
+        // differ: a decimal STRING on the wire, re-parsed by `moneySchema` into
+        // a decimal.js `Decimal`.  A prop carries the parsed value (that is
+        // what `<Agg>Response["price"]` is after `z.infer`), so the prop type is
+        // `Decimal` and the file needs decimal.js in scope — requested through
+        // the SAME channel the shells already use for a money `state {}` field,
+        // a default import, so the two cannot both bind the name.
+        case "money":
+          dtoImports.set(MONEY_IMPORT_SENTINEL, MONEY_IMPORT_SENTINEL);
+          return "Decimal";
+        case "File":
+          return FILE_REF_TS;
         default:
           throw propTypeFloor(`primitive '${t.name}'`);
       }
@@ -85,13 +136,47 @@ export function componentPropTsType(
       return "string";
     case "enum":
       return "string";
+    // A value object has a wire DTO — but its emitted `<VO>Schema` lives inside
+    // the api module of whichever AGGREGATE happens to use it (`api/product.ts`
+    // for a `Money` reached through `Product.price`), and a VO no aggregate uses
+    // has no emitted schema at all.  So there is no import path a prop can name.
+    // Spell it STRUCTURALLY instead, from the same `vo.fields` list the schema
+    // is built from: TypeScript is structural, so the result is assignable from
+    // `z.infer<typeof MoneySchema>` in both directions and needs no emission
+    // home of its own.
+    case "valueobject": {
+      const vo = valueObjects.get(t.name);
+      if (!vo) throw propTypeFloor(`value object '${t.name}'`);
+      const fields = vo.fields.map(
+        (f) =>
+          `${f.name}: ${componentPropTsType(f.type, aggregatesByName, dtoImports, valueObjects)}`,
+      );
+      return fields.length > 0 ? `{ ${fields.join("; ")} }` : "Record<string, never>";
+    }
     case "array":
-      return `${componentPropTsType(t.element, aggregatesByName, dtoImports)}[]`;
+      return `${componentPropTsType(t.element, aggregatesByName, dtoImports, valueObjects)}[]`;
     case "optional":
-      return `${componentPropTsType(t.inner, aggregatesByName, dtoImports)} | undefined`;
+      return `${componentPropTsType(t.inner, aggregatesByName, dtoImports, valueObjects)} | undefined`;
     default:
       throw propTypeFloor(`type kind '${t.kind}'`);
   }
+}
+
+/** Key a prop-type walk writes into `dtoImports` when it spelled a `Decimal`.
+ *
+ *  Not a real import line: decimal.js is bound by a DEFAULT import
+ *  (`import Decimal from "decimal.js"`), which every shell already emits for a
+ *  money `state {}` field, so adding a second `import type { Decimal }` here
+ *  would bind the same name twice (TS2300).  The shells read this sentinel off
+ *  the map instead and fold it into the one line they already own; the
+ *  `dtoImports` serializers skip it.  See {@link takeMoneyPropImport}. */
+export const MONEY_IMPORT_SENTINEL = "\u0000decimal";
+
+/** Drain the money sentinel from a prop-type walk's import sink: true when some
+ *  prop typed as `Decimal`, and the entry removed so the caller's
+ *  `import type { … }` serialization never sees it. */
+export function takeMoneyPropImport(dtoImports: Map<string, string>): boolean {
+  return dtoImports.delete(MONEY_IMPORT_SENTINEL);
 }
 
 /**
@@ -108,6 +193,7 @@ export function paramPropTsType(
   p: ParamIR,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
   dtoImports: Map<string, string>,
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const t = p.type;
   const action =
@@ -118,8 +204,8 @@ export function paramPropTsType(
         : undefined;
   if (action) {
     return action.arg
-      ? `(arg: ${componentPropTsType(action.arg, aggregatesByName, dtoImports)}) => void`
+      ? `(arg: ${componentPropTsType(action.arg, aggregatesByName, dtoImports, valueObjects)}) => void`
       : "() => void";
   }
-  return componentPropTsType(t, aggregatesByName, dtoImports);
+  return componentPropTsType(t, aggregatesByName, dtoImports, valueObjects);
 }

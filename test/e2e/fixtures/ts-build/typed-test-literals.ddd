@@ -1,0 +1,65 @@
+// Compile-gate fixture for F2 — an id / datetime LITERAL passed to an
+// operation parameter from inside a `test` block.
+//
+// The DSL lets an author write a bare string wherever the model declares
+// `<Agg> id` or `datetime`, but the generated domain method takes the STRONG
+// type there (`OwnerId` brand / `Date`).  Emitting the literal raw is invisible
+// to every behavioral tier — vitest does not typecheck — and only fails in the
+// generated project's own `tsc --noEmit`, which is what its `build` script
+// runs.  For `datetime` it is worse than cosmetic: the value STORED on the
+// aggregate is a `string` where the field is a `Date`.
+//
+// This fixture exists to make `npx tsc --noEmit` (which compiles
+// `domain/*.test.ts`, since the emitted tsconfig is `include: ["**/*.ts"]`)
+// reach BOTH literal kinds.  Before the fix it is 2 × TS2345.
+//
+// `create({ ... })` carries the same two kinds, so the fixture also pins the
+// create-input half of the shared coercion rule (`_test/arg-coercion.ts`).
+context Fulfilment {
+  aggregate Owner {
+    name: string
+  }
+
+  aggregate Widget {
+    code: string
+    ownerId: Owner id?
+    scheduledAt: datetime?
+
+    operation assign(owner: Owner id) { ownerId := owner }
+    operation schedule(at: datetime) { scheduledAt := at }
+    operation reassign(owner: Owner id, at: datetime) {
+      ownerId := owner
+      scheduledAt := at
+    }
+
+    test "an id literal reaches an operation parameter" {
+      let w = Widget.create({ code: "W1" })
+      w.assign("00000000-0000-0000-0000-000000000001")
+      expect(w.code).toBe("W1")
+    }
+
+    test "a datetime literal reaches an operation parameter" {
+      let w = Widget.create({ code: "W2" })
+      w.schedule("2026-01-01T00:00:00Z")
+      expect(w.code).toBe("W2")
+    }
+
+    test "both literal kinds reach one operation" {
+      let w = Widget.create({ code: "W3" })
+      w.reassign("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
+      expect(w.code).toBe("W3")
+    }
+
+    // The create-input half of the same rule — an id and a datetime literal in
+    // a `create({ ... })` object, which already coerced before this fixture and
+    // must keep doing so.
+    test "both literal kinds reach a create input" {
+      let w = Widget.create({
+        code: "W4",
+        ownerId: "00000000-0000-0000-0000-000000000003",
+        scheduledAt: "2026-03-03T08:00:00Z"
+      })
+      expect(w.code).toBe("W4")
+    }
+  }
+}

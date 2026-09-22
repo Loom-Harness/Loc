@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "tables": [
+    {
+      "name": "projects",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "projects",
+      "savingShape": "relational"
+    },
+    {
+      "name": "tasks",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "done",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false
+        },
+        {
+          "name": "project",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "project",
+          "refTable": "projects",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tasks_project_idx",
+          "table": "tasks",
+          "columns": [
+            "project"
+          ],
+          "unique": false
+        }
+      ],
+      "schema": "projects",
+      "savingShape": "relational"
+    }
+  ],
+  "lastVersion": "20260101500000",
+  "migrationHistory": [
+    {
+      "version": "20260101000000",
+      "name": "Initial"
+    }
+  ],
+  "versionBlock": 0
+}

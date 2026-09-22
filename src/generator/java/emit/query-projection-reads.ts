@@ -1,5 +1,6 @@
 import { forApiRead, wireFieldsFor } from "../../../ir/enrich/wire-projection.js";
 import type {
+  AggregateIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
@@ -18,6 +19,7 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
+import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-column.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -300,6 +302,7 @@ export function renderJavaQueryProjections(
 
   for (const proj of projections) {
     const source = proj.query!.source!;
+    const srcAgg = ctx.aggregates.find((a) => a.name === source);
     const findName = lowerFirst(proj.name);
     // A parameterised projection threads its parameters through all three
     // layers: the controller binds them from the query string
@@ -380,7 +383,7 @@ export function renderJavaQueryProjections(
       const keyCols = grouped.keys.map((k) => keyCol(k.expr));
       const groupCols = grouped.groupBy.map(keyCol);
       const aggCols = grouped.aggregates.map((a) =>
-        jpqlAggregate(a.aggregate, docTable !== undefined),
+        jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined),
       );
       // The projection's own `where` AND the source aggregate's capability
       // filters — the read reads the table directly, so nothing else applies
@@ -453,7 +456,7 @@ export function renderJavaQueryProjections(
       // SAME query runs NATIVE over its `(id, data, version)` table.
       const docTable = qpctx.documentTableOf(source);
       const cols = aggregates
-        .map((a) => jpqlAggregate(a.aggregate, docTable !== undefined))
+        .map((a) => jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined))
         .join(", ");
       // Same scoping as the grouped arm — see `aggregationScope`.
       const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
@@ -774,17 +777,23 @@ export function renderJavaQueryProjections(
 
 /** The JPQL aggregate call for one `select`.  `count` counts ROWS (no column);
  *  the rest take the aggregated column off the entity alias `e`. */
-function jpqlAggregate(agg: ProjectionAggregateIR, native = false): string {
+function jpqlAggregate(
+  agg: ProjectionAggregateIR,
+  src: AggregateIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+  native = false,
+): string {
   // `count(e)` counts the ENTITY; native SQL has no entity to name, so the
   // row count is `count(*)` there (M-T4.2 document arm).
   if (agg.op === "count" || !agg.arg) return native ? "count(*)" : "count(e)";
-  const arg = agg.arg;
-  if (arg.kind !== "member") {
-    throw new Error(
-      "internal: a whole-table aggregation argument must be a source column reference",
-    );
-  }
-  return `${agg.op}(e.${jid(arg.member)})`;
+  const col = aggregateArgColumn(agg.arg, src, ctx);
+  // A VALUE OBJECT is `@Embedded` with one `@AttributeOverride` per leaf, so in
+  // JPQL the leaf keeps its OBJECT PATH — `sum(e.amount.amount)`, which the
+  // provider resolves to the `amount_amount` column.  Native SQL (the document
+  // arm) has no entity, so there it is the flattened column name itself. */
+  return native
+    ? `${agg.op}(e.${sqlColumnName(col)})`
+    : `${agg.op}(e.${col.path.map(jid).join(".")})`;
 }
 
 /** Coerce one JPQL aggregate result to the row's declared wire type.

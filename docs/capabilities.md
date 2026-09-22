@@ -26,6 +26,28 @@ softDelete`. `tenantOwned` (tenant column + claim stamp + tenant read filter)
 additionally requires a system-level `tenancy by` declaration — see
 [`tenancy.md`](tenancy.md).
 
+`auditable` **requires a principal**, for the same reason: it stamps
+`createdBy`/`updatedBy` from `currentUser`, so the system needs a `user { ... }`
+block and the hosting deployable needs `auth: required`. Without them there is
+nothing to stamp from and the model is rejected
+(`loom.stamp-principal-without-auth`):
+
+```ddd
+system Shop {
+  user { id: string  email: string }                       // the principal …
+  subdomain S { context S {
+    aggregate Widget with crudish, auditable { code: string }
+    repository Widgets for Widget { }
+  } }
+  deployable api { platform: node  contexts: [S]  …  auth: required }   // … and auth
+}
+```
+
+`createdBy: User id` names that **principal**, not a domain aggregate — there is
+no `aggregate User` and none is needed. The two fields are `managed`, so they
+never appear as form inputs, and a scaffolded list/detail page renders them as
+read-only stamped values rather than as links to an aggregate detail route.
+
 `versioned` (optimistic concurrency) adds a single `version: int token = 1`
 field. Every backend's save path emits a guarded write
 (`UPDATE … WHERE id = $1 AND version = $2`, bumping `version`) and returns HTTP
@@ -43,6 +65,25 @@ aggregate Order with versioned { subject: string }
 
 The predicate `aggregateIsVersioned()` (`src/ir/util/versioned-capability.ts`) is
 the shared gate the five backend repositories and the migrations builder read.
+
+**Two guards, not one.** The `UPDATE … WHERE version = $2` above is *write-time*
+CAS: it catches an interleave between the load and the save **inside one
+request**. The guard that catches the user-visible lost update — two people open
+the same record, both save, the second overwrites — needs the version the client
+was *looking at*, and the client sends that as an `If-Match` entity-tag. The tag
+is **quoted** (RFC 9110 §8.8.3): `If-Match: "3"`, byte-identical to the `ETag`
+the read answered with. All five backends parse it; with the header absent each
+falls back to the version it just loaded, so the write-time guard still runs and
+the think-time one silently does not.
+
+The generated **React, Vue, Svelte and Angular** clients send it on the `update`
+operation, reading the version out of the by-id query cache — the row the user is
+looking at, under the key the mutation already invalidates on success. **Feliz
+and Flutter do not yet**: neither keeps the loaded record where the mutation can
+reach it, so a hand-written client on those targets should send the header
+itself. Which frontends send it is pinned by
+`test/generator/if-match-client-parity.test.ts`, and that the five backends
+accept the same grammar by `test/generator/if-match-grammar-parity.test.ts`.
 
 ## Surface
 

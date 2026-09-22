@@ -504,21 +504,72 @@ const REGISTERED: Ratchet[] = [
     // five COMPILE legs, which this fixture does carry, see each backend's
     // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
     // a per-backend projection read, move the block in and lower this by one.
+    // 22 -> 23 (M-T6.64, freight audit D3 — `vo-id-reference`).  Another NEW
+    // fixture, and the same shape of reason as `auth-id-claim`: its subject is
+    // a STATIC contract (node named `Ids.ShipId` in a file with zero imports;
+    // python branded `ShipId(...)` with none, on all three persistence shapes),
+    // so a type-checker is the only oracle and the compile legs already are it.
+    // Both wire shapes a `test e2e` block would boot — a required embedded
+    // value object and a `<VO>[]` collection — are already booted by
+    // `embedded` and `value-collections`.
     //
-    // 22 -> 21: `handler-triad` DRAINED.  Its entry said the cell stopped at
+    // Unlike `auth-id-claim` this one DOES have a cheaper drain in principle —
+    // a pure-domain `test` block, which rides every backend's unit tier and
+    // mints no golden, the way `numeric-operands` does — and it is BLOCKED by a
+    // further instance of the same defect class: a unit-test body that names a
+    // SECOND aggregate emits `Ship.create(...)` with no import of `Ship`,
+    // because every backend's test emitter scopes its subject import to the
+    // aggregate the test lives in, and a value object holding a CROSS-aggregate
+    // reference cannot be exercised from one aggregate alone.  Reproduced on
+    // node (TS2304), python (F821), dotnet (no `using …Domain.Ships`) and java
+    // (no import for `Ship`); elixir skips test lowering outright.  That is a
+    // five-emitter slice of its own, reported on #2864 rather than smuggled in
+    // here.  When it lands, this fixture gains its unit block and this entry
+    // drains one.
+    // 23 -> 22 on main (wave-3 row 3.3 DRAINED `projection-agg-filters`), then
+    // 22 -> 24 here (audit F-013 + F-014, the two elixir S1 compile defects).
+    // The arithmetic is against main's CURRENT value, exactly as main's own note
+    // on the drain insists: restoring a remembered literal (this branch had 25,
+    // computed off the pre-drain 23) is how a ratchet silently loses somebody
+    // else's lowering.  Both movements are real and both survive.
+    //
+    // The two RAISES are the same shape as the four above rather than new
+    // M-T9.13 debt: each new fixture's subject is a STATIC contract whose defect
+    // made `mix compile` FAIL on the emitted project, which is exactly what the
+    // corpus compile legs read.
+    //   * `enum-collection` — the enum × array crossing.  `field :skills,
+    //     {:array, Ecto.Enum, values: [...]}` →  `** (ArgumentError) invalid
+    //     type … for field :skills`.  Booting it would re-record a generic CRUD
+    //     round-trip and mint a golden over an enum-array JSON encoding no
+    //     cross-backend ruling has been asked for.
+    //   * `principal-read-filter` — an author-written `currentUser` predicate
+    //     in a `find`/`retrieval` `where`.  `** (Ecto.Query.CompileError)
+    //     unbound variable current_user in query`, then `error: undefined
+    //     variable "current_user"` once pinned.  This one IS a drain candidate,
+    //     but not yet: the row-level filter's runtime oracle needs the
+    //     principal's id to MATCH a seeded row's `technicianUserId`, and
+    //     `devClaimKind` carries `string` / `string[]` claims only — so a
+    //     booted leg would assert over the empty fail-closed result and prove
+    //     nothing about the filter.  Drain it (and lower this by one) when the
+    //     harness can seed a row owned by the authenticated principal.
+    //
+    // 24 -> 23: `handler-triad` DRAINED.  Its entry said the cell stopped at
     // the compile tier because the fixture is unseedable — `Order` declares no
     // create, so nothing can mint a row.  That was true and was not the
     // blocker: every route in its api is an explicit `route … -> Sales.<H>`
     // binding, and a `test e2e` body could not ADDRESS one at all
-    // (`api.<x>.<y>(…)` resolved to an aggregate or a projection only, so
-    // probing `api.sales.echo("hi")` answered `loom.e2e-unknown-aggregate`).
-    // With the `api.<context>.<handler>(…)` form landed, all five routes are
-    // driven on the EMPTY table — the two find-backed ones return a COUNT, so
-    // 0/false is a real answer rather than a seeded one — and the node leg
-    // records the golden.  The two routes the missing create genuinely does
-    // block are `getOrderById` / `cancelOrder`, now pinned in UNCALLED_PINS
-    // under `R.noCreateRoute` rather than costing the whole cell its tier.
-    max: 21,
+    // (`api.<x>.<y>(…)` resolved to an aggregate, a projection or a workflow
+    // only, so probing `api.sales.echo("hi")` answered
+    // `loom.e2e-unknown-aggregate`).  With the `api.<context>.<handler>(…)`
+    // form landed, all five routes are driven on the EMPTY table — the two
+    // find-backed ones return a COUNT, so 0/false is a real answer rather than
+    // a seeded one — and the node leg records the golden.  The two routes the
+    // missing create genuinely does block are `getOrderById` / `cancelOrder`,
+    // now pinned in UNCALLED_PINS under `R.noCreateRoute` rather than costing
+    // the whole cell its tier.  The arithmetic is against main's CURRENT 24,
+    // not this branch's remembered 22 — the pre-merge base was 22 and three
+    // raises landed under it.
+    max: 23,
   },
 ];
 

@@ -1004,7 +1004,7 @@ the conforming backends, and the fix that established it.
   > answered locally instead of reaching the producer.
   >
   > **And a fifth discovery, at the two read sites nobody had counted
-  > (2026-08-11, M-T6.31 / [#2520](https://github.com/lemmit/Loc/pull/2520)).**
+  > (2026-08-11, M-T6.31 / [#2520](https://github.com/Loom-Harness/Loc/pull/2520)).**
   > The four corrections above all concern the aggregate's own routes. Two more
   > by-KEY reads exist — the **projection show**
   > (`GET /api/projections/<p>/{key}`) and the **workflow-instance show**
@@ -1024,7 +1024,7 @@ the conforming backends, and the fix that established it.
   > the URLs each tier already requested.
   >
   > **And a sixth, at the last by-key read of all (2026-08-23, M-T6.39 /
-  > [#2645](https://github.com/lemmit/Loc/pull/2645)).** `GET /files/{key}` —
+  > [#2645](https://github.com/Loom-Harness/Loc/pull/2645)).** `GET /files/{key}` —
   > the root file-download route over a bound `objectStore` — was the one
   > absent-read site outside all five discoveries above, and it was wrong on
   > **all five backends at once**: node/python/elixir answered
@@ -1044,6 +1044,29 @@ the conforming backends, and the fix that established it.
   > through all of the above — **no golden reached the route**, and none could:
   > the routes are emitted only for a system with BOTH a `File` field and an
   > `objectStore`, and no corpus fixture had one until `file-download.ddd`.
+  >
+  > **And a seventh — this time on the OTHER side of the scope line
+  > (2026-09-21).** Everything above concerns a read addressed BY KEY, which is
+  > what this rule governs. The sibling class it scopes out — the DECLARED-FIND
+  > miss, whose `detail` is the bare `"not_found"` token because a predicate has
+  > no id to name — turned out to be split too, and the scope note above
+  > understated it by naming only the `option` carrier. A single-row `find` has
+  > FOUR carriers (`: T`, `: T?`, `: T option`, `: T envelope`), and **node
+  > spelled the token `"not found"` — with a space — on two of them**: `: T` and
+  > `: T envelope` refuse the miss in the REPOSITORY
+  > (`typescript/repository-find-builder.ts`), where the space-spelling lived,
+  > while `: T?` and `: T option` refuse it in the ROUTE (`routes-builder.ts`),
+  > which already answered the token. So it was a 4-vs-1 cross-backend split AND
+  > an intra-backend one — the same "one service, two answers" shape as node's
+  > by-id bypass above, one carrier axis further out. Fixed on node (the other
+  > four already answered the token); gated per SITE across all five backends x
+  > all four carriers by `test/conformance/find-miss-detail-parity.test.ts`,
+  > whose last assertion pins the by-id SENTENCE alongside, so the two classes
+  > cannot be collapsed into one answer by a later "tidy-up". It survived
+  > because no fixture declares a non-optional single-row find AND drives it to
+  > a miss: `envelope.ddd` was authored with a `test e2e` block and the block
+  > was withdrawn precisely because the golden would have frozen node's
+  > spelling as the answer key and reddened the other four legs.
 - **The real rule: don't hand-roll a 404.** This was not five backends inventing
   five strings. **Two agreed out of the box**, because on each the message comes
   from one shared producer — the repository's `getById`
@@ -1505,3 +1528,132 @@ nothing and the test passes vacuously.
   `examples/**` and `web/src/examples/**`), so this rule's coverage is
   entirely the dedicated fixture tests named above, not the corpus/behavioral
   legs.
+
+### RS-35 · An absent optional is `null` on the wire, never an omitted key
+- **Guarantee.** An optional scalar (`estimate: int?`) that a create body
+  **omitted** reads back as the key CARRYING an explicit null —
+  `{"estimate": null}` — on every backend and every persistence adapter. The
+  key is never dropped from the payload, so a client can tell "declared but
+  unset" from "not a field of this resource" without consulting the schema.
+- **Trigger.** `absent-optional.ddd`: an aggregate with an optional scalar and
+  a null-guard invariant over it (`estimate == null || estimate >= 0`), created
+  by a body that omits the field entirely, then read back by id and by list.
+- **Why the structural gate can't see it.** Both spellings satisfy the same
+  emitted schema — an `estimate?: number` member is happy with a null and
+  equally happy with nothing. Loom has **one** absence value; JSON has **two**
+  spellings of it; nothing in the OpenAPI diff chooses between them.
+- **Why this is documented rather than established.** Unlike most rules here,
+  RS-35 records a contract the tier **already enforced** — the M-T5.36 packet
+  that added the `toBeNull()` / `toBeAbsent()` matchers verified the gate
+  rather than building one. Three things have to hold, and all three were
+  checked at the code face:
+
+  1. **Normalization keeps the evidence.** `normalizeBody`
+     (`test/_helpers/response-diff.ts`) collapses volatile *values* to tokens
+     but never drops *keys*, and returns `null` unchanged. Absent and null stay
+     distinguishable through it — as its own comment puts it, "absence is
+     contract, so it must remain visible to `diffBodies`".
+  2. **The differ raises on it.** `diffBodies` unions both sides' key sets and
+     raises a **`key-set`** divergence when a key is on one side only;
+     `null-vs-empty` is a separate kind, covering `[]`/`{}` against null.
+  3. **The subject is actually compared.** `wire-golden/absent-optional.json`
+     records `"estimate": null` on both read bodies — the golden CARRIES the
+     optional key, rather than only the fields a non-conforming backend would
+     also have sent. (This is the "make the fixture able to falsify the rule"
+     test above: a golden that omitted `estimate` could not fail on it.)
+- **Reach, confirmed by derivation rather than assumed.** The recurring failure
+  shape in this repo is a check that never reaches the thing it names, so the
+  case-to-leg mapping was *derived*, not read: `requiredGoldenCases()` lists
+  **all seven wire-gated legs** — `run.mjs` (node), `run-mikroorm.mjs`,
+  `run-dotnet.mjs`, `run-dapper.mjs`, `run-java.mjs`, `run-python.mjs`,
+  `run-elixir.mjs` — as recorders of `absent-optional`, and none of the three
+  escape hatches covers it: `WIRE_WAIVERS` is empty, `GOLDEN_OPT_OUT` is empty,
+  and `BEHAVIOURAL_SKIP` is drained for every platform clause. Four sibling
+  optional-carrying cases (`embedded-optional`, `optional-reference`,
+  `optional-valueobject`, `union-find-absence`) derive the same seven legs.
+- **The shape of the guarantee, stated plainly.** Each leg is diffed against
+  the committed **node-oracle** golden, so what is enforced is "all five agree
+  with the reviewed recording", not "all five were compared to each other".
+  Moving the contract means rebaselining a checked-in file
+  (`LOOM_WIRE_UPDATE=1`), which lands as a visible diff a human approves —
+  deliberate, not silent.
+- **The DSL surface.** The absence **pair** (`docs/language.md`):
+  `expect(<read>.<field>).toBeNull()` asserts the spelling above;
+  `expect(<read>.<field>).toBeAbsent()` asserts the other one and therefore has
+  **no passing subject on any backend today**. That is intentional — it is not
+  special-cased into passing, so a backend that starts omitting a key turns a
+  test red instead of drifting silently. `toBeAbsent()` is e2e-only
+  (`loom.unit-absent-invalid`): in-process a declared field always exists.
+- **Conforms.** node, dotnet, java, python, elixir (all adapters).
+- **Provenance.** Contract enforced since #2577 / M-T9.11 (the per-PR wire
+  differential); named and written down by M-T5.36/P11b. Tier: **behavioral**.
+- **⚠ Registry entry pending — and why (a finding, not an oversight).** Step 1
+  of *Adding a rule* above says the `RS-N` entry goes in
+  `test/conformance/semantics-rules.ts`, and `semantics-rules.test.ts` is meant
+  to make a prose-only rule impossible. **It currently cannot be followed.**
+  That registry holds `RS-1 … RS-31` and its `ids are unique and gap-free`
+  assertion requires the numbers to be *contiguous* — but **RS-32, RS-33 and
+  RS-34 were merged into this document with no registry entries** (RS-32/RS-33
+  in #2704, RS-34 in the wave-2 packet 2.7). So the registry is three rules
+  behind the prose, and **any** new rule is now unlandable there: taking `RS-35`
+  fails the contiguity assertion, and taking `RS-32` would collide with a number
+  this document already uses, which the `id` contract ("never renumbered")
+  forbids.
+
+  The gate that was supposed to prevent prose-only rules only checks the
+  registry's *internal* consistency, never prose-vs-registry parity — which is
+  exactly how three rules slipped past it.
+
+  **Remedy, for whoever picks this up:** backfill registry entries for RS-32,
+  RS-33 and RS-34 from their prose above, then add RS-35, then regenerate the
+  mirror (`UPDATE_SEMANTICS_SPEC=1 npx vitest run
+  test/conformance/semantics-spec-sync.test.ts`). Authoring three other
+  packets' entries is a mission of its own — misstating another rule's
+  `conforms`/`targets` is worse than the gap — so P11b records the blocker here
+  rather than guessing at them. A prose-vs-registry parity assertion belongs in
+  the same change, or this recurs.
+### RS-36 · `.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form
+- **Guarantee.** `first` is declared `T` — **non-optional** — in
+  `src/util/collection-ops.ts`, so reading it from an empty receiver FAILS on
+  every target rather than yielding a value that lies about its own type.
+  `firstOrNull` is declared `T?` and is the TOTAL form: null/nil on empty,
+  never raising. The failure surfaces as the sanitized **500** RS-28 already
+  governs, not a domain-floor 422 — the request was valid and the MODEL's
+  assumption ("this collection has a first element") was not.
+- **Trigger.** Any `.first` whose receiver can be empty: `lines.first.sku`
+  after a `where` that matched nothing, a `find` result bound and read
+  positionally, a `derived` over an empty containment.
+- **The split when raised (`F2-EXPR-7`).** Three targets already failed at the
+  point of the mistake and two degraded silently: dotnet `.First()`
+  (`InvalidOperationException`), java `.get(0)` (`IndexOutOfBoundsException`)
+  and python `[0]` (`IndexError`) — against node `${recv}[0]` (`undefined`) and
+  elixir `List.first(${recv})` (`nil`). Elixir's `first` and `firstOrNull` were
+  **literally the same snippet**, so the non-optional form had no distinct
+  meaning at all, and on node a `string`-typed getter returned `undefined`,
+  which then shipped on the wire or died later somewhere that never mentions
+  the collection.
+- **Rejected: making `first` total (`T?`).** That contradicts the declared
+  signature and would break every `lines.first.sku` in the language for a case
+  authors can already express with `firstOrNull`. A failure AT the read is
+  diagnosable; a null that ships is not. (This is RS-34's argument reaching the
+  opposite conclusion, and for the stated reason: there the absent value has a
+  MEANING — no joined row — and here it does not.)
+- **Per-backend shape.** node emits an arrow IIFE guard rather than a bare
+  `[0]`, so the receiver is evaluated once and the message names the total
+  form: `((__c) => { if (__c.length === 0) throw new Error("'.first' on an
+  empty collection — use '.firstOrNull' for the total form"); return __c[0]; })(<recv>)`
+  (`src/generator/_expr/js-collection-ops.ts`, shared with the JS frontend
+  walkers — where a stdlib collection op in a page body is refused outright by
+  `loom.frontend-collection-op-unsupported`, so the guard is backend-reachable
+  only). elixir moves `first` to `hd/1` (`ArgumentError` on `[]`) and keeps
+  `List.first/1` for `firstOrNull` (`src/generator/elixir/render-expr.ts`).
+  dotnet / java / python are unchanged: their natural renderings already raise.
+- **Provenance.** Ruled as **D-FIRST-ON-EMPTY** (`docs/decisions.md`); raised as
+  ledger row `F2-EXPR-7`; built in wave C2 packet 2n. Tier: **generator**
+  (per-backend arm test,
+  `test/generator/collection-op-first-partial.test.ts`) — the edge itself is
+  pinned as prose in `src/util/collection-ops.ts` the way
+  `src/util/intrinsics.ts` pins scalar edge behaviour. The FRONTEND half is
+  vacuous by construction today (the page-body gate above); should that gate
+  ever widen, the frontends follow this same rule rather than degrading to
+  `undefined`.

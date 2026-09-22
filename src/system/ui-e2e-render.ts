@@ -352,6 +352,27 @@ function renderExplicitMatcher(expr: ExprIR, ctx: RenderCtx): string | null {
   const inner = expr.receiver.kind === "paren" ? expr.receiver.inner : expr.receiver;
 
   if (sig.on === "value") {
+    // Unreachable from a validated model: `checkExpectMatcher` rejects both
+    // absence matchers in a block that lowers to this renderer, with
+    // `loom.e2e-ui-absence-invalid` at the author's own source span.  This is
+    // the backstop for an IR built some other way, and it follows the same rule
+    // as the `expect-throws` throw above: fail generation loudly rather than
+    // emit an assertion that cannot pass.
+    //
+    // A ui value matcher lands on `(await <handle>.field("x").innerText())`,
+    // which is ALWAYS a string — so `toBeNull()` can never hold, and
+    // `toBeAbsent()` is not a matcher the test runtime defines at all (the
+    // emitted spec would TypeError before asserting anything).  `toContain` is
+    // fine here and deliberately not listed: a substring of the rendered text
+    // is a real claim.
+    if (expr.member === "toBeNull" || expr.member === "toBeAbsent") {
+      throw new Error(
+        `ui e2e: '${expr.member}()' is not runnable in a ui test body — its assertions ` +
+          "read rendered text off a locator, which is always a string. Assert what the " +
+          'page shows (toHaveText("") / toBeVisible()), or move the absence assertion to ' +
+          "a block targeting a backend deployable.",
+      );
+    }
     return `expect(${renderUIExpr(inner, ctx)}).${expr.member}(${args.join(", ")});`;
   }
 

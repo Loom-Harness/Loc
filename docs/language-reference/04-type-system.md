@@ -599,7 +599,7 @@ is the fixture the compile gates read).
 // db/repositories/order-repository.ts
 async audit(): Promise<Order> {
   const rootRows = await this.db.select().from(schema.orders).limit(1);
-  if (rootRows.length === 0) throw new AggregateNotFoundError("not found");
+  if (rootRows.length === 0) throw new AggregateNotFoundError("not_found");
   return Order._rehydrate({ … });
 }
 // http/order.routes.ts — 200 OrderResponse | 404, no wrapper

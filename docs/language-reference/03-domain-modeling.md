@@ -187,7 +187,7 @@ OpenApiSpex.schema(%{
 
 ## `entity` parts & `contains`
 
-An `entity` part is a child entity with its own identity that has no independent existence — it lives only as a member of its aggregate. You declare the part inline, then bind it with `contains <name>: <Part>[]` (collection), `<Part>` (single), or `<Part>?` (optional); a plain field typed with the part (`lines: Line[]`) is the same containment with the keyword inferred. A containment carries only a name, `[]` and `?` — the value-property modifiers (`provenanced`, an access modifier, `= default`, `sensitive(...)`, `check`) are rejected on it (`loom.entity-field-modifier`), and `[]?` is rejected because an empty collection already encodes absence (`loom.entity-field-optional-collection`). The part gets its own child table keyed back to the parent via a `<parent>_id` foreign key with `ON DELETE CASCADE` and an index. A part may carry its own `Property` / `check` / `invariant` / `derived` / `function` / nested `contains`; a part declared in one aggregate cannot be contained by another (`loom.cross-aggregate-entity-part`).
+An `entity` part is a child entity with its own identity that has no independent existence — it lives only as a member of its aggregate. You declare the part inline, then bind it with `contains <name>: <Part>[]` (collection), `<Part>` (single), or `<Part>?` (optional); a plain field typed with the part (`lines: Line[]`) is the same containment with the keyword inferred. A containment carries only a name, `[]` and `?` — the value-property modifiers (`provenanced`, an access modifier, `= default`, `sensitive(...)`, `check`) are rejected on it (`loom.entity-field-modifier`), and `[]?` is rejected because an empty collection already encodes absence (`loom.entity-field-optional-collection`). The part gets its own child table keyed back to the parent via a `<parent>_id` foreign key with `ON DELETE CASCADE` and an index. A part may carry its own `Property` / `check` / `invariant` / `derived` / `function` / nested `contains`; a part declared in one aggregate cannot be contained by another (`loom.cross-aggregate-entity-part`). Nesting must form a TREE: two parts that contain each other (directly or through a longer chain) describe a graph with no bottom, which can be neither hydrated nor persisted, so the cycle is refused at the `contains` clause that closes it and the loop is named (`loom.containment-cycle`, `X → Y → X`). Use `<Aggregate> id` for a reference where ownership is not what you mean.
 
 ```ddd
 context Orders {
@@ -353,7 +353,7 @@ Raising one (`emit OrderPlaced { … }`) and the `apply(e: OrderPlaced) { … }`
 
 ## `enum`
 
-An `enum` is a closed set of bare-identifier values, referenced bare in expressions and defaults (`status := Confirmed`). It emits as a native enum on every backend and as a Postgres `pgEnum` / string-converted column for the DB layer — members re-quoted into string literals (the source `USD` arrives at the compiler as the 3-char string `USD`; see [Lexical structure](01-lexical-structure.md) §Literals). Duplicate members are `loom.duplicate-enum-value`; an enum may not share a name with an aggregate (`loom.enum-shadows-root`).
+An `enum` is a closed set of bare-identifier values, referenced bare in expressions and defaults (`status := Confirmed`). It emits as a native enum on every backend and as a **`TEXT` column** for the DB layer on every backend (`mapTypeToColumn` maps `enum → text`; node keeps the literal union via `text(col, { enum: … })`, .NET via `HasConversion<string>()`, java via `@Enumerated(STRING)`, Ecto via `Ecto.Enum`) — members re-quoted into string literals (the source `USD` arrives at the compiler as the 3-char string `USD`; see [Lexical structure](01-lexical-structure.md) §Literals). Duplicate members are `loom.duplicate-enum-value`; an enum may not share a name with an aggregate (`loom.enum-shadows-root`).
 
 ```ddd
 context Orders {
@@ -372,8 +372,10 @@ export const Currency = { USD: "USD", EUR: "EUR", GBP: "GBP" } as const;
 export type Currency = "USD" | "EUR" | "GBP";
 ```
 ```ts
-// db/schema.ts — bare members re-quoted into a pgEnum
-export const currencyEnum = pgEnum("currency", ["USD", "EUR", "GBP"]);
+// db/schema.ts — bare members re-quoted into the column's value tuple
+export const currencyValues = ["USD", "EUR", "GBP"] as const;
+// …and the column itself, TEXT with the literal union kept on the TS side:
+//   currency: text("currency", { enum: currencyValues }).notNull(),
 ```
 == dotnet
 ```csharp
@@ -492,13 +494,51 @@ Every field carries an access modifier governing its role across three shapes: t
 | Modifier | Read (response) | Create input | Update wire | Stored |
 |---|---|---|---|---|
 | `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
-| `immutable` | ✓ | ✓ | ✗ (set once) | ✓ |
+| `immutable` | ✓ | ✓ | ✗ (off the update input) | ✓ |
 | `managed` | ✓ | ✗ (server seeds) | ✗ | ✓ |
 | `token` | ✓ | ✗ | ✓ (echoed, like `id`) | ✓ |
 | `internal` | ✗ (never via API) | ✗ | ✗ | ✓ (projections may read) |
 | `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) | ✓ |
 
 The synthetic `id` and the implicit `version` are `token`; a `token` field must be non-nullable (`loom.token-nullable`). `managed` fields are server-seeded in the `create` factory (`datetime` → now, `int` → `0`); `secret` and `internal` are dropped from the read projection.
+
+**Every ✗ above is a WIRE fact.** `immutable` reads "absent from the update
+input", *not* "never changes" — nothing stops a domain operation from assigning
+an `immutable` field, on any backend. That makes it the modifier for a field
+whose only legitimate writer is a guarded operation, which is otherwise easy to
+miss: an author who wants "only `approve()` may move this" will not reach for a
+word that says the field never changes.
+
+```ddd
+aggregate Claim with crudish {
+  status: ClaimStatus immutable          // off the generic update's input …
+  description: string
+  operation approve() {
+    requires currentUser.permissions.contains(permissions.claimsApprove)
+    precondition status == UnderReview
+    status := Approved                   // … but this still assigns it
+  }
+}
+```
+
+```ts
+// generated: api/domain/claim.ts (node; the other four backends are the same shape)
+public approve(): void {
+  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Precondition failed: status == UnderReview");
+  this._status = ClaimStatus.Approved;       // immutable ≠ unassignable
+}
+public update(description: string): void {   // `status` is GONE from the update surface
+  this._description = description;
+}
+```
+
+Drop the modifier and `status` is a writable update field like any other, so
+`POST /claims/{id}/update {"status":"Approved"}` sets it at whatever gate the
+*update* carries — skipping both the `requires` on `approve()` and its
+`precondition`. The compiler does not decide this for you (a field with no
+modifier is *declared* `editable`), but it points the case out: the advisory
+`loom.update-gate-suggestion` names the field, the guarded operation, and this
+remedy.
 
 ```ddd
 context Orders {

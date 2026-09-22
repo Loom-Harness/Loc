@@ -124,10 +124,41 @@ function fromRaw(scalar: FelizPersistScalar, dflt: string): string {
     // the ISO-8601 / canonical-guid string the JS frontends hold verbatim.
     case "datetime":
       return `(match System.DateTime.TryParse raw with | true, v -> v | _ -> ${dflt})`;
-    case "guid":
-      return `(match System.Guid.TryParse raw with | true, v -> v | _ -> ${dflt})`;
+    // NO `guid` arm — a Loom `guid` is an F# `string` on this frontend
+    // (`type-fs.ts` `fsPrimitive` has no guid arm, and `decoderExprFor`
+    // decodes one with `Decode.string`).  `System.Guid.TryParse` would bind a
+    // `System.Guid` into a `string`-typed cell: FS0001.  The written form IS
+    // the canonical guid string, so the `raw` fallthrough round-trips it.
     default:
       return "raw";
+  }
+}
+
+/** The option-typed twin of `fromRaw` — the conversion for a NULLABLE cell,
+ *  whose Model field is `'T option`.  A present-but-junk value falls back to
+ *  the declared default (already option-typed) exactly as the scalar arms do,
+ *  so the round trip stays total; the absent case never reaches here (the
+ *  loader's `isNull raw` arm takes it). */
+function fromRawOptional(scalar: FelizPersistScalar, dflt: string): string {
+  switch (scalar) {
+    case "int":
+      return `(match System.Int32.TryParse raw with | true, v -> Some v | _ -> ${dflt})`;
+    case "long":
+      return `(match System.Int64.TryParse raw with | true, v -> Some v | _ -> ${dflt})`;
+    case "bool":
+      // No parse to fail: anything that is not `"true"` is `false`, and the
+      // cell being PRESENT is what makes it `Some`.  A tri-state `bool?` is
+      // the reason the url writer below cannot reuse the plain-bool arm.
+      return `Some (raw = "true")`;
+    case "decimal":
+    case "money":
+      return `(match System.Decimal.TryParse raw with | true, v -> Some v | _ -> ${dflt})`;
+    case "datetime":
+      return `(match System.DateTime.TryParse raw with | true, v -> Some v | _ -> ${dflt})`;
+    case "guid":
+      return `(match System.Guid.TryParse raw with | true, v -> Some v | _ -> ${dflt})`;
+    default:
+      return "Some raw";
   }
 }
 
@@ -150,8 +181,7 @@ function listFromCells(element: FelizPersistScalar): string {
       return per(
         "match System.DateTime.TryParse raw with | true, v -> v | _ -> System.DateTime.MinValue",
       );
-    case "guid":
-      return per("match System.Guid.TryParse raw with | true, v -> v | _ -> System.Guid.Empty");
+    // No `guid` arm — see `cellFrom` above: a guid is a string here.
     default:
       return "List.ofArray cells";
   }
@@ -188,6 +218,17 @@ function toJson(codec: FelizPersistCodec, access: string): string {
   if (codec.kind === "list") {
     return `"[" + (${access} |> List.map (fun x -> ${cellToJson(codec.element, "x")}) |> String.concat ",") + "]"`;
   }
+  if (codec.nullable) {
+    // JSON `null` for a `None` cell, not an OMITTED key.  `JSON.stringify` on
+    // the JS side drops an `undefined` field, so the two blobs differ by one
+    // key — but the READ is what has to agree, and both sides decode the same:
+    // the `webField` helper answers `null` for an absent key AND for a JSON
+    // null (`if(v==null)return null`), and the JS decoder reads a missing key
+    // as `undefined`.  Omitting the fragment instead would mean building the
+    // object from a runtime-filtered list rather than a fixed set of `String.concat`
+    // parts, which buys nothing a reader of either blob can observe.
+    return `(match ${access} with | Some v -> ${cellToJson(codec.scalar, "v")} | None -> "null")`;
+  }
   return cellToJson(codec.scalar, access);
 }
 
@@ -202,6 +243,18 @@ function urlParamJs(codec: FelizPersistCodec, key: string, arg: string): string 
   if (codec.kind === "list") {
     // Unreachable: `loom.store-url-field-invalid` refuses an array under `url`.
     return `p.delete(${k});`;
+  }
+  if (codec.nullable) {
+    // A NULLABLE cell reaches JS already stringified (`urlArg`), as `null` when
+    // the cell is `None` — so ONE arm covers every scalar, and the tri-state is
+    // preserved: `Some false` writes `?flag=false` where a plain `bool` cell
+    // deletes the param, because on an optional cell "absent" already means
+    // `None` and cannot also mean `Some false`.
+    //
+    // `(${arg})` is PARENTHESISED for the reason the string arm below states:
+    // Fable's `Emit` placeholder scanner swallows a `!` immediately following
+    // `$n`, which would turn `$0!=null` into the ASSIGNMENT `$0=null`.
+    return `if((${arg})!=null){p.set(${k},${arg});}else{p.delete(${k});}`;
   }
   switch (codec.scalar) {
     case "money":
@@ -317,7 +370,9 @@ function loaders(p: FelizPersistedStore): string[] {
     out.push(
       `    let ${fn} () =`,
       `      let raw = ${read}`,
-      `      if isNull raw then ${dflt} else ${fromRaw(codec.scalar, dflt)}`,
+      `      if isNull raw then ${dflt} else ${
+        codec.nullable ? fromRawOptional(codec.scalar, dflt) : fromRaw(codec.scalar, dflt)
+      }`,
       "",
     );
   }
@@ -381,6 +436,9 @@ function felizArgType(field: StateFieldIR): string {
   const codec = felizPersistCodec(field.type);
   if (!codec) return "string";
   if (codec.kind === "list") return "string list";
+  // A nullable cell is stringified in F# too (`urlArg`), so the boundary sees
+  // a `string` that may be `null` — which is what the JS arm tests for.
+  if (codec.nullable) return "string";
   switch (codec.scalar) {
     case "int":
       return "int";
@@ -396,6 +454,30 @@ function felizArgType(field: StateFieldIR): string {
   }
 }
 
+/** The F# `string` spelling of ONE non-null cell, for the url writer's
+ *  nullable arm — the same text the non-optional arms hand over (directly, or
+ *  via `String(…)` on the JS side). */
+function urlCellString(scalar: FelizPersistScalar, v: string): string {
+  switch (scalar) {
+    case "datetime":
+      // Not `string v`: a Fable `System.DateTime` reaches JS as a `Date`, whose
+      // `String(…)` is the LOCALE form — the same reason the non-optional
+      // datetime arm stringifies in F#.
+      return `${v}.ToString("o")`;
+    case "bool":
+      return `(if ${v} then "true" else "false")`;
+    case "int":
+    case "long":
+    case "decimal":
+    case "money":
+    case "guid":
+      return `string ${v}`;
+    default:
+      // string / id / enum — `type-fs.ts` spells all three F# `string`.
+      return v;
+  }
+}
+
 /** The F# expression handed to the url writer for one field.  Normally the
  *  Model field itself; a `datetime` / `guid` cell is stringified HERE, in F#,
  *  because Fable represents them as a JS `Date` / `string` and only the F# side
@@ -403,6 +485,13 @@ function felizArgType(field: StateFieldIR): string {
 function urlArg(field: StateFieldIR, storeName: string): string {
   const access = `model.${storeModelField(storeName, field.name)}`;
   const codec = felizPersistCodec(field.type);
+  if (codec?.kind === "scalar" && codec.nullable) {
+    // `None` crosses as a JS `null`, which is the ONE value the writer's
+    // nullable arm treats as "delete the param".  A `string`/`id`/`enum` cell
+    // is already a string; everything else takes the same spelling its
+    // non-optional form takes (ISO-8601 for a datetime, canonical for a guid).
+    return `(match ${access} with | Some v -> ${urlCellString(codec.scalar, "v")} | None -> null)`;
+  }
   if (codec?.kind === "scalar" && codec.scalar === "datetime") {
     return `(${access}.ToString("o"))`;
   }

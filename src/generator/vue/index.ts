@@ -21,6 +21,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
+import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -50,6 +51,7 @@ import {
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
+import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { buildWorkflowsApiModule, hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
@@ -230,7 +232,10 @@ export function generateVueForContexts(
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
-    out.set(`src/lib/extern/${fn.name}.signature.ts`, buildExternFunctionSignature(fn));
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, undefined, valueObjectIndex(bcByAggregate)),
+    );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
 
@@ -264,7 +269,12 @@ export function generateVueForContexts(
     if (c.extern) {
       externComponentNames.add(c.name);
       const propsPath = `src/components/${c.name}.props.ts`;
-      const propsContent = renderVueExternComponentProps(c.name, c.params, aggregatesIRByName);
+      const propsContent = renderVueExternComponentProps(
+        c.name,
+        c.params,
+        aggregatesIRByName,
+        valueObjectIndex(bcByAggregate),
+      );
       out.set(propsPath, propsContent);
       options.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);
       const shimPath = `src/components/${c.name}.ts`;
@@ -536,7 +546,10 @@ export function generateVueForContexts(
   }
   // The toast queue + app-shell host serve realtime `on` handlers AND
   // form-submit success toasts; emit `lib/toast.ts` when either needs it.
-  const hasToastHost = hasRealtimeHandlers || hasFormToast;
+  // …and the `toast(<msg>)` PAGE EFFECT, which reads the same queue through
+  // `pushToast`.  Without this a page could import `../lib/toast` from a file
+  // that was never emitted.
+  const hasToastHost = hasRealtimeHandlers || hasFormToast || uiUsesToastEffect(ui);
   if (hasToastHost) {
     out.set("src/lib/toast.ts", renderShell(pack, "toast", {}));
   }
