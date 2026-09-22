@@ -1531,6 +1531,16 @@ implicit one.
 
 The validator runs after parsing and reports errors for:
 
+- A modifier or header clause written at a callable site that does not carry it
+  (`loom.callable-modifier-not-allowed-here`). The grammar accepts the whole
+  surface — `private`, `extern`, `audited`, `requires`, `when` — at every site
+  that runs a named body (`operation`, `create`, `destroy`, `apply`,
+  `function`, `commandHandler` / `queryHandler`, a `domainService` operation, a
+  workflow `create` / `handle` / `on`, a page `action`); what each site
+  actually carries is a declared table, so `audited` on a domain-service
+  operation is an error that *explains itself* rather than a bare parse
+  failure. The per-site table is in
+  [Behavior & statements § The callable modifier surface](language-reference/06-behavior-and-statements.md#the-callable-modifier-surface).
 - `precondition` and `invariant` expressions whose type is not `bool`.
 - A blank `message "..."` clause — empty or whitespace-only — on an
   `invariant`, property `check`, or `precondition` (`loom.blank-message`). A

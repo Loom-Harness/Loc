@@ -4,6 +4,15 @@
 
 > **STATUS: DESIGN — awaiting sign-off.** Measurements below are code-verified against `main` @ `e1eec64` (2026-08-03) using `examples/showcase.ddd` → `hono_api`. Re-verify before implementing; this repo's statuses rot.
 
+> **RE-MEASURED 2026-09-22 (wave C4 packet 4d) — the seam is CONFIRMED; slice 1 is BLOCKED on §2.6.**
+> The re-verification this doc asks for is done, on the merged C4 tree (post-#2462):
+>
+> - **Coupling: 217 sites across 22 files** (`src/platform/hono/v4/` + `src/generator/typescript/`), up from the 183 / 18 below. The route-builder unification did not shrink the shell; `hono/v5` delegates to v4's emitters and adds none of its own. Per token: `c.req` 63, `c.json` 34, `OpenAPIHono` 33, `createRoute` 29, `@hono/` 26, `app.openapi` 23, `from "hono/` 14.
+> - **§2.6b measured, not estimated.** Every `RouteTarget` method in §2.3 was counted against the real emitter call sites: **14 of 16 are multi-use** — `imports` 32, `respondJson` 30, `requestPath` 24, `route` 22, `openRouter` 16, `ctxGet` 12, `errorHandler` 11, `sseStream` 10, `closeRouter` 10, `mountChild` 8, `readParam` 6, `readBody` 4, `ctxSet` 4, `respondEmpty` 2. Single-use: `readQuery` (1) and `rawRequest` (1) — and §1.3 already records `rawRequest` as the deliberate adapter exception. **The net-negative-indirection anti-criterion does not fire.** Within slice 1 alone the core methods are still multi-use (`respondJson` 17, `route` 9, `requestPath` 9, `readParam` 6, `readBody` 3, `openRouter` 3), so the easiest-first ordering holds as written.
+> - **Blocked by this document's own §2.6 prerequisite.** Open-PR listing plus `git diff --numstat origin/main...origin/<branch>` over every open branch: **#2918 (`claude/vo-collection-create-input`) adds 24 lines to `routes-builder.ts`** — the entire slice-1 blast radius — and changes emitted create-input output, so the byte-identical gate would be a diff against a moving reference rather than a proof. #2980 moves `auth-emit.ts` (slice 4). Every other open branch is clear of `src/platform/hono/v4/`.
+> - **Verdict: proceed, unchanged, once #2918 lands.** The contract in §2.3 needs no revision and the slicing plan in §2.5 stands. Do NOT start with slice 4 or 5 to route around the block — §2.6 already explains why that shapes the contract around its two worst-fit consumers.
+> - Provenance: [`../waves/handoffs/wave-c4-4d-callable.md`](../waves/handoffs/wave-c4-4d-callable.md) §Row 2, which carries the census method and the full per-branch quiet-baseline table.
+
 ---
 
 ## 0. TL;DR
