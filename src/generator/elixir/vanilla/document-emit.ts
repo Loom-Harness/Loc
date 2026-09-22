@@ -592,6 +592,10 @@ export function renderDocRepository(
 defmodule ${repoMod} do
   @moduledoc "Document-shaped repository — CRUD over the (id, data, version) jsonb row."
   alias ${appModule}.Repo
+  # order_by is a MACRO: a fully-qualified call needs this require, or Elixir
+  # parses it as a remote FUNCTION call, the [r] never becomes a query binding,
+  # and the module fails to compile with: undefined variable "r".
+  require Ecto.Query
 
   @spec list(${principal ? "map() | nil" : ""}) :: {:ok, [${aggModule}.t()]} | {:error, term()}
   def list${principal ? `(${actorParam})` : ""} do
