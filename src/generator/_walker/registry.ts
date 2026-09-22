@@ -174,6 +174,7 @@ import {
   emitText,
 } from "./primitives/text.js";
 import { emitTimeline } from "./primitives/timeline.js";
+import type { ChildSlot } from "./target.js";
 import type { WalkContext as TsxWalkContext } from "./walker-core.js";
 
 /** Renderer signature for the React/TSX target.  Returns the
@@ -183,6 +184,11 @@ export type TsxRenderer = (
   call: ExprIR & { kind: "call" },
   ctx: TsxWalkContext,
   depth: number,
+  /** The KIND of slot this call lands in — a children SEQUENCE or a
+   *  single-expression VALUE slot (see `ChildSlot`).  Only the primitives
+   *  that SPLICE a list (`For`) read it; every other renderer takes three
+   *  parameters and is assignable unchanged. */
+  slot?: ChildSlot,
 ) => string;
 
 /** Renderer signature for the Phoenix/HEEx target.  Returns the
