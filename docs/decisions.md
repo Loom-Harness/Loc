@@ -2519,12 +2519,13 @@ it.
 | 9 | `D-LONG-AVG-DEFAULTS` | declared 2^53 ceiling for `long`; projection `avg` over money retypes to `money` |
 | 10 | `D-DAPPER-ALTER` | build the ALTER path in phase ⑨; the widened refusal lands first |
 | 11 | `D-PROJECTION-IMPLICIT-SUB` | an `on(Event)` subscribes in-process with or without a channel |
-| 12 | `D-FIRST-ON-EMPTY` | `first` is partial and fails on empty; `firstOrNull` is total; mint **RS-36** |
+| 12 | `D-FIRST-ON-EMPTY` | `first` is partial and fails on empty; `firstOrNull` is total; **RS-36** minted — APPLIED (packet 2n) |
 | 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-37** |
 | 14 | `D-FLUTTER-BEARER` | Flutter native = bearer, Flutter web = cookie (a RULE 2 amendment) |
 | 15 | `D-MISC-C0` | four small rulings: the .NET entry-point boundary, `connection:` semantics, per-op OpenAPI tags, `scopeId` |
 | 16 | `D-PAGE-BODY-EXPRESSION` | a page body is an expression tree; the statement `if` stays refused, owner **M-T1.20** |
 | 17 | `D-SENSITIVE-INSPECT-ONLY` | `sensitive(...)` is inspect-only today; wire masking is `mask unless`; phases 2–4 stay **M-T3.8** |
+| 18 | `D-POLYMORPHIC-ID-REPRESENTATION` | a `<Base> id` to a TPC base is a plain id column — no FK, no discriminator; owner **M-T5.7** |
 
 ---
 
@@ -3208,9 +3209,97 @@ B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
 
 ---
 
-## D-FIRST-ON-EMPTY — `first` is partial and fails on an empty collection; `firstOrNull` is the total form
+## D-POLYMORPHIC-ID-REPRESENTATION — a `<Base> id` to a TPC base is a plain id column: no FK, no discriminator
 
 **Status:** proposed (default applies 48 h after merge unless overridden).
+Owner mission **M-T5.7**; register row `loom.polymorphic-id-ref-unsupported`.
+
+**Question.** `src/language/validators/inheritance.ts` rule 6 refuses a
+`<Base> id` whose target is an abstract base with the TPC (`ownTable`) layout,
+because "there is no single table to key the FK against". Before any backend
+can emit it, the SCHEMA has to be decided — and the choice is visible in the
+emitted DDL, so it is a ruling, not an implementation detail.
+
+**Options.**
+(a) a **polymorphic FK pair** — a `<field>_type` discriminator column beside
+`<field>_id`, no referential integrity (Postgres cannot FK to a union of
+tables); (b) **no FK, no discriminator** — one plain id column, resolved by the
+DELEGATING polymorphic base reader that M-T5.7 already ships; (c) a `CREATE
+VIEW` union over the per-concrete tables, read through the view.
+
+**Decision.** **(b).** A `<Base> id` to a TPC base is an ORDINARY id column —
+`uuid NOT NULL` plus its read index, no foreign key and no discriminator — and
+the read resolves through the existing delegating base reader.
+
+**Rationale — measured on this tree (wave C2 packet 2n), not reasoned.** The
+completion plan proposed (a) as the default. The measurement argues for (b),
+and it is worth stating why, because three of the pieces (a) would build turn
+out to exist already:
+
+- **The FK is ALREADY dropped, by a rule that predates this question.**
+  `migrations-builder.ts` keeps a foreign key only when its target table exists
+  in the same schema ("cross-context id references get NO foreign key",
+  M-T4.4). A TPC base OWNS NO TABLE, so its FK fails that test and is filtered
+  out automatically. Generated with rule 6 bypassed, node emits exactly the
+  intended DDL with no code change at all: `"payment_id" UUID NOT NULL` and
+  `CREATE INDEX "receipts_payment_id_idx"`, no `REFERENCES`.
+- **The discriminator buys nothing, because ids are globally unique.**
+  `lower.ts` assigns every aggregate `idValueType = "guid"`, so an id cannot
+  collide across the concrete tables. And the reader that would consume a
+  discriminator does not want one: `buildDelegatingBaseReaderFile`
+  (`src/generator/typescript/base-reader-builder.ts`) resolves `findById` by
+  trying each concrete repository in turn — which is also what loads each
+  aggregate's FULL tree through its own capability filters, something a
+  discriminator-directed single query would not do. Adding `(kind, id)` would
+  add a column every writer must keep in step with the row it points at, for a
+  lookup that does not read it.
+- **(c) is strictly worse than (b) here.** A union view can only project the
+  columns the concretes share, so it reads flat scalars and silently drops
+  contained parts and `X id[]` associations — the exact trade the TPC base
+  reader's own comment records rejecting.
+
+**Consequences — what is left to build is SMALL, and it is not the schema.**
+Generated with rule 6 bypassed, all five backends emit the reference column
+correctly and `ddd generate` reports `0 error(s)`. The gap is two missing
+IDENTITY TYPES:
+
+| target | state with the gate bypassed |
+|---|---|
+| node | **correct** — `payment_id uuid`, index, no FK; `Ids.PaymentId` exists |
+| python | **correct** — `PaymentId = NewType("PaymentId", str)` exists |
+| elixir | **correct** — `field :payment_id, :binary_id`, no identity type needed |
+| java | **breaks** — `Receipt.java` declares `@Embedded PaymentId paymentId` but no `PaymentId.java` is emitted: `src/generator/java/index.ts` skips an abstract TPC base (`if (agg.isAbstract && !isTphBase(...)) continue;`) |
+| dotnet | **breaks** — `ReceiptConfiguration.cs` calls `new PaymentId(v)` with no `Domain/Ids/PaymentId.cs`: the same skip in `src/generator/dotnet/context-scaffolding-emit.ts` |
+
+Both skips carry the comment "an abstract TPC base keeps no identity (each
+concrete owns a typed id)", which was TRUE exactly while this reference was
+refused. Lifting rule 6's `ownTable` arm therefore means emitting `<Base>Id`
+for a TPC abstract base on those two — a value wrapper, not a schema change.
+
+**Still open, and NOT settled by this ruling.** Whether FOLLOWING such a
+reference works: the id-follow bulk load (`src/ir/util/id-follow.ts`) and a
+query-time `projection … join <Base> as p on this.paymentId` were not
+exercised, and they are the shapes most likely to need the base reader wired in
+rather than a per-concrete repository. Rule 6's MIXED-strategy arm is also
+entangled: with the `ownTable` arm removed, `loom.polymorphic-id-ref-mixed-strategy`
+fires on a PURE TPC hierarchy (every concrete is `ownTable`, so every concrete
+reads as an "override"), so its predicate has to narrow to a `sharedTable` base
+in the same change.
+
+**Sources.** `src/language/validators/inheritance.ts` rule 6;
+`src/system/migrations-builder.ts` (the M-T4.4 FK filter);
+`src/generator/typescript/base-reader-builder.ts`; `src/ir/lower/lower.ts`
+(`idValueType = "guid"`); wave C2 packet 2n's hand-off note
+(`docs/new-plan/waves/handoffs/wave-c2-2n-backends.md`), which carries the
+generated output the table above summarises.
+
+---
+
+## D-FIRST-ON-EMPTY — `first` is partial and fails on an empty collection; `firstOrNull` is the total form
+
+**Status:** PINNED — APPLIED (wave C2 packet 2n).  RS-36 is minted in
+[`conformance-semantics.md`](conformance-semantics.md); ledger row `F2-EXPR-7`
+is `done`.
 
 **Question.** `.first` on an empty collection throws on three backends and yields
 an `undefined`/`nil` typed as non-optional on two — which is the contract?
@@ -3262,6 +3351,20 @@ row `F2-EXPR-7` (its `fix` field poses exactly this fork);
 [`conformance-semantics.md`](conformance-semantics.md) RS-28, RS-34;
 `src/util/collection-ops.ts`, `src/util/intrinsics.ts`, the five
 `render-expr.ts` leaf tables and `src/generator/_expr/js-collection-ops.ts`.
+
+**As built (wave C2 packet 2n).** Two things the ruling did not anticipate.
+(1) The node guard could not be a ternary: `recv.length > 0 ? recv[0] : …`
+emits the whole receiver CHAIN twice, and that table is shared with the four JS
+frontend walkers, where the receiver can contain hook calls — so it is an arrow
+IIFE taking the receiver as a parameter, and the "evaluated exactly once"
+property is itself pinned. (2) The assertion that actually catches the elixir
+shape is not "`first` raises" but "`first` and `firstOrNull` render
+DIFFERENTLY": `List.first/1` reads as a plausible implementation of either op,
+so a raise-only gate would have passed on the defect. The FRONTEND half named
+in Consequences is vacuous today — `loom.frontend-collection-op-unsupported`
+refuses every stdlib collection op in a page body — so the shared table's guard
+is backend-reachable only; that is recorded in RS-36 rather than left as a
+claim the frontends were changed.
 
 ---
 
@@ -4092,3 +4195,263 @@ M-T3.8 stays open and commissioned.
 [`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.8;
 [`sensitivity-and-compliance.md`](old/proposals/sensitivity-and-compliance.md);
 [`auth.md`](auth.md) (`mask unless`).
+
+---
+
+## D-ELIXIR-IF-BRANCH — the four refused `if`-branch shapes on Phoenix are a declared limit of the linear body renderer, not a per-target gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2m, which was asked to build the four sub-shapes
+`loom.elixir-if-stmt-unsupported` still refuses or re-class them.
+
+**Question.** Wave C2 packet 2a made the `if` STATEMENT render on the vanilla
+Phoenix backend (`src/generator/elixir/vanilla/if-stmt-emit.ts`, M-T6.59) and
+narrowed the gate to four `#slug` sub-shapes: `#return-in-branch`,
+`#guard-in-branch`, `#event-sourced` and `#branch-statement`. Are those four a
+residue a sweep can drain, or the shape of the surface?
+
+**Options.** (a) build all four; (b) re-class the code `scope` with the owning
+mission named; (c) leave it a `gap` row and let the next packet re-measure.
+
+**Decision.** (b). The code KEEPS its name, its four messages and every arm that
+fires. What changes is the claim about who closes it: the register row becomes
+`scope` and stays pointed at **M-T6.59**, which is the mission that owns the
+Phoenix body renderer. Each surviving sub-shape needs a change to HOW a Phoenix
+operation body is built, not another emitter arm — and three of the four are not
+even elixir-local.
+
+**Rationale, one sub-shape at a time.** Each was re-derived on this head, not
+inherited from 2a's note.
+
+- **`#return-in-branch` is a list-level transform.** Elixir has no early exit, so
+  a `return` inside a branch means restructuring every statement that FOLLOWS
+  the `if` into the other arm of a `case` — the linear renderers emit one Elixir
+  expression per `StmtIR`, in order, and the sourcemap collector
+  (`statementSubRegions`) zips that same-length, same-order list. It is already
+  ALLOWED where it is expressible: `elixirIfRefusal(stmts, "value")` admits it
+  in a tail-value body (a `domainService` operation, a pure `function`) via
+  `returnsAreTailOnly`, which is the half that renders today.
+- **`#guard-in-branch` would change a status code.** The op path HOISTS top-level
+  `requires`/`precondition` into a leading `with :ok <- ensure(…)` chain that
+  answers 403/422. A nested guard has nothing to hoist into, so it would have to
+  `raise` — a 500 where the other four backends answer 403/422. A wire
+  divergence is strictly worse than the refusal, and fixing it properly means
+  giving the Phoenix op path a non-hoisted guard form: a body-renderer change.
+- **`#event-sourced` is a different body model.** An ES command body is not
+  rendered as a statement sequence at all: `eventsourced-emit.ts` sorts it into
+  `with`-clauses, `let`s and one `events = […]` list. A conditional `emit` has
+  no position in that shape. Rendering it means giving ES commands a statement
+  spine — the same body-renderer change, on the other body kind.
+- **`#branch-statement` is a CLOSED branch vocabulary, and its two sharpest
+  members live OUTSIDE `src/generator/elixir/**`.** The emitters decide an
+  operation's supporting machinery by scanning its TOP-LEVEL statements, and two
+  of those scans cannot simply "walk deeper":
+  - a conditional `emit` renders, but the host module's `require Logger` comes
+    from `contextEmitsEvent` (`vanilla/context-emit.ts:857`), and — the part a
+    deeper walk does not fix — the S5a persist-then-dispatch restructure cannot
+    hoist a CONDITIONAL emit past the commit, so a phantom event would fire on a
+    failed write. Ordering, not detection.
+  - a PROVENANCED write in a branch is decided by `opHasProvSite`
+    (`src/ir/util/prov-id.ts:49`), which is TARGET-NEUTRAL and scans
+    `op.statements` one level deep for every backend. Deepening it changes what
+    node / .NET / java / python put in provenance-flush mode too, so it is a
+    cross-backend change that a packet fenced to `src/generator/elixir/**` must
+    not make unilaterally (hand-off, §6b of this packet's note).
+
+  The vocabulary is closed (fail-closed) deliberately: a NEW `StmtIR` kind is
+  refused in a branch rather than silently admitted by an allowlist nobody
+  updated.
+
+**Consequences.** `loom.elixir-if-stmt-unsupported` becomes `kind: "scope"` in
+`src/diagnostics/unsupported-register.ts` and keeps `mission: "M-T6.59"`;
+`MAX_OPEN_GAPS` drops by one. No emitter change, no message change, no arm
+removed — every one of the four keeps firing with the advice it carries today.
+The `opHasProvSite` deepening is recorded as a cross-backend hand-off rather
+than done here.
+
+**Unblocks.** `loom.elixir-if-stmt-unsupported` → `scope` (wave **C2 packet
+2m**); M-T6.59 stays open and owns the body-renderer question.
+
+**Sources.** `src/ir/validate/checks/if-stmt-checks.ts` (`elixirIfRefusal`,
+`BRANCH_VOCABULARY`); `src/generator/elixir/vanilla/if-stmt-emit.ts`;
+`src/generator/elixir/vanilla/eventsourced-emit.ts`; `src/ir/util/prov-id.ts`;
+[`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.59.
+
+---
+
+## D-HEEX-I18N-FORMAT — `i18nFormat` is a documented permanent LiveView divergence, not a gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2a (§7.1 of its hand-off), which found the ledger's own
+proposed disposition unavailable, and taken by packet 2m.
+
+**Question.** `G2646-open-heex-layout-inert` carries two live arms. One is the
+missing pager on a non-server-paged `Table` — built in packet 2m. The other is
+the `i18nFormat` wrapper, which `heex-walker-core.ts`'s arm drops by design ("the
+format is dropped: render the wrapped operand"). The ledger's fix line says
+"honour it or pin it in the heex-parity freeze list with a reason" — but that
+freeze list is over walker PRIMITIVES, and `i18nFormat` is an `ExprIR` kind, so
+the pin it proposes does not exist.
+
+**Options.** (a) add a CLDR-shaped number/date formatter dependency to every
+generated Phoenix app and honour the wrapper; (b) ratify the drop as a permanent,
+documented LiveView divergence and retire the arm from the ledger row; (c) mint
+a `loom.*` code so the author is told their format is ignored.
+
+**Decision.** (b), with the operand's rendering unchanged. The value still
+renders — what is dropped is the LOCALE-AWARE FORMATTING of it.
+
+**Rationale.**
+
+- **(a) is a dependency decision wearing a gap's clothes.** The four JSX targets
+  format through `Intl`, which is in every browser at zero cost. Phoenix renders
+  on the server, where the equivalent is a CLDR library compiled into the app
+  (`ex_cldr` and friends) — a new hex dependency, a compile-time locale set, and
+  a per-app configuration surface, added to EVERY generated Phoenix app for a
+  wrapper most models never use. That is a feature with a dependency ruling in
+  it, not a drain.
+- **(c) would fire on a model that is otherwise fully supported.** The i18n
+  layer itself ships on this target — `pgettext` keys every user-visible slot,
+  and packet-era work added the ICU engine for INTERPOLATION
+  (`D-I18N-HEEX-ICU`). Only the number/date FORMAT wrapper is dropped. An error
+  there would refuse a page whose text is already translated.
+- **The drop is already local and documented at the emission site**, which is
+  where a reader meets it.
+
+**Consequences.** The `i18nFormat` arm is retired from
+`G2646-open-heex-layout-inert`; with its pager arm built in packet 2m and its
+Grid arm already retired as stale, the ledger row closes. The emission-site
+comment in `src/generator/elixir/heex-walker-core.ts` is the record. If a
+generated Phoenix app ever gains a CLDR dependency for another reason, this
+ruling should be re-opened — the cost argument is the whole argument.
+
+**Unblocks.** `G2646-open-heex-layout-inert` → `done` (wave **C2 packet 2m**).
+
+**Sources.** `src/generator/elixir/heex-walker-core.ts` (the `i18nFormat` arm);
+[`targets-completeness-2026-08-30.md`](audits/targets-completeness-2026-08-30.md);
+`D-I18N-HEEX-ICU` above (the interpolation half, which DID get an engine).
+
+---
+
+## D-PAGE-PRIMITIVE-SHADOW — a `component` may not take a walker-primitive name; a `valueobject` may
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2g (§7.1, "does a user declaration shadow a page
+primitive in a ui body?") and settled by packet 2k on measurement.
+
+**Question.** The page-body vocabulary (`Text`, `Card`, `Alert`, `Table`,
+`Money`, `Badge`, …) is a closed set of ~55 names, and nothing stopped a user
+declaration from taking one. Which wins — the primitive or the declaration —
+and should the collision be refused?
+
+**What was actually measured**, on `main` at `5049b6fea`, one generation per
+case:
+
+| collision | what happens |
+|---|---|
+| `component Alert(msg: string) { body: Heading { msg, level: 3 } }` + `body: Stack { Alert("hi") } }` | `0 error(s), 0 warning(s)`. `src/components/Alert.tsx` is written, AND the call site emits the PACK's primitive — `import { Alert, … } from "@mantine/core"` / `<Alert color="red" variant="light">{t("page.Home.alert.sx4lga", "hi")}</Alert>`. The author's `Heading` appears nowhere in the project. |
+| `valueobject Money { amount: decimal  currency: string }` + `body: … Money { 10, "dropped" }` | the PRIMITIVE wins and its own arity gate fires — `loom.page-primitive-extra-children`. The value object does not capture the name. |
+
+So the two halves are not the same problem, and the blanket rule ("no user
+declaration may share a primitive name") is wrong in one direction.
+
+**Decision.** **Refuse the COMPONENT collision; admit the value-object /
+enum / domain-service one.**
+
+* A `component` (walked or `extern`) is reached by the page-body dispatcher
+  under exactly the name the primitive is, and the primitive wins. The
+  declaration is therefore dead on arrival: emitted, never rendered, with no
+  diagnostic. That is a silent-codegen defect, and it is the SAME defect
+  `loom.extern-function-shadows-stdlib` has refused since it was written —
+  its own comment gives the reason ("the body dispatcher would route the call
+  to the primitive, silently ignoring the user's module"). The component arm
+  was simply missing. New code: **`loom.component-shadows-stdlib`**, an error
+  at phase ④ (`src/language/validators/ui.ts`, `checkComponent`).
+* A `valueobject` / `enum` / `domainService` is not reached by the dispatcher
+  at all, so it shadows nothing — and refusing it would reject
+  `web/src/examples/sales-system.ddd`, which declares `valueobject Money`
+  beside pages that use the `Money` primitive. A gate there would be a
+  regression dressed as a fix. (Corpus scan at decision time: zero `.ddd` in
+  `examples/`, `web/src/examples/`, `journey/` or `test/` declares a
+  *component* named after a primitive, so the new gate breaks nothing.)
+
+**Consequence for the ambient decl index.** 2g narrowed `indexAggregatesDeep`
+(`src/ir/lower/lower.ts`) to aggregates ONLY, explicitly deferring the
+value-object / enum / domain-service halves to this decision because widening
+them looked like it would shadow the primitives. The measurement above says it
+does not: the primitive still wins the call and its arity gate still fires, on
+the un-narrowed `indexMembers` path that already indexes value objects and
+enums through `contexts`. The halves may therefore be widened when a row needs
+them; this decision removes the blocker, and packet 2k did not widen them
+because no row on its tree needed it.
+
+**Affects.** `src/language/validators/ui.ts` (`checkComponent`);
+`src/diagnostics/messages.ts` + `code-docs.ts`;
+`test/language/validation/component-shadows-primitive.test.ts` (mutation-proved:
+removing the gate fails 4 of 7 with `expected [] to include
+'loom.component-shadows-stdlib'`); `docs/new-plan/T1-ui-frontend.md` M-T1.20.
+
+---
+
+## D-MODAL-CONTROLLED-OP-FORM — `Modal { open:, OperationForm }` is a supported shape and `open:` must be honoured
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2g (§1), which measured the row and asked for a ruling
+before building; re-measured and ruled by packet 2k.
+
+**Question.** `loom.modal-controlled-op-form-unsupported` refuses
+`Modal { open: <stateBool>, OperationForm { … }, trigger: … }` on
+react / vue / svelte / flutter. Its `CONTROLLED_MODAL_OP_FORM_FRAMEWORKS` set —
+angular, feliz, phoenixLiveView — names the three that do NOT refuse it. But
+read what those three do: each forks the primitive, renders the operation form,
+and **drops the `open:` binding**, driving the dialog from its own trigger
+(Angular: `renderAngularModal` builds its own `<opKey>Open` signal and never
+looks at `open:`). So the "supported" behaviour is itself a degradation, and
+the register's drain condition for the other four ("render the controlled shell
+around the recorded `OperationFormState`") is a strictly higher bar. Which bar
+is right?
+
+**Options.** (a) match the degradation — let react/vue/svelte fall through to
+the trigger-driven op-form modal with a synthesised trigger, ~20 lines in
+`emitModal`, gate deleted, `MAX_OPEN_GAPS` −1; (b) honour `open:` everywhere,
+and fix the three "supported" targets too.
+
+**Decision.** **(b).** (a) would ship a silent drop of an authored binding on
+seven targets instead of four, which is precisely the class this wave exists to
+remove — and it would do it by DELETING the diagnostic that currently names it,
+so the degradation would become unfindable. A `state` field bound to `open:` is
+the author saying "I own this dialog's visibility"; a generated trigger button
+they did not write is not that.
+
+**Why it is not built here, and what it costs.** Measured on `main` at
+`5049b6fea`:
+
+* an `OperationForm` child emits NO inline markup (`walk(formChild, …)` returns
+  `""`). The packs render it from `ctx.formOfs` through their own module
+  component, and **that component owns its trigger**: shadcn wraps
+  `<DialogTrigger asChild><Button …>`, mui/chakra emit `<Button onClick={() =>
+  setOpen(true)}>` beside the dialog, and the Svelte packs open a
+  `{{opCamel}}ModalOpen` local from their own button. A controlled shape needs
+  a second template per pack — the op-form module rendered WITHOUT its trigger,
+  driven by the page's state — across the JSX/Vue/Svelte packs;
+* `designs/shadcnVue/v1/form-op-module.hbs` is currently
+  `// TODO(vue-forms): operation modal/form module (v-dialog) lands in the
+  forms slice`, so on Vue the uncontrolled shape is not built either: that pack
+  needs the module before it can need a controlled variant;
+* the three "supported" targets each need their fork taught to read `open:`,
+  which is 2m's tree (HEEx) and 2l's (feliz) plus Angular's `modal.ts`.
+
+That is a pack-layer packet, not a walker row, and it is HANDED OFF rather than
+part-landed: a fix on react alone would re-introduce the per-target carve-out
+the register records as the thing to remove.
+
+**Register.** The row stays `kind: "gap"` under M-T1.6 with its membership set
+unchanged. It is not re-classed `scope`, because this decision says the shape
+IS supported — it is unbuilt work with a known shape and a measured cost, which
+is what `gap` means.
+
+**Affects.** `src/generator/_walker/primitives/forms.ts` (`emitModal` /
+`emitControlledModal`); `designs/*/v*/form-op-module.hbs` +
+`primitive-modal.hbs` across the JSX/Vue/Svelte packs;
+`src/generator/angular/modal.ts`; `src/ir/validate/checks/ui-collection-display-checks.ts`
+(`CONTROLLED_MODAL_OP_FORM_FRAMEWORKS`); mission M-T1.6.

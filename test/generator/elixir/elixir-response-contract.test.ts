@@ -140,10 +140,16 @@ describe("M-T5.10 PR6 — Elixir reads the <Agg>Response contract record", () =>
     // the LineResponse module atom (single-suffixed), internal/secret dropped,
     // leading id, derived kept.
     expect(baselineOrder).toBe(scaffoldOrder);
-    // Both carry the version token.
-    expect(baselineOrder).toContain("version: %OpenApiSpex.Schema{type: :integer}");
+    // Both carry the version token.  Its schema carries the DECLARED int32
+    // range since Schemathesis F11 (wave C2 packet 2m) — `version` is an `int`
+    // like any other, and an `int` is an `int4` column, so the published
+    // contract says so rather than letting an out-of-range value 500.
+    const VERSION_SCHEMA =
+      "version: %OpenApiSpex.Schema{type: :integer, format: :int32, " +
+      "minimum: -2147483648, maximum: 2147483647}";
+    expect(baselineOrder).toContain(VERSION_SCHEMA);
     expect(baselineOrder).toContain(":version");
-    expect(scaffoldOrder).toContain("version: %OpenApiSpex.Schema{type: :integer}");
+    expect(scaffoldOrder).toContain(VERSION_SCHEMA);
     expect(scaffoldOrder).toContain("items: ApiWeb.Api.Schemas.LineResponse");
     expect(scaffoldOrder).not.toContain("LineResponseResponse");
     expect(scaffoldOrder).toMatch(/\bid: %OpenApiSpex\.Schema\{type: :string, format: :uuid\}/);

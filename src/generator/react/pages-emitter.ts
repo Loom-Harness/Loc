@@ -38,6 +38,7 @@ import {
   pageEmitName,
 } from "../../ir/util/page-kind.js";
 import { lowerFirst, snake } from "../../util/naming.js";
+import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
 import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
@@ -251,9 +252,15 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
   // calls register through `externFunctionNames` and the page /
   // component shells import each used shim.
   const externFunctionNames = new Set<string>();
+  // Declared value objects, for a `valueobject`-typed signature/prop — spelled
+  // structurally by the shared prop layer, which needs the VO's fields.
+  const valueObjects = valueObjectIndex(buildBcByAggregate(ctx));
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
-    out.set(`src/lib/extern/${fn.name}.signature.ts`, buildExternFunctionSignature(fn));
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, undefined, valueObjects),
+    );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
   // Merge top-level + ui-scope components, ui-scope last so it wins
@@ -274,7 +281,12 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       out.set(shimPath, shimContent);
       ctx.sourcemap?.file(shimPath, shimContent, c.origin, componentConstruct);
       const propsPath = `src/components/${c.name}.props.ts`;
-      const propsContent = renderExternComponentProps(c.name, c.params, ctx.aggregatesByName);
+      const propsContent = renderExternComponentProps(
+        c.name,
+        c.params,
+        ctx.aggregatesByName,
+        valueObjects,
+      );
       out.set(propsPath, propsContent);
       ctx.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);
       continue;
