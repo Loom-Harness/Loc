@@ -14,8 +14,8 @@ import {
 } from "../../../src/generator/flutter/reads-emit.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { allContexts } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // A ui with a QueryView LIST page (`Shop.Product.all`) and a byId DETAIL page
@@ -76,7 +76,7 @@ describe("flutter read-provider projector", () => {
     const { model } = await parseString(SRC, { validate: false });
     const enriched = enrichLoomModel(lowerModel(model));
     const ui = enriched.systems[0]!.uis[0]!;
-    const reads = collectFlutterReads(ui, allContexts(enriched));
+    const reads = collectFlutterReads(ui, enrichedContexts(enriched));
 
     const all = reads.find((r) => r.varName === "productAll");
     const byId = reads.find((r) => r.varName === "productById");
@@ -92,7 +92,7 @@ describe("flutter read-provider projector", () => {
     const { model } = await parseString(SRC, { validate: false });
     const enriched = enrichLoomModel(lowerModel(model));
     const ui = enriched.systems[0]!.uis[0]!;
-    const src = renderReadProviders(collectFlutterReads(ui, allContexts(enriched)));
+    const src = renderReadProviders(collectFlutterReads(ui, enrichedContexts(enriched)));
 
     // A SERVER-PAGED list read → a `.family` keyed by the query record, so a
     // sort or page tap re-keys the provider and Riverpod refetches.  That is

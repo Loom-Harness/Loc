@@ -10,18 +10,23 @@
 import { describe, expect, it } from "vitest";
 import { renderTsExpr, renderTsType } from "../../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
 const MONEY: TypeIR = { kind: "primitive", name: "money" };
 const BOOL: TypeIR = { kind: "primitive", name: "bool" };
 
-const litInt = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
-const litStr = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
-const litMoney = (v: string): ExprIR => ({ kind: "literal", lit: "money", value: v });
-const litBool = (v: "true" | "false"): ExprIR => ({ kind: "literal", lit: "bool", value: v });
-const refParam = (name: string): ExprIR => ({ kind: "ref", name, refKind: "param" });
-const thisProp = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+const litInt = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
+const litStr = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
+const litMoney = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "money", value: v });
+const litBool = (v: "true" | "false"): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "bool",
+  value: v,
+});
+const refParam = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "param" });
+const thisProp = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "this-prop" });
 
 describe("ts renderTsExpr — literals", () => {
   it("renders string literals JSON-quoted", () => {
@@ -237,7 +242,7 @@ describe("ts renderTsExpr — A4 collection transformation ops", () => {
     param: "x",
     body: { kind: "ref", name: "x", refKind: "lambda" },
   };
-  const mc = (member: string, args: ExprIR[]): ExprIR => ({
+  const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: thisProp("items"),
     member,
@@ -309,7 +314,7 @@ describe("ts renderTsExpr — A4 reductions min(λ)/max(λ)", () => {
       memberType: MONEY,
     },
   };
-  const mc = (member: string, args: ExprIR[]): ExprIR => ({
+  const mc = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: thisProp("items"),
     member,
@@ -361,7 +366,7 @@ describe("ts renderTsExpr — A4 reductions min(λ)/max(λ)", () => {
 describe("ts renderTsExpr — money `contains` value-equality", () => {
   const moneyArr: TypeIR = { kind: "array", element: MONEY };
   const strArr: TypeIR = { kind: "array", element: STRING };
-  const mc = (receiverType: TypeIR, arg: ExprIR): ExprIR => ({
+  const mc = (receiverType: TypeIR, arg: ExprIR): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: thisProp("prices"),
     member: "contains",
@@ -385,7 +390,7 @@ describe("ts renderTsExpr — money `contains` value-equality", () => {
 describe("ts renderTsExpr — sum type-awareness (money folds decimal.js)", () => {
   const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
   // λ-body projections typed via `member.memberType` (bodyTypeOf reads it).
-  const proj = (member: string, memberType: TypeIR): ExprIR => ({
+  const proj = (member: string, memberType: TypeIR): ExprOf<"lambda"> => ({
     kind: "lambda",
     param: "x",
     body: {
@@ -396,7 +401,7 @@ describe("ts renderTsExpr — sum type-awareness (money folds decimal.js)", () =
       memberType,
     },
   });
-  const sumMc = (elem: TypeIR, args: ExprIR[]): ExprIR => ({
+  const sumMc = (elem: TypeIR, args: ExprIR[]): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: thisProp("items"),
     member: "sum",
@@ -503,7 +508,7 @@ describe("ts renderTsExpr — unary `-` on money (A11)", () => {
 });
 
 describe("ts renderTsExpr — `distinct` value-dedupe on money (A14)", () => {
-  const distinctOf = (elem: TypeIR): ExprIR => ({
+  const distinctOf = (elem: TypeIR): ExprOf<"member"> => ({
     kind: "member",
     receiver: thisProp("prices"),
     member: "distinct",
@@ -528,16 +533,15 @@ describe("ts renderTsExpr — `distinct` value-dedupe on money (A14)", () => {
   // scalar or value-object element") and every generated VO carries the
   // field-wise `equals` these arms call, so node was alone in getting it wrong.
   const TAG: TypeIR = { kind: "valueobject", name: "Tag" };
-  const containsOf = (elem: TypeIR, arg: ExprIR): ExprIR => ({
+  const containsOf = (elem: TypeIR, arg: ExprIR): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: thisProp("prices"),
     member: "contains",
     args: [arg],
     receiverType: { kind: "array", element: elem },
-    memberType: BOOL,
     isCollectionOp: true,
   });
-  const newTag = (label: string): ExprIR => ({
+  const newTag = (label: string): ExprOf<"call"> => ({
     kind: "call",
     callKind: "value-object-ctor",
     name: "Tag",
@@ -735,6 +739,7 @@ describe("ts renderTsExpr — match → right-folded ternary", () => {
     expect(
       renderTsExpr({
         kind: "match",
+        variantArms: [],
         arms: [{ cond: thisProp("active"), value: litStr("yes") }],
       }),
     ).toBe('(this._active ? "yes" : undefined)');
@@ -744,6 +749,7 @@ describe("ts renderTsExpr — match → right-folded ternary", () => {
     expect(
       renderTsExpr({
         kind: "match",
+        variantArms: [],
         arms: [{ cond: thisProp("active"), value: litStr("yes") }],
         otherwise: litStr("no"),
       }),
@@ -754,6 +760,7 @@ describe("ts renderTsExpr — match → right-folded ternary", () => {
     expect(
       renderTsExpr({
         kind: "match",
+        variantArms: [],
         arms: [
           { cond: litBool("true"), value: litStr("first") },
           { cond: litBool("false"), value: litStr("second") },
@@ -871,7 +878,7 @@ void BOOL;
 describe("ts renderTsExpr — money on the RIGHT of a binary (M-T6.44 mirror arm)", () => {
   const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
   const LONG: TypeIR = { kind: "primitive", name: "long" };
-  const mul = (lt: TypeIR, l: ExprIR): ExprIR => ({
+  const mul = (lt: TypeIR, l: ExprIR): ExprOf<"binary"> => ({
     kind: "binary",
     op: "*",
     left: l,

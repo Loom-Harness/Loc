@@ -4,6 +4,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EnrichedLoomModel,
+  EnrichedSystemIR,
   RawLoomModel,
 } from "../../src/ir/types/loom-ir.js";
 import type { Model } from "../../src/language/generated/ast.js";
@@ -42,6 +43,14 @@ export const enrichedContexts = (loom: EnrichedLoomModel): EnrichedBoundedContex
   ...loom.systems.flatMap((s) => s.subdomains.flatMap((d) => d.contexts)),
   ...loom.contexts,
 ];
+
+/** Every bounded context of ONE enriched system, in subdomain order.
+ *
+ *  `SystemIR` has no `contexts` field — contexts hang off its subdomains — so
+ *  `sys.contexts ?? []` (which several suites wrote) is always the empty array,
+ *  and every consumer fed by it silently got no contexts at all. */
+export const systemContexts = (sys: EnrichedSystemIR): EnrichedBoundedContextIR[] =>
+  sys.subdomains.flatMap((d) => d.contexts);
 
 /** Every aggregate of an ENRICHED model — the enriched twin of `allAggregates`. */
 export const enrichedAggregates = (loom: EnrichedLoomModel): EnrichedAggregateIR[] =>

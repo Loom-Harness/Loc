@@ -61,14 +61,15 @@ describe("feliz value-position `match` with no `else`", () => {
       arms: [
         {
           cond: { kind: "ref", name: "a", refKind: "let" },
-          value: { kind: "literal", lit: "int", value: 1 },
+          value: { kind: "literal", lit: "int", value: "1" },
         },
         {
           cond: { kind: "ref", name: "b", refKind: "let" },
-          value: { kind: "literal", lit: "int", value: 2 },
+          value: { kind: "literal", lit: "int", value: "2" },
         },
       ],
-    } as ExprIR;
+      variantArms: [],
+    };
     expect(renderFsExpr(match, { stateNames: new Set(), locals: new Set(["a", "b"]) })).toBe(
       "(if a then 1 else 2)",
     );

@@ -20,9 +20,9 @@ import { flutterTarget } from "../../../src/generator/flutter/flutter-target.js"
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../../src/generator/vue/walker/vue-target.js";
-import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
-const SLOT_CALL: ExprIR & { kind: "call" } = { kind: "call", name: "Slot", args: [] };
+const SLOT_CALL: ExprOf<"call"> = { kind: "call", callKind: "free", name: "Slot", args: [] };
 
 /** The two fields `emitSlot` touches — enough to drive it in isolation. */
 const ctxFor = (target: unknown): WalkContext =>

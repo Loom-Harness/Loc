@@ -25,8 +25,8 @@ import { DART_LEAVES, DART_NOW } from "../../../src/generator/flutter/dart-expr.
 import { renderRiverpod } from "../../../src/generator/flutter/riverpod-emit.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { allContexts } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const sys = (page: string) => `
@@ -52,7 +52,7 @@ async function riverpod(page: string): Promise<string> {
   const { model } = await parseString(sys(page), { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
   const p = enriched.systems[0]!.uis[0]!.pages.find((x) => x.name === "Sched")!;
-  return renderRiverpod(p, allContexts(enriched)).source;
+  return renderRiverpod(p, enrichedContexts(enriched)).source;
 }
 
 /** The emitted `lib/pages/sched_page.dart` from a full `generate system`. */

@@ -61,7 +61,7 @@ describe("java generator — scalar (non-union) operation returns (BUG-003)", ()
   it("passes validation (scalar returns are a shipped feature, not gated)", async () => {
     const loom = await buildLoomModel(SRC);
     const errors = validateLoomModel(loom).filter((d) =>
-      d.code.startsWith("loom.operation-return"),
+      (d.code ?? "").startsWith("loom.operation-return"),
     );
     expect(errors).toEqual([]);
   });

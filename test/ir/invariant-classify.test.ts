@@ -37,7 +37,7 @@ const refParam = (name: string, type: TypeIR = IntT): ExprOf<"ref"> => ({
   type,
 });
 
-const lengthOf = (recv: ExprIR): ExprIR => ({
+const lengthOf = (recv: ExprIR): ExprOf<"member"> => ({
   kind: "member",
   receiver: recv,
   member: "length",
@@ -430,7 +430,7 @@ describe("pickErrorPath", () => {
 });
 
 describe("singleFieldConstraints", () => {
-  const strField = (name: string): ExprIR => ({
+  const strField = (name: string): ExprOf<"ref"> => ({
     kind: "ref",
     name,
     refKind: "this-prop",
