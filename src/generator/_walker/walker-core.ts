@@ -1936,7 +1936,11 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // field order; named args bind by name.
       const vo = declaredValueObject(expr.name, ctx);
       if (vo) {
-        const fieldNames = vo.wireShape?.map((f) => f.name) ?? vo.fields.map((f) => f.name);
+        // DECLARED fields, not the canonical wire shape: positional arguments
+        // bind to the constructor's parameter order, and a value object's
+        // `derived` members — which the wire shape appends — are computed, not
+        // constructible, so they can never receive a positional argument.
+        const fieldNames = vo.fields.map((f) => f.name);
         let positional = 0;
         const fields = expr.args.map((a, i) => ({
           name: expr.argNames?.[i] ?? fieldNames[positional++] ?? `arg${i}`,
@@ -2203,12 +2207,10 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
 function declaredValueObject(
   name: string,
   ctx: WalkContext,
-):
-  | { fields: ReadonlyArray<{ name: string }>; wireShape?: ReadonlyArray<{ name: string }> }
-  | undefined {
+): { fields: ReadonlyArray<{ name: string }> } | undefined {
   for (const bc of ctx.bcByAggregate.values()) {
     const vo = bc.valueObjects?.find((v) => v.name === name);
-    if (vo) return vo as never;
+    if (vo) return vo;
   }
   return undefined;
 }
