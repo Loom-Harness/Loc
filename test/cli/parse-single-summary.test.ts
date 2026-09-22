@@ -173,6 +173,14 @@ system Both {
       repository Orders for Order {
         find open(): Order[] where this.status == OrderStatus.Open
       }
+      // The phase-④ warning this fixture COUNTS is scoped to contexts that
+      // already declare a criterion or a retrieval (audit D7: a context with
+      // neither has no equal-power replacement to migrate the find to, which
+      // is also the shape the crud starter template emits).  Declaring one
+      // keeps the AST-layer warning firing, which is the whole point here —
+      // without it this test would count 3 and silently stop covering the
+      // AST-plus-IR case it is named for.
+      criterion IsOpen of Order = status == OrderStatus.Open
     }
   }
   storage pg { type: postgres }

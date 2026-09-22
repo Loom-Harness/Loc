@@ -185,6 +185,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.destroy-form-of-unresolved":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
+  "loom.markup-primitive-in-collection-lambda":
+    "16-ui-walker-primitives.md#for--list-comprehension",
+  "loom.money-in-text-slot":
+    "16-ui-walker-primitives.md#formatters--money-datedisplay-enumbadge-idlink-filelink-provenanceinfo-timeline",
   // The body-walker give-up codes (M-T9.55).  The first four are argument /
   // reference / expression refusals — the chapter's own gate section lists the
   // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
@@ -212,6 +216,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
