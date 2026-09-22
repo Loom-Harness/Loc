@@ -172,7 +172,7 @@ The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list)
 
 #### Calling a routed handler
 
-An explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding in the api block (see [Api](07-system-composition.md)) is reached through the **same two-level shape**, with the bounded CONTEXT in the slug position and the HANDLER in the method position — the spelling the route arrow already uses:
+An explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding in the api block (see [Apis, storage, resources, channels](14-apis-storage-resources-channels.md)) is reached through the **same two-level shape**, with the bounded CONTEXT in the slug position and the HANDLER in the method position — the spelling the route arrow already uses:
 
 ```ddd
 api A from D {
