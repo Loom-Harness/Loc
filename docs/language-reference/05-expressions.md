@@ -327,13 +327,42 @@ def stage(self) -> str:
 
 `a.b` reads a member; `a.b(x)` is a method call; bare `f(x)` is a free / function call. The chain rule is `PrimaryExpr (MemberSuffix | CallSuffix)+`, optionally closed by an `ignoring` clause on a repository read (see [Repositories](10-repositories-and-queries.md#ignoring--capability-filter-bypass)). Every call is tagged at lowering with a `callKind` — `function`, `workflow-fn`, `value-object-ctor`, `private-operation`, `resource-op`, `remote-api-op`, `repo-read`, `domain-service`, `action`, `store-action`, `free` — and every `ref` with a `refKind` — `param`, `let`, `lambda`, `this-prop`, `this-vo-prop`, `this-derived`, `helper-fn`, `workflow-fn`, `enum-value`, `current-user`, `resource`, `store-field`, `match-binding` — so the backend never re-resolves; it just spells the resolved form.
 
-Field reads inside a body may be written bare (`subtotal`) or `this`-qualified (`this.subtotal`); both lower to a `this-prop` ref. A bare backing-field read becomes `this._field` (private) inside the aggregate class on TS, the public getter on .NET/Java, `self._field` in Python, `record.field` on Elixir. Enum members render as `Status.Draft` (`:Draft` on Elixir). Calls are arity- and type-checked (`loom.call-arg-count` / `loom.call-arg-type`); an unresolved name or member is `loom.unknown-name` / `loom.unknown-member`. The principal has its own code: `currentUser.<x>` where `x` is not a field of the system's `user { … }` block (nor the derived `orgPath` / `rootOrg`) is `loom.unknown-user-claim` — the generated backend's `UserClaims` type is emitted from exactly that block, so an undeclared claim would otherwise reach it verbatim and break its compile. `CallArg` admits an optional `name:` prefix (`Form(state: order)`) for named arguments — threaded into `argNames`; renderers that don't care ignore it.
+Field reads inside a body may be written bare (`subtotal`) or `this`-qualified (`this.subtotal`); both lower to a `this-prop` ref. A bare backing-field read becomes `this._field` (private) inside the aggregate class on TS, the public getter on .NET/Java, `self._field` in Python, `record.field` on Elixir. Enum members render as `Status.Draft` (`:Draft` on Elixir). Calls are arity- and type-checked (`loom.call-arg-count` / `loom.call-arg-type`); an unresolved name or member is `loom.unknown-name` / `loom.unknown-member`, and a member read on a **primitive** receiver is `loom.unknown-primitive-member` (below). The principal has its own code: `currentUser.<x>` where `x` is not a field of the system's `user { … }` block (nor the derived `orgPath` / `rootOrg`) is `loom.unknown-user-claim` — the generated backend's `UserClaims` type is emitted from exactly that block, so an undeclared claim would otherwise reach it verbatim and break its compile. `CallArg` admits an optional `name:` prefix (`Form(state: order)`) for named arguments — threaded into `argNames`; renderers that don't care ignore it.
 
 A call to a sibling `function` or `private operation` is a bare `recompute()` in the source and lowers to `this.recompute()` (TS/.NET/Java) or `self._recompute()` (Python); see [Behavior](06-behavior-and-statements.md#operation--a-mutating-method).
 
 ## Scalar intrinsics
 
 Primitive receivers carry a closed method catalogue ([`../stdlib.md`](../stdlib.md), regenerate with `npm run docs:stdlib`): `string` — `.length` (a member, not a call), `trim`, `toUpper`, `toLower`, `substring`, `startsWith`, `endsWith`, `contains`, `replace`, `split`, plus the regex test `matches(re)`; `int`/`long` — `abs`, `min`, `max`, `divTrunc`; `decimal`/`money` — `abs`, `min`, `max`, `round(places?)`, `floor`, `ceil`; `datetime` — `startOfDay`. The catalogue is validated at the call site: `toUpper("x")` → `loom.intrinsic-arity`, `note.shout()` → `loom.intrinsic-unknown` (the message lists what *is* available), a bare `note.toUpper` → `loom.intrinsic-bare`, `startsWith(s: "a")` → `loom.intrinsic-named-arg`, `startsWith(3)` → `loom.intrinsic-arg-type`, and any intrinsic on a `T?` receiver → `loom.intrinsic-nullable-receiver`.
+
+A member *read* on a primitive is judged against that same catalogue plus the one field-shaped scalar member (`string.length`) — a primitive is a value, not a record, so anything else it is asked for does not exist (`loom.unknown-primitive-member`). The message lists what *is* reachable; `money` and `json` and `File` get their own wording, because for each the fix is to declare a record (or to use the primitive that renders the value), not to correct a spelling. Membership outranks nullability: one optional level is unwrapped first, so `nickname.length` on a `string?` stays legal and the deref is `loom.intrinsic-nullable-receiver`'s business.
+
+```ddd
+aggregate Cover {
+  limit: money
+  deductible: money
+  invariant limit.amount > deductible.amount   // ❌ loom.unknown-primitive-member
+}
+```
+
+```text
+9:23 error: 'amount' is not a member of 'money'. 'money' is a PRIMITIVE — a precise
+decimal (decimal.js / decimal / BigDecimal / Decimal per backend), not a record: it
+carries an amount and nothing else, so it has no '.amount' and no '.currency' to read.
+Available on 'money': abs, min, max, round, floor, ceil. Compare or arithmetic the
+value directly ('limit > deductible'); if you wanted a record, declare one and use it
+as the field's type — 'valueobject Money { amount: money currency: string }'.
+```
+
+Left un-rejected it reached the emitters verbatim — node `this._m.amount`, .NET `this.M.Amount`, Java `this.m.amount()` (all three fail the generated project's own compile), but python `self._m.amount` on a `Decimal` and elixir `record.m.amount` on a `Decimal` struct compile fine and blow up at request time, which turned the invariant into a rule that can never fire. Write the comparison on the values themselves:
+
+```ddd
+aggregate Cover {
+  limit: money
+  deductible: money
+  invariant limit > deductible                 // ✅
+}
+```
 
 ```ddd
 aggregate Order {

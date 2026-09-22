@@ -696,6 +696,21 @@ system S {
   // (unknown ⇒ `string`), so before this check the model parsed, validated and
   // GENERATED clean — and the emitted backend then failed its own compile
   // against a `UserClaims` shape built from exactly these two fields.
+  // --- invented member READ on a primitive (F-040) -------------------------
+  // `money` is a precise decimal, not a record: before this check the read
+  // typed as `unknown`, every operand validator suppressed on `unknown`, and
+  // `.amount` reached the emitters verbatim — so `invariant m.amount > 0` was
+  // a business rule that can never fire (python/elixir compile it happily).
+  "loom.unknown-primitive-member": `
+system S {
+  subdomain Sub { context C {
+    aggregate Cover with crudish {
+      limit: money
+      invariant limit.amount > 0
+    }
+    repository Covers for Cover { }
+  } }
+}`,
   "loom.unknown-user-claim": `
 system S {
   user { id: string  role: string }

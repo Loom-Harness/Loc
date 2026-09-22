@@ -50,6 +50,7 @@ import {
 } from "../generated/ast.js";
 import { isWellFormedMoneyLiteral, moneyLiteralText } from "../money-literal.js";
 import {
+  absentPrimitiveMember,
   absentRecordMember,
   absentUserClaim,
   arithmeticResult,
@@ -235,6 +236,80 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
           );
           break;
         }
+        // A BARE member read on a PRIMITIVE receiver — the last fail-open
+        // hole in this funnel.  The CALL form has been gated since the stdlib
+        // landed (`loom.intrinsic-unknown`, `checkIntrinsicCalls` below), but
+        // a bare `s.totallyMadeUp` / `n.alsoInvented` / `m.amount` typed as
+        // `unknown`, every operand validator suppressed on `unknown`
+        // (anti-double-reporting), and the invented member reached the
+        // emitters verbatim.  node/.NET/Java then failed their OWN compile;
+        // python/elixir did NOT — `m.amount` is an `AttributeError` /
+        // `KeyError` on a Decimal at request time, and on a dynamically-typed
+        // read path an `invariant m.amount > 0` is a business rule that never
+        // fires.  Routed through the SAME member table the call form uses
+        // (`intrinsicsForReceiver` + `PRIMITIVE_FIELDS`), not a second one.
+        //
+        // Calls are left to `checkIntrinsicCalls` — it owns arity, argument
+        // types and the nullable-receiver deref, and reports them under their
+        // own codes.  Bare reads of a name that IS reachable (`s.trim` without
+        // its parens) are likewise its business (`loom.intrinsic-bare`):
+        // `absentPrimitiveMember` resolves those, so one mistake still yields
+        // exactly one diagnostic.
+        const prim = ms.call ? undefined : absentPrimitiveMember(recvType, ms.member);
+        if (prim) {
+          const known = prim.known.length
+            ? ` Available on '${prim.prim}': ${prim.known.join(", ")}.`
+            : "";
+          // Three primitives get their OWN wording, because for each of them
+          // the fix is not "correct the spelling" and the generic
+          // "a primitive has no fields" line would send the author looking
+          // for a typo that isn't there:
+          //   • `money` — the author wanted a record (`.amount`/`.currency`);
+          //   • `json`  — the interior is deliberately unmodelled;
+          //   • `File`  — it HAS a fixed wire shape (`{url, key, …}`), it is
+          //     just not readable from an expression; `FileLink` renders it.
+          // One `accept` per variant, each with the key and the `code:`
+          // spelled out inline — `diagnostic-catalog.test.ts` reads the call
+          // site, so a message hidden behind a local is invisible to it.
+          if (prim.prim === "money") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#money", { member: ms.member, known }),
+              { node: ms, property: "member", code: "loom.unknown-primitive-member" },
+            );
+          } else if (prim.prim === "json") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#json", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.unknown-primitive-member",
+              },
+            );
+          } else if (prim.prim === "File") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#file", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.unknown-primitive-member",
+              },
+            );
+          } else {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member", {
+                member: ms.member,
+                prim: prim.prim,
+                known,
+              }),
+              { node: ms, property: "member", code: "loom.unknown-primitive-member" },
+            );
+          }
+          break;
+        }
         const record = absentRecordMember(recvType, ms.member);
         if (record) {
           accept("error", diagMessage("loom.unknown-member", { member: ms.member, record }), {
@@ -417,9 +492,10 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
           // receiver that matches no catalogue row (and is neither the
           // string regex `matches` nor a test matcher) is REJECTED, not
           // failed open — failing open renders garbage per backend.  Bare
-          // member ACCESS stays un-gated (string `.length` is legal; a
-          // field-style member should not need a catalogue change to
-          // parse).  A `T?` receiver reaches here too — the member doesn't
+          // member ACCESS is gated too, one funnel up:
+          // `checkUnknownMemberAccess` → `absentPrimitiveMember`, over this
+          // same catalogue plus the field table (`string.length`), under
+          // `loom.unknown-primitive-member`.  A `T?` receiver reaches here too — the member doesn't
           // exist at all, which outranks its nullability, so this is the
           // one diagnostic the site gets.  The rendered receiver keeps its
           // `?` so the message names the type the author actually wrote.
@@ -434,6 +510,22 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
               known: known ? ` — available: ${known}` : "",
             }),
             { node: ms, property: "member", code: "loom.intrinsic-unknown" },
+          );
+          break;
+        } else if (!ms.call && isStringMatches) {
+          // The string regex `matches` is a real OPERATION that happens not to
+          // be a catalogue row, so `loom.intrinsic-bare` (which keys off a
+          // signature) never covered its bare form, and
+          // `absentPrimitiveMember` resolves the name — leaving `s.matches`
+          // the one reachable-but-uncallable member with no diagnostic.  It
+          // renders a property read of a function on every backend.
+          accept(
+            "error",
+            diagMessage("loom.intrinsic-bare", {
+              member: ms.member,
+              signature: "(pattern: string",
+            }),
+            { node: ms, property: "member", code: "loom.intrinsic-bare" },
           );
           break;
         }
