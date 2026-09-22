@@ -194,9 +194,7 @@ describe("the accepted subset is exactly what the frontend gate renderers can re
   });
 
   it("the gate the check REJECTS is the one all three renderers throw on", async () => {
-    const ir = (
-      await pageGateIR({ pageGate: `currentUser.role.startsWith("staff")` })
-    ).Secret!;
+    const ir = (await pageGateIR({ pageGate: `currentUser.role.startsWith("staff")` })).Secret!;
     expect(firstNonUiGateNode(ir)).not.toBeNull();
     for (const [name, render] of RENDERERS) {
       expect(() => render(ir), name).toThrow();

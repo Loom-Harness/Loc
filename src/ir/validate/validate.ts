@@ -116,8 +116,8 @@ import {
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
-import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
+import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
