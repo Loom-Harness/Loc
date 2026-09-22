@@ -23,20 +23,31 @@
 // SCOPE: scalar/collection `:=`/`+=`/`-=` writes (including NESTED targets —
 // `order.shipping.zip := v` folds into a `copyWith` chain, see `nestedCopyWith`),
 // `let`, bare expression statements, sibling-action calls, cross-store action
-// calls (through the Notifier's own `ref`), `navigate(<Page>)` (through the
-// generated `lib/nav.dart` bridge — a Notifier has no `BuildContext`, so the
-// route is pushed via a `GlobalKey<NavigatorState>` installed on `MaterialApp`;
-// Wave C1 packet 1e-ii, ledger row F2-CFE-1), and `match await` async effects.
+// calls (through the Notifier's own `ref`), BOTH view effects, and `match
+// await` async effects.
+//
+// A Notifier has no `BuildContext`, so each view effect reaches the widget
+// layer through its own generated out-of-tree bridge — the same `GlobalKey`
+// shape twice:
+//
+//   navigate(<Page>)  →  `lib/nav.dart`    `GlobalKey<NavigatorState>`
+//                        (wave C1 packet 1e-ii, ledger row F2-CFE-1)
+//   toast(<expr>)     →  `lib/toast.dart`  `GlobalKey<ScaffoldMessengerState>`
+//                        (wave C2 packet 2l, M-T1.32)
+//
+// Both keys are installed on `MaterialApp` by `main.dart`, use-driven off one
+// emitted marker each, so an app that uses neither is byte-identical to the
+// pre-bridge output.
 //
 // OUT OF SCOPE, and REFUSED at phase ⑦ rather than commented here (Wave C1
-// packet 1d-ii): `toast(…)` — the other view effect, which has no bridge yet —
-// and a `match await` on one of the five STANDARD aggregate ops, which this
-// module resolves through `agg.operations` and so cannot find.  Both carry
-// `loom.flutter-action-body-unsupported` and name M-T1.32; the arms that used
-// to emit `// TODO(flutter full-parity)` into the Dart are now internal floors,
-// because a comment in generated Dart is a silently dead button, not a gap
-// anyone reads.  The one give-up that remains is a `navigate` whose route
-// needs a `:param` the call cannot supply (`#navigate-route-param`).
+// packet 1d-ii): a `match await` on one of the five STANDARD aggregate ops,
+// which this module resolves through `agg.operations` and so cannot find.  It
+// carries `loom.flutter-action-body-unsupported` and names M-T1.32; the arm
+// that used to emit `// TODO(flutter full-parity)` into the Dart is now an
+// internal floor, because a comment in generated Dart is a silently dead
+// button, not a gap anyone reads.  The one give-up that remains is a
+// `navigate` whose route needs a `:param` the call cannot supply
+// (`#navigate-route-param`).
 
 import { diagMessage } from "../../diagnostics/messages.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
@@ -263,13 +274,25 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
           ctx.usesNavigate = navCtx.usesNavigate;
           return `${nav};`;
         }
+        // `toast(<expr>)` — the OTHER view effect, and the exact twin of the
+        // `navigate` arm above: a Notifier has no `BuildContext`, so it cannot
+        // write `ScaffoldMessenger.of(context)`, and it reaches the live
+        // messenger through a `GlobalKey<ScaffoldMessengerState>` installed on
+        // `MaterialApp` (`lib/toast.dart`, M-T1.32).  The message expression
+        // goes through the SAME `emitExpr` every other statement uses, so an
+        // interpolated toast reads `state.<cell>` exactly as a body read
+        // would.  The bridge takes `Object?` and interpolates it, so a
+        // non-string argument coerces rather than failing to compile — which
+        // is what the JS frontends get for free from template literals.
+        if (stmt.name === "toast") {
+          return `showToast(${stmt.args.map((a) => emitExpr(a, ctx)).join(", ")});`;
+        }
         // INTERNAL FLOOR.  A bare call in a ui action body that lowers to
-        // `private-operation` and is NOT `navigate` is refused before codegen:
-        // `toast` (the other view-effect builtin) by
-        // `loom.flutter-action-body-unsupported#view-effect` at phase ⑦, and
-        // any other unresolved name by `loom.unresolved-action-ref`.  Until
-        // then this arm silently dropped the effect: the button was wired and
-        // did nothing, forever, with a comment in the Dart nobody reads.
+        // `private-operation` and is NEITHER `navigate` NOR `toast` is refused
+        // before codegen by `loom.unresolved-action-ref`.  Until the two
+        // bridges existed this arm silently dropped the effect: the button was
+        // wired and did nothing, forever, with a comment in the Dart nobody
+        // reads.
         throw new Error(
           diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
             what: `a '${stmt.target}' call '${stmt.name}'`,

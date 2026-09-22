@@ -1528,3 +1528,49 @@ nothing and the test passes vacuously.
   `examples/**` and `web/src/examples/**`), so this rule's coverage is
   entirely the dedicated fixture tests named above, not the corpus/behavioral
   legs.
+
+### RS-36 · `.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form
+- **Guarantee.** `first` is declared `T` — **non-optional** — in
+  `src/util/collection-ops.ts`, so reading it from an empty receiver FAILS on
+  every target rather than yielding a value that lies about its own type.
+  `firstOrNull` is declared `T?` and is the TOTAL form: null/nil on empty,
+  never raising. The failure surfaces as the sanitized **500** RS-28 already
+  governs, not a domain-floor 422 — the request was valid and the MODEL's
+  assumption ("this collection has a first element") was not.
+- **Trigger.** Any `.first` whose receiver can be empty: `lines.first.sku`
+  after a `where` that matched nothing, a `find` result bound and read
+  positionally, a `derived` over an empty containment.
+- **The split when raised (`F2-EXPR-7`).** Three targets already failed at the
+  point of the mistake and two degraded silently: dotnet `.First()`
+  (`InvalidOperationException`), java `.get(0)` (`IndexOutOfBoundsException`)
+  and python `[0]` (`IndexError`) — against node `${recv}[0]` (`undefined`) and
+  elixir `List.first(${recv})` (`nil`). Elixir's `first` and `firstOrNull` were
+  **literally the same snippet**, so the non-optional form had no distinct
+  meaning at all, and on node a `string`-typed getter returned `undefined`,
+  which then shipped on the wire or died later somewhere that never mentions
+  the collection.
+- **Rejected: making `first` total (`T?`).** That contradicts the declared
+  signature and would break every `lines.first.sku` in the language for a case
+  authors can already express with `firstOrNull`. A failure AT the read is
+  diagnosable; a null that ships is not. (This is RS-34's argument reaching the
+  opposite conclusion, and for the stated reason: there the absent value has a
+  MEANING — no joined row — and here it does not.)
+- **Per-backend shape.** node emits an arrow IIFE guard rather than a bare
+  `[0]`, so the receiver is evaluated once and the message names the total
+  form: `((__c) => { if (__c.length === 0) throw new Error("'.first' on an
+  empty collection — use '.firstOrNull' for the total form"); return __c[0]; })(<recv>)`
+  (`src/generator/_expr/js-collection-ops.ts`, shared with the JS frontend
+  walkers — where a stdlib collection op in a page body is refused outright by
+  `loom.frontend-collection-op-unsupported`, so the guard is backend-reachable
+  only). elixir moves `first` to `hd/1` (`ArgumentError` on `[]`) and keeps
+  `List.first/1` for `firstOrNull` (`src/generator/elixir/render-expr.ts`).
+  dotnet / java / python are unchanged: their natural renderings already raise.
+- **Provenance.** Ruled as **D-FIRST-ON-EMPTY** (`docs/decisions.md`); raised as
+  ledger row `F2-EXPR-7`; built in wave C2 packet 2n. Tier: **generator**
+  (per-backend arm test,
+  `test/generator/collection-op-first-partial.test.ts`) — the edge itself is
+  pinned as prose in `src/util/collection-ops.ts` the way
+  `src/util/intrinsics.ts` pins scalar edge behaviour. The FRONTEND half is
+  vacuous by construction today (the page-body gate above); should that gate
+  ever widen, the frontends follow this same rule rather than degrading to
+  `undefined`.

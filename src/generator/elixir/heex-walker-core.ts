@@ -125,6 +125,11 @@ export interface WalkResult {
    *  shared `LoomChart` function component the call site invokes (the HEEx
    *  leg).  False ⇒ no component file. */
   usesChart: boolean;
+  /** True when the body renders a CLIENT-side `Table` control (a filter, a
+   *  sort or a page window over rows the server did not page) — the deployable
+   *  then emits the shared `LoomTable` helper module those call sites invoke.
+   *  False ⇒ no module file (byte-identical to before the client leg). */
+  usesTableHelpers: boolean;
   /** Aggregate names (PascalCase) referenced by `X id` form fields in
    *  this page's body — the LiveView emitter loads each target's
    *  record list in `mount/3` and assigns to
@@ -250,12 +255,14 @@ export interface QueryBinding {
  *  matching `handle_event("loom-sort"/"loom-page", …)` clauses; the markup
  *  (sortable header buttons, the pager) is emitted by `renderTable` itself.
  *
- *  Unlike the JSX targets — which sort and slice a bound array in the browser —
- *  the Phoenix leg is SERVER-driven: a LiveView calls its context function
- *  directly, so a sort/page change just re-runs `list_<agg>s/4` with different
- *  arguments and lets the already-whitelisted `ORDER BY` + `LIMIT`/`OFFSET` do
- *  the work.  Absent (no Table, or a Table with no control args) ⇒ no clauses,
- *  byte-identical output. */
+ *  Two modes, told apart by `server`.  For a `serverPaged:` Table the Phoenix
+ *  leg is SERVER-driven: a LiveView calls its context function directly, so a
+ *  sort/page change re-runs `list_<agg>s/4` with different arguments and lets
+ *  the already-whitelisted `ORDER BY` + `LIMIT`/`OFFSET` do the work.  For a
+ *  non-paged read the bound rows are the whole list, so the clause only writes
+ *  the assign and the template's `LoomTable` calls re-derive the window — the
+ *  same thing the JSX targets do in the browser.  Absent (no Table, or a Table
+ *  with no control args) ⇒ no clauses, byte-identical output. */
 export interface TableControlBinding {
   /** snake-cased state assign holding the sorted field name, when the Table
    *  carries `sortKey:`/`sortDir:` refs. */
@@ -265,6 +272,13 @@ export interface TableControlBinding {
   /** snake-cased state assign holding the 1-based page number, when the Table
    *  carries a `page:` ref. */
   page?: string;
+  /** True for a `serverPaged:` Table — the control clauses must RE-RUN the
+   *  list read, because the new page/sort are arguments to `list_<agg>s/4`.
+   *  False for a client-side one: the rows are already the whole list and the
+   *  template's `LoomTable` calls re-derive the window from the assigns, so a
+   *  refetch would answer the identical rows (`list_<agg>s/0`) — which is
+   *  exactly the dead control surface F2-MT640-SORT-DEAD named. */
+  server: boolean;
 }
 
 /** A `FileUpload { …, bind: <File state> }` in a page body — the LiveView
@@ -381,6 +395,14 @@ export interface WalkContext {
    *  reason as `slotUsed`.  Drives the per-deployable `LoomChart` component
    *  emission (the chart's SVG geometry is Elixir arithmetic, not markup). */
   chartUsed: { value: boolean };
+  /** Shared box flag set when a CLIENT-side `Table` control renders — a
+   *  filter, a sort or a page window over rows the server did not page
+   *  (`heex-primitives.ts` `renderTable`).  Boxed for the same reason as
+   *  `chartUsed`, and drives the per-deployable `LoomTable` helper module:
+   *  the three transforms are Elixir list arithmetic, not markup, and they
+   *  are called from BOTH the page LiveViews and the shared components
+   *  module, so they cannot be page-local `defp`s. */
+  tableHelpersUsed: { value: boolean };
   /** Monotonic per-page counter for `Tabs` instances — boxed (survives the
    *  `{...ctx}` copies) so each Tabs gets a unique id used to scope its
    *  client-side `JS.show`/`JS.hide` toggle selectors. */
@@ -565,6 +587,7 @@ export function walkBodyToHeex(
     stateOwner,
     slotUsed: { value: false },
     chartUsed: { value: false },
+    tableHelpersUsed: { value: false },
     tabSeq: { value: 0 },
     tableSeq: { value: 0 },
     usedStores: new Set(),
@@ -636,6 +659,7 @@ export function walkBodyToHeex(
     componentUses: ctx.componentUses,
     usesSlot: ctx.slotUsed.value,
     usesChart: ctx.chartUsed.value,
+    usesTableHelpers: ctx.tableHelpersUsed.value,
     idOptionsBindings: [...ctx.idOptionsBindings],
     usedStores: [...ctx.usedStores],
     uploadBindings: ctx.uploadBindings,
@@ -2513,6 +2537,7 @@ function renderRequiresGuardAt(
     componentUses: new Map(),
     slotUsed: { value: false },
     chartUsed: { value: false },
+    tableHelpersUsed: { value: false },
     tabSeq: { value: 0 },
     tableSeq: { value: 0 },
     usedStores: new Set(),

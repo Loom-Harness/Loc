@@ -13,8 +13,9 @@ import type {
 import type { LoomDiagnostic } from "./diagnostic.js";
 import {
   aggregateHasMember,
+  bareColumnPredicateLeaf,
   firstColumnVsColumn,
-  firstNonQueryableNode,
+  firstNonQueryablePredicate,
   firstUnknownColumnRef,
 } from "./shared.js";
 
@@ -35,8 +36,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
     const agg = ctx.aggregates.find((a) => a.name === repo.aggregateName);
     for (const find of repo.finds) {
       if (!find.filter) continue;
-      const offending = firstNonQueryableNode(find.filter);
-      if (offending) {
+      const refuse = (offending: string): void => {
         diags.push({
           severity: "error",
           code: "loom.find-where-not-queryable",
@@ -47,6 +47,10 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
         });
+      };
+      const offending = firstNonQueryablePredicate(find.filter);
+      if (offending) {
+        refuse(offending);
         continue;
       }
       // Beyond grammar-level queryability: each `this.<X>` reference
@@ -78,7 +82,18 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             }),
             source: `${ctx.name}/${repo.name}.${find.name}`,
           });
+          continue;
         }
+      }
+      // The ONE refusal the shape gate DEFERS (`bareColumnPredicateLeaf`): a
+      // non-boolean `this`-rooted column standing alone.  Reported only once
+      // the column is known to EXIST, because an undeclared `this.x` lowers
+      // with the same `primitive string` type a real string field does
+      // (measured) — and "unknown field" is the better answer for that one.
+      const bareLeaf = bareColumnPredicateLeaf(find.filter);
+      if (bareLeaf) {
+        refuse(bareLeaf);
+        continue;
       }
       // And: every binary comparison must compare ONE column against
       // ONE value (parameter, literal, enum-value).  Drizzle's
@@ -114,7 +129,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
   for (const agg of ctx.aggregates) {
     const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
     for (const predicate of filters) {
-      const offending = firstNonQueryableNode(predicate);
+      const offending = firstNonQueryablePredicate(predicate, { thisTypesUnresolved: true });
       if (offending) {
         diags.push({
           severity: "error",
@@ -131,6 +146,10 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
       // the key is a real stored column on every backend — the derived
       // tenancy registry self-scope (`this.id == currentUser.<claim>`,
       // is exactly this shape.
+      //
+      // A context-level filter carries `thisTypesUnresolved`, so the shape
+      // gate accepted every column leaf above and this is what catches a
+      // column that does not exist.
       const unknown = firstUnknownColumnRef(predicate, agg, ctx, { allowSelfId: true });
       if (unknown) {
         diags.push({
@@ -233,7 +252,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
     const src = `${ctx.name}/retrieval ${r.name}`;
 
     // `where` — same queryable-subset enforcement as find filters.
-    const offending = firstNonQueryableNode(r.where);
+    const offending = firstNonQueryablePredicate(r.where);
     if (offending) {
       diags.push({
         severity: "error",

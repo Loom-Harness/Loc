@@ -415,6 +415,18 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 > backend — the identical tail-return shape a `domainService` operation accepts. Not an elixir
 > row; the elixir renderer already handles it.
 
+> **Re-classed 2026-09-21 (wave C2, packet 2m) — `D-ELIXIR-IF-BRANCH`.** The four survivors above
+> were re-derived on a fresh head and the register row moved `gap` → `scope`, keeping
+> `mission: "M-T6.59"` and every arm that fires. The finding that decided it: three of the four
+> need a change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit; a
+> non-hoisted guard form; a statement spine for ES commands), and the two sharpest members of the
+> closed branch vocabulary are **not elixir-local at all** — a conditional `emit` is an event
+> ORDERING question the S5a persist-then-dispatch restructure cannot answer (walking deeper does
+> not fix it), and a PROVENANCED write in a branch is decided by the TARGET-NEUTRAL `opHasProvSite`
+> (`src/ir/util/prov-id.ts:49`), so deepening that scan changes all five backends. This mission
+> stays OPEN and owns the body-renderer question; what changed is the claim that a drain sprint
+> could close it.
+
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
 ## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `in-flight (#2850 + wave C1 1a)` · **M** · P0

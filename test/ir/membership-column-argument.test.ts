@@ -9,8 +9,9 @@
 // there has nowhere to go — on any of them.
 //
 // WHY THE REFUSAL MOVED.  It lived in the per-adapter descriptor
-// (`find-predicate-capability.ts`, the `mikroorm` entry), and
-// `validateFindPredicateAdapterSupport` keys on `dep.persistence` — which a
+// (`find-predicate-capability.ts`, the `mikroorm` entry — since deleted with
+// the rest of that descriptor family in wave C2 packet 2n), and the per-adapter
+// gate that read it keyed on `dep.persistence` — which a
 // deployable on the DEFAULT adapter does not carry.  So the identical shape was
 // refused honestly under `persistence: mikroorm` and CRASHED codegen on a bare
 // `platform: node` one: `0 error(s), 0 warning(s)` followed by
@@ -122,6 +123,8 @@ describe("a reference-collection membership needs a BINDABLE argument", () => {
     it(`${platform}: a BOUND argument is still accepted (control)`, async () => {
       const codes = await errorCodes(sys(platform, FIND_BOUND_ARG));
       expect(codes).not.toContain("loom.find-where-not-queryable");
+      // The per-adapter code no longer exists at all (packet 2n): the
+      // refusal is neutral, so the adapter-keyed spelling must never come back.
       expect(codes).not.toContain("loom.find-predicate-unsupported");
     });
   }
