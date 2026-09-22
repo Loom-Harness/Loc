@@ -147,6 +147,10 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     why: "asserts which sources the grammar REFUSES; the refused ones are the point",
   },
   {
+    file: "test/language/parsing/reserved-in-expression.test.ts",
+    why: "asserts what a keyword-where-a-name-was-legal REFUSAL says; a parseable fixture would reach no message at all",
+  },
+  {
     file: "test/language/parsing/store.test.ts",
     why: "negative fixtures for the `store` grammar",
   },
