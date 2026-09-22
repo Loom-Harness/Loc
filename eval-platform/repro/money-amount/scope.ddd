@@ -1,0 +1,19 @@
+system MoneyScope {
+  subdomain S {
+    context C {
+      aggregate Invoice {
+        label: string
+        qty: int
+        total: money
+        invariant label.length > 0
+        invariant qty >= 1
+        invariant total.amount >= 0
+        invariant total.currency == "USD"
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: elixir, contexts: [C], dataSources: [st], port: 3000 }
+}

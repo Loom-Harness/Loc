@@ -1,0 +1,26 @@
+# Generated trees and installed deps from this evaluation are reproducible from the
+# committed .ddd sources + scripts, so only sources, scripts, results and reports
+# are tracked.
+**/node_modules/
+**/api/
+**/web_app/
+**/console/
+**/keycloak/
+**/db-init/
+**/monitoring/
+**/.loom/
+**/dist/
+**/out/
+**/out-*/
+**/bin/
+**/obj/
+matrix/gen/
+matrix/gen2/
+packs/*/
+det1/
+det2/
+orderly-*/
+acmeship/
+**/docker-compose*.yml
+**/README.md
+**/LICENSE

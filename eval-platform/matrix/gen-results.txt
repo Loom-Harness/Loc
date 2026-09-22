@@ -1,0 +1,30 @@
+GEN_OK   node/react files=88
+GEN_FAIL node/vue :: /home/user/Loc/eval-platform/matrix/gen/node-vue/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'vue' renders vue. Use one of: vuetify, shadcnVue. 1 error(s), 0 warning(s). 
+GEN_FAIL node/svelte :: /home/user/Loc/eval-platform/matrix/gen/node-svelte/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'svelte' renders svelte. Use one of: shadcnSvelte, flowbite. 1 error(s), 0 w
+GEN_FAIL node/angular :: /home/user/Loc/eval-platform/matrix/gen/node-angular/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'angular' renders angular. Use one of: angularMaterial, primeng, spartanNg.
+GEN_FAIL node/feliz :: /home/user/Loc/eval-platform/matrix/gen/node-feliz/main.ddd:87:13 error: Design 'mantine' on Feliz deployable 'webApp' is not a daisyUI theme. Feliz's 'design:' selects a daisyUI theme, written as a Q
+GEN_OK   node/flutter files=72
+GEN_OK   dotnet/react files=125
+GEN_FAIL dotnet/vue :: /home/user/Loc/eval-platform/matrix/gen/dotnet-vue/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'vue' renders vue. Use one of: vuetify, shadcnVue. 1 error(s), 0 warning(s). 
+GEN_FAIL dotnet/svelte :: /home/user/Loc/eval-platform/matrix/gen/dotnet-svelte/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'svelte' renders svelte. Use one of: shadcnSvelte, flowbite. 1 error(s), 0
+GEN_FAIL dotnet/angular :: /home/user/Loc/eval-platform/matrix/gen/dotnet-angular/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'angular' renders angular. Use one of: angularMaterial, primeng, spartanN
+GEN_FAIL dotnet/feliz :: /home/user/Loc/eval-platform/matrix/gen/dotnet-feliz/main.ddd:87:13 error: Design 'mantine' on Feliz deployable 'webApp' is not a daisyUI theme. Feliz's 'design:' selects a daisyUI theme, written as a
+GEN_OK   dotnet/flutter files=109
+GEN_OK   java/react files=120
+GEN_FAIL java/vue :: /home/user/Loc/eval-platform/matrix/gen/java-vue/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'vue' renders vue. Use one of: vuetify, shadcnVue. 1 error(s), 0 warning(s). 
+GEN_FAIL java/svelte :: /home/user/Loc/eval-platform/matrix/gen/java-svelte/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'svelte' renders svelte. Use one of: shadcnSvelte, flowbite. 1 error(s), 0 w
+GEN_FAIL java/angular :: /home/user/Loc/eval-platform/matrix/gen/java-angular/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'angular' renders angular. Use one of: angularMaterial, primeng, spartanNg.
+GEN_FAIL java/feliz :: /home/user/Loc/eval-platform/matrix/gen/java-feliz/main.ddd:87:13 error: Design 'mantine' on Feliz deployable 'webApp' is not a daisyUI theme. Feliz's 'design:' selects a daisyUI theme, written as a Q
+GEN_OK   java/flutter files=104
+GEN_OK   python/react files=95
+GEN_FAIL python/vue :: /home/user/Loc/eval-platform/matrix/gen/python-vue/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'vue' renders vue. Use one of: vuetify, shadcnVue. 1 error(s), 0 warning(s). 
+GEN_FAIL python/svelte :: /home/user/Loc/eval-platform/matrix/gen/python-svelte/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'svelte' renders svelte. Use one of: shadcnSvelte, flowbite. 1 error(s), 0
+GEN_FAIL python/angular :: /home/user/Loc/eval-platform/matrix/gen/python-angular/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'angular' renders angular. Use one of: angularMaterial, primeng, spartanN
+GEN_FAIL python/feliz :: /home/user/Loc/eval-platform/matrix/gen/python-feliz/main.ddd:87:13 error: Design 'mantine' on Feliz deployable 'webApp' is not a daisyUI theme. Feliz's 'design:' selects a daisyUI theme, written as a
+GEN_OK   python/flutter files=79
+GEN_OK   elixir/react files=115
+GEN_FAIL elixir/vue :: /home/user/Loc/eval-platform/matrix/gen/elixir-vue/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'vue' renders vue. Use one of: vuetify, shadcnVue. 1 error(s), 0 warning(s). 
+GEN_FAIL elixir/svelte :: /home/user/Loc/eval-platform/matrix/gen/elixir-svelte/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'svelte' renders svelte. Use one of: shadcnSvelte, flowbite. 1 error(s), 0
+GEN_FAIL elixir/angular :: /home/user/Loc/eval-platform/matrix/gen/elixir-angular/main.ddd:87:13 error: Design pack 'mantine' is a tsx pack but framework 'angular' renders angular. Use one of: angularMaterial, primeng, spartanN
+GEN_FAIL elixir/feliz :: /home/user/Loc/eval-platform/matrix/gen/elixir-feliz/main.ddd:87:13 error: Design 'mantine' on Feliz deployable 'webApp' is not a daisyUI theme. Feliz's 'design:' selects a daisyUI theme, written as a
+GEN_OK   elixir/flutter files=99

@@ -1,0 +1,17 @@
+// Minimal repro: `invariant <moneyField>.amount >= 0` is accepted by the Loom
+// validator (0 errors) but behaves differently on all five backends.
+system MoneyRepro {
+  subdomain S {
+    context C {
+      aggregate Invoice {
+        label: string
+        total: money
+        invariant total.amount >= 0
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

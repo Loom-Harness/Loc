@@ -1,0 +1,15 @@
+system Shop {
+  subdomain S {
+    context C {
+      aggregate Product {
+        sku: string
+        description: string
+        price: money
+      }
+      repository Products for Product { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

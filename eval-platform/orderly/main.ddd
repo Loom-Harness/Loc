@@ -1,0 +1,141 @@
+// Orderly — a realistic multi-tenant B2B order-management system.
+// Written as an adoption probe: exercises the feature set a real product needs.
+
+requirement US-100 {
+  type: UserStory
+  title: "A merchant manages orders for their own tenant only"
+  status: InProgress
+}
+
+system Orderly {
+
+  theme {
+    primary: "#0f766e"
+    neutral: "#64748b"
+    radius: "md"
+  }
+
+  user {
+    id: guid
+    role: string
+    permissions: string[]
+    org: string
+  }
+
+  auth {
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: "orderly-console"
+      clientSecret: env("OIDC_CLIENT_SECRET")
+      audience: "orderly-api"
+      scopes: ["openid", "profile"]
+    }
+    sessions: jwt
+    enforcement: denyByDefault
+    claims: { role: "role", permissions: "realm_access.roles" }
+  }
+
+  tenancy by user.org of Tenant
+
+  subdomain Sales {
+
+    permissions { manageOrders, viewOrders, refundOrders }
+
+    context Tenancy {
+      policy TenantAdmin(): bool { currentUser.permissions.contains(permissions.manageOrders) }
+
+      aggregate Tenant with tenantRegistry, crudish(requires: TenantAdmin) {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+      repository Tenants for Tenant { }
+    }
+
+    context Ordering {
+
+      enum OrderStatus { Draft, Placed, Shipped, Cancelled }
+
+      valueobject Address {
+        line1: string
+        city: string
+        postcode: string
+        invariant line1.length > 0
+        invariant postcode.matches("^[A-Z0-9 ]{3,10}$")
+        derived oneLine: string = line1 + ", " + city + " " + postcode
+      }
+
+      event OrderPlaced { order: Order id, total: money, at: datetime }
+      event OrderCancelled { order: Order id, reason: string }
+
+      aggregate Order with auditable, tenantOwned {
+        reference: string
+        status: OrderStatus
+        shipTo: Address
+        total: money
+        notes: string?
+
+        invariant reference.length > 0
+        invariant total.amount >= 0
+
+        derived isOpen: bool = status == OrderStatus.Draft || status == OrderStatus.Placed
+
+        operation place() {
+          requires currentUser.permissions.contains("manageOrders")
+          precondition status == OrderStatus.Draft
+          status := OrderStatus.Placed
+          emit OrderPlaced { order: this.id, total: this.total, at: now() }
+        }
+
+        operation cancel(reason: string) {
+          requires currentUser.permissions.contains("manageOrders")
+          precondition isOpen
+          status := OrderStatus.Cancelled
+          emit OrderCancelled { order: this.id, reason: reason }
+        }
+      }
+
+      repository Orders for Order {
+        find all(): Order[] requires currentUser.permissions.contains("viewOrders")
+      }
+
+      criterion Open of Order = status == OrderStatus.Draft || status == OrderStatus.Placed
+      retrieval OpenOrders of Order {
+        where: Open
+        sort: [reference asc]
+      }
+
+      projection OrderTotals requires currentUser.permissions.contains("viewOrders") {
+        orders: int
+        revenue: money
+        from Order as o
+        select orders = count(),
+               revenue = sum(o.total)
+      }
+    }
+  }
+
+  ui Console with scaffold(subdomains: [Sales]) { }
+
+  storage primary { type: postgres }
+  resource appState { for: Ordering, kind: state, use: primary }
+  resource tenantState { for: Tenancy, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Ordering, Tenancy],
+    dataSources: [appState, tenantState],
+    auth: required,
+    port: 3000
+  }
+
+  deployable console {
+    platform: react,
+    targets: api,
+    ui: Console,
+    auth: ui,
+    port: 3001,
+    design: mantine
+  }
+}
