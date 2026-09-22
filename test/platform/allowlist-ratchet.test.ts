@@ -526,7 +526,21 @@ const REGISTERED: Ratchet[] = [
     // five-emitter slice of its own, reported on #2864 rather than smuggled in
     // here.  When it lands, this fixture gains its unit block and this entry
     // drains one.
-    max: 23,
+    //
+    // 23 -> 22: wave-3 row 3.3 DRAINED `projection-agg-filters` — the first
+    // lowering on this list since the direction reversed.  The arithmetic is
+    // against `main`'s CURRENT value, not this branch's: `main` raised 22 -> 23
+    // for `vo-id-reference` while this branch was open, so the drain subtracts
+    // one from 23.  Restoring a remembered literal is how a ratchet silently
+    // loses somebody else's raise.  Its signed reason
+    // argued the leak "is a RUNTIME value; the compile tier cannot see a wrong
+    // number", which was an argument FOR a behavioural block rather than
+    // against one.  The real blocker was undocumented and narrower: with the
+    // `softDeletable` CAPABILITY alone nothing could set `isDeleted` through
+    // the api (a capability is a pure mixin and supplies no operation), so the
+    // conjunct was unobservable at ANY tier; composing the `softDelete` MACRO
+    // made it assertable with one principal.
+    max: 22,
   },
 ];
 
