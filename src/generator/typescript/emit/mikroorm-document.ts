@@ -122,7 +122,9 @@ export function renderMikroDocumentRepository(
     const loadLines = [
       ...(needsPrincipalBind ? [principalBind] : []),
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const rows = await em.find(${row}, {});`,
+      // orderBy id — the document carrier's whole-table read is heap-ordered
+      // without it, and an `update` moves the row.  See the drizzle/java note.
+      `    const rows = await em.find(${row}, {}, { orderBy: { id: "ASC" } });`,
       `    const all = rows.map((r) => ${fromDocOf("r")});`,
     ];
     // `find … paged` — no queryable columns on a document blob, so the page is
