@@ -27,7 +27,7 @@
 
 import type { SystemIR } from "../../ir/types/loom-ir.js";
 import { sha256 } from "../../util/sha256.js";
-import { type BrokerBinding, type BrokerTransport, brokerChannelBindings } from "./bindings.js";
+import { type BrokerBinding, brokerChannelBindings } from "./bindings.js";
 
 /** The single RabbitMQ vhost all Loom channels live in (design §7). */
 export const RABBIT_VHOST = "loom";
@@ -157,12 +157,6 @@ export function kafkaJaasConfig(sys: SystemIR, storageName: string): string {
     .map((g) => ` user_${g.user}="${g.password}"`)
     .join("");
   return `org.apache.kafka.common.security.plain.PlainLoginModule required${users};`;
-}
-
-/** Transport of a broker storage by name (undefined for non-broker types). */
-export function brokerTransportOf(sys: SystemIR, storageName: string): BrokerTransport | undefined {
-  const t = sys.storages.find((s) => s.name === storageName)?.type;
-  return t === "redis" || t === "rabbitmq" || t === "kafka" ? t : undefined;
 }
 
 export function rabbitPermissionRegex(addresses: string[], groups: string[]): string {

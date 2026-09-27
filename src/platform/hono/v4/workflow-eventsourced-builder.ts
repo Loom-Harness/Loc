@@ -12,7 +12,7 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced workflows on Hono (workflow-and-applier.md A2-S5b) — the saga
@@ -362,9 +362,4 @@ export function esHelperNames(wf: WorkflowIR): {
     append: `append${T}Events`,
     foldedSet: `${T}_FOLDED_EVENTS`,
   };
-}
-
-/** The slug used in the `event_unrouted` log (parity with the state path). */
-export function workflowSlug(wf: WorkflowIR): string {
-  return snake(wf.name);
 }

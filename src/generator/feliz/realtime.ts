@@ -62,12 +62,6 @@ export function felizRealtimeRefetchAggregates(ui: UiIR): string[] {
   return [...out].sort();
 }
 
-/** True when the ui has at least one live-event handler — the emit gate the
- *  caller combines with the backend actually serving the SSE wire. */
-export function felizHasRealtimeHandlers(ui: UiIR): boolean {
-  return (ui.notifications?.length ?? 0) > 0;
-}
-
 /** The realtime subscription module (helpers + `realtimeSub`), spliced into
  *  `App.fs` after `update` (it references `Msg`/`Api`/the reads' `Loaded`
  *  cases) and wired via `Program.withSubscription realtimeSub`. */

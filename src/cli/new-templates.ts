@@ -82,15 +82,6 @@ export function designPacksForFormat(format: PackFormat): readonly DesignPack[] 
   return DESIGN_PACKS.filter((d) => packFormatOf(d) === format);
 }
 
-export const REACT_DESIGN_PACKS: readonly DesignPack[] = designPacksForFormat("tsx");
-export const SVELTE_DESIGN_PACKS: readonly DesignPack[] = designPacksForFormat("svelte");
-/** Vue-format packs — picking one scaffolds a `platform: vue` frontend
- *  (the design implies the frontend platform via its pack format). */
-export const VUE_DESIGN_PACKS: readonly DesignPack[] = designPacksForFormat("vue");
-export const ANGULAR_DESIGN_PACKS: readonly DesignPack[] = designPacksForFormat("angular");
-/** Phoenix LiveView packs — these mount ON the elixir backend. */
-export const LIVEVIEW_DESIGN_PACKS: readonly DesignPack[] = designPacksForFormat("heex");
-
 /** Backend listen port per platform (mirrors `defaultPort` in
  *  `src/platform/registry.ts`). The frontend scaffold (react or svelte) always uses 3001. */
 export const BACKEND_PORT: Record<StarterPlatform, number> = {

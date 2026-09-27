@@ -619,12 +619,6 @@ export function renderDurableEmitDispatchParts(
   return { bind, dispatch, broadcast };
 }
 
-/** Does this aggregate have any public returning operation (→ the controller
- *  needs the shared `problem_variant/5` responder)? */
-export function aggregateHasReturningOp(agg: AggregateIR): boolean {
-  return agg.operations.some((op) => op.visibility === "public" && isReturningOperation(op));
-}
-
 /** A return variant is an *error* iff it names a `kind: "error"` payload in
  *  this context; the other (success) variant is the aggregate itself. */
 function isErrorTag(tag: string, ctx: BoundedContextIR): boolean {

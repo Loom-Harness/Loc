@@ -11,7 +11,6 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
-import { supportsSurfaceKind } from "../../../util/source-types.js";
 
 export interface PhoenixResourceAdapter {
   readonly name: string;
@@ -496,9 +495,4 @@ export function buildPhoenixResourceModules(
     }
   }
   return out;
-}
-
-/** Does any Phoenix adapter realize `(sourceType, kind)`? */
-export function phoenixSupportsResource(sourceType: string, kind: DataSourceIR["kind"]): boolean {
-  return !!phoenixResourceAdapterFor(sourceType) && supportsSurfaceKind(sourceType, kind);
 }
