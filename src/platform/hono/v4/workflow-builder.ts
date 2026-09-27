@@ -1,4 +1,5 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
+import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
   recordPayloadOf,
   workflowParamPayloads,
@@ -195,13 +196,22 @@ export function buildWorkflowsFile(
   // surface.  An event-triggered-only workflow is invoked by the dispatcher,
   // not POSTed, and its facade param is an event type (no wire/zod form), so
   // it gets neither a request schema nor a route.
+  // Resolved ONCE per file: the request-component namespace is a per-document
+  // property, so the collision set has to be decided over the whole context
+  // rather than per call site.
+  const reqNameFor = requestComponentNamer(ctx);
   for (const wf of ctx.workflows) {
     if (!emitsCommandRoute(wf)) continue;
-    body.push(`const ${upperFirst(wf.name)}Request = z.object({`);
+    // Collision-aware: an aggregate operation mints `<Op><Agg>Request` by the
+    // other half of this contract, and `scheduleWorkOrder` spells the same
+    // string as `schedule` on `WorkOrder`.  The shared minter owner-qualifies
+    // both halves when — and only when — they genuinely collide (F-026).
+    const reqName = reqNameFor({ kind: "workflow", workflow: wf.name });
+    body.push(`const ${reqName} = z.object({`);
     for (const p of wf.params) {
       body.push(`  ${p.name}: ${zodForWorkflowParam(p.type, ctx)},`);
     }
-    body.push(`}).openapi("${upperFirst(wf.name)}Request");`);
+    body.push(`}).openapi("${reqName}");`);
   }
   // Per-workflow instance response DTOs (workflow-instance-visibility.md):
   // the persisted correlation-state row's wire shape + its list carrier.
@@ -279,7 +289,14 @@ export function buildWorkflowsFile(
   for (const wf of ctx.workflows) {
     if (!emitsCommandRoute(wf)) continue;
     body.push(
-      ...emitWorkflowRoute(wf, ctx, aggsByName, opFragments, usingMikro).map((l) => `  ${l}`),
+      ...emitWorkflowRoute(
+        wf,
+        ctx,
+        aggsByName,
+        reqNameFor({ kind: "workflow", workflow: wf.name }),
+        opFragments,
+        usingMikro,
+      ).map((l) => `  ${l}`),
     );
     body.push("");
   }
@@ -737,6 +754,9 @@ function emitWorkflowRoute(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
   aggsByName: Map<string, AggregateIR>,
+  /** The published request-component name — resolved over the WHOLE context by
+   *  `buildWorkflowsFile`, because a collision is a per-document property (F-026). */
+  reqName: string,
   /** Source-map (workflow-body statement regions) — when passed,
    *  pushes ONE `OpFragment` covering this route's workflow-body chunk list.
    *  `http/workflows.ts` is a POOLED file (every workflow + reactor shares
@@ -751,7 +771,6 @@ function emitWorkflowRoute(
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
 ): string[] {
-  const reqName = `${upperFirst(wf.name)}Request`;
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
