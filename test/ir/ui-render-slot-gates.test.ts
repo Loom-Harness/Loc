@@ -29,6 +29,12 @@ system Shop {
         weight: decimal
       }
       repository Items for Item { }
+      projection Totals {
+        gross: money
+        rows: int
+        from Item as i
+        select gross = sum(i.price), rows = count()
+      }
     }
   }
   api StockApi from Catalog
@@ -118,6 +124,38 @@ describe("D4 — a `money` value in a slot that renders it as text", () => {
     const ds = await diags(QV(`For { each: rows, i => Stat { "Price", i.price } }`));
     expect(ds.map((d) => d.code)).toEqual(["loom.money-in-text-slot"]);
     expect(ds[0]!.message).toContain("wrap it in place: `Money { i.price }`");
+  });
+
+  // M-T5.33.  The gate resolved its row type by looking the `of:` receiver up
+  // in the AGGREGATE index, so a `QueryView` over a PROJECTION had no row it
+  // could describe and the money field went unreported — the model that found
+  // it was a claims dashboard whose only money value came from a
+  // `sum(claimedTotal)` projection.  It reads the resolved `memberType` now,
+  // which is the same answer for an aggregate row and an available one here.
+  it("rejects a money field off a PROJECTION row, not just an aggregate row", async () => {
+    const ds = await diags(
+      `QueryView { of: Catalog.Totals, data: s => Stat { "Gross", s.gross } }`,
+    );
+    expect(ds.map((d) => d.code)).toEqual(["loom.money-in-text-slot"]);
+    // Named by the PROJECTION, which is what the author has to go and fix.
+    expect(ds[0]!.message).toContain("(`Totals.gross`)");
+    expect(ds[0]!.message).toContain("wrap it in place: `Money { s.gross }`");
+  });
+
+  it("accepts the projection row's non-money field beside it", async () => {
+    // The control: a gate keyed on "a field off a projection row" rather than
+    // on its TYPE would flag `rows: int` too.
+    expect(
+      await diags(`QueryView { of: Catalog.Totals, data: s => Stat { "Rows", s.rows } }`),
+    ).toEqual([]);
+  });
+
+  it("accepts the documented fix on a projection row", async () => {
+    expect(
+      await diags(
+        `QueryView { of: Catalog.Totals, data: s => Stat { "Gross", Money { s.gross } } }`,
+      ),
+    ).toEqual([]);
   });
 
   it("accepts `Money { <money> }`", async () => {
