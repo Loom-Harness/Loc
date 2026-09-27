@@ -260,8 +260,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "projection-split-deployables",
     title: "a query-time projection on a deployable that does not host every context",
-    doc: "projection",
+    // `language`, like its `projection-aggregation` / `projection-groupby`
+    // siblings: there is no `docs/projection.md`, and the query-time surface
+    // is documented in the language reference.
+    doc: "language",
     backends: ALL,
+    // Two services on purpose — the defect is only reachable when the
+    // projection's deployable does NOT host the sibling context.
+    deployables: ["billing", "reports"],
     note: "the projection routes file imported `valueObjectPool(ctx)` (own UNION sibling-context) while `domain/value-objects.ts` emits only the hosted contexts' — so on a split system it named a type the module never exports (TS2306 'not a module').  Every projection fixture before this was single-deployable, which is why the pool and the emitted file agreed by accident.",
   },
   {

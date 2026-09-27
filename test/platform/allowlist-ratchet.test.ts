@@ -552,8 +552,24 @@ const REGISTERED: Ratchet[] = [
     //     booted leg would assert over the empty fail-closed result and prove
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
+    // 24 -> 23: wave-3 row 3.3 drained `projection-document-aggregation`.  Its
+    // reason said asserting the number "needs seeded rows the behavioural
+    // runners set up per-fixture" — it does not: `Article` carries `crudish`,
+    // so the api mints its own rows and the block counts what it just created.
+    // The generation gate proved the read EMITS; nothing proved the number was
+    // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
+    // to have, since every backend reaches it differently and a wrong one
+    // still compiles.
     //
-    // 24 -> 26 (2026-09-27, the "Assure" dev-experience evaluation): two new
+    // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
+    // remembers.  Re-derived at each merge rather than carried: restoring a
+    // remembered number is how a ratchet silently loses somebody else's raise.
+    // This branch was cut when `main` read 24 and raised it to 26; wave-3 row
+    // 3.3 then drained `projection-document-aggregation` on `main`, taking it
+    // to 23.  So the raise is re-applied to 23, not re-asserted as 26: 23 + 2
+    // = 25.
+    //
+    // 23 -> 25 (2026-09-27, the "Assure" dev-experience evaluation): two new
     // corpus fixtures, `channels-broker-workflow` and
     // `projection-split-deployables`, both compile-tier-only.  A RAISE, and
     // the justification is that each was minted to catch a defect that IS a
@@ -565,7 +581,7 @@ const REGISTERED: Ratchet[] = [
     // **M-T9.13**, which owns the behavioural-tier drain; the broker one
     // additionally needs a broker container, exactly as `channels-broker`
     // beside it does.
-    max: 26,
+    max: 25,
   },
 ];
 

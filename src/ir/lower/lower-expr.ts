@@ -2759,10 +2759,18 @@ function lowerTemplateString(expr: TemplateStr, env: Env): ExprIR {
       // Same string-concat operand as a format-less hole — this is what the
       // raw path (every backend + Feliz/Flutter/HEEx) renders, so the byte
       // output is identical whether or not a format was spelled.
+      //
+      // A FORMATTED hole still needs the conversion even when its type is not
+      // implicitly stringifiable, because a format is precisely what makes
+      // such a hole legal: `{at, date}` admits a `datetime`
+      // (`template.ts` — "a `datetime` hole is exactly what these skeletons
+      // format"), which a format-LESS hole may not be.  Without the wrap the
+      // raw path rendered the `Date` straight into a `string` slot —
+      // `get d(): string { return this._placedAt; }`, TS2322 — so a documented
+      // format spec emitted a project that does not compile.
+      const stringifiable = isImplicitlyStringifiableIR(holeType, env);
       const piece =
-        isStr || !isImplicitlyStringifiableIR(holeType, env)
-          ? holeIR
-          : wrapForStringConcat(holeIR, holeType);
+        isStr || (!stringifiable && !hole.format) ? holeIR : wrapForStringConcat(holeIR, holeType);
       // A `, format` suffix wraps that operand in the transparent i18n node
       // (LOCKED decision 1).  The wrapper renders as `inner` everywhere except
       // the JS/TS frontends' i18n runtime; the extractor peels it (and its
