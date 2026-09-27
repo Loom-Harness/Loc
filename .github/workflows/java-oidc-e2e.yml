@@ -27,7 +27,8 @@ name: Java OIDC auth (runtime e2e)
 # the shared auth emitters (`src/generator/_auth/**`,
 # `src/generator/_frontend/auth-ui.ts`), this leg's e2e test + fixture, and
 # this workflow file.  Nothing outside that list reaches this subject
-# per-PR; the broader generation path stays on the `push: main` block.
+# per-PR, plus the generation path every backend walks -- which this block
+# must carry itself, since `paths:` are not unioned across triggers.
 #
 # COST.  Every run pulls the Keycloak + postgres images (unauthenticated
 # Docker Hub), once per leg.  That is exactly why the per-PR `paths:` list is
@@ -58,6 +59,7 @@ on:
       # from this block's platform claim and pinned by
       # test/system/workflow-path-coverage.test.ts.
       - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
       - 'src/generator/_channels/**'
       - 'src/generator/_docker/**'
       - 'src/generator/_expr/**'
@@ -89,20 +91,25 @@ on:
       # DUPLICATED list, never a YAML anchor: the reader in
       # test/system/workflow-path-coverage.test.ts does not resolve
       # `&paths` / `*paths`, so an anchored list is silently outside that
-      # gate.  Deliberately narrower than the `push:` block above -- that one
-      # carries the whole generation path (language/macros/ir/system/util) as
-      # the post-merge net, and the coverage test unions globs across
-      # triggers, so this block only needs the per-PR blast radius.
-      # The lowered, enriched IR every backend's auth emission reads.
+      # gate.
+      # Every phase `generate system` walks, whatever the backend: parse ->
+      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
+      # util/ leaves (naming, code-builder, platform-axes) every emitter
+      # imports.  These are NOT inherited from the `push:` block above:
+      # test/system/workflow-path-coverage.test.ts reads each trigger's own
+      # block, because a post-merge net does not run on the pull request,
+      # which is where this gate's check name is shown.
+      - 'src/language/**'
+      - 'src/macros/**'
       - 'src/ir/**'
+      - 'src/system/**'
+      - 'src/util/**'
       # The Spring Boot emission this test builds with `gradle bootJar` and runs.
       - 'src/generator/java/**'
       - 'src/platform/java.ts'
-      # The shared auth emitters both halves of the chain come from:
-      # `_auth/dev-claims.ts` (the dev-realm claim shapes the seeded token
-      # carries) and `_frontend/auth-ui.ts` (the login/callback surface the
-      # handshake entry exercises).
-      - 'src/generator/_auth/**'
+      # The login/callback surface the handshake entry exercises.  Its
+      # sibling `_auth/**` (the dev-realm claim shapes the seeded token
+      # carries) is in the alphabetised shared-seam run below.
       - 'src/generator/_frontend/auth-ui.ts'
       # Shared emission seams the platform tree above delegates into: `_stmt` is
       # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
@@ -112,6 +119,7 @@ on:
       # from this block's platform claim and pinned by
       # test/system/workflow-path-coverage.test.ts.
       - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
       - 'src/generator/_channels/**'
       - 'src/generator/_docker/**'
       - 'src/generator/_expr/**'
