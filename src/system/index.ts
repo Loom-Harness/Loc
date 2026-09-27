@@ -1061,8 +1061,7 @@ function renderKeycloakRealm(sys: SystemIR): string {
   // permanent 403 and `conformance-full` red for four nights.
   const claimFields = (sys.user?.fields ?? []).filter(
     (f) =>
-      !IDP_PROVIDED.has(f.name) &&
-      !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
+      !IDP_PROVIDED.has(f.name) && !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
   );
   const claimMappers = claimFields.map((f) => {
     const multivalued = f.type.kind === "array";

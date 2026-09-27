@@ -279,9 +279,7 @@ system FieldOps {
     // `conformance-full` went red on all five backends for four nights with 10
     // identical 403s, while the permission-gated denial it was protecting was
     // never at risk.
-    expect(attrs.role, "the scalar role claim opens the role-gated ALLOW paths").toEqual([
-      "admin",
-    ]);
+    expect(attrs.role, "the scalar role claim opens the role-gated ALLOW paths").toEqual(["admin"]);
 
     // …and the MAPPER is still emitted for the unseeded claim: an absent
     // mapper is the original F-022 defect (the claim never appears at all, so
