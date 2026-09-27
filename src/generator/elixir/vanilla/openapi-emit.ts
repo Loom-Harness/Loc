@@ -188,6 +188,17 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // the whole deployable -- a per-context scope would leave two contexts free to
   // collide in it.
   const requestComponentOwners: RequestComponentOwner[] = [
+    // The canonical create request, listed for EVERY aggregate because this
+    // backend emits `create_<agg>_request.ex` unconditionally (the schema loop
+    // below has no gate; only the SPEC's reference to it is gated, on the
+    // derived create entry).  The minter's contract is "the owners this backend
+    // actually publishes", and an occupied file path is occupied whether or not
+    // the document links to it -- so gating this on `emitsRestCreate` the way
+    // the Hono side does would leave a `create<Agg>` workflow free to clobber
+    // an orphan create schema.
+    ...allAggregates.map(
+      ({ agg }): RequestComponentOwner => ({ kind: "create", aggregate: agg.name }),
+    ),
     ...allAggregates.flatMap(({ agg }) =>
       agg.operations
         .filter((o) => o.visibility === "public")
@@ -308,10 +319,12 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
         renderAggregatePagedResponseSchema(agg, pagedName, webModule),
       );
     }
-    // Create request
+    // Create request — path and module name both from the resolved name, for
+    // the same reason as the operation loop below (F-026).
+    const createReqName = reqNameFor({ kind: "create", aggregate: agg.name });
     files.set(
-      `${schemaDir}/create_${snake(agg.name)}_request.ex`,
-      renderCreateRequestSchema(agg, webModule),
+      `${schemaDir}/${snake(createReqName)}.ex`,
+      renderCreateRequestSchema(agg, webModule, createReqName),
     );
     // Create response — `{ id }`, matching Hono/.NET's Create<Agg>Response
     files.set(
@@ -610,7 +623,7 @@ function renderApiSpec(
     const specPath = (o: ApiOperationIR): string => `/${aggSlug}${relativeOpPath(o)}`;
     const respMod = `${schemasModule}.${agg.name}Response`;
     const listRespMod = `${schemasModule}.${agg.name}ListResponse`;
-    const createReqMod = `${schemasModule}.Create${agg.name}Request`;
+    const createReqMod = `${schemasModule}.${reqNameFor({ kind: "create", aggregate: agg.name })}`;
     const createRespMod = `${schemasModule}.Create${agg.name}Response`;
     // The `post` create operation is documented iff the derived create entry
     // exists — the same gate the router mounts, so the two cannot diverge.  A
@@ -1455,8 +1468,13 @@ end
 `;
 }
 
-function renderCreateRequestSchema(agg: AggregateIR, webModule: string): string {
-  const moduleName = `${webModule}.Api.Schemas.Create${agg.name}Request`;
+function renderCreateRequestSchema(
+  agg: AggregateIR,
+  webModule: string,
+  /** Resolved by the caller over the whole deployable (F-026). */
+  schemaName: string,
+): string {
+  const moduleName = `${webModule}.Api.Schemas.${schemaName}`;
   // Create request carries the canonical create-input set the client may
   // supply.  `createInputFields` = `forCreateInput` (drops `managed`,
   // `token`, `internal`; keeps `immutable` and `secret`) INCLUDING
@@ -1470,13 +1488,7 @@ function renderCreateRequestSchema(agg: AggregateIR, webModule: string): string 
       optional: f.optional,
       wireDefault: wireCreateDefault(f) !== undefined,
     }));
-  return renderSchemaModule(
-    moduleName,
-    `Create${agg.name}Request`,
-    fields,
-    `${webModule}.Api.Schemas`,
-    "create",
-  );
+  return renderSchemaModule(moduleName, schemaName, fields, `${webModule}.Api.Schemas`, "create");
 }
 
 function renderOperationRequestSchema(

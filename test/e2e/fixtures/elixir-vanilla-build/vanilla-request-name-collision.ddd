@@ -43,6 +43,20 @@ system Dispatch {
           let w = WorkOrder.create({ title: note, scheduled: false })
         }
       }
+
+      // The SECOND collision shape: the canonical create request is minted by
+      // its own rule (`Create<Agg>Request`), and it is not an `agg.operations`
+      // entry, so a workflow named `create<Agg>` collides with it without
+      // sharing a name with any operation.  On Phoenix the create schema is
+      // emitted unconditionally, so its path is occupied either way; both halves
+      // land on `create_work_order_request.ex` and one clobbers the other.
+      // `label` vs the aggregate's `title` keeps the two shapes distinguishable
+      // if they ever collapse back onto one module.
+      workflow createWorkOrder transactional {
+        create(label: string) {
+          let w = WorkOrder.create({ title: label, scheduled: false })
+        }
+      }
     }
   }
   api WorkApi from Field { }

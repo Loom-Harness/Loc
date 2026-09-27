@@ -259,6 +259,67 @@ describe("phoenix request-component modules (F-026)", () => {
 // create request, so a workflow named `create<Agg>` collided with it and nothing
 // was qualified. That was a reachable instance of the very defect this module
 // exists to close, so it is pinned here.
+// Phoenix's create schema is emitted UNCONDITIONALLY (the schema loop has no
+// gate; only the spec's reference to it is gated, on the derived create entry),
+// so `create_<agg>_request.ex` is an occupied path whether or not the document
+// links to it. That is why the elixir owner list carries a create owner for
+// every aggregate rather than gating on `emitsRestCreate` the way the Hono side
+// does: the minter's contract is "the owners this backend actually publishes",
+// and a path is occupied either way.
+describe("phoenix create request is an owner too (F-026)", () => {
+  const ELIXIR_CREATE_COLLIDES = `system P {
+  subdomain S {
+    context C {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+        operation schedule(at: string) { scheduled := true }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow createWorkOrder {
+        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: elixir, contexts: [C], dataSources: [r], port: 4000 }
+}`;
+
+  it("splits the create schema from a workflow named create<Agg>", async () => {
+    const files = await generateSystemFiles(ELIXIR_CREATE_COLLIDES);
+    const dir = "api/lib/api_web/api/schemas";
+
+    // The defect: one `create_work_order_request.ex`, carrying whichever the
+    // second loop wrote.
+    expect(files.has(`${dir}/create_work_order_request.ex`)).toBe(false);
+    const aggFile = files.get(`${dir}/work_orders_create_work_order_request.ex`);
+    const wfFile = files.get(`${dir}/workflows_create_work_order_request.ex`);
+    expect(aggFile).toBeDefined();
+    expect(wfFile).toBeDefined();
+    expect(aggFile).toContain("defmodule ApiWeb.Api.Schemas.WorkOrdersCreateWorkOrderRequest do");
+    expect(wfFile).toContain("defmodule ApiWeb.Api.Schemas.WorkflowsCreateWorkOrderRequest do");
+    // Each carries its own input: the aggregate's create field, the workflow's param.
+    expect(aggFile).toContain("required: [:title]");
+    expect(wfFile).toContain("required: [:note]");
+
+    // `schedule` / `update` do not collide here, so they keep short names.
+    expect(files.has(`${dir}/schedule_work_order_request.ex`)).toBe(true);
+    expect(files.has(`${dir}/update_work_order_request.ex`)).toBe(true);
+
+    // Every schema module the spec references must exist, or the app will not
+    // compile — the assertion a renamed-but-unreferenced module fails.
+    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    const defined = new Set(
+      [...files.values()]
+        .flatMap((c) => [...c.matchAll(/defmodule (ApiWeb\.Api\.Schemas\.\w+) do/g)])
+        .map((m) => m[1]),
+    );
+    const referenced = new Set([...spec.matchAll(/ApiWeb\.Api\.Schemas\.\w+/g)].map((m) => m[0]));
+    expect([...referenced].filter((r) => !defined.has(r))).toEqual([]);
+  });
+});
+
 describe("the create request is an owner too (F-026)", () => {
   const CREATE_COLLIDES = `system P {
   subdomain S {
