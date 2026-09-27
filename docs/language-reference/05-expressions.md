@@ -627,7 +627,9 @@ def summary(self) -> str:
 
 ## Conversions
 
-The explicit, infallible widening/projection vocabulary — `string(x)`, `long(x)`, `decimal(x)`, `money(x)` (`PrimitiveConversion`). Admitted pairs: `string ← {int,long,decimal,money,bool}`, `long ← int`, `decimal ← {int,long,money}`, `money ← {int,long,decimal}`. Fallible parses (`int("42")`, `datetime("…")`) are deliberately **not** in the vocabulary. The per-(from, target) leaf decides the idiom:
+The explicit, infallible widening/projection vocabulary — `string(x)`, `long(x)`, `decimal(x)`, `money(x)` (`PrimitiveConversion`). Admitted pairs: `string ← {int,long,decimal,money,bool,guid,datetime}`, `long ← int`, `decimal ← {int,long,money}`, `money ← {int,long,decimal}`. Fallible parses (`int("42")`, `datetime("…")`) are deliberately **not** in the vocabulary, and `json` / `File` are not stringifiable — neither has a canonical scalar form. `guid` and `datetime` do (UUID text, ISO-8601), so `string(…)` on either is infallible; the ISO form is the same text on every backend, not the host's default `toString` (which on node would be `"Mon Sep 22 2026 07:00:00 GMT+0000"` and on elixir a space-separated `"2026-01-01 00:00:00Z"`).
+
+Note the asymmetry with **implicit** stringification (`"x " + v`, a bare interpolation hole): that stays narrower — `guid` and `datetime` must go through an explicit `string(…)`, because a reader cannot tell from `` `at {t}` `` which of several plausible formats was meant. `string(…)` makes the choice visible at the call site. The per-(from, target) leaf decides the idiom:
 
 ```ddd
 aggregate Order {

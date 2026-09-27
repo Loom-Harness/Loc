@@ -379,6 +379,10 @@ function renderElixirConvert(
   const decimalStruct = (name: string | undefined) => !inFilter && isDecimalStruct(name);
   if (target === "string") {
     if (decimalStruct(from)) return `Decimal.to_string(${v})`;
+    // ISO-8601, not `String.Chars`: `to_string(~U[2026-01-01 00:00:00Z])` is
+    // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
+    // not the value .NET / java / python / node emit for this conversion.
+    if (from === "datetime") return `DateTime.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {
