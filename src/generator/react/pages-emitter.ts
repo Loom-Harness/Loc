@@ -37,6 +37,7 @@ import {
   pageConstructId,
   pageEmitName,
 } from "../../ir/util/page-kind.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
@@ -411,73 +412,22 @@ export function uiUsesCodeBlock(
   return false;
 }
 
-/** Recursive walk over an `ExprIR` looking for a `CodeBlock` call.
- *  Stops at the first hit — no flag accumulation needed.  Covers
- *  every compound `ExprIR` shape from `loom-ir.ts`; leaf nodes
- *  (`literal` / `ref` / `this` / `id`) fall through to `false`. */
+/** Does this expression (or anything reachable from it) render a `CodeBlock`
+ *  primitive?  Rides `walkExprDeep`, the sanctioned traversal.
+ *
+ *  The hand-rolled walk this replaces covered twelve of the twenty-one
+ *  `ExprIR` kinds and its statement twin six of the twelve — between them they
+ *  had no arm for a `list` literal, a `call`'s `style:` entries, an
+ *  `i18nFormat` hole, a `duration` amount, or an `if` / `variant-match` /
+ *  `emit` / `return` statement inside a block lambda.  The answer gates the
+ *  page module's `CodeBlock` import, so a miss is an emitted page that
+ *  references an undefined component. */
 function exprUsesCodeBlock(expr: import("../../ir/types/loom-ir.js").ExprIR): boolean {
-  switch (expr.kind) {
-    case "call":
-      if (expr.name === "CodeBlock") return true;
-      return expr.args.some(exprUsesCodeBlock);
-    case "method-call":
-      if (exprUsesCodeBlock(expr.receiver)) return true;
-      return expr.args.some(exprUsesCodeBlock);
-    case "member":
-      return exprUsesCodeBlock(expr.receiver);
-    case "binary":
-      return exprUsesCodeBlock(expr.left) || exprUsesCodeBlock(expr.right);
-    case "unary":
-      return exprUsesCodeBlock(expr.operand);
-    case "ternary":
-      return (
-        exprUsesCodeBlock(expr.cond) ||
-        exprUsesCodeBlock(expr.then) ||
-        exprUsesCodeBlock(expr.otherwise)
-      );
-    case "convert":
-      return exprUsesCodeBlock(expr.value);
-    case "object":
-    case "new":
-      return expr.fields.some((f) => exprUsesCodeBlock(f.value));
-    case "lambda":
-      if (expr.body && exprUsesCodeBlock(expr.body)) return true;
-      // Block-bodied lambdas wrap StmtIR; CodeBlock can only appear
-      // inside an `expression` statement at body position — other
-      // statement kinds (assign, let, emit, call) don't host the
-      // primitive itself, but their sub-expressions might.
-      for (const s of expr.block ?? []) {
-        if (stmtUsesCodeBlock(s)) return true;
-      }
-      return false;
-    case "paren":
-      return exprUsesCodeBlock(expr.inner);
-    case "match":
-      for (const arm of expr.arms) {
-        if (exprUsesCodeBlock(arm.cond)) return true;
-        if (exprUsesCodeBlock(arm.value)) return true;
-      }
-      if (expr.otherwise && exprUsesCodeBlock(expr.otherwise)) return true;
-      return false;
-    default:
-      return false;
-  }
-}
-
-function stmtUsesCodeBlock(stmt: import("../../ir/types/loom-ir.js").StmtIR): boolean {
-  switch (stmt.kind) {
-    case "let":
-    case "expression":
-      return exprUsesCodeBlock(stmt.expr);
-    case "assign":
-    case "add":
-    case "remove":
-      return exprUsesCodeBlock(stmt.value);
-    case "call":
-      return stmt.args.some(exprUsesCodeBlock);
-    default:
-      return false;
-  }
+  let found = false;
+  walkExprDeep(expr, (e) => {
+    if (e.kind === "call" && e.name === "CodeBlock") found = true;
+  });
+  return found;
 }
 
 // ---------------------------------------------------------------------------

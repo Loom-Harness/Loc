@@ -103,8 +103,36 @@ export function firstUnknownColumnRef(
       // collection field itself exists; the argument is a parameter,
       // not a column.
       return firstUnknownColumnRef(e.receiver, agg, ctx);
-    default:
+    case "duration":
+      // A5 temporal: `createdAt > now() - days(n)` IS queryable
+      // (`firstNonQueryableNode` admits the direct constructor form and
+      // recurses into its amount), so the amount can name a column and has to
+      // be verified like any other operand.  The hand-rolled switch had no arm
+      // for it and answered "no unknown column" for `days(this.typo)`.
+      return firstUnknownColumnRef(e.amount, agg, ctx, opts);
+    // Not reachable from a `where`: `firstNonQueryableNode` refuses every kind
+    // below outright (a call, a match, a list, a ctor, a conversion, a lambda,
+    // an i18n hole, an authz sentinel, an action reference, a ternary), so
+    // there is no column reference here to leave unverified.  Named rather than
+    // left to a `default:` so a new `ExprIR` kind is a decision taken in the
+    // queryability gate and here together.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "i18nFormat":
+    case "lambda":
+    case "list":
+    case "match":
+    case "new":
+    case "object":
+    case "ternary":
       return null;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return null;
+    }
   }
 }
 

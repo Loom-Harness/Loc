@@ -61,7 +61,7 @@ import type {
 } from "../../types/loom-ir.js";
 import { aggregateOpResolver, classifyDomainServiceTier } from "../../util/domain-service-tier.js";
 import { isWriteMethod } from "../../util/repo-methods.js";
-import { walkStmtExprsDeep } from "../../util/walk.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { foreignRepositoryOwners } from "./shared.js";
 
@@ -159,8 +159,17 @@ function checkOperationBody(
 ): void {
   const source = `${ctx.name}/${svc.name}.${op.name}`;
   const where = `domainService '${svc.name}' operation '${op.name}'`;
-  for (const stmt of op.body) {
-    // Statement-level infra: emit + this-rooted writes.
+  // Statement-level infra: emit + this-rooted writes.  DEEP, not one level —
+  // a `function`-style pure service body may branch, and an `emit` or a
+  // `this`-rooted write inside an `if` branch violates the rule exactly as much
+  // as the same statement at the top of the body, yet the top-level-only scan
+  // accepted it in silence.  (`walkStmtsDeep` is the census-sanctioned
+  // traversal; the EXPRESSION scan below was already deep, so only the
+  // statement channel was short — the same asymmetry
+  // `loom.function-block-impure` fixed in `structural-checks.ts`.)
+  const deepBody: StmtIR[] = [];
+  for (const top of op.body) walkStmtsDeep(top, (n) => deepBody.push(n));
+  for (const stmt of deepBody) {
     switch (stmt.kind) {
       case "emit":
         diags.push({
@@ -184,7 +193,27 @@ function checkOperationBody(
           source,
         });
         break;
+      // Legitimate in a pure/reading service body: guards, bindings, the
+      // trailing expression, `return`, a self-call, and the two branch
+      // statements whose bodies `walkStmtsDeep` already flattened into this
+      // list.  Named rather than left to a fall-through so a new `StmtIR` kind
+      // is a `tsc` error and someone rules on it.
+      case "precondition":
+      case "requires":
+      case "let":
+      case "expression":
+      case "return":
+      case "call":
+      case "if":
+      case "variant-match":
+        break;
+      default: {
+        const _exhaustive: never = stmt;
+        void _exhaustive;
+      }
     }
+  }
+  for (const stmt of op.body) {
     // Expression-level infra:
     //   - a repository WRITE call (`Accounts.save(x)`) — a `method-call` whose
     //     receiver names a repository and whose member is a write verb.  READS

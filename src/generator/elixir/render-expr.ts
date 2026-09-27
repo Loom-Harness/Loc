@@ -1272,8 +1272,33 @@ function isDecimalOperand(operand: ExprIR): boolean {
       return isDecimalOperand(operand.inner);
     case "unary":
       return isDecimalOperand(operand.operand);
-    default:
+    // Not PROVABLY a `%Decimal{}` from the node alone.  `false` is the
+    // conservative answer: it makes the caller render plain arithmetic rather
+    // than a `Decimal.*` call, which is what a node with no static decimal type
+    // needs.  (`method-call` is the documented example — `MethodCallExpr`
+    // carries a receiver type, not a result type.)  Named rather than left to a
+    // `default:` so a new `ExprIR` kind that DOES carry a result type is a
+    // `tsc` error here.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       return false;
+    default: {
+      const _exhaustive: never = operand;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 

@@ -382,24 +382,6 @@ const LIVE_FENCES: Record<string, string> = {};
 // IOU, and carries a date.
 // ---------------------------------------------------------------------------
 
-/** A closed, kind-specific PREDICATE or CLASSIFIER: every kind the switch does
- *  not explicitly list falls through to a deliberate, safe, generic value
- *  (`false` / `undefined` / `null` / `[]` / the neutral branch already
- *  documented at the call site) — not a traversal, and nothing is silently
- *  dropped from emitted OUTPUT the way the M-T6.50 class drops it (a narrower
- *  classification is the worst case, never a missing emission).
- *
- *  DEFERRED, not standing: these were classified by their `default`-arm SHAPE,
- *  not re-read per kind against the current `ExprIR`/`StmtIR`/`WorkflowStmtIR`
- *  vocabulary.  The shape argument bounds the blast radius; it does not prove
- *  any individual site still classifies correctly.  The drain re-reads each and
- *  either migrates it onto `walk.ts` or gives it an explicit `never`-check. */
-const CLOSED_PREDICATE = {
-  deferred:
-    "closed, kind-specific predicate/classifier — every unhandled kind falls through to a safe, generic default; not a traversal, nothing silently drops from emitted output. Classified by default-arm shape, NOT re-verified per kind; the drain re-reads each site",
-  reviewUntil: "2026-12-31",
-} as const;
-
 /** A closed, kind-specific EMISSION dispatcher whose `default` arm THROWS for
  *  any kind outside its declared vocabulary — a LOUD failure (a crash on
  *  generation, immediately visible), not the SILENT drop the M-T6.50 class
@@ -450,18 +432,28 @@ const THROWING_DISPATCHER = {
  *  arm for `match` / `list` / `convert` / `duration` / `i18nFormat` /
  *  `authz-filter` / a block-bodied lambda's statements, so a domain-service
  *  call in any of those slots was invisible to the scan.  Treat the remaining
- *  four as suspects, not as safe. */
+ *  four as suspects, not as safe.
+ *
+ *  CR1-e strengthened that: draining the 52 shape-classified waivers turned up
+ *  SIX more of the same shape — five VALIDATOR gates that never entered an `if`
+ *  branch, and one emitter that produced Elixir which does not compile.  The
+ *  suspicion is now evidence. */
 const SHALLOW_CHILD_BUILDER = {
   deferred:
-    "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a walk.ts migration candidate. The hono twin of this exact shape was drained in CR1-d and WAS carrying a live defect (no `match`/`list`/lambda-block arm), so these are suspects",
+    "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a walk.ts migration candidate. The hono twin of this exact shape was drained in CR1-d and WAS carrying a live defect (no `match`/`list`/lambda-block arm), and CR1-e found six more instances of the shape; these are suspects",
   reviewUntil: "2026-12-31",
 } as const;
 
 /** A hand-rolled recursive traversal (`walk`/`visit`/collector-shaped)
- *  identified as a genuine migration candidate but not reached. */
+ *  identified as a genuine migration candidate but not reached.
+ *
+ *  With `CLOSED_PREDICATE` gone (CR1-e), this is the last bucket whose members
+ *  are traversals BY THEIR OWN ADMISSION — and CR1-e's finding is that a
+ *  traversal misfiled as a predicate is exactly where the defects were.  Drain
+ *  this one next. */
 const TRAVERSAL_TIME_BOXED = {
   deferred:
-    "hand-rolled traversal identified as a walk.ts migration candidate, not yet migrated — the highest-risk category in this register (it is the #2720/#2705/M-T6.50 shape itself). Drain before the two above it",
+    "hand-rolled traversal identified as a walk.ts migration candidate, not yet migrated — the highest-risk category left in this register (it is the #2720/#2705/M-T6.50 shape itself, and CR1-e found six live instances of that shape hiding among the shape-classified predicates). Drain this bucket before SHALLOW_CHILD_BUILDER",
   reviewUntil: "2026-12-31",
 } as const;
 
@@ -476,23 +468,6 @@ const DELEGATES_TO_SANCTIONED_WALKER = {
     "already rides walkWorkflowStmtChildren/walkExprDeep for recursion; the flagged if/`||` guard is a narrow kind-membership test layered on top, not a dispatch needing full-kind coverage",
 } as const;
 
-/** The eleven sites packet 2.3 deferred to "the 2.6 hotspot-split", which
- *  landed as #2778 on 2026-09-03.  The fence is GONE — the split was a purely
- *  mechanical relocation and these are the same offenders at new addresses —
- *  so the reason is restated as what it actually is: an unfinished `walk.ts`
- *  migration, with a date.
- *
- *  CR1-d could not drain them: every remaining one lives under `src/ir/**`,
- *  which is packet 2f's tree fence on the live #2933 (Wave C2 batch 2).  They
- *  are handed to CR1-e.  This is NOT a `blockedBy` entry — #2933 fences the
- *  FILES, and CR1-e will drain them from inside that fence rather than waiting
- *  for it to lift. */
-const HOTSPOT_SPLIT_RESIDUE = {
-  deferred:
-    "flagged by packet 2.3 as a genuine walk.ts migration candidate and deferred to the 2.6 hotspot-split (#2778, merged 2026-09-03) purely so the mechanical file move could land first. The split HAS landed; the migration is the outstanding work. Handed to wave CR1 packet CR1-e — CR1-d could not touch these (src/ir/** is packet 2f's fence on #2933)",
-  reviewUntil: "2026-12-31",
-} as const;
-
 // ---------------------------------------------------------------------------
 // Waivers — every entry names the exact site (file + enclosing function) and a
 // reason.  Ratcheted by the tests below: a waiver whose site is gone, whose
@@ -503,21 +478,27 @@ const HOTSPOT_SPLIT_RESIDUE = {
 const WAIVERS: Record<string, Waiver> = {
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
-  // --- 2.6 hotspot-split residue (see HOTSPOT_SPLIT_RESIDUE) --------------
-  "src/ir/validate/checks/datasource-checks.ts#docExprUnsupported": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/datasource-checks.ts#docFunctionUnsupported": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/datasource-checks.ts#docStmtUnsupported": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/backend-syntax-checks.ts#eachStmtExpr": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/ui-action-body-checks.ts#checkBody": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/ui-page-structure-checks.ts#directlyRenderedRefs": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/ui-page-structure-checks.ts#namesReadByBody": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/ui-action-body-checks.ts#visitExpr": HOTSPOT_SPLIT_RESIDUE,
-  "src/ir/validate/checks/ui-action-body-checks.ts#visitStmt": HOTSPOT_SPLIT_RESIDUE,
-
-  // NOTE — the twelve `in-flight fence` waivers that stood here (#2736 on
+  // NOTE — the two BULK deferral buckets that stood here are GONE.
+  //
+  //   * `CLOSED_PREDICATE` (42 entries) — sites waived because the SHAPE of
+  //     their `default:` arm looked safe, with their own reason text admitting
+  //     they were "classified by default-arm shape, NOT re-verified per kind".
+  //   * `HOTSPOT_SPLIT_RESIDUE` (10 entries) — the `src/ir/validate/checks/**`
+  //     sites CR1-d could not reach behind #2933's fence.
+  //
+  // Wave CR1 packet CR1-e (audit row P0-2a) diffed all 52 case sets against
+  // `walk.ts`'s own kind enumeration and drained every one: 11 migrated onto
+  // `walk.ts`, 40 given an explicit `never`-check, 1 re-waived below as
+  // `standing`.  Seven were carrying a real hole — six VALIDATOR gates blind to
+  // statements inside an `if` branch (event-sourcing discipline, domain-service
+  // no-emit/no-mutation, the elixir op-call position gate, the vanilla-document
+  // function gate, the page-body action gates) and one EMITTER
+  // (`workflow-eventsourced-emit.ts#bodyUsesState`) whose false negative bound
+  // the fold snapshot as `_state` while the rendered body still named `state`.
+  //
+  // The twelve `in-flight fence` waivers that stood here before them (#2736 on
   // `zod-refine.ts`, #2729 on the two walker cores, #2742 on the three hono
-  // v4 builders) are GONE, together with `mikroorm-filter.ts#filterValue`'s
+  // v4 builders) went in CR1-d, together with `mikroorm-filter.ts#filterValue`'s
   // hotspot-split entry.  All four fences had lifted; CR1-d drained the
   // thirteen sites they covered — four migrated onto `walk.ts`, nine given an
   // explicit `never`-check.  One of them (`workflow-builder.ts#exprChildren`
@@ -529,55 +510,16 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
   "src/generator/python/explicit-handlers-emit.ts#walk": DELEGATES_TO_SANCTIONED_WALKER,
   "src/generator/python/workflows-builder.ts#visit": DELEGATES_TO_SANCTIONED_WALKER,
-
-  // --- closed predicates/classifiers (safe generic default) ----------------
-  "src/generator/_expr/authz-filter-inapp.ts#desugarAuthzFilterInApp": CLOSED_PREDICATE,
-  "src/generator/_expr/authz-filter-inapp.ts#hasAuthzFilter": CLOSED_PREDICATE,
-  "src/generator/_walker/primitives/forms.ts#defaultUsesThis": CLOSED_PREDICATE,
-  "src/generator/dotnet/criteria-emit.ts#anyRef": CLOSED_PREDICATE,
-  "src/generator/dotnet/emit/efcore.ts#collectColumnRefs": CLOSED_PREDICATE,
-  "src/generator/dotnet/emit/efcore.ts#exprRefsCurrentUser": CLOSED_PREDICATE,
-  "src/generator/dotnet/render-expr.ts#addCsExprUsing": CLOSED_PREDICATE,
-  "src/generator/elixir/realtime-liveview.ts#exprUsesBind": CLOSED_PREDICATE,
-  "src/generator/elixir/render-expr.ts#isDecimalOperand": CLOSED_PREDICATE,
-  "src/generator/elixir/vanilla/changeset-invariant-emit.ts#structEvaluable": CLOSED_PREDICATE,
-  "src/generator/elixir/vanilla/provenance-emit.ts#leavesResolveToColumns": CLOSED_PREDICATE,
-  "src/generator/elixir/vanilla/provenance-emit.ts#paramLeafNames": CLOSED_PREDICATE,
-  "src/generator/elixir/vanilla/wire-serialize.ts#derivedRenderable": CLOSED_PREDICATE,
-  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#bodyUsesState": CLOSED_PREDICATE,
-  "src/generator/feliz/realtime.ts#exprReadsBinding": CLOSED_PREDICATE,
-  // Same shape as the line above, and deliberately NOT `never`-checked: its
-  // `default: false` mirrors `renderFsToastMessage`'s supported vocabulary
-  // (literal / ref / member / paren / binary) exactly, and every kind outside
-  // that set THROWS at render time rather than reaching here.  An exhaustive
-  // arm would assert coverage this predicate does not want.
-  "src/generator/feliz/realtime.ts#reads": CLOSED_PREDICATE,
-  "src/generator/flutter/realtime.ts#exprReadsBinding": CLOSED_PREDICATE,
-  "src/generator/java/render-expr.ts#addJavaExprImport": CLOSED_PREDICATE,
-  "src/generator/python/find-predicate.ts#isColumnRooted": CLOSED_PREDICATE,
-  "src/generator/python/find-predicate.ts#lower": CLOSED_PREDICATE,
-  "src/generator/python/render-expr.ts#addPyExprImport": CLOSED_PREDICATE,
-  "src/generator/react/pages-emitter.ts#exprUsesCodeBlock": CLOSED_PREDICATE,
-  "src/generator/react/pages-emitter.ts#stmtUsesCodeBlock": CLOSED_PREDICATE,
-  "src/generator/typescript/emit/schema.ts#collectColumnRefs": CLOSED_PREDICATE,
-  "src/generator/typescript/render-stmt.ts#markableExprsOf": CLOSED_PREDICATE,
-  "src/ir/util/domain-service-tier.ts#classifyDomainServiceTier": CLOSED_PREDICATE,
-  "src/ir/util/sql-renderable-expr.ts#sqlRenderableExpr": CLOSED_PREDICATE,
-  "src/ir/util/temporal.ts#isDatetimeTypedIR": CLOSED_PREDICATE,
-  "src/ir/validate/checks/api-checks.ts#aggregatesTouched": CLOSED_PREDICATE,
-  "src/ir/validate/checks/api-checks.ts#handlerMutates": CLOSED_PREDICATE,
-  "src/ir/validate/checks/domain-service-checks.ts#checkOperationBody": CLOSED_PREDICATE,
-  "src/ir/validate/checks/migration-checks.ts#sqlExprFamily": CLOSED_PREDICATE,
-  "src/ir/validate/checks/query-checks.ts#describeSeedValue": CLOSED_PREDICATE,
-  "src/ir/validate/checks/shared.ts#firstUnknownColumnRef": CLOSED_PREDICATE,
-  "src/ir/validate/checks/structural-checks.ts#check": CLOSED_PREDICATE,
-  "src/ir/validate/checks/structural-checks.ts#lifecycleGuardIllegalReads": CLOSED_PREDICATE,
-  "src/ir/validate/checks/structural-checks.ts#validateEventSourcedDiscipline": CLOSED_PREDICATE,
-  "src/ir/validate/checks/structural-checks.ts#validateEventSourcedDiscipline$2": CLOSED_PREDICATE,
-  "src/ir/validate/checks/workflow-checks.ts#checkBranchOpCalls": CLOSED_PREDICATE,
-  "src/ir/enrich/enrichments.ts#tailBindType": CLOSED_PREDICATE,
-  "src/util/expr-body-type.ts#bodyTypeOf": CLOSED_PREDICATE,
-  "src/util/expr-body-type.ts#provableStringType": CLOSED_PREDICATE,
+  // Already rides `walkExprDeep`; the flagged three-arm chain is the per-node
+  // NAME EXTRACTION layered on top ("which callable / member does this node
+  // name?"), not a dispatch that has to cover every kind.  A node kind it does
+  // not name contributes nothing to a set used only to SUPPRESS a warning
+  // (`loom.scaffold-filter-param-dropped`), so the worst case is the warning
+  // firing where the author had in fact bound the find — advisory, and in the
+  // noisy direction.  STANDING: the site is already in the shape the
+  // convention asks for.
+  "src/ir/validate/checks/ui-page-structure-checks.ts#namesReadByBody":
+    DELEGATES_TO_SANCTIONED_WALKER,
 
   // --- closed emission dispatchers (default THROWS — loud, not silent) -----
   "src/generator/_frontend/default-seed.ts#renderDefaultSeed": THROWING_DISPATCHER,

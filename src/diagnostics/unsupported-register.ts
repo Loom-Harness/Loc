@@ -442,7 +442,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/migration-checks.ts:257",
+    site: "src/ir/validate/checks/migration-checks.ts:284",
     what:
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
@@ -647,7 +647,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.toast-message-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-action-body-checks.ts:858",
+    site: "src/ir/validate/checks/ui-action-body-checks.ts:818",
     what:
       "an `on <chan>.<Event> { toast(<expr>) }` message outside the subset all FOUR realtime " +
       "renderers implement.  NARROWED 2026-09-02: a member access CHAIN of any depth off the " +
@@ -820,7 +820,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/query-checks.ts:323",
+    site: "src/ir/validate/checks/query-checks.ts:346",
     what: "explicit `loads:` deferred — retrievals load the whole aggregate",
     mission: "M-T5.4",
     verified: true,
@@ -844,7 +844,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.handler-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/api-checks.ts:116",
+    site: "src/ir/validate/checks/api-checks.ts:145",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -868,7 +868,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // `lower-domain-service.ts`) retires this row.
     code: "loom.domain-service-read-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/domain-service-checks.ts:233",
+    site: "src/ir/validate/checks/domain-service-checks.ts:263",
     what: "a repository read used as a MEMBER RECEIVER in a domainService body — v1 binds it first",
     mission: "M-T5.14",
     verified: true,

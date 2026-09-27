@@ -73,11 +73,31 @@ function structEvaluable(e: ExprIR, scope: ReadonlySet<string> = new Set()): boo
         structEvaluable(e.then, scope) &&
         structEvaluable(e.otherwise, scope)
       );
-    default:
-      // member / method-call / call / match / new / object / list / convert /
-      // this / action-ref — all reject: they read collections, walk into VOs,
-      // or run domain logic a changeset validator can't reproduce.
+    // All REJECT: they read collections, walk into VOs, or run domain logic a
+    // changeset validator can't reproduce.  `false` is the conservative answer
+    // — the invariant simply is not lifted into the changeset, never emitted
+    // wrongly.  Named rather than left to a `default:` so a new `ExprIR` kind
+    // is a decision someone takes here.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 

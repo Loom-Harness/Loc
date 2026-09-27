@@ -81,7 +81,7 @@ running 2i/2j trees are the constraint that shapes this wave. Measured, not assu
 
 | packet | audit rows | note |
 |---|---|---|
-| **CR1-e** | **P0-2a** | The 42 `CLOSED_PREDICATE` waivers, whose own reason says *"classified by default-arm shape, not individually re-verified per kind"* — plus the 9 `src/ir/validate/checks/**` sites CR1-d fenced. Script the case-set diff against `walk.ts`'s kind enumeration first; the drain is then mostly mechanical. |
+| **CR1-e** | **P0-2a** | **DONE** — see the fold below. The 42 `CLOSED_PREDICATE` waivers, whose own reason says *"classified by default-arm shape, not individually re-verified per kind"* — plus the `src/ir/validate/checks/**` sites CR1-d fenced (**10**, not 9). Script the case-set diff against `walk.ts`'s kind enumeration first. It was **not** mostly mechanical: six of the 52 were traversals misfiled as predicates, five of them validator gates blind to an `if` branch. |
 | **CR1-f** | **P0-2b** | The 31 `THROWING_DISPATCHER` waivers. A `throw` in a *generator* default arm means codegen dies on valid `.ddd` — the repo's own definition of a **silent gap**, not a waiver. Each one: prove the vocabulary complete, or replace the throw with a `loom.*` diagnostic so the gap is honest. Hands off to `parity-auditor` where a row turns out to be real parity debt. |
 | **CR1-g** | **P1-4** | `knip` in the lint job, then the **52** never-referenced exports (incl. `generateJava`, superseded by `generateJavaForContexts`) and a decision on the **417** exported-but-module-local. Same class as #2897, found by hand — the point is the gate, not the sweep. |
 | **CR1-i** | **new — found by CR1-a** | Two follow-ons one level down from P0-3, both measured, neither an oversight. (a) The coverage gate **unions `paths:` across triggers**, and workflows rely on that deliberately: measured per-trigger, ~14 carry the five generation-path globs on `push:` **only**, so a `src/util/naming.ts` change fires none of them *on a PR*. Same bug shape as P0-3, one level down — but it is a tiering decision (per-PR cost vs. post-merge latency), so it needs a ruling before a gate. (b) **`behavioral-e2e-*.yml` are not recognised as generation gates at all** — they drive generation through a `.mjs` case driver, so the entry-point derivation scores them non-generation and every assertion skips them silently. That one is a plain bug in the derivation. |
@@ -302,3 +302,53 @@ lint gate could not fail on the constant it orphaned. Neither gap was visible to
 Gates stated: `tsc -b` clean; `test/system` + `test/platform` 2,613 passed (incl.
 `local-run-mapping`, `pr-gate`, `merge-queue-readiness`); `test/macro` + four generator dirs +
 `test/language` 5,375 passed; suite reports `RUN v4.1.11`, so the vitest bump is live.
+
+---
+
+## Batch 2 folds
+
+### CR1-e — folded (P0-2a)
+
+`worktree-agent-a651813bcf1bad4c0`, one commit on top of the batch-1 tree. Hand-off:
+[`handoffs/wave-cr1-e.md`](handoffs/wave-cr1-e.md).
+
+**Waivers 98 → 47.** All 52 subjects drained (42 `CLOSED_PREDICATE` + the 10
+`src/ir/validate/checks/**` sites CR1-d fenced): 11 migrated onto `walk.ts`, 40 given an explicit
+`never`-check, 1 re-waived as `standing`. Both bulk-deferral constants deleted.
+
+**Six real defects**, and the split is the interesting part: **five are VALIDATOR gates** that did
+not reach into an `if` branch — `loom.emitted-event-unhandled` / `loom.event-sourced-direct-mutation`
+(ES discipline), `loom.vanilla-op-call-position`, `loom.domain-service-no-mutation`,
+`loom.vanilla-document-unsupported` — plus `loom.method-call-unresolved-receiver`, blind to an
+`i18nFormat` hole. **One is an EMITTER**: the Elixir ES-workflow handler bound `_state` and then
+named `state.paid` (`CompileError`), the CR1-d shape verbatim.
+
+Two things worth carrying forward:
+
+1. **The default-arm shape is not evidence.** A `default: return false` in a predicate and a
+   `default: break` in a collector are the same three tokens and opposite verdicts. Six of the 52
+   were traversals misfiled as predicates — which is why `TRAVERSAL_TIME_BOXED` (7 entries, still
+   deferred to 2026-12-31) is the next drain, not `THROWING_DISPATCHER`.
+2. **A validator's byte-identical gate is the DIAGNOSTIC set, and it is cheap.** CR1-e hashed both
+   emission (44,995 files) and `validateLoomModel`'s output (270 diagnostics) over the same corpus in
+   one pass. Both came back identical — which is itself the finding, and is why both defects ship
+   with a direct, mutation-proved regression test rather than a fixture.
+
+One observation handed to **CR1-f**: `_frontend/default-seed.ts#renderDefaultSeed` is waived as
+`THROWING_DISPATCHER` but its default **returns `null`**. At least one row of that bucket is
+mis-classified; re-derive the classification from the arm rather than trusting it.
+
+#### Two things CR1-e's rollup found that belong to other rows
+
+**`auth-verifier-doc-honesty` ×2 is INHERITED and still open.** `main`'s test (`08c52c1b`) asserts
+the OIDC verifier emits its options inline; CR1-b's own fix (`5636c7ce`) hoisted them into a
+`VERIFY_OPTIONS` const. The merge composed both and nobody re-pointed the assertion. CR1-e left it
+alone on purpose — which shape is intended is CR1-b's call, not a drain packet's. Proved to predate
+CR1-e: `git diff be2e3349 HEAD` over that test plus both `auth-emit.ts` files is **empty**.
+
+**`workflow-path-coverage` ×17 was the same class and IS fixed.** `src/generator/_test/` (a real
+shared seam, imported by all five backends' `emit/tests.ts`) arrived from `main` via #2957 while
+CR1-a's derive-the-requirement gate arrived in batch 1. They met for the first time in the merged
+tree and the gate fired — correctly. `src/generator/_test/**` added to the 18 workflows carrying the
+seam block. **This is CR1-a's gate earning its keep on its first combined run**, and it is the
+wave's best argument that deriving the requirement beat maintaining a list.
