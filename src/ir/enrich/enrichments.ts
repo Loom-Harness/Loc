@@ -1210,7 +1210,22 @@ function enrichProjection(proj: ProjectionIR, aggregates: EnrichedAggregateIR[])
     // gated (`loom.projection-shorthand-nonaggregate`); fall through to the
     // empty-shape default, which never reaches emission.
   }
-  const fields = proj.stateFields;
+  // A query-time projection may declare its columns ONLY in its `select` —
+  // `projection P { from X group by X.s  select s = X.s, n = count() }` is
+  // legal, validates clean, and its READ path derives the columns from
+  // `query.selects`.  Its WIRE path read `stateFields`, which is filled from
+  // declared PROPERTY MEMBERS (`lower-projection.ts`) and is therefore empty
+  // for that spelling — so the row schema came out with no columns at all:
+  // node emitted `z.object({})` (and a `Record<string, never>[]` cast that
+  // fails `tsc`), java emitted `record PRow()` and then constructed it with N
+  // arguments, which does not compile.  The two paths had two sources of truth;
+  // this makes the wire path fall back to the same one the read path uses.
+  //
+  // Only a FALLBACK: a projection that declares property members keeps them as
+  // authoritative (a `select` then FILLS those declared fields), so no model
+  // that works today changes shape.
+  const fields: readonly FieldIR[] =
+    proj.stateFields.length > 0 ? proj.stateFields : selectDerivedFields(proj);
   const corr = proj.correlationField;
   const corrField = fields.find((f) => f.name === corr);
   const wireShape: WireField[] = [];
@@ -1234,6 +1249,22 @@ function enrichProjection(proj: ProjectionIR, aggregates: EnrichedAggregateIR[])
     });
   }
   return { ...proj, wireShape };
+}
+
+/** The row columns a query-time projection declares in its `select` alone,
+ *  shaped as the `FieldIR`s `enrichProjection` would have read off
+ *  `stateFields`.  The lowered select already carries the resolved `type` per
+ *  column, so nothing is re-derived here.
+ *
+ *  An aggregating column (`count()`, `sum(...)`) is NOT optional on the wire:
+ *  every backend coalesces the empty-group case at the read site (`?? 0`), so
+ *  the column is always present in the response. */
+function selectDerivedFields(proj: ProjectionIR): readonly FieldIR[] {
+  return (proj.query?.selects ?? []).map((s) => ({
+    name: s.field,
+    type: s.type,
+    optional: false,
+  })) as readonly FieldIR[];
 }
 
 /** The wire shape of a persisted workflow instance: the correlation field as
