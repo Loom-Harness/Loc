@@ -68,8 +68,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   // now runs `OrderVolume` vs `AllTimeVolume` at the behavioural tier.  The
   // TENANT conjunct still needs two principals and stays with the generator
   // tests — a narrower claim than the one this entry used to make.
-  "projection-document-aggregation":
-    "count(*) over a document source — same shape as projection-agg-filters, and the same blindness the compile tier has to a wrong number.  Unlike its sibling this one is NOT unblocked by the `softDelete` macro: its source is `shape: document`, so the aggregation is the one shape that source can express and the row count is the assertion; the drain still waits on seeded rows the behavioural runners set up per-fixture",
   outbox: "relay delivery is asynchronous; needs a booted leg that drains the outbox",
   "channels-broker":
     "needs a broker container (the channels-e2e legs boot one; the corpus case does not)",

@@ -5,6 +5,7 @@ import {
 import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
   PROVENANCED_REQUEST_ERROR,
   provenancedEntries,
@@ -771,11 +772,21 @@ export function buildRoutesFile(
     lines.push("");
   }
 
+  // Resolved ONCE per file: the request-component namespace is a per-document
+  // property, so the collision set has to be decided over the whole context
+  // rather than per call site.
+  const reqNameFor = requestComponentNamer(ctx);
   for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+    // Collision-aware: two independent rules mint request-component names (this
+    // one, and the workflow builder's `<Workflow>Request`), and `schedule` on
+    // `WorkOrder` spells the same string as workflow `scheduleWorkOrder`.  The
+    // shared minter owner-qualifies both halves when — and only when — they
+    // genuinely collide (F-026).
+    const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
     lines.push(
       ...emitWireSchema(
-        `const ${upperFirst(op.name)}${agg.name}Request`,
-        `${upperFirst(op.name)}${agg.name}Request`,
+        `const ${reqName}`,
+        reqName,
         op.params.map((p) => ({ name: p.name, base: zodFor(p.type) })),
         // Field-level invariants (SYS-1): the update/mutating-op request DTO
         // gets the SAME wire constraints as create, not just the op's own
@@ -1356,6 +1367,7 @@ export function buildRoutesFile(
         op!,
         ctx,
         entry,
+        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
         auditOps.includes(op!),
         provOps.includes(op!),
         emitTrace,
@@ -1901,6 +1913,9 @@ function emitOperationRoute(
   op: OperationIR,
   ctx: BoundedContextIR,
   entry: ApiOperationIR,
+  /** The published request-component name — resolved over the WHOLE context by
+   *  `buildRoutesFile`, because a collision is a per-document property (F-026). */
+  reqName: string,
   audit: boolean,
   prov: boolean,
   emitTrace: boolean,
@@ -1921,7 +1936,17 @@ function emitOperationRoute(
   // `extern` returning ops remain a separate (declared) seam — the body lives
   // outside the toolchain.
   if (op.returnType && !op.extern) {
-    return emitReturningOperationRoute(agg, op, ctx, entry, emitTrace, audit, prov, usingMikro);
+    return emitReturningOperationRoute(
+      agg,
+      op,
+      ctx,
+      entry,
+      reqName,
+      emitTrace,
+      audit,
+      prov,
+      usingMikro,
+    );
   }
   // The canonical `update(...)` operation (crudish, or a hand-declared one of
   // the same name) is the one route that honours the client's optimistic-
@@ -1941,9 +1966,7 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(
-    `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
-  );
+  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);
@@ -2080,6 +2103,8 @@ function emitReturningOperationRoute(
   op: OperationIR,
   ctx: BoundedContextIR,
   entry: ApiOperationIR,
+  /** See `emitOperationRoute` — resolved over the whole context (F-026). */
+  reqName: string,
   emitTrace: boolean,
   audit = false,
   prov = false,
@@ -2113,9 +2138,7 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(
-    `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
-  );
+  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
   // 200 declares the whole tagged union; only success variants actually reach

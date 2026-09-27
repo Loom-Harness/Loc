@@ -72,8 +72,14 @@ function importClosure(model: Model, services: DddServices): Set<string> {
 
 /** The `Model` roots of every OTHER document that composes with `model` — its
  *  import closure (C12).  Empty in the single-document path (`services`
- *  absent), so unit-test callers keep the local-only count. */
-function composedRoots(model: Model, services: DddServices | undefined): Model[] {
+ *  absent), so unit-test callers keep the local-only count.
+ *
+ *  Exported because "is this fact declared ANYWHERE in the composed project?"
+ *  is not specific to composition checks: a deployment member that folds into
+ *  the project's single system (`user`, `theme`, `tenancy by`) may be written
+ *  in any file of the import graph, so every validator asking about one has to
+ *  look through the same closure. */
+export function composedRoots(model: Model, services: DddServices | undefined): Model[] {
   if (!services) return [];
   const closure = importClosure(model, services);
   const out: Model[] = [];

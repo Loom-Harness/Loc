@@ -94,6 +94,26 @@ describe("an optional find bound in a handler body is refused, not silently mis-
     expect(await codes(src)).not.toContain("loom.handler-load-nullable-unsupported");
   });
 
+  it("refuses the BUILT-IN `findById`, whose nullability has no declaration to read", async () => {
+    // `findById` is the return-absent sibling of the throwing `getById`, so it is
+    // nullable by construction.  Being a BUILT-IN it has no declared find to
+    // carry a `T?` return type, and `lower-workflow.ts`'s `repo-let` arm
+    // defaulted to the bare aggregate — so this gate, which decides purely on
+    // `returnType.kind === "optional"`, was told the read could not be absent
+    // and stayed silent while the body dereferenced it unguarded.
+    const src = system({
+      findRet: "Order",
+      body: "let o = Orders.findById(orderId)\n        return o.status",
+    }).replace("CodeStatus(c: string)", "CodeStatus(orderId: Order id)");
+    const hit = (await irDiagnostics(src)).find(
+      (d) => d.code === "loom.handler-load-nullable-unsupported",
+    );
+    expect(hit, "findById must be gated like any other nullable read").toBeDefined();
+    expect(hit!.message).toContain("'Orders.findById(...)'");
+    // The remedy the catalogue already prescribes is exactly right here.
+    expect(hit!.message).toContain("getById");
+  });
+
   it("CONTROL — the workflow twin still owns the workflow body", async () => {
     const src = `
 system S {
@@ -181,6 +201,32 @@ describe("an optional find bound in a DOMAIN SERVICE body is refused too", () =>
     expect(
       await codes(svcSystem("Order?", 'return Orders.byCode(c) == null ? "none" : "some"')),
     ).not.toContain(CODE);
+  });
+
+  it("refuses the BUILT-IN `findById` here too — no declared find to read", async () => {
+    // The domain-service gate resolved optionality ONLY by looking the method up
+    // among the repository's declared finds, so a built-in read was invisible to
+    // it whatever its true nullability.  On .NET and elixir this was worse than
+    // an unguarded deref: only DECLARED finds are emitted under their own names,
+    // so the call itself did not resolve (`_owners.FindById` → CS1061;
+    // `find_by_id_owner` → undefined function).
+    const src = svcSystem(
+      "Order",
+      "let o = Orders.findById(oid)\n          return o.status",
+    ).replace("statusOf(c: string)", "statusOf(oid: Order id)");
+    const diags = await irDiagnostics(src);
+    const hit = diags.find((d) => d.code === CODE);
+    expect(hit, `got: ${diags.map((d) => d.code).join(", ") || "(none)"}`).toBeDefined();
+    expect(hit!.severity).toBe("error");
+    expect(hit!.message).toContain("Orders.findById(...)");
+  });
+
+  it("CONTROL — `getById` stays legal in a service body (it throws, it is not nullable)", async () => {
+    const src = svcSystem(
+      "Order",
+      "let o = Orders.getById(oid)\n          return o.status",
+    ).replace("statusOf(c: string)", "statusOf(oid: Order id)");
+    expect(await codes(src)).not.toContain(CODE);
   });
 
   it("reports ONCE per repo.method however many times the body loads it", async () => {
