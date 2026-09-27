@@ -121,6 +121,17 @@ export const DIAGNOSTIC_MESSAGES = {
     actual: unknown;
   }) =>
     `'${p.name}.create' field '${p.name2}' expects a ${p.expFam} value ('${p.expected}') but got '${p.actual}'.`,
+  "loom.create-field-id-target": (p: {
+    name: unknown;
+    name2: unknown;
+    expected: unknown;
+    actual: unknown;
+  }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got '${p.actual}' — a ` +
+    `reference to a different aggregate. A create call is the wire boundary, so a plain string ` +
+    `is accepted where an id is expected (that is how an id arrives as JSON), but two ids of ` +
+    `different aggregates are not interchangeable: this would persist a row pointing at the ` +
+    `wrong table. Pass the '${p.expected}' — the id of the aggregate the field references.`,
   "loom.aggregate-not-a-builder": (p: { name: unknown }) =>
     `'${p.name}' is an aggregate — construct it with '${p.name}.create({ … })', not '${p.name} { … }'. ` +
     `The '{ }' builder literal is for value objects and entity parts.`,
