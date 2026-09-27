@@ -412,8 +412,21 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  the claim about who closes them: each needs a change to how a Phoenix body
  *  is BUILT, and two members of the closed branch vocabulary are cross-backend
  *  (`opHasProvSite` is target-neutral; a conditional `emit` is an ordering
- *  question, not a detection one).  `gap` said "a sweep can close this". */
-const MAX_OPEN_GAPS = 16;
+ *  question, not a detection one).  `gap` said "a sweep can close this".
+ *
+ *  16 -> 17 (2026-09-27, the "Assure" dev-experience evaluation):
+ *  `loom.ui-multi-backend-unsupported` minted.  A RAISE, and deliberately so —
+ *  the alternative was not fewer gaps but a silent one.  A `ui` binding its api
+ *  handles to two different backends validated `0 error(s)`, wrote 101 files
+ *  and produced a frontend that did not typecheck (the second handle's api
+ *  module is never emitted), with every request that did go out addressed to
+ *  the `targets:` backend, which does not serve that contract.  The gate turns
+ *  that into a refusal; **M-T1.35** owns the drain (per-handle api clients +
+ *  one base URL per handle).  Landing the easy half alone — the context union,
+ *  already measured to make the two-backend fixture typecheck — would be
+ *  strictly worse than the refusal, because the tree would then compile and
+ *  route every call to the wrong backend. */
+const MAX_OPEN_GAPS = 17;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

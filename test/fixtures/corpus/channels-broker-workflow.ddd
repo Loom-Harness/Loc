@@ -1,0 +1,59 @@
+// The axis pair `channels-broker.ddd` does not carry: a durable broker channel
+// AND a workflow AND no reactor.
+//
+// Its sibling is a producer with no workflow at all, which takes the
+// workflow-LESS emission path (`buildProducerOutboxFile`) and emits the outbox
+// machinery correctly.  A context that owns a workflow leaves that path — and
+// the with-workflows path emitted the machinery only from inside the
+// SUBSCRIPTION block, which a producer-only context never enters.  So this
+// exact cell emitted neither, while `index.ts` / `http/index.ts` referenced
+// all three factories unconditionally (they key off "durable events exist",
+// not "a reactor exists").  `0 error(s), 0 warning(s)`, then four `tsc`
+// errors: TS2304 for `createOutboxDispatcher` plus three TS2305 for the
+// missing exports.
+//
+// The compile tier is the oracle here — the defect is invisible to a
+// generator-text assertion that does not also typecheck the tree.
+system ChannelsBrokerWorkflowSys {
+  subdomain Sales {
+    context Orders {
+      aggregate Order {
+        customerId: string
+        status: string
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+        }
+      }
+      repository Orders for Order { }
+      event OrderPlaced { order: Order id, at: datetime }
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+      // The whole point of the fixture: a command-triggered workflow, and NO
+      // `on(...)` reactor / event-triggered `create … by` anywhere.
+      workflow draftOrder {
+        create(customerId: string) {
+          let o = Order.create({ customerId: customerId, status: "Draft" })
+          emit OrderPlaced { order: o.id, at: now() }
+        }
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage pg { type: postgres }
+  storage bus { type: rabbitmq }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    channels: [lifecycleBus]
+    serves: OrdersApi
+    port: 4000
+  }
+}
