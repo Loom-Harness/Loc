@@ -50,6 +50,7 @@ import {
   isDecLit,
   isDerivedProp,
   isDomainService,
+  isDomainServiceOperation,
   isEntityPart,
   isEnumDecl,
   isEventDecl,
@@ -1773,10 +1774,10 @@ export function findOperation(agg: Aggregate, name: string): Operation | undefin
 // ---------------------------------------------------------------------------
 // envForNode — builds a `typeOf`-ready Env for any node in the AST.
 //
-// Walks up to the closest scope-bearing container (operation, function,
-// invariant, derived prop, value object, part, aggregate) and assembles
-// bindings + scope context.  The validator constructs equivalent envs
-// inline; LSP services (hover, completion) need the same data without
+// Walks up to the closest scope-bearing container (operation, domain-service
+// operation, function, invariant, derived prop, value object, part, aggregate)
+// and assembles bindings + scope context.  The validator constructs equivalent
+// envs inline; LSP services (hover, completion) need the same data without
 // having to recreate the walk per provider.
 //
 // Bindings come from (in increasing precedence):
@@ -1794,6 +1795,13 @@ export function envForNode(node: AstNode): Env {
   const vo = AstUtils.getContainerOfType(node, isValueObject);
   const fn = AstUtils.getContainerOfType(node, isFunctionDecl);
   const op = AstUtils.getContainerOfType(node, isOperation);
+  // A `domainService` operation is its OWN grammar rule (`DomainServiceOperation`,
+  // `stmts+=Statement*`), NOT an `Operation` — so `isOperation` never matches one and
+  // without this arm a service body bound no params and typed no lets.  Every receiver
+  // in it came back `unknown`, and because each type-based validator suppresses on
+  // `unknown` (the deliberate anti-double-reporting rule), EVERY type gate failed open
+  // inside `domainService` bodies (testability audit F1, language half).
+  const dsop = AstUtils.getContainerOfType(node, isDomainServiceOperation);
   const find = AstUtils.getContainerOfType(node, isFindDecl);
   const _wf = AstUtils.getContainerOfType(node, isWorkflow);
   // UI-side containers — pages and components carry typed params
@@ -1851,6 +1859,7 @@ export function envForNode(node: AstNode): Env {
   const params =
     fn?.params ??
     op?.params ??
+    dsop?.params ??
     find?.params ??
     create?.params ??
     handle?.params ??
@@ -1877,6 +1886,9 @@ export function envForNode(node: AstNode): Env {
   };
   if (op) {
     addTypedLets(bindings, op.body, letCtx);
+  } else if (dsop) {
+    // `stmts`, not `body` — the rule spells its statement list differently.
+    addTypedLets(bindings, dsop.stmts, letCtx);
   } else if (create) {
     addTypedLets(bindings, create.body, letCtx);
   } else if (handle) {
