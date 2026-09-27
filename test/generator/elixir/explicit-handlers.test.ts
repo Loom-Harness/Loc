@@ -97,7 +97,7 @@ describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix
     expect(ctrl).toContain("def respond(conn, {:error, :not_found})");
   });
 
-  it("splices the explicit routes into `scope \"/api\"`, ahead of the derived routes (braces → :snake path params)", async () => {
+  it('splices the explicit routes into `scope "/api"`, ahead of the derived routes (braces → :snake path params)', async () => {
     // M-T6.73 — an explicit route is a DOMAIN route, so it serves under
     // `API_BASE_PATH` like every other route class.  It used to land in the root
     // `scope "/"`, where `POST /api/orders/.../cancellations` (the path every

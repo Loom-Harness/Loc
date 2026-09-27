@@ -834,14 +834,42 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   //   python           routes correctly, but WRAPS the scalar return:
   //                    `{"result":"hi"}` where node answers `"hi"`
   //
-  // The emitted e2e suite is backend-agnostic by construction (one file,
-  // replayed against every backend), and `gate-ledger.test.ts` refuses a
-  // feature that boots on some of its declared backends and not others.  So
-  // this cell cannot drain until the five explicit-route emitters agree on
-  // where a routed handler is mounted and what a scalar return looks like on
-  // the wire — a wire-contract change to a shipped feature, and its own PR.
-  // Drain: land that agreement, then restore the block (it is in #2984's
-  // history) and delete this entry.
+  // M-T6.73 then FIXED all of that, and four more of the same shape it found on
+  // the way — each one invisible for the same reason, that a 404'ing route has no
+  // caller to see its response:
+  //
+  //   * the PREFIX on .NET / java / elixir.  An explicit route is a DOMAIN route
+  //     and serves under `API_BASE_PATH`, which is what `src/system/e2e-render.ts`
+  //     has always requested (`base + API_BASE_PATH + <declared path>`, all five
+  //     platforms).
+  //   * the ENVELOPE on python AND elixir — both wrapped the handler's value as
+  //     `{"result": …}`; elixir's was found only once its path was fixed.
+  //   * a bare `string` return sent as `text/plain` on .NET
+  //     (`StringOutputFormatter`) and java (`StringHttpMessageConverter`), where
+  //     every other backend sends `application/json: "hi"`.
+  //   * an int PATH PARAM never coerced on elixir — Phoenix hands every segment
+  //     over as a binary, so `Sum(a: int, b: int)` evaluated `"2" + "3"` and 500'd.
+  //
+  // Booted, all five now serve `POST /api/echo/hi` → `"hi"`, and FOUR legs (node,
+  // python, dotnet, java) record 0 wire divergences against the golden.
+  //
+  // WHAT STILL PARKS THIS CELL is not a routed-handler defect.  The elixir leg's
+  // e2e tier PASSES; its wire differential reports 4 divergences, all on the
+  // tier's malformed-body probe (`POST <collection>` with `"{not json"`).  That
+  // probe assumes POST on the collection is SERVED — and this fixture's
+  // create-less `Order` serves none, so the probe measures the METHOD check
+  // instead of the parser: node routes first and answers 405, elixir parses at
+  // the endpoint (`<App>Web.BodyParser` is plugged in `endpoint.ex`, ahead of the
+  // router) and answers 400.  Both are RFC-legal.  `handler-triad` is the ONLY
+  // one of 63 goldens whose probe lands on an unserved POST, which is why no
+  // other case has ever shown this.
+  //
+  // Drain, once that is settled — it needs an owner ruling, not a waiver:
+  // either an RS-rule fixing the parse-vs-route order (docs/conformance-semantics.md),
+  // or the probe learning to skip a collection whose POST is not served, the same
+  // step-aside its PATCH sibling already makes.  Then restore the `test e2e`
+  // block (it is in #2984's history, commit `8733579ee`), re-record the golden,
+  // and delete this entry.
   "handler-triad",
   // `lifecycle-guard` DRAINED — and, like `policy-document` before it, only
   // after the thing it was hiding was FIXED.  Its two named blockers both fell,

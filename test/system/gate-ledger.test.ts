@@ -79,7 +79,7 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "extern-handlers": "same scaffold-once shape as `extern`",
   "handler-resource-ops": "outbound I/O inside a handler body; needs the resource's container",
   "handler-triad":
-    "every route is an explicit `route … -> <Ctx>.<Handler>`; the e2e surface can address one since #2984, but FOUR of the five backends do not serve it at the path node does — see the register entry in api-caller-census-pins.ts",
+    "every route is an explicit `route … -> <Ctx>.<Handler>`.  M-T6.73 fixed the six emitter defects that blocked this — all five now serve under `/api` and answer the bare value, booted, and FOUR legs (node, python, dotnet, java) record 0 wire divergences.  What is left is NOT a routed-handler defect: the tier's malformed-body probe posts to `/api/orders`, which this create-less `Order` does not serve, so it measures the method check instead of the parser — node routes first and answers 405, elixir parses at the endpoint and answers 400.  Both are RFC-legal, so the ordering is an RS-rule call; see the register entry in api-caller-census-pins.ts",
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",

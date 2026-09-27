@@ -117,7 +117,10 @@ export function derivedRouteSlots(contexts: readonly EnrichedBoundedContextIR[])
  * historical root-absolute mounting, because the `/api` slot is already taken
  * by an auto-derived route and the frameworks resolve that tie by breaking.
  */
-export function routeMountsUnderApiBase(route: RouteIR, derivedSlots: ReadonlySet<string>): boolean {
+export function routeMountsUnderApiBase(
+  route: RouteIR,
+  derivedSlots: ReadonlySet<string>,
+): boolean {
   return !derivedSlots.has(slot(route.method, `${API_BASE_PATH}${route.path}`));
 }
 
@@ -130,5 +133,7 @@ export function routeMountsUnderApiBase(route: RouteIR, derivedSlots: ReadonlySe
  * disagree about which routes moved.
  */
 export function explicitRoutePath(route: RouteIR, derivedSlots: ReadonlySet<string>): string {
-  return routeMountsUnderApiBase(route, derivedSlots) ? `${API_BASE_PATH}${route.path}` : route.path;
+  return routeMountsUnderApiBase(route, derivedSlots)
+    ? `${API_BASE_PATH}${route.path}`
+    : route.path;
 }

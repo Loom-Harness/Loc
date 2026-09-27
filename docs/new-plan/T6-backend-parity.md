@@ -569,7 +569,59 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
 
-## M-T6.73 — An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is mounted OUTSIDE `/api` on four of five backends, and python wraps its scalar return — `open` · **S–M** · P1
+## M-T6.73 — An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is mounted OUTSIDE `/api` on four of five backends, and python wraps its scalar return — `partial` · **S–M** · P1
+
+> **Status 2026-09-27 — the six emitter defects are FIXED and booted-proven; the
+> behavioural drain is parked on one unrelated probe.**
+>
+> All five backends now serve an explicit route under `API_BASE_PATH` and answer
+> the handler's value unwrapped. Booting `corpus/handler-triad` one backend at a
+> time found **four more** defects beyond the two measured below — every one
+> invisible for the same reason, that a 404'ing route has no caller to see its
+> response:
+>
+> | fixed | where |
+> |---|---|
+> | the `/api` prefix | `.NET` `[Http*]` template (a leading slash is root-absolute, so a class-level `[Route]` would be ignored), each java `@*Mapping` (Spring always concatenates a class-level one), elixir's routes moved into `scope "/api"` |
+> | the `{"result": …}` envelope | python **and elixir** — elixir's surfaced only once its path was fixed |
+> | a bare `string` sent as `text/plain` | .NET (`StringOutputFormatter`) and java (`StringHttpMessageConverter`) |
+> | an int path param never coerced | elixir — Phoenix hands every segment over as a binary, so `Sum(a: int, b: int)` evaluated `"2" + "3"` and 500'd |
+>
+> **Booted proof**, each against a real Postgres: node (oracle, records the
+> golden), python, dotnet and java all pass with **0 wire divergences**; elixir's
+> e2e tier passes and all five routes answer `"hi"` / 5 / 0 / 42 / false.
+>
+> **`scaffoldApi` + `scaffoldHandlers` forced a scope decision.** Together they
+> synthesise one explicit handler per create/operation/find/get-by-id/destroy, so
+> the explicit route list becomes a 1:1 duplicate of the auto-derived REST surface
+> — measured on `vanilla-scaffold-handlers.ddd`, **all eight** explicit routes
+> shadow a derived route of the same method and path shape. Moving those under
+> `/api` puts two handlers on one slot, which elixir reports as a `mix compile
+> --warnings-as-errors` failure (an unreachable `do_match` clause), .NET as
+> `AmbiguousMatchException` and java as `Ambiguous handler methods mapped`. A
+> colliding route therefore keeps its historical root mounting, decided once in
+> `src/generator/_api/explicit-route-mount.ts` off `deriveContextOperations`; the
+> emitted scaffold tree is byte-identical, verified by tree diff on elixir and
+> java. The duplicate surface `scaffoldApi` emits is a **separate pre-existing
+> defect** (on node the scaffolded route is already unreachable).
+>
+> **Why the drain is still parked, and what closes it.** The elixir leg's wire
+> differential reports 4 divergences, all on the tier's malformed-body probe
+> (`POST <collection>` with `"{not json"`). That probe assumes POST on the
+> collection is SERVED; this fixture's create-less `Order` serves none, so it
+> measures the METHOD check instead of the parser — node routes first and answers
+> 405, elixir parses at the endpoint (`<App>Web.BodyParser` is plugged in
+> `endpoint.ex`, ahead of the router) and answers 400. **Both are RFC-legal**, and
+> `handler-triad` is the only one of 63 goldens whose probe lands on an unserved
+> POST, which is why no other case has ever shown it. That is an owner ruling, not
+> a waiver: either an RS-rule fixing the parse-vs-route order
+> ([`conformance-semantics.md`](../conformance-semantics.md)), or the probe
+> learning to skip a collection whose POST is not served — the same step-aside its
+> PATCH sibling already makes. `BEHAVIOURAL_ABSENT` therefore keeps its row and
+> the ratchet stays at main's 24; the `gate-ledger` "compile-only on EVERY backend
+> it declares" invariant was not touched. The cross-backend mounting/response
+> contract is pinned statically meanwhile by
+> `test/generator/explicit-route-mount.test.ts`.
 
 Measured 2026-09-22 by [#2984](https://github.com/Loom-Harness/Loc/pull/2984), which lifted routed
 handlers onto the `test e2e` surface and then booted `corpus/handler-triad` across the behavioural tier

@@ -95,10 +95,7 @@ system Shop {
 }
 `;
 
-async function fileEndingWith(
-  src: string,
-  suffix: string,
-): Promise<string> {
+async function fileEndingWith(src: string, suffix: string): Promise<string> {
   const m = await generateSystemFiles(src);
   const key = [...m.keys()].find((k) => k.endsWith(suffix));
   expect(key, `${suffix} not emitted; have:\n${[...m.keys()].sort().join("\n")}`).toBeDefined();
@@ -137,7 +134,10 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
 
   it("dotnet leaves a NON-string scalar on Ok() (the formatter does not touch it)", async () => {
     const intSrc = CLEAN_SRC("dotnet")
-      .replace("commandHandler Echo(text: string): string { return text }", "queryHandler Sum(a: int, b: int): int { return a + b }")
+      .replace(
+        "commandHandler Echo(text: string): string { return text }",
+        "queryHandler Sum(a: int, b: int): int { return a + b }",
+      )
       .replace('route POST "/echo/{text}" -> Sales.Echo', 'route GET "/sum/{a}/{b}" -> Sales.Sum');
     const ctrl = await fileEndingWith(intSrc, "Api/ARoutesController.cs");
     expect(ctrl).toContain("return Ok(result);");
@@ -150,7 +150,7 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
     expect(ctrl).not.toContain('@PostMapping("/echo/{text}")');
   });
 
-  it("elixir splices the route into `scope \"/api\"`, not the root scope", async () => {
+  it('elixir splices the route into `scope "/api"`, not the root scope', async () => {
     const router = await fileEndingWith(CLEAN_SRC("elixir"), "lib/d_web/router.ex");
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     expect(apiBlock).toContain('post "/echo/:text", ARoutesController, :echo');
