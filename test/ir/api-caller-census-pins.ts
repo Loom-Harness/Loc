@@ -637,6 +637,26 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // COMPILE-TIER WITNESS (the "Assure" dev-experience evaluation) — a durable
+  // broker channel + a workflow + NO reactor.  The cell the corpus never
+  // paired: its sibling `channels-broker` is the same producer WITHOUT a
+  // workflow, so it takes the workflow-less emission path and emits the outbox
+  // machinery fine.  Owning one workflow leaves that path, and the
+  // with-workflows path emitted the machinery only from inside the
+  // subscription block — which a producer-only context never enters.  Four
+  // hard compile errors (TS2304 + three TS2305) on a model that validated
+  // `0 error(s)`, so the compile leg is the oracle.  Needs a broker container
+  // for a behavioural block, exactly as `channels-broker` does.  M-T9.13.
+  "channels-broker-workflow",
+  // COMPILE-TIER WITNESS (same evaluation) — a query-time projection on a
+  // deployable that does not host every context.  The projection routes file
+  // imported the own-UNION-sibling value-object pool while
+  // `domain/value-objects.ts` emits only the hosted contexts', so it named a
+  // type the module never exports (`TS2306: … is not a module`).  Needs a
+  // SECOND deployable to mean anything at runtime, and what a block would
+  // assert — a projection count — `projection-agg-filters` already boots on
+  // one.  M-T9.13.
+  "projection-split-deployables",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never

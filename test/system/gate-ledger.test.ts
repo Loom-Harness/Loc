@@ -71,6 +71,16 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   outbox: "relay delivery is asynchronous; needs a booted leg that drains the outbox",
   "channels-broker":
     "needs a broker container (the channels-e2e legs boot one; the corpus case does not)",
+  "channels-broker-workflow":
+    "same broker-container reason as `channels-broker`, and the defect it was minted for is a " +
+    "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
+    "TS2305 for the missing exports), so the compile tier IS its oracle — a booted leg would " +
+    "re-run `channels-broker`'s delivery with a workflow in the tree and assert nothing new",
+  "projection-split-deployables":
+    "the defect is a hard compile error in the emitted project (`TS2306: File " +
+    "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +
+    "behavioural block would also need TWO booted services to mean anything, and what it would " +
+    "assert — a projection count — `projection-agg-filters` already boots on one",
   "tenancy-hierarchy":
     "the deep/global/local read ladder is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier",
   extern: "the user handler is scaffold-once; a booted leg needs a supplied implementation",
