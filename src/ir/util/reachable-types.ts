@@ -41,6 +41,55 @@ export function valueObjectPool(ctx: BoundedContextIR): ReadonlyArray<ValueObjec
   return siblings && siblings.length > 0 ? [...ctx.valueObjects, ...siblings] : ctx.valueObjects;
 }
 
+/** Order a value-object list so that a VO always appears AFTER every VO its
+ *  own fields reference — a dependency (topological) order.
+ *
+ *  Emitters that declare VO schemas as `const` bindings need this: a
+ *  `const OuterSchema = z.object({ a: CodeSchema })` placed before
+ *  `const CodeSchema = …` is a temporal-dead-zone reference, which TypeScript
+ *  rejects (TS2448 / TS2454) and the bundle would throw on at load.  Emitting
+ *  in POOL order was fine only while every VO happened to precede its
+ *  dependents; a root-level (shared-kernel) VO referenced by a context-local
+ *  one inverts exactly that, because context-local VOs come first in the pool.
+ *
+ *  Stable: ties keep their incoming relative order, so an already-correct list
+ *  is returned unchanged (byte-identical output for every model that worked
+ *  before).  A reference cycle cannot hang the walk — a VO already on the
+ *  stack is skipped, leaving the cycle in its incoming order, which is the
+ *  best any linear emission can do (the validator owns cycle rejection). */
+export function orderValueObjectsByDependency(vos: ReadonlyArray<ValueObjectIR>): ValueObjectIR[] {
+  const byName = new Map(vos.map((v) => [v.name, v]));
+  const out: ValueObjectIR[] = [];
+  const done = new Set<string>();
+  const onStack = new Set<string>();
+
+  const depNames = (vo: ValueObjectIR): string[] => {
+    const names: string[] = [];
+    const walk = (t: TypeIR): void => {
+      if (t.kind === "valueobject") names.push(t.name);
+      else if (t.kind === "array") walk(t.element);
+      else if (t.kind === "optional") walk(t.inner);
+    };
+    for (const f of vo.fields) walk(f.type);
+    return names;
+  };
+
+  const visit = (vo: ValueObjectIR): void => {
+    if (done.has(vo.name) || onStack.has(vo.name)) return;
+    onStack.add(vo.name);
+    for (const d of depNames(vo)) {
+      const dep = byName.get(d);
+      if (dep) visit(dep);
+    }
+    onStack.delete(vo.name);
+    done.add(vo.name);
+    out.push(vo);
+  };
+
+  for (const vo of vos) visit(vo);
+  return out;
+}
+
 /** `valueObjectPool` as the `name → fields` map the flattening emitters want
  *  (JPA / EF column names, request→domain constructors, projection state).
  *  Their `undefined` branch is silent too: EF emits `OwnsOne<Money>(x => x.Paid,

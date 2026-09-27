@@ -34,7 +34,11 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
-import { collectReachableTypes, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
@@ -395,7 +399,13 @@ export function collectUsedTypes(
   const pool = valueObjectPool(ctx);
   const { valueObjects, enums } = collectReachableTypes(seeds(), pool);
   return {
-    valueObjects: pool.filter((v) => valueObjects.has(v.name)),
+    // DEPENDENCY order, not pool order: these become `const <Vo>Schema = …`
+    // bindings in one module, and a VO nested inside another VO must be
+    // declared first or the reference is a temporal dead zone (TS2448 /
+    // TS2454, and the react / vue / svelte builds fail).  Pool order put
+    // CONTEXT-LOCAL value objects ahead of root-level (shared-kernel) ones,
+    // which inverts exactly the shared-kernel-inside-a-local-VO case.
+    valueObjects: orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name))),
     enums: ctx.enums.filter((e) => enums.has(e.name)),
   };
 }
