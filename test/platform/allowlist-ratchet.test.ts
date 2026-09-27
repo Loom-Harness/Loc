@@ -552,16 +552,37 @@ const REGISTERED: Ratchet[] = [
     //     booted leg would assert over the empty fail-closed result and prove
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
+    // 24 -> 23: wave-3 row 3.3 drained `projection-document-aggregation`.  Its
+    // reason said asserting the number "needs seeded rows the behavioural
+    // runners set up per-fixture" — it does not: `Article` carries `crudish`,
+    // so the api mints its own rows and the block counts what it just created.
+    // The generation gate proved the read EMITS; nothing proved the number was
+    // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
+    // to have, since every backend reaches it differently and a wrong one
+    // still compiles.
     //
-    // (#3024 — `dotnet-bcl-type-collision`).  24 -> 25, a RAISE, so it is
-    // spelled out.  A NEW corpus fixture whose subject the compile tier does not
-    // merely gate but IS: a domain type named after a BCL type (`aggregate Task`
-    // vs `System.Threading.Tasks.Task`) made the emitted .NET project fail its
-    // own build with 17 errors — CS0104 in every file that wildcard-imports the
-    // domain namespace, CS0535/CS0738 where the repository interface DECLARES
-    // it — while `generate system` reported `0 error(s), 0 warning(s)`.  The
-    // shipped `ddd new --platform dotnet --template crud` starter emits exactly
-    // that shape, so the starter did not compile.
+    // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
+    // remembers.  Re-derived at each merge rather than carried: `main` reads 24
+    // again here (slice 2's drain took it to 22, `enum-collection` and
+    // `principal-read-filter` raised it by two), so this drain subtracts one
+    // from 24.  Restoring a remembered number is how a ratchet silently loses
+    // somebody else's raise.
+    //
+    // 23 -> 24: a RAISE, so it is spelled out (#3024 — `dotnet-bcl-type-collision`).
+    // ARITHMETIC AGAINST `main`'s value at this merge, per the rule above: `main`
+    // reads 23 after the drain described just above, and this branch adds ONE
+    // fixture, so the merged ceiling is 24 — NOT the 25 this branch computed
+    // against the pre-drain 24.  Restoring the remembered 25 would have silently
+    // eaten somebody else's drain.
+    //
+    // A NEW corpus fixture whose subject the compile tier does not merely gate
+    // but IS: a domain type named after a BCL type (`aggregate Task` vs
+    // `System.Threading.Tasks.Task`) made the emitted .NET project fail its own
+    // build with 17 errors — CS0104 in every file that wildcard-imports the
+    // domain namespace, CS0535/CS0738 where the repository interface DECLARES it
+    // — while `generate system` reported `0 error(s), 0 warning(s)`.  The shipped
+    // `ddd new --platform dotnet --template crud` starter emits exactly that
+    // shape, so the starter did not compile.
     //
     // A `test e2e` block here would be the hollowing-out this gate was minted to
     // stop rather than a drain: the fix is a compile-time `using` alias plus a
@@ -572,10 +593,10 @@ const REGISTERED: Ratchet[] = [
     // `corpus-dotnet-build`: either `dotnet build /warnaserror` accepts the tree
     // or it does not.
     //
-    // Nothing to drain (same disposition as `auth-id-claim`): this is not a
-    // tier gap.  If the entry ever stops paying for itself the honest move is to
+    // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
+    // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
-    max: 25,
+    max: 24,
   },
 ];
 

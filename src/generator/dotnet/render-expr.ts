@@ -1163,7 +1163,30 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         }
         const method = csRepoReadMethod(read.method, read.readKind);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
-        return `(await ${handle}.${method}(${ctArg}))`;
+        // `getById` is contractually NON-NULL — it throws rather than returning
+        // absent, which is what `loom.handler-load-nullable-unsupported`
+        // prescribes as the remedy for a nullable read ("Use getById (throws →
+        // 404)") and what `repoReadResultType` (#2968) types it as (a bare
+        // entity, not `T?`).  On node/java/python the read PORT carries that
+        // contract in its own signature (`Promise<Owner>` / `Owner getById` /
+        // `-> Owner`, each with a nullable `findById` sibling).  .NET has no
+        // `findById` sibling: the single `GetByIdAsync` member IS the
+        // load-or-null primitive (`Task<T?>`), and CQRS query handlers depend on
+        // that null (`found is null ? null : project(found)` 404s without an
+        // exception).  So on .NET the contract is upheld HERE, at the
+        // dereference — exactly as the workflow tier already does it
+        // (`workflow-emit.ts`'s `repoLet`: "Without the guard the deref is a
+        // CS8602 under /warnaserror") and as every generated command handler
+        // does.  `AggregateNotFoundException` maps to 404 in
+        // `Api/DomainExceptionFilter.cs`, so "throws → 404" is literally true.
+        // A declared find keeps its own declared nullability and stays
+        // byte-identical.
+        const call = `await ${handle}.${method}(${ctArg})`;
+        if (read.readKind === "named" && read.method === "getById") {
+          const idArg = argList.length > 0 ? ` {${argList}}` : "";
+          return `(${call} ?? throw new AggregateNotFoundException($"${read.aggregate}${idArg} not found"))`;
+        }
+        return `(${call})`;
       }
       return `${upperFirst(e.name)}(${argList})`;
     }
