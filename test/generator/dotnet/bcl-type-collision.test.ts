@@ -33,6 +33,14 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // is the only one whose output moves).
 // ---------------------------------------------------------------------------
 
+/** `persistence: dapper` selects a SECOND repository emitter (`emit/dapper.ts`)
+ *  with its own using block and its own non-generic async returns. The first
+ *  pass patched only the EF path, and `corpus × dotnet (Dapper)` caught it —
+ *  the dapper repository still emitted `public async Task SaveAsync(Task …)`
+ *  with no alias. These cases are the ratchet on the second adapter. */
+const dapperSys = (agg: string, extra = ""): string =>
+  sys(agg, extra).replace("platform: dotnet", "platform: dotnet { persistence: dapper }");
+
 const sys = (agg: string, extra = ""): string => `
 system S {
   subdomain Work {
@@ -142,6 +150,33 @@ describe("dotnet — BCL type-name collision (#3024)", () => {
     expect(pick(files, "Domain/Criteria/InProjectCriterion.cs")).toMatch(
       /using Task = Api\.Domain\.Tasks\.Task;/,
     );
+  });
+
+  // --- the SECOND persistence adapter -------------------------------------
+
+  it("aliases and qualifies in the DAPPER repository too", async () => {
+    // `emit/dapper.ts` is a separate emitter from `emit/repository.ts`; patching
+    // only the latter left this file broken, which `corpus × dotnet (Dapper)`
+    // found. Both halves are asserted here.
+    const repo = pick(
+      await filesOf(dapperSys("Task")),
+      "Infrastructure/Repositories/TaskRepository.cs",
+    );
+    expect(repo).toMatch(/using Task = \w+\.Domain\.Tasks\.Task;/);
+    expect(repo).toMatch(/public async System\.Threading\.Tasks\.Task SaveAsync\(Task aggregate,/);
+    expect(repo).toMatch(
+      /public async System\.Threading\.Tasks\.Task DeleteAsync\(Task aggregate,/,
+    );
+  });
+
+  it("leaves the DAPPER repository untouched for an ordinary name", async () => {
+    const repo = pick(
+      await filesOf(dapperSys("Order")),
+      "Infrastructure/Repositories/OrderRepository.cs",
+    );
+    expect(repo).not.toMatch(/^using \w+ = \w+\.Domain\./m);
+    expect(repo).not.toMatch(/System\.Threading\.Tasks\.Task/);
+    expect(repo).toMatch(/public async Task SaveAsync\(Order aggregate,/);
   });
 
   // --- no false positives ---------------------------------------------------

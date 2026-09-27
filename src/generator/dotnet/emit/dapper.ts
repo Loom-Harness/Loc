@@ -64,6 +64,7 @@ import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtre
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
+import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -1157,6 +1158,17 @@ export function renderDapperRepository(
    *  a standalone aggregate / TPC concrete (byte-identical off this path). */
   tph?: { baseName: string; discriminator: string },
 ): string {
+  // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
+  // emitter beside the EF one, with its own using block and its own non-generic
+  // async returns, so it needs the same two halves: alias every colliding name
+  // reached through `using <ns>.Domain.<Plural>;` (general), and qualify the
+  // non-generic `Task` returns (only when a type named `Task` is in scope, since
+  // that is the one colliding name used as a return type here). Both no-ops
+  // without a collision, so dapper output stays byte-identical.
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
+  const domainAliases = collidingNamesOfAggregate(agg).map(
+    (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
+  );
   const idClass = tph ? `${tph.baseName}Id` : `${agg.name}Id`;
   const table = sqlIdent(tableOf(tph ? tph.baseName : agg.name));
   const sqlCtx: WhereSqlCtx = { agg, table };
@@ -1469,7 +1481,7 @@ export function renderDapperRepository(
   const hasAssoc = associations.length > 0;
   const loadRefsMethod = hasAssoc
     ? lines(
-        `    private static async Task LoadRefsAsync(NpgsqlConnection conn, List<${agg.name}> roots, CancellationToken cancellationToken)`,
+        `    private static async ${bclTask} LoadRefsAsync(NpgsqlConnection conn, List<${agg.name}> roots, CancellationToken cancellationToken)`,
         "    {",
         "        if (roots.Count == 0) return;",
         "        var __ids = roots.Select(x => x.Id.Value).ToArray();",
@@ -1878,7 +1890,7 @@ export function renderDapperRepository(
 
   const deleteMethod = agg.canonicalDestroy
     ? lines(
-        `    public async Task DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+        `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         `    {`,
         `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
         delTx
@@ -1907,6 +1919,7 @@ export function renderDapperRepository(
       "using Dapper;",
       "using Npgsql;",
       `using ${ns}.Domain.${plural(agg.name)};`,
+      ...domainAliases,
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.Enums;`,
       `using ${ns}.Domain.ValueObjects;`,
@@ -2014,7 +2027,7 @@ export function renderDapperRepository(
           : ["        return rows.Select(Map).ToList();"]),
       "    }",
       "",
-      `    public async Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       ...stampLines,
       ...saveUpsertLines,
@@ -2071,6 +2084,17 @@ export function renderDapperDocumentRepository(
   ns: string,
   findBodies: Array<{ name: string; filterClause: string; projectionClause: string }>,
 ): string {
+  // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
+  // emitter beside the EF one, with its own using block and its own non-generic
+  // async returns, so it needs the same two halves: alias every colliding name
+  // reached through `using <ns>.Domain.<Plural>;` (general), and qualify the
+  // non-generic `Task` returns (only when a type named `Task` is in scope, since
+  // that is the one colliding name used as a return type here). Both no-ops
+  // without a collision, so dapper output stays byte-identical.
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
+  const domainAliases = collidingNamesOfAggregate(agg).map(
+    (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
+  );
   const table = sqlIdent(tableOf(agg.name));
   const snap = `${agg.name}Snapshot`;
   const idCs = idTypes(agg.idValueType).cs;
@@ -2239,7 +2263,7 @@ export function renderDapperDocumentRepository(
 
   const deleteMethod = agg.canonicalDestroy
     ? lines(
-        `    public async Task DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+        `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         "    {",
         "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
         // A `destroy audited` stages its row before the delete, so both ride one
@@ -2263,6 +2287,7 @@ export function renderDapperDocumentRepository(
       "using Dapper;",
       "using Npgsql;",
       `using ${ns}.Domain.${plural(agg.name)};`,
+      ...domainAliases,
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.Enums;`,
       `using ${ns}.Domain.ValueObjects;`,
@@ -2320,7 +2345,7 @@ export function renderDapperDocumentRepository(
       "    }",
       ...capMethod,
       "",
-      `    public async Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       ...saveLines,
       "        foreach (var ev in aggregate.PullEvents())",
@@ -2355,6 +2380,17 @@ export function renderDapperEventSourcedRepository(
    *  context and discriminated by `stream_type`. */
   ctxName: string,
 ): string {
+  // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
+  // emitter beside the EF one, with its own using block and its own non-generic
+  // async returns, so it needs the same two halves: alias every colliding name
+  // reached through `using <ns>.Domain.<Plural>;` (general), and qualify the
+  // non-generic `Task` returns (only when a type named `Task` is in scope, since
+  // that is the one colliding name used as a return type here). Both no-ops
+  // without a collision, so dapper output stays byte-identical.
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
+  const domainAliases = collidingNamesOfAggregate(agg).map(
+    (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
+  );
   // The single per-context event log (event-log-architecture.md): every load /
   // append / fold scopes to `stream_type = @st` (this aggregate's name) so a
   // sibling stream sharing the `<ctx>_events` table is never folded in.
@@ -2447,6 +2483,7 @@ export function renderDapperEventSourcedRepository(
       "using Dapper;",
       "using Npgsql;",
       `using ${ns}.Domain.${plural(agg.name)};`,
+      ...domainAliases,
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.Enums;`,
       `using ${ns}.Domain.ValueObjects;`,
@@ -2501,7 +2538,7 @@ export function renderDapperEventSourcedRepository(
       "        return __out;",
       "    }",
       "",
-      `    public async Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __pending = aggregate.PullEvents();",
       // Audited: the connection + transaction are hoisted out of the append
