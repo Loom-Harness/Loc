@@ -88,6 +88,11 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "rootValueObjects",
   "runtimeString",
   "sessions",
+  // Read only through `src/ir/util/reachable-types.ts` (`enumPool`), which the
+  // generators call — the root grep does not follow that indirection.  Its
+  // twin `siblingValueObjects` is read directly by one flutter emitter, so it
+  // passes by accident; this row says the pair is benign (#3033).
+  "siblingEnums",
   "sourceAlias",
   "sourceModule",
   "testCaseId",
