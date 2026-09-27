@@ -871,10 +871,12 @@ export function emitExplicitRouteController(
     //     now mislabelled as JSON.
     //   * a `TextNode` body — serialised as a POJO, i.e. the bean introspection
     //     of every `isArray`/`isNull`/… getter, ~20 boolean fields.
-    //   * an injected `com.fasterxml.jackson.databind.ObjectMapper` — compiles
-    //     (Jackson 2 is on the classpath transitively) and then fails at STARTUP
+    //   * an injected Jackson-2 `ObjectMapper` — compiles (springdoc drags
+    //     swagger-core's Jackson 2 onto the classpath) and then fails at STARTUP
     //     with "required a bean of type ... ObjectMapper that could not be
-    //     found", because Spring Boot 4 ships Jackson 3 under `tools.jackson`.
+    //     found", because Spring Boot 4 ships Jackson 3 and its bean is a
+    //     `tools.jackson` type.  `jackson3-packages.test.ts` is the gate that
+    //     keeps that spelling out of these emitters — including out of comments.
     // Pre-serialising with a `tools.jackson` mapper and setting the content type
     // explicitly is what actually answers `"hi"`: the body is already JSON text,
     // so `StringHttpMessageConverter` writing it raw is exactly right, and
