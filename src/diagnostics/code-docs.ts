@@ -51,7 +51,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
-  "loom.elixir-invariant-unenforced": "07-invariants-derived-functions.md#elixir-enforced-or-reported",
+  "loom.elixir-invariant-unenforced":
+    "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
