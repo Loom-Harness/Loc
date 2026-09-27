@@ -171,6 +171,79 @@ describe("broker auth — rabbitmq (vhost + per-deployable users)", () => {
   });
 });
 
+describe("broker topology — declared up front, not left to the first client", () => {
+  // A fanout exchange copies only to the queues bound AT PUBLISH TIME, and the
+  // consumer queue was declared by the CONSUMER at its own boot — so anything
+  // published before that first boot went nowhere.  Measured against a live
+  // stack: the producer's event left the outbox marked delivered and existed in
+  // no queue and no DLQ.  On a `retention: work` channel, whose whole promise
+  // is at-least-once, the ordinary deploy order is enough to lose it.
+  it("declares the exchange, the DLQ and every CONSUMER's queue in the definitions", async () => {
+    const files = await generateSystemFiles(RABBIT);
+    const defs = JSON.parse(files.get("broker-init/bus-definitions.json") ?? "{}") as {
+      exchanges: { name: string; vhost: string; type: string; durable: boolean }[];
+      queues: { name: string; durable: boolean; arguments: Record<string, string> }[];
+      bindings: { source: string; destination: string; routing_key: string }[];
+    };
+    const address = "loom.Orders.Lifecycle";
+
+    expect(defs.exchanges).toEqual([
+      { name: "loom.dlx", vhost: "loom", type: "direct", durable: true },
+      { name: address, vhost: "loom", type: "fanout", durable: true },
+    ]);
+
+    // `ship_api` CONSUMES; `sales_api` only produces.  A durable queue bound to
+    // a fanout that nothing drains grows without bound, so the producer must
+    // NOT get one — `brokerChannelBindings` mints a group name for every listed
+    // channelSource, producer side included, which is why the queue set is
+    // derived from `consumedEventNames` instead.
+    expect(defs.queues.map((q) => q.name)).toEqual([`loom.dlq.${address}`, `${address}.shipApi`]);
+    const consumerQueue = defs.queues.find((q) => q.name === `${address}.shipApi`);
+    expect(consumerQueue?.arguments).toEqual({
+      "x-dead-letter-exchange": "loom.dlx",
+      "x-dead-letter-routing-key": address,
+    });
+
+    expect(defs.bindings).toEqual([
+      {
+        source: "loom.dlx",
+        vhost: "loom",
+        destination: `loom.dlq.${address}`,
+        destination_type: "queue",
+        routing_key: address,
+      },
+      {
+        source: address,
+        vhost: "loom",
+        destination: `${address}.shipApi`,
+        destination_type: "queue",
+        routing_key: "",
+      },
+    ]);
+  });
+
+  // The shapes above must match what the emitted clients ASSERT, or the first
+  // one to connect gets PRECONDITION_FAILED on the redeclare and the channel
+  // dies — a worse failure than the lost message this is fixing.  Rather than
+  // restate the arguments (a second copy drifts), read them back out of the
+  // node emitter's own text.
+  it("matches the declares the node client emits, argument for argument", async () => {
+    const files = await generateSystemFiles(RABBIT);
+    const consumer = [...files.entries()].find(
+      ([path, body]) => path.includes("ship_api/") && body.includes("assertQueue(queue"),
+    )?.[1];
+    expect(consumer, "expected the consumer's emitted channel wiring").toBeDefined();
+    const src = consumer ?? "";
+    expect(src).toContain('assertExchange(address, "fanout", { durable: true })');
+    expect(src).toContain('assertExchange("loom.dlx", "direct", { durable: true })');
+    expect(src).toContain("assertQueue(dlq, { durable: true })");
+    expect(src).toContain('bindQueue(dlq, "loom.dlx", address)');
+    expect(src).toContain('deadLetterExchange: "loom.dlx"');
+    expect(src).toContain("deadLetterRoutingKey: address");
+    expect(src).toContain('bindQueue(queue, address, "")');
+  });
+});
+
 describe("broker auth — kafka (SASL/PLAIN)", () => {
   it("runs the client listener on SASL/PLAIN with one JAAS user per deployable", async () => {
     const files = await generateSystemFiles(KAFKA);

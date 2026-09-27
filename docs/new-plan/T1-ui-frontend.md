@@ -516,3 +516,38 @@ Its `@Component({ selector })` belongs to the author, so Loom has no tag to spel
 **Verification when it lands.** The `extern` call site renders `<app-panel [label]='…'>…children…</app-panel>`; the degradation comment and the diagnostic both disappear for the annotated form and stay for the unannotated one (which must keep working — the clause is optional); the register row is deleted and `MAX_OPEN_GAPS` lowered in the same PR. The negative probe is `test/generator/angular/component-children-gate.test.ts`, which must flip from "refused" to "emitted" together with the gate arm it names.
 
 Sources: Wave C2 packet 2h hand-off (`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`), `docs/decisions.md` § D-ANGULAR-EXTERN-CHILDREN. Relates to M-T1.20 (the frontend per-target refusal register) and `docs/extern.md`.
+
+## M-T1.35 — a `ui` may bind several backends; the frontend is generated against one — `open` · **M** · P2
+
+Minted 2026-09-27 by the "Assure" dev-experience evaluation, as the successor named by `loom.ui-multi-backend-unsupported` (registered `gap`).
+
+A `ui` may declare several api parameters and bind each to a different backend. The model layer accepts it fully — the handles resolve, `serves:` is checked, the page bodies typecheck against each contract:
+
+```ddd
+ui U {
+  api O: OneApi
+  api T: TwoApi
+  page Home {
+    route: "/"
+    body: Stack {
+      QueryView { of: O.Alpha.all, … },
+      QueryView { of: T.Beta.all,  … }
+    }
+  }
+}
+deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, … }
+```
+
+The **frontend** is generated against the one backend in `targets:`, and the two halves disagreed silently:
+
+* `enrichDeployables` (`src/ir/enrich/enrichments.ts`) copies `targets:`'s `contextNames` onto the frontend, so only that backend's aggregates reach the page emitter. `src/api/beta.ts` was never written while `home.tsx` imported it — `TS2307: Cannot find module '../api/beta'` after `0 error(s), 0 warning(s)` and 101 files.
+* the emitted client reads a single `API_BASE_URL`, and `composeService` bakes one `VITE_API_BASE_URL` pointing at `targets:`. Every request from the second handle would have gone to a backend that does not serve its contract.
+
+The combination is **refused** today (`loom.ui-multi-backend-unsupported`) rather than emitted half-wired; refusing costs nothing, since the shape does not compile and no working model can depend on it.
+
+Closing it has two halves, and the second is the reason this is a mission rather than a patch:
+
+1. **Context union** — widen the inherited set to `targets:` ∪ each `uiBindings` source deployable's contexts. Two lines in `enrichDeployables`, and it was measured: with it, the two-backend fixture emits `beta.ts` and the frontend typechecks clean, both call sites agreeing on the current signature.
+2. **Per-handle routing** — one api client base per handle, not one per bundle. `VITE_API_BASE_URL_<HANDLE>` defaulting to the same-origin `/api` the single-backend case uses, each aggregate's api module resolving the base of the handle whose deployable hosts its context. This touches the shared `api/*.hbs` client + config templates (every design pack renders them), the api-module builder in each of the four JSX frontends, and `composeService`. It must stay **byte-identical for a single bound backend**, which is the constraint that makes it a design job rather than a find-and-replace.
+
+Landing 1 without 2 is strictly worse than the refusal: the tree would compile and route every call to the wrong backend.

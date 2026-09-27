@@ -251,6 +251,26 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "read-gates", title: "read-side requires gates — gated list read + folded and query-time projections", doc: "auth", backends: ALL },
   { id: "outbox", title: "durable channel / transactional outbox + relay", doc: "workflow", backends: ALL },
   {
+    id: "channels-broker-workflow",
+    title: "durable broker channel + a workflow + NO reactor — the producer-only saga service",
+    doc: "channels",
+    backends: ALL,
+    note: "the axis pair `channels-broker` misses: it is the same producer WITHOUT a workflow, so it takes the workflow-less emission path and emits the outbox machinery fine.  Owning one workflow leaves that path, and the with-workflows path emitted the machinery only from inside the subscription block — which a producer-only context never enters.  Neither ran, while index.ts/http/index.ts referenced all three factories unconditionally: TS2304 + three TS2305 on a model that validated 0 error(s).  Only the compile tier can see it.",
+  },
+  {
+    id: "projection-split-deployables",
+    title: "a query-time projection on a deployable that does not host every context",
+    // `language`, like its `projection-aggregation` / `projection-groupby`
+    // siblings: there is no `docs/projection.md`, and the query-time surface
+    // is documented in the language reference.
+    doc: "language",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable when the
+    // projection's deployable does NOT host the sibling context.
+    deployables: ["billing", "reports"],
+    note: "the projection routes file imported `valueObjectPool(ctx)` (own UNION sibling-context) while `domain/value-objects.ts` emits only the hosted contexts' — so on a split system it named a type the module never exports (TS2306 'not a module').  Every projection fixture before this was single-deployable, which is why the pool and the emitted file agreed by accident.",
+  },
+  {
     id: "workflow-primitive-params",
     title: "a command workflow's PRIMITIVE params at the wire boundary (RS-26) — every param kind in one create",
     doc: "workflow",

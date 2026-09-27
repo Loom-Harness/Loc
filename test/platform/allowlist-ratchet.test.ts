@@ -562,18 +562,39 @@ const REGISTERED: Ratchet[] = [
     // still compiles.
     //
     // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
+    // remembers.  Re-derived at each merge rather than carried: restoring a
+    // remembered number is how a ratchet silently loses somebody else's raise.
+    // This branch was cut when `main` read 24 and raised it to 26; wave-3 row
+    // 3.3 then drained `projection-document-aggregation` on `main`, taking it
+    // to 23.  So the raise is re-applied to 23, not re-asserted as 26: 23 + 2
+    // = 25.
+    //
+    // 23 -> 25 (2026-09-27, the "Assure" dev-experience evaluation): two new
+    // corpus fixtures, `channels-broker-workflow` and
+    // `projection-split-deployables`, both compile-tier-only.  A RAISE, and
+    // the justification is that each was minted to catch a defect that IS a
+    // hard compile error in the emitted project (four TS2304/TS2305 for the
+    // dropped outbox dispatcher; TS2306 "not a module" for the cross-context
+    // value-object import), so the compile leg they already ride is their
+    // oracle — a behavioural block would boot a round-trip a sibling fixture
+    // already boots and assert nothing either defect could fail.  Both cite
+    // **M-T9.13**, which owns the behavioural-tier drain; the broker one
+    // additionally needs a broker container, exactly as `channels-broker`
+    // beside it does.
+    //
+    // 25 -> 26: a RAISE, so it is spelled out (#3024 — `dotnet-bcl-type-collision`).
+    // ARITHMETIC AGAINST `main`'s value at this merge, per the rule above, and
+    // re-derived a SECOND time because `main` moved again: the shared base reads
+    // **23**, `main` has since raised it by TWO (to 25, the two witnesses
+    // described just above), and this branch adds ONE fixture — so 23 + 2 + 1 =
+    // **26**.  The 24 this branch carried was correct against the 23 it merged
+    // from and is stale now; restoring it would have silently eaten both of
+    // main's raises, which is the exact failure this file's rule names.
     // remembers.  Re-derived at each merge rather than carried: `main` reads 24
     // again here (slice 2's drain took it to 22, `enum-collection` and
     // `principal-read-filter` raised it by two), so this drain subtracts one
     // from 24.  Restoring a remembered number is how a ratchet silently loses
     // somebody else's raise.
-    //
-    // 23 -> 24: a RAISE, so it is spelled out (#3024 — `dotnet-bcl-type-collision`).
-    // ARITHMETIC AGAINST `main`'s value at this merge, per the rule above: `main`
-    // reads 23 after the drain described just above, and this branch adds ONE
-    // fixture, so the merged ceiling is 24 — NOT the 25 this branch computed
-    // against the pre-drain 24.  Restoring the remembered 25 would have silently
-    // eaten somebody else's drain.
     //
     // A NEW corpus fixture whose subject the compile tier does not merely gate
     // but IS: a domain type named after a BCL type (`aggregate Task` vs
@@ -596,7 +617,7 @@ const REGISTERED: Ratchet[] = [
     // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
     // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
-    max: 24,
+    max: 26,
   },
 ];
 
