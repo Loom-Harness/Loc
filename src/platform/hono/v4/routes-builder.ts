@@ -5,6 +5,7 @@ import {
 import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { requestComponentName } from "../../../generator/_openapi/request-component-names.js";
 import {
   PROVENANCED_REQUEST_ERROR,
   provenancedEntries,
@@ -772,10 +773,20 @@ export function buildRoutesFile(
   }
 
   for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+    // Collision-aware: two independent rules mint request-component names (this
+    // one, and the workflow builder's `<Workflow>Request`), and `schedule` on
+    // `WorkOrder` spells the same string as workflow `scheduleWorkOrder`.  The
+    // shared minter owner-qualifies both halves when — and only when — they
+    // genuinely collide (F-026).
+    const reqName = requestComponentName(ctx, {
+      kind: "operation",
+      aggregate: agg.name,
+      operation: op.name,
+    });
     lines.push(
       ...emitWireSchema(
-        `const ${upperFirst(op.name)}${agg.name}Request`,
-        `${upperFirst(op.name)}${agg.name}Request`,
+        `const ${reqName}`,
+        reqName,
         op.params.map((p) => ({ name: p.name, base: zodFor(p.type) })),
         // Field-level invariants (SYS-1): the update/mutating-op request DTO
         // gets the SAME wire constraints as create, not just the op's own
@@ -1942,7 +1953,7 @@ function emitOperationRoute(
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
   out.push(
-    `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
+    `      body: { content: { "application/json": { schema: ${requestComponentName(ctx, { kind: "operation", aggregate: agg.name, operation: op.name })} } } },`,
   );
   out.push(`    },`);
   out.push(`    responses: {`);
@@ -2114,7 +2125,7 @@ function emitReturningOperationRoute(
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
   out.push(
-    `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
+    `      body: { content: { "application/json": { schema: ${requestComponentName(ctx, { kind: "operation", aggregate: agg.name, operation: op.name })} } } },`,
   );
   out.push(`    },`);
   out.push(`    responses: {`);

@@ -1,4 +1,5 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
+import { requestComponentName } from "../../../generator/_openapi/request-component-names.js";
 import {
   recordPayloadOf,
   workflowParamPayloads,
@@ -197,11 +198,16 @@ export function buildWorkflowsFile(
   // it gets neither a request schema nor a route.
   for (const wf of ctx.workflows) {
     if (!emitsCommandRoute(wf)) continue;
-    body.push(`const ${upperFirst(wf.name)}Request = z.object({`);
+    // Collision-aware: an aggregate operation mints `<Op><Agg>Request` by the
+    // other half of this contract, and `scheduleWorkOrder` spells the same
+    // string as `schedule` on `WorkOrder`.  The shared minter owner-qualifies
+    // both halves when — and only when — they genuinely collide (F-026).
+    const reqName = requestComponentName(ctx, { kind: "workflow", workflow: wf.name });
+    body.push(`const ${reqName} = z.object({`);
     for (const p of wf.params) {
       body.push(`  ${p.name}: ${zodForWorkflowParam(p.type, ctx)},`);
     }
-    body.push(`}).openapi("${upperFirst(wf.name)}Request");`);
+    body.push(`}).openapi("${reqName}");`);
   }
   // Per-workflow instance response DTOs (workflow-instance-visibility.md):
   // the persisted correlation-state row's wire shape + its list carrier.
@@ -751,7 +757,7 @@ function emitWorkflowRoute(
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
 ): string[] {
-  const reqName = `${upperFirst(wf.name)}Request`;
+  const reqName = requestComponentName(ctx, { kind: "workflow", workflow: wf.name });
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);

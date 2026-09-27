@@ -1099,6 +1099,77 @@ goes through. node and elixir need it; python and dotnet already have equivalent
 different means; java needs it and additionally has a short-name-keyed patch table that
 would need to move with it.
 
+**It is not hypothetical: a SHIPPED example collides.** The synthetic repro above was
+written to isolate the defect, so it proves only that the defect is reachable. Censusing
+every `.ddd` git tracks (598 contexts, base names from the two rules) finds **48**
+colliding contexts — 45 in the `eval*/` corpora (two independent evaluations, mine and the
+earlier `eval/`, both hit it within the first model they wrote, which is a statement about
+how natural the idiom is: an `operation <verb>` on `<Agg>` beside a `workflow
+<verb><Agg>`), and **three outside them, in the corpus CI actually builds**:
+
+| file | collision | affected? |
+|---|---|---|
+| `web/src/examples/extern-showcase.ddd` | `Order.confirm` + `workflow confirmOrder` → `ConfirmOrderRequest` | **YES** — its `deployable api` is `platform: node`, and `generated-react-build.yml`'s matrix generates from it |
+| `test/e2e/fixtures/python-build/auth.ddd` | `Order.cancel` + `workflow CancelOrder` | no — python auto-qualifies by module (see the table above) |
+| `test/e2e/fixtures/python-build/domain.ddd` | `Customer.rename` + `workflow renameCustomer` | no — same |
+
+The first one is the finding's strongest single artifact, because it is shipped code rather
+than a probe. Generated from the pre-fix emitter:
+
+```
+$ node bin/cli.js generate system web/src/examples/extern-showcase.ddd -o out
+$ grep -rn ConfirmOrderRequest out/api/http/*.ts
+order.routes.ts:20:const ConfirmOrderRequest = z.object({          # the operation's shape
+order.routes.ts:21:}).openapi("ConfirmOrderRequest");
+workflows.ts:13:const ConfirmOrderRequest = z.object({             # the workflow's shape
+workflows.ts:15:}).openapi("ConfirmOrderRequest");
+```
+
+Two `const ConfirmOrderRequest` declarations with different shapes — and because they are
+in two different FILES, TypeScript compiles clean. Nothing but the OpenAPI registry ever
+sees the conflict, and it resolves it by silently keeping one. That is the whole mechanism
+of why this shipped.
+
+**Why no existing gate catches it.** `docs/conformance.md` does list a "Request-body refs"
+parity dimension (`requestBodySchemas(spec)`), which compares which component each op's
+body points at — across BACKENDS. It is blind here by construction: node, elixir and java
+all have the same defect, so all three collapse the same pair onto one component and the
+cross-backend diff finds them in perfect agreement. The missing check is the
+*within-document* one — that a single spec never mints one component name twice — and
+nothing asserted it.
+
+**FIXED (node) — `src/generator/_openapi/request-component-names.ts`.** Rather than add a
+sixth rule, the fix lifts .NET's existing convention into a shared collision-aware minter
+both node builders now call: group owners by base name, leave a unique base name ALONE, and
+owner-qualify only a genuine collision with .NET's own qualifiers (the aggregate plural, or
+the literal `Workflows`). So a fixed backend AGREES with the ids .NET already publishes
+instead of inventing a third spelling, and a collision-free model — the whole existing
+corpus bar the three rows above — emits byte-identical output.
+
+```
+# after, on the shipped example
+order.routes.ts:21:}).openapi("OrdersConfirmOrderRequest");
+workflows.ts:15:}).openapi("WorkflowsConfirmOrderRequest");
+```
+
+Mutation-proved (revert by file copy, per §84): reverting both builders fails the two
+defect-naming tests and leaves the three "must not change" tests green. The sharpest single
+number comes from the uniqueness assertion — pre-fix the repro deployable publishes **4
+request components under 3 distinct names**; post-fix, 4 under 4.
+
+**Still open — elixir and java.** Each needs a different mechanism and neither is a rename:
+- **elixir** must additionally *emit* the missing schema module. Today only one is generated,
+  so qualifying the names is not enough — there is no second schema to point at.
+- **java** needs a schema-name override (`@Schema(name=)`) AND the emitted
+  `OpenApiContractCustomizer`'s `RequiredSet` patch table, which is keyed by the SHORT name,
+  has to move with the naming or it will patch the wrong schema.
+
+Fixing node first makes the cross-backend parity diff *useful* again on a colliding model:
+node now disagrees with elixir/java there, which surfaces the two remaining halves instead
+of hiding them behind a shared bug. No shipped gate moves, because the only colliding file
+in the CI corpus with an affected backend is `extern-showcase.ddd`, whose node output the
+new test now pins directly.
+
 **Not yet fixed.** The remaining decision is narrower than it first looked: adopt .NET's
 existing convention in the shared layer (owner-qualified ids for colliding short names),
 which changes published component names on node/elixir/java, or refuse a colliding model
