@@ -1183,10 +1183,29 @@ path derivation for every non-colliding name (verified against `snake()` for the
 workflow and qualified forms), so the path change is a no-op except exactly where it must not
 be.
 
-- **java** does genuinely need a different mechanism: a schema-name override
-  (`@Schema(name=)`) AND the emitted `OpenApiContractCustomizer`'s `RequiredSet` patch table,
-  which is keyed by the SHORT name, has to move with the naming or it will patch the wrong
-  schema.
+- **java** does genuinely need a different mechanism, and unlike the elixir claim above
+  this one SURVIVED checking. Java emits BOTH records, to different packages, and both
+  files exist:
+
+  ```
+  com.loom.api.features.workorders.ScheduleWorkOrderRequest
+    public record ScheduleWorkOrderRequest(@NotNull UUID technician, @NotNull String at)
+  com.loom.api.application.workflows.ScheduleWorkOrderRequest
+    public record ScheduleWorkOrderRequest(@NotNull UUID workOrder, @NotNull UUID technician,
+                                           @NotNull UUID asset, @NotNull String at)
+  ```
+
+  So nothing is clobbered — this is the .NET/Swashbuckle shape exactly: two distinct types
+  with one SHORT name, which is what springdoc uses as the schema name, so the two collapse
+  onto one published component. The difference from .NET is only that Swashbuckle throws and
+  springdoc keeps one silently.
+
+  That makes renaming the wrong tool: the Java class names are part of the generated code's
+  own API and must stay. Only the PUBLISHED name may diverge, via `@Schema(name = "...")` —
+  the springdoc analogue of .NET's `CustomSchemaIds`. AND the emitted
+  `OpenApiContractCustomizer`'s `RequiredSet` patch table, keyed by the SHORT name at
+  `openapi-customizer.ts:279` (operations) and `:468` (workflows) — the same two rules again —
+  has to move with the naming or it patches the wrong schema.
 
 Fixing node first makes the cross-backend parity diff *useful* again on a colliding model:
 node now disagrees with elixir/java there, which surfaces the two remaining halves instead
