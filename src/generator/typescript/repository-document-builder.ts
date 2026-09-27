@@ -497,7 +497,14 @@ function documentFindMethod(
   const needsPrincipalBind = aggregateUsesPrincipalContextFilter(agg) && !usesUser;
   const loadLines = [
     ...(needsPrincipalBind ? [`    const currentUser = requireCurrentUser();`] : []),
-    `    const rows = await this.db.select().from(schema.${tableName});`,
+    // ORDER BY id — a document aggregate's whole-table read is the root LIST
+    // route's only source, and an unordered `select` answers in Postgres heap
+    // order, which MOVES a row the moment an `update` rewrites its tuple.  The
+    // java document store has ordered here since it was written; the other four
+    // did not, so the same fixture answered one order on java and another
+    // everywhere else — caught by the wire golden, not by any assertion.  `id`
+    // is the primary key, so this is an index scan, not a sort.
+    `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
     `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${aggregateIsVersioned(agg) ? ", r.version" : ""}));`,
   ];
   // `find … paged` — the route is built for the paged contract, so the

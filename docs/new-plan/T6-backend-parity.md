@@ -569,6 +569,60 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
 
+## M-T6.73 — An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is mounted OUTSIDE `/api` on four of five backends, and python wraps its scalar return — `open` · **S–M** · P1
+
+Measured 2026-09-22 by [#2984](https://github.com/Loom-Harness/Loc/pull/2984), which lifted routed
+handlers onto the `test e2e` surface and then booted `corpus/handler-triad` across the behavioural tier
+for the first time. **Not a verify-first mission** — every row below is a booted runtime observation from
+the per-leg CI logs on head `dcd6d329`, re-derived statically from the emitted trees.
+
+Until that lift, no `test e2e` body could ADDRESS a routed handler at all (`api.<x>.<y>(…)` resolved to an
+aggregate, a projection or a workflow only), so **not one of these routes had ever been called on any
+backend**. All five emit and all five compile; four serve nothing at the path the caller uses. That is the
+silent-gap shape the behavioural tier exists to catch, and it stayed invisible because the only oracle that
+could see it did not exist.
+
+| leg | observed | emitted mounting |
+|---|---|---|
+| node, mikroorm | `POST /api/echo/hi` → `"hi"` (the wire-golden oracle) | under `API_BASE_PATH` |
+| dotnet, dapper | `POST /api/echo/hi → 404 "no route for POST /api/echo/hi"` | `[HttpPost("/echo/{text}")]` — a leading slash makes an ASP.NET route ROOT-ABSOLUTE, so the `/api` prefix is ignored |
+| java | same 404 | `@RestController` with **no class-level `@RequestMapping`** + `@PostMapping("/echo/{text}")` |
+| elixir | same 404 | `router.ex` puts them in `scope "/"` while every aggregate route sits in `scope "/api", DWeb` |
+| python | `expected {"result":"hi"} to be "hi"` | path is CORRECT (`include_router(a_router, prefix="/api")`); the divergence is the RESPONSE — it wraps a handler's scalar return in `{"result": …}` |
+
+So there are **two** independent defects, and they want separate treatment:
+
+1. **The prefix (dotnet/dapper, java, elixir).** Every other route class on these backends is mounted under
+   `API_BASE_PATH`; the explicit-route emitter is the one that is not. The five emitters all exist —
+   `src/generator/{dotnet,java,python,elixir/vanilla}/explicit-handlers-emit.ts` and hono's
+   `src/platform/hono/v4/emit.ts` — so this is "emitted at the wrong prefix", **not** "not implemented".
+   Fix is per-emitter and small: .NET drop the leading slash and carry the controller prefix, java add the
+   class-level `@RequestMapping(API_BASE_PATH)`, elixir move the routes into the existing `scope "/api"`.
+2. **The scalar envelope (python).** `{"result": "hi"}` where node answers the bare `"hi"`. This is a
+   runtime-VALUE divergence a spec-vs-spec diff cannot see, so it reads as a **conformance-semantics RS-rule
+   candidate** (`docs/conformance-semantics.md`) rather than a schema gap — the rule would pin "a routed
+   handler returning a scalar answers that scalar, unwrapped". Whether to ratify node's shape or python's is
+   an owner call, not a defect ruling; note that #2984's wire golden was recorded on node.
+
+**This is a wire-contract change to a shipped feature** — anyone calling an explicit route on .NET, java or
+elixir today is calling it at the root. Decide and record the canonical answer before moving the routes.
+
+**Drain, in one PR:** make the five agree; restore the `test e2e` block #2984 wrote and reverted (it is in
+that PR's history at commit `dcd6d329`, `test/fixtures/corpus/handler-triad.ddd`); delete the
+`handler-triad` rows from `E2E_LESS_CORPUS_FIXTURES` (`test/ir/api-caller-census-pins.ts`) and
+`BEHAVIOURAL_ABSENT` (`test/system/gate-ledger.test.ts`); lower the `BEHAVIOURAL_ABSENT` ratchet in
+`test/platform/allowlist-ratchet.test.ts` by one **off whatever main's value is then**; pin the two
+id-taking aggregate routes (`getOrderById`, `cancelOrder`) that the fixture's create-less `Order` genuinely
+blocks; and re-record `test/behavioral/wire-golden/handler-triad.json`.
+
+**Why #2984 did not narrow the drain to node instead.** `gate-ledger.test.ts` asserts, zero-tolerance and
+with no allowlist, that *"a compile-only feature is compile-only on EVERY backend it declares — a split
+would mean a per-backend `BEHAVIOURAL_SKIP` entry is doing the hiding, and the per-feature register above
+would be the wrong shape to describe it"*, and `BEHAVIOURAL_SKIP` is itself ratcheted at `max: 0`. A
+node-only boot is exactly that split. Both gates reject it, so the fixture stays compile-only on every leg
+until this mission lands. Changing that invariant is a decision about the ledger's shape, not part of
+either this mission or #2984.
+
 ## M-T6.72 — Move the .NET capability filters that cannot be model-hosted onto the per-read query — `open` · **L** · P3
 
 Minted 2026-09-13 by wave C2 packet 2b as the named successor

@@ -1127,7 +1127,15 @@ describe("mikroorm — shape: document (wave 3)", () => {
   it("evaluates finds in-app over the rehydrated read model (blob fields aren't columns)", async () => {
     const { files } = await emit(DOC_SRC);
     const repo = files.get("api/db/repositories/article-repository.ts")!;
-    expect(repo).toContain("const rows = await em.find(ArticleRow, {});");
+    // The whole-table read carries `orderBy: id` — without it the rows come
+    // back in Postgres heap order, which MOVES a row when `update` rewrites
+    // its tuple, so the same read answers a different order after an unrelated
+    // write.  Java's document store has ordered by id since it was written;
+    // the other four (this one included) did not, which is how one corpus
+    // fixture answered two different orders across the backends.
+    expect(repo).toContain(
+      'const rows = await em.find(ArticleRow, {}, { orderBy: { id: "ASC" } });',
+    );
     expect(repo).toContain("const result = all.filter((x) => x.viewCount >= min);");
   });
 });
