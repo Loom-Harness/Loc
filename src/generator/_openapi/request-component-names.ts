@@ -134,23 +134,22 @@ export function requestComponentOwners(ctx: BoundedContextIR): RequestComponentO
   return owners;
 }
 
-/** Per-context memo: both the routes builder and the workflow builder ask for
- *  names, once per aggregate and once per file, and must agree. */
-const cache = new WeakMap<BoundedContextIR, ReadonlyMap<string, string>>();
-
 /**
- * The component name to publish for `owner` in `ctx` — short when unique,
- * owner-qualified when it would otherwise collide.
+ * A per-document name lookup: resolve once, then ask it per owner.
  *
- * Callers pass an owner they already emit; an owner outside the context's own
- * set falls back to the base name rather than throwing, so a backend that emits
- * a component this module does not yet know about keeps today's behaviour.
+ * Deliberately a closure rather than a module-level memo — a cached `WeakMap`
+ * keyed by context would be module-global mutable state, which
+ * `test/system/module-global-state-census.test.ts` requires a leak argument for,
+ * and the argument would only be buying back work the caller can hoist itself.
+ * An emitter calls this once per file and looks names up in O(1).
+ *
+ * An owner outside the context's own set falls back to the base name rather than
+ * throwing, so a backend emitting a component this module does not yet know
+ * about keeps today's behaviour.
  */
-export function requestComponentName(ctx: BoundedContextIR, owner: RequestComponentOwner): string {
-  let names = cache.get(ctx);
-  if (!names) {
-    names = resolveRequestComponentNames(requestComponentOwners(ctx));
-    cache.set(ctx, names);
-  }
-  return names.get(ownerKey(owner)) ?? baseRequestComponentName(owner);
+export function requestComponentNamer(
+  ctx: BoundedContextIR,
+): (owner: RequestComponentOwner) => string {
+  const names = resolveRequestComponentNames(requestComponentOwners(ctx));
+  return (owner) => names.get(ownerKey(owner)) ?? baseRequestComponentName(owner);
 }
