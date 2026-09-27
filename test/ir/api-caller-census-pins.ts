@@ -628,6 +628,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // The defect is a COMPILE failure (`aggregate Task` made the emitted .NET
+  // project unbuildable), so `corpus-dotnet-build` is its oracle; a `test e2e`
+  // block would boot a CRUD round-trip other fixtures already record and mint a
+  // wire golden with no new content — a `using` alias is not observable on the
+  // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "dotnet-bcl-type-collision",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never

@@ -553,7 +553,29 @@ const REGISTERED: Ratchet[] = [
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
     //
-    max: 24,
+    // (#3024 — `dotnet-bcl-type-collision`).  24 -> 25, a RAISE, so it is
+    // spelled out.  A NEW corpus fixture whose subject the compile tier does not
+    // merely gate but IS: a domain type named after a BCL type (`aggregate Task`
+    // vs `System.Threading.Tasks.Task`) made the emitted .NET project fail its
+    // own build with 17 errors — CS0104 in every file that wildcard-imports the
+    // domain namespace, CS0535/CS0738 where the repository interface DECLARES
+    // it — while `generate system` reported `0 error(s), 0 warning(s)`.  The
+    // shipped `ddd new --platform dotnet --template crud` starter emits exactly
+    // that shape, so the starter did not compile.
+    //
+    // A `test e2e` block here would be the hollowing-out this gate was minted to
+    // stop rather than a drain: the fix is a compile-time `using` alias plus a
+    // qualified non-generic return, and NEITHER is observable on the wire — a C#
+    // alias cannot change the runtime type, so a booted round-trip would assert
+    // the same bytes `core-domain` already records and mint a golden with no new
+    // content.  The oracle that reads the thing under test is
+    // `corpus-dotnet-build`: either `dotnet build /warnaserror` accepts the tree
+    // or it does not.
+    //
+    // Nothing to drain (same disposition as `auth-id-claim`): this is not a
+    // tier gap.  If the entry ever stops paying for itself the honest move is to
+    // delete the fixture, not to boot it.
+    max: 25,
   },
 ];
 
