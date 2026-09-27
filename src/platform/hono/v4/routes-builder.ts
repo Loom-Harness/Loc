@@ -117,6 +117,7 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
+  enumPool,
   findValueObjectInScope,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -2826,7 +2827,13 @@ function collectUsedEnums(
   ctx: BoundedContextIR,
 ): EnumIR[] {
   const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), valueObjectPool(ctx));
-  return ctx.enums.filter((e) => enums.has(e.name));
+  // `enumPool`, not `ctx.enums`: an enum declared in a SIBLING context is a
+  // legal field type, and this list is what MINTS the route file's
+  // `const <E>Schema = z.enum([...])`.  Filtering `ctx.enums` dropped the
+  // declaration while the request/response schemas below still referenced the
+  // name — `ReferenceError: <E>Schema is not defined` at module load, so the
+  // api process exited on boot.
+  return enumPool(ctx).filter((e) => enums.has(e.name));
 }
 
 /** Every type named on the aggregate's HTTP surface — its own fields,

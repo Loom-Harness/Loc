@@ -221,9 +221,19 @@ function enrichSystem(
   const systemValueObjects = dedupeValueObjectsByName(
     subdomains.flatMap((m) => m.contexts.flatMap((c) => c.valueObjects)),
   );
+  // The enum twin.  An enum declared in one context and referenced from
+  // another is legal exactly as a VO is, but only the VO half had a pool — so
+  // a cross-context enum resolved to nothing and the emitters that MATERIALISE
+  // one (the node route file's `const <E>Schema = z.enum([...])`, the migration
+  // `CHECK (<col> IN (...))`) silently emitted neither.
+  const systemEnums = dedupeEnumsByName(
+    subdomains.flatMap((m) => m.contexts.flatMap((c) => c.enums)),
+  );
   const subdomainsWithSiblings: EnrichedSubdomainIR[] = subdomains.map((m) => ({
     ...m,
-    contexts: m.contexts.map((c) => withSiblingValueObjects(c, systemValueObjects)),
+    contexts: m.contexts.map((c) =>
+      withSiblingEnums(withSiblingValueObjects(c, systemValueObjects), systemEnums),
+    ),
   }));
   // Derive the registry's self-scope filter from the `tenancy by`
   // declaration.  See `applyRegistrySelfScope` below.
@@ -761,7 +771,8 @@ function attachSiblingValueObjects(
   contexts: EnrichedBoundedContextIR[],
 ): EnrichedBoundedContextIR[] {
   const pool = dedupeValueObjectsByName(contexts.flatMap((c) => c.valueObjects));
-  return contexts.map((c) => withSiblingValueObjects(c, pool));
+  const enumPoolAll = dedupeEnumsByName(contexts.flatMap((c) => c.enums));
+  return contexts.map((c) => withSiblingEnums(withSiblingValueObjects(c, pool), enumPoolAll));
 }
 
 /** First-declaration-wins de-dup of a VO list by name — the same rule the
@@ -791,6 +802,34 @@ function withSiblingValueObjects(
   const siblings = systemValueObjects.filter((v) => !own.has(v.name));
   const { siblingValueObjects: _previous, ...rest } = ctx;
   return siblings.length > 0 ? { ...rest, siblingValueObjects: siblings } : rest;
+}
+
+/** First-declaration-wins de-dup of an enum list by name — the enum twin of
+ *  `dedupeValueObjectsByName`, and the same rule the lowering-time ambient
+ *  decl index uses for a cross-context name collision. */
+function dedupeEnumsByName(enums: EnumIR[]): EnumIR[] {
+  const seen = new Set<string>();
+  const out: EnumIR[] = [];
+  for (const e of enums) {
+    if (seen.has(e.name)) continue;
+    seen.add(e.name);
+    out.push(e);
+  }
+  return out;
+}
+
+/** Attach the pool of enums declared in the OTHER contexts of the same system —
+ *  the enum twin of `withSiblingValueObjects`, with the same shadowing rule and
+ *  the same `undefined`-when-empty discipline so a single-context model's IR is
+ *  unchanged and `enrich(enrich(m))` still deep-equals `enrich(m)`. */
+function withSiblingEnums(
+  ctx: EnrichedBoundedContextIR,
+  systemEnums: EnumIR[],
+): EnrichedBoundedContextIR {
+  const own = new Set(ctx.enums.map((e) => e.name));
+  const siblings = systemEnums.filter((e) => !own.has(e.name));
+  const { siblingEnums: _previous, ...rest } = ctx;
+  return siblings.length > 0 ? { ...rest, siblingEnums: siblings } : rest;
 }
 
 export function enrichContext(
