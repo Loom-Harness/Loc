@@ -765,7 +765,10 @@ export function renderAngularUserComponent(
     if (children.length === 0) return `<${tag}${attrs}></${tag}>`;
     const inner = "  ".repeat(depth + 1);
     const close = "  ".repeat(depth);
-    const projected = children.map((c) => walk(c, ctx, depth + 1)).join(`\n${inner}`);
+    // Content-projected children — a sequence of sibling elements in the
+    // template, so a `For` among them splices (Angular ignores the flag
+    // anyway; it renders `@for` as a structural block either way).
+    const projected = children.map((c) => walk(c, ctx, depth + 1, "children")).join(`\n${inner}`);
     return `<${tag}${attrs}>\n${inner}${projected}\n${close}</${tag}>`;
   }
   const entries = bound.map((b) => `${b.name}: ${b.value}`);

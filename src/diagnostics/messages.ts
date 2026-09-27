@@ -2867,6 +2867,69 @@ export const DIAGNOSTIC_MESSAGES = {
     `subdomain '${p.name}': permission '${p.pName}' is declared more than once.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-render-slot-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.markup-primitive-in-collection-lambda": (p: {
+    op: unknown;
+    primitive: unknown;
+    param: unknown;
+  }) =>
+    `\`${p.primitive} { … }\` is built inside a \`.${p.op}(…)\` lambda, where it is not markup.  ` +
+    `A collection op is an EXPRESSION: every frontend renders its lambda body through the ` +
+    `expression renderer, not the body walker, so the primitive comes out as a bare function ` +
+    `call (\`${p.primitive}(…)\`) against a name no import provides — the generated frontend ` +
+    `fails to compile (\`Cannot find name '${p.primitive}'\`), it does not merely render wrong.  ` +
+    `Rendering a list of markup is what \`For\` is for: ` +
+    `\`For { each: <collection>, ${p.param} => ${p.primitive} { … } }\` emits properly keyed ` +
+    `elements.  A collection op is still fine in a VALUE position ` +
+    `(\`Text { rows.map(r => r.name).join(", ") }\`) — it is only the markup case that has ` +
+    `nowhere to go.`,
+  // The `money` value cannot be rendered as text; the two arms differ only in
+  // WHERE `Money { … }` goes.  A one-slot text primitive coerces its slot to a
+  // string, so a nested primitive there renders EMPTY — the fix is to replace
+  // the call.  `Stat` / `KeyValueRow` walk a nested primitive in their value
+  // slot on purpose, so the fix is to wrap in place.
+  "loom.money-in-text-slot#replace": (p: {
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+  }) =>
+    `\`${p.primitive} { ${p.path} }\` renders a \`money\` value ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
+    `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
+    `renderable node — the generated frontend fails to TYPECHECK (\`TS2322: Type 'Decimal' is ` +
+    `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
+    `own wording.  Write \`Money { ${p.path} }\` instead: it is the formatter primitive, and it ` +
+    `is what the scaffolded table renders every money column through, so the amount also comes ` +
+    `out WITH its currency.  \`${p.primitive} { Money { … } }\` does NOT work — a one-slot text ` +
+    `primitive coerces its slot to a string and a nested primitive there renders empty.`,
+  "loom.money-in-text-slot#wrap": (p: { primitive: unknown; path: unknown; aggregate: unknown }) =>
+    `\`${p.primitive}\`'s value slot renders a \`money\` value ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
+    `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
+    `renderable node — the generated frontend fails to TYPECHECK (\`TS2322: Type 'Decimal' is ` +
+    `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
+    `own wording.  \`${p.primitive}\` walks a nested primitive in that slot, so wrap it in ` +
+    `place: \`Money { ${p.path} }\`.  That is also what renders the amount WITH its currency.`,
+
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-gate-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.page-gate-not-client-evaluable": (p: {
+    uiName: unknown;
+    pageName: unknown;
+    offending: unknown;
+    why: unknown;
+    origin: unknown;
+  }) =>
+    `page '${p.pageName}' on ui '${p.uiName}': a page \`requires\` gate is re-evaluated ` +
+    `IN THE BROWSER against the verified session claims (it is what renders \`<Forbidden/>\` ` +
+    `instead of the body), so it may only touch \`currentUser\`, enum members, constants, ` +
+    `\`.contains(…)\`, comparison / boolean operators and a ternary — \`${p.offending}\` is ` +
+    `outside that set.${p.origin} ${p.why}.  Every frontend refuses to emit a gate it cannot ` +
+    `evaluate rather than degrade it to "always allowed", so this stops generation for all six.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-checks.ts
   // ----------------------------------------------------------------------
   "loom.ui-projection-read-unsupported#not-ui-consumable": (p: {
@@ -3497,7 +3560,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
   "loom.e2e-unaddressable-call": (p: { magicId: unknown; method: unknown }) =>
-    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\`, \`${p.magicId}.<workflow>.{run,instances,instance}(…)\` or \`${p.magicId}.workflows.<name>(…)\`. An explicit \`route … -> <Handler>\` route has no such slug and cannot be called from a test body yet.`,
+    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\`, \`${p.magicId}.<workflow>.{run,instances,instance}(…)\` or, for an explicit \`route … -> <Context>.<Handler>\` binding, \`${p.magicId}.<context>.<handler>(…)\`.`,
   "loom.e2e-unresolved-ref": (p: { testName: unknown; name: unknown }) =>
     `e2e test '${p.testName}': '${p.name}' is not a 'let' binding or a magic receiver ('api'/'ui'). ` +
     `An e2e body drives the deployable over HTTP, so it resolves no domain names — ` +
@@ -3542,11 +3605,12 @@ export const DIAGNOSTIC_MESSAGES = {
     aggregateSlug: unknown;
     known: unknown;
     knownWorkflows: unknown;
+    routed?: unknown;
   }) =>
     `e2e: unknown aggregate '${p.magicId}.${p.aggregateSlug}' on this deployable. ` +
     `Available aggregates: ${p.known}. ` +
     `Workflows (called as '${p.magicId}.<workflow>.run(…)' / '.instances()' / ` +
-    `'.instance(key)'): ${p.knownWorkflows}.`,
+    `'.instance(key)'): ${p.knownWorkflows}.${p.routed ?? ""}`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/e2e-route-checks.ts
@@ -3592,6 +3656,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `correlation field, so it persists no instance row and no backend mounts ` +
     `'GET /api/workflows/${p.slug}/instances'. Declare one id-shaped state field ` +
     `(e.g. 'orderId: Order id') to give it an instance to read.`,
+  "loom.e2e-routed-handler-arity": (p: {
+    slug: unknown;
+    verb: unknown;
+    expected: unknown;
+    got: unknown;
+    params: unknown;
+    method: unknown;
+    path: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' takes ${p.expected} argument(s) (${p.params}), got ` +
+    `${p.got}. A routed handler's arguments are POSITIONAL, in declared param order — ` +
+    `'route ${p.method} "${p.path}"' binds a param by NAME to the matching {token} and sends ` +
+    `the rest as the request body.`,
+  "loom.e2e-routed-handler-bodyless-method": (p: {
+    slug: unknown;
+    verb: unknown;
+    method: unknown;
+    path: unknown;
+    params: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' cannot be driven — 'route ${p.method} "${p.path}"' is a ` +
+    `bodyless method, but the param(s) '${p.params}' are bound by no {token} in the path, so ` +
+    `every backend reads them from a request body a ${p.method} cannot carry. Add the missing ` +
+    `{token}(s) to the route path, or declare the route as POST.`,
   "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +

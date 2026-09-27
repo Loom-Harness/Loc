@@ -414,6 +414,27 @@ const CLOSED_PREDICATE = {
  *  a `never` turns a runtime crash into a compile error, which is what CR1-d
  *  did to four of them (they left the register entirely).  The waiver says the
  *  site is SAFE, not that it is finished. */
+/** The client-evaluable GATE SUBSET (`src/ir/util/ui-gate.ts`, audit D2) — added
+ *  on `main` while this branch was open, in the register's older bare-string
+ *  shape; converted here rather than dropped.
+ *
+ *  Both sites are closed CLASSIFIERS over a deliberately small allowlist, and in
+ *  both the `default` arm is the CONSERVATIVE answer, not a fall-through:
+ *  `firstNonUiGateNode` REJECTS an unrecognised kind (a new `ExprIR` kind is not
+ *  client-evaluable until all six frontend gate renderers learn to render it, so
+ *  rejecting is the only safe default, and a `never`-check would force every
+ *  future kind to edit this file just to say "no"), and `printGateExpr` degrades
+ *  to `<kind>` inside a diagnostic string. Neither traverses for emission, so no
+ *  generated output can silently lose a node here — the failure mode this census
+ *  targets is structurally absent.
+ *
+ *  STANDING, and genuinely so: "rejecting an unknown kind is the safe answer" is
+ *  not waiting on anything. */
+const UI_GATE_CLOSED_SUBSET = {
+  standing:
+    "closed client-evaluable-gate classifier whose default arm is the conservative answer (reject / degrade-to-<kind>), not a silent fall-through; a new ExprIR kind is correctly refused until every frontend gate renderer can render it",
+} as const;
+
 const THROWING_DISPATCHER = {
   standing:
     "closed emission dispatcher whose default arm THROWS for an unhandled kind (loud failure, not the silent-drop class this census targets); case-completeness is emission-mode/parity scope, not this census's",
@@ -480,6 +501,8 @@ const HOTSPOT_SPLIT_RESIDUE = {
 // ---------------------------------------------------------------------------
 
 const WAIVERS: Record<string, Waiver> = {
+  "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
+  "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
   // --- 2.6 hotspot-split residue (see HOTSPOT_SPLIT_RESIDUE) --------------
   "src/ir/validate/checks/datasource-checks.ts#docExprUnsupported": HOTSPOT_SPLIT_RESIDUE,
   "src/ir/validate/checks/datasource-checks.ts#docFunctionUnsupported": HOTSPOT_SPLIT_RESIDUE,

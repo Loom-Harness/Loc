@@ -135,3 +135,77 @@ describe("loom.index-suggestion", () => {
     expect(d).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A `find` migrated to the criterion / retrieval spelling that
+// `loom.repository-find-deprecated` recommends still filters the same columns —
+// so it must still earn the same suggestion.  Before this, the collector ran
+// over `repo.finds` + `agg.contextFilters` only, and the advice vanished on
+// exactly the migration the tool told you to make (audit 2026-09-10 §D7).
+// ---------------------------------------------------------------------------
+
+const CATALOG = (members: string, repo = "") => `
+  system Shop {
+    subdomain Sales {
+      context Catalog {
+        enum Stock { Active, Retired }
+        aggregate Product with crudish { sku: string  status: Stock  stockOnHand: int }
+        repository Products for Product { ${repo} }
+        ${members}
+      }
+    }
+    api SalesApi from Sales
+    storage primarySql { type: postgres }
+    resource catState { for: Catalog, kind: state, use: primarySql }
+    deployable api { platform: node  contexts: [Catalog]  dataSources: [catState]  serves: SalesApi  port: 3001 }
+  }
+`;
+
+describe("loom.index-suggestion — survives the find → criterion migration", () => {
+  const columns = (d: LoomDiagnostic[]): (string | undefined)[] =>
+    d.map((x) => x.message.match(/index: (Product\.\w+)/)?.[1]).sort();
+
+  it("suggests both filtered columns for the deprecated `find … where` spelling", async () => {
+    const d = await suggestions(
+      CATALOG("", "find sellable(): Product[] where this.status == Active && this.stockOnHand > 0"),
+    );
+    expect(columns(d)).toEqual(["Product.status", "Product.stockOnHand"]);
+  });
+
+  it("keeps both suggestions after migrating that find to a criterion + retrieval", async () => {
+    const d = await suggestions(
+      CATALOG(`criterion Sellable of Product = status == Active && stockOnHand > 0
+               retrieval SellableProducts of Product { where: Sellable  sort: [sku asc] }`),
+    );
+    expect(columns(d)).toEqual(["Product.status", "Product.stockOnHand"]);
+  });
+
+  it("suggests a column filtered only by a retrieval's bare `where` predicate", async () => {
+    const d = await suggestions(
+      CATALOG(`retrieval InStock(min: int) of Product { where: this.stockOnHand > min }`),
+    );
+    expect(columns(d)).toEqual(["Product.stockOnHand"]);
+  });
+
+  it("still honours the coverage rules for a criterion-filtered column", async () => {
+    const { model } = await parseString(
+      `
+      system Shop {
+        subdomain Sales {
+          context Catalog {
+            aggregate Product with crudish { sku: string  live: bool  unique (sku) }
+            repository Products for Product { }
+            criterion BySku(s: string) of Product = sku == s && live
+          }
+        }
+        api SalesApi from Sales
+        storage primarySql { type: postgres }
+        resource catState { for: Catalog, kind: state, use: primarySql }
+        deployable api { platform: node  contexts: [Catalog]  dataSources: [catState]  serves: SalesApi  port: 3001 }
+      }`,
+      { validate: false },
+    );
+    // `sku` is a unique-key leading column; `live` is boolean — neither is suggested.
+    expect(indexSuggestions(enrichLoomModel(lowerModel(model)))).toEqual([]);
+  });
+});

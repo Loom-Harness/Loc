@@ -80,6 +80,16 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
   const usedAggs = [...aggNames].filter(referenced).sort();
   const usesMoney = /\bDecimal\b/.test(scanBody) || /money/.test([...sigTypeNames].join(" "));
   const usesIds = /\bIds\.\w/.test(scanBody) || sigCarriesId(ctx);
+  // Domain-error classes the rendered bodies throw.  A `precondition` in a
+  // domain-service operation renders `throw new DomainError(...)` exactly as an
+  // aggregate operation does, but this file derives its imports from the body
+  // and `./errors` was not among the candidates — so the emitted module
+  // referenced an undeclared name: `tsc` TS2304, and at runtime the guard threw
+  // `ReferenceError: DomainError is not defined` instead of the domain error
+  // (a 500 where the contract says 422).
+  const usedErrors = ["DisallowedError", "DomainError"].filter((n) =>
+    new RegExp(`\\b${n}\\b`).test(scanBody),
+  );
   // Read-port repository classes (domain-services.md rev. 4): a `reading`-tier
   // op takes a `<Aggregate>Repository` handle, imported as a VALUE type from the
   // generated repository module (the param annotation is a type position, but
@@ -94,6 +104,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
       "// Auto-generated: do not edit.",
       usesMoney ? 'import Decimal from "decimal.js";' : null,
       usesIds ? 'import * as Ids from "./ids";' : null,
+      usedErrors.length > 0 ? `import { ${usedErrors.join(", ")} } from "./errors";` : null,
       usedVoOrEnum.length > 0
         ? `import { ${usedVoOrEnum.join(", ")} } from "./value-objects";`
         : null,

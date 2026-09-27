@@ -39,6 +39,11 @@ import {
   checkTableFilterSupport,
 } from "./ui-collection-display-checks.js";
 import { checkUserComponentSupport } from "./ui-component-deferral-checks.js";
+import {
+  checkMarkupInCollectionLambda,
+  checkMoneyInTextSlot,
+  type MoneySlotCtx,
+} from "./ui-render-slot-checks.js";
 
 // Re-exported so every name this file exported before the packet-2.6 split is
 // still reachable at its original path — `COMPONENT_DEFERRALS` is read by
@@ -165,6 +170,10 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         if (slots.size > 0) componentActionParams.set(comp.name, slots);
       }
       const apiParamNames = new Set(ui.apiParams.map((p) => p.name));
+      // The row-type resolution the money-slot gate needs: `Item.all` /
+      // `<apiHandle>.Item.all` → the aggregate whose `wireShape` types the
+      // fields a `data:` / `For` lambda binding reads.
+      const moneySlotCtx: MoneySlotCtx = { aggByName, apiParamNames };
       // F4 — the names a render-tree free call may carry, mirroring what the
       // walker resolves at emit time (registry primitive → user component →
       // value-object construction → extern function).
@@ -206,6 +215,10 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkOpFormRouteId(page, diags);
         checkDestroyFormOf(page, pageWhere(page), aggByName, diags);
         checkFrontendCollectionOps(page, pageWhere(page), diags);
+        // Audit D3 / D4 — two shapes that validate clean and then break the
+        // generated frontend's own typecheck.
+        checkMarkupInCollectionLambda(page, pageWhere(page), diags);
+        checkMoneyInTextSlot(page, pageWhere(page), moneySlotCtx, diags);
         checkUnknownPageElements(page, pageWhere(page), callableNames, diags);
         checkSlotOutsideComponent(page, pageWhere(page), diags);
         checkUnresolvedPageRefs(page, pageWhere(page), callableNames, diags);
@@ -276,6 +289,8 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkActionBodies(comp.actions, ctx, diags);
         checkDestroyFormOf(comp, `component '${comp.name}'`, aggByName, diags);
         checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags);
+        checkMarkupInCollectionLambda(comp, `component '${comp.name}'`, diags);
+        checkMoneyInTextSlot(comp, `component '${comp.name}'`, moneySlotCtx, diags);
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
         checkUnresolvedPageRefs(comp, `component '${comp.name}'`, callableNames, diags);
         checkFixedSlotArity(comp, `component '${comp.name}'`, diags);
@@ -319,6 +334,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
       // clean.  Same vocabulary gap, same gate.
       for (const store of ui.stores) {
         checkFrontendCollectionOps(store, `store '${store.name}'`, diags);
+        checkMarkupInCollectionLambda(store, `store '${store.name}'`, diags);
       }
       // A `toast(<expr>)` outside the v1 message subset CRASHES every realtime
       // renderer (target-agnostic — the three switches are arm-for-arm equal).

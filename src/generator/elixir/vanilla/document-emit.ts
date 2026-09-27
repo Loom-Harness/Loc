@@ -592,18 +592,22 @@ export function renderDocRepository(
 defmodule ${repoMod} do
   @moduledoc "Document-shaped repository — CRUD over the (id, data, version) jsonb row."
   alias ${appModule}.Repo
+  # order_by is a MACRO: a fully-qualified call needs this require, or Elixir
+  # parses it as a remote FUNCTION call, the [r] never becomes a query binding,
+  # and the module fails to compile with: undefined variable "r".
+  require Ecto.Query
 
   @spec list(${principal ? "map() | nil" : ""}) :: {:ok, [${aggModule}.t()]} | {:error, term()}
   def list${principal ? `(${actorParam})` : ""} do
 ${
   cap
     ? `    {:ok,
-     ${aggModule}
+     Ecto.Query.order_by(${aggModule}, [r], r.id)
      |> Repo.all()
      |> Enum.filter(fn ${docFilterLambdaArg(cap)} ->
 ${docBindRecord(cap, "       ")}       ${cap}
      end)}`
-    : `    {:ok, Repo.all(${aggModule})}`
+    : `    {:ok, Repo.all(Ecto.Query.order_by(${aggModule}, [r], r.id))}`
 }
   end
 
@@ -757,14 +761,14 @@ function renderDocFindFn(
   // NOT bind `record = row.data` — an unused binding trips `--warnings-as-errors`.
   const filter = docPredReadsRecord(predicate)
     ? `
-      ${aggModule}
+      Ecto.Query.order_by(${aggModule}, [r], r.id)
       |> Repo.all()
       |> Enum.filter(fn ${docFilterLambdaArg(predicate)} ->
         record = row.data
         ${predicate}
       end)`
     : `
-      ${aggModule}
+      Ecto.Query.order_by(${aggModule}, [r], r.id)
       |> Repo.all()
       |> Enum.filter(fn ${docFilterLambdaArg(predicate)} -> ${predicate} end)`;
   // The actor parameter the principal-scoped defdelegate threads.  It trails

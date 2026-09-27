@@ -45,6 +45,7 @@ import {
 } from "../../enrich/wire-projection.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   ExprIR,
   LiteralKind,
@@ -62,6 +63,12 @@ import {
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
 import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
+import {
+  apisServedBy,
+  type RoutedHandlerTarget,
+  resolveRoutedHandler,
+  routedHandlerNeedsUnsendableBody,
+} from "../../util/routed-handler.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import { emitsCommandRoute } from "../../util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
@@ -87,6 +94,10 @@ export function validateE2ERouteContract(
   // `test-checks.ts` skips it the same way rather than crashing here.
   if (!target) return;
   const contexts = collectContexts(target, modulesByName);
+  // Explicit `route … -> <Ctx>.<Handler>` bindings live on the apis the target
+  // deployable `serves:`, not on any aggregate — so they are the one route
+  // class whose ground truth is the `ApiIR`, not `deriveAggregateOperations`.
+  const apis = apisServedBy(target, sys.apis);
   const source = `${sys.name}/${test.name}`;
   // A ui-kind test binds BOTH magic receivers — its kind comes from the target
   // deployable's platform, not from what the body spells — so an api-shaped
@@ -99,7 +110,7 @@ export function validateE2ERouteContract(
   // a call with no route has no response body either.
   const routed = new Set<string>();
   for (const call of collectMagicCalls(test.statements, "api")) {
-    if (!checkApiVerb(call, contexts, source, diags)) continue;
+    if (!checkApiVerb(call, contexts, apis, source, diags)) continue;
     routed.add(`${call.slug}.${call.verb}`);
     const resolved = resolveAggregate(call.slug, contexts);
     if (resolved) {
@@ -149,17 +160,39 @@ type VerbVerdict =
   | { readonly tag: "verb"; readonly aggregate: string; readonly routed: string }
   | { readonly tag: "workflow-run"; readonly workflow: string }
   | { readonly tag: "workflow-instance"; readonly workflow: string }
+  | {
+      readonly tag: "routed-arity";
+      readonly expected: number;
+      readonly got: number;
+      readonly params: string;
+      readonly method: string;
+      readonly path: string;
+    }
+  | {
+      readonly tag: "routed-bodyless";
+      readonly method: string;
+      readonly path: string;
+      readonly params: string;
+    }
   | { readonly tag: "ui-create"; readonly aggregate: string }
   | { readonly tag: "ui-verb"; readonly known: string };
 
 /** Does this call's verb resolve to a route THIS compilation emits?
  *  `null` ⇒ nothing to say. */
-function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerdict | null {
-  // `api.workflows.<name>` and `api.<projection>.{byKey,list}` route outside
-  // `deriveAggregateOperations` (both are in its documented `notLifted` set),
-  // so this check has no ground truth for them — `test-checks.ts` resolves
-  // them by name and is the whole story there.
-  if (call.slug === "workflows") return null;
+function apiVerbVerdict(
+  call: MagicCall,
+  contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
+): VerbVerdict | null {
+  // `api.<projection>.{byKey,list}` routes outside `deriveAggregateOperations`
+  // (it is in the derivation's documented `notLifted` set), so this check has
+  // no ground truth for it — `test-checks.ts` resolves it by name and is the
+  // whole story there.
+  //
+  // The reserved `workflows` slug used to be skipped here too.  It is `ui`-only
+  // now (see `test-checks.ts`): on the api side `api.workflows.<name>` resolves
+  // to nothing and is refused as an unknown aggregate, so there is no api call
+  // left for a `workflows` guard to let through.
   if (findProjectionBySlug(call.slug, contexts)) return null;
   const resolved = resolveAggregate(call.slug, contexts);
   if (!resolved) {
@@ -176,6 +209,14 @@ function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerd
     // backend gates its own emission on.
     const wf = findWorkflowBySlug(call.slug, contexts);
     if (wf) return workflowVerbVerdict(call, wf);
+    // An explicit `route … -> <Ctx>.<Handler>` binding, addressed as
+    // `api.<contextSlug>.<handlerName>(…)`.  Its ground truth is the api's own
+    // `routes` list rather than `deriveAggregateOperations` (which covers
+    // aggregate verbs only), so the contract question here is a different one:
+    // the route EXISTS by construction, and what is asked is whether the CALL
+    // matches the request shape every backend emits for it.
+    const routed = resolveRoutedHandler(call.slug, call.verb, contexts, apis);
+    if (routed) return routedHandlerVerdict(call, routed);
     // Otherwise an unresolved slug already raises `loom.e2e-unknown-aggregate`;
     // a second diagnostic for the same call would just be noise.
     return null;
@@ -183,6 +224,11 @@ function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerd
   const { agg, repo, ctx } = resolved;
   const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return null;
+  // Same fallback order as the renderer: every aggregate verb wins first, and
+  // only then may a routed handler whose context slugs like the aggregate
+  // (`context Sales` + `aggregate Sale`) answer the call.
+  const routedFallback = resolveRoutedHandler(call.slug, call.verb, contexts, apis);
+  if (routedFallback) return routedHandlerVerdict(call, routedFallback);
   if (call.verb === "create") return { tag: "create", aggregate: agg.name };
   if (call.verb === "destroy") return { tag: "destroy", aggregate: agg.name };
   if (call.verb === "history") return { tag: "history", aggregate: agg.name };
@@ -213,6 +259,48 @@ function workflowVerbVerdict(call: MagicCall, wf: WorkflowIR): VerbVerdict | nul
   }
   if (call.verb === "instances" || call.verb === "instance") {
     return emitsInstanceRoutes(wf) ? null : { tag: "workflow-instance", workflow: wf.name };
+  }
+  return null;
+}
+
+/**
+ * The route-contract question for an explicit `route … -> <Ctx>.<Handler>`
+ * binding.  The route EXISTS by construction — the resolver found it in the
+ * api's own list, and `loom.route-handler-unresolved` already gates a route
+ * whose target does not resolve — so what is left to ask is whether the CALL
+ * matches the request the backends emit for it:
+ *
+ *   • ARITY — arguments bind POSITIONALLY to the declared params.  A wrong
+ *     count shifts every later argument into the wrong slot, and on a
+ *     path-param route that renders a URL with a literal `undefined` segment.
+ *   • A SENDABLE BODY — a `GET`/`DELETE` route whose handler declares a param
+ *     that is not a `{token}` in the path.  Every backend reads that param
+ *     from a request BODY; `fetch` cannot send one on those methods, so the
+ *     call is not expressible and the argument would silently vanish.
+ *
+ * `null` ⇒ the call is well-formed and the route is real.
+ */
+function routedHandlerVerdict(call: MagicCall, t: RoutedHandlerTarget): VerbVerdict | null {
+  if (call.args.length !== t.bindings.length) {
+    return {
+      tag: "routed-arity",
+      expected: t.bindings.length,
+      got: call.args.length,
+      params: t.bindings.map((b) => b.param.name).join(", ") || "(none)",
+      method: t.route.method,
+      path: t.route.path,
+    };
+  }
+  if (routedHandlerNeedsUnsendableBody(t)) {
+    return {
+      tag: "routed-bodyless",
+      method: t.route.method,
+      path: t.route.path,
+      params: t.bindings
+        .filter((b) => b.source === "body")
+        .map((b) => b.param.name)
+        .join(", "),
+    };
   }
   return null;
 }
@@ -269,13 +357,15 @@ function uiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerdi
  *  leave a call with either two diagnostics again or none at all. */
 export function routeContractWillReport(
   magicId: "api" | "ui",
-  call: { slug: string; verb: string },
+  call: { slug: string; verb: string; args?: readonly ExprIR[] },
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[] = [],
 ): boolean {
-  const shaped: MagicCall = { slug: call.slug, verb: call.verb, args: [] };
+  const shaped: MagicCall = { slug: call.slug, verb: call.verb, args: call.args ?? [] };
   return (
-    (magicId === "api" ? apiVerbVerdict(shaped, contexts) : uiVerbVerdict(shaped, contexts)) !==
-    null
+    (magicId === "api"
+      ? apiVerbVerdict(shaped, contexts, apis)
+      : uiVerbVerdict(shaped, contexts)) !== null
   );
 }
 
@@ -297,10 +387,11 @@ export function routeContractWillReport(
 function checkApiVerb(
   call: MagicCall,
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
   source: string,
   diags: LoomDiagnostic[],
 ): boolean {
-  const verdict = apiVerbVerdict(call, contexts);
+  const verdict = apiVerbVerdict(call, contexts, apis);
   if (!verdict) return true;
   if (verdict.tag === "create") {
     diags.push({
@@ -376,6 +467,38 @@ function checkApiVerb(
         slug: call.slug,
         verb: call.verb,
         workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "routed-arity") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-routed-handler-arity",
+      source,
+      message: diagMessage("loom.e2e-routed-handler-arity", {
+        slug: call.slug,
+        verb: call.verb,
+        expected: verdict.expected,
+        got: verdict.got,
+        params: verdict.params,
+        method: verdict.method,
+        path: verdict.path,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "routed-bodyless") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-routed-handler-bodyless-method",
+      source,
+      message: diagMessage("loom.e2e-routed-handler-bodyless-method", {
+        slug: call.slug,
+        verb: call.verb,
+        method: verdict.method,
+        path: verdict.path,
+        params: verdict.params,
       }),
     });
     return false;

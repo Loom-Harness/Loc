@@ -552,6 +552,7 @@ const REGISTERED: Ratchet[] = [
     //     booted leg would assert over the empty fail-closed result and prove
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
+    //
     max: 24,
   },
 ];

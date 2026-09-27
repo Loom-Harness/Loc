@@ -365,7 +365,7 @@ function resolveColumn(
     // required one (M-T1.33).
     const childCtx: WalkContext = extendRowScope(ctx, accessorArg.param, rowVar, cellAggregate);
     const b = accessorArg.body;
-    cell = b.kind === "call" ? walk(b, childCtx, depth) : `{${emitExpr(b, childCtx)}}`;
+    cell = b.kind === "call" ? walk(b, childCtx, depth, "value") : `{${emitExpr(b, childCtx)}}`;
     propagateChildFlags(ctx, childCtx);
   }
 

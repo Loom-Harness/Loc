@@ -809,18 +809,39 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // land first.  Recorded because a reader who solved only the named blocker
   // would find the cell still undrainable.
   "handler-resource-ops",
-  // COMPILE-TIER WITNESS, and UNSEEDABLE besides.  Two of its three defects were
-  // "the emitted project does not exist / does not compile" on .NET and java
-  // (a dropped aggregate-less handler + route; a declared `byId` find renamed
-  // and its already-typed argument re-wrapped) — and the behavioural tier boots
-  // NODE, the one backend neither defect touched, so a caller would witness the
-  // one leg that was always green.  The two find-backed routes are unseedable on
-  // top of that: `Order` carries no `crudish` and no author-declared create, so
-  // nothing can mint a row for `LoadOrder` / `CodeStatus` to read (the same
-  // shape as `extern`'s pin).  The oracles that DO reach the bugs are the five
-  // compile legs plus `test/generator/handler-triad.test.ts` (per backend,
-  // mutation-proven).  Drain: give `Order` a create, then drive `Echo` / `Sum`
-  // — the two pure-computation routes need no data at all.
+  // NOT DRAINED — but for a DIFFERENT reason than this entry used to give, and
+  // the correction matters because both of the old claims were wrong.
+  //
+  //   • It named handlers the fixture does not have.  "nothing can mint a row
+  //     for `LoadOrder` / `CodeStatus` to read" — there is no `LoadOrder` and
+  //     no `CodeStatus` in `handler-triad.ddd`; the handlers are `Echo`, `Sum`,
+  //     `CountReplacing`, `Reachable` and `Doubled`.  The nouns had rotted.
+  //   • Its stated blocker ("unseedable") gates only the two id-taking
+  //     AGGREGATE routes.  The five ROUTED HANDLERS need no row at all: the
+  //     find-backed ones return a COUNT, so an empty table answers 0 / false.
+  //
+  // The real blocker was that a `test e2e` body could not ADDRESS a routed
+  // handler — `api.<x>.<y>(…)` resolved to an aggregate, a projection or a
+  // workflow only.  #2984 fixed that (`api.<context>.<handler>(…)`), and the
+  // block was written, booted on node, and then REVERTED, because booting it
+  // measured the thing that actually blocks this cell:
+  //
+  //   node / mikroorm  `POST /api/echo/hi` → `"hi"`   (the wire-golden oracle)
+  //   dotnet / dapper  404 — `[HttpPost("/echo/{text}")]` is ROOT-ABSOLUTE in
+  //                    ASP.NET, so the `/api` prefix is ignored
+  //   java             404 at `/api/echo/hi`
+  //   elixir           404 at `/api/echo/hi`
+  //   python           routes correctly, but WRAPS the scalar return:
+  //                    `{"result":"hi"}` where node answers `"hi"`
+  //
+  // The emitted e2e suite is backend-agnostic by construction (one file,
+  // replayed against every backend), and `gate-ledger.test.ts` refuses a
+  // feature that boots on some of its declared backends and not others.  So
+  // this cell cannot drain until the five explicit-route emitters agree on
+  // where a routed handler is mounted and what a scalar return looks like on
+  // the wire — a wire-contract change to a shipped feature, and its own PR.
+  // Drain: land that agreement, then restore the block (it is in #2984's
+  // history) and delete this entry.
   "handler-triad",
   // `lifecycle-guard` DRAINED — and, like `policy-document` before it, only
   // after the thing it was hiding was FIXED.  Its two named blockers both fell,
