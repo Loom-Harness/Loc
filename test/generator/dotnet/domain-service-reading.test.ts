@@ -14,7 +14,7 @@
 // (src/ir/util/domain-service-read-ports.ts), shared with the TS trailblazer.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
 import { parseValid } from "../../_helpers/parse.js";
 
 // A reading service (`Registration.isEmailAvailable` reads `Accounts.byHolder`),
@@ -66,6 +66,55 @@ const PURE_SRC = `
     }
   }
 `;
+
+// A reading service that binds the BUILT-IN `getById` and dereferences the
+// binding.  `getById` is contractually NON-NULL — it throws rather than
+// returning absent, which is the remedy
+// `loom.handler-load-nullable-unsupported#domain-service` prescribes ("Use
+// getById (throws → 404)") and what `repoReadResultType` types it as (a bare
+// entity, not `T?`).  .NET's read port has no `findById` sibling, so its single
+// `Task<T?> GetByIdAsync` member doubles as the load-or-null primitive that
+// CQRS query handlers depend on; the contract is therefore upheld at the
+// DEREFERENCE, with the same `?? throw` guard the workflow tier already emits.
+// Without it `one.Holder` is a CS8602 under `/warnaserror` — the flag the
+// repo's own .NET recipe uses (docs/tools.md).
+const GETBYID_SRC = `
+system Banking {
+  subdomain Banking {
+    context Banking {
+      valueobject Money { amount: decimal currency: string invariant amount >= 0 }
+      aggregate Account with crudish { holder: string balance: Money }
+      repository Accounts for Account {
+        find byHolder(holder: string): Account? where this.holder == holder
+      }
+      domainService Lookup {
+        operation holderOf(a: Account id): string {
+          let one = Accounts.getById(a)
+          return one.holder
+        }
+      }
+    }
+  }
+  api BankingApi from Banking
+  storage primary { type: postgres }
+  resource bankingState { for: Banking, kind: state, use: primary }
+  deployable api {
+    platform: dotnet
+    contexts: [Banking]
+    dataSources: [bankingState]
+    serves: BankingApi
+    port: 4000
+  }
+}
+`;
+
+/** The one generated file ending in `suffix` (system mode prefixes each path
+ *  with its deployable directory). */
+function bySuffix(f: Map<string, string>, suffix: string): string {
+  const key = [...f.keys()].find((k) => k.endsWith(suffix));
+  if (!key) throw new Error(`no generated file ending in ${suffix}`);
+  return f.get(key)!;
+}
 
 async function files(): Promise<Map<string, string>> {
   return generateDotnet(await parseValid(SRC));
@@ -121,6 +170,27 @@ describe(".NET generator — reading-tier domainService (domain-services.md rev.
     expect(program!).toMatch(
       /builder\.Services\.AddScoped<\w+\.Domain\.Services\.Registration>\(\);/,
     );
+  });
+
+  it("guards a dereferenced getById read with `?? throw` so it upholds the non-null contract", async () => {
+    const svc = bySuffix(await generateSystemFiles(GETBYID_SRC), "Domain/Services/Lookup.cs");
+    // The binding is guarded at the read, so the local is genuinely non-null and
+    // `one.Holder` is not a CS8602.  `AggregateNotFoundException` maps to 404 in
+    // `Api/DomainExceptionFilter.cs`, so "throws → 404" holds literally.
+    expect(svc).toMatch(
+      /var one = \(await _accounts\.GetByIdAsync\(a, cancellationToken\) \?\? throw new AggregateNotFoundException\(\$"Account \{a\} not found"\)\);/,
+    );
+    // The un-guarded shape is exactly the defect — pin its absence.
+    expect(svc).not.toMatch(/var one = \(await _accounts\.GetByIdAsync\(a, cancellationToken\)\);/);
+  });
+
+  it("leaves a DECLARED find's nullability alone — only getById is contractually non-null", async () => {
+    // `byHolder` is declared `Account?`, so it is legitimately nullable and must
+    // NOT acquire a throw: the existing `== null` comparison is a valid use of a
+    // nullable read.  This is the byte-identical half of the guard.
+    const svc = (await files()).get("Domain/Services/Registration.cs")!;
+    expect(svc).toMatch(/\(await _accounts\.ByHolder\(holder, cancellationToken\)\) == null/);
+    expect(svc).not.toMatch(/ByHolder\([^)]*\) \?\? throw/);
   });
 
   it("keeps a PURE service a static class with a static, un-awaited call site (byte-identical)", async () => {
