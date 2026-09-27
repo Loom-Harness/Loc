@@ -1157,12 +1157,36 @@ defect-naming tests and leaves the three "must not change" tests green. The shar
 number comes from the uniqueness assertion — pre-fix the repro deployable publishes **4
 request components under 3 distinct names**; post-fix, 4 under 4.
 
-**Still open — elixir and java.** Each needs a different mechanism and neither is a rename:
-- **elixir** must additionally *emit* the missing schema module. Today only one is generated,
-  so qualifying the names is not enough — there is no second schema to point at.
-- **java** needs a schema-name override (`@Schema(name=)`) AND the emitted
-  `OpenApiContractCustomizer`'s `RequiredSet` patch table, which is keyed by the SHORT name,
-  has to move with the naming or it will patch the wrong schema.
+**Still open — elixir and java.**
+
+**CORRECTION on elixir.** This entry first said elixir "must additionally *emit* the missing
+schema module … there is no second schema to point at". That was wrong about the mechanism,
+and only reading the emitter showed it. Elixir *does* emit both modules —
+`renderOperationRequestSchema` and `renderWorkflowRequestSchema` (both in
+`src/generator/elixir/vanilla/openapi-emit.ts`) exist and both run. The collision lands on
+the **file path**, not the emission:
+
+| owner | path | on a collision |
+|---|---|---|
+| operation | `<schema_dir>/${snake(op.name)}_${snake(agg.name)}_request.ex` | `schedule_work_order_request.ex` |
+| workflow | `<schema_dir>/${snake(wf.name)}_request.ex` | `schedule_work_order_request.ex` |
+
+Same path. The workflow loop runs second, so `files.set` **clobbers** the operation's module.
+Measured on `eval/matrix/be-elixir.ddd`: exactly one `schedule_work_order_request.ex` exists,
+and it carries the workflow's params (`workOrder, technician, asset, at`), not the
+operation's. So "the schema was never emitted" describes the symptom, not the cause — it was
+emitted and then overwritten.
+
+That makes elixir the SAME fix as node: thread the resolved name into both render functions
+*and* derive each `files.set` path from it. `snake(resolvedName)` is byte-identical to today's
+path derivation for every non-colliding name (verified against `snake()` for the operation,
+workflow and qualified forms), so the path change is a no-op except exactly where it must not
+be.
+
+- **java** does genuinely need a different mechanism: a schema-name override
+  (`@Schema(name=)`) AND the emitted `OpenApiContractCustomizer`'s `RequiredSet` patch table,
+  which is keyed by the SHORT name, has to move with the naming or it will patch the wrong
+  schema.
 
 Fixing node first makes the cross-backend parity diff *useful* again on a colliding model:
 node now disagrees with elixir/java there, which surfaces the two remaining halves instead
