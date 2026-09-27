@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isAdvisoryCode } from "../../../src/diagnostics/advisory.js";
 import { parseString } from "../../_helpers/index.js";
 
 const parse = (source: string) => parseString(source);
@@ -2822,7 +2823,13 @@ describe("Loom IR validation (post-lowering)", async () => {
         }
       }
     `);
-    const warnings = validateLoomModel(loom).filter((d) => d.severity === "warning");
+    // The advisory `Suggestions:` channel rides at warning severity but is not
+    // a verdict on this model (neither `A` nor `B` is constructible — they are
+    // here to be HOSTED, not created), so it is out of scope for a
+    // dataSource-matching assertion.
+    const warnings = validateLoomModel(loom).filter(
+      (d) => d.severity === "warning" && !isAdvisoryCode(d.code),
+    );
     expect(warnings, JSON.stringify(warnings)).toEqual([]);
   });
 

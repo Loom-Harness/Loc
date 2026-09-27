@@ -255,7 +255,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     title: "a command workflow's PRIMITIVE params at the wire boundary (RS-26) — every param kind in one create",
     doc: "workflow",
     backends: ALL,
-    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required",
+    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required.  Since F-113 this fixture is the corpus' only source of `loom.workflow-param-unused` — five warnings (`serial`/`ratio`/`at`/`amount`/`memo`), all TRUE positives: the body reads four of its nine params on purpose, because the subject is how each param kind crosses the WIRE, not what the body does with it.  Leave them unread; reading them would change the emitted body on all five compile legs for no gain.",
   },
   {
     id: "channels-broker",

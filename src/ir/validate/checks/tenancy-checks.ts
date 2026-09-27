@@ -8,6 +8,7 @@ import {
   type TenantStance,
   tenancyClaimBinding,
 } from "../../util/tenant-stance.js";
+import { constructibleAggregates } from "./aggregate-constructible-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -674,12 +675,18 @@ function inheritedStance(
  *
  *  A WARNING, not an error: a registry seeded by migration or provisioned out
  *  of band is a coherent (if unusual) choice, and the shapes that count as a
- *  create path are deliberately generous — a declared `create`, a workflow that
- *  saves one, or a seed row.  Measured across all 496 tracked `.ddd`: 7 hits,
- *  every one a genuine dead-end.  (The same check written for EVERY aggregate
- *  rather than the registry fires on 233 of 496 — an aggregate with no create
- *  is ordinary, a tenant registry with no create is a bootstrap that cannot
- *  start.) */
+ *  create path are deliberately generous — a declared `create`, a workflow or
+ *  commandHandler that builds or saves one, or a seed row.  Measured across
+ *  all 496 tracked `.ddd`: 7 hits, every one a genuine dead-end.
+ *
+ *  The same question asked of EVERY aggregate is now
+ *  `loom.aggregate-not-constructible` (F-114,
+ *  `aggregate-constructible-checks.ts`), and the split between them is the
+ *  severity, not the rule: an aggregate with no create is ordinary — a
+ *  read-only table fed out of band — so it is ADVISORY, while a tenant
+ *  registry with no create is a signup loop that cannot start, so it stays a
+ *  warning.  Both read the same `constructibleAggregates` predicate, because
+ *  two answers to one question is how they would drift. */
 export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const tenancy = sys.tenancy;
   if (!tenancy) return;
@@ -688,16 +695,14 @@ export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnost
       const registry = ctx.aggregates.find((a) => a.name === tenancy.registryName);
       if (!registry || registry.isAbstract) continue;
       if (registry.canonicalCreate || (registry.creates ?? []).length > 0) return;
-      // A workflow that SAVES the registry constructs it just as well as a
-      // route does — `savesAtExit` covers created and mutated alike, which
+      // The construction-path question is the same one
+      // `loom.aggregate-not-constructible` asks of every aggregate, so it is
+      // answered in one place (`aggregate-constructible-checks.ts`): a
+      // workflow or commandHandler that BUILDS or SAVES the registry
+      // constructs it just as well as a route does, and so does a seed row.
+      // `savesAtExit` covers created and mutated alike, which
       // over-approximates in the safe direction for a warning.
-      const savedByWorkflow = ctx.workflows.some(
-        (w) =>
-          w.savesAtExit.some((s) => s.aggName === registry.name) ||
-          (w.creates ?? []).some((c) => c.savesAtExit.some((s) => s.aggName === registry.name)),
-      );
-      if (savedByWorkflow) return;
-      if ((ctx.seeds ?? []).some((s) => s.rows.some((r) => r.aggregate === registry.name))) return;
+      if (constructibleAggregates(ctx).has(registry.name)) return;
       diags.push({
         severity: "warning",
         code: "loom.tenant-registry-not-constructible",

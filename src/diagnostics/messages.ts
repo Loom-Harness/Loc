@@ -121,6 +121,18 @@ export const DIAGNOSTIC_MESSAGES = {
     actual: unknown;
   }) =>
     `'${p.name}.create' field '${p.name2}' expects a ${p.expFam} value ('${p.expected}') but got '${p.actual}'.`,
+  "loom.workflow-param-unused": (p: { param: unknown; label: unknown; wfName: unknown }) =>
+    `Parameter '${p.param}' of '${p.wfName}.${p.label}' is never read by its body. A command ` +
+    `entry's parameter list IS its request contract, so this is published as a REQUIRED field ` +
+    `of the emitted request schema and then discarded — the caller is obliged to send data the ` +
+    `system throws away. Read it, or drop it from the signature. (A wholly empty body is not ` +
+    `flagged — this fires only where the body reads SOME of its parameters and not this one.)`,
+  "loom.aggregate-not-constructible": (p: { name: unknown }) =>
+    `No code path can create a '${p.name}': it declares no 'create' (and no ` +
+    `'with crudish'), no workflow or commandHandler builds one, and it is not ` +
+    `seeded or event-sourced. Its table can only ever be empty, so 'POST' is ` +
+    `405 and every read over it returns nothing. Add a 'create', give it ` +
+    `'with crudish', or say in a comment that it is populated out of band.`,
   "loom.aggregate-not-a-builder": (p: { name: unknown }) =>
     `'${p.name}' is an aggregate — construct it with '${p.name}.create({ … })', not '${p.name} { … }'. ` +
     `The '{ }' builder literal is for value objects and entity parts.`,
