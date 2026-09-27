@@ -37,34 +37,56 @@
 //   2. A qualified id never SHADOWS a name that keeps its short form, so
 //      resolving one collision cannot silently create another.
 
+import { emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR } from "../../ir/types/loom-ir.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { plural, upperFirst } from "../../util/naming.js";
 
-/** Who a request component belongs to — the two minting rules, as data. */
+/** Who a request component belongs to — the minting rules, as data.
+ *
+ *  `create` is its own kind rather than an `operation` named "create", because
+ *  the canonical create request is NOT an `agg.operations` entry: every backend
+ *  emits it from a separate path, and `agg.operations` for a `crudish`
+ *  aggregate measures as `[schedule, update]` with no `create` in it.  Leaving
+ *  it out of this union is exactly how the first version of this module missed
+ *  `Create<Agg>Request` vs a workflow named `create<Agg>` — a reachable
+ *  collision it silently declined to qualify. */
 export type RequestComponentOwner =
   | { readonly kind: "operation"; readonly aggregate: string; readonly operation: string }
+  | { readonly kind: "create"; readonly aggregate: string }
   | { readonly kind: "workflow"; readonly workflow: string };
 
 /** The name today's rules produce, before any collision handling. This stays the
  *  published name whenever it is unique in the context, which is the common
  *  case — so nothing moves for a model that never collided. */
 export function baseRequestComponentName(o: RequestComponentOwner): string {
-  return o.kind === "operation"
-    ? `${upperFirst(o.operation)}${o.aggregate}Request`
-    : `${upperFirst(o.workflow)}Request`;
+  switch (o.kind) {
+    case "operation":
+      return `${upperFirst(o.operation)}${o.aggregate}Request`;
+    case "create":
+      return `Create${o.aggregate}Request`;
+    case "workflow":
+      return `${upperFirst(o.workflow)}Request`;
+  }
 }
 
 /** The disambiguating prefix, matching the .NET namespace segment that already
  *  qualifies these ids: the aggregate PLURAL for an operation (`WorkOrders`),
  *  the literal `Workflows` for a workflow. */
 function ownerQualifier(o: RequestComponentOwner): string {
-  return o.kind === "operation" ? upperFirst(plural(o.aggregate)) : "Workflows";
+  return o.kind === "workflow" ? "Workflows" : upperFirst(plural(o.aggregate));
 }
 
 /** A stable identity for an owner, so a resolved map can be keyed by it. */
 function ownerKey(o: RequestComponentOwner): string {
-  return o.kind === "operation" ? `op:${o.aggregate}.${o.operation}` : `wf:${o.workflow}`;
+  switch (o.kind) {
+    case "operation":
+      return `op:${o.aggregate}.${o.operation}`;
+    case "create":
+      return `new:${o.aggregate}`;
+    case "workflow":
+      return `wf:${o.workflow}`;
+  }
 }
 
 /**
@@ -122,6 +144,11 @@ export function resolveRequestComponentNames(
 export function requestComponentOwners(ctx: BoundedContextIR): RequestComponentOwner[] {
   const owners: RequestComponentOwner[] = [];
   for (const agg of ctx.aggregates) {
+    // The canonical create request, gated by the SAME shared predicate the
+    // emitters use — an aggregate with no REST create publishes no
+    // `Create<Agg>Request`, and listing it anyway would invent a collision and
+    // qualify a workflow that never actually clashed with anything.
+    if (emitsRestCreate(agg)) owners.push({ kind: "create", aggregate: agg.name });
     for (const op of agg.operations) {
       if (op.visibility !== "public") continue;
       owners.push({ kind: "operation", aggregate: agg.name, operation: op.name });
