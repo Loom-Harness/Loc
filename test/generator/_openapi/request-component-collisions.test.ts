@@ -251,6 +251,85 @@ describe("phoenix request-component modules (F-026)", () => {
   });
 });
 
+// The canonical CREATE request is minted by its own rule and is NOT an
+// `agg.operations` entry — measured, `agg.operations` for a `crudish` aggregate
+// is `[schedule, update]` with no `create` in it, and every backend emits
+// `Create<Agg>Request` from a separate path. The first version of this module
+// enumerated owners from `agg.operations` alone and therefore never saw the
+// create request, so a workflow named `create<Agg>` collided with it and nothing
+// was qualified. That was a reachable instance of the very defect this module
+// exists to close, so it is pinned here.
+describe("the create request is an owner too (F-026)", () => {
+  const CREATE_COLLIDES = `system P {
+  subdomain S {
+    context C {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+        operation schedule(at: string) { scheduled := true }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow createWorkOrder {
+        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`;
+
+  it("qualifies Create<Agg>Request against a workflow named create<Agg>", async () => {
+    const files = await generateSystemFiles(CREATE_COLLIDES);
+    const routes = files.get("api/http/workOrder.routes.ts") ?? "";
+    const workflows = files.get("api/http/workflows.ts") ?? "";
+
+    expect(routes).toContain('}).openapi("WorkOrdersCreateWorkOrderRequest");');
+    expect(workflows).toContain('}).openapi("WorkflowsCreateWorkOrderRequest");');
+    // Neither side may still publish the bare name the other also minted.
+    expect(routes).not.toContain('openapi("CreateWorkOrderRequest")');
+    expect(workflows).not.toContain('openapi("CreateWorkOrderRequest")');
+    // The const identifier and the `schema:` reference move with the label, or
+    // the emitted TypeScript does not compile.
+    expect(routes).toContain("const WorkOrdersCreateWorkOrderRequest = z.object({");
+    expect(routes).toContain("schema: WorkOrdersCreateWorkOrderRequest }");
+
+    // `schedule` does NOT collide in this model, so it stays short — the narrow
+    // property, checked on the same document as a real collision.
+    expect(routes).toContain('}).openapi("ScheduleWorkOrderRequest");');
+    expect(routes).toContain('}).openapi("UpdateWorkOrderRequest");');
+
+    const published = [...files.values()]
+      .flatMap((c) => [...c.matchAll(/\.openapi\("(\w+Request)"\)/g)])
+      .map((m) => m[1]);
+    expect(new Set(published).size).toBe(published.length);
+  });
+
+  it("does not invent a create owner for an aggregate with no REST create", () => {
+    // Gated by the shared `emitsRestCreate` predicate: listing a create owner
+    // that is never emitted would qualify a workflow that never clashed.
+    const names = resolveRequestComponentNames([
+      { kind: "workflow", workflow: "createWorkOrder" },
+      { kind: "operation", aggregate: "WorkOrder", operation: "schedule" },
+    ]);
+    expect([...names.values()].sort()).toEqual([
+      "CreateWorkOrderRequest",
+      "ScheduleWorkOrderRequest",
+    ]);
+  });
+
+  it("qualifies a create/workflow collision with the aggregate plural", () => {
+    const names = resolveRequestComponentNames([
+      { kind: "create", aggregate: "WorkOrder" },
+      { kind: "workflow", workflow: "createWorkOrder" },
+    ]);
+    expect([...names.values()].sort()).toEqual([
+      "WorkOrdersCreateWorkOrderRequest",
+      "WorkflowsCreateWorkOrderRequest",
+    ]);
+  });
+});
+
 describe("resolveRequestComponentNames", () => {
   const op = (aggregate: string, operation: string) =>
     ({ kind: "operation", aggregate, operation }) as const;
