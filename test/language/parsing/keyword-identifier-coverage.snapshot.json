@@ -414,7 +414,15 @@
   "import": [],
   "in": [],
   "inMemory": [],
-  "index": [],
+  "index": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "inheritanceUsing": [],
   "instance": [
     "fieldName",
@@ -490,8 +498,13 @@
   "layout": [],
   "let": [],
   "link": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "literal": [
     "fieldName",
@@ -806,8 +819,13 @@
   ],
   "return": [],
   "route": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "s3": [],
   "schema": [
@@ -1002,7 +1020,15 @@
     "paramName",
     "stateField"
   ],
-  "type": [],
+  "type": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "ui": [
     "lValue",
     "memberAccess",
@@ -1024,7 +1050,15 @@
     "paramName",
     "stateField"
   ],
-  "user": [],
+  "user": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "valueobject": [],
   "verifies": [],
   "views": [
