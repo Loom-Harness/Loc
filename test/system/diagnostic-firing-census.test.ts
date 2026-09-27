@@ -2284,6 +2284,36 @@ system S {
   deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
 
+  // F-004: `denyByDefault` + `persistedAs: eventLog`.  An event-sourced create
+  // cannot carry an ENFORCEABLE gate — its body renders into the domain `_init`,
+  // which has no principal in scope, so `loom.lifecycle-guard-event-sourced`
+  // refuses one outright.  Demanding a `requires` here was therefore an
+  // unsatisfiable error, and the two settings were mutually exclusive for any
+  // event-sourced aggregate with a creation endpoint: gate present → 1 error,
+  // gate absent → 1 error.  Now the honest warning, on the RECOURSE precedent
+  // the by-id arm above is built on.
+  "loom.default-deny-es-create-ungateable": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Ledger {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account {
+      find all(): Account[] requires currentUser.role == "admin"
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  resource el { for: Ledger, kind: eventLog, use: pg }
+  deployable api { platform: node contexts: [Ledger] dataSources: [st, el] serves: Api port: 3000 auth: required }
+}`,
+
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
   // projection under the LANGUAGE-DEFAULT `enforcement: opt` — 0 errors /
   // 0 warnings before the gate, while the emitted route served every

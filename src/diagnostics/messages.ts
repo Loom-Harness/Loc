@@ -2222,6 +2222,27 @@ export const DIAGNOSTIC_MESSAGES = {
     `gains a Flutter renderer.`,
   "loom.default-deny-ungated#denybydefault-is-reachable": (p: { name: unknown; opName: unknown }) =>
     `denyByDefault: '${p.name}.${p.opName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
+  // Same rule, but the member is a `create` / `destroy`, whose gate is the first
+  // STATEMENT of the body rather than a header clause.  The generic arm above
+  // says "add a `requires <expr>`" without saying where, and every SIBLING
+  // declaration (`operation` / `find` / `projection` / `handle`) takes one in the
+  // header — so an author follows the instruction into
+  // `create(...) requires P() { }`, gets `Expecting token of type '{' but found
+  // \`requires\``, and concludes the posture is unsatisfiable.  That is not a
+  // hypothetical: it is how finding F-004 reached "denyByDefault and
+  // persistedAs: eventLog are mutually exclusive", a claim that was false for the
+  // state-based case the whole time.  Name the position and the trap closes.
+  "loom.default-deny-ungated#denybydefault-lifecycle-is-reachable": (p: {
+    name: unknown;
+    opName: unknown;
+    label: unknown;
+  }) =>
+    `denyByDefault: '${p.name}.${p.opName}' is reachable on an 'auth: required' deployable but ` +
+    `declares no \`requires\` gate. A \`${p.label}\` gate is the FIRST STATEMENT of the body, ` +
+    `not a header clause — write \`${p.label}(...) { requires <expr> ... }\` ` +
+    `(\`${p.label}(...) requires <expr> { }\` is a parse error; only \`operation\` / \`find\` / ` +
+    `\`projection\` / \`handle\` take \`requires\` in the header). Use \`requires true\` to allow ` +
+    `anonymous access.`,
   // Same rule, but the member came from a MACRO — so there is no declaration
   // header in the `.ddd` to add a `requires` to, and naming the member alone
   // sends the author looking for a line that does not exist.  Name the macro
@@ -2252,6 +2273,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
     `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
     `whole api is restricted.`,
+  // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
+  // for the same RECOURSE reason as the by-id read above: the author cannot gate
+  // this one either — a body `requires` here is refused outright by
+  // `loom.lifecycle-guard-event-sourced`, so demanding one would be an
+  // unsatisfiable error.  See the long-form reason at the call site in
+  // `default-deny-checks.ts`.
+  "loom.default-deny-es-create-ungateable": (p: {
+    name: unknown;
+    opName: unknown;
+    path: unknown;
+  }) =>
+    `denyByDefault: '${p.name}.${p.opName}' serves \`POST ${p.path}\` to ANY authenticated ` +
+    `caller, and it cannot be gated where it is declared: '${p.name}' is ` +
+    `\`persistedAs: eventLog\`, and a \`requires\` in an event-sourced \`create\` body is ` +
+    `refused (\`loom.lifecycle-guard-event-sourced\`) because that body renders into the ` +
+    `domain \`_init\`, which has no principal in scope. This is a WARNING rather than an ` +
+    `error precisely because there is no \`requires\` you could add — erroring would make ` +
+    `every event-sourced aggregate with a creation endpoint unbuildable under ` +
+    `\`denyByDefault\`. To close it today: issue the create from a gated \`operation\` (or ` +
+    `\`workflow\`) that carries the \`requires\`, and keep the canonical \`create\` off the ` +
+    `client — or host '${p.name}' on a deployable whose whole api is restricted. Making the ` +
+    `event-sourced create route gateable in place is mission M-T3.16.`,
   "loom.default-deny-ungated#denybydefault-projection": (p: { name: unknown }) =>
     `denyByDefault: projection '${p.name}' is served as a read endpoint on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its declaration header (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-workflow-instances": (p: { name: unknown }) =>

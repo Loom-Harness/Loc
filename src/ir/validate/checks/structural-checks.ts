@@ -1945,14 +1945,33 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
     // different (and larger) change than the state-based emission.  Naming it is
     // honest and cheap; the state-based form is the supported one.
     if (esCreateRendered) {
-      for (const s of agg.canonicalCreate?.statements ?? []) {
-        if (s.kind !== "requires") continue;
-        diags.push({
-          severity: "error",
-          code: "loom.lifecycle-guard-event-sourced",
-          message: diagMessage("loom.lifecycle-guard-event-sourced", { agg: agg.name }),
-          source: `${ctx.name}/aggregate ${agg.name}.create`,
-        });
+      // EVERY create, not just the canonical one.  An event-sourced create is
+      // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
+      // an event stream IS the emitted one — and reading only
+      // `agg.canonicalCreate` here let its guard through untouched: it rendered
+      // into the domain `_init` as a free `currentUser`, so `ddd parse` said
+      // `0 error(s)` and the generated project then failed to COMPILE (measured
+      // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
+      // `cannot find symbol` / CS0103 / F821 elsewhere).  A security gate that
+      // silently does not deny, in other words — the exact outcome this refusal
+      // exists to prevent.  Same blind spot `loom.named-lifecycle-dropped`
+      // (#2532) closed one check over, for the DROPPED body rather than the guard.
+      //
+      // Per-create rather than per-canonical-create because NO create body on an
+      // ES aggregate can host an enforceable guard: the rendered one has no
+      // principal in scope, and any other is dropped outright.  `canonicalCreate`
+      // is a convenience accessor over `creates`, so this strictly WIDENS the old
+      // arm — the canonical case keeps its wording and its `.create` source.
+      for (const create of agg.creates ?? []) {
+        for (const s of create.statements) {
+          if (s.kind !== "requires") continue;
+          diags.push({
+            severity: "error",
+            code: "loom.lifecycle-guard-event-sourced",
+            message: diagMessage("loom.lifecycle-guard-event-sourced", { agg: agg.name }),
+            source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
+          });
+        }
       }
     }
 

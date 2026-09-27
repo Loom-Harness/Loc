@@ -59,6 +59,21 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   still apply to the by-id route: the tenancy filter (a foreign tenant's row
   reads 404) and `mask unless` field redaction.  What does not: role
   separation within a tenant.
+- **an event-sourced `create` is the third exception, and also has no
+  recourse.**  A `persistedAs: eventLog` aggregate's create body renders into
+  the domain `_init`, which has no principal in scope, so a `requires` there is
+  refused outright (`loom.lifecycle-guard-event-sourced`, below).  Demanding one
+  under `denyByDefault` was therefore an instruction with no satisfying answer —
+  gate present, one error; gate absent, one error — which made
+  `enforcement: denyByDefault` and `persistedAs: eventLog` **mutually exclusive**
+  for any event-sourced aggregate with a creation endpoint.  It now raises
+  `loom.default-deny-es-create-ungateable` (a **warning**, for the same reason
+  the by-id arm is one: there is nothing the author can write to satisfy it), and
+  the model builds.  To close the hole today, issue the create from a gated
+  `operation` / `workflow` and keep the canonical `create` off the client, or
+  host the aggregate on a deployable whose whole api is restricted.  Gating the
+  event-sourced create route *in place* means hoisting the gate out of `_init`
+  to each backend's own chokepoint — mission M-T3.16.
 - **`projection`s — both kinds** — the same optional `requires` gate, declared
   on the projection HEADER (`projection X keyed by k requires <expr> { … }`,
   after `keyed by`, like every other gate in the language), evaluated against
@@ -602,7 +617,14 @@ fail closed for every principal-less internal caller (a timer, a seed, a saga).
 create body renders into the domain `_init`, which has no principal in scope, so
 the guard could not be evaluated there at all — `loom.lifecycle-guard-event-sourced`
 refuses it and points at the caller (the named `operation` / `workflow` that
-issues the create) instead.  The rest of a canonical lifecycle body is still not
+issues the create) instead.  The refusal covers **every** create on an
+event-sourced aggregate, not just the canonical one: the create the backends
+render is `creates[0]` *by index*, so a named `create open(...)` on an event
+stream is the emitted one, and while the refusal read `canonicalCreate` alone its
+guard reached `_init` untouched — `ddd parse` said `0 error(s)` and the generated
+project then failed to compile on a free `currentUser`.  Under `denyByDefault`
+the absence of a gate here is a warning, not an error
+(`loom.default-deny-es-create-ungateable` — see the exception list above).  The rest of a canonical lifecycle body is still not
 rendered on a state-based aggregate: a `precondition`, an `emit`, or a computed
 `assign` there is a `loom.lifecycle-body-dropped` error, not a silent drop.
 
