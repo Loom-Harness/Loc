@@ -413,6 +413,15 @@ export function respondErrorTail(
    *  ProblemDetails module didn't emit (an undefined remote call is itself a
    *  `--warnings-as-errors` failure). */
   wireDenials = false,
+  /** True for the WORKFLOWS dispatcher only.  A workflow's public `run/1`
+   *  answers `{:error, {:invalid_params, missing}}` when the request omits a
+   *  param its body destructures — previously a bare match that RAISED, so the
+   *  fault handler answered 500 on a route whose own OpenAPI declares 422 and
+   *  where the other four backends validate.  Gated rather than always-on so
+   *  every other dispatcher keeps the exact tail it had: no other caller can
+   *  produce this term, and an arm nothing reaches is a clause a reader has to
+   *  disprove. */
+  invalidParams = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -421,6 +430,18 @@ export function respondErrorTail(
       `def ${fnName}(conn, {:error, :not_found})`,
       denialResponse("notFound", '"Resource not found"', overrides),
     ),
+    ...(invalidParams
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, {:invalid_params, missing}})`,
+            denialResponse(
+              "precondition",
+              '"missing required parameter(s): " <> Enum.join(missing, ", ")',
+              overrides,
+            ),
+          ),
+        ]
+      : []),
     ...(wireDenials
       ? [
           clause(

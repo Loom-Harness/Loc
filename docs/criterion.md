@@ -205,8 +205,20 @@ model. They're worth trusting; both fire early:
 
 | Code | Fires when | Steers you to |
 |---|---|---|
-| `loom.repository-find-deprecated` | A `repository` declares a `find` returning a collection (`: T[]`) — a bespoke list finder accreting on the repo. | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
-| `loom.index-suggestion` | A field is read on a query filter (`find … where`, criterion) but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
+| `loom.repository-find-deprecated` | A `repository` declares a `find` returning a collection (`: T[]`) — a bespoke list finder accreting on the repo — **in a context that already declares a `criterion` or a `retrieval`** (see the scope note below). | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
+| `loom.index-suggestion` | A field is read on a query filter — a `find … where`, a reified `filter`, a `criterion` body or a `retrieval`'s `where` — but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
+
+> **Scope of the find deprecation (interim).** The warning fires only inside a
+> bounded context that already declares a `criterion` or a `retrieval`. The
+> replacement it names is not yet at parity with a `find` — a criterion /
+> retrieval read emits a repository method, but no HTTP route, no client hook
+> and no scaffolded filter bar — so a model that has adopted neither (the
+> `ddd new --template crud` starter among them) is not nagged about the only
+> spelling that works end to end. The gate is temporary: once a `retrieval`
+> carries its own route, the warning returns on every list `find`.
+> The index suggestion is *not* scoped this way — it follows the migration, so
+> a `find … where` rewritten as a `criterion` + `retrieval` keeps earning the
+> same `loom.index-suggestion`.
 
 The intent is "pit of success": the compiler notices a performance smell in a
 DDD model — an unusual and welcome nudge — and points at the idiomatic fix

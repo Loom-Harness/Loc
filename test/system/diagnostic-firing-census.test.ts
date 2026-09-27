@@ -112,6 +112,29 @@ ${body}
   } }
 }`;
 
+/** A system with a react ui whose single hand-written page carries `body`.
+ *  The page-body gates need a MOUNTED ui (a `deployable` serving the bundle)
+ *  and an aggregate with a `money` field to read rows off. */
+const uiPage = (body: string) => `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string  price: money }
+    repository Items for Item { }
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    page Browse {
+      route: "/browse"
+      body: ${body}
+    }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`;
+
 /** A deployable-bearing system — needed by the checks that read the deployment
  *  side (auth wiring, persistence mode) rather than the declaration alone. */
 const deployed = (agg: string) => `
@@ -1616,6 +1639,51 @@ system S {
   }
 }`,
 
+  // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
+  // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
+  // because a routed handler's arguments bind POSITIONALLY, the miscount does
+  // not merely drop the last one: it shifts every later argument into the
+  // wrong slot and renders a literal `undefined` into a URL segment.
+  "loom.e2e-routed-handler-arity": `
+system S {
+  subdomain D { context Sales {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    queryHandler Sum(a: int, b: int): int { return a + b }
+  } }
+  api A from D { route GET "/sum/{a}/{b}" -> Sales.Sum }
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable d {
+    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4104
+  }
+  test e2e "t" against d {
+    expect(api.sales.sum(2)).toBe(5)
+  }
+}`,
+
+  // The same binding on a BODYLESS method whose param no `{token}` binds.
+  // Every backend reads `sku` from a request body; `fetch` cannot send one on
+  // a GET, so the argument would silently vanish and the assertion would be
+  // testing the handler's default rather than what the body passed.
+  "loom.e2e-routed-handler-bodyless-method": `
+system S {
+  subdomain D { context Sales {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    queryHandler Quote(sku: string): string { return sku }
+  } }
+  api A from D { route GET "/quote" -> Sales.Quote }
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable d {
+    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4105
+  }
+  test e2e "t" against d {
+    expect(api.sales.quote("SKU-1")).toBe("SKU-1")
+  }
+}`,
+
   // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
   // route — `Widget with crudish` — so the only defect left is the one under
   // test, and the diagnostic cannot be the routing one wearing a new code.
@@ -2241,6 +2309,61 @@ system S {
   resource st { for: Work, kind: state, use: pg }
   deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
+
+  // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
+  // `permissions.<name>` is a subdomain-scoped catalogue reference; a `ui` is
+  // declared outside the subdomain that owns it, so the name does not resolve
+  // and no frontend can evaluate the gate.  Before the check this reached
+  // `renderGateExpr`, which threw a bare JS `Error` with no code and no page.
+  "loom.page-gate-not-client-evaluable": `
+system S {
+  user { id: string  role: string  permissions: string[] }
+  subdomain Warehouse {
+    permissions { manage }
+    context Stock {
+      aggregate Item with crudish { sku: string }
+      repository Items for Item { }
+    }
+  }
+  api StockApi from Warehouse
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api {
+    platform: node
+    contexts: [Stock]
+    dataSources: [st]
+    serves: StockApi
+    auth: required
+    port: 8080
+  }
+  ui WebApp {
+    api Warehouse: StockApi
+    page Secret {
+      route: "/secret"
+      requires currentUser.role.startsWith("staff")
+      body: Stack { Text { "hi" } }
+    }
+  }
+  deployable web {
+    platform: static
+    targets: api
+    auth: ui
+    ui: WebApp { Warehouse: api }
+    port: 3001
+  }
+}`,
+  // A collection op is an EXPRESSION: its lambda body renders through the
+  // expression renderer, so a primitive there emits as a bare function call
+  // (`Card(Text(i.name))`) that nothing imports.  `For { each: … }` is the
+  // slot that renders markup.
+  "loom.markup-primitive-in-collection-lambda": uiPage(
+    `QueryView { of: Item.all, data: rows => Stack { rows.map(i => Card { Text { i.sku } }) } }`,
+  ),
+  // `money` deserialises client-side to a \`Decimal\` object, which is not a
+  // renderable node — the emitted frontend fails its OWN typecheck.
+  "loom.money-in-text-slot": uiPage(
+    `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.price } } }`,
+  ),
   // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.

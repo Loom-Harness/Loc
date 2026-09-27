@@ -161,3 +161,52 @@ Found 2026-08-23 by the numeric-types audit ([F14](../../audits/numeric-types-au
 **Verification when it lands.** A lowering test plus a behavioral golden for an avg-over-money projection; mutation-proved through the coercion.
 
 Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.
+
+## M-T5.37 — test surface v2: a workflow accessor and three matchers — `done` (2026-09-22 — P9 [#2985](https://github.com/Loom-Harness/Loc/pull/2985) + [#3002](https://github.com/Loom-Harness/Loc/pull/3002), P11a [#2987](https://github.com/Loom-Harness/Loc/pull/2987), P11b [#3001](https://github.com/Loom-Harness/Loc/pull/3001); F6 deferred by the owner) · **M** · P1
+
+Design: [`missions/M-T5.37-test-surface-v2-design.md`](missions/M-T5.37-test-surface-v2-design.md).
+Wave 3 of the testability-audit fleet ([findings](../../audits/2026-09-13-testability-audit.md) F5 + F11,
+[plan](../../audits/2026-09-14-testability-fleet-plan.md)). Six owner decisions are recorded in the
+design doc against who made them; the syntax is signed off.
+
+**Two halves, deliberately sized apart.** The **workflow accessor** (`api.<wf>.run()` /
+`.instances()` / `.instance(key)`) touches ONE emitter — the e2e suite is backend-agnostic HTTP,
+emitted once by `src/system/e2e-render.ts` and replayed against every compatible backend — and
+needs no new route: all five backends already mount the command and instance reads (python states
+it plainest, `APIRouter(prefix="/workflows")`). The **matchers** touch FIVE, because unit tests run
+in-process. The cheap-looking half is the expensive one.
+
+- **P9 — the workflow accessor** — **LANDED**
+  ([#2985](https://github.com/Loom-Harness/Loc/pull/2985), and the payload/response contract behind it in [#3002](https://github.com/Loom-Harness/Loc/pull/3002)). Closes
+  F5 and M-T9.12's own follow-up, which says asserting a folded workflow instance's scalars "needs a
+  workflow-instance read verb the `test e2e` DSL doesn't have yet". Shipped: `api.<wf>.run({…})` /
+  `.instances()` / `.instance(key)`, resolved once in `src/ir/util/e2e-workflow-accessor.ts` and read by
+  all three call sites (phase-④ `test-checks`, phase-⑦ `e2e-route-checks`, phase-⑧ `e2e-render`).
+  Two things the build had to get right and are worth not re-deriving: route emission gates on
+  `wf.correlationField`, **not** `instanceWireShape`, because the latter is enrichment-derived and
+  absent at phases ④/⑦; and a slug resolves to a workflow only after `findAggregateBySlug` misses,
+  which is safe precisely because `loom.workflow-name-collision` compares *names*, not slugs.
+  #3002 then closed the gap the new verbs opened — they were briefly the only routes in the surface
+  with no payload or response check at all. Its wording is deliberately **not** the aggregate's: a
+  `<Wf>Request` is a plain `z.object` / `BaseModel`, so an unknown key is silently DROPPED and the
+  POST still answers 204, which is worse than the aggregate's 422, not milder.
+- **P11a — `toThrow(precondition)` / `toThrow(invariant)`** — **LANDED**
+  ([#2987](https://github.com/Loom-Harness/Loc/pull/2987)). Unit tier only; refused in an e2e body,
+  where both kinds are a 422 whose only discriminator is a `detail` sentence an authored
+  `invariant … message` can overwrite. Motivated by a measured false pass: the audit deleted a
+  `precondition` from generated source and the test stayed GREEN, because an invariant threw instead.
+- **P11b — `toBeNull` / `toBeAbsent` / `toContain`** + verify-and-document the absence conformance
+  contract — **LANDED** ([#3001](https://github.com/Loom-Harness/Loc/pull/3001)). Stacked on P11a (shared `intrinsic-matchers.ts`).
+
+**Deferred by the owner, recorded so it is not mistaken for an oversight:** a principal clause for
+`test e2e` (F6) — "a gap, not a bug". Consequence: `requires` / `policy` / `mask unless` and tenancy
+denial stay untestable from a user's model, and the repo's own coverage of them stays in
+`AUTHZ_LADDERS`, harness-side, shipped to nobody.
+
+**Verified on `main` after the last packet merged.** `e3391083d` (#2985) settled at 825 check runs
+with all ten `behavioral-*` legs green — including `behavioral-elixir`, which had to be fixed on the way
+in: the vanilla Phoenix workflow controller answered `202` + a JSON body where the wire golden and the
+other four backends answer `204` + empty. That divergence was real, not a golden that needed re-minting,
+and it was closed by [#2994](https://github.com/Loom-Harness/Loc/pull/2994) rather than by weakening the
+oracle. `workflow-create-state` carries the first wire golden anywhere that records
+`/api/workflows/<wf>/instances`.

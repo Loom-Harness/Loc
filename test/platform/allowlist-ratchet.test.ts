@@ -562,10 +562,11 @@ const REGISTERED: Ratchet[] = [
     // still compiles.
     //
     // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
-    // remembers: `main` stood at 24 when this was merged (slice 2's drain took
-    // it to 22, then `enum-collection` and `principal-read-filter` raised it
-    // by two), so this drain subtracts one from 24.  Restoring a remembered
-    // number is how a ratchet silently loses somebody else's raise.
+    // remembers.  Re-derived at each merge rather than carried: `main` reads 24
+    // again here (slice 2's drain took it to 22, `enum-collection` and
+    // `principal-read-filter` raised it by two), so this drain subtracts one
+    // from 24.  Restoring a remembered number is how a ratchet silently loses
+    // somebody else's raise.
     max: 23,
   },
 ];
