@@ -1388,6 +1388,13 @@ export function renderReturningStmt(
         renderInner: (stmts) => stmts.map((st, i) => renderReturningStmt(st, ctx, rc, index + i)),
       });
     }
+    default: {
+      // CR1-f (wave CR1, audit row P0-2b): total by case count already — all
+      // 12 `StmtIR` kinds are listed — so the never-check costs nothing and
+      // turns a future "function lacks ending return" into a named failure.
+      const _exhaustive: never = s;
+      return `    # unreachable: ${JSON.stringify(_exhaustive)}`;
+    }
   }
 }
 

@@ -91,6 +91,7 @@ export {
   validateFrontendPropTypes,
   validateHeexComponentHostState,
   validateLiveViewHoisting,
+  validatePageGateExprs,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,

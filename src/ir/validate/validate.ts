@@ -89,6 +89,7 @@ import {
   validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
+  validatePageGateExprs,
   validatePermissions,
   validateProjectionSourceProjectionBackend,
   validateProvenancedStorage,
@@ -206,6 +207,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
     validateUiBodyStatementKinds(sys, diags);
+    validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);

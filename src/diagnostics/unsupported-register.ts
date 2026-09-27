@@ -428,7 +428,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // M-T1.20, which already IS the register of frontend refusals accepted in
     // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
     // refuse it, which is what makes it a surface decision rather than a port.
-    site: "src/ir/validate/checks/if-stmt-checks.ts:333",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:365",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
@@ -659,6 +659,26 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "still THROWS on the remainder, so the gate replaces a codegen abort.  Drains when the " +
       "renderers grow the general expression path (they would then share the walker's " +
       "expression emitter rather than four hand-written subsets)",
+    mission: "M-T1.10",
+  },
+  {
+    code: "loom.ui-gate-expr-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1118",
+    what:
+      "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
+      "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +
+      "`feliz/auth-gate.ts`, `flutter/auth-gate.ts`).  The exact twin of the " +
+      "`toast-message-unsupported` row above, found by the same method: the three `switch`es " +
+      "are arm-for-arm identical and each THROWS on the remainder, so a gate carrying a " +
+      'conversion (`string(currentUser.role) == "admin"`), a call, a list, a `match` or a ' +
+      "non-currentUser ref reported `0 error(s), 0 warning(s)` and then aborted `ddd generate " +
+      "system` with a raw `Error: UI gate: expression kind 'convert' is not supported in a UI " +
+      "gate` — measured on svelte, CR1-f.  NOT latent: phoenixLiveView is excluded because it " +
+      "renders the page gate through the general HEEx expression renderer, which is precisely " +
+      "the shape the other six lack.  Drains when the gate renderers route through the " +
+      "frontends' own expression emitters instead of three hand-written subsets — the same " +
+      "drain condition, and the same seam, as M-T1.10",
     mission: "M-T1.10",
   },
   {
