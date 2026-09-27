@@ -135,21 +135,36 @@ export function requestComponentOwners(ctx: BoundedContextIR): RequestComponentO
 }
 
 /**
- * A per-document name lookup: resolve once, then ask it per owner.
+ * A name lookup over an explicit owner list: resolve once, then ask it per owner.
  *
  * Deliberately a closure rather than a module-level memo — a cached `WeakMap`
- * keyed by context would be module-global mutable state, which
+ * would be module-global mutable state, which
  * `test/system/module-global-state-census.test.ts` requires a leak argument for,
  * and the argument would only be buying back work the caller can hoist itself.
- * An emitter calls this once per file and looks names up in O(1).
+ * An emitter calls this once per document and looks names up in O(1).
  *
- * An owner outside the context's own set falls back to the base name rather than
- * throwing, so a backend emitting a component this module does not yet know
- * about keeps today's behaviour.
+ * Takes the owner LIST because the right SCOPE is the emitter's to decide, and
+ * the backends genuinely differ: Hono writes one `http/workflows.ts` per
+ * deployable but one routes file per aggregate, while Phoenix publishes every
+ * schema into ONE `<App>Web.Api.Schemas` namespace for the whole deployable. A
+ * namespace that spans contexts has to be resolved across them, so a
+ * context-shaped entry point would be the wrong tool there.
+ *
+ * An owner outside the list falls back to the base name rather than throwing, so
+ * a backend emitting a component this module does not yet know about keeps
+ * today's behaviour.
  */
+export function requestComponentNamerFor(
+  owners: readonly RequestComponentOwner[],
+): (owner: RequestComponentOwner) => string {
+  const names = resolveRequestComponentNames(owners);
+  return (owner) => names.get(ownerKey(owner)) ?? baseRequestComponentName(owner);
+}
+
+/** `requestComponentNamerFor` scoped to one bounded context's own owners — the
+ *  right scope for a backend whose component namespace is per-context. */
 export function requestComponentNamer(
   ctx: BoundedContextIR,
 ): (owner: RequestComponentOwner) => string {
-  const names = resolveRequestComponentNames(requestComponentOwners(ctx));
-  return (owner) => names.get(ownerKey(owner)) ?? baseRequestComponentName(owner);
+  return requestComponentNamerFor(requestComponentOwners(ctx));
 }

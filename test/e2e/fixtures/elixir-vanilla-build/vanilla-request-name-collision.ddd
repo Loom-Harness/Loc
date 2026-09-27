@@ -1,0 +1,58 @@
+// F-026 — an aggregate operation and a workflow whose request-component names
+// COLLIDE, on the vanilla (plain Ecto) foundation.
+//
+// Two independent rules mint these names: `<Op><Agg>Request` for an operation
+// and `<Workflow>Request` for a workflow.  So `operation schedule` on
+// `WorkOrder` and `workflow scheduleWorkOrder` both spell
+// `ScheduleWorkOrderRequest` — without sharing a name anywhere in the source.
+//
+// On Phoenix the collision landed on the FILE PATH, not the name alone: the two
+// schemas were written to the same `<snake>_request.ex`, the workflow loop ran
+// second, and `files.set` clobbered the operation's module.  One module
+// survived, carrying the WORKFLOW's fields, and BOTH paths in `<api>_spec.ex`
+// referenced it — so the published contract documented the operation endpoint
+// as requiring the workflow's body.
+//
+// This fixture is the compile half of the fix.  The unit test
+// (`test/generator/_openapi/request-component-collisions.test.ts`) pins the
+// NAMES; nothing proved a colliding model's Phoenix output still compiles, and
+// the mechanism here is two files where there used to be one.  `mix compile
+// --warnings-as-errors` is what catches a module the spec references but no
+// file defines — the failure mode a string assertion cannot see.
+//
+// `at` vs `note` are deliberately DIFFERENT field sets: if the two schemas ever
+// collapse back onto one module again, the two `$ref`s stop describing their own
+// endpoints and the shapes diverge visibly.
+system Dispatch {
+  subdomain Field {
+    context Work {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+
+        // Mints `ScheduleWorkOrderRequest` by the operation rule.
+        operation schedule(at: string) {
+          scheduled := true
+        }
+      }
+      repository WorkOrders for WorkOrder { }
+
+      // Mints `ScheduleWorkOrderRequest` by the workflow rule — the collision.
+      workflow scheduleWorkOrder transactional {
+        create(note: string) {
+          let w = WorkOrder.create({ title: note, scheduled: false })
+        }
+      }
+    }
+  }
+  api WorkApi from Field { }
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+}

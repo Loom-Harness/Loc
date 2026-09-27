@@ -60,6 +60,10 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import {
+  type RequestComponentOwner,
+  requestComponentNamerFor,
+} from "../../_openapi/request-component-names.js";
 import { PROVENANCE_VALUE_FIELD, provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { unionMembers } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
@@ -168,6 +172,41 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     for (const wf of ctx.workflows) if (wf.instanceWireShape) observableWorkflows.push(wf);
   }
 
+  // Request-component names, resolved ONCE over the whole deployable (F-026).
+  //
+  // Two independent rules mint these names -- `<Op><Agg>Request` for an
+  // aggregate operation, `<Workflow>Request` for a workflow -- so `schedule` on
+  // `WorkOrder` and workflow `scheduleWorkOrder` both spell
+  // `ScheduleWorkOrderRequest`.  On Phoenix that collision landed on the FILE
+  // PATH: the two schemas were written to the same `<snake>_request.ex`, the
+  // workflow loop ran second, and `files.set` clobbered the operation's module.
+  // One module survived, carrying the workflow's fields, and BOTH paths in
+  // `<api>_spec.ex` referenced it.
+  //
+  // Resolved across every hosted context, not per context, because
+  // `<App>Web.Api.Schemas` is ONE namespace (and `schemaDir` one directory) for
+  // the whole deployable -- a per-context scope would leave two contexts free to
+  // collide in it.
+  const requestComponentOwners: RequestComponentOwner[] = [
+    ...allAggregates.flatMap(({ agg }) =>
+      agg.operations
+        .filter((o) => o.visibility === "public")
+        .map(
+          (op): RequestComponentOwner => ({
+            kind: "operation",
+            aggregate: agg.name,
+            operation: op.name,
+          }),
+        ),
+    ),
+    // `allWorkflows` is already filtered to the command-route-bearing ones,
+    // which is exactly the set that gets a request schema.
+    ...allWorkflows.map(
+      ({ wf }): RequestComponentOwner => ({ kind: "workflow", workflow: wf.name }),
+    ),
+  ];
+  const reqNameFor = requestComponentNamerFor(requestComponentOwners);
+
   // --- Per-Api spec module ---------------------------------------------------
   // In Loom v0, there is one spec module per deployable (one api per deployable),
   // named after the served `api` when the deployable declares one.
@@ -195,6 +234,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
       allAggregates,
       allWorkflows,
       observableWorkflows,
+      reqNameFor,
     ),
   );
 
@@ -280,9 +320,19 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     );
     // Per-operation request schemas
     for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+      // The PATH is derived from the resolved name, not from op+agg: the
+      // collision lands here too, and two schemas sharing a path means one
+      // silently overwrites the other.  `snake(resolvedName)` equals the old
+      // `${snake(op)}_${snake(agg)}_request` for every non-colliding name, so
+      // this is a no-op except exactly where it must not be.
+      const reqName = reqNameFor({
+        kind: "operation",
+        aggregate: agg.name,
+        operation: op.name,
+      });
       files.set(
-        `${schemaDir}/${snake(op.name)}_${snake(agg.name)}_request.ex`,
-        renderOperationRequestSchema(agg, op, webModule),
+        `${schemaDir}/${snake(reqName)}.ex`,
+        renderOperationRequestSchema(op, webModule, reqName),
       );
     }
     void ctx;
@@ -346,9 +396,11 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
 
   // Workflow request schemas
   for (const { wf } of allWorkflows) {
+    // Path from the resolved name -- see the operation loop above.
+    const reqName = reqNameFor({ kind: "workflow", workflow: wf.name });
     files.set(
-      `${schemaDir}/${snake(wf.name)}_request.ex`,
-      renderWorkflowRequestSchema(wf, webModule),
+      `${schemaDir}/${snake(reqName)}.ex`,
+      renderWorkflowRequestSchema(wf, webModule, reqName),
     );
   }
 
@@ -434,6 +486,10 @@ function renderApiSpec(
     wf: import("../../../ir/types/loom-ir.js").WorkflowIR;
   }>,
   observableWorkflows: Array<import("../../../ir/types/loom-ir.js").WorkflowIR>,
+  /** The deployable-wide request-component name lookup (F-026) -- passed in
+   *  rather than re-derived, so the spec's `$ref`s and the emitted schema
+   *  modules cannot disagree about a name. */
+  reqNameFor: (owner: RequestComponentOwner) => string,
 ): string {
   const specModule = `${webModule}.Api.${apiPascal}Spec`;
   const schemasModule = `${webModule}.Api.Schemas`;
@@ -444,7 +500,7 @@ function renderApiSpec(
   // Workflow paths: POST /workflows/<slug>
   for (const { ctx, wf } of allWorkflows) {
     const slug = snake(wf.name);
-    const reqMod = `${schemasModule}.${upperFirst(wf.name)}Request`;
+    const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
     pathEntries.push(`      "/workflows/${slug}" => %OpenApiSpex.PathItem{
         post: %OpenApiSpex.Operation{
           summary: "Run ${wf.name} workflow",
@@ -699,7 +755,7 @@ ${pagingQueryParams()}
     // CRUD-verb-named ones the router never mounts, and the ES `update`.
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      const opReqMod = `${schemasModule}.${upperFirst(op.name)}${agg.name}Request`;
+      const opReqMod = `${schemasModule}.${reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name })}`;
       pathEntries.push(
         `      "${specPath(entry)}" => %OpenApiSpex.PathItem{
         post: %OpenApiSpex.Operation{
@@ -1424,11 +1480,12 @@ function renderCreateRequestSchema(agg: AggregateIR, webModule: string): string 
 }
 
 function renderOperationRequestSchema(
-  agg: AggregateIR,
   op: import("../../../ir/types/loom-ir.js").OperationIR,
   webModule: string,
+  /** Resolved by the caller over the whole deployable (F-026) -- owner-qualified
+   *  when this name would otherwise collide with a workflow's. */
+  schemaName: string,
 ): string {
-  const schemaName = `${upperFirst(op.name)}${agg.name}Request`;
   const moduleName = `${webModule}.Api.Schemas.${schemaName}`;
   // Optionality rides on the param's own type nullability — a nullable
   // param (`description?` etc., as crudish's `update` carries through from
@@ -1455,8 +1512,9 @@ function renderOperationRequestSchema(
 function renderWorkflowRequestSchema(
   wf: import("../../../ir/types/loom-ir.js").WorkflowIR,
   webModule: string,
+  /** Resolved by the caller over the whole deployable (F-026). */
+  schemaName: string,
 ): string {
-  const schemaName = `${upperFirst(wf.name)}Request`;
   const moduleName = `${webModule}.Api.Schemas.${schemaName}`;
   const fields: Array<{ name: string; type: TypeIR; optional: boolean }> = wf.params.map(
     (p: ParamIR) => ({
