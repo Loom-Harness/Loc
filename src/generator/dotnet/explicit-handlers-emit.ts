@@ -54,6 +54,7 @@ import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
+import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
 import { CS_PAGED_QUERY_PARAMS } from "./emit/common.js";
@@ -692,7 +693,15 @@ const HTTP_ATTR: Record<string, string> = {
 
 /** Emit one ControllerBase per api whose route list is non-empty: each `route`
  *  becomes an action that constructs the target command/query from its
- *  (wire-coerced) params and `_mediator.Send`s it. */
+ *  (wire-coerced) params and `_mediator.Send`s it.
+ *
+ *  Route templates are ABSOLUTE and carry `API_BASE_PATH` — a `[Http*]`
+ *  template with a leading slash is root-absolute in ASP.NET, so the prefix has
+ *  to be IN the template; a class-level `[Route("api")]` would be ignored.
+ *  `explicitRoutePath` decides which routes move (see
+ *  `_api/explicit-route-mount.ts` for the scaffold-duplicate exception that
+ *  keeps a colliding route at the root, where `AmbiguousMatchException` cannot
+ *  fire). */
 export function emitExplicitRouteController(
   apiName: string,
   routes: readonly RouteIR[],
@@ -701,6 +710,7 @@ export function emitExplicitRouteController(
   out: Map<string, string>,
 ): void {
   if (routes.length === 0) return;
+  const derivedSlots = derivedRouteSlots(contexts);
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
   const nsUsings = new Set<string>();
   const actions: string[] = [];
@@ -737,7 +747,7 @@ export function emitExplicitRouteController(
         "dir",
       ].join(", ");
       actions.push(
-        `    [HttpGet("${r.path}")]\n` +
+        `    [HttpGet("${explicitRoutePath(r, derivedSlots)}")]\n` +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
           `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
       );
@@ -816,7 +826,7 @@ export function emitExplicitRouteController(
       sendBlock = `        await _mediator.Send(new ${rec}(${ctorArgs}));\n        return NoContent();`;
     }
     actions.push(
-      `    [${attr}("${r.path}")]\n` +
+      `    [${attr}("${explicitRoutePath(r, derivedSlots)}")]\n` +
         `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );

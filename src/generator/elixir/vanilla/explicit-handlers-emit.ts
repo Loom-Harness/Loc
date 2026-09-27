@@ -43,6 +43,7 @@ import type {
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
+import { derivedRouteSlots, routeMountsUnderApiBase } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
@@ -510,10 +511,11 @@ function phoenixPath(path: string): string {
 /** Emit one `<Api>RoutesController` per served api whose route list is
  *  non-empty: each `route` becomes a `def <snake(handler)>(conn, params)` that
  *  runs the target handler's `run/1` through the shared `respond/2`.  Returns
- *  the `ApiRoute`s to splice into the router root `scope "/"` (each carries the
- *  `!root:` sentinel — see `renderVanillaRouter`) so they serve at their
- *  absolute declared path, clear of the auto-CRUD `/api` routes.  A no-op (empty
- *  route list) for an api that declares no explicit `route`s. */
+ *  the `ApiRoute`s to splice into the router: ordinarily into `scope "/api"` as
+ *  `first` entries (a domain route serves under the api base — M-T6.73), and,
+ *  for a route whose `/api` slot an auto-derived aggregate route already
+ *  occupies, at the router root behind the `!root:` sentinel it has always used.
+ *  A no-op (empty route list) for an api that declares no explicit `route`s. */
 export function emitExplicitRoutesController(
   appName: string,
   appModule: string,
@@ -525,8 +527,31 @@ export function emitExplicitRoutesController(
 ): ApiRoute[] {
   if (routes.length === 0) return [];
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
+  const derivedSlots = derivedRouteSlots(contexts);
   const webModule = `${appModule}Web`;
   const controller = `${upperFirst(apiName)}RoutesController`;
+  // Where each route lands in router.ex.  An ordinary explicit route is a DOMAIN
+  // route, so it is spliced into `scope "/api"` (as `first`, ahead of the
+  // derived aggregate routes it may out-specify).  A route that would COLLIDE
+  // with an auto-derived route there keeps the `!root:` mounting it has always
+  // had — see `_api/explicit-route-mount.ts`; on this backend the collision is
+  // not a 500 but a `mix compile --warnings-as-errors` failure, because the
+  // second `do_match` clause is unreachable.
+  const routeEntry = (r: RouteIR, action: string): ApiRoute =>
+    routeMountsUnderApiBase(r, derivedSlots)
+      ? {
+          method: r.method.toLowerCase() as ApiRoute["method"],
+          path: phoenixPath(r.path),
+          controller,
+          action: `:${action}`,
+          first: true,
+        }
+      : {
+          method: r.method.toLowerCase() as ApiRoute["method"],
+          path: `!root:${phoenixPath(r.path)}`,
+          controller,
+          action: `:${action}`,
+        };
   const apiRoutes: ApiRoute[] = [];
   const actions: string[] = [];
   // Set when any route is a paged-run queryHandler — the controller then carries
@@ -566,32 +591,14 @@ export function emitExplicitRoutesController(
 ${pagingElseArm("ProblemDetails", "    ")}
     end
   end`);
-      apiRoutes.push({
-        method: r.method.toLowerCase() as ApiRoute["method"],
-        path: `!root:${phoenixPath(r.path)}`,
-        controller,
-        action: `:${action}`,
-      });
+      apiRoutes.push(routeEntry(r, action));
       continue;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
     actions.push(`  def ${action}(conn, params) do
     respond(conn, ${handlerMod}.run(params))
   end`);
-    apiRoutes.push({
-      method: r.method.toLowerCase() as ApiRoute["method"],
-      // `!root:` splices the route into the router's root `scope "/"` (served at
-      // its absolute declared path) rather than nesting it under `scope "/api"`.
-      // The explicit `route "<path>" -> ...` path is already absolute (e.g.
-      // `/orders/{id}`), so `/api` nesting both mis-served it (`/api/orders/...`)
-      // AND collided with the always-on auto-CRUD routes (`/api/orders/:id`) —
-      // Phoenix ignores param names, so the shadowed clause fails
-      // `mix compile --warnings-as-errors`.  Root-scoping matches every other
-      // backend (scaffold routes at `/orders/...`, auto-CRUD at `/api/orders/...`).
-      path: `!root:${phoenixPath(r.path)}`,
-      controller,
-      action: `:${action}`,
-    });
+    apiRoutes.push(routeEntry(r, action));
   }
   if (actions.length === 0) return [];
 

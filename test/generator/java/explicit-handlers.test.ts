@@ -86,12 +86,18 @@ describe("java — explicit commandHandler/queryHandler → @Service beans", () 
     expect(ctrl).toContain("private final CancelOrderHandler cancelOrderHandler;");
     expect(ctrl).toContain("private final GetStatusHandler getStatusHandler;");
     // command route: POST + wire-coerced id path param → new OrderId(...) → 200.
-    expect(ctrl).toContain('@PostMapping("/orders/{orderId}/cancellations")');
+    // The mapping carries `/api` (M-T6.73): an explicit route is a DOMAIN route,
+    // so it serves under `API_BASE_PATH` like every other route class.  The
+    // prefix rides each `@*Mapping` rather than a class-level
+    // `@RequestMapping(API_BASE_PATH)` because Spring ALWAYS concatenates a
+    // class-level mapping, which would leave no way to keep a
+    // scaffold-duplicate route at the root (see `_api/explicit-route-mount.ts`).
+    expect(ctrl).toContain('@PostMapping("/api/orders/{orderId}/cancellations")');
     expect(ctrl).toContain("public ResponseEntity<?> cancelOrder(@PathVariable UUID orderId) {");
     expect(ctrl).toContain("var result = cancelOrderHandler.handle(new OrderId(orderId));");
     expect(ctrl).toContain("return ResponseEntity.ok(result);");
     // query route: GET + wire-coerced id path param.
-    expect(ctrl).toContain('@GetMapping("/orders/{orderId}/status")');
+    expect(ctrl).toContain('@GetMapping("/api/orders/{orderId}/status")');
     expect(ctrl).toContain("var result = getStatusHandler.handle(new OrderId(orderId));");
   });
 });
@@ -369,7 +375,7 @@ describe("java — paged-run queryHandler over run(criterion)", () => {
 
   it("the controller action exposes page/pageSize/sort/dir and returns the projected envelope", async () => {
     const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "ARoutesController.java");
-    expect(ctrl).toContain('@GetMapping("/orders/projections/in_region")');
+    expect(ctrl).toContain('@GetMapping("/api/orders/projections/in_region")');
     expect(ctrl).toContain(
       '@RequestParam(defaultValue = "1") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(1000000) int page',
     );

@@ -27,7 +27,10 @@
 // params — mirroring the .NET controller→handler split without a message bus.
 //
 // v1 scope (mirrors .NET A1): handler params are ids / scalars (the common REST
-// case); response projection is a `{ "result": <value> }` envelope.
+// case).  The response is the handler's value, UNWRAPPED — it used to ride a
+// `{ "result": <value> }` envelope, which made python the lone backend to
+// answer `{"result": "hi"}` where the other four answer `"hi"` (M-T6.73; node
+// is the wire oracle the behavioural goldens are captured from).
 //
 // C2 (Python sibling of .NET C1/#1830): a handler whose return type resolves to
 // an aggregate/entity projects the domain instance to its wire shape via the
@@ -744,10 +747,21 @@ export function emitPyExplicitRouteRouter(
       routeBlocks.push(
         lines(
           `@router.${method}("${path}", operation_id="${opId}")`,
-          `async def ${routeName}(${sig}) -> dict[str, object]:`,
+          // `-> Any`, and the handler's value returned UNWRAPPED (M-T6.73).
+          // This route used to answer `{"result": <value>}` where every other
+          // backend answers the bare value — `POST /api/echo/hi` → `{"result":
+          // "hi"}` against node's `"hi"`.  That is a runtime-VALUE divergence a
+          // spec-vs-spec diff cannot see, and node is the wire oracle the
+          // goldens are captured from.
+          //
+          // `Any` (not `dict[str, object]`) because FastAPI reads the return
+          // annotation as the response_model and would then validate a scalar
+          // against a mapping.  It also matches what node publishes for these
+          // routes — `schema: z.unknown()` — so the two specs agree.
+          `async def ${routeName}(${sig}) -> Any:`,
           usesUser ? "    current_user: User = request.state.current_user" : null,
           `    result = await ${snake(h.name)}(${callArgs})`,
-          `    return {"result": result}`,
+          `    return result`,
         ),
       );
     } else {
@@ -808,7 +822,7 @@ export function emitPyExplicitRouteRouter(
       .join(", ")}`,
     refersTo("BaseModel") ? "from pydantic import BaseModel" : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
-    "from typing import Annotated",
+    refersTo("Any") ? "from typing import Annotated, Any" : "from typing import Annotated",
     "",
     usesRequest ? "from app.auth.user import User" : null,
     ...[...handlerImports].sort().map((n) => `from app.application.${snake(n)} import ${snake(n)}`),

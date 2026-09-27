@@ -57,6 +57,7 @@ import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
+import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { JAVA_PAGED_QUERY_PARAMS } from "./emit/common.js";
 import { domainToWire } from "./emit/wire.js";
@@ -646,6 +647,7 @@ function wireQueryParam(
  *  `Paged<Agg>Response` envelope with items projected via `<Agg>Response::from`. */
 function emitPagedRunAction(
   r: RouteIR,
+  routePath: string,
   h: Handler,
   ctx: EnrichedBoundedContextIR,
   field: string,
@@ -678,7 +680,7 @@ function emitPagedRunAction(
     "dir",
   ].join(", ");
   return [
-    `    @GetMapping("${r.path}")`,
+    `    @GetMapping("${routePath}")`,
     `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
     `        var result = ${field}.handle(${callArgs});`,
     `        return ResponseEntity.ok(new Paged<>(result.items().stream().map(${agg}Response::${runFrom}).toList(),`,
@@ -749,7 +751,14 @@ function projectReturn(
 /** Emit one `@RestController` per api whose route list is non-empty: each
  *  `route` becomes an action that coerces its (wire-typed) path params into the
  *  target handler's domain params and calls the handler bean directly.  Returns
- *  null when the api binds no resolvable route. */
+ *  null when the api binds no resolvable route.
+ *
+ *  Each `@*Mapping` carries the FULL path including `API_BASE_PATH`, rather
+ *  than a class-level `@RequestMapping(API_BASE_PATH)`: Spring always
+ *  concatenates a class-level mapping, so there would be no way to leave the
+ *  scaffold-duplicate routes at the root — and a duplicated slot is an
+ *  `Ambiguous handler methods mapped` failure at request time.  Which routes
+ *  move is decided once, in `_api/explicit-route-mount.ts`. */
 export function emitExplicitRouteController(
   apiName: string,
   routes: readonly RouteIR[],
@@ -759,6 +768,7 @@ export function emitExplicitRouteController(
   responsePkgOf: (agg: string) => string,
 ): { name: string; content: string } | null {
   if (routes.length === 0) return null;
+  const derivedSlots = derivedRouteSlots(contexts);
   const byName = new Map(contexts.map((c) => [c.name, c]));
   const imports = new Set<string>();
   // Response DTO packages an entity-returning route projects into (C2) — each
@@ -790,7 +800,18 @@ export function emitExplicitRouteController(
     // `Paged<Agg>`) and returns the wire-projected `Paged<Agg>Response`.
     if (h.returnType && pagedReturn(h.returnType)) {
       usesPaged = true;
-      actions.push(...emitPagedRunAction(r, h, ctx, field, imports, responsePkgOf, responsePkgs));
+      actions.push(
+        ...emitPagedRunAction(
+          r,
+          explicitRoutePath(r, derivedSlots),
+          h,
+          ctx,
+          field,
+          imports,
+          responsePkgOf,
+          responsePkgs,
+        ),
+      );
       continue;
     }
 
@@ -842,7 +863,7 @@ export function emitExplicitRouteController(
           `        return ResponseEntity.noContent().build();`,
         ];
     actions.push(
-      `    @${annot}("${r.path}")`,
+      `    @${annot}("${explicitRoutePath(r, derivedSlots)}")`,
       `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
       ...callLines,
       `    }`,
