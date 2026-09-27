@@ -16,7 +16,7 @@
 // closure that matches what the emitted `<Vo>Schema` bodies reference.
 // Pure IR traversal: consumed downward by the generators, no back-edge.
 
-import type { BoundedContextIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type { BoundedContextIR, EnumIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
 
 /**
  * The value-object DECLARATIONS an emitter for this context may have to
@@ -39,6 +39,17 @@ import type { BoundedContextIR, FieldIR, TypeIR, ValueObjectIR } from "../types/
 export function valueObjectPool(ctx: BoundedContextIR): ReadonlyArray<ValueObjectIR> {
   const siblings = ctx.siblingValueObjects;
   return siblings && siblings.length > 0 ? [...ctx.valueObjects, ...siblings] : ctx.valueObjects;
+}
+
+/** Every enum name in scope for a context: its own, plus those declared in
+ *  sibling contexts of the same system (`BoundedContextIR.siblingEnums`).  The
+ *  enum twin of `valueObjectPool`, and the resolution an emitter must use when
+ *  it MATERIALISES an enum it merely references — a route file's
+ *  `const <E>Schema = z.enum([...])`, a migration's `CHECK (<col> IN (...))`.
+ *  Own names shadow (`siblingEnums` is built already excluding them). */
+export function enumPool(ctx: BoundedContextIR): ReadonlyArray<EnumIR> {
+  const siblings = ctx.siblingEnums;
+  return siblings && siblings.length > 0 ? [...ctx.enums, ...siblings] : ctx.enums;
 }
 
 /** `valueObjectPool` as the `name → fields` map the flattening emitters want
