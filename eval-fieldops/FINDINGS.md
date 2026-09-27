@@ -1157,7 +1157,8 @@ defect-naming tests and leaves the three "must not change" tests green. The shar
 number comes from the uniqueness assertion — pre-fix the repro deployable publishes **4
 request components under 3 distinct names**; post-fix, 4 under 4.
 
-**Still open — elixir and java.**
+**FIXED (elixir, then java) — both after the correction below, which changed what the
+elixir fix had to be.**
 
 **CORRECTION on elixir.** This entry first said elixir "must additionally *emit* the missing
 schema module … there is no second schema to point at". That was wrong about the mechanism,
@@ -1183,6 +1184,18 @@ path derivation for every non-colliding name (verified against `snake()` for the
 workflow and qualified forms), so the path change is a no-op except exactly where it must not
 be.
 
+**FIXED (elixir).** Exactly that: the owner list is built over the deployable's aggregates
+and workflows, the resolved name is threaded into all three render functions, and every
+`files.set` path derives from `snake(resolvedName)`. The elixir owner list lists a create
+owner **unconditionally**, unlike node's — measured, not assumed: phoenix's schema loop has
+no `emitsRestCreate` gate (only the spec's *reference* to the schema is gated), so the path
+is occupied whether or not the document links to it, and gating it would have left an
+orphaned module. Proved by real compilation: a fixture carrying BOTH collision shapes
+(`operation schedule` + `workflow scheduleWorkOrder`, and a `crudish` create + `workflow
+createWorkOrder`) reaches `mix compile --warnings-as-errors` → `Generated api app`, exit 0.
+A renamed-but-unreferenced module, or a spec referencing a module that no longer exists,
+fails that.
+
 - **java** does genuinely need a different mechanism, and unlike the elixir claim above
   this one SURVIVED checking. Java emits BOTH records, to different packages, and both
   files exist:
@@ -1207,14 +1220,50 @@ be.
   `openapi-customizer.ts:279` (operations) and `:468` (workflows) — the same two rules again —
   has to move with the naming or it patches the wrong schema.
 
+  **FIXED (java).** Both halves. `@Schema(name = "…")` publishes the owner-qualified name
+  while the class name stays put, emitted only where the base name genuinely collides; and
+  the `RequiredSet` table, being keyed by published name, splits with it. Java's create
+  owner is gated on `emitsRestCreate` — a **third** answer, differing from both node
+  (gated) and elixir (unconditional), so pattern-matching either neighbour would have
+  produced a phantom owner or an orphan. The owner list is derived once, in
+  `src/generator/java/request-component-owners.ts`, imported by both
+  `buildJavaOpenApiContract` and `emitProjectFromContexts`: deriving it twice in two places
+  IS the §89 shape this whole finding is about, and one function cannot disagree with
+  itself.
+
+  Verified the only way a springdoc claim can be, by booting the app and reading the live
+  `/openapi.json` (jar via `gradle:9-jdk25`, against postgres):
+
+  ```
+  before   POST /api/work_orders/{id}/schedule     -> ScheduleWorkOrderRequest
+           POST /api/workflows/schedule_work_order -> ScheduleWorkOrderRequest
+           components: ScheduleWorkOrderRequest required ["note"]   # the workflow's shape
+                       (no schema for the operation's {at} at all)
+
+  after    POST /api/work_orders/{id}/schedule     -> WorkOrdersScheduleWorkOrderRequest  required ["at"]
+           POST /api/workflows/schedule_work_order -> WorkflowsScheduleWorkOrderRequest   required ["note"]
+  ```
+
+  That top block is the finding stated as an executable fact: a client generated from the
+  published spec sends `{note}` to an endpoint that needs `{at}`.
+
 Fixing node first makes the cross-backend parity diff *useful* again on a colliding model:
 node now disagrees with elixir/java there, which surfaces the two remaining halves instead
 of hiding them behind a shared bug. No shipped gate moves, because the only colliding file
 in the CI corpus with an affected backend is `extern-showcase.ddd`, whose node output the
 new test now pins directly.
 
-**Not yet fixed.** The remaining decision is narrower than it first looked: adopt .NET's
-existing convention in the shared layer (owner-qualified ids for colliding short names),
-which changes published component names on node/elixir/java, or refuse a colliding model
-with a `loom.*` diagnostic and leave every published name alone. The first is what the
-codebase already does once; the second costs users a model that is legal today.
+**RESOLVED, the first way.** The choice was between adopting .NET's existing convention in
+the shared layer (owner-qualified ids for colliding short names) and refusing a colliding
+model with a `loom.*` diagnostic. The first won because the codebase already does it once:
+a fixed backend now AGREES with the ids .NET publishes rather than inventing a third
+spelling, and no user loses a model that is legal today. All three affected backends
+(node, elixir, java) route through `src/generator/_openapi/request-component-names.ts`;
+python and dotnet were already correct by their own means and are untouched.
+
+**What the fix does NOT add: the missing gate.** Every backend now mints unique names, but
+nothing yet *asserts* within-document uniqueness in general — the new tests pin the specific
+collision shapes, and the cross-backend parity dimension remains blind by construction (it
+compares backends to each other, not a document to itself). A check that every published
+spec mints each component name at most once would close the class rather than these
+instances, and is the natural follow-up; it is not in these PRs.
