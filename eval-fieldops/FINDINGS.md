@@ -1072,7 +1072,24 @@ changes the picture substantially, and two backends are simply not affected:
 | **elixir** | **SILENT — wrong spec, worse** | Only ONE `ScheduleWorkOrderRequest` module is emitted at all (`note`), and BOTH `/workflows/schedule_work_order` and `/work_orders/{id}/schedule` reference it in `api_spec.ex`. The operation's `at` schema is never emitted anywhere. Doc-level only: no `OpenApiSpex.Plug.CastAndValidate` is wired in the router, so request parsing does not consult it. |
 | **python** | **NOT AFFECTED** | Ran FastAPI 0.141 / pydantic 2.13 against the two emitted model shapes: it auto-qualifies by module — `app__http__work_order_routes__ScheduleWorkOrderRequest` = `{at}` and `app__http__workflows_routes__ScheduleWorkOrderRequest` = `{note}` — and each path refs the correct one. |
 | **dotnet** | **NOT AFFECTED — already solved in-tree** | The emitter ALREADY detects this collision. Generated `Program.cs` builds a `collidingSchemaIds` map and a `CustomSchemaIds` selector publishing `WorkOrdersScheduleWorkOrderRequest` / `WorkflowsScheduleWorkOrderRequest`. Its own comment says Swashbuckle "would throw on the duplicate schemaId and fail the WHOLE document". |
-| **java** | **AFFECTED — exact runtime behaviour needs a boot** | Both records exist in separate packages so javac is fine and each controller binds the right type. But springdoc names schemas by SIMPLE class name, and the emitted `OpenApiContractCustomizer` patches by short name too — `new RequiredSet("ScheduleWorkOrderRequest", List.of("note"))` — so it assumes exactly one schema under that name. Whether springdoc overwrites or disambiguates decides if the patch lands on the wrong schema or silently misses. |
+| **java** | **SILENT — wrong spec, and a spec-generated client is BROKEN** | Measured by booting the generated app (jar built in `gradle:9-jdk25` per docs/tools.md, run against postgres). springdoc does NOT disambiguate: the published spec contains exactly ONE `ScheduleWorkOrderRequest`, carrying the workflow's `{note}`, and BOTH `/api/work_orders/{id}/schedule` and `/api/workflows/schedule_work_order` `$ref` it. The operation's `{at}` schema is absent from the spec entirely, as on elixir. The emitted `OpenApiContractCustomizer`'s short-name patch (`RequiredSet("ScheduleWorkOrderRequest", ["note"])`) landed on that single surviving schema, reinforcing the workflow's shape for both. |
+
+**The sharpest evidence in this finding — a spec-generated client is broken.** On the
+booted Java app, the published spec and the running API disagree, and the spec is the one
+that is wrong:
+
+```
+$ curl -X POST /api/work_orders/<id>/schedule -d '{"note":"x"}'   # the shape the SPEC publishes
+HTTP 422
+$ curl -X POST /api/work_orders/<id>/schedule -d '{"at":"2026-01-01T00:00:00Z"}'   # the shape the CODE wants
+HTTP 204
+```
+
+Runtime binding is correct — each controller binds its own record — so this is not a
+request-handling bug. It is worse in one specific way: anyone who generates a client from
+Loom's own `/openapi.json` sends `{note}` to that endpoint and gets a hard 422. The same
+reasoning applies to node and elixir, whose routes likewise validate against their own
+(correct) schema while publishing the other one.
 
 **This changes the shape of the fix.** It is no longer an open three-way design question,
 because **.NET has already answered it in-tree**: detect short-name collisions across
