@@ -553,7 +553,26 @@ const REGISTERED: Ratchet[] = [
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
     //
-    max: 24,
+    // 24 -> 23: `handler-triad` DRAINED (M-T6.73), on the THIRD attempt.  #2984
+    // made a routed handler addressable and drained this cell; booting it showed
+    // four of five backends did not serve an explicit route where the caller
+    // asks, so #2984 reverted its own drain and put the row back — correctly,
+    // since `gate-ledger` refuses a feature that boots on some declared backends
+    // and not others, with no allowlist, and `BEHAVIOURAL_SKIP` is at `max: 0`.
+    // The emitter PR then fixed six defects and got FOUR legs to 0 wire
+    // divergences, but left the row in place rather than waive the fifth.
+    //
+    // What makes the drain legitimate now is that nothing is hidden: the last
+    // four divergences were the tier's malformed-body probe landing on a POST
+    // this create-less `Order` does not serve, where it cannot reach the parser
+    // it exists to test and measures whichever layer answers first instead.  The
+    // probe steps aside there now — the same step-aside its PATCH sibling
+    // already makes — so all five legs are green with NO per-backend waiver, no
+    // `BEHAVIOURAL_SKIP` entry, and no wire waiver.
+    //
+    // The arithmetic is against main's CURRENT 24, re-read off `origin/main`
+    // after a fresh fetch on the tree this lands on — not a remembered literal.
+    max: 23,
   },
 ];
 

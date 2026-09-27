@@ -227,6 +227,24 @@ export const R = {
   unseedableAggregate:
     "unreachable: crudish(updateOnly:) emits no create route, so no row can be minted through the api",
   /**
+   * UNREACHABLE — an id-taking route on an aggregate that declares NO create at
+   * all.  The sibling of `unseedableAggregate` one step further out: there the
+   * create was SUPPRESSED by `crudish(updateOnly:)`; here the aggregate simply
+   * never asked for one (no `crudish`, no author-declared `create`), so
+   * `deriveAggregateOperations` lists no `POST /api/<aggs>` and nothing can
+   * mint a row through the api.  Every route that takes an `{id}` is therefore
+   * undrivable, while the COLLECTION reads over the same empty table are fine
+   * — which is why a fixture in this class can still be drained down to its
+   * id-taking routes rather than held out of the census entirely.
+   *
+   * The exit is the same one `unseedableAggregate` took: give the aggregate a
+   * create.  That is a fixture change with a wire-golden rebaseline attached,
+   * so it belongs to whoever wants those two routes covered — not to the PR
+   * that made the fixture's ROUTED handlers reachable.
+   */
+  noCreateRoute:
+    "unreachable: the aggregate declares no create, so no POST /api/<aggs> exists and no row can be minted",
+  /**
    * WAS UNREACHABLE — a COLLECTION read on an aggregate carrying first-boot
    * SEED data.  Not a property of the route: a property of the harness.  The
    * four cross-backend behavioural legs boot the generated entrypoint, which
@@ -517,6 +535,16 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   // it.  Only the `can_<op>` endpoint a UI polls stays uncalled.
   "corpus/state-gate": {
     canCancelOrder: R.gateProbe,
+  },
+  // ── The ROUTED-HANDLER fixture's two id-taking aggregate routes ──────────
+  // `handler-triad`'s whole api is explicit `route … -> Sales.<Handler>`
+  // bindings, and all five are now driven (`api.sales.echo(…)` &c) along with
+  // the aggregate's two collection reads.  These two are what is left: `Order`
+  // declares no `crudish` and no author-declared create, so there is no
+  // `POST /api/orders` and no row to address.  See `R.noCreateRoute`.
+  "corpus/handler-triad": {
+    getOrderById: R.noCreateRoute,
+    cancelOrder: R.noCreateRoute,
   },
 };
 
@@ -809,68 +837,40 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // land first.  Recorded because a reader who solved only the named blocker
   // would find the cell still undrainable.
   "handler-resource-ops",
-  // NOT DRAINED — but for a DIFFERENT reason than this entry used to give, and
-  // the correction matters because both of the old claims were wrong.
+  // `handler-triad` DRAINED (M-T6.73), and it took THREE attempts — the first two
+  // are the reason this note is long.
   //
-  //   • It named handlers the fixture does not have.  "nothing can mint a row
-  //     for `LoadOrder` / `CodeStatus` to read" — there is no `LoadOrder` and
-  //     no `CodeStatus` in `handler-triad.ddd`; the handlers are `Echo`, `Sum`,
-  //     `CountReplacing`, `Reachable` and `Doubled`.  The nouns had rotted.
-  //   • Its stated blocker ("unseedable") gates only the two id-taking
-  //     AGGREGATE routes.  The five ROUTED HANDLERS need no row at all: the
-  //     find-backed ones return a COUNT, so an empty table answers 0 / false.
+  // Its original entry was wrong twice over: it named handlers the fixture does
+  // not have ("nothing can mint a row for `LoadOrder` / `CodeStatus` to read" —
+  // there is no `LoadOrder` and no `CodeStatus`; they are `Echo`, `Sum`,
+  // `CountReplacing`, `Reachable` and `Doubled`), and its stated blocker
+  // ("unseedable") gates only the two id-taking AGGREGATE routes, never the five
+  // ROUTED HANDLERS — the find-backed ones return a COUNT, so an empty table
+  // answers 0 / false and no create is needed.
   //
-  // The real blocker was that a `test e2e` body could not ADDRESS a routed
-  // handler — `api.<x>.<y>(…)` resolved to an aggregate, a projection or a
-  // workflow only.  #2984 fixed that (`api.<context>.<handler>(…)`), and the
-  // block was written, booted on node, and then REVERTED, because booting it
-  // measured the thing that actually blocks this cell:
+  //   #2984 lifted the real blocker (a `test e2e` body could not ADDRESS a routed
+  //   handler at all) and drained the cell.  Booting it across the tier for the
+  //   first time reported four different answers, so #2984 REVERTED its own drain
+  //   rather than reach for a per-backend skip, which both `gate-ledger` and
+  //   `BEHAVIOURAL_SKIP`'s `max: 0` refuse.
   //
-  //   node / mikroorm  `POST /api/echo/hi` → `"hi"`   (the wire-golden oracle)
-  //   dotnet / dapper  404 — `[HttpPost("/echo/{text}")]` is ROOT-ABSOLUTE in
-  //                    ASP.NET, so the `/api` prefix is ignored
-  //   java             404 at `/api/echo/hi`
-  //   elixir           404 at `/api/echo/hi`
-  //   python           routes correctly, but WRAPS the scalar return:
-  //                    `{"result":"hi"}` where node answers `"hi"`
+  //   M-T6.73 then fixed SIX emitter defects — the `/api` prefix on .NET, java
+  //   and elixir; the `{"result": …}` envelope on python AND elixir; a bare
+  //   `string` sent as `text/plain` on .NET and java; and an int path param never
+  //   coerced on elixir, which 500'd.  Four legs went green; elixir's last four
+  //   divergences were the tier's MALFORMED-BODY probe landing on a POST this
+  //   create-less `Order` does not serve, where it measures the method check
+  //   instead of the parser (node routes first → 405; elixir parses at the
+  //   endpoint → 400, both RFC-legal).
   //
-  // M-T6.73 then FIXED all of that, and four more of the same shape it found on
-  // the way — each one invisible for the same reason, that a 404'ing route has no
-  // caller to see its response:
+  //   The probe now steps aside for a collection whose POST is not served — the
+  //   same step-aside its PATCH sibling already makes — and all five legs are
+  //   green with no waiver anywhere.  That step-aside deliberately did NOT settle
+  //   the parse-vs-route ORDER; that contract question is its own mission.
   //
-  //   * the PREFIX on .NET / java / elixir.  An explicit route is a DOMAIN route
-  //     and serves under `API_BASE_PATH`, which is what `src/system/e2e-render.ts`
-  //     has always requested (`base + API_BASE_PATH + <declared path>`, all five
-  //     platforms).
-  //   * the ENVELOPE on python AND elixir — both wrapped the handler's value as
-  //     `{"result": …}`; elixir's was found only once its path was fixed.
-  //   * a bare `string` return sent as `text/plain` on .NET
-  //     (`StringOutputFormatter`) and java (`StringHttpMessageConverter`), where
-  //     every other backend sends `application/json: "hi"`.
-  //   * an int PATH PARAM never coerced on elixir — Phoenix hands every segment
-  //     over as a binary, so `Sum(a: int, b: int)` evaluated `"2" + "3"` and 500'd.
-  //
-  // Booted, all five now serve `POST /api/echo/hi` → `"hi"`, and FOUR legs (node,
-  // python, dotnet, java) record 0 wire divergences against the golden.
-  //
-  // WHAT STILL PARKS THIS CELL is not a routed-handler defect.  The elixir leg's
-  // e2e tier PASSES; its wire differential reports 4 divergences, all on the
-  // tier's malformed-body probe (`POST <collection>` with `"{not json"`).  That
-  // probe assumes POST on the collection is SERVED — and this fixture's
-  // create-less `Order` serves none, so the probe measures the METHOD check
-  // instead of the parser: node routes first and answers 405, elixir parses at
-  // the endpoint (`<App>Web.BodyParser` is plugged in `endpoint.ex`, ahead of the
-  // router) and answers 400.  Both are RFC-legal.  `handler-triad` is the ONLY
-  // one of 63 goldens whose probe lands on an unserved POST, which is why no
-  // other case has ever shown this.
-  //
-  // Drain, once that is settled — it needs an owner ruling, not a waiver:
-  // either an RS-rule fixing the parse-vs-route order (docs/conformance-semantics.md),
-  // or the probe learning to skip a collection whose POST is not served, the same
-  // step-aside its PATCH sibling already makes.  Then restore the `test e2e`
-  // block (it is in #2984's history, commit `8733579ee`), re-record the golden,
-  // and delete this entry.
-  "handler-triad",
+  // The two routes the missing create genuinely does block are `getOrderById` /
+  // `cancelOrder`, pinned in `UNCALLED_PINS` under `R.noCreateRoute` rather than
+  // costing the whole cell its tier.
   // `lifecycle-guard` DRAINED — and, like `policy-document` before it, only
   // after the thing it was hiding was FIXED.  Its two named blockers both fell,
   // but not in the way the entry predicted:
@@ -1055,4 +1055,10 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   seededListReadUnwritten: 2,
   gateProbe: 1,
   clockDependentFind: 1,
+  // +2 — `corpus/handler-triad` joined the census when the routed-handler call
+  // form made its api addressable, and brought its aggregate's two id-taking
+  // routes with it.  A pin count that goes UP is not a regression when the
+  // POPULATION grows (the header's own rule); the fixture went from zero
+  // censused routes to seven driven and two pinned.
+  noCreateRoute: 2,
 };
