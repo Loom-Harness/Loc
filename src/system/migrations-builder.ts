@@ -50,6 +50,7 @@ import {
   tphConcretesOf,
 } from "../ir/util/inheritance.js";
 import { contextsHaveProvenancedField } from "../ir/util/prov-id.js";
+import { enumPool, valueObjectPool } from "../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -166,14 +167,19 @@ export function schemaFromModule(
   // otherwise only sees a `TypeIR`, and collapsing a VO to one `json` column
   // mismatches the relational ORMs, which flatten it.
   const voLookup: VoLookup = new Map(
-    module.contexts.flatMap((c) => c.valueObjects.map((v) => [v.name, v.fields] as const)),
+    module.contexts.flatMap((c) => valueObjectPool(c).map((v) => [v.name, v.fields] as const)),
   );
   // Enum member lists, for the `enumValues` CHECKs (see `enumChecksForFields`).
-  // Keyed by name across the whole module, exactly like `voLookup` — a
-  // same-named enum in sibling contexts would collide, and so would the VO
-  // lookup beside it; that pre-existing shape is not widened here.
+  // Keyed by name, resolved through `enumPool` for the same reason `voLookup`
+  // uses `valueObjectPool`: migrations are derived per MODULE, but a type
+  // declared in one context is legal to reference from another — and when that
+  // other context lives in a different SUBDOMAIN the declaration was not in
+  // `module.contexts` at all.  A missed VO fell through to one `json` column
+  // while every relational ORM flattened it (the migration created
+  // `"spot" JSONB`, the ORM then queried `spot_value`); a missed enum lost its
+  // CHECK constraint silently.
   const enumLookup: EnumLookup = new Map(
-    module.contexts.flatMap((c) => c.enums.map((e) => [e.name, e.values] as const)),
+    module.contexts.flatMap((c) => enumPool(c).map((e) => [e.name, e.values] as const)),
   );
   // Produce the table(s) for one aggregate.  Returns an array so the
   // caller can stamp the schema uniformly — every table an aggregate
