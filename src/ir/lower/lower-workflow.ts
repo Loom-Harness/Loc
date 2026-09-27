@@ -840,6 +840,18 @@ function lowerWorkflowStatementInner(
       if (repoCall.method !== "getById") {
         const find = repo.finds.find((f) => f.name === repoCall.method);
         if (find) returnType = lowerType(find.returnType);
+        // `findById` is a BUILT-IN, so there is no declared find to read a
+        // return type off — and the bare-entity default above then claims the
+        // nullable by-id read cannot be absent.  That silences
+        // `loom.handler-load-nullable-unsupported`, which decides purely on
+        // `returnType.kind === "optional"`, so the handler tier emitted an
+        // unguarded dereference of a value its own port types as
+        // `Optional<T>` / `T | null`.  `getById` (which throws) keeps the bare
+        // entity; see `repoReadResultType` in `repo-read.ts`, the domain-service
+        // twin of this table.
+        else if (repoCall.method === "findById") {
+          returnType = { kind: "optional", inner: { kind: "entity", name: aggName } };
+        }
       }
       // The let binding's local type is the unwrapped aggregate
       // (validator rejects array/optional repo-lets).  Use the

@@ -386,7 +386,7 @@ export class DddValidator {
     guard("unknown-name-refs", model, () => checkUnknownNameRefs(model, accept, this.services));
     // `currentUser.orgPath` (the derived tenant materialized path) is
     // only meaningful under a `tenancy by` declaration — fail-closed otherwise.
-    guard("orgpath-tenancy", model, () => checkOrgPathReferences(model, accept));
+    guard("orgpath-tenancy", model, () => checkOrgPathReferences(model, accept, this.services));
     // Primitive conversion expressions (`string(x)`, `money(d)`):
     // restrict to the infallible (source, target) pairs.  Fallible
     // parses (`int("42")`) and narrowing (`int(longValue)`) are

@@ -14638,6 +14638,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "index"
+          },
+          {
+            "$type": "Keyword",
             "value": "isolationLevel"
           },
           {
@@ -14655,6 +14659,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "kind"
+          },
+          {
+            "$type": "Keyword",
+            "value": "link"
           },
           {
             "$type": "Keyword",
@@ -14762,6 +14770,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "route"
+          },
+          {
+            "$type": "Keyword",
             "value": "schema"
           },
           {
@@ -14826,7 +14838,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "type"
+          },
+          {
+            "$type": "Keyword",
             "value": "use"
+          },
+          {
+            "$type": "Keyword",
+            "value": "user"
           },
           {
             "$type": "Keyword",
