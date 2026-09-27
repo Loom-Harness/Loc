@@ -53,6 +53,20 @@ import type { EnrichedBoundedContextIR, RouteIR } from "../../ir/types/loom-ir.j
 import { aggregateSegment, deriveContextOperations } from "../../ir/util/api-surface.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 
+/**
+ * The `{token}` names in a route path — the params bound from the URL rather
+ * than the request body.
+ *
+ * The .NET, java and python route emitters each still carry a private copy of
+ * this three-liner; this is the shared one, and a new consumer takes it from
+ * here rather than adding a fourth.
+ */
+export function pathParamNames(path: string): Set<string> {
+  const names = new Set<string>();
+  for (const m of path.matchAll(/\{(\w+)\}/g)) names.add(m[1]!);
+  return names;
+}
+
 /** Collapse every path parameter to a single placeholder, so two paths that
  *  differ only in a param's NAME compare equal — which is how every router
  *  matches them (`/orders/{orderId}` and `/orders/{id}` are one slot).

@@ -38,12 +38,17 @@ import type {
   QueryHandlerIR,
   RouteIR,
   SystemIR,
+  TypeIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
-import { derivedRouteSlots, routeMountsUnderApiBase } from "../../_api/explicit-route-mount.js";
+import {
+  derivedRouteSlots,
+  pathParamNames,
+  routeMountsUnderApiBase,
+} from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
@@ -501,6 +506,54 @@ function resolveRoute(
   return handler ? { ctx, handler } : undefined;
 }
 
+/** Phoenix delivers every PATH segment as a BINARY, and a handler's `run/1`
+ *  destructures the params map raw — so a `queryHandler Sum(a: int, b: int)`
+ *  bound to `route GET "/sum/{a}/{b}"` evaluated `"2" + "3"` and answered a 500
+ *  (`** (ArithmeticError) :erlang.+("2", "3")`), measured on a booted app.
+ *
+ *  This is elixir's alone: every other backend gets the coercion from its
+ *  framework — hono declares `z.coerce.number().int()`, FastAPI reads the
+ *  annotation, Spring binds `@PathVariable int`, ASP.NET binds a typed action
+ *  param.  Phoenix has no such layer, so the controller does it before calling
+ *  `run/1`.  It stays a PATH-param concern: a body param arrives through JSON
+ *  already typed, and re-parsing it would be wrong.
+ *
+ *  A path value is unconditionally a binary, so no `is_binary/1` guard is
+ *  needed.  `datetime` and `guid` are deliberately absent: a guid IS its string
+ *  form here (the id types are string-backed), and a `datetime` path param stays
+ *  a binary — an exotic shape this fixture does not reach, and parsing it is a
+ *  separate decision rather than something to guess at inside a route emitter. */
+function coerceExpr(name: string, t: TypeIR): string | undefined {
+  if (t.kind !== "primitive") return undefined;
+  switch (t.name) {
+    case "int":
+    case "long":
+      return `String.to_integer(params[${JSON.stringify(name)}])`;
+    case "decimal":
+    case "money":
+      return `Decimal.new(params[${JSON.stringify(name)}])`;
+    case "bool":
+      return `params[${JSON.stringify(name)}] == "true"`;
+    default:
+      return undefined;
+  }
+}
+
+/** The `params = %{params | "k" => <coerced>}` line for a route's path params
+ *  that need one, or "" when none do (keeping every other action's emitted body
+ *  byte-identical). */
+function pathParamCoercions(r: RouteIR, h: Handler): string {
+  const pathNames = pathParamNames(r.path);
+  const parts: string[] = [];
+  for (const p of h.params) {
+    if (!pathNames.has(p.name)) continue;
+    const key = snake(p.name);
+    const expr = coerceExpr(key, p.type);
+    if (expr) parts.push(`${JSON.stringify(key)} => ${expr}`);
+  }
+  return parts.length > 0 ? `    params = %{params | ${parts.join(", ")}}\n` : "";
+}
+
 /** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
  *  snake-casing each param so it matches the handler's `run/1` destructure key
  *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
@@ -595,8 +648,9 @@ ${pagingElseArm("ProblemDetails", "    ")}
       continue;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
+    const coercions = pathParamCoercions(r, handler);
     actions.push(`  def ${action}(conn, params) do
-    respond(conn, ${handlerMod}.run(params))
+${coercions}    respond(conn, ${handlerMod}.run(params))
   end`);
     apiRoutes.push(routeEntry(r, action));
   }
@@ -639,10 +693,15 @@ ${actions.join("\n\n")}
   # inlined per action) keeps Elixir 1.18's type checker from narrowing the
   # scrutinee to a single handler's exact result shape and flagging the error
   # branches that handler can't produce.
+  # The handler's value crosses the wire UNWRAPPED (M-T6.73).  This used to send
+  # \`%{result: ...}\`, so \`POST /api/echo/hi\` answered \`{"result":"hi"}\` where node
+  # — the oracle the behavioural goldens are captured from — answers \`"hi"\`.  It
+  # was invisible until the route moved under \`/api\`: before that every request
+  # to it 404'd, so no caller ever saw the body.
   def respond(conn, {:ok, result}) do
     conn
     |> put_status(200)
-    |> json(%{result: serialize(result)})
+    |> json(serialize(result))
   end
 
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),

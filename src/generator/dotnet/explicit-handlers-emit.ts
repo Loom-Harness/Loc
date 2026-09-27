@@ -821,7 +821,20 @@ export function emitExplicitRouteController(
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
         }
       }
-      sendBlock = `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return Ok(${okExpr});`;
+      // A bare CLR `string` return must be sent as JSON EXPLICITLY (M-T6.73).
+      // `Ok(<string>)` is the one value shape ASP.NET does not serialise as
+      // JSON: `StringOutputFormatter` claims a raw string for `text/plain`, so
+      // the route answered `text/plain: hi` where every other backend answers
+      // `application/json: "hi"` — measured on a booted app, and invisible until
+      // the route was reachable at all.  Every other type (int, bool, decimal,
+      // an entity's response DTO) already falls through to the JSON formatter,
+      // so this stays narrow: `renderCsType` naming `string` is exactly the set
+      // that formatter intercepts.
+      const csRet = renderCsType(retType).replace(/\?$/, "");
+      sendBlock =
+        csRet === "string"
+          ? `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return new JsonResult(${okExpr});`
+          : `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return Ok(${okExpr});`;
     } else {
       sendBlock = `        await _mediator.Send(new ${rec}(${ctorArgs}));\n        return NoContent();`;
     }

@@ -784,6 +784,10 @@ export function emitExplicitRouteController(
   // Set when any route is a paged-run queryHandler — pulls the `Paged<>`
   // envelope type into the controller header.
   let usesPaged = false;
+  // Set when any route returns a bare `String` and so needs the ObjectMapper
+  // (see the serialisation note below).  Injected AFTER the route loop so every
+  // existing controller keeps its field/ctor-param order.
+  let usesJsonString = false;
   for (const r of routes) {
     const ctx = byName.get(r.target.context);
     if (!ctx) continue;
@@ -853,11 +857,48 @@ export function emitExplicitRouteController(
     // handler actually returns so the boundary projection fires on it.
     const retType = normalizeHandlerReturn(qry ? qry.returnType : cmd?.returnType, ctx);
     const annot = HTTP_ANNOT[r.method] ?? "GetMapping";
+    // A bare `String` return has to be SERIALISED to JSON by hand (M-T6.73).
+    // Spring selects its converter by the body's RUNTIME type, and
+    // `StringHttpMessageConverter` claims a String for `text/plain` ahead of
+    // Jackson — so the route answered `text/plain: hi` where every other backend
+    // answers `application/json: "hi"` (measured with `curl -D-` on a booted app;
+    // the .NET sibling of this defect is `StringOutputFormatter`).
+    //
+    // THREE shapes were tried on the booted app before this one, and each failure
+    // is worth recording because the next reader will reach for them too:
+    //   * `produces = APPLICATION_JSON` — no help.  `StringHttpMessageConverter`
+    //     supports every media type, so it still wrote the raw, unquoted `hi`,
+    //     now mislabelled as JSON.
+    //   * a `TextNode` body — serialised as a POJO, i.e. the bean introspection
+    //     of every `isArray`/`isNull`/… getter, ~20 boolean fields.
+    //   * an injected `com.fasterxml.jackson.databind.ObjectMapper` — compiles
+    //     (Jackson 2 is on the classpath transitively) and then fails at STARTUP
+    //     with "required a bean of type ... ObjectMapper that could not be
+    //     found", because Spring Boot 4 ships Jackson 3 under `tools.jackson`.
+    // Pre-serialising with a `tools.jackson` mapper and setting the content type
+    // explicitly is what actually answers `"hi"`: the body is already JSON text,
+    // so `StringHttpMessageConverter` writing it raw is exactly right, and
+    // Jackson does the quoting and escaping.
+    //
+    // Every other type (int, bool, BigDecimal, a response DTO) already routes to
+    // Jackson, which is why only this arm changes.
+    const isBareString = !!retType && renderJavaType(retType) === "String";
+    if (isBareString) {
+      imports.add("org.springframework.http.MediaType");
+      imports.add("tools.jackson.databind.json.JsonMapper");
+      usesJsonString = true;
+    }
     const callLines = retType
-      ? [
-          `        var result = ${field}.handle(${callArgs});`,
-          `        return ResponseEntity.ok(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)});`,
-        ]
+      ? isBareString
+        ? [
+            `        var result = ${field}.handle(${callArgs});`,
+            `        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)`,
+            `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
+          ]
+        : [
+            `        var result = ${field}.handle(${callArgs});`,
+            `        return ResponseEntity.ok(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)});`,
+          ]
       : [
           `        ${field}.handle(${callArgs});`,
           `        return ResponseEntity.noContent().build();`,
@@ -906,6 +947,15 @@ export function emitExplicitRouteController(
       ``,
       `@RestController`,
       `public class ${className} {`,
+      // Built statically rather than injected, the same shape the event-sourced
+      // workflow emitter already uses (`emit/workflow-eventsourced.ts`): Spring
+      // Boot 4 ships Jackson 3, whose bean is a `tools.jackson` type, and a bare
+      // String serialises identically under any configuration — so a mapper of
+      // our own carries no risk and needs no bean lookup.  Jackson 3's
+      // `JacksonException` is unchecked, so the action signature stays clean.
+      usesJsonString
+        ? `    private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();\n`
+        : null,
       ...fields,
       ``,
       `    public ${className}(${ctorParams}) {`,

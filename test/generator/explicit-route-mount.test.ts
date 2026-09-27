@@ -122,6 +122,28 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
     expect(ctrl).not.toContain('[HttpPost("/echo/{text}")]');
   });
 
+  it("dotnet sends a bare `string` return as JSON, not text/plain", async () => {
+    // `Ok(<string>)` is the ONE value shape ASP.NET does not serialise as JSON:
+    // `StringOutputFormatter` claims a raw string for `text/plain`, so the route
+    // answered `text/plain: hi` against node's `application/json: "hi"`.
+    // Measured on a booted app once the route was reachable — `curl -D-` on the
+    // pre-fix build reported `Content-Type: text/plain; charset=utf-8` and an
+    // unquoted `hi`, and the emitted e2e client failed with "expected JSON, got
+    // \"hi\"".  int / bool / decimal / an entity DTO already fall through to the
+    // JSON formatter, which is why only this arm changes.
+    const ctrl = await fileEndingWith(CLEAN_SRC("dotnet"), "Api/ARoutesController.cs");
+    expect(ctrl).toContain("return new JsonResult(result);");
+  });
+
+  it("dotnet leaves a NON-string scalar on Ok() (the formatter does not touch it)", async () => {
+    const intSrc = CLEAN_SRC("dotnet")
+      .replace("commandHandler Echo(text: string): string { return text }", "queryHandler Sum(a: int, b: int): int { return a + b }")
+      .replace('route POST "/echo/{text}" -> Sales.Echo', 'route GET "/sum/{a}/{b}" -> Sales.Sum');
+    const ctrl = await fileEndingWith(intSrc, "Api/ARoutesController.cs");
+    expect(ctrl).toContain("return Ok(result);");
+    expect(ctrl).not.toContain("JsonResult");
+  });
+
   it("java puts /api on the @*Mapping", async () => {
     const ctrl = await fileEndingWith(CLEAN_SRC("java"), "api/ARoutesController.java");
     expect(ctrl).toContain('@PostMapping("/api/echo/{text}")');
@@ -136,6 +158,19 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
     const rootBlock = router.slice(router.indexOf('scope "/" do'), router.indexOf('scope "/api"'));
     expect(rootBlock).not.toContain("ARoutesController");
     expect(rootBlock).toContain("OpenapiController");
+  });
+
+  it("elixir answers the handler's value UNWRAPPED", async () => {
+    // The same envelope defect python had, and equally invisible: while the
+    // route sat at the root, every request to `/api/echo/hi` 404'd, so no caller
+    // ever saw `respond/2`'s body.  Measured on a booted Phoenix app the moment
+    // the path was fixed: `{"result":"hi"}` against node's `"hi"`.
+    const ctrl = await fileEndingWith(
+      CLEAN_SRC("elixir"),
+      "lib/d_web/controllers/a_routes_controller.ex",
+    );
+    expect(ctrl).toContain("|> json(serialize(result))");
+    expect(ctrl).not.toContain("json(%{result:");
   });
 
   it("python answers the handler's scalar UNWRAPPED (path was already right)", async () => {
