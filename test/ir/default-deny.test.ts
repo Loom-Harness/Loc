@@ -389,6 +389,31 @@ system Ledger {
     expect(warn!.message).toContain("operation");
   });
 
+  it("keeps the hard error on an ELIXIR host, where the author does have recourse", async () => {
+    // The exemption is scoped to "no host can enforce a gate here", not to
+    // "event-sourced".  Phoenix hoists a lifecycle gate to its context function
+    // (`create_<agg>(attrs, current_user \\ nil)`) and the controller passes the
+    // real principal, so on elixir an ES create CAN be gated — pinned by
+    // `test/generator/elixir/es-command-principal.test.ts`.  Handing it the
+    // warning would quietly drop the gate requirement on the one backend that
+    // honours it: a fail-open exemption, which is what this asserts against.
+    const diags = await allDiags(esSys("").replace("platform: node", "platform: elixir"));
+    const codes = diags.map((x) => x.code);
+    expect(codes).not.toContain("loom.default-deny-es-create-ungateable");
+    expect(
+      diags.filter((x) => x.severity === "error" && x.code === "loom.default-deny-ungated").length,
+    ).toBe(1);
+  });
+
+  it("accepts a gated create on an ELIXIR host — no refusal, no deny error", async () => {
+    // The other half of the same fact: the gate is both REQUIRED and ACCEPTED
+    // there, so the elixir model is satisfiable in the ordinary way.
+    const diags = await allDiags(
+      esSys('requires currentUser.role == "admin" ').replace("platform: node", "platform: elixir"),
+    );
+    expect(diags.filter((x) => x.severity === "error")).toEqual([]);
+  });
+
   it("still refuses a gate written in the create body", async () => {
     // The other side of the vice, unchanged: the refusal is right — the ES
     // create body renders into a domain `_init` with no principal in scope.

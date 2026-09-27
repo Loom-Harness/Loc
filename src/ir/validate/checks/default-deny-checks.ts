@@ -5,10 +5,12 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { descriptorFor } from "../../../platform/metadata.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
 import { deriveContextOperations } from "../../util/api-surface.js";
+import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -43,9 +45,21 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
   // Contexts hosted by any `auth: required` backend deployable.  A frontend
   // (auth: ui) has `auth.required === false`, so it's excluded here.
   const guarded = new Set<string>();
+  // …and the BACKEND platforms serving each of them.  The ES-create arm below
+  // needs to know whether a gate could be enforced on any host: it is a
+  // per-backend fact (Phoenix hoists the gate to its context function and binds
+  // a principal; the other four render it into a principal-less `_init`), so
+  // whether the author has recourse depends on who is serving the route.
+  const guardedPlatforms = new Map<string, Set<string>>();
   for (const d of sys.deployables) {
     if (!d.auth?.required) continue;
-    for (const cn of d.contextNames) guarded.add(cn);
+    for (const cn of d.contextNames) {
+      guarded.add(cn);
+      if (!descriptorFor(d.platform).needsDb) continue;
+      const set = guardedPlatforms.get(cn) ?? new Set<string>();
+      set.add(d.platform);
+      guardedPlatforms.set(cn, set);
+    }
   }
   if (guarded.size === 0) return;
   const isGated = (statements: { kind: string }[]): boolean =>
@@ -82,7 +96,15 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             // be.  Making the ES create route genuinely gateable means hoisting
             // the gate out of `_init` to each backend's own chokepoint: a
             // five-backend change owned by mission M-T3.16, not a validator fix.
-            if (op.kind === "create" && aggregateIsEventSourced(a)) {
+            // …and only where NO host can enforce it.  On an elixir-only host the
+            // author DOES have recourse — a body `requires` is accepted and
+            // emitted there — so the hard error stays; exempting it would quietly
+            // drop the gate requirement on the one backend that honours it.
+            const esUngateableOn =
+              op.kind === "create" && aggregateIsEventSourced(a)
+                ? esCreateGateUnsupportedOn(guardedPlatforms.get(c.name) ?? [])
+                : [];
+            if (esUngateableOn.length > 0) {
               diags.push({
                 severity: "warning",
                 code: "loom.default-deny-es-create-ungateable",

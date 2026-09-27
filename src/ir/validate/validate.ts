@@ -311,7 +311,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     );
     validateUnionsUnimplemented(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateUnionFindShapes(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateLifecycleBodyDropped(c, diags);
+    validateLifecycleBodyDropped(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateNamedLifecycleDropped(c, diags);
     validateWhenGateSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateOperationReturnsUnimplemented(

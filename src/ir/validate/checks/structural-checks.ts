@@ -29,6 +29,7 @@ import type {
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
+import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import {
   walkExprDeep,
@@ -1926,7 +1927,11 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
   return [...new Set(bad)];
 }
 
-export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+export function validateLifecycleBodyDropped(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+  backendPlatforms: Set<string> = new Set(),
+): void {
   for (const agg of ctx.aggregates) {
     // Event-sourced CREATES are rendered — a different path (`agg.creates[0]`
     // → the domain `_init` / fold) that works today.  Their DESTROY is not: no
@@ -1944,7 +1949,14 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
     // whose handler is the fold, so hoisting the gate out of `_init` is a
     // different (and larger) change than the state-based emission.  Naming it is
     // honest and cheap; the state-based form is the supported one.
-    if (esCreateRendered) {
+    // WHICH BACKENDS cannot enforce an ES create gate.  Phoenix hoists a
+    // lifecycle gate to the CONTEXT function and binds a principal there, so an
+    // event-sourced `create ... { requires ... }` works on elixir and is golden-
+    // pinned (pairwise F10, `es-command-principal.test.ts`).  The refusal is
+    // therefore per-backend, not a property of event sourcing — refusing it
+    // everywhere would reject a model one backend emits correctly.
+    const esGateUnsupportedOn = esCreateGateUnsupportedOn(backendPlatforms);
+    if (esCreateRendered && esGateUnsupportedOn.length > 0) {
       // EVERY create, not just the canonical one.  An event-sourced create is
       // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
       // an event stream IS the emitted one — and reading only
@@ -1968,7 +1980,10 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
           diags.push({
             severity: "error",
             code: "loom.lifecycle-guard-event-sourced",
-            message: diagMessage("loom.lifecycle-guard-event-sourced", { agg: agg.name }),
+            message: diagMessage("loom.lifecycle-guard-event-sourced", {
+              agg: agg.name,
+              platforms: esGateUnsupportedOn.join(", "),
+            }),
             source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
           });
         }
@@ -2064,7 +2079,11 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
       // contract check remains unconditional for every OTHER shape, which is
       // what keeps the hole the review found closed: the exemption is now scoped
       // to "a refusal already fired here", not to "this aggregate is ES".)
-      const esCreateRefused = esCreateRendered && label === "create";
+      // Stands down only where the ES refusal ACTUALLY fired — otherwise an
+      // elixir-only ES create would lose the contract check as well as the
+      // refusal, and nothing would police what its guard reads.
+      const esCreateRefused =
+        esCreateRendered && esGateUnsupportedOn.length > 0 && label === "create";
       for (const s of esCreateRefused ? [] : (action?.statements ?? [])) {
         if (s.kind !== "requires") continue;
         const illegal = lifecycleGuardIllegalReads(s.expr, label);

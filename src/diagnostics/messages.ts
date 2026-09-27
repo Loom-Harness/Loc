@@ -207,8 +207,8 @@ export const DIAGNOSTIC_MESSAGES = {
   // An EVENT-SOURCED lifecycle guard.  Not a "not yet" gap: the ES create body
   // renders into the domain `_init`, which has no principal in scope, so the
   // guard cannot be evaluated there at all.
-  "loom.lifecycle-guard-event-sourced": (p: { agg: unknown }) =>
-    `aggregate '${p.agg}': a \`requires\` in an event-sourced \`create\` cannot be enforced. The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound.`,
+  "loom.lifecycle-guard-event-sourced": (p: { agg: unknown; platforms: unknown }) =>
+    `aggregate '${p.agg}': a \`requires\` in an event-sourced \`create\` cannot be enforced on ${p.platforms}. The create body renders into the domain \`_init\`, which has no principal in scope — \`currentUser\` is a free identifier there, so the guard does not compile rather than deny. Gate the caller instead: put the \`requires\` on the named \`operation\` (or \`workflow\`) that issues the create, where the request principal is bound. (Phoenix/\`elixir\` hoists the gate to its context function and binds a principal, so it enforces this one — the refusal names only the hosting backends that cannot.)`,
   // The canonical `create` / `destroy` body no backend renders.  `reason` is
   // computed at the call site (it varies by statement kind AND by action), so
   // the catalog owns the frame and the site owns the clause.
