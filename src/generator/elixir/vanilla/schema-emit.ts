@@ -232,7 +232,10 @@ function renderPartSchema(
     invariants: partInvariants.filter((inv) => !messagedRoutesToResidual(inv)),
   });
   const invariantFn = renderInvariantValidatorFn(
-    { invariants: partInvariants, fields: part.fields },
+    // `derived` rides along since #3023 — a part's own `derived` must be
+    // inlinable in its invariants for the same reason the aggregate's is
+    // (`data.<name>` is not a struct key; the fallback is a runtime KeyError).
+    { invariants: partInvariants, fields: part.fields, derived: part.derived ?? [] },
     `${appModule}.${ctxModule}`,
   );
   const validateBlock = [
