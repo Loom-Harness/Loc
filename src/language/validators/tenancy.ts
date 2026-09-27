@@ -17,6 +17,7 @@
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../../util/principal.js";
+import type { DddServices } from "../ddd-module.js";
 import {
   isMemberSuffix,
   isNameRef,
@@ -25,6 +26,7 @@ import {
   type Model,
   type System,
 } from "../generated/ast.js";
+import { composedRoots } from "./composition.js";
 
 export function checkTenancyDecls(system: System, accept: ValidationAcceptor): void {
   const decls = system.members.filter(isTenancyDecl);
@@ -56,14 +58,26 @@ export function checkTenancyDecls(system: System, accept: ValidationAcceptor): v
 // tenancy is absent.
 // ---------------------------------------------------------------------------
 
-export function checkOrgPathReferences(model: Model, accept: ValidationAcceptor): void {
-  let hasTenancy = false;
-  for (const node of AstUtils.streamAllContents(model)) {
-    if (isTenancyDecl(node)) {
-      hasTenancy = true;
-      break;
+export function checkOrgPathReferences(
+  model: Model,
+  accept: ValidationAcceptor,
+  services?: DddServices,
+): void {
+  // The `tenancy by` line is a system member, and top-level deployment members
+  // fold into the project's SINGLE system — so it may be written in any file of
+  // the import graph, exactly like `user` / `theme` (`checkProjectSingletons`).
+  // Scanning only THIS document reported "no tenancy declared" for every
+  // `tenantOwned` aggregate in an imported file while `main.ddd` declared it
+  // one import away, which made multi-file projects and multi-tenancy
+  // mutually exclusive: generation refused, and the line could not be moved
+  // into the imported file either (`tenancy` is not admitted at file root).
+  const roots = [model, ...composedRoots(model, services)];
+  const hasTenancy = roots.some((root) => {
+    for (const node of AstUtils.streamAllContents(root)) {
+      if (isTenancyDecl(node)) return true;
     }
-  }
+    return false;
+  });
   if (hasTenancy) return;
 
   for (const node of AstUtils.streamAllContents(model)) {
