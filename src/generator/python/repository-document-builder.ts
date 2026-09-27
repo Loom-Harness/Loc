@@ -127,7 +127,7 @@ export function buildPyDocumentRepositoryFile(
     ...writeGuardInApp(agg),
     "",
     `    async def all(self) -> list[${agg.name}]:`,
-    `        rows = (await self._session.execute(select(${row}))).scalars().all()`,
+    `        rows = (await self._session.execute(select(${row}).order_by(${row}.id))).scalars().all()`,
     ...(capX
       ? [
           ...principalBind,
@@ -418,7 +418,10 @@ function findMethod(
     const conds = [cap?.expr, findCond].filter((c): c is string => c != null).map((c) => `(${c})`);
     const filtered = conds.length > 0 ? `[x for x in items if ${conds.join(" and ")}]` : "items";
     const loadLines = [
-      `        rows = (await self._session.execute(select(${rowClassName(agg.name)}))).scalars().all()`,
+      // ORDER BY id — see the node/java note: an unordered select over the
+      // document table answers in Postgres heap order, which moves a row when
+      // `update` rewrites its tuple.  `id` is the primary key.
+      `        rows = (await self._session.execute(select(${rowClassName(agg.name)}).order_by(${rowClassName(agg.name)}.id))).scalars().all()`,
       ...(bindPrincipal ? ["        current_user = require_current_user()"] : []),
       aggregateIsVersioned(agg)
         ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.version) for r in rows]`

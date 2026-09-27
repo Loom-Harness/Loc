@@ -28,6 +28,8 @@ Every finding was re-run on fresh `main` before planning. **Two moved, ten stand
 | F11 matcher catalogue | **stands** (10 entries, not 9 — the audit undercounted by one) | — |
 | F12 no generated README | **stands** | — |
 
+*That column is a reading taken on `9e03c0ff`, not a live register — it is left as written. For where each finding stands now, see the outcomes sections below and the `coverage.md` row for the audit.*
+
 **F1's root cause, pinned.** Three sibling operations over the same binding, one
 `ddd generate system`:
 
@@ -182,7 +184,7 @@ is DEFERRED — "a gap, not a bug."** The consequence is recorded rather than dr
 `requires` / `policy` / `mask unless` / tenancy denial paths stay untestable from a user's
 model, and the repo's own coverage of them stays in `AUTHZ_LADDERS`, harness-side.
 
-Design: [`../new-plan/missions/M-T5.37-test-surface-v2-design.md`](../new-plan/missions/M-T5.37-test-surface-v2-design.md),
+Design: [`../new-plan/archive/missions/M-T5.37-test-surface-v2-design.md`](../new-plan/archive/missions/M-T5.37-test-surface-v2-design.md),
 six owner decisions recorded against who made them.
 
 | Packet | Session | Scope |
@@ -196,3 +198,40 @@ six owner decisions recorded against who made them.
 base update; #2956, #2957 and #2964 were already current. **Nothing was red** — 67, 100 and
 16 check runs respectively, all `queued` or `skipped` — so the delay was staleness and queue
 depth, not failure. Auto-merge is armed on all five.
+
+## Outcomes — wave 3 (2026-09-22): the whole wave landed
+
+| Packet | Finding | PR | Landed |
+|---|---|---|---|
+| P9 | F5 | [#2985](https://github.com/Loom-Harness/Loc/pull/2985) — the accessor · [#3002](https://github.com/Loom-Harness/Loc/pull/3002) — its payload/response contract | 2026-09-21 22:44 UTC · 2026-09-22 01:42 UTC |
+| P11a | F11 | [#2987](https://github.com/Loom-Harness/Loc/pull/2987) — `toThrow(precondition\|invariant)` | 2026-09-21 |
+| P11b | F11 | [#3001](https://github.com/Loom-Harness/Loc/pull/3001) — `toBeNull` / `toBeAbsent` / `toContain` | 2026-09-22 05:23 UTC |
+| — | F6 | none, by owner decision | deferred — "a gap, not a bug" |
+
+**F5 and F11 are closed. F6 is deferred, not dropped** — the consequence is recorded on the mission:
+`requires` / `policy` / `mask unless` and tenancy denial stay untestable from a user's own model, and
+the repo's coverage of them stays in `AUTHZ_LADDERS`, harness-side, shipped to nobody. **This retires
+the fleet**: every one of F1–F12 is now either merged, in flight on a named PR, or owner-deferred.
+
+Mission **M-T5.37** is flipped and archived
+([`../new-plan/archive/T5-done.md`](../new-plan/archive/T5-done.md)); its design doc moved with it.
+
+**Three things worth carrying forward, because each cost real time to establish:**
+
+1. **The check-runs API paginates at 100, and these SHAs carry 200–825 runs.** A single unpaginated
+   page read as "0 failures" on a SHA that had pending work, twice. Every verdict in this section was
+   taken from a paginated count.
+2. **`mergeable_state: unknown` + `auto_merge: false` is the in-queue signature**, not a stuck arm —
+   GitHub stops surfacing `auto_merge` once an entry is enqueued. A ten-minute poll of #3002 never saw
+   it change, and the PR merged anyway.
+3. **An auto-merge arm carries the head it was armed on.** #3002 was rebased and force-pushed after
+   its arm; the queue merged the *pre-rebase* commit, so `git merge-base --is-ancestor <pushed sha>
+   origin/main` answers **no** on a PR that merged cleanly. Content was verified key-by-key on `main`
+   instead — ancestry is the wrong question after a rebase.
+
+**One gap this wave exposed in the gating, worth a decision rather than a fix here.** #3002 was
+admitted to the merge queue with **zero check runs on its own head**. The 18 docker-booting per-backend
+legs are excluded from the queue *on the premise* that they already passed on the PR head; that premise
+did not hold, and nothing detected it. The diff was validator + catalogue + tests, so the 22 wired
+gates genuinely covered it — but the exclusion's justification has a hole in it that a
+generator-touching PR would fall through.
