@@ -36,6 +36,7 @@ import {
 } from "../../ir/util/audit-history.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
@@ -406,6 +407,12 @@ export function collectUsedTypes(
     // CONTEXT-LOCAL value objects ahead of root-level (shared-kernel) ones,
     // which inverts exactly the shared-kernel-inside-a-local-VO case.
     valueObjects: orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name))),
-    enums: ctx.enums.filter((e) => enums.has(e.name)),
+    // `enumPool`, not `ctx.enums` — the same sibling-aware resolution the
+    // value objects above get.  This list MINTS the module's
+    // `const <E>Schema = z.enum([...])`, so filtering the context-local list
+    // dropped the declaration of a cross-context enum while the schemas below
+    // kept referencing it.  (The backend twin of this landed in #3033; the
+    // pool it needs only exists on `main` as of that merge.)
+    enums: enumPool(ctx).filter((e) => enums.has(e.name)),
   };
 }

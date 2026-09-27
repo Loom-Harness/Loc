@@ -83,4 +83,39 @@ describe("a value object nested in another is declared before its user", () => {
       ).toBeLessThan(outer);
     });
   }
+
+  // Same function, the other half of its type resolution: it filtered
+  // `ctx.enums` rather than the sibling-aware `enumPool`, so a cross-context
+  // enum's `const <E>Schema = z.enum([...])` was never declared while the
+  // request/response schemas kept referencing it — the frontend twin of the
+  // node-route defect fixed in #3033.
+  it("declares a cross-context enum's schema in the module that references it", async () => {
+    const files = await generateSystemFiles(`
+system FeEnum {
+  subdomain S1 { context Owner {
+    enum Grade { A, B }
+    aggregate Home with crudish { g: Grade }
+    repository RH for Home { }
+  } }
+  subdomain S2 { context Consumer {
+    aggregate Away with crudish { g: Grade }
+    repository RA for Away { }
+  } }
+  ui U with scaffold(subdomains: [S1, S2]) { }
+  storage primary { type: postgres }
+  resource s1 { for: Owner, kind: state, use: primary }
+  resource s2 { for: Consumer, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Owner, Consumer], dataSources: [s1, s2], port: 3000 }
+  deployable web { platform: react, targets: api, ui: U, port: 3001 }
+}
+`);
+    const key = [...files.keys()].find((k) => k.endsWith("web/src/api/away.ts"));
+    expect(key, "no away.ts was emitted").toBeDefined();
+    const src = files.get(key!)!;
+    expect(src, "the module should reference the enum schema").toContain("g: GradeSchema");
+    expect(
+      src,
+      "GradeSchema is referenced but never declared — the bundle carries an undefined binding",
+    ).toContain('export const GradeSchema = z.enum(["A", "B"])');
+  });
 });
