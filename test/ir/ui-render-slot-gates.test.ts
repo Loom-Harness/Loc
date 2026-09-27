@@ -75,6 +75,23 @@ async function diags(pageBody: string, extra = ""): Promise<{ code: string; mess
     .map((d) => ({ code: d.code!, message: d.message }));
 }
 
+/** `diags`, but with EXTRA context members spliced in — for the cases that
+ *  need a repository declaration the shared model does not carry. */
+async function diagsWith(
+  contextExtra: string,
+  pageBody: string,
+): Promise<{ code: string; message: string }[]> {
+  const src = system(pageBody).replace("      repository Items for Item { }", contextExtra.trim());
+  const { model } = await parseString(src, { validate: false });
+  return validateLoomModel(enrichLoomModel(lowerModel(model)))
+    .filter(
+      (d) =>
+        d.code === "loom.markup-primitive-in-collection-lambda" ||
+        d.code === "loom.money-in-text-slot",
+    )
+    .map((d) => ({ code: d.code ?? "", message: d.message }));
+}
+
 const QV = (inner: string) => `QueryView { of: Item.all, data: rows => Stack { ${inner} } }`;
 
 describe("D3 — a markup primitive inside a collection-op lambda", () => {
@@ -140,6 +157,43 @@ describe("D4 — a `money` value in a slot that renders it as text", () => {
     // Named by the PROJECTION, which is what the author has to go and fix.
     expect(ds[0]!.message).toContain("(`Totals.gross`)");
     expect(ds[0]!.message).toContain("wrap it in place: `Money { s.gross }`");
+  });
+
+  // The same widening reaches a slot the scope machinery never bound: a
+  // `Column`'s lambda param.  `extendScope` binds `QueryView`'s `data:` and
+  // `For`'s item lambda and nothing else, so `Column { "Total", o => Text {
+  // o.total } }` — the ordinary way to write a table column — was invisible to
+  // this gate.  Caught by CI on `vanilla-table-client-controls.ddd`, whose
+  // LiveView emitted `<%= o.total %>`: a bare `Decimal` struct interpolated
+  // into HEEx, for which Phoenix ships no `Phoenix.HTML.Safe` impl.
+  //
+  // TWO spellings are load-bearing in these two cases and neither is cosmetic:
+  // the `of:` goes through the API HANDLE (`Catalog.Item.all`), because
+  // `ofReadResultType` scans the chain's SUFFIXES for the aggregate and a bare
+  // `Item.all` carries it as the chain HEAD; and `Items` declares an explicit
+  // non-paged `find all(): Item[]`, because the auto-`findAll` is paged and
+  // `rows` would bind the envelope. Both are pre-existing type-erasure cases
+  // this PR does not claim to fix — spelled around here so the assertion is
+  // about the `Column` slot and nothing else.
+  const COLUMN_MODEL = `
+      repository Items for Item { find all(): Item[] }` as const;
+
+  it("rejects a money read in a `Column` lambda, which the row scope never bound", async () => {
+    const ds = await diagsWith(
+      COLUMN_MODEL,
+      `QueryView { of: Catalog.Item.all, data: rows => Table { rows: rows, Column { "Price", i => Text { i.price } } } }`,
+    );
+    expect(ds.map((d) => d.code)).toEqual(["loom.money-in-text-slot"]);
+    expect(ds[0]!.message).toContain("(`Item.price`)");
+  });
+
+  it("accepts `Money` in that same `Column` slot", async () => {
+    expect(
+      await diagsWith(
+        COLUMN_MODEL,
+        `QueryView { of: Catalog.Item.all, data: rows => Table { rows: rows, Column { "Price", i => Money { i.price } } } }`,
+      ),
+    ).toEqual([]);
   });
 
   it("accepts the projection row's non-money field beside it", async () => {
