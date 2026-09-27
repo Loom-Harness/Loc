@@ -1261,9 +1261,57 @@ spelling, and no user loses a model that is legal today. All three affected back
 (node, elixir, java) route through `src/generator/_openapi/request-component-names.ts`;
 python and dotnet were already correct by their own means and are untouched.
 
-**What the fix does NOT add: the missing gate.** Every backend now mints unique names, but
-nothing yet *asserts* within-document uniqueness in general — the new tests pin the specific
-collision shapes, and the cross-backend parity dimension remains blind by construction (it
-compares backends to each other, not a document to itself). A check that every published
-spec mints each component name at most once would close the class rather than these
-instances, and is the natural follow-up; it is not in these PRs.
+**THE GATE IS NOW IN — `test/system/openapi-component-uniqueness-census.test.ts`.** The
+four fixes above close four instances; this closes most of the class. A whole-corpus census
+(the `corpus` vitest project, ~76 s) generates every tracked `.ddd` and asserts that no
+deployable publishes one request-component name under two different shapes.
+
+Three things make it worth having rather than decorative:
+
+1. **It is not circular.** Asserting that `resolveRequestComponentNames` returns distinct
+   names proves nothing — it does so by construction. The bug that ships is an owner the
+   minter never saw, which is exactly what #3047 was. A forgotten owner emits a name the
+   minter never resolved, so only the emitted output shows it; the census reads the emitted
+   output.
+2. **It compares SHAPES, not registrations.** The first version asserted "no name registered
+   twice" and went red on ~30 corpus files. Investigating rather than waiving them showed
+   why: a shared value object or enum (`Money`, `TaskStatus`) legitimately reaches several
+   route files and re-registers an IDENTICAL component, which is a no-op. Only differing
+   shapes under one name are the defect.
+3. **Mutation-proved on its final shape** (revert by file copy, §84): neutralising the
+   shared minter fails the node case, the java case and the non-vacuity anchor, and the
+   failure names real corpus collisions — including `SendReferralRequest` in
+   `eval-clinica/clinica/main.ddd`, which NONE of the per-shape fixtures had ever named.
+   That is the census earning its keep: it sees instances nobody wrote a fixture for.
+
+**A false positive I nearly reported as a finding, and what it cost to disprove.** The
+census's first red run also flagged `AllQuery` — every aggregate's auto-`findAll` mints
+`<Find>Query` with no aggregate qualifier (`routes-builder.ts:855`), so in a multi-aggregate
+node deployable the label collides, with genuinely different `sort` enums per aggregate. It
+looks exactly like a third instance of the class, and I wrote it up as one. It is not.
+Dumping the real document from a booted generated app (`sales-system.ddd`) settled it:
+
+| | labels the emitter writes | components in the published document |
+|---|---|---|
+| `sales-system.ddd` | 25 | **22** |
+
+`AllQuery` is one of the three missing. zod-openapi decomposes a query object into
+individual `parameters`, so the label is dropped and each endpoint carries its OWN inlined
+schema — measured, each list endpoint keeps its correct enum (`customers`:
+`["id","name","email",""]`, `products`: `["id","sku",""]`, `orders`:
+`["id","status","placedAt",""]`). The other two are `<Agg>ListResponse`, labelled but
+referenced by no route, so never emitted.
+
+The lesson is the finding's own lesson turned on the gate: **a label is not a published
+component**, and the only way to know which labels reach the document is to read the
+document. That is why the census is scoped to `*Request` — measured to be exactly the set
+where labels and components coincide — and why the scoping is written down in
+`test/_helpers/published-openapi-components.ts` rather than left as a hunch.
+
+**What the census still does NOT cover**, stated so the coverage claim stays honest: only
+node and java, because only they carry the registry key in emitted source (node's
+`.openapi("…")` literal, java's `@Schema(name=)`-or-class-name). elixir's failure mode is a
+file-path clobber that leaves one legitimate-looking module; python auto-qualifies by module
+so a collision cannot form; dotnet's Swashbuckle throws rather than silently keeping one.
+And response components are out of scope — their rules are aggregate-qualified so they
+cannot collide the way the two request rules did, which is an argument rather than a gate.
