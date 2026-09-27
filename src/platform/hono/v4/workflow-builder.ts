@@ -446,6 +446,27 @@ export function buildWorkflowsFile(
         usingMikro,
       ),
     );
+  } else if (durableEventTypes(ctx).size > 0) {
+    // PRODUCER-ONLY, but this context HAS a workflow — so the early return to
+    // `buildProducerOutboxFile` above did not fire, and the branch that would
+    // have emitted the machinery (`emitSubscriptionHandlers`) is skipped
+    // because there is no reactor.  Neither path ran, while `index.ts` and
+    // `http/index.ts` import and call all three factories unconditionally:
+    // both key off "this context has durable events", not "it has a reactor"
+    // (`emit.ts` ~L1794, `routes.ts` ~L255).  Emitter condition ≠ reference
+    // condition, so `tsc` failed with TS2304 + three TS2305 on a model that
+    // validated `0 error(s)` — the ordinary "this service publishes, that one
+    // consumes" saga, which is uncompilable the moment the producer also owns
+    // one workflow.
+    //
+    // Same two emissions `buildProducerOutboxFile` makes for the workflow-LESS
+    // shape, in the same order: an empty in-process fan-out plus the outbox.
+    // The file's imports are derived from the body text below, so they pick
+    // these up without a second hard-coded import list.
+    body.push("");
+    body.push(...emitDispatcherFactory(new Map(), usingMikro));
+    body.push("");
+    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro));
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");

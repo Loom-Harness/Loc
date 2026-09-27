@@ -43,7 +43,6 @@ import {
   flatColumnKey,
   sqlColumnName,
 } from "../../../ir/util/projection-column.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
@@ -283,7 +282,22 @@ export function buildQueryProjectionsFile(
       `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
     );
   }
-  const vos = valueObjectPool(ctx).map((v) => v.name);
+  // `ctx.valueObjects`, NOT `valueObjectPool(ctx)`.  The pool is own ∪
+  // SIBLING-context value objects, and a sibling context is only merged into
+  // `ctx` when this deployable HOSTS it — so on a multi-deployable system the
+  // pool names types that `domain/value-objects.ts` (which emits
+  // `ctx.valueObjects`, see `typescript/emit/value-objects.ts:46`) never
+  // exports.  The generated file then imported a name from a module that did
+  // not have it: `TS2306: File 'domain/value-objects.ts' is not a module` on a
+  // deployable whose own context declares no value object at all.
+  // `loom-ir.ts` states the contract this broke — resolve through the pool,
+  // "then keep only what the aggregate's wire shape actually reaches".
+  // A deployable that DOES host both contexts is unaffected: `mergeContexts`
+  // folds their value objects into `ctx.valueObjects`, leaving only the
+  // genuinely-foreign ones in `siblingValueObjects`.  python's sibling builder
+  // already filtered (`.filter(refersTo)`); java / dotnet / elixir emit
+  // nothing foreign here.
+  const vos = ctx.valueObjects.map((v) => v.name);
   const enums = ctx.enums.map((e) => e.name);
   if (vos.length + enums.length > 0) {
     lines.push(`import { ${[...vos, ...enums].join(", ")} } from "../domain/value-objects";`);

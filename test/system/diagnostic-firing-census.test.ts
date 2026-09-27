@@ -897,6 +897,34 @@ system S {
   // A frontend deployable whose ui READS `currentUser` while the ui is not
   // served under auth (`auth: ui` absent) — arrived on `main` mid-PR, same as
   // the three above.
+  // A ui whose api handles fan out across two BACKENDS.  Parses and binds;
+  // the frontend is generated against `targets:` alone, so the second
+  // handle's api module is never written and the bundle does not typecheck.
+  "loom.ui-multi-backend-unsupported": `
+system S {
+  subdomain One { context A {
+    aggregate Alpha with crudish { code: string  derived display: string = code }
+    repository Alphas for Alpha { }
+  } }
+  subdomain Two { context B {
+    aggregate Beta with crudish { label: string  derived display: string = label }
+    repository Betas for Beta { }
+  } }
+  api OneApi from One
+  api TwoApi from Two
+  ui U {
+    api O: OneApi
+    api T: TwoApi
+    page Home { route: "/" body: Text { "hello" } }
+  }
+  storage pg { type: postgres }
+  resource aState { for: A, kind: state, use: pg }
+  resource bState { for: B, kind: state, use: pg }
+  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
+  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
+  deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
+}
+`,
   "loom.current-user-needs-auth-ui": `
 system S {
   user { id: guid  role: string }

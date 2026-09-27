@@ -553,7 +553,19 @@ const REGISTERED: Ratchet[] = [
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
     //
-    max: 24,
+    // 24 -> 26 (2026-09-27, the "Assure" dev-experience evaluation): two new
+    // corpus fixtures, `channels-broker-workflow` and
+    // `projection-split-deployables`, both compile-tier-only.  A RAISE, and
+    // the justification is that each was minted to catch a defect that IS a
+    // hard compile error in the emitted project (four TS2304/TS2305 for the
+    // dropped outbox dispatcher; TS2306 "not a module" for the cross-context
+    // value-object import), so the compile leg they already ride is their
+    // oracle — a behavioural block would boot a round-trip a sibling fixture
+    // already boots and assert nothing either defect could fail.  Both cite
+    // **M-T9.13**, which owns the behavioural-tier drain; the broker one
+    // additionally needs a broker container, exactly as `channels-broker`
+    // beside it does.
+    max: 26,
   },
 ];
 
