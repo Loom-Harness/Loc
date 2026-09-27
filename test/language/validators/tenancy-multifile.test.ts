@@ -45,7 +45,11 @@ async function projectErrors(entryDdd: string): Promise<string[]> {
   const services = createDddServices(NodeFileSystem);
   const { all } = await loadProject(URI.file(entryDdd), services.shared);
   return all.flatMap((d) =>
-    (d.diagnostics ?? []).filter((x) => x.severity === 1).map((x) => x.message),
+    (d.diagnostics ?? [])
+      .filter((x) => x.severity === 1)
+      // `Diagnostic.message` is `string | MarkupContent` in this LSP types
+      // version, so it needs narrowing to land in a `string[]`.
+      .map((x) => (typeof x.message === "string" ? x.message : x.message.value)),
   );
 }
 
