@@ -429,8 +429,19 @@ export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
       if (decl) return lowerType(decl.returnType, env);
       if (read.method === "findAll" || read.method === "all")
         return { kind: "array", element: entity };
-      // `getById` / `findById`, and the fallback for an unresolvable named read
-      // — the workflow `repo-let` arm's default is likewise the bare aggregate.
+      // `findById` is the NULLABLE by-id read — that is the whole of what
+      // distinguishes it from `getById`, which throws (see
+      // `loom.handler-load-nullable-unsupported`'s remedy, "Use getById (throws
+      // → 404)").  Typing it as a bare entity was a lie the whole pipeline then
+      // believed: no gate fired (both nullable gates conclude "not optional, so
+      // nothing to refuse") and no backend guarded, so a `let` binding of it
+      // dereferenced unguarded on ALL FIVE backends — and on two of them the
+      // emitted method does not even exist (`_owners.FindById` is CS1061 on
+      // .NET; `find_by_id_owner` is an undefined function on elixir), because
+      // only the DECLARED finds get emitted under their own names.
+      if (read.method === "findById") return { kind: "optional", inner: entity };
+      // `getById`, and the fallback for an unresolvable named read — the
+      // workflow `repo-let` arm's default is likewise the bare aggregate.
       return entity;
     }
   }

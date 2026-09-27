@@ -400,11 +400,38 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   }
 
   lines.push("    rows =");
+  // ORDERED BY id, on a DOCUMENT source.  A per-row projection answers one row
+  // per source row, so its row order IS this read's order — and an unordered
+  // whole-table read answers in Postgres heap order, which moves a row the moment
+  // an `update` rewrites its tuple.  The grouped arm above has ordered by its
+  // grouping key from the start ("REQUIRED: without it the group order is
+  // nondeterministic"); this is the same requirement on the ungrouped path.
+  //
+  // The document REPOSITORY read gained its ordering when the other backends did,
+  // but this module re-implements the source read instead of riding that
+  // repository, so the fix never reached here: the repository read answered
+  // ordered while a projection over the SAME aggregate answered heap order.
+  //
+  // Spelled `|> Ecto.Query.order_by([r], r.id)` — the SAME form
+  // `document-emit.ts` uses for the identical read — and deliberately NOT as
+  // `from(record in <DocSchema>, order_by: …)`.  Putting a document read into a
+  // `from(record in …)` is the exact shape this emitter's original bug had (every
+  // reference rendered as a column a `(id, data, version)` table does not have),
+  // and `query-projection-document-source.test.ts` bans that form by name.  `id`
+  // would in fact be a real column, but keeping the document read off that form
+  // entirely leaves the gate's reach intact.
+  //
+  // The RELATIONAL arms below stay unordered: the same latent nondeterminism is
+  // one line away, but no fixture diverges on it today — nothing rewrites a
+  // relational tuple in the corpus, so heap order still matches id order — and
+  // ordering them would re-baseline every relational projection golden for no
+  // observed failure.
   if (isDocSource) {
     // Document source: load, then narrow IN-APP (see `isDocSource` above).
+    lines.push(`      ${sourceMod}`);
+    lines.push(`      |> Ecto.Query.order_by([r], r.id)`);
+    lines.push(`      |> Repo.all()`);
     if (docWhere) {
-      lines.push(`      ${sourceMod}`);
-      lines.push(`      |> Repo.all()`);
       if (docPredReadsRecord(docWhere)) {
         lines.push(`      |> Enum.filter(fn ${docFilterLambdaArg(docWhere)} ->`);
         lines.push(`        record = row.data`);
@@ -413,8 +440,6 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       } else {
         lines.push(`      |> Enum.filter(fn ${docFilterLambdaArg(docWhere)} -> ${docWhere} end)`);
       }
-    } else {
-      lines.push(`      Repo.all(${sourceMod})`);
     }
   } else if (where) {
     lines.push(`      from(record in ${sourceMod}, where: ${where})`);
@@ -542,6 +567,15 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   // (both aggregation arms, any `where`, any `join`) emits a `from(...)`, so
   // their modules keep the import byte-identically.
   const ectoQueryImport = /\bfrom\(/.test(body) ? "  import Ecto.Query\n" : "";
+  // `order_by` is a MACRO.  The document-source read calls it FULLY QUALIFIED —
+  // it stays off the `from(record in …)` form on purpose (see the source read
+  // above) — and a fully-qualified macro call needs the `require`: without it
+  // Elixir parses it as a remote FUNCTION call, the `[r]` never becomes a query
+  // binding, and the module fails to compile with `undefined variable "r"`.
+  // Emitted only when the body makes that call and no `import` already covers it,
+  // so every other projection module keeps its header byte-identically.
+  const ectoQueryRequire =
+    /\bEcto\.Query\./.test(body) && ectoQueryImport === "" ? "  require Ecto.Query\n" : "";
 
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -553,7 +587,7 @@ defmodule ${moduleName} do
   Foundation: vanilla (plain Ecto).
   """
 
-${ectoQueryImport}  alias ${appModule}.Repo
+${ectoQueryImport}${ectoQueryRequire}  alias ${appModule}.Repo
 
   @doc "Execute the query-time projection and return the projected rows."
   ${runHead(proj).spec} :: [map()]

@@ -53,9 +53,14 @@ system RosterSys {
       operation declaredOptional(l: string): bool { let f = Owners.byLabel(l)  return f == null }
       // 'named' — the BUILT-IN verbs every repository auto-emits.  None is in
       // 'finds', so none has a declared return type to read, and they do NOT
-      // share one shape: getById/findById load one row, findAll/all return the
-      // whole collection.  Collapsing them either way reintroduces the bug for
-      // the other half.
+      // share one shape.  Two axes, not one: getById/findById load a single row
+      // where findAll/all return the whole collection, AND getById THROWS on a
+      // miss where findById RETURNS ABSENT — so findById binds an OPTIONAL
+      // Owner, not a bare one.  Collapsing either axis reintroduces the bug for
+      // the other half: bind findAll as one aggregate and .count emits verbatim;
+      // bind findById as non-null and every backend dereferences it unguarded
+      // (and .NET/elixir emit a method name that does not even exist, since only
+      // DECLARED finds are emitted under their own names).
       operation builtinGetById(o: Owner id): string { let f = Owners.getById(o)  return f.label }
       operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f.label }
       operation builtinFindAll(): bool { let f = Owners.findAll()  return f.count > 0 }
@@ -115,7 +120,9 @@ describe("domainService: the IR type of a let-bound repository read (F1)", () =>
     ["declaredList", { kind: "array", element: OWNER }],
     ["declaredOptional", { kind: "optional", inner: OWNER }],
     ["builtinGetById", OWNER],
-    ["builtinFindById", OWNER],
+    // findById is the RETURN-ABSENT sibling of the throwing getById.  This row
+    // pinned a bare OWNER — the defect, not the contract.
+    ["builtinFindById", { kind: "optional", inner: OWNER }],
     ["builtinFindAll", { kind: "array", element: OWNER }],
     ["builtinAll", { kind: "array", element: OWNER }],
     ["criterionAll", { kind: "array", element: OWNER }],
