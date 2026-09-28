@@ -1,0 +1,24 @@
+system Probe {
+  subdomain Ops {
+    context Work {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+
+        operation schedule(at: string) {
+          this.scheduled := true
+        }
+      }
+      repository WorkOrders for WorkOrder { }
+
+      workflow scheduleWorkOrder {
+        create(note: string) {
+          let w = WorkOrder.create({ title: note, scheduled: false })
+        }
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: Work, kind: state, use: p }
+  deployable api { platform: node, contexts: [Work], dataSources: [r], port: 3000 }
+}

@@ -8,6 +8,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
+import { deriveContextOperations } from "../../util/api-surface.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // Page/component `derived name: T = expr` bindings are supported on every
@@ -16,11 +17,14 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // inline-recomputes the expr at each use.  No framework gate is needed.
 
 // Default-deny enforcement (auth.md / quickstart §4.3).  When the system's
-// `auth { enforcement: denyByDefault }` is set, every reachable *command* on
-// an `auth: required` backend must declare a `requires` gate — otherwise it
-// serves ungated.  `enforcement: opt` (the default) preserves the existing
-// per-`requires` opt-in.  Escape hatch: `requires true` marks a command
-// intentionally public.
+// `auth { … }` block is in `enforcement: denyByDefault` — the LANGUAGE DEFAULT
+// since M-T3.1, so an `auth` block that writes no `enforcement:` is in it too
+// (`DEFAULT_ENFORCEMENT`, `src/ir/lower/lower-auth.ts`) — every reachable
+// *command* on an `auth: required` backend must declare a `requires` gate —
+// otherwise it serves ungated.  An explicit `enforcement: opt` keeps the
+// pre-flip per-`requires` opt-in.  A system with no `auth` block has no
+// posture (`sys.auth` is undefined) and is not checked.  Escape hatch:
+// `requires true` marks a command intentionally public.
 //
 // Scope: every client-reachable command (mutation) endpoint —
 //   - public aggregate actions: operations, **creates**, destroys (each
@@ -97,6 +101,40 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             });
           }
         }
+      }
+      // The SYNTHESISED single-record read, `GET /api/<aggs>/{id}` (F-009 /
+      // mission M-T3.19).  Every non-abstract aggregate serves one on all five
+      // backends, it carries NO gate on any of them, and until this diagnostic
+      // nothing said so: a model could gate `find all` admin-only and still
+      // hand the same rows out one id at a time to any authenticated caller.
+      // (The tenancy filter DOES cover the by-id read — a foreign tenant gets
+      // 404 — so what leaks is role separation WITHIN a tenant.)
+      //
+      // WARNING, not an error, and a code of its own rather than
+      // `loom.default-deny-ungated`.  The two differ in the one property that
+      // matters for an error: RECOURSE.  Every `loom.default-deny-ungated` arm
+      // names a `requires` the author can write — which is also precisely why
+      // the arms that have no such surface (the enrichment-injected `find all`,
+      // a macro-emitted projection) are EXEMPTED rather than reported.  The
+      // by-id read has no surface either (M-T3.19 designs one:
+      // `find byId(id: T id): T? requires <expr>`, recognised as *the* by-id
+      // read and honoured by all five route emitters — a five-backend feature,
+      // not a validator change), so raising an error here would make every
+      // `denyByDefault` model unbuildable with nothing the author could do
+      // about it.  A warning turns a SILENT hole into an honest, visible one
+      // today; when the surface lands, the check gains its `if (gated)
+      // continue;` and can be promoted to an error under the same code.
+      for (const op of deriveContextOperations(c)) {
+        if (op.kind !== "getById") continue;
+        diags.push({
+          severity: "warning",
+          code: "loom.default-deny-by-id-ungated",
+          message: diagMessage("loom.default-deny-by-id-ungated", {
+            name: op.aggregate,
+            path: op.path,
+          }),
+          source: `${c.name}/${op.aggregate}`,
+        });
       }
       // Repository finds: each author-declared named find is its own GET route
       // and carries the same optional `requires <expr>` gate.  The aggregate

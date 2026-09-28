@@ -101,10 +101,21 @@ export function renderJavaController(
   // expected version in the `If-Match` header (think-time CAS), forwarded to the
   // service.  Non-versioned aggregates thread nothing → byte-identical routes.
   const versioned = aggregateIsVersioned(agg);
+  //
+  // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
+  // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
+  // (RFC 9110 §8.8.3), so a client echoing back the ETag it was given sends
+  // `If-Match: "3"` — and Spring's default String→Integer converter throws on
+  // that, answering **400 for a spec-correct request**.  The other four
+  // backends all strip the quotes before converting (hono `parseIfMatch`,
+  // .NET `Trim('"')`, python `.strip(chr(34))`, elixir `String.trim("\"")`),
+  // so java binding the raw value to a number was the one backend that could
+  // not accept what the others do — invisible because no generated client has
+  // ever sent the header.
   const ifMatchHeaderParam = versioned
-    ? `, @RequestHeader(value = "If-Match", required = false) Integer ifMatch`
+    ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
     : "";
-  const ifMatchServiceArg = versioned ? ", ifMatch" : "";
+  const ifMatchServiceArg = versioned ? ", IfMatch.expectedVersion(ifMatch)" : "";
   const idJava = javaValueTypeForId(agg.idValueType);
   const imports = new Set<string>(["java.util.List"]);
   if (idJava === "UUID") imports.add("java.util.UUID");
@@ -521,6 +532,10 @@ export function renderJavaController(
     // No `Paged;` import: since F2-W-07 the controller never names the generic
     // — both paged arms (declared find + auto-findAll) return `<Agg>Paged` and
     // bind the service's `Paged<T>` through `var`.
+    // Optimistic concurrency: the shared `If-Match` entity-tag parser.  Guarded
+    // on the package so a byLayer layout (controller already in `<base>.api`)
+    // does not import from its own package.
+    versioned && ctx.pkg !== `${ctx.basePkg}.api` ? `import ${ctx.basePkg}.api.IfMatch;` : null,
     anyFindGate ? `import ${ctx.basePkg}.domain.common.ForbiddenException;` : null,
     anyFindAbsenceThrow ? `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;` : null,
     anyFindGateUsesUser ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
@@ -594,6 +609,53 @@ function initBinderLines(
 /** RFC 7807 problem+json advice — the DomainExceptionFilter / Hono
  *  onError analog: same statuses, same envelope, same 422 `errors[]`
  *  extension shape, so the frontend ACL works against any backend. */
+/** `api/IfMatch.java` — the optimistic-concurrency precondition parser.
+ *
+ *  Emitted only when some in-scope aggregate is `versioned`.
+ *
+ *  The header cannot bind straight to an `Integer`: an entity-tag is a QUOTED
+ *  string (RFC 9110 §8.8.3), so a client that echoes back the `ETag` it was
+ *  given sends `If-Match: "3"` and Spring's default String→Integer converter
+ *  throws — a **400 for a spec-correct request**.  Every other Loom backend
+ *  strips the quotes first, so this brings java onto the same grammar:
+ *
+ *    `3`      — bare integer (what the generated clients and the other four
+ *               backends have always accepted)
+ *    `"3"`    — strong entity-tag, the spelling `ETag` hands the client
+ *    `*`      — RFC "any current representation": no precondition
+ *
+ *  Anything else (including a weak `W/"3"`, which is not a usable concurrency
+ *  validator) yields `null`, which the service treats as "no client
+ *  precondition" and falls back to write-time CAS — the same stance the other
+ *  backends take on an unparseable value. */
+export function renderIfMatchHeaderParser(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.api;`,
+    ``,
+    `/** Parses the \`If-Match\` optimistic-concurrency precondition. */`,
+    `public final class IfMatch {`,
+    `    private IfMatch() {}`,
+    ``,
+    `    /** The client's expected version, or {@code null} when the header is`,
+    `     *  absent, {@code *}, or not a form this API accepts. */`,
+    `    public static Integer expectedVersion(String header) {`,
+    `        if (header == null) return null;`,
+    `        var raw = header.trim();`,
+    `        if (raw.isEmpty() || "*".equals(raw)) return null;`,
+    `        if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {`,
+    `            raw = raw.substring(1, raw.length() - 1);`,
+    `        }`,
+    `        try {`,
+    `            return Integer.valueOf(raw);`,
+    `        } catch (NumberFormatException e) {`,
+    `            return null;`,
+    `        }`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 /** `api/NoNulChar.java` — the NUL guard every request STRING carries.
  *
  *  A declared `string` lands in a Postgres `text` column, which cannot hold
@@ -782,6 +844,14 @@ export function renderApiExceptionAdvice(
    *  pointer every other backend answers with.  Empty ⇒ byte-identical to
    *  pre-M-T6.36 output. */
   mangledWireNames: readonly string[] = [],
+  /** True when a hosted value object declares an invariant — the advice then
+   *  carries the `ValueObjectInvariantException` handler (M-T5.1).  False ⇒
+   *  byte-identical. */
+  valueObjectInvariants = false,
+  /** True when a messaged aggregate rule can trip at the domain floor — the
+   *  `onDomain` handler then answers a `DomainException` carrying a rule code
+   *  with the same errors[] entry (M-T1.11 (c)).  False ⇒ byte-identical. */
+  domainFloorCodes = false,
 ): string {
   // Structural-conflict statuses resolved through the `httpStatus` mapper
   // (expressible-builtins.md §3 / M-T3.4a): a literal 409 by default, or the
@@ -841,6 +911,7 @@ export function renderApiExceptionAdvice(
     `import ${basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${basePkg}.domain.common.DisallowedException;`,
     `import ${basePkg}.domain.common.DomainException;`,
+    valueObjectInvariants && `import ${basePkg}.domain.common.ValueObjectInvariantException;`,
     `import ${basePkg}.domain.common.WireFormatException;`,
     `import ${basePkg}.domain.common.ForbiddenException;`,
     `import ${basePkg}.domain.common.WireFormatException;`,
@@ -938,6 +1009,46 @@ export function renderApiExceptionAdvice(
     `        return respond(problem, ${UNPROCESSABLE_ENTITY});`,
     `    }`,
     ``,
+    // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
+    // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
+    // the body computed the value, so it names no request member), the rule's
+    // message, and for a messaged rule its content-hash code, resolved through
+    // the same bundle the wire rung uses.  Spring dispatches to the MOST
+    // specific handler, so this wins over `onDomain` for the subclass.
+    // M-T5.1 + M-T1.11 (c) — ONE errors[]-entry serializer for both
+    // domain-floor refusals a client can bind: the value object refused inside a
+    // body (pointer "") and, with the code carriage on, a MESSAGED invariant /
+    // check / precondition (the rule's own pointer).  The message resolves
+    // through the same bundle the wire rung uses.
+    ...(valueObjectInvariants || domainFloorCodes
+      ? [
+          `    private ResponseEntity<ProblemDetail> domainFloorWithEntry(DomainException e, String ruleCode, String pointer, WebRequest request) {`,
+          `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${domainStatus});`,
+          `        httpMetrics.recordDomainFault("domain_error");`,
+          `        var problem = problem(${domainStatus}, "${domainTitle}", e.getMessage(), request);`,
+          `        var entry = new java.util.LinkedHashMap<String, Object>();`,
+          `        entry.put("pointer", pointer);`,
+          localizeMessages
+            ? `        entry.put("message", ruleCode == null ? e.getMessage() : messages.getMessage(ruleCode, null, e.getMessage(), Locale.forLanguageTag(RequestContext.locale().split(",")[0].split(";")[0].trim())));`
+            : `        entry.put("message", e.getMessage());`,
+          `        if (ruleCode != null) entry.put("code", ruleCode);`,
+          `        problem.setProperty("errors", java.util.List.of(entry));`,
+          `        return respond(problem, ${domainStatus});`,
+          `    }`,
+          ``,
+        ]
+      : []),
+    // Spring dispatches to the MOST specific handler, so this wins over
+    // `onDomain` for the subclass.
+    ...(valueObjectInvariants
+      ? [
+          `    @ExceptionHandler(ValueObjectInvariantException.class)`,
+          `    public ResponseEntity<ProblemDetail> onValueObjectInvariant(ValueObjectInvariantException e, WebRequest request) {`,
+          `        return domainFloorWithEntry(e, e.getRuleCode(), "", request);`,
+          `    }`,
+          ``,
+        ]
+      : []),
     `    @ExceptionHandler(DomainException.class)`,
     `    public ResponseEntity<ProblemDetail> onDomain(DomainException e, WebRequest request) {`,
     // RS-15 (owner decision, 2026-07-29): a domain-floor rejection — a tripped
@@ -947,6 +1058,11 @@ export function renderApiExceptionAdvice(
     // request.  M-T5.20 makes the rung remappable via `httpStatus DomainError
     // -> <Code>`, resolved through the SAME map every structural conflict
     // uses, so the runtime arm and its OpenAPI declaration can't drift.
+    ...(domainFloorCodes
+      ? [
+          `        if (e.getRuleCode() != null) return domainFloorWithEntry(e, e.getRuleCode(), e.getPointer() == null ? "" : e.getPointer(), request);`,
+        ]
+      : []),
     `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${domainStatus});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
     `        return respond(problem(${domainStatus}, "${domainTitle}", e.getMessage(), request), ${domainStatus});`,

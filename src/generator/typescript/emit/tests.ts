@@ -285,6 +285,13 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
  *  context-integration renderer, which shares the matcher mapping (its
  *  let-bound-find constraint keeps the actual expression await-free). */
 export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): string | null {
+  // `toBeNull` and `toContain` need NO arm here, and that is deliberate rather
+  // than an omission: both are native vitest matchers whose names line up 1:1
+  // with the DSL's, and vitest's `toContain` already performs at run time the
+  // same subject dispatch the other four backends have to spell out (element
+  // membership for an array, substring for a string).  The generic tail below
+  // renders them correctly.  `toBeAbsent` never reaches this emitter — it is
+  // e2e-only (`loom.unit-absent-invalid`).
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
   let receiver = expr.receiver;
   let negate = false;

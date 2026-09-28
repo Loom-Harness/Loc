@@ -95,7 +95,9 @@ describe("root render-time error boundary", () => {
       const shell = files.get("web/src/app/app.component.ts")!;
       expect(shell).toContain("readonly errors = inject(LoomErrorHandler);");
       expect(shell).toContain("@if (errors.lastError(); as err) {");
-      expect(shell).toContain('data-testid="root-error"');
+      // `app-error`, not `root-error`: one spelling across every target, so a
+      // gate keyed on it cannot silently skip a whole framework.
+      expect(shell).toContain('data-testid="app-error"');
       expect(shell).toContain("{{ err.message }}");
     });
   }

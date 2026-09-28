@@ -5,6 +5,8 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
+import { isAggregate, isSubdomain } from "../../../src/language/generated/ast.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -43,12 +45,12 @@ describe("id-link & optional-containment syntax", () => {
       `,
       { validation: true },
     );
-    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
     expect(errors).toEqual([]);
     const ctx = (doc.parseResult.value as Model).members[0] as
       | import("../../../src/language/generated/ast.js").BoundedContext
       | undefined;
-    const order = ctx!.members.find((m) => m.name === "Order") as
+    const order = ctx!.members.find((m) => isAggregate(m) && m.name === "Order") as
       | import("../../../src/language/generated/ast.js").Aggregate
       | undefined;
     const props = order!.members.filter(
@@ -98,7 +100,7 @@ describe("A4 collection transformation ops — parse + validate clean", () => {
       `,
       { validation: true },
     );
-    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
     expect(errors).toEqual([]);
   });
 });
@@ -128,7 +130,7 @@ describe("A4 reductions (min/max) — parse + validate clean", () => {
       `,
       { validation: true },
     );
-    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
     expect(errors).toEqual([]);
   });
 });
@@ -155,7 +157,7 @@ describe("A4 avg(λ) — parse + validate clean", () => {
       `,
       { validation: true },
     );
-    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+    const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
     expect(errors).toEqual([]);
   });
 });
@@ -171,7 +173,7 @@ describe("parsing & validation of examples", () => {
     expect(contexts).toHaveLength(1);
     const sales = contexts[0]!;
     expect(sales.name).toBe("Sales");
-    const orderAgg = sales.members.find((m) => m.name === "Order");
+    const orderAgg = sales.members.find((m) => isAggregate(m) && m.name === "Order");
     expect(orderAgg?.$type).toBe("Aggregate");
   });
 
@@ -219,9 +221,7 @@ describe("parsing & validation of examples", () => {
       `,
       { validation: true },
     );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message)).toEqual(
-      [],
-    );
+    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText)).toEqual([]);
     const ctx = (doc.parseResult.value as Model).members[0] as
       | import("../../../src/language/generated/ast.js").BoundedContext
       | undefined;
@@ -262,9 +262,7 @@ describe("parsing & validation of examples", () => {
       `,
       { validation: true },
     );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message)).toEqual(
-      [],
-    );
+    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText)).toEqual([]);
     const sys = (doc.parseResult.value as Model).members[0] as
       | import("../../../src/language/generated/ast.js").System
       | undefined;
@@ -307,9 +305,7 @@ describe("parsing & validation of examples", () => {
       `,
       { validation: true },
     );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message)).toEqual(
-      [],
-    );
+    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText)).toEqual([]);
   });
 
   it("parses per-module `permissions { ... }` blocks", async () => {
@@ -337,15 +333,13 @@ describe("parsing & validation of examples", () => {
       `,
       { validation: true },
     );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message)).toEqual(
-      [],
-    );
+    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText)).toEqual([]);
     const sys = (doc.parseResult.value as Model).members[0] as
       | import("../../../src/language/generated/ast.js").System
       | undefined;
     const sales = sys!.members.find(
-      (m): m is import("../../../src/language/generated/ast.js").Module =>
-        m.$type === "Subdomain" && m.name === "Sales",
+      (m): m is import("../../../src/language/generated/ast.js").Subdomain =>
+        isSubdomain(m) && m.name === "Sales",
     );
     expect(sales!.permissions).toHaveLength(1);
     expect(sales!.permissions[0]!.decls.map((d) => d.name)).toEqual([
@@ -377,7 +371,7 @@ async function parseRaw(src: string): Promise<{ parserErrors: string[] }> {
   const services = createDddServices(NodeFileSystem);
   const helper = parseHelper(services.Ddd);
   const doc = await helper(src, { validation: false });
-  return { parserErrors: doc.parseResult.parserErrors.map((e) => e.message) };
+  return { parserErrors: doc.parseResult.parserErrors.map(diagText) };
 }
 
 async function parseSnippet(src: string): Promise<{ errors: string[]; model: Model }> {
@@ -826,9 +820,7 @@ describe("page metamodel — grammar smoke tests", () => {
       `,
       { validation: true },
     );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message)).toEqual(
-      [],
-    );
+    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText)).toEqual([]);
 
     const members = (doc.parseResult.value as Model).members;
     const sol = members.find((m) => m.$type === "Solution") as
@@ -855,9 +847,7 @@ describe("page metamodel — grammar smoke tests", () => {
       `,
       { validation: true },
     );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message)).toEqual(
-      [],
-    );
+    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText)).toEqual([]);
     const sol = (doc.parseResult.value as Model).members.find(
       (m) => m.$type === "Solution",
     ) as import("../../../src/language/generated/ast.js").Solution;
@@ -881,7 +871,7 @@ describe("page metamodel — grammar smoke tests", () => {
       `,
       { validation: true },
     );
-    const messages = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+    const messages = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
     expect(messages.some((m) => m.includes("nonexistent"))).toBe(true);
   });
 });

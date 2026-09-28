@@ -4,6 +4,7 @@ import {
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { collectSchemaDeps } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 
@@ -39,6 +40,10 @@ export function allWorkflows(
 
 export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
   const workflows = allWorkflows(contexts);
+  // Identifier bases minted against the deployable's whole universe so a
+  // workflow's request schema cannot alias an aggregate's create/operation one
+  // (`_frontend/request-names.ts`).
+  const names = requestNamesForContexts(contexts);
   // Observable workflows (a persisted correlation-state row) get read-only
   // instance query hooks (workflow-instance-visibility.md) — `useQuery` is
   // only imported when at least one exists, so a saga-less project's module
@@ -63,18 +68,17 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
   }
 
   for (const { wf } of workflows) {
-    lines.push(`export const ${upperFirst(wf.name)}Request = z.object({`);
+    const base = names.workflow(wf.name);
+    lines.push(`export const ${base}Request = z.object({`);
     for (const p of wf.params) {
       lines.push(`  ${p.name}: ${zodForRequest(p.type)},`);
     }
     lines.push(`});`);
-    lines.push(
-      `export type ${upperFirst(wf.name)}Request = z.infer<typeof ${upperFirst(wf.name)}Request>;`,
-    );
+    lines.push(`export type ${base}Request = z.infer<typeof ${base}Request>;`);
     lines.push("");
-    lines.push(`export function use${upperFirst(wf.name)}Workflow() {`);
+    lines.push(`export function use${base}Workflow() {`);
     lines.push(`  return createMutation(() => ({`);
-    lines.push(`    mutationFn: async (input: ${upperFirst(wf.name)}Request) => {`);
+    lines.push(`    mutationFn: async (input: ${base}Request) => {`);
     lines.push(`      await api.post(\`/workflows/${snake(wf.name)}\`, input);`);
     lines.push(`    },`);
     lines.push(`  }));`);

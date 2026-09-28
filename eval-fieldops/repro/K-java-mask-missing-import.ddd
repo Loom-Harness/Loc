@@ -1,0 +1,16 @@
+// `mask unless` on the java backend emits Objects.equals(...) without importing java.util.Objects.
+system P {
+  user { id: guid  role: string }
+  auth { enforcement: opt  oidc { issuer: env("I")  clientId: env("C") } }
+  subdomain S { context C {
+    aggregate Tech with crudish {
+      fullName: string
+      costRate: money mask unless currentUser.role == "admin"
+      derived display: string = fullName
+    }
+    repository Techs for Tech {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: java, contexts: [C], dataSources: [st], auth: required, port: 8080 }
+}

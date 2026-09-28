@@ -111,6 +111,46 @@ describe("felizPersistCodec — the F# side", () => {
     expect(felizPersistCodec(arr(vo()))).toBeUndefined();
     expect(felizPersistCodec(arr(arr(prim("int"))))).toBeUndefined();
   });
+
+  it("PERSISTS an OPTIONAL scalar as a `'T option` cell — at EVERY tier", () => {
+    // The Dart twin refuses this under `persist: url` (its back/forward re-seed
+    // goes through `copyWith`, whose `x ?? this.x` cannot set a cell to null).
+    // Feliz re-seeds with `{ model with X = loadStoreX () }` — a full record
+    // update that re-runs the loader — so an absent param restores `None`
+    // rather than the stale `Some v`, and there is no cause for the refusal.
+    // Hence `felizPersistCodec` takes NO tier argument: copying the Dart gate
+    // would have been a gate with no defect behind it.
+    expect(felizPersistCodec(opt(prim("string")))).toEqual({
+      kind: "scalar",
+      scalar: "string",
+      nullable: true,
+    });
+    expect(felizPersistCodec(opt(prim("int")))).toEqual({
+      kind: "scalar",
+      scalar: "int",
+      nullable: true,
+    });
+    expect(felizPersistCodec(opt(prim("datetime")))).toEqual({
+      kind: "scalar",
+      scalar: "datetime",
+      nullable: true,
+    });
+    expect(felizPersistCodec(opt(enumT()))).toEqual({
+      kind: "scalar",
+      scalar: "string",
+      nullable: true,
+    });
+  });
+
+  it("REFUSES an optional ARRAY, an optional record, and a double optional", () => {
+    // One nullable layer over a SCALAR is a cell type; one over a collection is
+    // a second kind of emptiness (absent list vs empty list) the flat blob
+    // cannot distinguish.  The Dart table draws the line in the same place.
+    expect(felizPersistCodec(opt(arr(prim("int"))))).toBeUndefined();
+    expect(felizPersistCodec(opt(vo()))).toBeUndefined();
+    expect(felizPersistCodec(opt(prim("File")))).toBeUndefined();
+    expect(felizPersistCodec(opt(opt(prim("int"))))).toBeUndefined();
+  });
 });
 
 describe("flutterPersistCodec — the Dart side", () => {
@@ -193,7 +233,7 @@ describe("flutterPersistCodec — the Dart side", () => {
   });
 });
 
-describe("the ONE remaining divergence between the two tables", () => {
+describe("the two tables agree on every TYPE — the last divergence is TIER-only", () => {
   // The reason this file pairs them.  A copy-paste between the two
   // near-identical modules would quietly erase a deliberate disagreement, and
   // nothing else in the suite would notice.  `support` is asserted as a
@@ -214,16 +254,32 @@ describe("the ONE remaining divergence between the two tables", () => {
     expect(support(prim("json"))).toEqual({ feliz: true, flutter: true });
   });
 
-  it("an OPTIONAL scalar: Dart persists it, F# does not", () => {
-    // A new divergence, opened deliberately by the same widening: the F# table
-    // has no `optional` arm at all.  Pinned so the asymmetry stays a reviewed
-    // fact rather than being discovered by an author whose store moves between
-    // the two frontends.
-    expect(support(opt(prim("int")))).toEqual({ feliz: false, flutter: true });
-    expect(support(opt(prim("string")))).toEqual({ feliz: false, flutter: true });
+  it("an OPTIONAL scalar: BOTH persist it at the blob tiers — the row that closed", () => {
+    // Wave C2 packet 2j opened this divergence (the Dart table gained a
+    // nullable cell, the F# table had no `optional` arm); packet 2l closed it
+    // by giving F# the arm.  This is the drain of ledger row
+    // `feliz-flutter-persist-codec-asymmetry` — with `json` above, the two
+    // TABLES now answer identically for every type.
+    expect(support(opt(prim("int")))).toEqual({ feliz: true, flutter: true });
+    expect(support(opt(prim("string")))).toEqual({ feliz: true, flutter: true });
+    expect(support(opt(prim("datetime")))).toEqual({ feliz: true, flutter: true });
+    expect(support(opt(enumT()))).toEqual({ feliz: true, flutter: true });
   });
 
-  it("and they AGREE everywhere else, so `json` is the WHOLE difference", () => {
+  it("…and the ONE thing left is a TIER, not a type: a nullable cell under `url`", () => {
+    // The only surviving disagreement, and it is not a table row — it is the
+    // `url` tier's restore path.  Flutter's `hydrateFromUrl` goes through
+    // `copyWith` (`x ?? this.x`), which cannot set a cell to null, so an absent
+    // param would silently KEEP the old value; Feliz's `StoreUrlChanged` arm
+    // rebuilds the record field from the loader, so it restores `None`.  Pinned
+    // in BOTH directions so neither side can quietly copy the other's answer.
+    expect(flutterPersistCodec(opt(prim("int")), "url")).toBeUndefined();
+    expect(flutterPersistCodec(opt(prim("int")), "local")).toBeDefined();
+    // `felizPersistCodec` takes no tier at all — its answer cannot depend on one.
+    expect(felizPersistCodec(opt(prim("int")))).toBeDefined();
+  });
+
+  it("and they AGREE everywhere else, so nothing else differs", () => {
     // Without this, the row above would be consistent with the two functions
     // having drifted everywhere; pinning the agreement is what makes `json`
     // the exhaustive difference over the types tested here.  The four

@@ -19,7 +19,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { orientComparison } from "../../ir/util/comparison-operands.js";
+import { nullComparison, orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
@@ -257,6 +257,23 @@ export function lowerToDrizzle(
       }
       const drizzleFn = COMPARE_OP_TO_DRIZZLE[e.op];
       if (!drizzleFn) return null;
+      // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL, which
+      // is a DIFFERENT operator from `=`/`<>`, not a value binding.  Drizzle
+      // types `eq`/`ne` as `(column, column | value)` with no `null` in the
+      // value union, so binding it emitted `ne(schema.x.y, null)` and the
+      // generated project failed `tsc` with TS2769 (F-007).  Handled ahead of
+      // the temporal/orientation arms below: a null literal is neither a
+      // temporal fragment nor a bindable value, so both would mis-handle it.
+      {
+        const nullTest = nullComparison(e.op, e.left, e.right);
+        if (nullTest) {
+          const col = renderColumnRef(nullTest.operand);
+          if (col === null) return null;
+          const fn = nullTest.negated ? "isNotNull" : "isNull";
+          ops.add(fn);
+          return `${fn}(${col})`;
+        }
+      }
       // A5 temporal — a `datetime ± duration` side is an sql`…` fragment
       // that composes on EITHER side of the comparison, against a column, a
       // bound value, or another fragment (`this.due + days(1) < q`,
@@ -368,9 +385,12 @@ export function lowerToDrizzle(
   function booleanColumnRef(e: ExprIR): string | null {
     if (e.kind === "paren") return booleanColumnRef(e.inner);
     const isBool = (t: TypeIR | undefined): boolean => t?.kind === "primitive" && t.name === "bool";
-    if (e.kind === "member" && e.receiver.kind === "this" && isBool(e.memberType)) {
-      return `schema.${tableName}.${e.member}`;
-    }
+    // `this.<field>` AND `this.<vo>.<sub>` — both are columns (the schema
+    // flattens a value object to `<field>_<subField>`), so both can stand
+    // alone in a boolean position.  `renderColumnRef` owns the spelling of
+    // each; this only adds the bool TYPE requirement, so a bare non-bool
+    // column in a boolean slot stays the (correctly rejected) shape it was.
+    if (e.kind === "member" && isBool(e.memberType)) return renderColumnRef(e);
     if (e.kind === "ref" && e.refKind === "this-prop" && isBool(e.type)) {
       return `schema.${tableName}.${e.name}`;
     }

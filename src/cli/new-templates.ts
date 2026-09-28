@@ -247,37 +247,16 @@ export function renderStarter(opts: {
 
   return `// ${sys} — scaffolded by \`ddd new\` (template: ${opts.template}, platform: ${opts.platform}).
 // Edit this model, then regenerate:
-//   ddd generate system main.ddd -o . && docker compose up
+//   npx ddd generate system main.ddd -o . && docker compose up
 
 system ${sys} {
 
-  // Authorization is opt-in in a fresh model.  When you wire real auth, prefer
-  // deny-by-default: every client-reachable command (operations, creates,
-  // destroys, workflow starters + handlers) and every DECLARED read (repository
-  // finds, projections) must then carry a \`requires <expr>\` gate —
-  // \`requires true\` is the explicit "intentionally public" escape.  Mark the
-  // deployable \`auth: required\` to enforce it.
-  //
-  // Two limits to know before you turn it on.  The synthesised LIST read is
-  // coverable — declare \`find all(): <T>[] requires <expr>\` on the repository
-  // and the gate lands on \`GET /<plural>\`.  The synthesised BY-ID read is not:
-  // \`GET /<plural>/{id}\` has no author surface to attach a gate to, so under
-  // denyByDefault it still serves to any authenticated caller, and nothing
-  // warns (mission M-T3.19).  And \`with crudish\` generates its
-  // create/update/destroy, which likewise cannot carry a gate today:
-  // hand-write those three on any aggregate you want gated until
-  // \`crudish(requires: <Policy>)\` lands.  In both cases the gate is named at
-  // the declaration — an INHERITED aggregate-level default was rejected, because
-  // a deny rule invisible at the member it guards is the wrong trade.
-  //   user {
-  //     id: string
-  //     role: string
-  //     permissions: string[]
-  //   }
-  //   auth {
-  //     enforcement: denyByDefault
-  //     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
-  //   }
+  // Authentication is not wired yet.  Adding an \`auth { … }\` block (with a
+  // \`user { … }\` claim shape) turns on deny-by-default, the language default
+  // for an \`auth\` block: every client-reachable command and declared read on
+  // an \`auth: required\` deployable must then carry a \`requires <expr>\` gate.
+  // README.md § "Authentication and authorization" has the block to paste,
+  // the gates it asks for, and the \`enforcement: opt\` escape.
 
 ${domain.source}
 
@@ -325,27 +304,91 @@ A Loom project scaffolded with \`ddd new\` — platform **${opts.platform}**${
 
 \`\`\`bash
 # 1. Generate the project tree + docker-compose.yml in place
-ddd generate system main.ddd -o .
+npx ddd generate system main.ddd -o .
 
 # 2. Build and start the stack
 docker compose up --build
 \`\`\`
+
+(\`npx ddd\` — a bare \`ddd\` only works if you linked the CLI yourself; from a
+clone of the Loom repo the spelling is \`node bin/cli.js\`.)
 
 Then open:
 
 - Backend API:          http://localhost:${backendPort}
 ${frontendLine}
 
+Every REST route is mounted under \`/api\`, named by the aggregate's
+snake_cased plural — \`curl localhost:${backendPort}/api/<aggregates>\`, e.g. a
+\`Project\` aggregate serves \`GET /api/projects\` and \`GET /api/projects/{id}\`.
+The full surface is always \`GET /openapi.json\`.
+
 ## Edit the model
 
-Change \`main.ddd\` and re-run \`ddd generate system main.ddd -o .\`.
+Change \`main.ddd\` and re-run \`npx ddd generate system main.ddd -o .\`.
 Generation overwrites its own output every run; pin any file you hand-edit
 in \`.loomignore\` so it survives (see the comments in that file).
 
+Schema changes become migrations, so two files have to be **committed** for
+the next regenerate to produce a correct delta rather than a fresh baseline:
+\`.loom/snapshots/\` (the schema the migrations have built up) and
+\`.loom/main.migration-history.json\` (which versions this model has emitted).
+Without the second, generating into a directory that carries no migrations —
+a CI job, a fresh clone — re-issues the first migration under a version your
+database has already applied, and the change silently never lands.
+
+## Authentication and authorization
+
+The model starts without auth.  To wire OIDC, add a claim shape and an
+\`auth\` block inside \`system { … }\`, and mark the backend deployable
+\`auth: required\`:
+
+\`\`\`ddd
+user {
+  id: string
+  role: string
+  permissions: string[]
+}
+auth {
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+}
+\`\`\`
+
+An \`auth\` block is **deny-by-default** unless it says otherwise: every
+client-reachable command (operations, creates, destroys, workflow starters and
+handlers) and every *declared* read (repository finds, projections) must carry
+a \`requires <expr>\` gate, or the build fails with
+\`loom.default-deny-ungated\`.  \`requires true\` is the explicit
+"intentionally public" escape.  Two things to know:
+
+- The synthesised **list** read is coverable — declare
+  \`find all(): <T>[] requires <expr>\` on the repository and the gate lands on
+  \`GET /api/<plural>\`.  The synthesised **by-id** read
+  (\`GET /api/<plural>/{id}\`) has no gate surface yet, so the build *warns*
+  about each one (\`loom.default-deny-by-id-ungated\`); a tenancy filter still
+  covers it, role separation within a tenant does not.
+- \`with crudish\` generates create/update/destroy — gate them by naming a
+  \`policy\` and handing it to the macro:
+  \`aggregate X with crudish(requires: <Policy>)\`.
+
+To keep the older opt-in posture — only the members that declare a
+\`requires\` are gated, everything else serves any authenticated caller —
+say so explicitly:
+
+\`\`\`ddd
+auth {
+  enforcement: opt
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+}
+\`\`\`
+
+See https://github.com/Loom-Harness/loc/blob/main/docs/auth.md for the full
+authorization layer (\`permissions\`, \`policy\`, \`mask unless\`).
+
 ## Learn more
 
-- Language reference: https://github.com/lemmit/loc/blob/main/docs/language.md
-- CLI & workflow:     https://github.com/lemmit/loc/blob/main/docs/tools.md
+- Language reference: https://github.com/Loom-Harness/loc/blob/main/docs/language.md
+- CLI & workflow:     https://github.com/Loom-Harness/loc/blob/main/docs/tools.md
 `;
 }
 
@@ -354,7 +397,7 @@ in \`.loomignore\` so it survives (see the comments in that file).
 export function renderLoomignore(): string {
   return `# .loomignore — pin files you hand-edit so \`ddd generate system\` leaves
 # them alone. gitignore syntax; paths are relative to this directory.
-# See https://github.com/lemmit/loc/blob/main/docs/tools.md#loomignore
+# See https://github.com/Loom-Harness/loc/blob/main/docs/tools.md#loomignore
 #
 # Uncomment the entrypoints/config you customise:
 # Program.cs
@@ -385,13 +428,13 @@ export const GENERATED_OUTPUT_LICENSE = `MIT License
 
 Copyright (c) ${new Date().getFullYear()} the authors of this generated project.
 
-This project was scaffolded by Loom (https://github.com/lemmit/loc), a
+This project was scaffolded by Loom (https://github.com/Loom-Harness/loc), a
 source-available DDD code generator licensed under FSL-1.1-Apache-2.0.
 The generator's license does NOT extend to this output: every file in
 this directory is licensed to you under the MIT License below.  Any
 runtime helper snippets that Loom embedded verbatim into this project
 are dual-licensed MIT OR Apache-2.0 in this context.  See
-https://github.com/lemmit/loc/blob/main/docs/license-faq.md for the
+https://github.com/Loom-Harness/loc/blob/main/docs/license-faq.md for the
 full posture.
 
 Permission is hereby granted, free of charge, to any person obtaining

@@ -4,8 +4,8 @@
 // keeps pre-existing fields named `paged` / `envelope` parsing, and the
 // AST-level carrier-bound validator.
 
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
+import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseRawOk, parseString } from "../../_helpers/parse.js";
 
 const errorCodes = (diags: Diagnostic[]): (string | number | undefined)[] =>

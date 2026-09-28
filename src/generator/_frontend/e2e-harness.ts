@@ -44,6 +44,23 @@ export const test = base.extend<{ _consoleCapture: void }>({
       );
       await use();
       await Promise.all(bodies);
+      // An uncaught exception in the page is a FAILURE, not a footnote.
+      // These were captured and then attached only when the test had already
+      // failed for some other reason — so an app that threw on mount, rendered
+      // nothing, and satisfied every (URL-shaped) assertion reported green,
+      // with the stack sitting unread in \`lines\`.  Fail on it instead, and
+      // only when the test would otherwise have passed so a real assertion
+      // failure keeps its own message.
+      const uncaught = lines.filter((l) => l.startsWith("[pageerror]"));
+      if (uncaught.length > 0 && testInfo.status === testInfo.expectedStatus) {
+        testInfo.status = "failed";
+        testInfo.errors.push({
+          message:
+            \`The page threw \${uncaught.length} uncaught error(s). \` +
+            \`The assertions passed, which means they did not reach what broke.\\n\\n\` +
+            uncaught.slice(0, 5).join("\\n\\n"),
+        });
+      }
       if (testInfo.status !== testInfo.expectedStatus && lines.length > 0) {
         const detail = lines.slice(-40).join("\\n");
         await testInfo.attach("console-logs", {

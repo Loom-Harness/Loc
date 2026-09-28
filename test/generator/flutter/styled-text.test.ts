@@ -23,7 +23,7 @@ system Styled {
         QueryView {
           of: Shop.Product.all,
           loading: Text { "…" }, error: Text { "e" }, empty: Text { "none" },
-          data: rows => Stack { For { each: rows, p => Card { p.name, Text { p.price } } } }
+          data: rows => Stack { For { each: rows, p => Card { p.name, Money { p.price } } } }
         }
       }
     }

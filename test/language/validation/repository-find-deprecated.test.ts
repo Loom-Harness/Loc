@@ -5,8 +5,8 @@
 // `retrieval`.  A WARNING (existing `.ddd` keeps parsing).  A unique-key
 // reconstitution find (single `T` / `T?`) is NOT a list query and stays clean.
 
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
+import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const SYS = (finds: string): string => `
@@ -58,6 +58,86 @@ describe("loom.repository-find-deprecated", () => {
     // `all` — but that's an IR-level find, never an AST FindDecl, so this
     // AST-level gate can't (and shouldn't) see it.
     expect(await warnCodes("")).not.toContain("loom.repository-find-deprecated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Interim scope (audit 2026-09-10 §D7 / G2): the warning names two
+// replacements — `Repo.run(<Criterion>)` and a named `retrieval` — and neither
+// is at parity with a `find` yet (no HTTP route, no client hook, no scaffolded
+// filter bar).  So it only fires in a context that has already adopted one of
+// them.  Every fixture above declares `criterion InRegion`, which is why they
+// still warn; a context with neither must stay silent, or the tool disagrees
+// with its own `ddd new --template crud` starter on first run.
+// ---------------------------------------------------------------------------
+
+describe("loom.repository-find-deprecated — only where a replacement is in reach", () => {
+  const NO_REPLACEMENT = `
+system S {
+  subdomain Sales {
+    context Orders {
+      aggregate Order { code: string  region: string }
+      repository Orders for Order {
+        find byRegion(rgn: string): Order[] where this.region == rgn
+      }
+    }
+  }
+  api A from Sales
+  storage pg { type: postgres }
+  resource s { for: Orders, kind: state, use: pg }
+  deployable d { platform: node  contexts: [Orders]  dataSources: [s]  serves: A  port: 3000 }
+}`;
+
+  async function codes(src: string): Promise<(string | number | undefined)[]> {
+    const { diagnostics } = await parseString(src);
+    return (diagnostics as Diagnostic[]).map((d) => d.code);
+  }
+
+  it("stays silent in a context that declares neither a criterion nor a retrieval", async () => {
+    expect(await codes(NO_REPLACEMENT)).not.toContain("loom.repository-find-deprecated");
+  });
+
+  it("fires once the same context declares a retrieval", async () => {
+    const src = NO_REPLACEMENT.replace(
+      "      repository Orders for Order {",
+      `      retrieval ByRegion(rgn: string) of Order { where: this.region == rgn }
+      repository Orders for Order {`,
+    );
+    expect(await codes(src)).toContain("loom.repository-find-deprecated");
+  });
+
+  it("fires once the same context declares a criterion", async () => {
+    const src = NO_REPLACEMENT.replace(
+      "      repository Orders for Order {",
+      `      criterion InRegion(rgn: string) of Order = region == rgn
+      repository Orders for Order {`,
+    );
+    expect(await codes(src)).toContain("loom.repository-find-deprecated");
+  });
+
+  it("is scoped per context — a sibling context's criterion does not nag this one", async () => {
+    const src = `
+system S {
+  subdomain Sales {
+    context Orders {
+      aggregate Order { code: string  region: string }
+      repository Orders for Order {
+        find byRegion(rgn: string): Order[] where this.region == rgn
+      }
+    }
+    context Catalog {
+      aggregate Item { sku: string }
+      repository Items for Item { }
+      criterion Anything of Item = sku != ""
+    }
+  }
+  api A from Sales
+  storage pg { type: postgres }
+  resource s { for: Orders, kind: state, use: pg }
+  resource s2 { for: Catalog, kind: state, use: pg }
+  deployable d { platform: node  contexts: [Orders, Catalog]  dataSources: [s, s2]  serves: A  port: 3000 }
+}`;
+    expect(await codes(src)).not.toContain("loom.repository-find-deprecated");
   });
 });
 

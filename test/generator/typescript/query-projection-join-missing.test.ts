@@ -132,7 +132,7 @@ for (const [adapter, platform] of [
         guarded.find((g) => g.arm.includes(field))?.arm ?? "";
       // datetime → the canonical RS-4 trim; money → the fixed wire scale.
       // Both are CALLS on the joined value, so both would throw on `null`.
-      expect(armFor("signedUpAt")).toContain('.toISOString().replace(/\\.?0+Z$/, "Z")');
+      expect(armFor("signedUpAt")).toContain('.toISOString().replace(/\\.000Z$/, "Z")');
       expect(armFor("credit")).toContain(".toFixed(4)");
     });
 

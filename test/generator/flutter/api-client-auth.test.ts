@@ -32,6 +32,7 @@ system Secure {
     authed
       ? `user { sub: string  email: string }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID") }
     claims: { email: "email" }

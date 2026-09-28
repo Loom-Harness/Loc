@@ -92,7 +92,7 @@ const BACKENDS: BackendCensus[] = [
         file: "src/generator/typescript/render-expr.ts",
         contains: "return `new Decimal(${v})`;",
         reason:
-          "ExprTarget money-literal constructor (_expr/target.ts's leaf domain), not a read boundary",
+          "ExprTarget money-literal constructor (_expr/target.ts's leaf domain), not a read boundary. The same line is the body of `toDecimal`, the operand widening the money mirror arm and the RS-37 exact-`decimal` arms share (it replaced the money arm's own inline `new Decimal(${left})`)",
       },
       {
         file: "src/generator/typescript/render-expr.ts",
@@ -110,11 +110,6 @@ const BACKENDS: BackendCensus[] = [
         contains: "acc.plus(x), new Decimal(0))",
         reason:
           "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
-      },
-      {
-        file: "src/generator/typescript/render-expr.ts",
-        contains: "renderMoneyBinary(e.op, `new Decimal(${left})`, right);",
-        reason: "ExprTarget money-arithmetic operand widening, not a read boundary",
       },
       {
         file: "src/platform/hono/v4/workflow-eventsourced-builder.ts",
@@ -300,6 +295,12 @@ const BACKENDS: BackendCensus[] = [
         contains: "defp number_of(%Decimal{} = v), do: Decimal.to_float(v)",
         reason:
           "LiveView template DISPLAY helper (HTML rendering) — not a wire boundary; the S6/M-T1.25 display-formatting class, out of M-T9.36's scope",
+      },
+      {
+        file: "src/generator/elixir/liveview-emit.ts",
+        contains: "defp sort_key(%Decimal{} = v), do: Decimal.to_float(v)",
+        reason:
+          "`LoomTable`'s ORDERING key for a client-side table sort — the value is compared and thrown away, never rendered and never serialized, so it is not a read boundary. It exists because Erlang term order compares a %Decimal{}'s `coef` before its `exp` (1.5 above 2); the same class as the `number_of` display helper above, one line down the same module",
       },
     ],
   },

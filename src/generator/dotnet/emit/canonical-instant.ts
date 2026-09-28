@@ -2,12 +2,11 @@
 //
 // System.Text.Json's built-in DateTime writer emits the round-trip ("o") form
 // with a fixed 7-digit fractional-second field, so an instant with no
-// sub-second component serializes as `2024-01-01T00:00:00.0000000Z`.  The node
-// (Hono), Python (FastAPI) and Java (`Instant.toString()`) backends this
-// backend's wire is diffed against emit the trimmed `2024-01-01T00:00:00Z`,
-// keeping real precision only when present (`2024-01-01T00:00:00.123Z`).  These
-// converters bring raw-`DateTime` / `DateTimeOffset` serialization onto that
-// canonical shape.  (Business response/request DTOs carry `datetime` as a
+// sub-second component serializes as `2024-01-01T00:00:00.0000000Z`.  The
+// canonical wire form every backend ships (RS-4 + RS-38) is milliseconds:
+// `2024-01-01T00:00:00Z` on a whole second, exactly three digits otherwise
+// (`2024-01-01T00:00:00.120Z`).  These converters bring raw-`DateTime` /
+// `DateTimeOffset` serialization onto that canonical shape.  (Business response/request DTOs carry `datetime` as a
 // pre-formatted wire string — see `projectToResponse` in dto-mapping.ts, which
 // applies the same trim — so these converters cover the minimal-API probes and
 // any raw datetime a controller serializes directly.)
@@ -21,11 +20,10 @@ using System.Text.Json.Serialization;
 
 namespace ${ns}.Serialization;
 
-/// <summary>Serializes a <see cref="DateTime"/> as canonical ISO-8601 UTC:
-/// trailing zero fractional seconds are trimmed (and the decimal point dropped
-/// when the fraction is entirely zero), matching the node / Python / Java
-/// backends.  Reads keep accepting the standard ISO-8601 inputs the default
-/// reader accepts.</summary>
+/// <summary>Serializes a <see cref="DateTime"/> as canonical ISO-8601 UTC in
+/// milliseconds (RS-38): three fractional digits when a fraction is present,
+/// none on a whole second — the form every backend ships.  Reads keep
+/// accepting the standard ISO-8601 inputs the default reader accepts.</summary>
 public sealed class CanonicalInstantJsonConverter : JsonConverter<DateTime>
 {
     public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -49,27 +47,18 @@ public sealed class CanonicalInstantOffsetJsonConverter : JsonConverter<DateTime
 
 internal static class CanonicalInstant
 {
-    /// <summary>Canonical ISO-8601 UTC string for <paramref name="value"/>.
-    /// "o" on a UTC DateTime is <c>yyyy-MM-ddTHH:mm:ss.fffffffZ</c> (a fixed
-    /// 7-digit fraction plus the trailing 'Z'); trim the fraction's trailing
-    /// zeros and drop the decimal point entirely when the whole fraction is
-    /// zero.  "12:00:00" -> "...00Z"; ".1230000" -> "....123Z".</summary>
+    /// <summary>Canonical ISO-8601 UTC string for <paramref name="value"/>
+    /// (RS-4 + RS-38): milliseconds — exactly three fractional digits when the
+    /// instant has a sub-second part, none on a whole second.  The custom
+    /// <c>fff</c> specifier truncates (never rounds), so ".9996" cannot carry
+    /// into the next second.  "12:00:00" -> "...00Z"; ".1234567" -> "....123Z";
+    /// ".1200000" -> "....120Z".</summary>
     public static string Format(DateTime value)
     {
-        string s = value.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
-        int dot = s.IndexOf('.');
-        if (dot < 0)
-        {
-            return s;
-        }
-        int end = s.Length - 2; // last fractional digit, before the trailing 'Z'
-        while (end > dot && s[end] == '0')
-        {
-            end--;
-        }
-        return end == dot
-            ? string.Concat(s.AsSpan(0, dot), "Z")
-            : string.Concat(s.AsSpan(0, end + 1), "Z");
+        string s = value.ToUniversalTime().ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'", CultureInfo.InvariantCulture);
+        return s.EndsWith(".000Z", StringComparison.Ordinal)
+            ? string.Concat(s.AsSpan(0, s.Length - 5), "Z")
+            : s;
     }
 }
 `;

@@ -25,7 +25,7 @@ import { parseString } from "../_helpers/parse.js";
 async function codes(src: string): Promise<string[]> {
   const { model, errors } = await parseString(src);
   if (errors.length) throw new Error(`unexpected parse errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 /** A one-context system whose only operation body is `body`, on `platform`. */

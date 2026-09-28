@@ -6,6 +6,7 @@ import type {
   OperationIR,
   TestIR,
   TestStmtIR,
+  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
@@ -252,6 +253,22 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
   }
 }
 
+/** `string?` is still a string for containment; `string[]?` still a list. */
+function unwrapOptionalType(t: TypeIR): TypeIR {
+  return t.kind === "optional" ? unwrapOptionalType(t.inner) : t;
+}
+
+/** The asserted subject's resolved type, with `.not.` peeled.
+ *
+ *  `receiverType` is the type of the matcher's RECEIVER, and for a negated
+ *  assertion that receiver is the synthetic `.not` member rather than the
+ *  value under test — so read the type off the `.not` node's own receiverType
+ *  in that case, or the dispatch below sees the wrong type. */
+function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): TypeIR {
+  const recv = expr.receiver;
+  return recv.kind === "member" && recv.member === "not" ? recv.receiverType : expr.receiverType;
+}
+
 export function renderExpect(expr: ExprIR, env: Env): string {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) {
     throw new UnsupportedTestShapeError("expect requires a matcher");
@@ -264,11 +281,42 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   }
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
   const op = MATCHER_OP[expr.member];
-  if (!op) throw new UnsupportedTestShapeError(`unsupported value matcher '${expr.member}'`);
   const actual = vtExpr(inner, env);
   const arg = expr.args[0];
   const expected = arg ? vtExpr(arg, env) : "";
   const verb = (s: string): string => (negate ? `refute ${s}` : `assert ${s}`);
+
+  // Absence.  An Elixir struct field that holds nothing holds `nil`, so the
+  // language's one absence value is `nil` here.  `is_nil/1` rather than
+  // `== nil` keeps the assertion a guard, which ExUnit reports more usefully.
+  // (`toBeAbsent` never reaches this emitter — it is e2e-only: a struct
+  // ALWAYS carries its declared keys, defaulted to nil, so in-process there is
+  // no absent form to observe.)
+  if (expr.member === "toBeNull") return verb(`is_nil(${actual})`);
+
+  // Containment — the one backend where the DSL's "two lowerings, chosen by
+  // the subject's type" is literally two different function calls.  Elixir has
+  // no operator covering both: `in` is membership in an enumerable and would
+  // raise `Protocol.UnimplementedError` on a binary, while `String.contains?/2`
+  // is substring and would raise `FunctionClauseError` on a list.  Picking the
+  // wrong one is a run-time crash in the generated suite, not a wrong answer,
+  // so read the SUBJECT'S RESOLVED TYPE off the IR — the same dispatch
+  // `checkContainReceiver` validated, which has already refused every third
+  // receiver type.
+  if (expr.member === "toContain") {
+    const t = unwrapOptionalType(matcherSubjectType(expr));
+    if (t.kind === "array") return verb(`${expected} in ${actual}`);
+    if (t.kind === "primitive" && t.name === "string") {
+      return verb(`String.contains?(${actual}, ${expected})`);
+    }
+    throw new UnsupportedTestShapeError(
+      `toContain over a '${t.kind}' subject: elixir spells collection membership and ` +
+        "substring as two different calls, and this subject is neither a collection nor " +
+        "a string",
+    );
+  }
+
+  if (!op) throw new UnsupportedTestShapeError(`unsupported value matcher '${expr.member}'`);
 
   if (isMoneyLike(inner, arg)) {
     if (expr.member === "toBe") return verb(`Decimal.equal?(${actual}, ${expected})`);

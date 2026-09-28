@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
-import { buildLoomModel } from "../../_helpers/ir.js";
+import { buildLoomModel, systemContexts } from "../../_helpers/ir.js";
 
 const SYS = (
   grid: string,
@@ -59,7 +59,7 @@ async function emit(src: string): Promise<Map<string, string>> {
   const model = await buildLoomModel(src);
   const sys = model.systems[0]!;
   const web = sys.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(sys.contexts ?? [], sys, web);
+  return generateFelizForContexts(systemContexts(sys), sys, web);
 }
 
 const appFs = async (src: string): Promise<string> => (await emit(src)).get("src/App.fs")!;

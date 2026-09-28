@@ -1,0 +1,53 @@
+# Auto-generated.
+#
+# Metrics + traces are opt-in — add the observability overlay:
+#   docker compose -f docker-compose.yml -f docker-compose.obs.yml up
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/api"
+      LOG_LEVEL: "info"
+      CORS_ORIGIN: "http://localhost:3001"
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web_app:
+    build: ./web_app
+    environment:
+      VITE_API_BASE_URL: "http://localhost:3000/api"
+      VITE_API_PROXY_TARGET: "http://api:3000"
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata: {}

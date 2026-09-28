@@ -198,7 +198,17 @@ system Clinica {
 
         test "cancel requires a reason" verifies TC-001 {
           let a = Appointment.create({
-            clinic: id, patient: id, practitioner: id, room: id, apptType: id,
+            // Distinct placeholder ids per reference.  These were all the bare
+            // `id`, which inside an aggregate-nested test types as
+            // `Appointment id` — so the fixture built an appointment whose
+            // clinic, patient, practitioner, room and type all pointed at an
+            // appointment.  `loom.create-field-id-target` catches that now; a
+            // uuid-shaped string is the wire-boundary spelling the gate admits.
+            clinic: "00000000-0000-0000-0000-0000000000c1",
+            patient: "00000000-0000-0000-0000-0000000000a1",
+            practitioner: "00000000-0000-0000-0000-0000000000b1",
+            room: "00000000-0000-0000-0000-0000000000d1",
+            apptType: "00000000-0000-0000-0000-0000000000e1",
             startAt: now(), durationMinutes: 30, patientUserRef: "u"
           })
         }

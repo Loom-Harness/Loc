@@ -1,6 +1,11 @@
 import type { EventIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
+import {
+  decodeField,
+  type WireDecodeLeaf,
+  type WireDecodeTarget,
+} from "../../_channels/wire-codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { CS_NUMERIC } from "../numeric-codec.js";
 
@@ -60,40 +65,50 @@ function toDataExpr(prop: string, t: TypeIR): string {
   return prop;
 }
 
-/** C# expression reconstructing one event property from `data.GetProperty(...)`. */
-function fromDataExpr(name: string, t: TypeIR, idValueTypeOf: (target: string) => string): string {
-  const get = `data.GetProperty(${JSON.stringify(name)})`;
-  const inner = t.kind === "optional" ? t.inner : t;
-  switch (inner.kind) {
-    case "primitive":
-      switch (inner.name) {
-        case "int":
-          return `${get}.GetInt32()`;
-        case "long":
-          return `${get}.GetInt64()`;
-        case "bool":
-          return `${get}.GetBoolean()`;
-        case "decimal":
-          return `${get}.GetDecimal()`;
-        case "money":
-          return `decimal.Parse(${get}.GetString()!, CultureInfo.InvariantCulture)`;
-        case "datetime":
-          return `DateTime.Parse(${get}.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)`;
-        default:
-          return `${get}.GetString()!`;
-      }
-    case "id": {
-      const vt = idValueTypeOf(inner.targetName);
-      if (vt === "string") return `new ${inner.targetName}Id(${get}.GetString()!)`;
-      if (vt === "int") return `new ${inner.targetName}Id(${get}.GetInt32())`;
-      if (vt === "long") return `new ${inner.targetName}Id(${get}.GetInt64())`;
-      return `new ${inner.targetName}Id(Guid.Parse(${get}.GetString()!))`;
-    }
-    case "enum":
-      return `Enum.Parse<${inner.name}>(${get}.GetString()!)`;
-    default:
-      return `${get}.GetString()!`;
-  }
+/** C#'s `WireDecodeTarget` — the leaf half of the shared channel wire codec
+ *  (`src/generator/_channels/wire-codec.ts`).  Built per emission because the
+ *  `id` leaf needs the system's id-value-type lookup.
+ *
+ *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
+ *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
+ *  which now lives once, is exhaustive, and `never`-checks — so a new IR type
+ *  kind can no longer land silently in the `.GetString()!` arm. */
+function csWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarget {
+  // Everything that is not a number, a date or a parsed id reaches .NET as a
+  // JSON string — including the structural kinds, which is the pre-existing
+  // limitation this port makes VISIBLE rather than inherited from a
+  // fall-through (see the `valueobject` note in the shared dispatcher).
+  const asString: WireDecodeLeaf = (e) => `${e}.GetString()!`;
+  return {
+    lang: "csharp",
+    read: (payload, field) => `${payload}.GetProperty(${JSON.stringify(field)})`,
+    primitive: {
+      int: (e) => `${e}.GetInt32()`,
+      long: (e) => `${e}.GetInt64()`,
+      bool: (e) => `${e}.GetBoolean()`,
+      decimal: (e) => `${e}.GetDecimal()`,
+      money: (e) => `decimal.Parse(${e}.GetString()!, CultureInfo.InvariantCulture)`,
+      datetime: (e) =>
+        `DateTime.Parse(${e}.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)`,
+      string: asString,
+      guid: asString,
+      json: asString,
+      File: asString,
+      duration: asString,
+    },
+    id: (e, targetName) => {
+      const vt = idValueTypeOf(targetName);
+      if (vt === "string") return `new ${targetName}Id(${e}.GetString()!)`;
+      if (vt === "int") return `new ${targetName}Id(${e}.GetInt32())`;
+      if (vt === "long") return `new ${targetName}Id(${e}.GetInt64())`;
+      return `new ${targetName}Id(Guid.Parse(${e}.GetString()!))`;
+    },
+    enumValue: (e, name) => `Enum.Parse<${name}>(${e}.GetString()!)`,
+    // No `optional` leaf: a JSON null would already fail the typed reader, and
+    // the pre-port codec had no guard either — keeping that gap explicit and
+    // in one place rather than inventing a new behaviour inside a refactor.
+    passthrough: asString,
+  };
 }
 
 export function renderDotnetChannels(
@@ -160,7 +175,7 @@ export function renderDotnetChannels(
     .map(
       (ev) =>
         `            ${JSON.stringify(ev.name)} => new ${ev.name}(${ev.fields
-          .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf))
+          .map((f) => decodeField("data", f, csWireDecode(idValueTypeOf)))
           .join(", ")}),`,
     )
     .join("\n");
@@ -946,12 +961,12 @@ public sealed class ChannelTransports : IAsyncDisposable
 public sealed class ChannelPublishTeeDispatcher : IDomainEventDispatcher
 {
     private readonly ChannelTransports _transports;
-    private readonly ${ns}.Infrastructure.Events.${innerDispatcherType} _inner;
+    private readonly global::${ns}.Infrastructure.Events.${innerDispatcherType} _inner;
     private readonly ILogger<ChannelPublishTeeDispatcher> _log;
 
     public ChannelPublishTeeDispatcher(
         ChannelTransports transports,
-        ${ns}.Infrastructure.Events.${innerDispatcherType} inner,
+        global::${ns}.Infrastructure.Events.${innerDispatcherType} inner,
         ILogger<ChannelPublishTeeDispatcher> log)
     {
         _transports = transports;

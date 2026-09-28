@@ -18,6 +18,7 @@ import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../../ir/ut
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import {
   workflowParamPayloads,
   workflowParamTypeSeeds,
@@ -676,6 +677,11 @@ export function renderJavaWorkflows(
    *  so these fragment-only statement regions, one per workflow method body,
    *  are the only mapping that file gets. */
   opFragments?: OpFragment[],
+  /** Deployable-wide request-component name lookup (F-026) -- springdoc's schema
+   *  namespace is the whole document, so the collision set is decided across
+   *  every hosted context by `emitProjectFromContexts`, not here. */
+  reqNameFor: (owner: RequestComponentOwner) => string = (o) =>
+    o.kind === "workflow" ? `${upperFirst(o.workflow)}Request` : "",
 ): Map<string, { category: "service" | "controller" | "request-dto"; content: string }> | null {
   // Only command-surfaced workflows get a service method + POST route.  An
   // event-triggered (saga) workflow is invoked by the in-process dispatcher,
@@ -740,9 +746,15 @@ export function renderJavaWorkflows(
     for (const s of readingServicesCalled(wf, ctx)) readingSvcs.add(s);
     for (const s of staticServicesCalled(wf, ctx)) staticSvcs.add(s);
     const reqType = `${upperFirst(wf.name)}Request`;
+    // The PUBLISHED schema name.  The Java class name stays -- it is part of
+    // the generated code's own API (the controller signature below binds it) --
+    // so only the document-facing name diverges when it would collide (F-026).
+    const publishedReqName = reqNameFor({ kind: "workflow", workflow: wf.name });
     // Request record over the workflow params (wire types in, parsed here).
     if (wf.params.length > 0) {
       const reqImports = new Set<string>();
+      if (publishedReqName !== reqType)
+        reqImports.add("io.swagger.v3.oas.annotations.media.Schema");
       // The same wire-boundary refusal the create + operation bodies carry
       // (F23): a REQUIRED workflow param that arrives null — absent key or
       // explicit `null` — used to bind null and reach the workflow body, which
@@ -804,6 +816,9 @@ export function renderJavaWorkflows(
           `import ${wctx.basePkg}.domain.ids.*;`,
           `import ${wctx.basePkg}.domain.valueobjects.*;`,
           ``,
+          publishedReqName !== reqType
+            ? `@Schema(name = ${JSON.stringify(publishedReqName)})`
+            : null,
           `public record ${reqType}(${components.join(", ")}) {`,
           `}`,
           ``,

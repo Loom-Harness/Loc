@@ -1,6 +1,7 @@
 import type { ExprIR, MessageIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
+import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import type { CsRenderContext } from "./render-expr.js";
@@ -32,6 +33,10 @@ export interface TraceCtx {
    *  command's response — the state transition the appliers own.  Off ⇒
    *  `emit` is byte-identical to the legacy notification-event add. */
   eventSourced?: boolean;
+  /** True when rendering an aggregate OPERATION body, whose domain-floor
+   *  refusal DomainExceptionFilter answers with the `errors[]` entry (M-T1.11
+   *  (c)): a messaged `precondition` then throws its code and pointer too. */
+  domainFloorCodes?: boolean;
 }
 
 const NO_TRACE: TraceCtx = { emitTrace: false, aggregate: "", op: "" };
@@ -64,7 +69,7 @@ export function renderCsStatementChunks(
 // backend's chunk-producing renderer shares the one cursor walk.  Re-exported
 // here so call sites in this backend's emitters can import it alongside
 // `renderCsStatementChunks` from a single module.
-export { statementSubRegions } from "../_trace/sourcemap.js";
+export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.js";
 
 /** Namespaces a statement body reaches into beyond the SDK's implicit
  *  usings — the union of `collectCsExprUsings` over every expression
@@ -199,7 +204,12 @@ function precondition(
 ): string {
   // Author `message "..."` becomes the domain-floor detail; else the default.
   const detail = message ? message.text : `Precondition failed: ${source}`;
-  const thrown = `throw new DomainException(${JSON.stringify(detail)})`;
+  // A MESSAGED precondition in an aggregate operation carries its wire code and
+  // pointer THROUGH the throw (M-T1.11 (c)).
+  const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
+  const thrown = code
+    ? `throw new DomainException(${JSON.stringify(detail)}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    : `throw new DomainException(${JSON.stringify(detail)})`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderCsExpr(expr, ctx)})) ${thrown};`;
   }

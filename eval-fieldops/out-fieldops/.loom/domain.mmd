@@ -1,0 +1,241 @@
+%% Loom domain diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+classDiagram
+  direction LR
+  %% Ops / Field
+  class WorkOrderStatus {
+    <<enumeration>>
+    +Draft
+    +Scheduled
+    +InProgress
+    +Completed
+    +Cancelled
+  }
+  class Priority {
+    <<enumeration>>
+    +Low
+    +Normal
+    +High
+    +Urgent
+  }
+  class Skill {
+    <<enumeration>>
+    +Electrical
+    +Plumbing
+    +HVAC
+    +Refrigeration
+  }
+  class WorkOrderCompleted {
+    <<event>>
+    +Id~WorkOrder~ workOrder
+    +datetime at
+    +string org
+  }
+  class WorkOrderScheduled {
+    <<event>>
+    +Id~WorkOrder~ workOrder
+    +Id~Technician~ technician
+    +datetime at
+  }
+  class Organization {
+    <<aggregate>>
+    +Id~Organization~ id
+    +string name
+    +int version
+    +string /display
+    +string /inspect
+    +update(name)
+  }
+  class Customer {
+    <<aggregate>>
+    +Id~Customer~ id
+    +string name
+    +string contactEmail
+    +string tenantId
+    +string?? dataKey
+    +datetime createdAt
+    +datetime updatedAt
+    +guid createdBy
+    +guid updatedBy
+    +int version
+    +string /display
+    +string /inspect
+    +update(name, contactEmail)
+  }
+  class Site {
+    <<aggregate>>
+    +Id~Site~ id
+    +Id~Customer~ customerId
+    +string label
+    +string addressLine
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +update(customerId, label, addressLine)
+  }
+  class Asset {
+    <<aggregate>>
+    +Id~Asset~ id
+    +Id~Site~ siteId
+    +string serialNumber
+    +string model
+    +datetime?? warrantyExpiry
+    +Skill requiredSkill
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +update(siteId, serialNumber, model, warrantyExpiry, requiredSkill)
+  }
+  class Technician {
+    <<aggregate>>
+    +Id~Technician~ id
+    +guid userId
+    +string fullName
+    +Skill[] skills
+    +money costRate
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +hasSkill(s) bool
+    +update(userId, fullName, skills, costRate)
+  }
+  class Part {
+    <<aggregate>>
+    +Id~Part~ id
+    +string sku
+    +string binCode
+    +int onHand
+    +money unitPrice
+    +string currency
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +consume(qty)
+    +update(sku, binCode, onHand, unitPrice, currency)
+  }
+  class WorkOrder {
+    <<aggregate>>
+    +Id~WorkOrder~ id
+    +Id~Customer~ customerId
+    +Id~Site~ siteId
+    +Id~Asset~?? assetId
+    +Id~Technician~?? technicianId
+    +guid?? technicianUserId
+    +WorkOrderStatus status
+    +Priority priority
+    +string currency
+    +datetime?? scheduledAt
+    +datetime?? startedAt
+    +datetime?? completedAt
+    +string?? resolutionNote
+    +File?? photo
+    +string tenantId
+    +string?? dataKey
+    +datetime createdAt
+    +datetime updatedAt
+    +guid createdBy
+    +guid updatedBy
+    +int version
+    +money /total
+    +string /display
+    +int /timeToComplete
+    +string /inspect
+    +serialLabel() string
+    +isEditable() bool
+    +addLabour(description, hours, rate, lineCurrency)
+    +schedule(tech, at)
+    +start()
+    +complete(note)
+    +cancel(reason)
+  }
+  class WorkOrderLine {
+    <<entity>>
+    +string description
+    +decimal quantity
+    +money unitPrice
+    +string currency
+    +money /amount
+  }
+  class Invoice {
+    <<aggregate>>
+    +Id~Invoice~ id
+    +Id~WorkOrder~ workOrderId
+    +datetime?? issuedAt
+    +money amount
+    +string currency
+    +string tenantId
+    +string?? dataKey
+    +datetime createdAt
+    +datetime updatedAt
+    +guid createdBy
+    +guid updatedBy
+    +int version
+    +bool /issued
+    +string /display
+    +string /inspect
+    +issue()
+  }
+  class Organizations {
+    <<repository>>
+    +all() Organization paged
+  }
+  class Customers {
+    <<repository>>
+    +all() Customer paged
+  }
+  class Sites {
+    <<repository>>
+    +all() Site paged
+  }
+  class Assets {
+    <<repository>>
+    +all() Asset paged
+  }
+  class Technicians {
+    <<repository>>
+    +all() Technician paged
+  }
+  class Parts {
+    <<repository>>
+    +all() Part paged
+  }
+  class WorkOrders {
+    <<repository>>
+    +all() WorkOrder paged
+  }
+  class Invoices {
+    <<repository>>
+    +all() Invoice paged
+  }
+  WorkOrderCompleted ..> WorkOrder : ref
+  WorkOrderScheduled ..> WorkOrder : ref
+  WorkOrderScheduled ..> Technician : ref
+  Site ..> Customer : ref
+  Asset ..> Site : ref
+  Asset ..> Skill : uses
+  Technician ..> Skill : uses
+  WorkOrder ..> Customer : ref
+  WorkOrder ..> Site : ref
+  WorkOrder ..> Asset : ref
+  WorkOrder ..> Technician : ref
+  WorkOrder ..> WorkOrderStatus : uses
+  WorkOrder ..> Priority : uses
+  WorkOrder *-- "*" WorkOrderLine : lines
+  WorkOrder ..> WorkOrderCompleted : emits
+  Invoice ..> WorkOrder : ref
+  Organizations ..> Organization : manages
+  Customers ..> Customer : manages
+  Sites ..> Site : manages
+  Assets ..> Asset : manages
+  Technicians ..> Technician : manages
+  Parts ..> Part : manages
+  WorkOrders ..> WorkOrder : manages
+  Invoices ..> Invoice : manages

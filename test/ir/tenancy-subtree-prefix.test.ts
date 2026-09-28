@@ -167,7 +167,7 @@ system TenantCriteria {
   api BooksApi from Core
   storage primary { type: postgres }
   resource st { for: Books, kind: state, use: primary }
-  auth { oidc { issuer: "https://i", clientId: "c" } }
+  auth { enforcement: opt, oidc { issuer: "https://i", clientId: "c" } }
   deployable d {
     platform: java
     contexts: [Books]

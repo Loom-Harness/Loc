@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // `auth { … }` block (D-AUTH-OIDC) — grammar + provider-preset lowering +
@@ -20,7 +21,7 @@ async function parseModel(src: string): Promise<{ model: Model; errors: string[]
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
   };
 }
 
@@ -75,9 +76,10 @@ describe("auth block — parsing & lowering", () => {
     expect(errors).toEqual([]);
     const auth = lowerModel(model).systems[0]!.auth!;
     expect(auth.oidc.issuer).toEqual({ kind: "literal", value: "https://accounts.google.com" });
-    // defaults: sessions=cookie, enforcement=opt
+    // defaults: sessions=cookie, enforcement=denyByDefault (the language
+    // default since M-T3.1; it was `opt`)
     expect(auth.sessions).toBe("cookie");
-    expect(auth.enforcement).toBe("opt");
+    expect(auth.enforcement).toBe("denyByDefault");
   });
 
   it("an explicit oidc.issuer overrides the preset", async () => {

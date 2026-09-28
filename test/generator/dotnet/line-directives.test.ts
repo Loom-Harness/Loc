@@ -137,9 +137,22 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
     expect(regions, `no sourcemap regions recorded for ${ORDER_CS_PATH}`).toBeDefined();
 
     const opConstruct = "Orders.Order.confirm";
-    const stmtRegions = regions!
+    const opRegions = regions!
       .filter((r) => r.construct === opConstruct)
       .sort((a, b) => a.target[0] - b.target[0]);
+    // F-021 layered a MEMBER-declaration region onto the same construct (one
+    // per operation body, carrying the `operation confirm() {` header's own
+    // origin, so that line no longer resolves to `Order.cs:1`).  It is the one
+    // region that CONTAINS another of this construct; the statement invariants
+    // below are about the per-statement regions, so it is separated out — and
+    // asserted, since the weave must not break its anchoring either.
+    const encloses = (a: [number, number], b: [number, number]) =>
+      a[0] <= b[0] && a[1] >= b[1] && (a[0] !== b[0] || a[1] !== b[1]);
+    const declRegions = opRegions.filter((r) =>
+      opRegions.some((o) => o !== r && encloses(r.target, o.target)),
+    );
+    expect(declRegions, "the member-declaration region survived the #line weave").toHaveLength(1);
+    const stmtRegions = opRegions.filter((r) => !declRegions.includes(r));
     expect(stmtRegions).toHaveLength(2);
 
     const content = files.get(ORDER_CS_PATH)!;

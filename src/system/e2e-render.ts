@@ -1,6 +1,7 @@
 import { isDescendingSort } from "../generator/typescript/render-expr.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   DeployableIR,
   ExprIR,
@@ -12,7 +13,24 @@ import type {
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import {
+  E2E_WORKFLOW_VERBS,
+  findWorkflowBySlug,
+  workflowRouteSlug,
+  workflowSlugHints,
+} from "../ir/util/e2e-workflow-accessor.js";
+import {
+  apisServedBy,
+  type RoutedHandlerTarget,
+  resolveRoutedHandler,
+  routedHandlerCallHints,
+  routedHandlerNeedsUnsendableBody,
+} from "../ir/util/routed-handler.js";
+import { walkExprDeep } from "../ir/util/walk.js";
+import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
+import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { lowerFirst, plural, snake } from "../util/naming.js";
@@ -57,6 +75,34 @@ import { renderExpectStmt } from "./expect-stmt.js";
 //   api.orderBoard.byKey(key)        → GET  /projections/<proj_snake>/{key}
 //   api.orderBoard.list()            → GET  /projections/<proj_snake>
 //
+// …and so is a WORKFLOW's, which is the orchestration tier the DSL could not
+// reach at all before M-T5.36 (finding F5) — three verbs onto the three routes
+// every backend already mounts:
+//
+//   api.scheduleVisit.run({…})       → POST /workflows/<wf_snake>
+//   api.scheduleVisit.instances()    → GET  /workflows/<wf_snake>/instances
+//   api.scheduleVisit.instance(key)  → GET  /workflows/<wf_snake>/instances/{key}
+//
+// `.instance(key)` takes the CORRELATION key, and like every other accessor a
+// `let`-bound argument gets `.id` appended.
+//
+// Finally, an explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding in
+// an api the deployable `serves:` is reachable through the SAME two-level
+// shape, with the CONTEXT in the slug position and the HANDLER in the method
+// position — the exact spelling the route arrow already uses:
+//
+//   route POST "/echo/{text}" -> Sales.Echo
+//   api.sales.echo("hi")             → POST /echo/hi
+//
+// Arguments are positional in DECLARED param order; a param whose name is a
+// `{token}` in the path substitutes into the URL, and the rest ride the JSON
+// body (or, on the paged-run shape, the query string) — the same split every
+// backend's explicit-route emitter performs.  The lookup itself lives in
+// `src/ir/util/routed-handler.ts` so the two IR-validate checks that gate this
+// call and the renderer that emits it cannot drift apart.  Routed handlers are
+// resolved LAST, after aggregates, projections and workflows, so no call that
+// resolves today changes meaning.
+//
 // Each call awaits, parses JSON, and returns the response.  An `expect`
 // statement maps directly to vitest `expect(<expr>).toBe(true)`.
 // ---------------------------------------------------------------------------
@@ -64,6 +110,9 @@ import { renderExpectStmt } from "./expect-stmt.js";
 interface RenderCtx {
   deployable: DeployableIR;
   contexts: BoundedContextIR[];
+  /** The apis this deployable `serves:` — the only place an explicit
+   *  `route … -> <Ctx>.<Handler>` binding can come from. */
+  apis: ApiIR[];
   /** Locals introduced by `let`. */
   locals: Set<string>;
   /** `let` names that are actually referenced later in the test body.
@@ -139,6 +188,7 @@ export function renderE2EFile(
       const ctx: RenderCtx = {
         deployable: d,
         contexts,
+        apis: apisServedBy(d, sys.apis),
         locals: new Set(),
         usedLetNames: collectUsedLetNames(t.statements),
         apiBasePath: apiBasePath(d.platform),
@@ -224,31 +274,18 @@ function collectReferencedAggregateSlugs(statements: readonly TestStmtIR[]): Set
  *  the census credit a caller the emitter never emits. */
 export function collectApiCallShapes(statements: readonly TestStmtIR[]): ApiCallShape[] {
   const calls: ApiCallShape[] = [];
+  // Rides `walkExprDeep` rather than enumerating kinds by hand.  The hand-rolled
+  // version listed ten kinds and stopped at anything else, so an api call nested
+  // inside an unlisted kind was invisible HERE — and this collector is what the
+  // CALLER CENSUS reads, so the census could not see it either.  The shared
+  // walker is exhaustively `never`-checked, which is the whole point of the
+  // convention (CLAUDE.md → "No hand-rolled IR walks").  Pre-order, so the
+  // documented visit order is unchanged.
   const visit = (e: ExprIR): void => {
-    const call = matchApiCall(e);
-    if (call) calls.push(call);
-    // Recurse regardless — the api call's args may carry further
-    // api.* receivers (`api.x.op(api.y.create(...).id)` etc.).
-    if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      const call = matchApiCall(n);
+      if (call) calls.push(call);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -276,6 +313,27 @@ function isBackendPlatform(platform: string): boolean {
  *  bounded-context name that owns the aggregate.  Returns undefined
  *  if no context declares an aggregate whose plural-snake name
  *  matches the slug. */
+/** Does `slug` name this aggregate in an e2e body?
+ *
+ *  ONE definition, because there used to be two and they disagreed.
+ *  `findAggregateBySlug` accepted three spellings; `findContextForSlug`
+ *  accepted only `snake(plural(name))`.  For a single-word aggregate those
+ *  coincide (`Bar` → `bars` either way), so the divergence was invisible —
+ *  until a MULTI-WORD name, where `lowerFirst(plural())` is `workOrders` and
+ *  `snake(plural())` is `work_orders`.  `findContextForSlug` then returned
+ *  undefined, `requiredContexts` stayed empty, the cover-check in
+ *  `compatibleBackends` passed VACUOUSLY for every backend, and the test was
+ *  replayed against a deployable that does not host the aggregate — where
+ *  `findAggregateBySlug` threw a raw Node stack trace out of `ddd generate`
+ *  on a model that had just validated `0 error(s), 0 warning(s)` (F-012). */
+function slugNamesAggregate(slug: string, aggName: string): boolean {
+  return (
+    lowerFirst(aggName) === slug ||
+    snake(plural(aggName)) === slug ||
+    lowerFirst(plural(aggName)) === slug
+  );
+}
+
 function findContextForSlug(
   slug: string,
   modulesByName: Map<string, SubdomainIR>,
@@ -283,7 +341,7 @@ function findContextForSlug(
   for (const m of modulesByName.values()) {
     for (const c of m.contexts) {
       for (const a of c.aggregates) {
-        if (snake(plural(a.name)) === slug) return c.name;
+        if (slugNamesAggregate(slug, a.name)) return c.name;
       }
       // A folded projection's read verbs (`byKey`/`list`) reference it by its
       // own slug (`lowerFirst`/`snake` of the name), so a projection-only e2e
@@ -291,6 +349,25 @@ function findContextForSlug(
       for (const p of c.projections) {
         if (lowerFirst(p.name) === slug || snake(p.name) === slug) return c.name;
       }
+      // …and a workflow's three verbs reference it by the same pair of
+      // spellings.  Without this arm a body that only drove workflows required
+      // NO context, so the replay offered it to every backend in the system —
+      // including ones that host none of the contexts the workflow lives in,
+      // whose `/api/workflows/<slug>` is a 404.
+      for (const w of c.workflows) {
+        if (lowerFirst(w.name) === slug || snake(w.name) === slug) return c.name;
+      }
+    }
+  }
+  // An explicit `route … -> <Ctx>.<Handler>` call puts the BOUNDED CONTEXT in
+  // the slug position (`api.sales.echo(…)`), so a routed-handler-only body
+  // still resolves to a context and the multi-backend replay covers every
+  // backend that serves it.  Checked last: an aggregate / projection /
+  // workflow slug that happens to equal a context name keeps its existing
+  // answer.
+  for (const m of modulesByName.values()) {
+    for (const c of m.contexts) {
+      if (lowerFirst(c.name) === slug || snake(c.name) === slug) return c.name;
     }
   }
   return undefined;
@@ -336,28 +413,16 @@ function compatibleBackends(
  *  not a ref, so unused lets fall out naturally.) */
 function collectUsedLetNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
+  // Same migration, and this one had a LIVE defect: the hand-rolled walk did not
+  // reach a `ref` nested inside an unlisted kind, so a `let` whose only use was
+  // (say) `decimal(x.field)` was judged DEAD — the `const … =` binding was
+  // dropped while the reference survived, and the emitted test died with
+  // `ReferenceError: x is not defined` at runtime.  Found by wave-3 row 3.3's
+  // drain of `projection-agg-filters`.
   const visit = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    else if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "call") {
-      for (const a of e.args) visit(a);
-    } else if (e.kind === "lambda") {
-      if (e.body) visit(e.body);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    }
+    walkExprDeep(e, (n) => {
+      if (n.kind === "ref") used.add(n.name);
+    });
   };
   for (const s of statements) {
     if (s.kind === "expect" || s.kind === "expect-throws") visit(s.expr);
@@ -720,13 +785,29 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
 
   const agg = findAggregateBySlug(call.aggregateSlug, ctx.contexts);
   if (!agg) {
+    // The workflow accessor (M-T5.36 F5) — `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`.  Tried once the aggregate lookup has failed, the same
+    // precedence the two validate-time checks use, so a workflow whose slug
+    // collides with an aggregate's plural changes no existing call.
+    const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
+    if (wf) return renderWorkflowCall(wf, call, ctx);
+    // An explicit `route … -> <Ctx>.<Handler>` binding, addressed as
+    // `api.<contextSlug>.<handlerName>(…)`.  Tried only once the aggregate AND
+    // workflow lookups have failed, so a context whose name slugs like an
+    // aggregate or a workflow changes none of their existing calls.
+    const routed = matchRoutedHandlerCall(call, ctx);
+    if (routed) return renderRoutedHandlerCall(routed, call, ctx);
     const known = ctx.contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    const knownWorkflows = workflowSlugHints(ctx.contexts).join(", ");
+    const hints = routedHandlerCallHints(ctx.contexts, ctx.apis);
     throw new Error(
       `e2e: unknown aggregate 'api.${call.aggregateSlug}' on this deployable. ` +
-        `Available aggregates: ${known || "(none)"}.`,
+        `Available aggregates: ${known || "(none)"}. ` +
+        `Workflows: ${knownWorkflows || "(none)"}.` +
+        (hints.length > 0 ? ` Routed handlers: ${hints.join(", ")}.` : ""),
     );
   }
   const slug = snake(plural(agg.name));
@@ -777,6 +858,13 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   const find = findRepoQuery(call.method, agg, ctx);
   if (find) return renderFindCall(find, slug, args, ctx);
 
+  // The slug resolved to an aggregate but the verb is none of its own — it may
+  // still be a routed handler whose context name happens to slug like the
+  // aggregate (`context Sales` + `aggregate Sale`).  Same precedence rule as
+  // the arm above: every aggregate verb wins first.
+  const routedFallback = matchRoutedHandlerCall(call, ctx);
+  if (routedFallback) return renderRoutedHandlerCall(routedFallback, call, ctx);
+
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (
     ctx.contexts.flatMap((c) => c.repositories).find((r) => r.aggregateName === agg.name)?.finds ??
@@ -794,6 +882,83 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   throw new Error(
     `e2e: unknown method 'api.${call.aggregateSlug}.${call.method}'. ` + `Available: ${known}.`,
   );
+}
+
+/** `api.<contextSlug>.<handlerName>(…)` → the routed handler it names, or null.
+ *  A thin adapter over the shared resolver so the two arms above read the same. */
+function matchRoutedHandlerCall(
+  call: ApiCallShape,
+  ctx: RenderCtx,
+): RoutedHandlerTarget | undefined {
+  return resolveRoutedHandler(call.aggregateSlug, call.method, ctx.contexts, ctx.apis);
+}
+
+/**
+ * Emit the HTTP request an explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>`
+ * binding answers.
+ *
+ * Path `{token}`s are substituted from the positionally-matching argument;
+ * every other param rides the JSON body (or the query string on the paged-run
+ * shape).  One helper (`__route`) serves every method, because a routed call is
+ * shaped by the DECLARED route rather than by an aggregate verb — the method
+ * comes off the `.ddd`, not off the name.
+ */
+function renderRoutedHandlerCall(
+  t: RoutedHandlerTarget,
+  call: ApiCallShape,
+  ctx: RenderCtx,
+): string {
+  const hint = `api.${call.aggregateSlug}.${call.method}`;
+  if (call.args.length !== t.bindings.length) {
+    const sig = t.bindings.map((b) => b.param.name).join(", ");
+    throw new Error(
+      `e2e: '${hint}(…)' takes ${t.bindings.length} argument(s) (${sig || "none"}), ` +
+        `got ${call.args.length}. A routed handler's arguments are POSITIONAL, in declared ` +
+        `param order — '${t.route.method} ${t.route.path}' binds them by name.`,
+    );
+  }
+  if (routedHandlerNeedsUnsendableBody(t)) {
+    const body = t.bindings
+      .filter((b) => b.source === "body")
+      .map((b) => b.param.name)
+      .join(", ");
+    throw new Error(
+      `e2e: '${hint}(…)' cannot be driven — '${t.route.method} ${t.route.path}' is a ` +
+        `bodyless method, but the handler's param(s) '${body}' are not bound by a {token} in ` +
+        `the path, so every backend reads them from a request BODY a ${t.route.method} cannot ` +
+        `carry. Add the missing {token}(s) to the route path.`,
+    );
+  }
+  const rendered = t.bindings.map((b, i) => {
+    const arg = call.args[i] as ExprIR;
+    // An `Agg id` param takes a create result the same way `getById(id)` does,
+    // so it gets the same `.id` unwrapping — and only it: appending `.id` to a
+    // string/int argument would silently send `undefined`.
+    return b.param.type.kind === "id" ? renderIdArg(arg, ctx) : renderE2EExpr(arg, ctx);
+  });
+  const bySource = (want: string): { name: string; expr: string }[] =>
+    t.bindings
+      .map((b, i) => ({ b, expr: rendered[i] as string }))
+      .filter((x) => x.b.source === want)
+      .map((x) => ({ name: x.b.param.name, expr: x.expr }));
+
+  let path = t.route.path;
+  for (const p of bySource("path")) {
+    path = path.replace(`{${p.name}}`, `\${encodeURIComponent(String(${p.expr}))}`);
+  }
+  const url = `\`\${base}${ctx.apiBasePath}${path}\``;
+  const obj = (fields: { name: string; expr: string }[]): string =>
+    `{ ${fields.map((f) => `${f.name}: ${f.expr}`).join(", ")} }`;
+
+  const query = bySource("query");
+  if (query.length > 0) {
+    return `await __route(${JSON.stringify(t.route.method.toUpperCase())}, __qs(${url}, ${obj(query)}))`;
+  }
+  const body = bySource("body");
+  if (body.length > 0) {
+    return `await __route(${JSON.stringify(t.route.method.toUpperCase())}, ${url}, ${obj(body)})`;
+  }
+  return `await __route(${JSON.stringify(t.route.method.toUpperCase())}, ${url})`;
 }
 
 function renderOperationCall(
@@ -846,6 +1011,70 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
   return rendered;
 }
 
+/**
+ * Render a workflow accessor call — the three verbs of M-T5.36 §1.
+ *
+ *   api.<wf>.run({…})        → POST /api/workflows/<snake>
+ *   api.<wf>.instances()     → GET  /api/workflows/<snake>/instances
+ *   api.<wf>.instance(key)   → GET  /api/workflows/<snake>/instances/{key}
+ *
+ * All three paths are already mounted by every backend — hono's
+ * `workflowsRoutes` under `app.route("/api/workflows", …)`, python's
+ * `APIRouter(prefix="/workflows")`, java's `@RequestMapping("/api/workflows")`,
+ * elixir's `workflow_instances_controller`, and .NET's workflow controller —
+ * so this arm adds no wire surface, it only lets a `test e2e` body reach one.
+ *
+ * `.run()` answers 204 with an empty body, which `__post` already returns as
+ * `{}`; the instance reads answer the persisted correlation row's
+ * `instanceWireShape`, which is what makes a folded saga's scalars assertable
+ * (the verb M-T9.12's follow-up said the DSL did not have).
+ *
+ * The two route-existence conditions are re-checked here rather than assumed:
+ * `generate system` can run on IR that never passed the validator (the
+ * `api.workflows` split brain is the cautionary case — a validator arm with no
+ * renderer arm crashed generation with a bare stack trace), so the emitter
+ * refuses in its own words instead of emitting a request nothing answers.
+ */
+function renderWorkflowCall(wf: WorkflowIR, call: ApiCallShape, ctx: RenderCtx): string {
+  const slug = workflowRouteSlug(wf);
+  const prefix = ctx.apiBasePath;
+  if (call.method === "run") {
+    if (!emitsCommandRoute(wf)) {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.run(…) has no route — workflow '${wf.name}' is ` +
+          `event-triggered, so no backend mounts POST ${prefix}/workflows/${slug}.`,
+      );
+    }
+    // One argument, and it IS the body: the facade's `create` params by name,
+    // exactly like `api.<aggs>.create({…})`.
+    const body = call.args[0] ? renderE2EExpr(call.args[0], ctx) : "{}";
+    return `await __post(\`\${base}${prefix}/workflows/${slug}\`, ${body})`;
+  }
+  if (call.method === "instances" || call.method === "instance") {
+    if (!emitsInstanceRoutes(wf)) {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.${call.method}(…) has no route — workflow ` +
+          `'${wf.name}' declares no correlation field, so it persists no instance row.`,
+      );
+    }
+    if (call.method === "instances") {
+      return `await __get(\`\${base}${prefix}/workflows/${slug}/instances\`)`;
+    }
+    if (call.args.length < 1) {
+      throw new Error(`e2e: api.${call.aggregateSlug}.instance(key) requires a key argument`);
+    }
+    // The CORRELATION key, through the same `renderIdArg` every other accessor
+    // uses — so a `let` bound to a create gets `.id` appended automatically and
+    // `api.<wf>.instance(ord)` reads the row the saga keyed on that order.
+    const keyExpr = renderIdArg(call.args[0], ctx);
+    return `await __get(\`\${base}${prefix}/workflows/${slug}/instances/\${${keyExpr}}\`)`;
+  }
+  throw new Error(
+    `e2e: unknown workflow verb 'api.${call.aggregateSlug}.${call.method}'. ` +
+      `Available: ${E2E_WORKFLOW_VERBS.join(", ")}.`,
+  );
+}
+
 /** Render a folded-projection read (`api.<proj>.byKey(k)` / `.list()`).  The
  *  route is `GET /projections/<snake(name)>[/{key}]` on every backend (the
  *  read-model row surface projection.md emits), so one assertion runs against
@@ -879,9 +1108,7 @@ function findProjectionBySlug(
 function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): AggregateIR | undefined {
   for (const c of contexts) {
     for (const a of c.aggregates) {
-      if (lowerFirst(a.name) === slug) return a;
-      if (snake(plural(a.name)) === slug) return a;
-      if (lowerFirst(plural(a.name)) === slug) return a;
+      if (slugNamesAggregate(slug, a.name)) return a;
     }
   }
   return undefined;
@@ -1010,6 +1237,50 @@ async function __delete(url: string): Promise<__WireBody> {
   }
   // 204 carries no body; there is nothing to bind.
   return null;
+}`,
+  },
+  {
+    // An explicit \`route <METHOD> <PATH> -> <Ctx>.<Handler>\` binding.  ONE
+    // helper for every method, because a routed call's method is DECLARED in
+    // the \`.ddd\` rather than implied by a verb name — so there is no
+    // \`__post\`/\`__get\` split to mirror, and adding a \`__put\`/\`__patch\` pair
+    // for the two methods no fixture uses today would ship dead symbols
+    // \`test:biome-gen\` flags.  Emitted on demand like its neighbours.
+    name: "__route",
+    src: `// One routed-handler call.  \`body\` is omitted for a bodyless method (GET /
+// DELETE), whose params are all path- or query-bound — \`fetch\` refuses a body
+// there, and the e2e renderer refuses the call rather than dropping an
+// argument silently.  The thrown message carries \`→ <status>\`, the shape
+// \`expect(...).toThrow(N)\` matches on.
+async function __route(method: string, url: string, body?: unknown): Promise<__WireBody> {
+  const headers: Record<string, string> = { ...__authHeaders() };
+  const init: RequestInit = { method, headers };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const r = await fetch(url, init);
+  const text = await r.text();
+  if (!r.ok) throw new Error(\`\${method} \${url} → \${r.status} \${r.statusText}\${text ? ": " + text : ""}\`);
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(\`\${method} \${url} → \${r.status}: expected JSON, got \${JSON.stringify(text.slice(0, 200))}\`);
+  }
+}`,
+  },
+  {
+    // Query-string append for the one routed shape whose non-path params ride
+    // the query string (a paged-run \`queryHandler\`).  Separate from
+    // \`__getQuery\` because that one also performs the GET.
+    name: "__qs",
+    src: `// Append query params to a URL (the paged-run routed handler's non-path args).
+function __qs(url: string, params: Record<string, unknown>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params ?? {})) {
+    if (v != null) qs.set(k, String(v));
+  }
+  return qs.toString().length > 0 ? \`\${url}?\${qs}\` : url;
 }`,
   },
 ];

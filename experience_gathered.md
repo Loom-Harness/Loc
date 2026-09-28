@@ -6363,3 +6363,165 @@ the pre-fix path and shows the only verdict ever published is `in_progress`.
 > The remedy paragraph above is unaffected: the tail watch is the fix for the
 > mechanism #2835 identified, and it happens to close the coverage half too,
 > because a merge-queue head takes the same single-SHA path a PR head does.
+
+## 115. `merge-tree` against `origin/main` cannot predict a merge-queue ejection — the queue merges onto main **plus its predecessors** (2026-09-22)
+
+A 380-file PR (#2980) was ejected from the merge queue four times with
+`MERGE_CONFLICT`. Every ejection was preceded by a check that said the branch
+was clean:
+
+```
+git merge-tree --write-tree origin/main <branch>   # → clean, every time
+```
+
+That check was asking the wrong question. A merge-queue entry is not built on
+`main` — it is built on **`main` + every entry ahead of it in the queue**. On
+the ejection that was finally diagnosed, `#2980` was clean against `main` and
+conflicted only against `main + #2970`, a 107-file wave PR two positions ahead.
+
+**The probe that actually answers the question.** Build the speculative base
+first, then test against *that*:
+
+```bash
+# what is at the front:  refs/heads/gh-readonly-queue/main/pr-<N>-<base sha>
+git ls-remote origin 'refs/heads/gh-readonly-queue/*'
+
+SB=$(mktemp -d)
+git worktree add -q --detach "$SB" origin/main
+git -C "$SB" merge origin/<predecessor head ref> --no-edit -q
+BASE=$(git -C "$SB" rev-parse HEAD)
+git merge-tree --write-tree "$BASE" <your branch> | grep CONFLICT
+git worktree remove --force "$SB"
+```
+
+Note the queue-ref caveat: `gh-readonly-queue/main/pr-N-<sha>` exists only for
+the entry currently **building**, so it names one predecessor, not the whole
+line. Entries behind the front are invisible from git alone.
+
+**This affects the repo's own pre-push hook.** `.claude/settings.json`'s
+`PreToolUse(Bash)` guard runs the `origin/main` form. That is the right check
+for "will this PR show a conflict on its page", and it is *not* a check for
+"will this survive the queue". It cannot be — the predecessors are not known at
+push time. Do not read a green hook as queue safety.
+
+**The collision class that keeps causing this.** Every one of the four
+ejections landed on a shared append-point — the docs-anchor map, the corpus
+manifest, the auth BYPASS lists, the diagnostic catalog, the CLI import block,
+and finally `UNDOCUMENTED_BASELINE` in
+`test/system/diagnostic-docs-anchors.test.ts`. That last one is the purest
+form, and it is worth understanding because the ratchet is *correctly* built:
+
+```ts
+expect(UNDOCUMENTED_CODES.length).toBeLessThanOrEqual(UNDOCUMENTED_BASELINE);
+expect(UNDOCUMENTED_BASELINE - UNDOCUMENTED_CODES.length).toBeLessThan(1);
+```
+
+Two-sided, so the constant must equal the length **exactly** — deliberately, because
+slack is how a ratchet stops ratcheting. The consequence is that two PRs moving
+the count in opposite directions (one documenting a code, one adding an
+undocumented one) have **no merge-safe encoding**. Neither can pre-resolve: the
+correct combined value is wrong on both branches until one of them is on
+`main`. This is not a flaw in the ratchet; it is the cost of an exact ratchet in
+a repo with a merge queue, and it is paid in serialization.
+
+**What follows for a large PR.** A big diff needs an uninterrupted window at the
+front of the queue while touching none of the append-points any predecessor
+touches. The odds fall with both diff size and queue depth, and the failure is
+invisible from the PR's own head. Keep the shared-counter edits in a small PR
+that is cheap to re-resolve each round, and the bulk (docs, fixtures, eval
+corpora — anything touching no shared file) in a separate one that sails
+through regardless of queue position.
+
+## 116. Two agents in one fleet reached for `pkill -f vitest`, and both hit their siblings (2026-09-11)
+
+Eight agents ran concurrently in separate worktrees on one 4-core box. Two of
+them independently ran a broad pattern kill — `pkill -f "vitest run"` and
+`pkill -9 -f vitest` — to clear what each believed was its own stale run. The
+pattern matches every sibling's suite. Between them they killed at least four
+runs, including several of their own, and at least one agent then spent a long
+time investigating timeouts that its sibling had caused.
+
+Both owned it unprompted, which is the only reason the mechanism is legible at
+all: the victim agent recorded `EXIT=143` (SIGTERM) on three of six attempts and
+could not explain it until the killer said so in its PR body.
+
+**The rule: in a shared worktree fleet, kill by PID, never by pattern.** A
+pattern that names the tool (`vitest`, `node`, `tsc`, `vue-tsc`) cannot
+distinguish your process from a sibling's, and worktree paths do not help
+because the binary is the same.
+
+The second-order lesson is about what saturation does to evidence. At load 55-72
+on 4 cores, a local `npm test` produces only timeout-shaped noise — `new.test.ts`
+cases at 41-632 s, `expr-hints-cache` at 659 s — never an assertion failure. Three
+separate agents each spent an hour deciding whether their own diff was at fault.
+None was. Two of them ended up at the same correct policy independently:
+
+- run locally only what is cheap and decisive — `lint`, `tsc -b`, the targeted
+  suites for the changed code, and the mutation proof;
+- treat CI's `tests passed` on a clean runner as the authoritative full-suite
+  verdict;
+- and if you never saw a green rollup, **say so and leave the PR draft** rather
+  than claim a green you did not observe. Three PRs in this fleet did exactly
+  that, and in every case CI later agreed with the targeted runs.
+
+A sharded local rollup also misses set/count ratchets that live on one shard.
+PR #2869 passed locally and went red on CI for three of them —
+`gate-ledger.test.ts`, `api-caller-census.test.ts` (`E2E_LESS_CORPUS_FIXTURES`)
+and `allowlist-ratchet.test.ts`. **If you add a corpus fixture, run those three
+files directly before pushing**; they are seconds each and they are the ones a
+shard boundary hides.
+
+## 117. An audit was right about every defect and wrong about six mechanisms (2026-09-13)
+
+Eleven defects found by building an e-shop end to end, thirteen PRs. Every
+defect was real. But the agents implementing the fixes corrected the audit's
+account of **why** six times, and the pattern in those six is worth more than
+the findings were.
+
+| the audit said | what was true | how it was found |
+|---|---|---|
+| a bare `name := name` assigns the parameter to itself | it emits `this._name = name` — correct | generating the operation and reading it |
+| G1 needs no grammar change | true of the arg *value*, false of the arg *name* (`requires` is a hard keyword) | trying to write the macro param |
+| node's optional-VO symptom is a hydration defect | a compile-time type error only; the emitted JS matches the wire golden | reverting the fix and re-running the behavioural leg |
+| the node dev-stub fails `tsc` | it did **not** — a spread of a `JSON.parse` result widens the closure's return type and swallows the contextual check | running the corpus leg with the fix reverted |
+| the money-in-array fix lands on four frontends | three — Angular builds row controls from its own module and never carried it | generating all four and diffing |
+| Angular is unverifiable on this host | a Node 24 tarball first on `PATH` runs `ng build` unchanged | one download |
+
+Two more arrived after this section was first written, from the agent fixing the
+nested-value-object defect (#2901), and they are the same two shapes again:
+
+| the audit said | what was true |
+|---|---|
+| dotnet emits a shadowing lambda parameter (`CS0136`) for a nested VO | it does not — `/warnaserror` build is clean and a minimal repro shows the shadowing is legal on this language version. Reasoned, never run. |
+| **java is correct** on nested VOs | its JPA mapping is. Its **request → domain** converter was not: a VO's own fields were never walked, so `toAddr` called a `toGeo` that was never emitted (`javac: cannot find symbol`). |
+
+The java one names a second trap beside the reduction: **checking one half of a
+backend and reporting the backend.** The persistence mapping was inspected and
+was genuinely right, so java was cleared — while the converter path that
+inspection never reached was broken enough to redden `main`. The sample was not
+the population, and nothing in the report said which half had been looked at.
+
+**The through-line: a reduction is a hypothesis, not evidence.** Four of the six
+came from reasoning about a rule instead of running the emitter. The worst was
+the dev-stub repro — a two-line `tsc --strict` case that proved the *type rule*
+while the real emitted file did not fail at all, so the corpus gate built on it
+would have been theatre until someone noticed. That is §59/§63 again, committed
+by the person writing the audit rather than by the person writing the gate.
+
+**The Angular one is a different and nastier failure.** It was not a wrong
+inference, it was an inherited one. An environment limitation got written down
+once, and three agents plus the coordinator repeated it across two sessions
+without retesting, because it was in the document. It cost the audit its Angular
+coverage entirely. **A limitation recorded in prose acquires the authority of a
+finding while keeping none of the evidence** — so give any "cannot be done here"
+an expiry date, and re-test it the next time it would change a conclusion.
+
+Corollary that paid off repeatedly: **fixing a defect is the best way to audit
+the report of it.** The implementation agents found five further defects
+(P7–P11) that the audit pass had walked straight past, including the most severe
+one in the whole exercise — a value object containing a value object writes and
+reads a column that exists in neither the schema nor the migration, on python,
+on the required case, so both halves fail at runtime. None of those surfaced
+from reading code. Every one surfaced from generating a project and looking at
+what came out.
+

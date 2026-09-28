@@ -84,7 +84,7 @@ const codes = async (
   lifetime: string,
   cells?: string,
 ): Promise<string[]> =>
-  (await diagnostics(framework, platform, lifetime, cells)).map((d) => d.code);
+  (await diagnostics(framework, platform, lifetime, cells)).map((d) => d.code ?? "");
 
 describe("loom.store-lifetime-target-unsupported — the feliz FIELD-scoped half", () => {
   // The ladder ships on feliz, so the platform-wide arm is gone …
@@ -254,7 +254,7 @@ describe("loom.store-lifetime-target-unsupported — what it must NOT flag", () 
       } as never,
       diags,
     );
-    expect(diags.map((d) => d.code)).toContain("loom.store-lifetime-liveview-invalid");
-    expect(diags.map((d) => d.code)).not.toContain(CODE);
+    expect(diags.map((d) => d.code ?? "")).toContain("loom.store-lifetime-liveview-invalid");
+    expect(diags.map((d) => d.code ?? "")).not.toContain(CODE);
   });
 });

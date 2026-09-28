@@ -44,6 +44,7 @@ import {
   slotExpr,
   workflowSlotOptions,
 } from "../../../web/src/builder/system/expr-slots.js";
+import { contextMembersOf, nodeName } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
 const SRC = `system Shop {
@@ -131,15 +132,10 @@ const expectHunk = (
 
 const BROKEN = SRC.replace("aggregate Order {", "aggregate Order {{");
 
-const contextMembers = (src: string) =>
-  parse(src)
-    .members.flatMap((m) => ("members" in m ? m.members : []))
-    .flatMap((m) => ("members" in m ? m.members : []));
+const contextMembers = (src: string) => contextMembersOf(parse(src));
 
 const order = (src = SRC) =>
-  contextMembers(src).find(
-    (m) => m.$type === "Aggregate" && (m as { name?: string }).name === "Order",
-  ) as never;
+  contextMembers(src).find((m) => m.$type === "Aggregate" && nodeName(m) === "Order") as never;
 
 const confirm: BodyLocator = { kind: "operation", aggregate: "Order", op: "confirm" };
 

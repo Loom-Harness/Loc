@@ -127,6 +127,31 @@ blocks.
   after all. The seed path is already schema-qualified (`schemaFor`, the F2-ADP-2
   fix), so it is the one half that will not need changing.
 
+**Measured on fresh `main` by wave C2 packet 2n — two things that shrink slice (c).**
+
+- **The phase-⑨ half is already done; there is no shared half left to land.**
+  `assignMigrationsOwner` (`src/ir/enrich/enrichments.ts`) picks the owner off
+  `PlatformSurface.needsDb` — it is adapter-BLIND — so a `persistence: dapper` /
+  `persistence: mikroorm` deployable is already a legitimate `migrationsOwner`
+  and `system.migrations` is already populated for it. Nothing derives
+  differently; the chain is computed and then thrown away at the two
+  `hasMigrations` guards (`src/platform/hono/v4/emit.ts:1163`,
+  `src/generator/dotnet/index.ts`). What is missing is entirely the per-adapter
+  APPLIER, twice.
+- **Do not invent a second ledger.** [#2946](https://github.com/Loom-Harness/Loc/pull/2946)
+  is open on this fence and adds `src/system/migration-ledger.ts` (+273) plus
+  changes to `migration-artifacts.ts`, for the silent-re-baseline defect. That is
+  the `__loom_migrations` concept slice (c) needs; build on it (or sequence
+  after it) rather than writing a parallel one. Packet 2n did not touch either
+  file.
+- **Applier shape, per adapter.** mikroorm cannot reuse drizzle's runtime
+  migrator (`drizzle-orm/node-postgres/migrator` — the dependency is not in that
+  project), so it needs its own `db/migrate.ts` reading the emitted `.sql` set
+  and applying through `em.getConnection().execute`, with
+  `orm.schema.updateSchema()` REMOVED in the same change (the two fight).
+  Dapper's side is `DbSchema.EnsureAsync` over Npgsql, as slice (c) already
+  says.
+
 **Exit.** A `test:migration-evolution-dapper` and `test:migration-evolution-mikroorm`
 leg added to `migration-evolution-e2e.yml` — today all five legs run on the
 default efcore/drizzle adapters, so nothing measures either of these. The

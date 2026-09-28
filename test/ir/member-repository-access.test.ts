@@ -21,7 +21,7 @@ const CODE = "loom.repository-access-outside-workflow";
 
 /** One context carrying a second aggregate (`Technician`) with a repository,
  *  so a member of `Job` has something cross-aggregate to reach for. */
-async function diags(jobMembers: string, extra = "") {
+async function diags(jobMembers: string, extra = "", astAlsoRefuses = false) {
   const { model, errors } = await parseString(`
     context Ops {
       aggregate Technician {
@@ -40,7 +40,19 @@ async function diags(jobMembers: string, extra = "") {
       ${extra}
     }
   `);
-  expect(errors).toEqual([]); // phases ① + ④ stay clean — this is the SILENT class
+  if (astAlsoRefuses) {
+    // A RULE expression (invariant / check / derived / `when`) is now refused at
+    // phase ④ by `checkRuleExprPurity`, which fires at the rule's own line.  That
+    // is strictly better than this IR gate for the author — `LoomDiagnostic` is
+    // rangeless, so the IR message can name the member but not the position — so
+    // the AST gate is allowed to win here and this helper asserts it fired.  The
+    // IR gate remains the backstop for every OTHER member surface (see the
+    // `operation` / `function` / `create` cases above, which still reach it
+    // silently), and for the cross-file case the per-document AST gate cannot see.
+    expect(errors.join("\n")).toContain("is a repository");
+  } else {
+    expect(errors).toEqual([]); // phases ① + ④ stay clean — this is the SILENT class
+  }
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
 }
 
@@ -75,10 +87,14 @@ describe("IR validator — a repository named from a domain member body", () => 
   });
 
   it("rejects it in an `invariant` and in a `derived`", async () => {
-    const d = await diags(`
+    const d = await diags(
+      `
       derived skillCount: int = Technicians.getById(technicianId).skills.count
       invariant Technicians.getById(technicianId).skills.contains(requiredSkill)
-    `);
+    `,
+      "",
+      true,
+    );
     expect(
       hits(d)
         .map((h) => h.source)

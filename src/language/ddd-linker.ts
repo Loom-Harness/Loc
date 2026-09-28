@@ -25,11 +25,28 @@
 // ---------------------------------------------------------------------------
 
 import {
+  type AstNode,
   type AstNodeDescription,
+  AstUtils,
   DefaultLinker,
   type LinkingError,
   type ReferenceInfo,
 } from "langium";
+import {
+  isAggregate,
+  isEntityPart,
+  isEnumDecl,
+  isEventDecl,
+  isPayloadDecl,
+  isValueObject,
+} from "./generated/ast.js";
+import { nearestType, primitiveTypeNames } from "./type-catalogue.js";
+
+/** The reference type every TYPE position resolves through.  `NamedDecl` is
+ *  used in exactly two grammar rules, `NamedType` (`target=[NamedDecl:ID]`) and
+ *  `IdType` (`target=[NamedDecl:ID] 'id'`), so an unresolved one is always a
+ *  user writing a type that does not exist — never some other broken link. */
+const TYPE_REFERENCE = "NamedDecl";
 
 export class DddLinker extends DefaultLinker {
   protected override createLinkingError(
@@ -37,10 +54,61 @@ export class DddLinker extends DefaultLinker {
     targetDescription?: AstNodeDescription,
   ): LinkingError {
     const referenceType = this.reflection.getReferenceType(refInfo);
+    const name = refInfo.reference.$refText;
     return {
       info: refInfo,
-      message: `Could not resolve reference to ${referenceType} named '${refInfo.reference.$refText}'.`,
+      message:
+        referenceType === TYPE_REFERENCE
+          ? unknownTypeMessage(name, refInfo.container)
+          : `Could not resolve reference to ${referenceType} named '${name}'.`,
       targetDescription,
     };
   }
+}
+
+/** The message a TYPE position gets instead of Langium's internal one.
+ *
+ *  `length: duration` reported "Could not resolve reference to NamedDecl named
+ *  'duration'." — which names an internal grammar type, does not say the
+ *  position is a type at all, and offers nothing to try.  (`docs/language.md`
+ *  does say "there is no duration field type on the wire"; the compiler did
+ *  not.)  This says what kind of thing was expected, what exists, and — when
+ *  the name is a near miss, the far more common case (`strng` for `string`) —
+ *  which one was probably meant. */
+function unknownTypeMessage(name: string, container: AstNode): string {
+  // Declared TYPES reachable from this document, so the hint can land on a
+  // user's own `valueobject` / `enum` as readily as on a primitive.
+  //
+  // Type declarations ONLY — not "every named node".  The walk runs over the
+  // MACRO-EXPANDED tree, so a `name` harvested indiscriminately also picks up
+  // the operations `with crudish` synthesises and the page state
+  // `with scaffold` synthesises: `occurredOn: date` was answered with
+  // "Did you mean 'update'?" (a crudish operation) and, once a scaffolded
+  // `ui` was present, "Did you mean 'data'?" (a page state variable).  Both
+  // are confidently wrong — they name something that can never stand in a
+  // type position, so following the hint replaces one error with another.
+  const declared = new Set<string>();
+  const root = AstUtils.findRootNode(container);
+  if (root) {
+    for (const node of AstUtils.streamAllContents(root)) {
+      if (
+        !isEnumDecl(node) &&
+        !isValueObject(node) &&
+        !isEventDecl(node) &&
+        !isPayloadDecl(node) &&
+        !isAggregate(node) &&
+        !isEntityPart(node)
+      )
+        continue;
+      const n = (node as { name?: unknown }).name;
+      if (typeof n === "string" && n.length > 0) declared.add(n);
+    }
+  }
+  const primitives = primitiveTypeNames();
+  const hint = nearestType(name, [...primitives, ...declared]);
+  return (
+    `Unknown type '${name}'.${hint ? ` Did you mean '${hint}'?` : ""}  Field types are: ` +
+    `${primitives.join(", ")} — or an enum / valueobject / event / payload declared in ` +
+    `scope; a reference to another aggregate is spelled '<Aggregate> id'.`
+  );
 }

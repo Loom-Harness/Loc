@@ -22,12 +22,23 @@ Shipped over four slices:
   authorization gate that maps to HTTP 403, distinct from
   `precondition` (which maps to 422 — RS-15).
 
-**Default-deny enforcement** is opt-in via
-`auth { enforcement: denyByDefault }` (the language default stays `opt`,
-which preserves the per-`requires` behaviour — the default-flip to
-`denyByDefault` is deferred to a major version).  **Deny-by-default is the
-recommended posture** for anything security-sensitive, and `ddd new`'s
-scaffold points at it.  Under `denyByDefault`, every **client-reachable
+**Default-deny enforcement is the language default** (M-T3.1): an
+`auth { … }` block that writes no `enforcement:` is in
+`enforcement: denyByDefault`.  The pre-flip posture, `enforcement: opt`
+(only the members that declare a `requires` are gated; everything else serves
+any authenticated caller), is still available — write it explicitly.  A
+project that relied on the old default keeps its behaviour by running the
+codemod, which writes `enforcement: opt` into every `auth` block that names
+none:
+
+```bash
+node scripts/codemod-enforcement-opt.mjs <dir-or-file>...   # --check / --list write nothing
+```
+
+See [`migrations.md` § The `enforcement:` default flip](migrations.md#the-enforcement-default-flip-m-t31).
+A system with **no** `auth { … }` block (a `user { … }` claim shape served by
+the stub verifier) has no enforcement posture before or after the flip —
+nothing is checked there.  Under `denyByDefault`, every **client-reachable
 command AND read** on an `auth: required` deployable must declare a
 `requires` gate — `requires true` is the explicit "intentionally public"
 escape — else `loom.default-deny-ungated` fires.  Covered:
@@ -47,6 +58,18 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   of their named-find loop and used to emit the list route without reading its
   gate.  All five now resolve the list read through one shared derivation
   (`src/ir/util/read-gates.ts`).
+- **the synthesised by-id read is the second exception — and unlike the list
+  read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
+  on all five backends and carries no gate on any of them, so gating an
+  aggregate everywhere else (an admin-only `find all`, gated operations) still
+  leaves single records readable by any authenticated caller.  It is no longer
+  silent: under `denyByDefault` each such route raises
+  `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
+  the author can write to satisfy it — the by-id gate surface
+  (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
+  still apply to the by-id route: the tenancy filter (a foreign tenant's row
+  reads 404) and `mask unless` field redaction.  What does not: role
+  separation within a tenant.
 - **`projection`s — both kinds** — the same optional `requires` gate, declared
   on the projection HEADER (`projection X keyed by k requires <expr> { … }`,
   after `keyed by`, like every other gate in the language), evaluated against
@@ -134,6 +157,8 @@ system Acme {
 
     context Orders {
       enum OrderStatus { Draft, Confirmed, Cancelled }
+
+      aggregate Customer { name: string }
 
       aggregate Order {
         customerId: Customer id
@@ -475,11 +500,11 @@ No surrounding `== …` / `&& …` is needed to satisfy the `bool` requirement:
 `currentUser.permissions` types as the claim's declared `string[]`, so the
 `.contains(…)` membership types as `bool`.
 
-Default-deny is opt-in via `auth { enforcement: denyByDefault }`
-(see the note at the top).  Without it (`enforcement: opt`, the
-default) a deployable on `auth: required` still serves any
-operation that doesn't declare a `requires` gate — Slice 2's
-original behaviour.
+Default-deny is the language default for an `auth { … }` block
+(see the note at the top).  Under an explicit `enforcement: opt` a
+deployable on `auth: required` still serves any operation that
+doesn't declare a `requires` gate — Slice 2's original behaviour, and
+the language default until M-T3.1.
 
 #### The canonical `create` / `destroy` gate
 
@@ -609,21 +634,28 @@ has **no candidate row** — pass row fields in as arguments).  Parentheses are
 function form from the `policy {}` read-ladder block ([tenancy](tenancy.md)).
 
 ```ddd
-context Orders {
+subdomain Sales {
+  // `permissions { … }` is a SUBDOMAIN member — the catalogue is the
+  // permission namespace, and `sales.approve` below is its qualified name.
   permissions { approve, manage }
 
-  policy CanApprove(cap: money): bool =
-    currentUser.permissions.contains(permissions.approve) && cap <= 10000
-  policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+  context Orders {
+    enum OrderStatus { Draft, Approved }
 
-  aggregate Order {
-    amount: money
-    status: OrderStatus
-    operation approve() {
-      requires CanApprove(amount)   // ← argument bound to the parameter
-      requires IsManager()
-      status := OrderStatus.Approved
+    policy CanApprove(cap: money): bool =
+      currentUser.permissions.contains(permissions.approve) && cap <= 10000
+    policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+
+    aggregate Order {
+      amount: money
+      status: OrderStatus
+      operation approve() {
+        requires CanApprove(amount)   // ← argument bound to the parameter
+        requires IsManager()
+        status := OrderStatus.Approved
+      }
     }
+    repository Orders for Order { }
   }
 }
 ```
@@ -1021,14 +1053,19 @@ it as the trailing argument to the aggregate method.
 
 Until you register a real verifier, every backend ships an **accept-all dev
 stub** so the stack boots and the routes are reachable in local dev. The stub
-reads an optional **`x-loom-dev-claims`** request header — a JSON object of user
-claims — and projects it onto the `User` shape, so you can exercise
+reads an optional **`x-loom-dev-claims`** request header — **base64-encoded
+JSON** — and overlays it on the `User` shape, so you can exercise
 `currentUser`/`requires` gates without wiring an identity provider:
 
 ```bash
-curl -H 'x-loom-dev-claims: {"id":"u-1","role":"manager","tenantId":"t-1"}' \
+curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
+> falls back to the built-in identity, so a **raw-JSON** header does not fail —
+> it is silently ignored, and the request runs as the built-in `admin`. A gate
+> that then passes looks like your claims were applied when they never were.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid
@@ -1088,7 +1125,12 @@ Every backend mounts its auth routes under the shared API base, i.e.
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
   authorization-code redirect handshake, emitted only under an
-  `auth { oidc { … } }` block.
+  `auth { oidc { … } }` block.  The block's fields are documented in
+  [`language-reference/17-auth.md`](language-reference/17-auth.md#auth-----oidc-config);
+  the one worth reading before you ship is **`audience:`, which is optional and
+  whose absence turns the `aud` check off** — the verifier then accepts any
+  token from the configured issuer, including one minted for a different client
+  in the same realm.
 - `POST /api/auth/refresh` — silent renewal: exchanges the stored refresh
   token for a fresh access token (no IdP round-trip) and **rotates** it, so a
   SPA can extend a session on a 401 without bouncing the user back to login.

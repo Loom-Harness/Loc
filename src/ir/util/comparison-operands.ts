@@ -71,3 +71,58 @@ export function orientComparison<T>(
   if (mirrored === undefined) return null;
   return { op: mirrored, column: right, value: left, commuted: true };
 }
+
+// -------------------------------------------------------------------------
+// `x == null` / `x != null` — the OTHER operand shape every SQL-shaped lowerer
+// has to special-case, for a reason the orientation above does not cover: SQL
+// has no `= NULL`.  `col = NULL` is never true, so an equality lowerer that
+// binds the null literal as an ordinary value emits a predicate matching no
+// row — and on Drizzle it does not even get that far, because `eq`/`ne` are
+// typed `(column, column | value)` with no `null` in the value union, so the
+// emitted project fails `tsc` with TS2769 (F-007).
+//
+// Each target has its own spelling (`isNull`/`isNotNull` on Drizzle,
+// `cb.isNull`/`cb.isNotNull` on JPA Criteria, `IS NULL` in JPQL,
+// `.is_(None)`/`.is_not(None)` on SQLAlchemy, `is_nil/1` on Ecto), so the only
+// shared part is RECOGNISING the shape — which side carries the literal, and
+// whether the test is negated.  That recognition was hand-rolled in four
+// places before this helper; each copy is one missing `paren` arm away from
+// failing to see `(this.x) != null`.
+// -------------------------------------------------------------------------
+
+/** The literal `null`, seen through parentheses. */
+function isNullLiteralOperand(e: { kind: string; lit?: string; inner?: unknown }): boolean {
+  if (e.kind === "paren") {
+    return isNullLiteralOperand(e.inner as { kind: string; lit?: string; inner?: unknown });
+  }
+  return e.kind === "literal" && e.lit === "null";
+}
+
+/** An `x == null` / `x != null` comparison, re-expressed as the IS [NOT] NULL
+ *  test SQL actually has. */
+export interface NullComparison<T> {
+  /** The non-null side — the operand the emitted IS [NOT] NULL tests. */
+  operand: T;
+  /** True for `!=` (IS NOT NULL), false for `==` (IS NULL). */
+  negated: boolean;
+}
+
+/**
+ * Recognise a null comparison: `==`/`!=` with the literal `null` on EXACTLY one
+ * side (parenthesised or not).
+ *
+ * Returns null for every other shape, `null == null` included — with no operand
+ * to test there is no IS [NOT] NULL predicate to emit, and the caller's ordinary
+ * unsupported-shape path is the honest answer.
+ */
+export function nullComparison<T extends { kind: string }>(
+  op: string,
+  left: T,
+  right: T,
+): NullComparison<T> | null {
+  if (op !== "==" && op !== "!=") return null;
+  const leftIsNull = isNullLiteralOperand(left);
+  const rightIsNull = isNullLiteralOperand(right);
+  if (leftIsNull === rightIsNull) return null;
+  return { operand: leftIsNull ? right : left, negated: op === "!=" };
+}

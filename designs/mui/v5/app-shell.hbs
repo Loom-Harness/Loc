@@ -6,7 +6,12 @@ import {
   List, ListItem, ListItemButton, ListItemText, ListSubheader,
   Toolbar, Typography, Alert, Button, Stack,
 } from "@mui/material";
-import MenuIcon from "@mui/icons-material/Menu";
+{{!-- Barrel import, NOT `@mui/icons-material/Menu`: v5 ships CJS with no
+     `exports` map, so Vite hands a deep default import the module OBJECT and
+     React throws #130 ("element type is invalid") — a blank app on every
+     route, through a green `tsc --noEmit` and a green `vite build`.  v7 is ESM
+     and takes either form; it keeps the deep import so its bundle is unchanged. --}}
+import { Menu as MenuIcon } from "@mui/icons-material";
 import React from "react";
 {{#if navUsesSession}}import { useSession } from "./auth/AuthGate";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";

@@ -1,0 +1,132 @@
+// FieldOps — slice 1: core domain only (no UI, no auth, no tenancy).
+// Written against docs/language.md by an outside evaluator.
+
+system FieldOps {
+
+  subdomain Ops {
+    context Field {
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Emergency }
+      enum LineKind { Labour, Part }
+
+      aggregate Customer {
+        name: string
+        billingEmail: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Site {
+        customerId: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+
+      aggregate Asset {
+        siteId: Site id
+        serial: string
+        model: string
+        warrantyExpiry: datetime?
+        requiredSkill: string
+        unique (serial)
+        derived display: string = serial
+      }
+
+      aggregate Technician {
+        fullName: string
+        skills: string[]
+        costRate: money
+        derived display: string = fullName
+      }
+
+      aggregate WorkOrder {
+        customerId: Customer id
+        siteId: Site id
+        assetId: Asset id?
+        technicianId: Technician id?
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        resolutionNote: string?
+        contains lines: WorkOrderLine[]
+
+        invariant currency.length == 3
+        invariant lines.all(l => l.currency == currency)
+          message "all work-order lines must share the order currency"
+
+        derived total: money = lines.sum(l => l.subtotal)
+        derived display: string = `WO {id} ({status})`
+
+        function isDraft(): bool = status == Draft
+
+        operation schedule(technician: Technician id, at: datetime) {
+          precondition status == Draft
+          technicianId := technician
+          scheduledAt := at
+          status := Scheduled
+        }
+
+        operation start() {
+          precondition status == Scheduled
+          startedAt := now()
+          status := InProgress
+        }
+
+        operation complete(note: string) {
+          precondition status == InProgress
+          completedAt := now()
+          resolutionNote := note
+          status := Completed
+        }
+
+        operation cancel() {
+          precondition status != Completed
+          status := Cancelled
+        }
+
+        operation addLine(kind: LineKind, description: string, quantity: decimal, unitPrice: money) {
+          precondition isDraft()
+          precondition quantity > 0
+          lines += WorkOrderLine {
+            kind: kind,
+            description: description,
+            quantity: quantity,
+            unitPrice: unitPrice,
+            currency: currency
+          }
+        }
+
+        entity WorkOrderLine {
+          kind: LineKind
+          description: string
+          quantity: decimal
+          unitPrice: money
+          currency: string
+          derived subtotal: money = unitPrice * quantity
+          invariant quantity > 0
+        }
+      }
+
+      repository Customers for Customer { }
+      repository Sites for Site { }
+      repository Assets for Asset { }
+      repository Technicians for Technician { }
+      repository WorkOrders for WorkOrder { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource fieldState { for: Field, kind: state, use: primary }
+
+  deployable api {
+    platform: node
+    contexts: [Field]
+    dataSources: [fieldState]
+    port: 3000
+  }
+}

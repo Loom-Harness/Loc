@@ -1,0 +1,15 @@
+// Does `X id` resolve across contexts in the same file?
+// docs/language.md:221 says yes ("Cross-context type references (`X id`...) work freely
+// as long as both types are reachable from the same deployable's hosted context set").
+// docs/language.md:147 (multi-file section) says no ("`X id` only resolves to an
+// aggregate in the same context").
+system X {
+  subdomain S {
+    context A { aggregate Foo { name: string } repository Foos for Foo { } }
+    context B { aggregate Bar { fooId: Foo id } repository Bars for Bar { } }
+  }
+  storage p { type: postgres }
+  resource ra { for: A, kind: state, use: p }
+  resource rb { for: B, kind: state, use: p }
+  deployable api { platform: node, contexts: [A, B], dataSources: [ra, rb], port: 3000 }
+}

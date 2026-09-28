@@ -1,0 +1,17 @@
+// The .NET channel transport emits an unqualified `Api.Infrastructure.…` reference
+// from inside `namespace Api.Infrastructure.Channels;`, which binds to the project's
+// own `Api.Api` namespace → the generated C# does not compile.
+system X {
+  subdomain S { context C {
+    aggregate Foo with crudish { name: string  derived display: string = name
+      operation ping() { name := name  emit Pinged { foo: id, at: now() } } }
+    repository Foos for Foo { }
+    event Pinged { foo: Foo id, at: datetime }
+    channel Life { carries: Pinged  delivery: broadcast  retention: ephemeral }
+  } }
+  storage p { type: postgres }
+  storage bus { type: redis }
+  resource r { for: C, kind: state, use: p }
+  channelSource lifeBus { for: Life, use: bus }
+  deployable api { platform: dotnet, contexts: [C], dataSources: [r], channels: [lifeBus], port: 8080 }
+}

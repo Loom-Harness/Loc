@@ -1,4 +1,5 @@
 import type {
+  AggregateIR,
   BoundedContextIR,
   EnrichedBoundedContextIR,
   ExprIR,
@@ -17,10 +18,12 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../ir/util/projection-aggregate.js";
+import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
 import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { numericEncode } from "../_numeric/target.js";
+import { joinReadFieldNames } from "../_projection/join-read.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
 import {
@@ -110,9 +113,30 @@ export function emitQueryProjections(
   );
 }
 
+const joinReadFields = joinReadFieldNames;
+
+/** The row-record type of a projection wire field.  A field read through a
+ *  join alias is widened to NULLABLE: the absent branch answers wire `null`
+ *  (RS-34), and a value-typed member (`int`, `bool`, `double`) cannot hold one —
+ *  its `default!` read `0` / `false` where the other four backends answer
+ *  `null` (RS-34's "Open" arm, closed with D-ABSENT-JOIN-DATETIME-WIRE). */
+function rowFieldType(
+  f: { name: string; type: TypeIR },
+  ctx: EnrichedBoundedContextIR,
+  joined: ReadonlySet<string>,
+): string {
+  const t = joined.has(f.name) && f.type.kind !== "optional" ? optionalOf(f.type) : f.type;
+  return wireType(t, ctx, "response");
+}
+
+function optionalOf(inner: TypeIR): TypeIR {
+  return { kind: "optional", inner } as TypeIR;
+}
+
 function renderRowRecord(proj: ProjectionIR, ctx: EnrichedBoundedContextIR, ns: string): string {
+  const joined = joinReadFields(proj);
   const fields = (proj.wireShape ?? [])
-    .map((f) => dtoParam(wireType(f.type, ctx, "response"), upperFirst(f.name)))
+    .map((f) => dtoParam(rowFieldType(f, ctx, joined), upperFirst(f.name)))
     .join(", ");
   return `// Auto-generated.
 using System.ComponentModel.DataAnnotations;
@@ -271,6 +295,7 @@ function renderHandler(
     // (two selects off the same alias are two declarations in ONE scope, which
     // would be CS0128).
     let joinTmp = 0;
+    const joinedFields = joinReadFields(proj);
     const args = (proj.wireShape ?? []).map((f) => {
       const sel = selectByField.get(f.name);
       if (!sel) return "default!";
@@ -297,7 +322,12 @@ function renderHandler(
       if (joined) {
         const tmp = `__j${joinTmp++}`;
         const value = projectToResponse(`${tmp}.${upperFirst(joined.member)}`, f.type, ctx);
-        return `(${joined.map.mapVar}.TryGetValue(${joined.map.keyExpr}, out var ${tmp}) ? ${value} : default!)`;
+        // The absent branch is `null` — the row member is nullable
+        // (`rowFieldType`), and the present branch is cast to that nullable
+        // type so a value-typed member (`int` → `int?`) unifies with `null`
+        // in the conditional instead of reading `default(int)` = 0 (RS-34).
+        const rowType = rowFieldType(f, ctx, joinedFields);
+        return `(${joined.map.mapVar}.TryGetValue(${joined.map.keyExpr}, out var ${tmp}) ? (${rowType})(${value}) : null)`;
       }
       return projectToResponse(renderCsExpr(sel.expr, { thisName: "d" }), f.type, ctx);
     });
@@ -579,17 +609,17 @@ function efAggregateArrivesAsDecimal(s: AggregateSelect): boolean {
  *  `integer` or `numeric` column return `numeric`); only the RESULT is
  *  converted.  Casting the argument instead would move the accumulation into
  *  binary floating point and diverge from the other backends for real. */
-function sqlAggregate(s: AggregateSelect, ctx: EnrichedBoundedContextIR): string {
+function sqlAggregate(
+  s: AggregateSelect,
+  ctx: EnrichedBoundedContextIR,
+  src: AggregateIR | undefined,
+): string {
   const agg = s.aggregate;
   if (agg.op === "count" || !agg.arg) return "count(*)::int";
-  const arg = agg.arg;
-  if (arg.kind !== "member") {
-    throw new Error(
-      "internal: a whole-table aggregation argument must be a source column reference",
-    );
-  }
   const cast = aggregateLandsOnDouble(s, ctx) ? "double precision" : "numeric";
-  return `${agg.op}(${sqlIdent(snake(arg.member))})::${cast}`;
+  // Dapper writes the SQL itself, so a VALUE-OBJECT LEAF is the flattened
+  // physical column (`amount_amount`) — the outermost member names nothing.
+  return `${agg.op}(${sqlIdent(sqlColumnName(aggregateArgColumn(agg.arg, src, ctx)))})::${cast}`;
 }
 
 /** The CLR type the aggregate's aliased column lands on — the Npgsql mapping of
@@ -689,6 +719,7 @@ function renderAggregateHandler(
   const queryName = `${upperFirst(proj.name)}QpQuery`;
   const handlerName = `${upperFirst(proj.name)}QpHandler`;
   const source = proj.query!.source!;
+  const srcAgg = ctx.aggregates.find((a) => a.name === source);
   const dbSet = plural(upperFirst(source));
 
   const usings = new Set<string>();
@@ -755,7 +786,9 @@ function renderAggregateHandler(
     // `QuerySingleAsync`, not `…OrDefault`.  Each aggregate is aliased to its
     // wire field's snake name, which is also the row property name, so Dapper's
     // column→property match is exact.
-    const cols = aggregates.map((s) => `${sqlAggregate(s, ctx)} AS ${sqlIdent(snake(s.field))}`);
+    const cols = aggregates.map(
+      (s) => `${sqlAggregate(s, ctx, srcAgg)} AS ${sqlIdent(snake(s.field))}`,
+    );
     members = aggregates
       .map(
         (s) =>
@@ -776,7 +809,7 @@ function renderAggregateHandler(
     // The anonymous projection the grouped query selects; each member is named
     // after its wire field so the row construction below reads plainly.
     const anon = aggregates
-      .map((s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate)}`)
+      .map((s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`)
       .join(", ");
     const args = aggregates
       .map((s) => csCoerce(s, `agg`, ctx, undefined, efAggregateArrivesAsDecimal(s)))
@@ -851,6 +884,7 @@ function renderGroupedHandler(
   const queryName = `${upperFirst(proj.name)}QpQuery`;
   const handlerName = `${upperFirst(proj.name)}QpHandler`;
   const source = proj.query!.source!;
+  const srcAgg = ctx.aggregates.find((a) => a.name === source);
   const dbSet = plural(upperFirst(source));
 
   // The distinct grouping columns as entity property names, in `group by`
@@ -941,7 +975,9 @@ function renderGroupedHandler(
   // named after its wire field.
   const members = [
     ...cols.map((c) => `g.Key.${c.member}`),
-    ...grouped.aggregates.map((s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate)}`),
+    ...grouped.aggregates.map(
+      (s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`,
+    ),
   ].join(", ");
   const orderBy = cols
     .map((c, i) => `.${i === 0 ? "OrderBy" : "ThenBy"}(x => x.${c.member})`)
@@ -995,7 +1031,9 @@ function renderGroupedHandler(
       const expr = sqlGroupKeyExpr(k.expr, proj.name);
       return expr === alias ? alias : `${expr} AS ${alias}`;
     }),
-    ...grouped.aggregates.map((s) => `${sqlAggregate(s, ctx)} AS ${sqlIdent(snake(s.field))}`),
+    ...grouped.aggregates.map(
+      (s) => `${sqlAggregate(s, ctx, srcAgg)} AS ${sqlIdent(snake(s.field))}`,
+    ),
   ].join(", ");
   const groupSql =
     `SELECT ${selectSql} FROM ${sqlIdent(dapperAggregateTable(source))}` +
@@ -1060,15 +1098,16 @@ ${gate}${groupBody}    }
 /** The LINQ aggregate call for one `select`, inside the grouped projection.
  *  `count` counts ROWS (no column); the rest take the aggregated column, which
  *  is source-row-rooted so it names the entity's property. */
-function csAggregate(agg: ProjectionAggregateIR): string {
+function csAggregate(
+  agg: ProjectionAggregateIR,
+  src: AggregateIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+): string {
   if (agg.op === "count" || !agg.arg) return "g.Count()";
-  const arg = agg.arg;
-  if (arg.kind !== "member") {
-    throw new Error(
-      "internal: a whole-table aggregation argument must be a source column reference",
-    );
-  }
-  const col = `o.${upperFirst(arg.member)}`;
+  // A VALUE OBJECT is an EF OWNED type, so its leaf keeps the OBJECT PATH —
+  // `o.Amount.Amount`, which EF translates to the `amount_amount` column.
+  // Emitting the outermost member was `CS1061` on the owned property.
+  const col = `o.${aggregateArgColumn(agg.arg, src, ctx).path.map(upperFirst).join(".")}`;
   // LINQ spells the extremes `Max`/`Min` and the rest `Sum`/`Average`.
   const fn = agg.op === "avg" ? "Average" : upperFirst(agg.op);
   return `g.${fn}(o => ${col})`;

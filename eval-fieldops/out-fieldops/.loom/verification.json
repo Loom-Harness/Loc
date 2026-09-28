@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "testCases": {
+    "TC-002": {
+      "status": "FAILING",
+      "backing": [
+        {
+          "name": "consuming more than stock is rejected",
+          "status": "fail"
+        }
+      ]
+    }
+  },
+  "requirements": {
+    "US-001": {
+      "verdict": "UNVERIFIED",
+      "testCaseIds": [
+        "TC-001"
+      ],
+      "failingTestCaseIds": []
+    },
+    "AC-001": {
+      "verdict": "UNVERIFIED",
+      "testCaseIds": [
+        "TC-001"
+      ],
+      "failingTestCaseIds": []
+    },
+    "US-002": {
+      "verdict": "FAILING",
+      "testCaseIds": [
+        "TC-002"
+      ],
+      "failingTestCaseIds": [
+        "TC-002"
+      ]
+    },
+    "US-003": {
+      "verdict": "UNVERIFIED",
+      "testCaseIds": [
+        "TC-003"
+      ],
+      "failingTestCaseIds": []
+    }
+  },
+  "summary": {
+    "verified": 0,
+    "failing": 1,
+    "untested": 0,
+    "unverified": 3,
+    "total": 4
+  },
+  "diagnostics": {
+    "unknownTests": [],
+    "unmappedTestCases": []
+  }
+}

@@ -1,0 +1,14 @@
+// 5. cyclic containment
+system X {
+  subdomain S {
+    context C {
+      aggregate Node1 with crudish { label: string  derived display: string = label
+        contains kids: Child[]
+        entity Child { label: string  contains kids: Child[] } }
+      repository Node1s for Node1 { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

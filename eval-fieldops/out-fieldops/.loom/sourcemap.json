@@ -1,0 +1,2234 @@
+{
+  "version": 1,
+  "sources": [
+    "/home/user/Loc/eval/fieldops/main.ddd"
+  ],
+  "files": {
+    "api/db/repositories/asset-repository.ts": [
+      {
+        "target": [
+          1,
+          104
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            7040,
+            7071
+          ]
+        },
+        "construct": "Field.Asset"
+      }
+    ],
+    "api/db/repositories/customer-repository.ts": [
+      {
+        "target": [
+          1,
+          103
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6960,
+            6997
+          ]
+        },
+        "construct": "Field.Customer"
+      }
+    ],
+    "api/db/repositories/invoice-repository.ts": [
+      {
+        "target": [
+          1,
+          111
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            7208,
+            7243
+          ]
+        },
+        "construct": "Field.Invoice"
+      }
+    ],
+    "api/db/repositories/organization-repository.ts": [
+      {
+        "target": [
+          1,
+          102
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6908,
+            6953
+          ]
+        },
+        "construct": "Field.Organization"
+      }
+    ],
+    "api/db/repositories/part-repository.ts": [
+      {
+        "target": [
+          1,
+          104
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            7126,
+            7155
+          ]
+        },
+        "construct": "Field.Part"
+      }
+    ],
+    "api/db/repositories/site-repository.ts": [
+      {
+        "target": [
+          1,
+          103
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            7004,
+            7033
+          ]
+        },
+        "construct": "Field.Site"
+      }
+    ],
+    "api/db/repositories/technician-repository.ts": [
+      {
+        "target": [
+          1,
+          111
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            7078,
+            7119
+          ]
+        },
+        "construct": "Field.Technician"
+      }
+    ],
+    "api/db/repositories/workOrder-repository.ts": [
+      {
+        "target": [
+          1,
+          174
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            7162,
+            7201
+          ]
+        },
+        "construct": "Field.WorkOrder"
+      }
+    ],
+    "api/domain/asset.ts": [
+      {
+        "target": [
+          1,
+          88
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            2373,
+            2649
+          ]
+        },
+        "construct": "Field.Asset"
+      },
+      {
+        "target": [
+          46,
+          46
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2407,
+              2414
+            ]
+          }
+        },
+        "construct": "Field.Asset.update"
+      },
+      {
+        "target": [
+          47,
+          47
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2407,
+              2414
+            ]
+          }
+        },
+        "construct": "Field.Asset.update"
+      },
+      {
+        "target": [
+          48,
+          48
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2407,
+              2414
+            ]
+          }
+        },
+        "construct": "Field.Asset.update"
+      },
+      {
+        "target": [
+          49,
+          49
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2407,
+              2414
+            ]
+          }
+        },
+        "construct": "Field.Asset.update"
+      },
+      {
+        "target": [
+          50,
+          50
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2407,
+              2414
+            ]
+          }
+        },
+        "construct": "Field.Asset.update"
+      }
+    ],
+    "api/domain/customer.ts": [
+      {
+        "target": [
+          1,
+          90
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            1967,
+            2170
+          ]
+        },
+        "construct": "Field.Customer"
+      },
+      {
+        "target": [
+          49,
+          49
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2015,
+              2022
+            ]
+          }
+        },
+        "construct": "Field.Customer.update"
+      },
+      {
+        "target": [
+          50,
+          50
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2015,
+              2022
+            ]
+          }
+        },
+        "construct": "Field.Customer.update"
+      }
+    ],
+    "api/domain/invoice.ts": [
+      {
+        "target": [
+          1,
+          99
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6536,
+            6900
+          ]
+        },
+        "construct": "Field.Invoice"
+      },
+      {
+        "target": [
+          58,
+          58
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6865,
+            6882
+          ]
+        },
+        "construct": "Field.Invoice.issue"
+      },
+      {
+        "target": [
+          58,
+          58
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6877,
+            6882
+          ]
+        },
+        "construct": "Field.Invoice.issue",
+        "targetCol": [
+          22,
+          32
+        ]
+      }
+    ],
+    "api/domain/organization.ts": [
+      {
+        "target": [
+          1,
+          61
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            1820,
+            1959
+          ]
+        },
+        "construct": "Field.Organization"
+      },
+      {
+        "target": [
+          28,
+          28
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              1848,
+              1855
+            ]
+          }
+        },
+        "construct": "Field.Organization.update"
+      }
+    ],
+    "api/domain/part.test.ts": [
+      {
+        "target": [
+          1,
+          12
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3020,
+            3722
+          ]
+        },
+        "construct": "Field.Part"
+      }
+    ],
+    "api/domain/part.ts": [
+      {
+        "target": [
+          1,
+          97
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3020,
+            3722
+          ]
+        },
+        "construct": "Field.Part"
+      },
+      {
+        "target": [
+          47,
+          47
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3372,
+            3392
+          ]
+        },
+        "construct": "Field.Part.consume"
+      },
+      {
+        "target": [
+          48,
+          48
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3403,
+            3429
+          ]
+        },
+        "construct": "Field.Part.consume"
+      },
+      {
+        "target": [
+          48,
+          48
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3416,
+            3422
+          ]
+        },
+        "construct": "Field.Part.consume",
+        "targetCol": [
+          11,
+          23
+        ]
+      },
+      {
+        "target": [
+          48,
+          48
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3426,
+            3429
+          ]
+        },
+        "construct": "Field.Part.consume",
+        "targetCol": [
+          27,
+          30
+        ]
+      },
+      {
+        "target": [
+          48,
+          48
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3416,
+            3429
+          ]
+        },
+        "construct": "Field.Part.consume",
+        "targetCol": [
+          11,
+          30
+        ]
+      },
+      {
+        "target": [
+          49,
+          49
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3440,
+            3462
+          ]
+        },
+        "construct": "Field.Part.consume"
+      },
+      {
+        "target": [
+          49,
+          49
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3450,
+            3456
+          ]
+        },
+        "construct": "Field.Part.consume",
+        "targetCol": [
+          20,
+          32
+        ]
+      },
+      {
+        "target": [
+          49,
+          49
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3459,
+            3462
+          ]
+        },
+        "construct": "Field.Part.consume",
+        "targetCol": [
+          35,
+          38
+        ]
+      },
+      {
+        "target": [
+          49,
+          49
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3450,
+            3462
+          ]
+        },
+        "construct": "Field.Part.consume",
+        "targetCol": [
+          20,
+          38
+        ]
+      },
+      {
+        "target": [
+          54,
+          54
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              3053,
+              3060
+            ]
+          }
+        },
+        "construct": "Field.Part.update"
+      },
+      {
+        "target": [
+          55,
+          55
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              3053,
+              3060
+            ]
+          }
+        },
+        "construct": "Field.Part.update"
+      },
+      {
+        "target": [
+          56,
+          56
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              3053,
+              3060
+            ]
+          }
+        },
+        "construct": "Field.Part.update"
+      },
+      {
+        "target": [
+          57,
+          57
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              3053,
+              3060
+            ]
+          }
+        },
+        "construct": "Field.Part.update"
+      },
+      {
+        "target": [
+          58,
+          58
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              3053,
+              3060
+            ]
+          }
+        },
+        "construct": "Field.Part.update"
+      }
+    ],
+    "api/domain/site.ts": [
+      {
+        "target": [
+          1,
+          77
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            2178,
+            2365
+          ]
+        },
+        "construct": "Field.Site"
+      },
+      {
+        "target": [
+          39,
+          39
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2211,
+              2218
+            ]
+          }
+        },
+        "construct": "Field.Site.update"
+      },
+      {
+        "target": [
+          40,
+          40
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2211,
+              2218
+            ]
+          }
+        },
+        "construct": "Field.Site.update"
+      },
+      {
+        "target": [
+          41,
+          41
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2211,
+              2218
+            ]
+          }
+        },
+        "construct": "Field.Site.update"
+      }
+    ],
+    "api/domain/technician.ts": [
+      {
+        "target": [
+          1,
+          85
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            2657,
+            3012
+          ]
+        },
+        "construct": "Field.Technician"
+      },
+      {
+        "target": [
+          45,
+          45
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2696,
+              2703
+            ]
+          }
+        },
+        "construct": "Field.Technician.update"
+      },
+      {
+        "target": [
+          46,
+          46
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2696,
+              2703
+            ]
+          }
+        },
+        "construct": "Field.Technician.update"
+      },
+      {
+        "target": [
+          47,
+          47
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2696,
+              2703
+            ]
+          }
+        },
+        "construct": "Field.Technician.update"
+      },
+      {
+        "target": [
+          48,
+          48
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "crudish",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              2696,
+              2703
+            ]
+          }
+        },
+        "construct": "Field.Technician.update"
+      }
+    ],
+    "api/domain/workOrder.ts": [
+      {
+        "target": [
+          1,
+          220
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            4023,
+            6528
+          ]
+        },
+        "construct": "Field.WorkOrder"
+      },
+      {
+        "target": [
+          133,
+          133
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5202,
+            5227
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour"
+      },
+      {
+        "target": [
+          133,
+          133
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5215,
+            5227
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          11,
+          28
+        ]
+      },
+      {
+        "target": [
+          134,
+          134
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5238,
+            5260
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour"
+      },
+      {
+        "target": [
+          135,
+          135
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5271,
+            5308
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour"
+      },
+      {
+        "target": [
+          135,
+          135
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5284,
+            5296
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          11,
+          23
+        ]
+      },
+      {
+        "target": [
+          135,
+          135
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5300,
+            5308
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          28,
+          42
+        ]
+      },
+      {
+        "target": [
+          135,
+          135
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5284,
+            5308
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          11,
+          42
+        ]
+      },
+      {
+        "target": [
+          136,
+          136
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5319,
+            5486
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour"
+      },
+      {
+        "target": [
+          136,
+          136
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5404,
+            5409
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          132,
+          137
+        ]
+      },
+      {
+        "target": [
+          136,
+          136
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5434,
+            5438
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          150,
+          154
+        ]
+      },
+      {
+        "target": [
+          136,
+          136
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5462,
+            5474
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          166,
+          178
+        ]
+      },
+      {
+        "target": [
+          136,
+          136
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5328,
+            5486
+          ]
+        },
+        "construct": "Field.WorkOrder.addLabour",
+        "targetCol": [
+          22,
+          181
+        ]
+      },
+      {
+        "target": [
+          142,
+          142
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5675,
+            5695
+          ]
+        },
+        "construct": "Field.WorkOrder.schedule"
+      },
+      {
+        "target": [
+          143,
+          143
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5706,
+            5723
+          ]
+        },
+        "construct": "Field.WorkOrder.schedule"
+      },
+      {
+        "target": [
+          143,
+          143
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5721,
+            5723
+          ]
+        },
+        "construct": "Field.WorkOrder.schedule",
+        "targetCol": [
+          25,
+          27
+        ]
+      },
+      {
+        "target": [
+          144,
+          144
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5734,
+            5753
+          ]
+        },
+        "construct": "Field.WorkOrder.schedule"
+      },
+      {
+        "target": [
+          144,
+          144
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5744,
+            5753
+          ]
+        },
+        "construct": "Field.WorkOrder.schedule",
+        "targetCol": [
+          20,
+          45
+        ]
+      },
+      {
+        "target": [
+          150,
+          150
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5828,
+            5848
+          ]
+        },
+        "construct": "Field.WorkOrder.start"
+      },
+      {
+        "target": [
+          150,
+          150
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5838,
+            5848
+          ]
+        },
+        "construct": "Field.WorkOrder.start",
+        "targetCol": [
+          20,
+          46
+        ]
+      },
+      {
+        "target": [
+          151,
+          151
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5859,
+            5877
+          ]
+        },
+        "construct": "Field.WorkOrder.start"
+      },
+      {
+        "target": [
+          151,
+          151
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5872,
+            5877
+          ]
+        },
+        "construct": "Field.WorkOrder.start",
+        "targetCol": [
+          23,
+          33
+        ]
+      },
+      {
+        "target": [
+          157,
+          157
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5968,
+            5987
+          ]
+        },
+        "construct": "Field.WorkOrder.complete"
+      },
+      {
+        "target": [
+          157,
+          157
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5978,
+            5987
+          ]
+        },
+        "construct": "Field.WorkOrder.complete",
+        "targetCol": [
+          20,
+          45
+        ]
+      },
+      {
+        "target": [
+          158,
+          158
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            5998,
+            6018
+          ]
+        },
+        "construct": "Field.WorkOrder.complete"
+      },
+      {
+        "target": [
+          158,
+          158
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6013,
+            6018
+          ]
+        },
+        "construct": "Field.WorkOrder.complete",
+        "targetCol": [
+          25,
+          35
+        ]
+      },
+      {
+        "target": [
+          159,
+          159
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6029,
+            6051
+          ]
+        },
+        "construct": "Field.WorkOrder.complete"
+      },
+      {
+        "target": [
+          159,
+          159
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6047,
+            6051
+          ]
+        },
+        "construct": "Field.WorkOrder.complete",
+        "targetCol": [
+          28,
+          32
+        ]
+      },
+      {
+        "target": [
+          160,
+          160
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6062,
+            6123
+          ]
+        },
+        "construct": "Field.WorkOrder.complete"
+      },
+      {
+        "target": [
+          160,
+          160
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6099,
+            6101
+          ]
+        },
+        "construct": "Field.WorkOrder.complete",
+        "targetCol": [
+          64,
+          72
+        ]
+      },
+      {
+        "target": [
+          160,
+          160
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6107,
+            6112
+          ]
+        },
+        "construct": "Field.WorkOrder.complete",
+        "targetCol": [
+          78,
+          88
+        ]
+      },
+      {
+        "target": [
+          160,
+          160
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6119,
+            6121
+          ]
+        },
+        "construct": "Field.WorkOrder.complete",
+        "targetCol": [
+          95,
+          97
+        ]
+      },
+      {
+        "target": [
+          166,
+          166
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6213,
+            6232
+          ]
+        },
+        "construct": "Field.WorkOrder.cancel"
+      },
+      {
+        "target": [
+          166,
+          166
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6223,
+            6232
+          ]
+        },
+        "construct": "Field.WorkOrder.cancel",
+        "targetCol": [
+          20,
+          45
+        ]
+      },
+      {
+        "target": [
+          167,
+          167
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6243,
+            6267
+          ]
+        },
+        "construct": "Field.WorkOrder.cancel"
+      },
+      {
+        "target": [
+          167,
+          167
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6261,
+            6267
+          ]
+        },
+        "construct": "Field.WorkOrder.cancel",
+        "targetCol": [
+          28,
+          34
+        ]
+      }
+    ],
+    "api/http/asset.routes.ts": [
+      {
+        "target": [
+          1,
+          237
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            2373,
+            2649
+          ]
+        },
+        "construct": "Field.Asset"
+      }
+    ],
+    "api/http/customer.routes.ts": [
+      {
+        "target": [
+          1,
+          221
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            1967,
+            2170
+          ]
+        },
+        "construct": "Field.Customer"
+      }
+    ],
+    "api/http/invoice.routes.ts": [
+      {
+        "target": [
+          1,
+          184
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            6536,
+            6900
+          ]
+        },
+        "construct": "Field.Invoice"
+      }
+    ],
+    "api/http/organization.routes.ts": [
+      {
+        "target": [
+          1,
+          214
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            1820,
+            1959
+          ]
+        },
+        "construct": "Field.Organization"
+      }
+    ],
+    "api/http/part.routes.ts": [
+      {
+        "target": [
+          1,
+          266
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            3020,
+            3722
+          ]
+        },
+        "construct": "Field.Part"
+      }
+    ],
+    "api/http/site.routes.ts": [
+      {
+        "target": [
+          1,
+          225
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            2178,
+            2365
+          ]
+        },
+        "construct": "Field.Site"
+      }
+    ],
+    "api/http/technician.routes.ts": [
+      {
+        "target": [
+          1,
+          227
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            2657,
+            3012
+          ]
+        },
+        "construct": "Field.Technician"
+      }
+    ],
+    "api/http/workOrder.routes.ts": [
+      {
+        "target": [
+          1,
+          471
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            4023,
+            6528
+          ]
+        },
+        "construct": "Field.WorkOrder"
+      }
+    ],
+    "api/http/workflows.ts": [
+      {
+        "target": [
+          58,
+          58
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            8210,
+            8281
+          ]
+        },
+        "construct": "Field.scheduleWorkOrder"
+      },
+      {
+        "target": [
+          59,
+          59
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            8292,
+            8330
+          ]
+        },
+        "construct": "Field.scheduleWorkOrder"
+      },
+      {
+        "target": [
+          60,
+          60
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            8341,
+            8383
+          ]
+        },
+        "construct": "Field.scheduleWorkOrder"
+      },
+      {
+        "target": [
+          61,
+          62
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            8394,
+            8421
+          ]
+        },
+        "construct": "Field.scheduleWorkOrder"
+      },
+      {
+        "target": [
+          63,
+          63
+        ],
+        "origin": {
+          "kind": "source",
+          "path": "/home/user/Loc/eval/fieldops/main.ddd",
+          "span": [
+            8432,
+            8512
+          ]
+        },
+        "construct": "Field.scheduleWorkOrder"
+      }
+    ],
+    "web_app/src/pages/assets/detail.tsx": [
+      {
+        "target": [
+          1,
+          124
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.assets.Detail"
+      }
+    ],
+    "web_app/src/pages/assets/list.tsx": [
+      {
+        "target": [
+          1,
+          73
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.assets.List"
+      }
+    ],
+    "web_app/src/pages/assets/new.tsx": [
+      {
+        "target": [
+          1,
+          72
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.assets.New"
+      }
+    ],
+    "web_app/src/pages/customers/detail.tsx": [
+      {
+        "target": [
+          1,
+          105
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.customers.Detail"
+      }
+    ],
+    "web_app/src/pages/customers/list.tsx": [
+      {
+        "target": [
+          1,
+          75
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.customers.List"
+      }
+    ],
+    "web_app/src/pages/customers/new.tsx": [
+      {
+        "target": [
+          1,
+          54
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.customers.New"
+      }
+    ],
+    "web_app/src/pages/home.tsx": [
+      {
+        "target": [
+          1,
+          51
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.Home"
+      }
+    ],
+    "web_app/src/pages/invoices/detail.tsx": [
+      {
+        "target": [
+          1,
+          104
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.invoices.Detail"
+      }
+    ],
+    "web_app/src/pages/invoices/list.tsx": [
+      {
+        "target": [
+          1,
+          77
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.invoices.List"
+      }
+    ],
+    "web_app/src/pages/organizations/detail.tsx": [
+      {
+        "target": [
+          1,
+          98
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.organizations.Detail"
+      }
+    ],
+    "web_app/src/pages/organizations/list.tsx": [
+      {
+        "target": [
+          1,
+          65
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.organizations.List"
+      }
+    ],
+    "web_app/src/pages/organizations/new.tsx": [
+      {
+        "target": [
+          1,
+          52
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.organizations.New"
+      }
+    ],
+    "web_app/src/pages/parts/detail.tsx": [
+      {
+        "target": [
+          1,
+          173
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.parts.Detail"
+      }
+    ],
+    "web_app/src/pages/parts/list.tsx": [
+      {
+        "target": [
+          1,
+          73
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.parts.List"
+      }
+    ],
+    "web_app/src/pages/parts/new.tsx": [
+      {
+        "target": [
+          1,
+          73
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.parts.New"
+      }
+    ],
+    "web_app/src/pages/sites/detail.tsx": [
+      {
+        "target": [
+          1,
+          112
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.sites.Detail"
+      }
+    ],
+    "web_app/src/pages/sites/list.tsx": [
+      {
+        "target": [
+          1,
+          69
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.sites.List"
+      }
+    ],
+    "web_app/src/pages/sites/new.tsx": [
+      {
+        "target": [
+          1,
+          64
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.sites.New"
+      }
+    ],
+    "web_app/src/pages/technicians/detail.tsx": [
+      {
+        "target": [
+          1,
+          113
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.technicians.Detail"
+      }
+    ],
+    "web_app/src/pages/technicians/list.tsx": [
+      {
+        "target": [
+          1,
+          69
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.technicians.List"
+      }
+    ],
+    "web_app/src/pages/technicians/new.tsx": [
+      {
+        "target": [
+          1,
+          65
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.technicians.New"
+      }
+    ],
+    "web_app/src/pages/work_orders/detail.tsx": [
+      {
+        "target": [
+          1,
+          355
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.work_orders.Detail"
+      }
+    ],
+    "web_app/src/pages/work_orders/list.tsx": [
+      {
+        "target": [
+          1,
+          109
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.work_orders.List"
+      }
+    ],
+    "web_app/src/pages/work_orders/new.tsx": [
+      {
+        "target": [
+          1,
+          88
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.work_orders.New"
+      }
+    ],
+    "web_app/src/pages/workflows/index.tsx": [
+      {
+        "target": [
+          1,
+          23
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.WorkflowsIndex"
+      }
+    ],
+    "web_app/src/pages/workflows/schedule_work_order.tsx": [
+      {
+        "target": [
+          1,
+          72
+        ],
+        "origin": {
+          "kind": "macro",
+          "macro": "scaffold",
+          "call": {
+            "kind": "source",
+            "path": "/home/user/Loc/eval/fieldops/main.ddd",
+            "span": [
+              9097,
+              9124
+            ]
+          }
+        },
+        "construct": "WebApp.ScheduleWorkOrderWorkflow"
+      }
+    ]
+  }
+}

@@ -217,7 +217,7 @@ describe("page metamodel — IR shape", () => {
     expect(comp.name).toBe("OrderPanel");
     expect(comp.params.map((p) => p.name)).toEqual(["order"]);
     expect(comp.state.map((f) => f.name)).toEqual(["tab"]);
-    expect(comp.body.kind).toBe("call");
+    expect(comp.body?.kind).toBe("call");
   });
 
   it("lowers a `menu` block with internal and external links", async () => {

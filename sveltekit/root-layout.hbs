@@ -29,7 +29,7 @@
 {{else}}{{#if hasRealtimeHandlers}}    <RealtimeHandlers />
 {{/if}}    {@render children()}
 {{/if}}    {#snippet failed(error)}
-      <div role="alert" style="padding:16px;font-family:system-ui,sans-serif">
+      <div role="alert" data-testid="app-error" style="padding:16px;font-family:system-ui,sans-serif">
         <h2 style="white-space:pre-wrap;color:#b91c1c">{{{errorTitleText}}}</h2>
         <pre style="white-space:pre-wrap;color:#b91c1c">{error instanceof Error ? error.message : String(error)}</pre>
       </div>

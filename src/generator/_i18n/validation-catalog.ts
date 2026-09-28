@@ -16,34 +16,28 @@
 // promised (`test/generator/i18n/backend-message-catalog.test.ts` pins it), and
 // the same keys `.loom/messages.en.json` carries for translators.
 //
-// SCOPE — the WIRE boundary, deliberately.  A messaged rule surfaces in two
-// places: the wire validator (422 `errors[]`) and the domain floor (the
-// `DomainError` / `DomainException` a tripped rule throws inside the aggregate).
-// Only the WIRE half is localised — the five wire-validator emitters
-// (`zod-refine.ts`, `dotnet/validator-emit.ts`, `java/emit/validator.ts`,
-// `python/emit/wire-constraints.ts`, `elixir/vanilla/changeset-invariant-emit.ts`)
-// attach the code, and each backend's 422 serializer resolves it.  The domain
-// floor renders the authored default at every locale; localising that would
-// mean carrying the code THROUGH the thrown error on all five backends.  The
-// catalog is scoped to match, so it holds no entry the runtime
-// cannot resolve (the dead-catalog class `user-visible-slot-coverage.test.ts`
-// gates on the UI side).
+// SCOPE — BOTH rungs.  A messaged rule surfaces in two places: the wire
+// validator (422 `errors[]`) and the domain floor (the `DomainError` /
+// `DomainException` a tripped rule throws inside the aggregate).  The five
+// wire-validator emitters (`zod-refine.ts`, `dotnet/validator-emit.ts`,
+// `java/emit/validator.ts`, `python/emit/wire-constraints.ts`,
+// `elixir/vanilla/changeset-invariant-emit.ts`) attach the code at the wire; and
+// since M-T1.11 item (c) the DOMAIN FLOOR carries the same code THROUGH the
+// thrown error on all five backends (`domain-floor.ts`), so each backend's 422
+// serializer resolves it on either rung.  The catalog therefore holds every
+// messaged rule either rung can surface, and still no entry the runtime cannot
+// resolve (the dead-catalog class `user-visible-slot-coverage.test.ts` gates on
+// the UI side):
 //
-// The membership rule is the emitters' own: a rule is in the catalog iff it
-// carries a `message` AND `classifyForWire` admits it under one of the three
-// request shapes a wire validator is built for —
-//
-//   * `Create<Agg>Request`  — available = the create-input fields
-//   * `<Op><Agg>Request`    — available = the operation's params, over
-//                             `[...agg.invariants, ...preconditions]` (SYS-1)
-//   * `<Vo>Request`         — available = the value object's own fields
-//
-// which mirrors `routes-builder.ts` / `validator-emit.ts` / `emit/validator.ts`
-// exactly.  A `@server-only` rule, or one reaching state no request body
-// carries, therefore contributes nothing — matching what the emitters do.
+//   * every messaged aggregate `invariant` / field `check` — checked at the
+//     domain floor after every operation body, and at the wire where
+//     `classifyForWire` admits it;
+//   * every messaged operation `precondition` — at the domain floor, and at the
+//     wire when it reads only the operation's params (SYS-1);
+//   * every messaged value-object `invariant` — at the wire (`<Vo>Request`) and
+//     inside a body that builds the value (M-T5.1).
 // ---------------------------------------------------------------------------
 
-import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -51,7 +45,6 @@ import type {
   OperationIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
-import { classifyForWire } from "../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../util/message-code.js";
 
 /** One catalog entry — the stable wire `code` and its source-language text. */
@@ -72,16 +65,12 @@ function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
   return out;
 }
 
-/** Record every messaged, wire-translatable rule in `invariants` (classified
- *  against `available`) into `into`. */
-function take(
-  invariants: readonly InvariantIR[],
-  available: ReadonlySet<string>,
-  into: Map<string, string>,
-): void {
+/** Record every messaged rule in `invariants` into `into`.  No wire
+ *  classification: every one of them can surface at the domain floor, which
+ *  carries its code since M-T1.11 (c). */
+function take(invariants: readonly InvariantIR[], into: Map<string, string>): void {
   for (const inv of invariants) {
     if (!inv.message) continue;
-    if (!classifyForWire(inv, { available })) continue;
     // Same text ⇒ same content hash ⇒ same entry; the repeated write collapses
     // one message authored on several rules into a single catalog line.
     into.set(messageCode(inv.message.text), inv.message.text);
@@ -89,23 +78,18 @@ function take(
 }
 
 function takeAggregate(agg: AggregateIR, into: Map<string, string>): void {
-  take(agg.invariants, new Set(createInputFields(agg).map((f) => f.name)), into);
-  for (const op of agg.operations) {
-    take(
-      [...agg.invariants, ...preconditionsAsInvariants(op)],
-      new Set(op.params.map((p) => p.name)),
-      into,
-    );
-  }
+  take(agg.invariants, into);
+  for (const op of agg.operations) take(preconditionsAsInvariants(op), into);
 }
 
 function takeValueObject(vo: ValueObjectIR, into: Map<string, string>): void {
-  take(vo.invariants, new Set(vo.fields.map((f) => f.name)), into);
+  take(vo.invariants, into);
 }
 
-/** Every authored validation message the WIRE validators of `contexts` can
- *  surface, keyed by its stable `messageCode()` hash and sorted by key so the
- *  emitted catalog is byte-stable across runs. */
+/** Every authored validation message `contexts` can surface — on the wire rung
+ *  or at the domain floor — keyed by its stable `messageCode()` hash and sorted
+ *  by key so the emitted catalog is byte-stable across runs.  (The name predates
+ *  the domain-floor half; every consumer wants both rungs.) */
 export function collectWireValidationMessages(
   contexts: readonly BoundedContextIR[],
 ): ValidationMessage[] {

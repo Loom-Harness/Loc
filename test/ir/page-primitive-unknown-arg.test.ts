@@ -55,7 +55,7 @@ async function diagnostics(uiBody: string) {
 }
 
 const codes = async (uiBody: string): Promise<string[]> =>
-  (await diagnostics(uiBody)).map((d) => d.code);
+  (await diagnostics(uiBody)).map((d) => d.code ?? "");
 
 describe("loom.page-primitive-unknown-arg — the gate", () => {
   it("flags `title:` on a `Card` (a container whose caption is positional 0)", async () => {

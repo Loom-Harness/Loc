@@ -1,0 +1,11 @@
+# .loomignore — pin files you hand-edit so `ddd generate system` leaves
+# them alone. gitignore syntax; paths are relative to this directory.
+# See https://github.com/lemmit/loc/blob/main/docs/tools.md#loomignore
+#
+# Uncomment the entrypoints/config you customise:
+# Program.cs
+# /index.ts
+# package.json
+# *.csproj
+# tsconfig.json
+# drizzle.config.ts

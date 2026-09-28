@@ -1,5 +1,6 @@
-import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
+import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import type {
   AuthIR,
@@ -9,9 +10,11 @@ import type {
   TypeIR,
   UserIR,
 } from "../../../ir/types/loom-ir.js";
+import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 
 // ---------------------------------------------------------------------------
@@ -32,8 +35,8 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 // Without an `auth { … }` block the user calls `registerUserVerifier(fn)`
 // by hand (index.ts ships a permissive dev stub).  With one, the
 // generated OIDC verifier is registered automatically.  The middleware
-// bypass list mirrors the .NET side: /health, /ready, /openapi.json,
-// /swagger (plus /auth for the OIDC handshake).
+// bypass list mirrors the .NET side: /health, /ready, /metrics,
+// /openapi.json, /swagger (plus /auth for the OIDC handshake).
 // ---------------------------------------------------------------------------
 
 export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
@@ -47,11 +50,17 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
   // a registered resolver (falling back to the claim when the row/dataKey is
   // absent).  Without it (flat tenancy), the claim-copy stands.
   const orgPathReadsRegistry = hierarchyRegistry(sys) !== undefined;
-  out.set("auth/user-types.ts", renderUserTypes(sys.user, orgPathClaim));
+  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5):
+  // emitted only when something in the system reads the operating scope — the
+  // phase-⑦ `loom.org-context-gate-unmet` guarantees that also means a
+  // hierarchy registry and auth.  Otherwise the header is never consulted and
+  // the emission is byte-identical to before.
+  const orgContext = !!orgPathClaim && systemReadsOrgContext(sys);
+  out.set("auth/user-types.ts", renderUserTypes(sys.user, orgPathClaim, orgContext));
   out.set("auth/verifier.ts", renderVerifier());
   out.set(
     "auth/middleware.ts",
-    renderMiddleware(sys.user, !!oidc, orgPathClaim, orgPathReadsRegistry),
+    renderMiddleware(sys.user, !!oidc, orgPathClaim, orgPathReadsRegistry, orgContext),
   );
   // The session routes (always `/auth/me`, plus the OIDC redirect handshake
   // when an `auth { oidc }` block is present) are emitted whenever a
@@ -151,15 +160,6 @@ function envOverridableExpr(envVar: string, v: AuthValueIR | undefined): string 
   return `process.env.${envVar} ?? ${authValueExpr(v)}`;
 }
 
-/** The IdP claim path projected onto a given `user { … }` field.  An
- *  explicit `claims:` mapping wins; otherwise `id` defaults to the
- *  standard `sub` claim and every other field reads its own name. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
-}
-
 /** The `Ids` namespace import an auth module needs when the claim shape names
  *  a strong id (`customerId: Customer id?` renders as `Ids.CustomerId`).  The
  *  id classes live in `domain/ids.ts`, the auth modules in `auth/`, so without
@@ -170,7 +170,7 @@ function idsImport(user: UserIR): string[] {
   return claimsReferenceIds(user.fields) ? ['import * as Ids from "../domain/ids";', ""] : [];
 }
 
-function renderUserTypes(user: UserIR, orgPathClaim?: string): string {
+function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false): string {
   // User shape lives in its own module so any per-aggregate file (or
   // workflow route) can `import type { User }` without
   // pulling the verifier registry alongside.
@@ -197,6 +197,15 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string): string {
         "   *  segment of `orgPath` (multi-tenancy).  Anchors the",
         "   *  `global` read level's root-subtree widening. */",
         "  rootOrg: string;",
+        ...(orgContext
+          ? [
+              "  /** The request's OPERATING scope (`organizationContext.orgPath`) — the",
+              `   *  validated \`${ORG_CONTEXT_HEADER}\` path when the request switches into a`,
+              "   *  descendant org, else `orgPath`.  Set once, by the auth middleware's",
+              "   *  fail-closed switch gate; never read off the token. */",
+              "  orgContextPath: string;",
+            ]
+          : []),
         "}",
       ]
     : ["export type User = UserClaims;"];
@@ -272,6 +281,7 @@ function renderMiddleware(
   oidc: boolean,
   orgPathClaim?: string,
   orgPathReadsRegistry = false,
+  orgContext = false,
 ): string {
   const idField = actorIdField(user);
   const stampActorId = idField ? `\n  if (ctx) ctx.actorId = String(user.${idField});` : "";
@@ -309,8 +319,14 @@ function renderMiddleware(
     .map((f) => `${f.name}: claims.${f.name} ?? []`);
   const claimsSpread =
     arrayClaimDefaults.length > 0 ? `...claims, ${arrayClaimDefaults.join(", ")}` : "...claims";
+  // The operating-scope switch gate runs BETWEEN resolving the principal's
+  // `orgPath` and building the principal: a refused switch answers 403 before
+  // the principal is attached, so no handler — and no write — ever runs.
+  const orgContextGate = orgContext
+    ? `\n  const requestedOrgContext = c.req.header("${ORG_CONTEXT_HEADER}");\n  const orgContextPath = orgContextFor(orgPath, requestedOrgContext);\n  if (orgContextPath === null) return orgContextForbidden(c, requestedOrgContext ?? "", orgPath);`
+    : "";
   const buildUser = orgPathClaim
-    ? `const orgPath = ${orgPathExpr};\n  const user: User = { ${claimsSpread}, orgPath, rootOrg: rootOrgOf(orgPath) };`
+    ? `const orgPath = ${orgPathExpr};${orgContextGate}\n  const user: User = { ${claimsSpread}, orgPath, rootOrg: rootOrgOf(orgPath)${orgContext ? ", orgContextPath" : ""} };`
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
@@ -356,8 +372,50 @@ function rootOrgOf(orgPath: string): string {
 }
 `
     : "";
+  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5).
+  // A request-level fact: the `x-org-context` header names the org the request
+  // operates in.  Absent (or empty) ⇒ the principal's own `orgPath`, never a
+  // widening.  Present ⇒ admitted only inside the caller's `orgPath` subtree —
+  // equal to it, or anchored under `orgPath + "."` (the delimiter keeps `org_a`
+  // from admitting `org_ab`) — and refused outright when the principal has no
+  // `orgPath` to anchor on.  Refusal is a pre-body 403, logged through the
+  // neutral catalog (`org_context_denied`).
+  const orgContextSeam = orgContext
+    ? `
+/** The request's operating scope (\`organizationContext.orgPath\`): the
+ *  requested path when it lies inside the caller's \`orgPath\` subtree, the
+ *  caller's own \`orgPath\` when none is requested, and \`null\` (refuse) when
+ *  the request asks for anything else — fail-closed. */
+function orgContextFor(orgPath: string, requested: string | undefined): string | null {
+  if (requested === undefined || requested === "") return orgPath;
+  if (orgPath === "") return null;
+  return requested === orgPath || requested.startsWith(\`\${orgPath}.\`) ? requested : null;
+}
+
+/** RFC 7807 403 for a refused operating-scope switch — answered before the
+ *  principal is attached, so no handler runs and nothing is written. */
+function orgContextForbidden(c: Context, requested: string, orgPath: string) {
+  ${renderHonoStoreLogCall("orgContextDenied", 'org_context: requested, reason: orgPath === "" ? "no_principal_scope" : "outside_scope", status: 403')}
+  return c.body(
+    JSON.stringify({
+      type: "about:blank",
+      title: "Forbidden",
+      status: 403,
+      detail: "the requested organization context is outside the caller's organization scope",
+      instance: c.req.path,
+    }),
+    403,
+    { "content-type": "application/problem+json" },
+  );
+}
+`
+    : "";
   // Only the handshake's redirect endpoints bypass auth — they must be
-  // reachable without a verified principal.  `/api/auth/me` (the session probe
+  // reachable without a verified principal.  `/metrics` is on the list for
+  // the same reason `/health` and `/ready` are, and because the compose stack
+  // this generator ALSO emits scrapes it: `monitoring/prometheus.yml` carries
+  // no credentials, so a gated `/metrics` made the two generated halves
+  // disagree — every scrape 401'd (finding F-022).  `/api/auth/me` (the session probe
   // the frontend guard reads) is deliberately NOT bypassed, so the
   // middleware populates `currentUser` or rejects with 401.
   //
@@ -368,12 +426,12 @@ function rootOrgOf(orgPath: string): string {
   // REGISTERED outside a dev profile, so on a real deployment there is no
   // handler behind the bypassed path.
   const bypass = oidc
-    ? `["/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
-    : `["/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
+    ? `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
+    : `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
   return `// Auto-generated.
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
-import { requestContext } from "../obs/als";
+import { ${orgContext ? "requestContext, requestLog" : "requestContext"} } from "../obs/als";
 import type { User, UserClaims } from "./user-types";
 import { verifyUserOrThrow } from "./verifier";
 
@@ -403,7 +461,7 @@ let routeProbe: RouteProbe | null = null;
 export function registerRouteProbe(fn: RouteProbe): void {
   routeProbe = fn;
 }
-${resolverSeam}${rootOrgSeam}
+${resolverSeam}${rootOrgSeam}${orgContextSeam}
 /** Hono middleware that decodes the request's JWT into a User, attaches it
  *  to the ambient RequestContext (the one source of truth, readable by
  *  non-HTTP code via \`requireCurrentUser()\`), and also stashes it on the

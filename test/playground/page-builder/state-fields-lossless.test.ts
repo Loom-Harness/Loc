@@ -93,8 +93,8 @@ const prim = (name: PrimitiveName): TypeSpec => ({
 
 describe("builder lossless edits — page state fields", () => {
   it("addStateField appends one field line and touches nothing else", () => {
-    const out = addStateField(SRC, "P", prim("boolean"));
-    expectHunk(SRC, out, [], ["        field1: boolean"]);
+    const out = addStateField(SRC, "P", prim("bool"));
+    expectHunk(SRC, out, [], ["        field1: bool"]);
     expectCommentsIntact(out);
   });
 

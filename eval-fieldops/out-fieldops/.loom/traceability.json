@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "requirements": [
+    {
+      "id": "US-001",
+      "type": "UserStory",
+      "title": "A dispatcher can schedule a work order to a qualified technician",
+      "status": "InProgress",
+      "priority": 1
+    },
+    {
+      "id": "AC-001",
+      "type": "AcceptanceCriteria",
+      "title": "A work order can only be scheduled to a technician holding the asset's required skill",
+      "parentId": "US-001"
+    },
+    {
+      "id": "US-002",
+      "type": "UserStory",
+      "title": "Completing a work order decrements parts stock atomically",
+      "status": "InProgress",
+      "priority": 1
+    },
+    {
+      "id": "US-003",
+      "type": "UserStory",
+      "title": "A technician may only see their own work orders",
+      "status": "InProgress",
+      "priority": 1
+    }
+  ],
+  "solutions": [
+    {
+      "id": "SOL-001",
+      "forRequirement": "AC-001",
+      "title": "Skill matching enforced in the scheduleWorkOrder workflow",
+      "entitles": [
+        {
+          "qualifiedName": "Ops.Field.scheduleWorkOrder",
+          "kind": "workflow"
+        }
+      ]
+    }
+  ],
+  "testCases": [
+    {
+      "id": "TC-001",
+      "verifies": "AC-001",
+      "title": "Scheduling to an unskilled technician is rejected",
+      "covers": []
+    },
+    {
+      "id": "TC-002",
+      "verifies": "US-002",
+      "title": "Completing with insufficient stock fails the whole operation",
+      "covers": []
+    },
+    {
+      "id": "TC-003",
+      "verifies": "US-003",
+      "title": "A technician's work order list excludes other technicians' orders",
+      "covers": []
+    }
+  ],
+  "index": {
+    "childrenOf": {
+      "US-001": [
+        "AC-001"
+      ],
+      "AC-001": [],
+      "US-002": [],
+      "US-003": []
+    },
+    "testsByRequirement": {
+      "US-001": [
+        "TC-001"
+      ],
+      "AC-001": [
+        "TC-001"
+      ],
+      "US-002": [
+        "TC-002"
+      ],
+      "US-003": [
+        "TC-003"
+      ]
+    },
+    "solutionByRequirement": {
+      "US-001": null,
+      "AC-001": "SOL-001",
+      "US-002": null,
+      "US-003": null
+    },
+    "codeElements": {
+      "Ops.Field.scheduleWorkOrder": "workflow"
+    },
+    "testsByCodeElement": {},
+    "execTestsByTestCase": {
+      "TC-001": [],
+      "TC-002": [
+        "consuming more than stock is rejected"
+      ],
+      "TC-003": []
+    },
+    "execTests": [
+      {
+        "name": "consuming more than stock is rejected",
+        "suite": "Part",
+        "kind": "unit",
+        "testCaseId": "TC-002"
+      }
+    ]
+  },
+  "summary": {
+    "codeCoverage": {
+      "covered": 0,
+      "total": 1
+    },
+    "requirementCoverage": {
+      "covered": 4,
+      "total": 4
+    }
+  }
+}

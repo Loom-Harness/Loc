@@ -51,7 +51,7 @@ describe("Phoenix/HEEx `derived` bindings (inline-recompute)", () => {
   it("works on a component (param → @attr inside the substituted expr)", async () => {
     const files = await generateSystemFiles(
       SYS(
-        `component Badge(count: int) { derived label: string = "n=" + count body: Stack { Text { label } } } page P { route: "/p" body: Stack { Badge(3) } }`,
+        `component TierBadge(count: int) { derived label: string = "n=" + count body: Stack { Text { label } } } page P { route: "/p" body: Stack { TierBadge(3) } }`,
       ),
     );
     expect(file(files, "ui_components.ex")).toContain('<%= ("n=" <> to_string(@count)) %>');

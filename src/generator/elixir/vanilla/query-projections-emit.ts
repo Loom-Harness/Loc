@@ -68,9 +68,11 @@ import {
   vanillaCapabilityFilter,
   vanillaDocCapabilityFilter,
 } from "./capability-filter.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { findParamRead } from "./find-controller.js";
+import { effectiveGate } from "./gate.js";
 import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -347,10 +349,10 @@ ${
   # \`2026-08-01T00:00:00.000000\` instead of \`2026-08-01T00:00:00Z\`, diverging
   # from the other four backends.  Accepts either shape so a driver that
   # already hands back a \`%DateTime{}\` stays correct.
-  defp group_key_utc(%DateTime{} = dt), do: DateTime.truncate(dt, :second)
+  defp group_key_utc(%DateTime{} = dt), do: ${normalizeDatetime("dt")}
 
   defp group_key_utc(%NaiveDateTime{} = ndt),
-    do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.truncate(:second)
+    do: ndt |> DateTime.from_naive!("Etc/UTC") |> ${"Loom.Datetime.normalize()"}
 `
     : ""
 }${moneyWireHelper(grouped.aggregates, grouped.keys)}${intWireHelper(grouped.aggregates)}end
@@ -399,11 +401,38 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   }
 
   lines.push("    rows =");
+  // ORDERED BY id, on a DOCUMENT source.  A per-row projection answers one row
+  // per source row, so its row order IS this read's order — and an unordered
+  // whole-table read answers in Postgres heap order, which moves a row the moment
+  // an `update` rewrites its tuple.  The grouped arm above has ordered by its
+  // grouping key from the start ("REQUIRED: without it the group order is
+  // nondeterministic"); this is the same requirement on the ungrouped path.
+  //
+  // The document REPOSITORY read gained its ordering when the other backends did,
+  // but this module re-implements the source read instead of riding that
+  // repository, so the fix never reached here: the repository read answered
+  // ordered while a projection over the SAME aggregate answered heap order.
+  //
+  // Spelled `|> Ecto.Query.order_by([r], r.id)` — the SAME form
+  // `document-emit.ts` uses for the identical read — and deliberately NOT as
+  // `from(record in <DocSchema>, order_by: …)`.  Putting a document read into a
+  // `from(record in …)` is the exact shape this emitter's original bug had (every
+  // reference rendered as a column a `(id, data, version)` table does not have),
+  // and `query-projection-document-source.test.ts` bans that form by name.  `id`
+  // would in fact be a real column, but keeping the document read off that form
+  // entirely leaves the gate's reach intact.
+  //
+  // The RELATIONAL arms below stay unordered: the same latent nondeterminism is
+  // one line away, but no fixture diverges on it today — nothing rewrites a
+  // relational tuple in the corpus, so heap order still matches id order — and
+  // ordering them would re-baseline every relational projection golden for no
+  // observed failure.
   if (isDocSource) {
     // Document source: load, then narrow IN-APP (see `isDocSource` above).
+    lines.push(`      ${sourceMod}`);
+    lines.push(`      |> Ecto.Query.order_by([r], r.id)`);
+    lines.push(`      |> Repo.all()`);
     if (docWhere) {
-      lines.push(`      ${sourceMod}`);
-      lines.push(`      |> Repo.all()`);
       if (docPredReadsRecord(docWhere)) {
         lines.push(`      |> Enum.filter(fn ${docFilterLambdaArg(docWhere)} ->`);
         lines.push(`        record = row.data`);
@@ -412,8 +441,6 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       } else {
         lines.push(`      |> Enum.filter(fn ${docFilterLambdaArg(docWhere)} -> ${docWhere} end)`);
       }
-    } else {
-      lines.push(`      Repo.all(${sourceMod})`);
     }
   } else if (where) {
     lines.push(`      from(record in ${sourceMod}, where: ${where})`);
@@ -445,11 +472,27 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       : isDocSource
         ? liftDocRootId(`record.${snake(aux.path[0] ?? "id")}`, "row")
         : `record.${snake(aux.path[0] ?? "id")}`;
+    // The follow honours the JOINED aggregate's own capability filter (soft
+    // delete / tenancy), exactly as the other four backends' bulk-load does by
+    // going through that aggregate's repository (RS-34): a soft-deleted target
+    // is ABSENT from the map, so the LEFT JOIN answers `nil`.  Without it the
+    // map carried the soft-deleted row and the projection leaked its fields.
+    // (A document-shaped target keeps the unfiltered load — its capability
+    // columns live inside the jsonb embed, not on the row.)
+    const followAgg = aggsByName.get(aux.aggName);
+    const followCap =
+      followAgg && !isDocSource && !isVanillaDocAgg(followAgg, ctx, sys)
+        ? vanillaCapabilityFilter(followAgg, contextModule, {
+            actor: aggregateUsesPrincipalContextFilter(followAgg),
+          })
+        : null;
     lines.push(`    ${mapVar} =`);
     lines.push(
       isDocSource
         ? `      from(joined in ${followMod}, where: joined.id in ^Enum.map(rows, ${docRowLambda(idRow)}))`
-        : `      from(row in ${followMod}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
+        : followCap
+          ? `      from(record in ${followMod}, where: record.id in ^Enum.map(rows, fn record -> ${idRow} end) and (${followCap}))`
+          : `      from(row in ${followMod}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
     );
     lines.push(`      |> Repo.all()`);
     lines.push(`      |> Map.new(&{&1.id, &1})`);
@@ -541,6 +584,15 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   // (both aggregation arms, any `where`, any `join`) emits a `from(...)`, so
   // their modules keep the import byte-identically.
   const ectoQueryImport = /\bfrom\(/.test(body) ? "  import Ecto.Query\n" : "";
+  // `order_by` is a MACRO.  The document-source read calls it FULLY QUALIFIED —
+  // it stays off the `from(record in …)` form on purpose (see the source read
+  // above) — and a fully-qualified macro call needs the `require`: without it
+  // Elixir parses it as a remote FUNCTION call, the `[r]` never becomes a query
+  // binding, and the module fails to compile with `undefined variable "r"`.
+  // Emitted only when the body makes that call and no `import` already covers it,
+  // so every other projection module keeps its header byte-identically.
+  const ectoQueryRequire =
+    /\bEcto\.Query\./.test(body) && ectoQueryImport === "" ? "  require Ecto.Query\n" : "";
 
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -552,7 +604,7 @@ defmodule ${moduleName} do
   Foundation: vanilla (plain Ecto).
   """
 
-${ectoQueryImport}  alias ${appModule}.Repo
+${ectoQueryImport}${ectoQueryRequire}  alias ${appModule}.Repo
 
   @doc "Execute the query-time projection and return the projected rows."
   ${runHead(proj).spec} :: [map()]
@@ -847,8 +899,9 @@ function renderQueryProjectionAction(
   // before the query runs when the `currentUser`-only predicate fails — the
   // read-side analogue of a repository `find … requires <gate>` (mirrors
   // `renderFindActions`).  Ungated projections stay byte-identical.
-  const gate = proj.query?.requires
-    ? renderExpr(proj.query.requires, {
+  const projGate = effectiveGate(proj.query?.requires);
+  const gate = projGate
+    ? renderExpr(projGate, {
         thisName: "record",
         contextModule,
       })

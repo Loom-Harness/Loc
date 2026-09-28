@@ -122,6 +122,37 @@ export function statementSubRegions(
   return regions;
 }
 
+/** The DECLARATION-level sub-region for a member whose body was rendered as
+ *  `chunks` — one region covering the whole fragment, carrying the MEMBER's
+ *  own origin (the `operation foo(...) {` header span) rather than any
+ *  statement's.
+ *
+ *  Why it exists (finding F-021).  Before it, the only regions a member
+ *  produced were per-STATEMENT (from {@link statementSubRegions}) plus the
+ *  enclosing whole-FILE region, so `ddd breakpoints --line <the declaration
+ *  line>` had nothing that started at the declaration: every statement region
+ *  missed the header line, the file region contained it — and
+ *  `translateBreakpoint` drops containing regions only when a narrower one
+ *  matched, so the answer degraded to `<file>:1`.  Exactly the lines an
+ *  engineer sets a breakpoint on resolved to the import block.
+ *
+ *  Spanning the body (not the signature) is deliberate: it is the first line
+ *  a debugger can actually stop on, and it keeps this region strictly
+ *  narrower — in TARGET terms — than the file region it replaces.  In ORIGIN
+ *  terms it is wider than any statement inside it, so `translateBreakpoint`'s
+ *  narrowest-origin-span ordering still prefers the precise statement region
+ *  for a statement line, and this one only wins where nothing finer overlaps:
+ *  the declaration line itself. */
+export function declarationSubRegion(
+  origin: OriginRef | undefined,
+  chunks: readonly string[],
+  construct: string,
+): SourceMapSubRegion[] {
+  if (!origin || chunks.length === 0) return [];
+  const lines = lineCount(chunks.join("\n"));
+  return [{ rel: [1, lines], origin, construct }];
+}
+
 /** Number of 1-based lines `content` spans.  A trailing `"\n"` doesn't
  *  count as an extra (empty) final line.  Exported for the callers that
  *  build a single-subregion `fragment()` call per statement (rather than

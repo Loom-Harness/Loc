@@ -40,6 +40,7 @@ import {
   pageEmitName,
 } from "../../ir/util/page-kind.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
+import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -48,6 +49,7 @@ import { renderGateExpr } from "../_frontend/gate-expr.js";
 import type { NavEntryVM, NavSectionVM } from "../_frontend/menu-emitter.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { buildPageObjectModule } from "../_frontend/page-objects-builder.js";
+import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { buildWalkerPageObject } from "../_frontend/walker-page-objects.js";
 import { buildWorkflowPageObject } from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
@@ -170,7 +172,10 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
-    out.set(`src/lib/extern/${fn.name}.signature.ts`, buildExternFunctionSignature(fn, "../api"));
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, "../api", valueObjectIndex(buildBcByAggregate(ctx))),
+    );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
 
@@ -198,6 +203,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
         c.name,
         [...c.params],
         ctx.aggregatesByName,
+        valueObjectIndex(buildBcByAggregate(ctx)),
       );
       out.set(propsPath, propsContent);
       ctx.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);
@@ -474,7 +480,13 @@ export function emitSveltePageObjectsForUi(
         if (!ctxIR || !wf) break;
         out.set(
           `e2e/pages/workflows/${snake(wf.name)}.ts`,
-          buildWorkflowPageObject(wf, ctxIR, "../../../src/lib/api", "native"),
+          buildWorkflowPageObject(
+            wf,
+            ctxIR,
+            requestNamesForContexts(ctx.contextsByName.values()),
+            "../../../src/lib/api",
+            "native",
+          ),
         );
         break;
       }

@@ -1,0 +1,23 @@
+// docs/scaffold-macros.md:216 gives this as the "source-equivalent" of `with crudish`.
+// Transcribed verbatim. Does it compile?
+system X {
+  subdomain S { context C {
+    aggregate Order {
+      subject: string
+      total: decimal
+      create(subject: string, total: decimal) {
+        subject := subject
+        total := total
+      }
+      operation update(subject: string, total: decimal) {
+        subject := subject
+        total := total
+      }
+      destroy {}
+    }
+    repository Orders for Order { }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

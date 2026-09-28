@@ -23,11 +23,13 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // backend; the CLI (an entrypoint) supplies that package's pins to
 // the version-agnostic shared emitter.
 import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
+import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
 import { generateSystemsFromLoom, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import {
   buildManifest,
   carriedOverEntries,
+  contentDigest,
   MANIFEST_REL_PATH,
   type ManifestEntry,
   type OutputManifest,
@@ -37,6 +39,15 @@ import {
 } from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
+  ledgerRelPath,
+  type MigrationHistoryLedger,
+  MigrationLedgerReadError,
+  migrationLedgerPath,
+  readMigrationLedger,
+  writeMigrationLedger,
+} from "../system/migration-ledger.js";
+import {
+  MigrationBackfillDiscardedError,
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
@@ -549,9 +560,24 @@ interface RunResult {
   /** Stale files deleted on regen: listed in the previous `.loom/manifest.json`
    * but no longer emitted.  See `src/system/manifest.ts`. */
   removed?: number;
+  /** Of `written`, how many landed on a file whose content no longer matched
+   * the digest the previous manifest recorded — i.e. Loom overwrote somebody's
+   * local edit (finding F-019).  Always ≤ `written`. */
+  locallyModified?: number;
 }
 
 type GenerateTarget = "ts" | "dotnet" | "system";
+
+/** The ledger path to NAME in a guard refusal.  Relative to the cwd when that
+ *  is actually shorter and readable, absolute otherwise: a source tree beside
+ *  (or above) the cwd otherwise yields a `../../../..` chain the operator has
+ *  to decode before they can go look at the file the message blames. */
+function displayLedgerPath(sourceDir: string, sourceFile: string): string {
+  const abs = migrationLedgerPath(sourceDir, sourceFile);
+  const rel = path.relative(process.cwd(), abs);
+  if (!rel) return ledgerRelPath(sourceFile);
+  return rel.startsWith("..") || path.isAbsolute(rel) ? abs : rel;
+}
 
 async function runGenerate(
   target: GenerateTarget,
@@ -642,6 +668,17 @@ async function runGenerate(
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
+  /** Frontend constructs the walkers declined to render.  The walkers name a
+   *  `loom.*` code beside each one in the emitted source; nothing lifted them
+   *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
+   *  under `0 error(s), 0 warning(s)` (F-019). */
+  let giveUps: GiveUpReport[] = [];
+  // The migration-history ledger lives beside the `.ddd` SOURCE, not under
+  // `-o`: it is the only record of "this module already has migrations" that
+  // survives being read in an output tree that carries none of them (F-029).
+  // Written back after a successful non-dry run, below.
+  const sourceDir = path.dirname(path.resolve(file));
+  let ledgerToWrite: MigrationHistoryLedger | null = null;
   if (target === "system") {
     // Diff each subdomain's current schema against the snapshot the
     // LAST regen wrote into `.loom/snapshots/` (under `outDir`).
@@ -650,7 +687,7 @@ async function runGenerate(
     // moves.  See `src/system/migrations-builder.ts` for the diff
     // builder + `docs/generators.md` § Migrations for the pipeline.
     try {
-      files = generateSystemsFromLoom(loom, {
+      const emission = generateSystemsFromLoom(loom, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
         snapshots: fsSnapshotStore(outDir),
@@ -661,6 +698,11 @@ async function runGenerate(
         // scans a real tree.
         existingMigrations: fsMigrationArtifactIndex(outDir, loom),
         allowRebaseline: options.allowRebaseline,
+        // F-029: the output-tree guards are blind to a generate into a CLEAN
+        // directory (no snapshot AND no files reads as a first run). The
+        // ledger beside the source is the fact they are missing.
+        recordedHistory: readMigrationLedger(sourceDir, file),
+        ledgerPath: displayLedgerPath(sourceDir, file),
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
         // Locale catalogs from the translator tree (`ddd i18n init/sync`).
@@ -670,7 +712,10 @@ async function runGenerate(
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
-      }).files;
+      });
+      files = emission.files;
+      giveUps = emission.giveUps;
+      ledgerToWrite = emission.migrationLedger;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -682,9 +727,11 @@ async function runGenerate(
       if (
         err instanceof SnapshotReadError ||
         err instanceof MigrationDestructiveError ||
+        err instanceof MigrationBackfillDiscardedError ||
         err instanceof MigrationShapeChangeError ||
         err instanceof MigrationSqlScopeError ||
-        err instanceof MigrationBaselineError
+        err instanceof MigrationBaselineError ||
+        err instanceof MigrationLedgerReadError
       ) {
         console.error(`${file}: ${err.message}`);
         if (!options.continueOnError) process.exit(1);
@@ -696,6 +743,25 @@ async function runGenerate(
       console.error(
         `No \`system\` block declared in ${file}.  Use \`generate ts\` or \`generate dotnet\` for legacy single-deployable sources.`,
       );
+      if (!options.continueOnError) process.exit(1);
+      return { hadError: true };
+    }
+    // Lift the walkers' give-ups.  They were already in the output, named by
+    // code, three characters from the defect — this is the only place with both
+    // the emitted text and a console to report against.
+    const gu = partitionGiveUps(giveUps);
+    for (const g of gu.errors) {
+      console.error(`${g.code} ${g.path}:${g.line}: ${g.text}`);
+    }
+    for (const g of gu.warnings) {
+      console.error(`${g.code} ${g.path}:${g.line} warning: ${g.text}`);
+    }
+    if (gu.errors.length > 0 || gu.warnings.length > 0) {
+      console.error(
+        `${gu.errors.length} error(s), ${gu.warnings.length} warning(s) in generated pages.`,
+      );
+    }
+    if (gu.errors.length > 0) {
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -716,6 +782,13 @@ async function runGenerate(
   // may delete when it stops emitting a path.  Missing/unreadable ⇒ null ⇒
   // this run prunes nothing and simply re-establishes the manifest.
   const previousManifest = readOutputManifest(outDir);
+  // path → digest of what the LAST run wrote there (absent for a manifest
+  // written before the field existed).
+  const previousHashes = new Map<string, string>();
+  for (const e of previousManifest?.entries ?? []) {
+    if (e.hash) previousHashes.set(e.path, e.hash);
+  }
+  const locallyModifiedPaths: string[] = [];
   // The manifest the NEXT run diffs against, computed BEFORE the write loop
   // and then handed to that loop as an ordinary emitted file.  Everything the
   // writer already guarantees therefore applies to it for free: `--dry-run`
@@ -733,11 +806,15 @@ async function runGenerate(
   for (const relPath of [...files.keys()].sort()) {
     const normalised = relPath.split(path.sep).join("/");
     if (ig.ignores(normalised)) continue;
-    manifestEntries.push(
-      isScaffoldOnce(files.get(relPath)!)
-        ? { path: normalised, scaffoldOnce: true }
-        : { path: normalised },
-    );
+    const content = files.get(relPath)!;
+    // The digest of the bytes this run puts at the path — the record the NEXT
+    // run diffs disk against to tell a model-driven rewrite from one that
+    // lands on a file a human edited (finding F-019).
+    manifestEntries.push({
+      path: normalised,
+      ...(isScaffoldOnce(content) ? { scaffoldOnce: true as const } : {}),
+      hash: contentDigest(content),
+    });
   }
   // Paths a past run emitted and this one does not, but that the generator
   // still owns — the protected families, chiefly the earlier migrations no
@@ -780,15 +857,26 @@ async function runGenerate(
     // a would-write.  `fileContentMatches` returns false for a missing
     // file (fresh output dir ⇒ everything is a write).
     const wouldChange = !ignored && !preserved && !fileContentMatches(full, content);
+    // Is the copy on disk still the copy WE last wrote?  Only asked of files
+    // this run is about to overwrite (a file whose content already equals what
+    // we would write carries no local edit by definition), and only answerable
+    // when the previous manifest recorded a digest — an older manifest, or a
+    // path a past run never claimed, reads as unknown provenance and says
+    // nothing.  The overwrite still happens: this changes the REPORT, not the
+    // contract (`docs/tools.md`).
+    const locallyModified = wouldChange && hasLocalEdit(previousHashes, normalised, full);
+    if (locallyModified) locallyModifiedPaths.push(normalised);
     if (options.dryRun) {
       const sizeKb = (Buffer.byteLength(content, "utf8") / 1024).toFixed(1);
       const status = ignored
         ? "  skip (.loomignore)"
         : preserved
           ? "  keep (scaffold-once)"
-          : wouldChange
-            ? "  write              "
-            : "  unchanged          ";
+          : locallyModified
+            ? "  write (local edits) "
+            : wouldChange
+              ? "  write              "
+              : "  unchanged          ";
       console.log(`${status}  ${relPath}  (${sizeKb} KB)`);
       if (ignored) skippedByIgnore++;
       else if (preserved) preservedScaffold++;
@@ -868,14 +956,48 @@ async function runGenerate(
     pruneEmptyDirs(resolvedOut, path.dirname(full));
   }
 
+  // Record the migration history this run's tree now has, beside the SOURCE.
+  // After the write loop and only on a real run: a `--dry-run` generated
+  // nothing, so the ledger must keep describing the tree as it stands (a dry
+  // run that recorded the delta it only previewed would arm guard (e) against
+  // the very next real generate).
+  if (ledgerToWrite && !options.dryRun) {
+    const { error } = writeMigrationLedger(sourceDir, file, ledgerToWrite);
+    if (error) {
+      // Non-fatal: a read-only source checkout is a real setup, and losing
+      // the detector must not fail a generate that otherwise succeeded. But
+      // it must not be SILENT either — without it the next generate into a
+      // clean directory is unguarded again.
+      console.error(
+        `Warning: could not record the migration history at ` +
+          `${migrationLedgerPath(sourceDir, file)} (${error.message}). The next ` +
+          `\`generate system\` into a clean output directory will not be able to tell a ` +
+          `re-baseline from a first run.`,
+      );
+    }
+  }
+
   const verb = options.dryRun ? "Would write" : "Wrote";
   const parts: string[] = [`${verb} ${written} file(s) in ${outDir}`];
+  if (locallyModifiedPaths.length > 0) {
+    parts.push(
+      `${locallyModifiedPaths.length} of which had local modifications (pinnable via .loomignore)`,
+    );
+  }
   if (unchanged > 0) parts.push(`unchanged: ${unchanged}`);
   if (preservedScaffold > 0) parts.push(`preserved (scaffold-once): ${preservedScaffold}`);
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
-  return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold, removed };
+  return {
+    hadError: false,
+    written,
+    unchanged,
+    skippedByIgnore,
+    preservedScaffold,
+    removed,
+    locallyModified: locallyModifiedPaths.length,
+  };
 }
 
 /** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
@@ -1082,11 +1204,37 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
       "  platform: node (default) — also: dotnet, elixir, java, python (re-run with --platform <p>)",
     );
   }
-  console.log(`  next: cd ${where} && ddd generate system main.ddd -o . && docker compose up`);
+  // `npx ddd`, not a bare `ddd`: a clone's `npm install` links no global
+  // binary, so the bare form is the one command in this output that does not
+  // work when copied (finding F-001).
+  console.log(`  next: cd ${where} && npx ddd generate system main.ddd -o . && docker compose up`);
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`
  * exactly.  Used to skip writes that would produce identical output. */
+/** True when the file at `absPath` differs from the digest the previous
+ *  manifest recorded for `relPath` — i.e. somebody edited Loom's output since
+ *  the last generate (finding F-019).
+ *
+ *  Fail-QUIET in every uncertain direction: no recorded digest (a pre-F-019
+ *  manifest, or a path this generator never claimed) and an unreadable file
+ *  both answer `false`.  A wrong `true` would accuse the user of an edit they
+ *  did not make, which is worse than staying silent — the write happens either
+ *  way. */
+function hasLocalEdit(
+  previousHashes: ReadonlyMap<string, string>,
+  relPath: string,
+  absPath: string,
+): boolean {
+  const recorded = previousHashes.get(relPath);
+  if (!recorded) return false;
+  try {
+    return contentDigest(fs.readFileSync(absPath, "utf8")) !== recorded;
+  } catch {
+    return false;
+  }
+}
+
 function fileContentMatches(absPath: string, content: string): boolean {
   if (!fs.existsSync(absPath)) return false;
   try {
@@ -1547,7 +1695,7 @@ program
   .description("Parse and validate a .ddd file")
   .option(
     "--json",
-    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/old/proposals/ai-diagnostics-contract.md",
+    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/api-toolkit.md",
   )
   .action(async (file: string, options: { json?: boolean }) => {
     if (options.json) await runParseJson(file);
@@ -1557,7 +1705,7 @@ program
 program
   .command("patch <file>")
   .description(
-    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/old/proposals/ai-authoring-loop.md.",
+    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/api-toolkit.md.",
   )
   .requiredOption(
     "--patches <file>",
@@ -1577,7 +1725,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1600,7 +1748,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1625,11 +1773,11 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--json",
-    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/old/proposals/ai-diagnostics-contract.md.",
+    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/api-toolkit.md.",
   )
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .option(
     "--k8s",
@@ -1645,7 +1793,7 @@ generate
   )
   .option(
     "--sourcemap",
-    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/old/plans/source-map-debug-kickoff.md.",
+    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
   )
   .option(
     "--inline-sources",
@@ -1738,7 +1886,7 @@ program
   .command("trace <logfile>")
   .description(
     "Annotate a crash log / stack trace with the .ddd construct + source location each " +
-      "frame maps to, via .loom/sourcemap.json. See docs/old/proposals/source-map-and-debugging.md §6B.",
+      "frame maps to, via .loom/sourcemap.json. See docs/debugging.md.",
   )
   .option(
     "--map <path>",
@@ -1756,7 +1904,7 @@ program
   .command("breakpoints <file>")
   .description(
     "Resolve a .ddd source line to the generated file:line(s) it produced, via " +
-      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/old/proposals/source-map-and-debugging.md §6E.",
+      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/debugging.md.",
   )
   .requiredOption("--line <n>", "1-based .ddd source line to resolve")
   .option(

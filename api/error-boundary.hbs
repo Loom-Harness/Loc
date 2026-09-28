@@ -35,7 +35,11 @@ export class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     if (this.state.error) {
       return (
-        <div role="alert" style={wrapStyle}>
+        {{!-- Same testid as the app-shell's in-shell boundary.  This is the
+             ROOT one: a shell that throws on mount (an import that hands React
+             a module object) never reaches the in-shell boundary, so a gate
+             keyed only on that one passes a completely blank app — measured. --}}
+        <div role="alert" data-testid="app-error" style={wrapStyle}>
           <h2 style={msgStyle}>{{{errorTitleText}}}</h2>
           <pre style={msgStyle}>{this.state.error.message}</pre>
         </div>

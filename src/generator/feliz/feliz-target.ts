@@ -425,8 +425,24 @@ export const felizTarget: WalkerTarget = {
   // bracket-delimited body are offside-safe there).  An `empty:` arm folds into
   // a single-line element guard — `React.fragment` re-wraps the mapped list so
   // the whole thing is ONE child expression, offside-safe like the ternary.
-  renderForEach: (coll, itemVar, _indexVar, _keyExpr, body, _depth, emptyBody) => {
+  //
+  // The splice is only legal where the slot IS a list expression.  F# admits
+  // `yield!` only inside a list/array/sequence expression — FS0747 anywhere
+  // else — so in a VALUE slot (a `QueryView` branch, a `match` arm, a ternary
+  // branch, a table cell, the page body root) the splice emitted an `App.fs`
+  // that could not build: `data: rows => For { … }`, the canonical
+  // hand-written list body, was a page nothing compiled (ledger F2-CFE-3,
+  // feliz half; the React half rides `wrapMultiRoot`).  `React.fragment` over
+  // the mapped list is the same ONE-element answer the `empty:` arm already
+  // reaches for.
+  renderForEach: (coll, itemVar, _indexVar, _keyExpr, body, _depth, emptyBody, slot) => {
     if (emptyBody === undefined) {
+      // `slot !== "children"`, not `slot === "value"`: the seam fails closed,
+      // so an absent flag takes the wrapper too.  A caller that forgot the
+      // argument would otherwise get the one shape that cannot compile.
+      if (slot !== "children") {
+        return `React.fragment (${coll} |> List.map (fun ${itemVar} -> ${oneLine(body)}))`;
+      }
       return `yield! ${coll} |> List.map (fun ${itemVar} ->\n  ${body})`;
     }
     const frag = `React.fragment (${coll} |> List.map (fun ${itemVar} -> ${oneLine(body)}))`;
@@ -603,7 +619,7 @@ export const felizTarget: WalkerTarget = {
 
   // `CreateForm(of: <Agg>)` → one `Html.input` per required create-input field
   // (bound to `model.<Agg>Form.<field>` + dispatching `Set<Agg>Form<Field>`) and
-  // a submit button dispatching `Submit<Agg>Form`.  The form STATE + encoder +
+  // a submit button dispatching `Submit<Agg>CreateForm`.  The form STATE + encoder +
   // POST `Cmd` live in `update`/`Api` (wired by index.ts's `collectPageForms`);
   // the view only reads/dispatches.  The field set is derived identically here
   // and in index.ts (both `felizCreateForm` off the same enriched aggregate).
@@ -636,7 +652,7 @@ export const felizTarget: WalkerTarget = {
   },
 
   // `OperationForm(of: <Agg>, op: <op>)` → one `Html.input` per op param + a
-  // submit button dispatching `Submit<Op><Agg>Form id` (the op is instance-
+  // submit button dispatching `Submit<Op><Agg>OpForm id` (the op is instance-
   // qualified, so it carries the route id).  The form state + encoder + POST
   // live in `update`/`Api` (wired by index.ts's `collectPageOperationForms`).
   // Falls through when the args aren't `of:`+`op:` refs or the op is unknown /
@@ -696,7 +712,7 @@ export const felizTarget: WalkerTarget = {
   },
 
   // `WorkflowForm(runs: <wf>)` → one `Html.input` per workflow param + a
-  // (paramless) submit button dispatching `Submit<Wf>Form`.  The form state +
+  // (paramless) submit button dispatching `Submit<Wf>WorkflowForm`.  The form state +
   // encoder + POST `/workflows/<wf>` Cmd live in `update`/`Api` (wired by
   // index.ts's `collectPageWorkflowForms`).  Falls through when `runs:` isn't a
   // ref to a reachable workflow.
@@ -851,6 +867,11 @@ export const felizTarget: WalkerTarget = {
     }
     for (const p of params) {
       if (p.type.kind !== "slot") continue;
+      // Default `ChildSlot` — a VALUE slot, and deliberately so: a lone slot
+      // arg becomes `field = <expr>` in the anonymous record just below, where
+      // a `yield!` is FS0747.  (Several args DO land in a `React.fragment [ … ]`
+      // list, but the flag describes the slot, not the arity, and the wrapper
+      // the restrictive answer produces is valid in both.)
       const walked = (slotArgs.get(p.name) ?? []).map((c) => oneLine(walk(c, ctx, 0)));
       // An F# anonymous record is EXACT — an unfilled field is a type error, not
       // an absent prop — so a slot the caller left empty is filled with the

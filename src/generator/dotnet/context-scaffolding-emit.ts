@@ -121,11 +121,21 @@ export function emitEvents(
 export function emitCommon(
   ns: string,
   out: Map<string, string>,
-  opts: { concurrencyException?: boolean; file?: boolean } = {},
+  opts: {
+    concurrencyException?: boolean;
+    file?: boolean;
+    valueObjectInvariant?: boolean;
+    domainFloorCodes?: boolean;
+  } = {},
 ): void {
   out.set(
     "Domain/Common/DomainException.cs",
-    renderCommon(ns, { concurrencyException: opts.concurrencyException, file: opts.file }),
+    renderCommon(ns, {
+      concurrencyException: opts.concurrencyException,
+      file: opts.file,
+      valueObjectInvariant: opts.valueObjectInvariant,
+      domainFloorCodes: opts.domainFloorCodes,
+    }),
   );
   // Canonical ISO-8601 UTC instant JSON converters (RS-4 temporal round-trip
   // parity) — registered in Program.cs's controller + minimal-API JSON options.

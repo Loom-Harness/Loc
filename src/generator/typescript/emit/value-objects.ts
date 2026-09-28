@@ -1,5 +1,6 @@
 import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { messageCode } from "../../../util/message-code.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
@@ -58,7 +59,15 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
       // correct for the body-scan half — an expression that renders `Ids.x()`
       // needs the runtime binding, which `import type` would erase.
       usesIds ? 'import * as Ids from "./ids";' : null,
-      needsDomainError ? 'import { DomainError } from "./errors";' : null,
+      // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1 —
+      // a DomainError the routers answer with an errors[] entry); a plain
+      // `DomainError` import survives only where the body still spells one.
+      needsDomainError || /\bnew DomainError\(/.test(scan)
+        ? `import { ${[
+            ...(/\bnew DomainError\(/.test(scan) ? ["DomainError"] : []),
+            ...(needsDomainError ? ["ValueObjectInvariantError"] : []),
+          ].join(", ")} } from "./errors";`
+        : null,
       "",
       ...body,
     ) + "\n"
@@ -147,7 +156,11 @@ function renderValueObject(v: ValueObjectIR): string[] {
     const check = inv.guard
       ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`
       : `if (!(${renderTsExpr(inv.expr)}))`;
-    return `    ${check} throw new DomainError(${JSON.stringify(inv.message ? inv.message.text : `Invariant violated: ${inv.source}`)});`;
+    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    // The messaged rule carries the same content-hash `code` the wire rung does,
+    // so the errors[] entry a body-side breach answers can be localised too.
+    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code});`;
   });
   const derived = v.derived.map(
     (d) => `  get ${d.name}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,

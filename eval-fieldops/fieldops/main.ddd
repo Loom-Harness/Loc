@@ -1,0 +1,320 @@
+// FieldOps — multi-tenant B2B field-service platform.
+// Written for the Loom adoption spike. Grown in slices; this is the full model.
+
+requirement US-001 {
+  type: UserStory
+  title: "A dispatcher can schedule a work order to a qualified technician"
+  status: InProgress
+  priority: 1
+}
+
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "A work order can only be scheduled to a technician holding the asset's required skill"
+}
+
+requirement US-002 {
+  type: UserStory
+  title: "Completing a work order decrements parts stock atomically"
+  status: InProgress
+  priority: 1
+}
+
+requirement US-003 {
+  type: UserStory
+  title: "A technician may only see their own work orders"
+  status: InProgress
+  priority: 1
+}
+
+testCase TC-001 verifies AC-001 {
+  title: "Scheduling to an unskilled technician is rejected"
+}
+
+testCase TC-002 verifies US-002 {
+  title: "Completing with insufficient stock fails the whole operation"
+}
+
+testCase TC-003 verifies US-003 {
+  title: "A technician's work order list excludes other technicians' orders"
+}
+
+migration "add-bin-location" {
+  Part.binCode = "UNASSIGNED"
+}
+
+system FieldOps {
+
+  user {
+    id: guid
+    email: string
+    orgId: string
+    role: string
+    permissions: string[]
+  }
+
+  auth {
+    enforcement: opt
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+
+  tenancy by user.orgId of Organization
+
+  subdomain Ops {
+
+    permissions {
+      manageWorkOrders
+      viewCostRates
+      exportPlatformReport
+    }
+
+    context Field {
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Urgent }
+      enum Skill { Electrical, Plumbing, HVAC, Refrigeration }
+
+      // --- tenant registry (named in `tenancy by … of Organization`) ---
+      aggregate Organization with crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Customer with tenantOwned, auditable, crudish {
+        name: string
+        contactEmail: string sensitive(pii)
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Site with tenantOwned, crudish {
+        customerId: Customer id
+        label: string
+        addressLine: string sensitive(pii)
+        derived display: string = label
+      }
+
+      aggregate Asset with tenantOwned, crudish {
+        siteId: Site id
+        serialNumber: string
+        model: string
+        warrantyExpiry: datetime?
+        requiredSkill: Skill
+        unique (tenantId, serialNumber)
+        derived display: string = serialNumber
+      }
+
+      aggregate Technician with tenantOwned, crudish {
+        userId: guid
+        fullName: string
+        skills: Skill[]
+        // masked field: cost rate hidden from non-admins
+        costRate: money mask unless currentUser.role == "admin"
+        derived display: string = fullName
+
+        function hasSkill(s: Skill): bool = skills.contains(s)
+      }
+
+      aggregate Part with tenantOwned, crudish {
+        sku: string
+        binCode: string              // RENAME: binLocation -> binCode
+        onHand: int
+        unitPrice: money
+        currency: string
+        invariant onHand >= 0
+        unique (tenantId, sku)
+        derived display: string = sku
+
+        operation consume(qty: int) {
+          precondition qty > 0
+          precondition onHand >= qty
+          onHand := onHand - qty
+        }
+
+        test "consuming more than stock is rejected" verifies TC-002 {
+          let p = Part.create({ sku: "SKU-1", binCode: "A-1", onHand: 2, unitPrice: money("10.00"), currency: "EUR" })
+          expect(p.consume(5)).toThrow()
+        }
+      }
+
+      event WorkOrderCompleted { workOrder: WorkOrder id, at: datetime, org: string }
+      event WorkOrderScheduled { workOrder: WorkOrder id, technician: Technician id, at: datetime }
+
+      channel WorkOrderEvents { carries: WorkOrderCompleted, delivery: broadcast, retention: ephemeral }
+
+      aggregate WorkOrder with tenantOwned, auditable {
+        customerId: Customer id
+        siteId: Site id
+        assetId: Asset id?
+        technicianId: Technician id?
+        technicianUserId: guid?   // WORKAROUND F-007: denormalized so the row-level filter is queryable
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        resolutionNote: string?
+        photo: File?
+        contains lines: WorkOrderLine[]
+
+        derived total: money = lines.sum(l => l.amount)
+        derived display: string = serialLabel()
+        derived timeToComplete: int = 0
+
+        // multi-currency invariant: every line shares the order's currency
+        invariant lines.all(l => l.currency == currency)
+        invariant currency.length == 3
+
+        function serialLabel(): string = "WO"
+
+        create() { }
+        function isEditable(): bool = status == Draft
+
+        operation addLabour(description: string, hours: decimal, rate: money, lineCurrency: string) {
+          requires currentUser.permissions.contains(permissions.manageWorkOrders)
+          precondition isEditable()
+          precondition hours > 0
+          precondition lineCurrency == currency
+          lines += WorkOrderLine {
+            description: description,
+            quantity: hours,
+            unitPrice: rate,
+            currency: lineCurrency
+          }
+        }
+
+        operation schedule(tech: Technician id, at: datetime) when status == Draft {
+          requires currentUser.permissions.contains(permissions.manageWorkOrders)
+          technicianId := tech
+          scheduledAt := at
+          status := Scheduled
+        }
+
+        operation start() when status == Scheduled {
+          status := InProgress
+          startedAt := now()
+        }
+
+        operation complete(note: string) when status == InProgress {
+          status := Completed
+          completedAt := now()
+          resolutionNote := note
+          emit WorkOrderCompleted { workOrder: id, at: now(), org: "" }
+        }
+
+        operation cancel(reason: string) when status != Completed {
+          status := Cancelled
+          resolutionNote := reason
+        }
+
+        entity WorkOrderLine {
+          description: string
+          quantity: decimal
+          unitPrice: money
+          currency: string
+          derived amount: money = unitPrice * quantity
+          invariant quantity > 0
+        }
+
+      }
+
+      aggregate Invoice with tenantOwned, auditable {
+        workOrderId: WorkOrder id
+        issuedAt: datetime?
+        amount: money immutable
+        currency: string immutable
+        derived issued: bool = issuedAt != null
+        derived display: string = currency
+
+        operation issue() when issuedAt == null {
+          issuedAt := now()
+        }
+      }
+
+      repository Organizations for Organization { }
+      repository Customers for Customer { }
+      repository Sites for Site { }
+      repository Assets for Asset { }
+      repository Technicians for Technician { }
+      repository Parts for Part { }
+      repository WorkOrders for WorkOrder { }
+      repository Invoices for Invoice { }
+
+      // --- row-level rule: a technician sees only their own work orders ---
+      criterion MineAsTechnician() of WorkOrder =
+        this.technicianUserId == currentUser.id
+      retrieval MyWorkOrders() of WorkOrder {
+        where: MineAsTechnician()
+        sort: [priority desc]
+      }
+
+      criterion OpenWorkOrders() of WorkOrder = this.status != Completed
+
+      // --- reporting: dashboard ---
+      projection OpenByStatus {
+        status: WorkOrderStatus
+        howMany: int
+        from WorkOrder as w
+        group by w.status
+        select status = w.status, howMany = count()
+      }
+
+      projection RevenueThisMonth {
+        revenue: money
+        from Invoice as i
+        select revenue = sum(i.amount)
+      }
+
+      // --- workflow: schedule spanning WorkOrder + Technician, transactional ---
+      workflow scheduleWorkOrder transactional {
+        create(workOrder: WorkOrder id, technician: Technician id, at: datetime) {
+          requires currentUser.permissions.contains(permissions.manageWorkOrders)
+          let wo = WorkOrders.getById(workOrder)
+          let tech = Technicians.getById(technician)
+          wo.schedule(technician, at)
+          emit WorkOrderScheduled { workOrder: workOrder, technician: technician, at: at }
+        }
+      }
+    }
+  }
+
+  // --- infrastructure ---
+  storage primary { type: postgres }
+  storage bus     { type: redis }
+  storage photos  { type: s3, config: { bucket: "fieldops-photos", region: "eu-central-1" } }
+  storage mail    { type: smtp, config: { from: "no-reply@fieldops.example" } }
+
+  resource fieldState { for: Field, kind: state,       use: primary }
+  resource fieldPhotos{ for: Field, kind: objectStore, use: photos }
+  resource fieldMail  { for: Field, kind: mailer,      use: mail }
+  channelSource woBus { for: WorkOrderEvents, use: bus }
+
+  ui WebApp with scaffold(subdomains: [Ops]) { }
+
+  deployable api {
+    platform: node,
+    contexts: [Field],
+    dataSources: [fieldState, fieldPhotos, fieldMail],
+    channels: [woBus],
+    auth: required,
+    port: 3000
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    design: mantine,
+    port: 3001
+  }
+}
+
+solution SOL-001 for AC-001 {
+  title: "Skill matching enforced in the scheduleWorkOrder workflow"
+  entitles [ Ops.Field.scheduleWorkOrder ]
+}
