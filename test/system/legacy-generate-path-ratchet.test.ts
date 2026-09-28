@@ -181,10 +181,6 @@ const PARSE_STRING_ALONGSIDE_HONO: Readonly<Record<string, string>> = {
   "test/generator/typescript/intrinsic-trim.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/stdlib.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/toplevel-function.test.ts": "same — the phase-④ assertion IS the test",
-  "test/ir/collection-op-lambda-element-type.test.ts":
-    "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → legacy-generate hop, still to migrate",
-  "test/ir/collection-op-let-type.test.ts":
-    "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → `generateHono` hop, still to migrate",
 };
 
 const PARSE_STRING_ALONGSIDE_DOTNET: Readonly<Record<string, string>> = {
@@ -192,8 +188,6 @@ const PARSE_STRING_ALONGSIDE_DOTNET: Readonly<Record<string, string>> = {
     "a dedicated `parses + validates cleanly` case that asserts `errors` is empty itself; the five generate calls use `parseValid`",
   "test/generator/dotnet/intrinsic-strings.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/dotnet/intrinsic-trim.test.ts": "same — the phase-④ assertion IS the test",
-  "test/ir/collection-op-lambda-element-type.test.ts":
-    "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → `generateDotnet` hop, still to migrate",
 };
 
 function testFiles(dir: string, out: string[] = []): string[] {
