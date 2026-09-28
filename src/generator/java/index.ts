@@ -52,6 +52,10 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import {
+  type RequestComponentOwner,
+  requestComponentNamerFor,
+} from "../_openapi/request-component-names.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -236,6 +240,7 @@ import { collectMangledNames, mangledEnumNames } from "./java-ident.js";
 import { basePackageFor, javaPackageSegment, mainSourcePath } from "./naming.js";
 import { API_CLIENT_CLASS as JAVA_API_CLIENT_CLASS } from "./render-expr.js";
 import { renderSqlRestriction } from "./render-sql-restriction.js";
+import { javaRequestComponentOwners } from "./request-component-owners.js";
 
 // ---------------------------------------------------------------------------
 // Java backend entry point — Spring Boot 3 / Spring Data JPA / Postgres.
@@ -672,6 +677,14 @@ function emitProjectFromContexts(
   // compiled fine for a system with no seeds — there was no import to be
   // wrong — and failed the moment one had them.
   const seedRunnerClasses: Array<{ fqn: string; cls: string }> = [];
+  // Request-component names, resolved ONCE over the whole deployable (F-026).
+  // springdoc names a schema after the short CLASS name, so two request records
+  // in different packages that share one short name collapse onto a single
+  // published component -- exactly the collision .NET already qualifies via
+  // `CustomSchemaIds`.  The owner list comes from the one shared derivation the
+  // OpenAPI-contract builder also uses, so the records and the `RequiredSet`
+  // patch table keyed by their names cannot disagree.
+  const reqNameFor = requestComponentNamerFor(javaRequestComponentOwners(contexts));
   for (const ctx of contexts) {
     // This context's Postgres schema — the workflow saga tables (JPA `@Table`
     // + native-SQL ES stream) land here to match the migration DDL.
@@ -758,6 +771,7 @@ function emitProjectFromContexts(
         authRequired,
         routePrefix,
         sourcemap,
+        reqNameFor,
       );
     }
     // Value-object / domain-service unit tests (test-placement.md) —
@@ -868,6 +882,7 @@ function emitProjectFromContexts(
       authRequired,
       system?.sys,
       workflowOpFragments,
+      reqNameFor,
     );
     if (workflowFiles) {
       // Per-workflow Request DTOs are individually attributable; the combined
@@ -1604,6 +1619,8 @@ function emitAggregate(
   authRequired = false,
   routePrefix?: string,
   sourcemap?: SourceMapRecorder,
+  /** Deployable-wide request-component name lookup (F-026). */
+  reqNameFor?: (owner: RequestComponentOwner) => string,
 ): void {
   const eventFields = new Map(ctx.events.map((e) => [e.name, e.fields.map((f) => f.name)]));
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
@@ -1891,6 +1908,7 @@ function emitAggregate(
     // document/embedded/event-sourced aggregate (non-paged auto-all) with a
     // declared paged find and no `<Agg>Paged` to return.
     isPagedAutoAll(repo) || declaredFinds(repo).some(isPagedFind),
+    reqNameFor,
   )) {
     place(dto.name, dto.category, dto.content, agg.name, agg.origin, construct);
   }

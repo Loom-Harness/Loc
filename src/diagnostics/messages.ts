@@ -1539,8 +1539,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `or wait for a future toString derivation.`,
   "loom.convert-pair-invalid": (p: { source: unknown; target: unknown }) =>
     `Cannot convert '${p.source}' to '${p.target}': not supported. ` +
-    `Today's conversion vocabulary admits: string ← any primitive | enum | X id; ` +
+    `Today's conversion vocabulary admits: ` +
+    `string ← int | long | decimal | money | bool | guid | datetime | enum | X id; ` +
     `long ← int; decimal ← int | long | money; money ← int | long | decimal. ` +
+    `'json' and 'File' have no canonical scalar form, so they are not stringifiable. ` +
     `Fallible parses (string → numeric / datetime / bool) and narrowing ` +
     `(long → int, decimal → long) are deferred pending a failure-model decision.`,
   "loom.property-check-not-bool": (p: { name: unknown; actual: unknown }) =>

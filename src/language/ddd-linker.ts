@@ -32,6 +32,14 @@ import {
   type LinkingError,
   type ReferenceInfo,
 } from "langium";
+import {
+  isAggregate,
+  isEntityPart,
+  isEnumDecl,
+  isEventDecl,
+  isPayloadDecl,
+  isValueObject,
+} from "./generated/ast.js";
 import { nearestType, primitiveTypeNames } from "./type-catalogue.js";
 
 /** The reference type every TYPE position resolves through.  `NamedDecl` is
@@ -68,12 +76,30 @@ export class DddLinker extends DefaultLinker {
  *  the name is a near miss, the far more common case (`strng` for `string`) —
  *  which one was probably meant. */
 function unknownTypeMessage(name: string, container: AstNode): string {
-  // Declared types reachable from this document, so the hint can land on a
+  // Declared TYPES reachable from this document, so the hint can land on a
   // user's own `valueobject` / `enum` as readily as on a primitive.
+  //
+  // Type declarations ONLY — not "every named node".  The walk runs over the
+  // MACRO-EXPANDED tree, so a `name` harvested indiscriminately also picks up
+  // the operations `with crudish` synthesises and the page state
+  // `with scaffold` synthesises: `occurredOn: date` was answered with
+  // "Did you mean 'update'?" (a crudish operation) and, once a scaffolded
+  // `ui` was present, "Did you mean 'data'?" (a page state variable).  Both
+  // are confidently wrong — they name something that can never stand in a
+  // type position, so following the hint replaces one error with another.
   const declared = new Set<string>();
   const root = AstUtils.findRootNode(container);
   if (root) {
     for (const node of AstUtils.streamAllContents(root)) {
+      if (
+        !isEnumDecl(node) &&
+        !isValueObject(node) &&
+        !isEventDecl(node) &&
+        !isPayloadDecl(node) &&
+        !isAggregate(node) &&
+        !isEntityPart(node)
+      )
+        continue;
       const n = (node as { name?: unknown }).name;
       if (typeof n === "string" && n.length > 0) declared.add(n);
     }

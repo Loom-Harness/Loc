@@ -916,8 +916,8 @@ export interface ColumnStep extends langium.AstNode {
     readonly $container: Migration;
     readonly $type: 'ColumnStep';
     aggregate: langium.Reference<Aggregate>;
-    field: UserFieldName;
-    renamedTo?: UserFieldName;
+    field: PropertyName;
+    renamedTo?: PropertyName;
     value?: Expression;
 }
 
@@ -3013,7 +3013,7 @@ export interface Property extends langium.AstNode {
     default?: Expression;
     maskUnless?: Expression;
     message?: string;
-    name: 'await' | 'ignoring' | 'page' | CommonSoftKeywords | string;
+    name: PropertyName;
     provenanced: boolean;
     sensitivity?: SensitivityClause;
     type: TypeRef;
@@ -3034,6 +3034,12 @@ export const Property = {
 
 export function isProperty(item: unknown): item is Property {
     return reflection.isInstance(item, Property.$type);
+}
+
+export type PropertyName = 'await' | 'ignoring' | 'page' | CommonSoftKeywords | string;
+
+export function isPropertyName(item: unknown): item is PropertyName {
+    return isCommonSoftKeywords(item) || item === 'await' || item === 'ignoring' || item === 'page' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export type QualifiedName = string;

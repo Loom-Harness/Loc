@@ -267,12 +267,13 @@ system ${sys} {
   // than passing silently, until the gate surface lands (mission M-T3.19).
   // A tenancy filter still covers that route (a foreign tenant reads 404); what
   // it does not cover is role separation within a tenant.
-  // And \`with crudish\` generates its
-  // create/update/destroy, which likewise cannot carry a gate today:
-  // hand-write those three on any aggregate you want gated until
-  // \`crudish(requires: <Policy>)\` lands.  In both cases the gate is named at
-  // the declaration — an INHERITED aggregate-level default was rejected, because
-  // a deny rule invisible at the member it guards is the wrong trade.
+  // \`with crudish\` generates its create/update/destroy, and those DO take a
+  // gate: name it as a \`policy\` and hand it to the macro —
+  // \`aggregate X with crudish(requires: <Policy>)\` splices
+  // \`requires <Policy>()\` first in each emitted member.  In both cases the
+  // gate is named at the declaration — an INHERITED aggregate-level default was
+  // rejected, because a deny rule invisible at the member it guards is the
+  // wrong trade.
   //   user {
   //     id: string
   //     role: string

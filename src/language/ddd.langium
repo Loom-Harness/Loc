@@ -101,7 +101,7 @@ SqlStep:
 // `=` carries the backfill intent exactly as `->` carries rename — no new
 // keyword.
 ColumnStep:
-    aggregate=[Aggregate:ID] '.' field=UserFieldName ('->' renamedTo=UserFieldName | '=' value=Expression);
+    aggregate=[Aggregate:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
 
 // `OldName -> NewAggregate` — the aggregate's table `plural(snake(OldName))`
 // is renamed to `plural(snake(NewAggregate))` in the derived diff, cascading
@@ -147,6 +147,25 @@ UserBlock:
 UserField:
     name=UserFieldName ':' type=TypeRef;
 
+// Every spelling a DECLARED FIELD name can take.  Shared by `Property` (the
+// declaration site) and the migration `ColumnStep` (which ADDRESSES a declared
+// field), so the two cannot drift: a field you are allowed to declare is a
+// field you are allowed to rename or backfill.  They did drift — `ColumnStep`
+// reused the deliberately narrow `UserFieldName` below, so 81 legal field
+// names (`description`, `key`, `kind`, `message`, `title`, …) could be
+// declared and then never renamed through the supported surface, leaving only
+// `--allow-destructive` (data loss) or a raw `sql "…"` step.  Pinned by the
+// `migrationField` position in `keyword-identifier-completeness.test.ts`.
+PropertyName returns string:
+    ID | CommonSoftKeywords
+    // Property-only (soft here but not in every value position):
+    | 'await' | 'ignoring' | 'page';
+
+// The `user { }` claim-shape field name.  DELIBERATELY NARROW and NOT
+// `PropertyName`: this is a JWT claim surface, not a domain aggregate, and
+// widening it is not free — `CommonSoftKeywords` does not carry `id`, so a
+// naive "just reuse PropertyName here too" drops `user { id: guid }` and
+// breaks every model that declares one.
 UserFieldName returns string:
     ID | 'id' | 'permissions'
     // `migration` is hard only at the top-level `Migration` block head;
@@ -1819,9 +1838,7 @@ FieldAccess returns string:
 // the `FieldAccess` slot below.  See `LooseName` and `NameRefIdent`
 // for the same admission in parameter / expression positions.
 Property:
-    name=(ID | CommonSoftKeywords
-        // Property-only (soft here but not in every value position):
-        | 'await' | 'ignoring' | 'page')
+    name=PropertyName
     ':' type=TypeRef
     // `provenanced` / `sensitive(...)` / the access modifier are pure
     // flag-like keywords carrying no expression content, so they parse in
