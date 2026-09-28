@@ -2937,6 +2937,30 @@ system S {
   // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
   // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
   // so — the admin-only `find all` next to it is no protection at all.
+  // #3023: an invariant the Ecto changeset carrier can enforce on NEITHER path
+  // used to fall through both in silence — enforced at the domain floor on
+  // node/.NET/python/java and nowhere on elixir, at `0 error(s), 0 warning(s)`.
+  // `members` is a REFERENCE collection, whose join rows the repository writes
+  // after the changeset runs: the changeset would read `[]` and the rule would
+  // pass for every input, so it is reported rather than emitted as a check that
+  // cannot fail.
+  "loom.elixir-invariant-unenforced": `
+system S {
+  subdomain Shop { context Shop {
+    aggregate Order {
+      label: string
+      members: Member id[]
+      invariant members.count <= 6
+    }
+    aggregate Member { nick: string }
+    repository Orders for Order { }
+    repository Members for Member { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+
   "loom.default-deny-by-id-ungated": `
 system S {
   user { id: guid  role: string }

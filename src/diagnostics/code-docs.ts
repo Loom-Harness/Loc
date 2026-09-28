@@ -102,6 +102,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
   "loom.parameter-default-type-mismatch":
     "06-behavior-and-statements.md#operation--a-mutating-method",
+  // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
+  "loom.elixir-invariant-unenforced":
+    "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
