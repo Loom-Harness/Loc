@@ -508,6 +508,23 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Two enums in one context declaring the same member, and a bare use with no
+  // expected type to resolve it — an untyped `let`.  First-wins would silently
+  // pick `OrderStatus` and lower a comparison between two different enums
+  // (F-022); the refusal is the honest answer.  The typed sites in the same
+  // aggregate stay silent, which is what makes this the ambiguous one.
+  "loom.ambiguous-enum-value": `
+system EnumAmbiguity {
+  subdomain S { context Billing {
+    enum OrderStatus   { Draft, Confirmed }
+    enum InvoiceStatus { Draft, Issued, Paid }
+    aggregate Invoice with crudish {
+      status: InvoiceStatus = Draft
+      label: string
+      operation touch() { let x = Draft  label := "x" }
+    }
+  } }
+}`,
   // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
   // Any other shape is refused by name (the operating org's id is not
   // derivable from a submitted path without a registry read).

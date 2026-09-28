@@ -41,6 +41,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#the-callable-modifier-surface",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
