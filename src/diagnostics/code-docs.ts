@@ -362,6 +362,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
