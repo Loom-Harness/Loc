@@ -1601,7 +1601,7 @@ function renderWorkflowModule(
         `${snake(wf.correlationField as string)}: key`,
         ...(wf.stateFields ?? [])
           .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
+          .map((f) => `${snake(f.name)}: ${stateDefault(f.type, ctx?.enums)}`),
       ]
     : [];
   const statePrelude = corrParam
