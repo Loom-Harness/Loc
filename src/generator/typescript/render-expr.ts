@@ -586,7 +586,11 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     e.leftType?.kind === "primitive" &&
     (e.leftType.name === "int" || e.leftType.name === "long" || e.leftType.name === "decimal")
   ) {
-    return renderMoneyBinary(e.op, decimalChainOperand(left, e.left) ?? `new Decimal(${left})`, right);
+    return renderMoneyBinary(
+      e.op,
+      decimalChainOperand(left, e.left) ?? `new Decimal(${left})`,
+      right,
+    );
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  duration ± duration and duration * int stay native number
