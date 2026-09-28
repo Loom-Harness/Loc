@@ -2,7 +2,7 @@
 
 Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 "Wave C3". Rules: §3 there (rules 10–18) and §3/§3a of [`../improvement-waves-2026-09.md`](../improvement-waves-2026-09.md). The plan sized C3 to run concurrently with C2 as a test-only wave; it did not run then — C0, C1, C2, C4 and C5 all landed first (their logs sit beside this one) — so it runs now, on a `main` that already carries every drain those waves made. **Two PRs, as the plan says:** PR 3-A is harness + test code (packets 3a, 3c, 3d, 3f and 3b's test half), PR 3-B is the CI-workflow change (3e and 3b's workflow half), landed after 3-A. Both on `claude/loom-review-planning-adz0n4`, restarted from `main` after the previous PR merges; the branch enforces the sequencing.
 
-## Status: **LAUNCHED 2026-09-28 — PR 3-A open as the claim (draft); batch 1 (3a, 3c, 3d) building; 3f and 3b's test half next; 3e (PR 3-B) last.**
+## Status: **LAUNCHED 2026-09-28 13:2xZ — PR 3-A is [#3058](https://github.com/Loom-Harness/Loc/pull/3058) (draft = the claim) on the branch restarted from `main` @ `d2a0bc02c`; batch 1 (3a `claude/c3-e2eless`, 3c `claude/c3-authz`, 3d `claude/c3-promote`) building; 3f and 3b's test half next; 3e (PR 3-B) last.**
 
 ## Why C3 now
 
