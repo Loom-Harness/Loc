@@ -508,6 +508,52 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
+  // Any other shape is refused by name (the operating org's id is not
+  // derivable from a submitted path without a registry read).
+  "loom.org-context-surface": `
+system OrgCtx {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      aggregate Account with tenantOwned, crudish {
+        label: string
+        scope: string?
+        operation note() { scope := organizationContext.tenantId }
+      }
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Accounts for Account { }
+      repository Orgs for Org { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+}`,
+  // M-T3.6 items 3+5 — the operating scope read on a deployable with no auth:
+  // there is no auth middleware, so no switch gate, so the read would be an
+  // unvalidated caller-submitted value.
+  "loom.org-context-gate-unmet": `
+system OrgCtx {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      aggregate Note crossTenant {
+        label: string
+        scope: string?
+        operation stampScope() { scope := organizationContext.orgPath }
+      }
+      aggregate Org { name: string  implements tenantRegistry }
+      repository Notes for Note { }
+      repository Orgs for Org { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], port: 3000 }
+}`,
   // A part that contains itself.  The natural domain is ordinary (a sub-task
   // tree), and before the check this parsed clean and then killed `generate`
   // with a bare `RangeError: Maximum call stack size exceeded`.

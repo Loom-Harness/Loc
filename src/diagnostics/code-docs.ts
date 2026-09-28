@@ -44,6 +44,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
+  "loom.org-context-surface": "02-systems-and-topology.md#organizationcontext--the-operating-scope",
+  "loom.org-context-gate-unmet":
+    "02-systems-and-topology.md#organizationcontext--the-operating-scope",
   // --- src/language/ddd-validator.ts (M-T9.56 drain) ----------------------
   "loom.duplicate-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",

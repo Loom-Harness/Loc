@@ -64,6 +64,7 @@ import {
   checkMatcherArity,
   checkMatchesCalls,
   checkMigrations,
+  checkOrgContextSurface,
   checkOrgPathReferences,
   checkPayloads,
   checkPermissionImplies,
@@ -387,6 +388,9 @@ export class DddValidator {
     // `currentUser.orgPath` (the derived tenant materialized path) is
     // only meaningful under a `tenancy by` declaration — fail-closed otherwise.
     guard("orgpath-tenancy", model, () => checkOrgPathReferences(model, accept, this.services));
+    // `organizationContext` — the operating-scope accessor admits `.orgPath`
+    // only, and never on a `ui` (no switch gate there).
+    guard("org-context-surface", model, () => checkOrgContextSurface(model, accept));
     // Primitive conversion expressions (`string(x)`, `money(d)`):
     // restrict to the infallible (source, target) pairs.  Fallible
     // parses (`int("42")`) and narrowing (`int(longValue)`) are

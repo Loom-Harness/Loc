@@ -24,6 +24,7 @@ import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreig
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
+import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -450,7 +451,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       })()
     : undefined;
   if (authRequired && args.sys.user)
-    emitPyAuthFiles(args.sys.user, out, oidc, args.sys.tenancy?.claimField, orgPathRegistryTable);
+    emitPyAuthFiles(
+      args.sys.user,
+      out,
+      oidc,
+      args.sys.tenancy?.claimField,
+      orgPathRegistryTable,
+      systemReadsOrgContext(args.sys),
+    );
   // First-boot seeding (database-seeding.md): emitted only when a
   // dataset survives filtering (rows on concrete aggregates); the
   // lifespan runs seeds right after migrations (Hono/.NET boot order).

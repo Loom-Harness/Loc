@@ -1,0 +1,74 @@
+// `organizationContext` — the OPERATING-scope accessor and its fail-closed
+// switch gate (docs/tenancy.md → "organizationContext"; M-T3.6 items 3+5).
+//
+// `currentUser` is the PRINCIPAL (its `orgPath` is the caller's own org, read off
+// the unforgeable tenancy claim + the registry row).  `organizationContext` is the
+// org the request operates IN: the principal's own `orgPath` unless the request
+// carries an `x-org-context: <path>` header naming an org inside the caller's
+// subtree.  Every backend's auth middleware validates that header BEFORE any
+// handler runs — a path outside the caller's `orgPath` subtree (or any path at all
+// on a token with no `orgPath`) is a 403 with no write.
+//
+//   - `tenantOwned` is re-declared here with the reconciled surface's stamp
+//     (tenancy-authorization-final-surface decision 3): the WRITE stamp reads
+//     the operating scope, the read filter stays principal-anchored (decision 4).
+//     A user-declared capability of the same name replaces the prelude's.
+//   - `Account` carries `policy allow deep`, so a row stamped into a sub-org is
+//     visible to a deep read from its parent and invisible to a sibling.
+//   - `note()` reads the operating scope in an OPERATION body too, so every
+//     backend threads it through its ordinary principal path (not only the
+//     stamp seam) — and the harness can read the value back on the wire.
+//   - `Org` is the registry tree (`setPath` seeds deterministic paths, exactly
+//     as `tenancy-hierarchy.ddd` does).
+//
+// The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
+system OrgContext {
+  user { id: guid  tenantId: string }
+
+  tenancy by user.tenantId of Org
+
+  capability tenantOwned {
+    tenantId: string internal
+    dataKey: string? internal
+    stamp onCreate {
+      tenantId := currentUser.tenantId
+      dataKey := organizationContext.orgPath
+    }
+    filter this.tenantId == currentUser.tenantId
+  }
+
+  subdomain Core {
+    context Books {
+      aggregate Account with tenantOwned, crudish {
+        label: string
+        scope: string?
+        // Records the operating scope the call ran under, on the wire.
+        operation note() {
+          scope := organizationContext.orgPath
+        }
+      }
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+        operation setPath(p: string) { dataKey := p }
+      }
+      repository Accounts for Account { }
+      repository Orgs for Org { }
+      policy {
+        allow deep on Account
+      }
+    }
+  }
+
+  api BooksApi from Core
+  storage primary { type: postgres }
+  resource booksState { for: Books, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Books]
+    dataSources: [booksState]
+    serves: BooksApi
+    port: 4000
+    auth: required
+  }
+}
