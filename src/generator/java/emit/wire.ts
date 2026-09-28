@@ -177,6 +177,18 @@ export function collectWireImports(t: TypeIR, into: Set<string>, dir: WireDir): 
 
 /** Expression converting a DOMAIN value (`expr`, already a typed Java
  *  expression) to its wire form for a response record. */
+/** An `Instant` expression → its canonical wire string (RS-4 + RS-38):
+ *  ISO-8601 UTC in MILLISECONDS.  `Instant.toString()` prints the fraction in
+ *  groups of three and omits a zero one, so after `truncatedTo(MILLIS)` it is
+ *  exactly the canonical form — `.120Z` with a fraction, `…30Z` on a whole
+ *  second.  Without the truncation a value read back from a microsecond
+ *  `TIMESTAMPTZ` column (or an `Instant.now()`) shipped six or nine digits
+ *  (ledger `F2-W-06`).  `truncatedTo` never rounds, so `.9996` cannot carry into
+ *  the next second. */
+export function javaInstantWire(expr: string): string {
+  return `${expr}.truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()`;
+}
+
 export function domainToWire(t: TypeIR, expr: string): string {
   switch (t.kind) {
     case "primitive":
@@ -185,7 +197,7 @@ export function domainToWire(t: TypeIR, expr: string): string {
       // pin it to the canonical `NUMERIC(19,4)` scale for a wire value
       // byte-consistent with the other backends.
       if (t.name === "money") return numericEncode(JAVA_NUMERIC, "money", "dto-map", expr);
-      if (t.name === "datetime") return `${expr}.toString()`;
+      if (t.name === "datetime") return javaInstantWire(expr);
       // decimal → the response's `double` component (RS-24 / M-T6.46).  The
       // narrowing is the wire boundary's job, exactly as on .NET (#2575): the
       // DOMAIN value keeps every digit `MathContext.DECIMAL128` produced.
@@ -217,7 +229,7 @@ function elementMapper(element: TypeIR): string | null {
     case "primitive":
       if (element.name === "money")
         return `__x -> ${numericEncode(JAVA_NUMERIC, "money", "dto-map", "__x")}`;
-      if (element.name === "datetime") return "__x -> __x.toString()";
+      if (element.name === "datetime") return `__x -> ${javaInstantWire("__x")}`;
       // `decimal[]` → `List<Double>` (RS-24 / M-T6.46): the element narrows on
       // the response exactly as a scalar decimal component does.
       if (element.name === "decimal")

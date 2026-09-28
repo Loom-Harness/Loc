@@ -1,0 +1,234 @@
+{
+  "case": "datetime-wire",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/venues",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/venues",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/venues/{id}",
+      "status": 200,
+      "body": {
+        "capacity": 40,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Hall",
+        "openedAt": "<timestamp>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/venues/{id}",
+      "status": 200,
+      "body": {
+        "capacity": 12,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Annex",
+        "openedAt": "<timestamp>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/slots",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/slots",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/slots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "A",
+        "startsAt": "<timestamp>",
+        "venueId": "<volatile:key>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/slots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "B",
+        "startsAt": "<timestamp>",
+        "venueId": "<volatile:key>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/slots/{id}/reschedule",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/slots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "A",
+        "startsAt": "<timestamp>",
+        "venueId": "<volatile:key>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/slots?dir=asc&sort=label",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "A",
+            "startsAt": "<timestamp>",
+            "venueId": "<volatile:key>",
+            "version": 2
+          },
+          {
+            "id": "<volatile:key>",
+            "label": "B",
+            "startsAt": "<timestamp>",
+            "venueId": "<volatile:key>",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/venues/{id}/soft_delete",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/projections/slot_board",
+      "status": 200,
+      "body": [
+        {
+          "label": "B",
+          "slotId": "<volatile:key>",
+          "startsAt": "<timestamp>",
+          "venueCapacity": null,
+          "venueOpenedAt": null
+        },
+        {
+          "label": "A",
+          "slotId": "<volatile:key>",
+          "startsAt": "<timestamp>",
+          "venueCapacity": 40,
+          "venueOpenedAt": "<timestamp>"
+        }
+      ]
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/venues",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "capacity": 40,
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "name": "Hall",
+            "openedAt": "<timestamp>",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "PATCH",
+      "path": "/api/venues",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/venues",
+        "instance": "/api/venues",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/venues",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/venues",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

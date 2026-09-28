@@ -1592,8 +1592,15 @@ def required(value: _T | None) -> _T:
 
 
 def iso(dt: datetime) -> str:
-    """ISO-8601 UTC with a Z suffix — wire parity with the other backends."""
-    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    """ISO-8601 UTC in MILLISECONDS with a Z suffix (RS-4 + RS-38) — exactly
+    three fractional digits when the instant has a sub-second part, none on a
+    whole second, the form every backend ships.  \`isoformat\` alone printed
+    six digits (\`.120000Z\`); \`timespec="milliseconds"\` TRUNCATES, so
+    \`.9996\` cannot carry into the next second."""
+    utc = dt.astimezone(UTC)
+    if utc.microsecond < 1000:
+        return utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def money_str(amount: Decimal) -> str:

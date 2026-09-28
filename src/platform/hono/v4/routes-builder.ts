@@ -33,7 +33,7 @@ import {
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
-import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
+import { aggHasFieldMask, canonicalIsoExpr } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   chainSingleFieldNative,
@@ -1107,7 +1107,7 @@ export function buildRoutesFile(
         .map((f) => {
           const value =
             f.default.kind === "literal" && f.default.lit === "now"
-              ? "new Date().toISOString()"
+              ? canonicalIsoExpr("new Date()")
               : renderTsExpr(f.default);
           return `${f.name}: ${value}`;
         })

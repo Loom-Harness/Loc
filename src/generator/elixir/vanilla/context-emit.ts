@@ -52,6 +52,7 @@ import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialTerm } from "./denial.js";
 import {
   isVanillaDocAgg,
@@ -252,7 +253,7 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
       // reached nothing until an op assigned a `datetime` field FROM A
       // PARAMETER; `now()` renders `DateTime.utc_now()` and never takes this
       // branch, so no fixture had ever compiled this emission.
-      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> DateTime.truncate(loom_d, :second)\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
+      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> ${normalizeDatetime("loom_d")}\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
     default:
       return varName;
   }
@@ -1015,8 +1016,12 @@ function contextMutatesRelationalContainment(ctx: BoundedContextIR, sys?: System
   });
 }
 
-/** `__truncate_dt/1` — the second-precision guard for a `:utc_datetime` column
- *  written through an OPERATION's `force_change` persist line.
+/** `__truncate_dt/1` — the millisecond normalisation (RS-38) for a `datetime`
+ *  column written through an OPERATION's `force_change` persist line.  It used
+ *  to truncate to the SECOND because the column was `:utc_datetime`; the column
+ *  is `Loom.Datetime` now (`datetime-type-emit.ts`), which dumps any precision,
+ *  so what is left is putting the in-memory value on the precision the wire
+ *  prints.  The history below is why the seam exists at all.
  *
  *  `now()` renders to `DateTime.utc_now()`, which carries MICROSECONDS, and
  *  `force_change` bypasses the cast that would drop them — so Ecto refuses the
@@ -1038,11 +1043,12 @@ function contextMutatesRelationalContainment(ctx: BoundedContextIR, sys?: System
  *  inferred type, so it is never flagged even at a DateTime-only call site
  *  (verified empirically against the corpus gate's hexpm/elixir image). */
 function renderTruncateDtHelper(): string {
-  return `  # Second-precision guard for a \`:utc_datetime\` column assigned by an
-  # operation body.  \`now()\` yields microsecond precision and \`force_change\`
-  # skips casting, so Ecto would refuse the dump; truncating here matches what
-  # the stamp / audit / provenance writers already do.
-  defp __truncate_dt(%DateTime{} = dt), do: DateTime.truncate(dt, :second)
+  return `  # Millisecond normalisation (RS-38) for a \`datetime\` column assigned by
+  # an operation body.  \`now()\` yields microsecond precision and
+  # \`force_change\` skips the \`Loom.Datetime\` cast, so the in-memory value
+  # would otherwise print six fractional digits; the stamp writers normalise
+  # the same way.
+  defp __truncate_dt(%DateTime{} = dt), do: ${normalizeDatetime("dt")}
   defp __truncate_dt(other), do: other`;
 }
 

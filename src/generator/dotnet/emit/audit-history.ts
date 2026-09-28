@@ -55,6 +55,7 @@ import type { EnrichedAggregateIR, WireField } from "../../../ir/types/loom-ir.j
 import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { csCanonicalInstantWire } from "../dto-mapping.js";
 import { renderCsExpr } from "../render-expr.js";
 
 /** The JSON key a wire field occupies inside a STORED .NET snapshot.
@@ -374,5 +375,5 @@ export function renderHistoryEntryMapperLines(agg: EnrichedAggregateIR, pad: str
  *  the `csCanonicalInstantWire` projection business `datetime` fields use, so a
  *  history timestamp and an aggregate timestamp read the same on the wire. */
 function csAtWire(expr: string): string {
-  return `System.Text.RegularExpressions.Regex.Replace(${expr}.ToUniversalTime().ToString("o"), @"\\.?0+Z$", "Z")`;
+  return csCanonicalInstantWire(expr);
 }
