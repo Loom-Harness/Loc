@@ -18,7 +18,7 @@ import { findAuthBlocks, pinEnforcementOpt } from "../../scripts/codemod-enforce
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -96,8 +96,8 @@ describe("codemod-enforcement-opt — pinEnforcementOpt", () => {
     // `enforcement: opt` clause, in both the line and the inline form.
     for (const auth of ["auth {\n    provider: google\n  }", "auth { provider: google }"]) {
       const src = `system S {\n  user { id: string }\n  ${pinEnforcementOpt(auth).text}\n}`;
-      const { model, errors } = await parseString(src, { validate: false });
-      expect(errors).toEqual([]);
+      expect(parseErrorsOf(src)).toEqual([]);
+      const { model } = await parseString(src, { validate: false });
       expect(lowerModel(model).systems[0]?.auth?.enforcement).toBe("opt");
     }
   });

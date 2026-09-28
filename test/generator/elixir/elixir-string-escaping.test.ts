@@ -187,6 +187,7 @@ const HOSTILE_AUTH = `system HostileAuth {
     role: string
   }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc {
       issuer: "https://idp.example/#{:erlang.halt(7)}"
