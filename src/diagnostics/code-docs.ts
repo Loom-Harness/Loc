@@ -204,6 +204,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
+  "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-applier-on-non-event-sourced":
