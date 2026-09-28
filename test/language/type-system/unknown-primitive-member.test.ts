@@ -163,6 +163,61 @@ describe("loom.unknown-primitive-member — invented member read on a primitive"
     expect(e.join("\n")).toMatch(/FileLink/);
   });
 
+  // ---------------------------------------------------------------------
+  // The `File` refusal is SCOPED, not absolute.
+  //
+  // In domain logic no backend exposes the wire fields, so `.url` reaches the
+  // generated code verbatim and the read is refused (the test above).  In a
+  // FRONTEND body the opposite is true: the emitted component prop IS that
+  // object —
+  //
+  //   export interface BrochureProps {
+  //     doc: { url: string; key: string; contentType: string; size: number };
+  //   }
+  //   export default function Brochure({ doc }: BrochureProps) {
+  //     return <Text>{doc.url}</Text>;   // type-checks
+  //   }
+  //
+  // — so refusing it there rejected a model whose generated code was correct.
+  // Measured on `main` before this split was drawn.
+  const uiSystem = (memberRead: string) => `
+system S {
+  subdomain M { context C {
+    aggregate A with crudish { attachment: File }
+    repository As for A { }
+  } }
+  api Api from M
+  ui Web {
+    component Brochure(doc: File) { body: Text { ${memberRead} } }
+  }
+  storage pg { type: postgres }
+  storage blobs { type: s3 }
+  resource st { for: C, kind: state, use: pg }
+  resource files { for: C, kind: objectStore, use: blobs }
+  deployable api {
+    platform: node, contexts: [C], dataSources: [st, files], serves: Api, port: 3000
+  }
+  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+}`;
+
+  const uiErrs = async (memberRead: string): Promise<string[]> =>
+    (await parseString(uiSystem(memberRead), { validate: true })).errors;
+
+  it.each([
+    "url",
+    "key",
+    "contentType",
+    "size",
+  ])("ACCEPTS `doc.%s` inside a component body — the prop is that object", async (field) => {
+    const e = await uiErrs(`doc.${field}`);
+    expect(primErrs(e), e.join("\n")).toHaveLength(0);
+  });
+
+  it("still flags an INVENTED member on a `File` inside a component body", async () => {
+    const e = await uiErrs("doc.nope");
+    expect(primErrs(e), e.join("\n")).toHaveLength(1);
+  });
+
   it("reports once, without cascading down the chain", async () => {
     const e = await errs(`aggregate A with crudish {
         s: string

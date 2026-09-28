@@ -29,6 +29,7 @@ import {
   isAggregate,
   isBinaryChain,
   isBoundedContext,
+  isComponent,
   isCreate,
   isCriterion,
   isDerivedProp,
@@ -118,6 +119,22 @@ import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 // per-feature validator pass (e.g. the money rule that this
 // function replaces).
 // ---------------------------------------------------------------------------
+
+/** A `File`'s wire-reference fields — the shape the boundary emits and the
+ *  frontend prop declares (`_frontend/component-prop-type.ts::FILE_REF_TS`).
+ *  Readable in a page / component body; not in domain logic. */
+const FILE_WIRE_FIELDS: ReadonlySet<string> = new Set(["url", "key", "contentType", "size"]);
+
+/** True when `node` sits inside a `ui` or a `component` — the frontend
+ *  subtree, where a `File` prop is a real object rather than an opaque
+ *  reference.  Mirrors `builder-call.ts`'s helper of the same name. */
+function inFrontendDecl(node: AstNode): boolean {
+  return (
+    AstUtils.getContainerOfType(node, isUi) !== undefined ||
+    AstUtils.getContainerOfType(node, isComponent) !== undefined
+  );
+}
+
 export function checkBinaryOperands(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isBinaryChain(node)) continue;
@@ -293,6 +310,33 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
                 code: "loom.unknown-primitive-member",
               },
             );
+          } else if (prim.prim === "File" && FILE_WIRE_FIELDS.has(ms.member)) {
+            // A `File`'s four wire fields ARE readable in a FRONTEND body and
+            // nowhere else, so the refusal is scoped rather than absolute.
+            //
+            // The emitted component prop is that object literally —
+            // `doc: { url: string; key: string; contentType: string; size: number }`
+            // (`component-prop-type.ts::FILE_REF_TS`) — so `Text { doc.url }`
+            // renders `<Text>{doc.url}</Text>` and type-checks. Refusing it
+            // rejected a model whose generated code was correct.
+            //
+            // In DOMAIN logic the reverse holds and the refusal stands: no
+            // backend exposes the members, so `.url` in an invariant reaches
+            // the generated code verbatim — node/.NET/Java fail their own
+            // compile, python and elixir do not, and the invariant silently
+            // never fires. Same asymmetry `builder-call.ts::inFrontendDecl`
+            // already draws, for the same reason.
+            if (!inFrontendDecl(ms)) {
+              accept(
+                "error",
+                diagMessage("loom.unknown-primitive-member#file", { member: ms.member }),
+                {
+                  node: ms,
+                  property: "member",
+                  code: "loom.unknown-primitive-member",
+                },
+              );
+            }
           } else if (prim.prim === "File") {
             accept(
               "error",
