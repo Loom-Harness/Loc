@@ -463,9 +463,9 @@ export const CORPUS: readonly CorpusFeature[] = [
     id: "decimal-exact",
     title:
       "FLOAT-ERROR-VISIBLE `decimal` arithmetic — `0.1 + 0.2`, a chained multiply, a division over binary-inexact operands, a mixed chain, `round(2)` on a binary-inexact tie, a `sum` fold, and an operation writing a computed value to a stored column",
-    doc: "conformance-semantics",
+    doc: "language",
     backends: ALL,
-    note: "the M-T5.22 / D-DECIMAL-EXACT-MOMENT witness (RS-38).  node and python computed `decimal` in binary floating point while .NET/Java/Elixir computed it exactly, so `0.1 + 0.2` shipped — and PERSISTED — `0.30000000000000004` from two backends and `0.3` from three.  Every literal is binary-INEXACT on purpose (the inverse of `numeric-operands`, whose literals are binary-exact so they agree regardless): each derived value differs between double and exact arithmetic AFTER the RS-24 narrowing to a float64 wire number, so the fixture goes red on node and python with the fix reverted.  The `test` block is the unit-tier proof on all five; the `test e2e` block is the wire + storage proof and carries this fixture's golden",
+    note: "the M-T5.22 / D-DECIMAL-EXACT-MOMENT witness (RS-37).  node and python computed `decimal` in binary floating point while .NET/Java/Elixir computed it exactly, so `0.1 + 0.2` shipped — and PERSISTED — `0.30000000000000004` from two backends and `0.3` from three.  Every literal is binary-INEXACT on purpose (the inverse of `numeric-operands`, whose literals are binary-exact so they agree regardless): each derived value differs between double and exact arithmetic AFTER the RS-24 narrowing to a float64 wire number, so the fixture goes red on node and python with the fix reverted.  The `test` block is the unit-tier proof on all five; the `test e2e` block is the wire + storage proof and carries this fixture's golden",
   },
   {
     id: "numeric-operands",

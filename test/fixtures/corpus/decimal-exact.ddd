@@ -1,5 +1,5 @@
 // shape: FLOAT-ERROR-VISIBLE `decimal` arithmetic — the witness for M-T5.22 /
-// D-DECIMAL-EXACT-MOMENT (RS-38): `decimal` arithmetic is EXACT on every
+// D-DECIMAL-EXACT-MOMENT (RS-37): `decimal` arithmetic is EXACT on every
 // backend, on the wire and in storage.
 //
 // Before the ruling, node and python computed a `decimal` in binary floating
@@ -20,7 +20,7 @@
 //                             correctly rounded" only holds for binary-exact inputs)
 //   mixed    (0.1 + 0.2) * 3 - 0.3   double 0.6000000000000001   exact 0.6
 //   rounded  1.005.round(2)   double 1 (1.005 is 1.00499… in binary)   exact 1.01 (half-up)
-//   weight   [0.1, 0.2].sum   double 0.30000000000000004   exact 0.3     (a collection fold)
+//   partsWeight [0.1, 0.2].sum double 0.30000000000000004   exact 0.3     (a collection fold)
 //   total    0.1, then accumulate(0.2) — the value an OPERATION writes to a
 //            stored column, read back from the database: 0.3, not 0.30000000000000004
 //
@@ -35,19 +35,22 @@ system DecimalExact {
         b: decimal
         c: decimal
         d: decimal
-        e: decimal
+        // Not `e`: a create parameter named `e` collides with the .NET
+        // factory's own `var e = new Sample()` (CS0136) — a separate .NET
+        // naming defect this fixture found and hands off, not its subject.
+        tie: decimal
         total: decimal
         contains parts: Part[]
         entity Part {
           weight: decimal
         }
 
-        create(a: decimal, b: decimal, c: decimal, d: decimal, e: decimal, total: decimal) {
+        create(a: decimal, b: decimal, c: decimal, d: decimal, tie: decimal, total: decimal) {
           a := a
           b := b
           c := c
           d := d
-          e := e
+          tie := tie
           total := total
         }
 
@@ -55,8 +58,8 @@ system DecimalExact {
         derived cube: decimal = c * c * c
         derived ratio: decimal = d / a
         derived mixed: decimal = (a + b) * 3 - d
-        derived rounded: decimal = e.round(2)
-        derived weight: decimal = parts.sum(p => p.weight)
+        derived rounded: decimal = tie.round(2)
+        derived partsWeight: decimal = parts.sum(p => p.weight)
 
         operation accumulate(x: decimal) {
           total := total + x
@@ -67,17 +70,20 @@ system DecimalExact {
         }
 
         test "decimal arithmetic is exact, not binary floating point" {
-          let s = Sample.create({ a: 0.1, b: 0.2, c: 1.1, d: 0.3, e: 1.005, total: 0.1 })
+          let s = Sample.create({ a: 0.1, b: 0.2, c: 1.1, d: 0.3, tie: 1.005, total: 0.1 })
           expect(s.sum).toBe(0.3)
           expect(s.cube).toBe(1.331)
-          expect(s.ratio).toBe(3)
+          // `3.0`, not `3`: java's unit-test emitter renders an INT literal
+          // against a decimal as `compareTo(3)`, which javac refuses (a
+          // separate java test-emitter defect this fixture found and hands off).
+          expect(s.ratio).toBe(3.0)
           expect(s.mixed).toBe(0.6)
           expect(s.rounded).toBe(1.01)
           s.accumulate(0.2)
           expect(s.total).toBe(0.3)
           s.addPart(0.1)
           s.addPart(0.2)
-          expect(s.weight).toBe(0.3)
+          expect(s.partsWeight).toBe(0.3)
         }
       }
       repository Samples for Sample { }
@@ -96,7 +102,7 @@ system DecimalExact {
   }
 
   test e2e "decimal arithmetic is exact on the wire and in storage" against d {
-    let s = api.samples.create({ a: 0.1, b: 0.2, c: 1.1, d: 0.3, e: 1.005, total: 0.1 })
+    let s = api.samples.create({ a: 0.1, b: 0.2, c: 1.1, d: 0.3, tie: 1.005, total: 0.1 })
     let read = api.samples.getById(s)
     expect(read.sum).toBe(0.3)
     expect(read.cube).toBe(1.331)
@@ -111,6 +117,6 @@ system DecimalExact {
     api.samples.addPart(s, { w: 0.2 })
     let after = api.samples.getById(s)
     expect(after.total).toBe(0.3)
-    expect(after.weight).toBe(0.3)
+    expect(after.partsWeight).toBe(0.3)
   }
 }
