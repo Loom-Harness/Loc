@@ -44,6 +44,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -51,7 +52,12 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
+import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import {
+  type RequestComponentOwner,
+  requestComponentNamerFor,
+} from "../_openapi/request-component-names.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -111,6 +117,7 @@ import {
   renderForbiddenException,
   renderPackageMarker,
   renderPagedRecord,
+  renderValueObjectInvariantException,
   renderWireFormatException,
   renderWireNumberStrictness,
 } from "./emit/common.js";
@@ -236,6 +243,7 @@ import { collectMangledNames, mangledEnumNames } from "./java-ident.js";
 import { basePackageFor, javaPackageSegment, mainSourcePath } from "./naming.js";
 import { API_CLIENT_CLASS as JAVA_API_CLIENT_CLASS } from "./render-expr.js";
 import { renderSqlRestriction } from "./render-sql-restriction.js";
+import { javaRequestComponentOwners } from "./request-component-owners.js";
 
 // ---------------------------------------------------------------------------
 // Java backend entry point — Spring Boot 3 / Spring Data JPA / Postgres.
@@ -451,7 +459,20 @@ function emitProjectFromContexts(
 
   // Shared domain types + the package markers that keep the entity files'
   // wildcard imports valid even when a package would otherwise be empty.
-  place("DomainException.java", "domain-common", renderDomainException(basePkg));
+  place(
+    "DomainException.java",
+    "domain-common",
+    renderDomainException(basePkg, contexts.some(hasDomainFloorMessages)),
+  );
+  // M-T5.1 — only when a hosted value object declares an invariant (nothing
+  // else raises it); a project without one is byte-identical.
+  if (contexts.some(hasValueObjectInvariants)) {
+    place(
+      "ValueObjectInvariantException.java",
+      "domain-common",
+      renderValueObjectInvariantException(basePkg),
+    );
+  }
   // The wire-format tier (M-T6.48): a malformed money string is a 422 with a
   // pointer, not the 500 a bare `new BigDecimal` produced.
   place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
@@ -541,6 +562,12 @@ function emitProjectFromContexts(
       // M-T6.36: the mangled-identifier → wire-name inverse, unioned over every
       // context this deployable hosts (the advice is app-global).
       [...new Set(contexts.flatMap((c) => collectMangledNames(c)))].sort(),
+      // M-T5.1: the value-object-invariant handler rides on a hosted value
+      // object declaring an invariant; a project without one is byte-identical.
+      contexts.some(hasValueObjectInvariants),
+      // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
+      // rule the same way.
+      contexts.some(hasDomainFloorMessages),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)
@@ -672,6 +699,14 @@ function emitProjectFromContexts(
   // compiled fine for a system with no seeds — there was no import to be
   // wrong — and failed the moment one had them.
   const seedRunnerClasses: Array<{ fqn: string; cls: string }> = [];
+  // Request-component names, resolved ONCE over the whole deployable (F-026).
+  // springdoc names a schema after the short CLASS name, so two request records
+  // in different packages that share one short name collapse onto a single
+  // published component -- exactly the collision .NET already qualifies via
+  // `CustomSchemaIds`.  The owner list comes from the one shared derivation the
+  // OpenAPI-contract builder also uses, so the records and the `RequiredSet`
+  // patch table keyed by their names cannot disagree.
+  const reqNameFor = requestComponentNamerFor(javaRequestComponentOwners(contexts));
   for (const ctx of contexts) {
     // This context's Postgres schema — the workflow saga tables (JPA `@Table`
     // + native-SQL ES stream) land here to match the migration DDL.
@@ -758,6 +793,7 @@ function emitProjectFromContexts(
         authRequired,
         routePrefix,
         sourcemap,
+        reqNameFor,
       );
     }
     // Value-object / domain-service unit tests (test-placement.md) —
@@ -868,6 +904,7 @@ function emitProjectFromContexts(
       authRequired,
       system?.sys,
       workflowOpFragments,
+      reqNameFor,
     );
     if (workflowFiles) {
       // Per-workflow Request DTOs are individually attributable; the combined
@@ -1604,6 +1641,8 @@ function emitAggregate(
   authRequired = false,
   routePrefix?: string,
   sourcemap?: SourceMapRecorder,
+  /** Deployable-wide request-component name lookup (F-026). */
+  reqNameFor?: (owner: RequestComponentOwner) => string,
 ): void {
   const eventFields = new Map(ctx.events.map((e) => [e.name, e.fields.map((f) => f.name)]));
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
@@ -1891,6 +1930,7 @@ function emitAggregate(
     // document/embedded/event-sourced aggregate (non-paged auto-all) with a
     // declared paged find and no `<Agg>Paged` to return.
     isPagedAutoAll(repo) || declaredFinds(repo).some(isPagedFind),
+    reqNameFor,
   )) {
     place(dto.name, dto.category, dto.content, agg.name, agg.origin, construct);
   }

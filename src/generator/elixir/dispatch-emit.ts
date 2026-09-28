@@ -26,6 +26,7 @@ import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { stateDefault } from "./state-default.js";
+import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import { lookupOp, opCallParamFields } from "./vanilla/workflow-execution-emit.js";
@@ -775,7 +776,7 @@ function renderProjectionFoldStmt(
 ): FoldPiece | undefined {
   const truncated = (field: string, rendered: string): string =>
     datetimeFields.has(field)
-      ? `(${rendered}) |> then(&(&1 && DateTime.truncate(&1, :second)))`
+      ? `(${rendered}) |> then(&(&1 && ${normalizeDatetime("&1")}))`
       : rendered;
   switch (s.kind) {
     case "assign": {

@@ -26,6 +26,7 @@
 // they are exactly as overridable as every other compose env value.
 
 import type { SystemIR } from "../../ir/types/loom-ir.js";
+import { consumedEventNames, contextsByName } from "../../ir/util/channel-consumption.js";
 import { sha256 } from "../../util/sha256.js";
 import { type BrokerBinding, type BrokerTransport, brokerChannelBindings } from "./bindings.js";
 
@@ -128,6 +129,7 @@ export function brokerGrants(sys: SystemIR, storageName: string): BrokerGrant[] 
  *  suppresses the image's default open `guest` account. */
 export function renderRabbitDefinitions(sys: SystemIR, storageName: string): string {
   const grants = brokerGrants(sys, storageName);
+  const { exchanges, queues, bindings } = rabbitTopology(sys, storageName);
   return `${JSON.stringify(
     {
       vhosts: [{ name: RABBIT_VHOST }],
@@ -144,10 +146,120 @@ export function renderRabbitDefinitions(sys: SystemIR, storageName: string): str
         write: rabbitPermissionRegex(g.addresses, g.groups),
         read: rabbitPermissionRegex(g.addresses, g.groups),
       })),
+      exchanges,
+      queues,
+      bindings,
     },
     null,
     2,
   )}\n`;
+}
+
+/** The RabbitMQ topology this storage needs, declared UP FRONT in the
+ *  definitions file rather than left to whichever client connects first.
+ *
+ *  Each consuming deployable's client already declares its own queue at boot
+ *  — but a fanout exchange only copies to the queues bound AT PUBLISH TIME, so
+ *  anything published before a consumer's first boot goes nowhere.  Measured
+ *  against a live stack: with the consumer not yet started, the producer's
+ *  `ClaimApproved` left the outbox marked delivered (`dispatched = t`) and
+ *  existed in no queue and no dead-letter queue.  That is a lost event on a
+ *  `retention: work` channel, whose entire promise is at-least-once — and the
+ *  ordinary deploy order (producer up first) is enough to trigger it.
+ *
+ *  The shapes here MUST match what the clients assert, or the first client to
+ *  connect gets `PRECONDITION_FAILED` on the redeclare and the channel dies
+ *  instead of merely losing a message.  Pinned against the node emitter
+ *  (`typescript/emit/channels.ts`) and cross-checked with java's
+ *  (`java/emit/channels.ts`): fanout+durable per address, one durable
+ *  dead-letter queue per address bound to the direct `loom.dlx` by the address
+ *  as routing key, and one durable consumer queue per consuming deployable
+ *  carrying the two dead-letter arguments.
+ *
+ *  Only deployables that actually CONSUME get a queue: `brokerChannelBindings`
+ *  emits a group name for every listed channelSource, producer side included,
+ *  and a durable queue bound to a fanout that nothing drains grows without
+ *  bound.  `consumedEventNames` is the same derivation
+ *  `loom.deployable-channel-unrelated` reads. */
+function rabbitTopology(
+  sys: SystemIR,
+  storageName: string,
+): {
+  exchanges: { name: string; vhost: string; type: string; durable: boolean }[];
+  queues: { name: string; vhost: string; durable: boolean; arguments: Record<string, string> }[];
+  bindings: {
+    source: string;
+    vhost: string;
+    destination: string;
+    destination_type: string;
+    routing_key: string;
+  }[];
+} {
+  const ctxByName = contextsByName(sys);
+  const addresses = new Set<string>();
+  // queue name -> the address it binds to, so a deployable consuming two
+  // channels contributes two distinct queues and neither is emitted twice.
+  const consumerQueues = new Map<string, string>();
+  for (const d of sys.deployables) {
+    const consumed = consumedEventNames(d, ctxByName);
+    for (const b of brokerChannelBindings(d, sys)) {
+      if (b.storageName !== storageName || b.transport !== "rabbitmq") continue;
+      addresses.add(b.address);
+      if (b.events.some((e) => consumed.has(e))) consumerQueues.set(b.group, b.address);
+    }
+  }
+  if (addresses.size === 0) return { exchanges: [], queues: [], bindings: [] };
+  const sortedAddresses = [...addresses].sort();
+  const exchanges = [
+    // The shared dead-letter exchange, declared once.
+    { name: "loom.dlx", vhost: RABBIT_VHOST, type: "direct", durable: true },
+    ...sortedAddresses.map((a) => ({
+      name: a,
+      vhost: RABBIT_VHOST,
+      type: "fanout",
+      durable: true,
+    })),
+  ];
+  const queues = [
+    ...sortedAddresses.map((a) => ({
+      name: `loom.dlq.${a}`,
+      vhost: RABBIT_VHOST,
+      durable: true,
+      arguments: {} as Record<string, string>,
+    })),
+    ...[...consumerQueues.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([queue, address]) => ({
+        name: queue,
+        vhost: RABBIT_VHOST,
+        durable: true,
+        arguments: {
+          "x-dead-letter-exchange": "loom.dlx",
+          "x-dead-letter-routing-key": address,
+        } as Record<string, string>,
+      })),
+  ];
+  const bindings = [
+    ...sortedAddresses.map((a) => ({
+      source: "loom.dlx",
+      vhost: RABBIT_VHOST,
+      destination: `loom.dlq.${a}`,
+      destination_type: "queue",
+      routing_key: a,
+    })),
+    ...[...consumerQueues.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([queue, address]) => ({
+        source: address,
+        vhost: RABBIT_VHOST,
+        destination: queue,
+        destination_type: "queue",
+        // Fanout ignores the routing key; the clients bind with "" and the
+        // definitions must say the same or the binding is a DIFFERENT one.
+        routing_key: "",
+      })),
+  ];
+  return { exchanges, queues, bindings };
 }
 
 /** The Kafka SASL/PLAIN JAAS line for the client listener — one

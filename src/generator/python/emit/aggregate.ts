@@ -27,6 +27,7 @@ import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { provColumn, provenancedFieldsOf } from "../emit/provenance.js";
 import { externHookCall, externHookModuleName } from "../extern-builder.js";
@@ -566,6 +567,7 @@ function renderEntity(
         eventSourced: e.eventSourced,
         trace,
         emitProvenance,
+        domainFloorCodes: true,
       });
       const retType = op.returnType ? renderPyOperationReturnType(op.returnType) : "None";
       const hook = `        ${op.returnType ? "return " : ""}${externHookCall(e.name, op)}`;
@@ -593,6 +595,7 @@ function renderEntity(
       eventSourced: e.eventSourced,
       trace,
       emitProvenance,
+      domainFloorCodes: true,
     });
     const body = chunks.join("\n");
     if (opFragments && chunks.length > 0) {
@@ -665,9 +668,15 @@ function renderEntity(
   const stampMethods = [...stampMethod("create"), ...stampMethod("update")];
 
   const invariantLines = e.invariants.flatMap((inv, idx) => {
-    const msg = JSON.stringify(
+    // A MESSAGED rule carries its wire code + pointer THROUGH the raise
+    // (M-T1.11 (c)); a message-less one keeps the text-only raise.
+    const code = domainFloorCode(inv.message);
+    const text = JSON.stringify(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
+    const msg = code
+      ? `${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      : text;
     // Under --trace, evaluate into a temp, emit `invariant_evaluated`
     // (op label = the threaded `__op`), then check — matching Hono/.NET.
     if (emitTrace) {

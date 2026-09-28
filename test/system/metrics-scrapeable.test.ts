@@ -25,7 +25,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 const system = (platform: string) => `
 system Shop {
   user { id: guid  role: string }
-  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  auth { enforcement: opt, oidc { issuer: "https://idp.example.com"  clientId: "app" } }
   subdomain Sales {
     context Orders {
       aggregate Order with crudish { total: int }

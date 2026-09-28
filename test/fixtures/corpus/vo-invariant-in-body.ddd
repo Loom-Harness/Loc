@@ -1,0 +1,108 @@
+// A value object BUILT by a domain body, whose invariant refuses the value
+// (M-T5.1, failure-taxonomy's "validation" kind).
+//
+// At the wire a value object's rules are folded into the request schema, so a
+// malformed VO in a request body answers the §3.2 422 with a pointer to the
+// offending field (RS-33).  A value object a BODY builds — `qty := Qty { value:
+// n }` from a scalar parameter — trips the constructor instead.  Before M-T5.1
+// that answered the plain domain-floor 422 (`detail` only, no `errors[]`) on
+// node/.NET/java/python, and on elixir the in-body construction was never
+// checked at all: `resize(0)` persisted `{"value": 0}` and answered 204.
+//
+// Both rule shapes are compiled: a MESSAGED invariant (its `errors[]` entry
+// carries the content-hash `code` the wire rung carries) and a MESSAGE-LESS one
+// (no `code`; see the note at its call site for why only the messaged refusal
+// is exercised at runtime).  Both body sites are carried too: an aggregate
+// operation and a workflow step that invokes it — the two routers a body-side
+// breach answers through.
+system VoInBody {
+  subdomain Shop {
+    context Orders {
+      valueobject Qty {
+        value: int
+        invariant value > 0 message "Quantity must be positive"
+      }
+      valueobject Label {
+        text: string
+        invariant text.length > 0
+      }
+      aggregate Order with crudish {
+        code: string
+        qty: Qty
+        label: Label
+
+        // The in-body construction: a scalar param, a value object built
+        // from it, the invariant run by the constructor.
+        operation resize(n: int) {
+          qty := Qty { value: n }
+        }
+        operation relabel(t: string) {
+          label := Label { text: t }
+        }
+      }
+      repository Orders for Order { }
+      workflow bump {
+        create(orderId: Order id, n: int) {
+          let o = Orders.getById(orderId)
+          o.resize(n)
+        }
+      }
+    }
+  }
+  api ShopApi from Shop
+  storage primary { type: postgres }
+  resource orderState { for: Orders, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [orderState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "a value object refused inside a body answers 422 with an errors[] entry" against d {
+    let o = api.orders.create({ code: "O1", qty: { value: 2 }, label: { text: "first" } })
+    api.orders.resize(o, { n: 5 })
+    let resized = api.orders.getById(o)
+    expect(resized.qty.value).toBe(5)
+    // The messaged rule: 422, the authored text, its content-hash `code`.
+    expect(api.orders.resize(o, { n: 0 })).toThrow(422)
+    // The refused write left the row as it was.
+    let kept = api.orders.getById(o)
+    expect(kept.qty.value).toBe(5)
+    // The message-LESS rule's refusal is NOT exercised at runtime here: its
+    // text is each backend's derived default, and elixir's value-object carrier
+    // is Ecto's native `validate_*` chain ("should be at least 1 character(s)")
+    // where the other four derive "Invariant violated: text.length > 0" — the
+    // same native-chain split the WIRE rung has for message-less rules, which
+    // the golden would record as a divergence.  `relabel` is still compiled on
+    // all five by the corpus tier, and a valid relabel round-trips.
+    api.orders.relabel(o, { t: "second" })
+    let relabelled = api.orders.getById(o)
+    expect(relabelled.label.text).toBe("second")
+    // The canonical update carries value objects in the REQUEST body — the
+    // wire rung, not the body rung — so a valid one simply round-trips.
+    api.orders.update(o, { code: "O1B", qty: { value: 6 }, label: { text: "third" } })
+    let listed = api.orders.all()
+    expect(listed.items.length).toBe(1)
+    expect(listed.total).toBe(1)
+    let updated = api.orders.getById(o)
+    expect(updated.qty.value).toBe(6)
+    // The workflow router answers the same breach the same way.
+    expect(api.bump.run({ orderId: o.id, n: -1 })).toThrow(422)
+    api.bump.run({ orderId: o.id, n: 7 })
+    let bumped = api.orders.getById(o)
+    expect(bumped.qty.value).toBe(7)
+  }
+
+  // M-T5.1 A4 — a `getById` miss is the not-found-on-load policy: the declared
+  // 404 problem+json, from the GET route, an operation route, and a workflow
+  // step alike.
+  test e2e "a getById miss answers the declared 404 on every load path" against d {
+    let o = api.orders.create({ code: "O2", qty: { value: 1 }, label: { text: "gone" } })
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
+    expect(api.orders.resize(o, { n: 3 })).toThrow(404)
+    expect(api.bump.run({ orderId: o.id, n: 3 })).toThrow(404)
+  }
+}

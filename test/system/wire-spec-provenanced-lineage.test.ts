@@ -76,9 +76,11 @@ describe("wire-spec: the provenanced carrier's lineage is nullable (F2-XB-7)", (
   });
 
   it("a wire-spec DIFF reads the nullability, so gaining or losing it is a change", async () => {
-    const total = (await orderSchema()).properties.total as {
-      properties: Record<string, never>;
-    };
+    const total = (await orderSchema()).properties.total;
+    // Narrow rather than cast: `JsonSchemaProperty` is a union and only the
+    // fixed-shape-object arm carries `properties`, so a shape change fails here
+    // with a message instead of squeezing through an assertion.
+    if (!("properties" in total)) throw new Error("total is not a fixed-shape object schema");
     expect(renderPropType(total.properties.lineage!)).toBe("object|null");
     // The trap this guards: `renderPropType` used to return `p.type` verbatim,
     // which for an array type renders as the JS `String([...])` coercion

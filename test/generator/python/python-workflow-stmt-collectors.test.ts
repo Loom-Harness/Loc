@@ -164,7 +164,8 @@ describe("python workflow let-liveness — every reader keeps its binding", () =
       await generateSystemFiles(SERVICE_SRC),
       "app/http/workflows_routes.py",
     );
-    expect(wf).toContain("fee = amount + amount");
+    // decimal arithmetic is exact (RS-37).
+    expect(wf).toContain("fee = float(Decimal(str(amount)) + Decimal(str(amount)))");
     expect(wf).toContain("run(s, d, fee)");
     expect(wf).not.toMatch(/^ +amount \+ amount$/m);
   });

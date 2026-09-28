@@ -214,6 +214,97 @@ system S {
   }
 }`,
   },
+  // ---- Batch 2 (the freight-domain evaluation).  Same house rule, same two
+  // assertions.  Each of these died with the generic
+  // `Expecting token of type '}' but found \`<word>\`` — reported on the line
+  // AFTER the offending field, which is what made them expensive to find.
+  {
+    word: "route",
+    promoted: true,
+    // An `api` body's explicit route, and a page's `route:` metadata entry.
+    hard: `context C {
+  aggregate Order { code: string }
+  repository Orders for Order { }
+  command PlaceCmd { code: string }
+  commandHandler place(cmd: PlaceCmd) { }
+}
+api OrdApi from C {
+  route POST "/place" -> C.place
+}
+ui U {
+  page Detail {
+    route: "/detail"
+    body: Text { "hi" }
+  }
+}`,
+  },
+  {
+    word: "type",
+    promoted: true,
+    // A `storage` block's sourceType, and a `requirement`'s artifact type.
+    hard: `requirement US-001 {
+  type: UserStory
+  title: "A story"
+}
+system S {
+  storage primary { type: postgres }
+}`,
+  },
+  {
+    word: "index",
+    promoted: true,
+    // A `resource` binding's manual performance indexes.
+    hard: `context C {
+  aggregate Order { code: string }
+  repository Orders for Order { }
+}
+system S {
+  storage primary { type: postgres }
+  resource ordState {
+    for: C
+    kind: state
+    use: primary
+    index: [Order.code]
+  }
+}`,
+  },
+  {
+    word: "user",
+    promoted: true,
+    // The system-wide claim shape, and the `tenancy by user.<claim>` clause
+    // that reads through it.
+    hard: `context C {
+  aggregate Org with tenantRegistry, crudish { name: string  derived display: string = name }
+  aggregate Doc with tenantOwned, crudish { title: string }
+  repository Orgs for Org { }
+  repository Docs for Doc { }
+}
+system S {
+  user { id: guid  orgId: string }
+  tenancy by user.orgId of Org
+}`,
+  },
+  {
+    word: "link",
+    promoted: true,
+    // A `menu` entry — both the page-reference and the external-URL arms.
+    hard: `context C {
+  aggregate Order { code: string }
+  repository Orders for Order { }
+}
+ui U {
+  page Detail {
+    route: "/detail"
+    body: Text { "hi" }
+  }
+  menu {
+    section "Main" {
+      link Detail
+      link "Docs" -> "https://example.com"
+    }
+  }
+}`,
+  },
 ];
 
 const PROMOTED = WORDS.filter((w) => w.promoted);

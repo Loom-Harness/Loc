@@ -84,16 +84,19 @@ describe("vanilla Phoenix — operation params are coerced to their declared typ
     expect(ctxMod).not.toContain('Decimal.new(to_string(Map.get(params, "to")))');
   });
 
-  it("a datetime column assigned by an operation is truncated to :second", async () => {
+  it("a datetime column assigned by an operation is normalised to milliseconds (RS-38)", async () => {
     const ctxMod = await fileEndingWith("catalog.ex");
     // `softDelete()` assigns `deletedAt := now()`.
     expect(ctxMod).toContain("def soft_delete_item(%D.Catalog.Item{} = record, params)");
     expect(ctxMod).toContain(
       "Ecto.Changeset.force_change(:deleted_at, __truncate_dt(record.deleted_at))",
     );
-    // …through the shared helper, emitted once.
+    // …through the shared helper, emitted once.  It truncated to the SECOND
+    // while the column was `:utc_datetime`; the column is `Loom.Datetime` now
+    // (millisecond UTC instant), so the helper puts a `now()` value on the
+    // precision the wire prints.
     expect(ctxMod).toContain(
-      "defp __truncate_dt(%DateTime{} = dt), do: DateTime.truncate(dt, :second)",
+      "defp __truncate_dt(%DateTime{} = dt), do: Loom.Datetime.normalize(dt)",
     );
     // A NON-datetime column on the same persist pipeline is untouched — the
     // scope guard against truncating everything.

@@ -552,8 +552,46 @@ const REGISTERED: Ratchet[] = [
     //     booted leg would assert over the empty fail-closed result and prove
     //     nothing about the filter.  Drain it (and lower this by one) when the
     //     harness can seed a row owned by the authenticated principal.
+    // 24 -> 23: wave-3 row 3.3 drained `projection-document-aggregation`.  Its
+    // reason said asserting the number "needs seeded rows the behavioural
+    // runners set up per-fixture" — it does not: `Article` carries `crudish`,
+    // so the api mints its own rows and the block counts what it just created.
+    // The generation gate proved the read EMITS; nothing proved the number was
+    // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
+    // to have, since every backend reaches it differently and a wrong one
+    // still compiles.
     //
-    max: 24,
+    // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
+    // remembers.  Re-derived at each merge rather than carried: restoring a
+    // remembered number is how a ratchet silently loses somebody else's raise.
+    // This branch was cut when `main` read 24 and raised it to 26; wave-3 row
+    // 3.3 then drained `projection-document-aggregation` on `main`, taking it
+    // to 23.  So the raise is re-applied to 23, not re-asserted as 26: 23 + 2
+    // = 25.
+    //
+    // 23 -> 25 (2026-09-27, the "Assure" dev-experience evaluation): two new
+    // corpus fixtures, `channels-broker-workflow` and
+    // `projection-split-deployables`, both compile-tier-only.  A RAISE, and
+    // the justification is that each was minted to catch a defect that IS a
+    // hard compile error in the emitted project (four TS2304/TS2305 for the
+    // dropped outbox dispatcher; TS2306 "not a module" for the cross-context
+    // value-object import), so the compile leg they already ride is their
+    // oracle — a behavioural block would boot a round-trip a sibling fixture
+    // already boots and assert nothing either defect could fail.  Both cite
+    // **M-T9.13**, which owns the behavioural-tier drain; the broker one
+    // additionally needs a broker container, exactly as `channels-broker`
+    // beside it does.
+    //
+    // 25 -> 26 (2026-09-28, wave C5 moment 5e, M-T3.6 items 3+5):
+    // `org-context`.  A RAISE whose runtime home already exists: the subject is
+    // the `x-org-context` REQUEST HEADER each backend's auth middleware
+    // validates before routing, which the `test e2e` vocabulary cannot set, so a
+    // behavioural block could only drive the no-switch default (indistinguishable
+    // from `tenancy-hierarchy`).  The switch itself is proven on a booted app per
+    // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
+    // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
+    // once #2976's registry-row principal lands).
+    max: 26,
   },
 ];
 

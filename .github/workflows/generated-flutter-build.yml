@@ -487,7 +487,11 @@ jobs:
           cat > ci-flutter-shell/shell.ddd <<'DDD'
           system Quartet {
             user { id: string  role: string  permissions: string[] }
-            auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
+            // `enforcement: opt` is PINNED (M-T3.1 flipped the language default to
+            // `denyByDefault`): `reprice` is deliberately ungated, so the model
+            // only validates under the pre-flip posture.  The gate this leg
+            // proves is the UI session gate, not the backend's route posture.
+            auth { enforcement: opt  provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
             subdomain Sales {
               context Orders {
                 aggregate Order {

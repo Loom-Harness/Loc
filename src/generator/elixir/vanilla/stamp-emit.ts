@@ -24,6 +24,7 @@ import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 
 /** Does the aggregate carry any lifecycle stamp at all? */
 export function aggregateHasStamps(agg: AggregateIR): boolean {
@@ -120,7 +121,7 @@ function renderStampValue(
     return `current_user && current_user.${snake(value.member)}`;
   }
   const rendered = renderExpr(value, ctx);
-  return isDatetimeColumn ? `${rendered} |> DateTime.truncate(:second)` : rendered;
+  return isDatetimeColumn ? normalizeDatetime(rendered) : rendered;
 }
 
 /** The `Ecto.Changeset.put_change` pipe lines for the given lifecycle event(s),

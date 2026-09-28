@@ -39,7 +39,7 @@ const MULTI_WORD = "technicianId";
 const src = (platform: string) => `
 system FieldOps {
   user { id: string  email: string  role: string  ${MULTI_WORD}: string }
-  auth { provider: keycloak  oidc { issuer: env("I")  clientId: env("C") } }
+  auth { enforcement: opt, provider: keycloak  oidc { issuer: env("I")  clientId: env("C") } }
   subdomain Ops {
     context Work {
       aggregate Job with crudish { title: string  derived display: string = title }

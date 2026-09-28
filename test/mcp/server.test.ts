@@ -12,8 +12,11 @@ import { createServer, SERVER_INFO } from "../../src/mcp/server.js";
 // tool *logic* is covered by test/tools/catalog.test.ts; this guards the wiring.
 // ---------------------------------------------------------------------------
 
+// `with crudish` is load-bearing, not decoration: without a create path the
+// model draws `loom.aggregate-not-constructible` and the report is no longer
+// empty, which would make this a wiring test with a non-empty expectation.
 const CLEAN = `context Sales {
-  aggregate Order { total: int }
+  aggregate Order with crudish { total: int }
 }
 `;
 

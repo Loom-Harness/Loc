@@ -328,8 +328,8 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
 //
 // So the warning is unconditional on the `auth { enforcement: }` mode:
 //
-//   * `enforcement: opt` (the LANGUAGE DEFAULT) runs no ungated-read gate at
-//     all, so before this check a one-word `ignoring tenantOwned` on an
+//   * `enforcement: opt` (the language default until M-T3.1; now an explicit
+//     opt-out) runs no ungated-read gate at all, so before this check a one-word `ignoring tenantOwned` on an
 //     un-`requires`d projection validated 0 errors / 0 warnings while serving
 //     cross-tenant totals to any authenticated caller.
 //   * `enforcement: denyByDefault` catches only the ABSENCE of a gate

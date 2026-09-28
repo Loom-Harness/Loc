@@ -477,6 +477,108 @@ aggregate in the same context (`loom.policy-unknown-aggregate`,
 operation/view/field gates, `deny`, and policy `function`/`let` helpers stay
 later proposal work.
 
+## `organizationContext` — the operating scope and its switch gate
+
+`currentUser` is the **principal**: who is calling, their permissions, and —
+through `currentUser.orgPath` — their own org. `organizationContext` is the
+**operating scope**: the org this request acts *in*. The two coincide unless the
+request asks to operate in a descendant org, by sending an `x-org-context`
+header carrying that org's materialized path. Design record:
+[organization-context](old/proposals/organization-context.md); reconciled
+surface decisions 3–5 of
+[tenancy-authorization-final-surface](old/proposals/tenancy-authorization-final-surface.md).
+
+It has exactly one member, `organizationContext.orgPath`, and its first use is
+the tenant **write** stamp — an admin at `org_a` creating a row that belongs to
+`org_a.b` without a per-write registry read:
+
+```ddd
+system OrgContext {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+
+  // The reconciled surface's tenantOwned: the WRITE stamp follows the operating
+  // scope, the read filter stays on the principal.  A user-declared capability
+  // of the same name replaces the prelude's.
+  capability tenantOwned {
+    tenantId: string internal
+    dataKey: string? internal
+    stamp onCreate {
+      tenantId := currentUser.tenantId
+      dataKey := organizationContext.orgPath
+    }
+    filter this.tenantId == currentUser.tenantId
+  }
+  // … Org implements tenantRegistry, Account with tenantOwned,
+  //   policy { allow deep on Account }, an `auth: required` deployable
+}
+```
+
+```ts
+// node — auth/middleware.ts (generated): the gate, between resolving the
+// principal's orgPath and building the principal
+const orgPath = await resolveOrgPath(String(claims.tenantId ?? ""));
+const requestedOrgContext = c.req.header("x-org-context");
+const orgContextPath = orgContextFor(orgPath, requestedOrgContext);
+if (orgContextPath === null) return orgContextForbidden(c, requestedOrgContext ?? "", orgPath);
+const user: User = { ...claims, orgPath, rootOrg: rootOrgOf(orgPath), orgContextPath };
+
+// db/audit-stamp.ts (generated): the stamp reads the operating scope
+return { ...row, tenantId: currentUser.tenantId, dataKey: currentUser.orgContextPath };
+```
+
+**The gate.** The accessor re-roots the write stamp from an unforgeable claim
+onto a value the caller *submits*, so it exists only together with a
+fail-closed, per-backend gate. Each backend's auth middleware resolves the
+operating scope **once per request, before any handler runs**:
+
+| `x-org-context` | Caller's `orgPath` | Result |
+|---|---|---|
+| absent or empty | any | the principal's own `orgPath` — never a widening |
+| equal to `orgPath`, or `orgPath` + `.` + more | non-empty | admitted: `organizationContext.orgPath` is the header value |
+| anything else (an ancestor, a sibling, the delimiter trap `org_ab` under `org_a`, an unrelated root) | non-empty | **403**, `org_context_denied` logged with `reason: "outside_scope"` |
+| any value | empty (no tenancy claim) | **403**, `reason: "no_principal_scope"` |
+
+The containment test is the delimiter-correct prefix every `deep` read uses —
+equality, or `startsWith(orgPath + ".")` — so `org_a` never admits `org_ab`. A
+refused request never reaches a handler: nothing is written, and the 403 is an
+RFC 7807 problem (`"title": "Forbidden"`). The deny is logged through the
+neutral catalog (`org_context_denied`, `warn`, fields `org_context` / `reason`
+/ `status`) on all five backends.
+
+| Backend | Where the gate runs | Where the operating scope lives |
+|---|---|---|
+| node (Hono) | `authMiddleware`, after `resolveOrgPath` | `User.orgContextPath` on the request principal |
+| .NET | `UserMiddleware`, after the `IOrgPathResolver` read | `User.OrgContextPath` (settable, defaults to `OrgPath`) |
+| Java (Spring) | `UserFilter`, inside the request `try` (the `finally` clears it) | the `OrgContext` `ThreadLocal`; `User.orgContextPath()` falls back to `orgPath()` |
+| Python (FastAPI) | `AuthMiddleware`, after `_resolve_org_path` | `user.org_context_path` (off `asdict()` / the `/auth/me` wire) |
+| Elixir (Phoenix) | the `Auth` plug's `call/2`, via `org_context_gate/2` | `current_user.org_context_path` (seeded with `org_path` on every principal the plug builds) |
+
+**Reads stay principal-anchored** (reconciled decision 4, verified — not
+rebuilt): every derived tenant filter and the `deep`/`global` ladder anchor on
+`currentUser`, never on `organizationContext`. A switched request reads exactly
+what the caller would read without the header. A read that an author anchors on
+`organizationContext.orgPath` can only *narrow*: the gate guarantees the
+operating scope lies inside the principal's subtree.
+
+**What it does not do (yet).** `tenantId` stays principal-anchored, so a row
+created under a switch carries the caller's `tenantId` and the target org's
+`dataKey`: it is visible to `deep` reads from the caller's org and the target's
+ancestors, and to `deep` reads from the target org itself, but not to the target
+org's `local` floor. There is no `organizationContext.orgId` (deriving an org id
+from a submitted path needs a registry read by `dataKey`). The prelude's own
+`tenantOwned` still stamps `currentUser.orgPath`; re-rooting it (so every
+tenant-owned write follows the operating scope) is a separate, owner-decided
+change, because it would put the gate in front of every tenancy system.
+
+**Validation (fail closed).** `loom.org-context-surface` — a bare
+`organizationContext`, any member but `orgPath`, or any read inside a `ui` (a
+frontend has no switch gate). `loom.org-context-gate-unmet` — a read with no
+`tenancy by … of <Registry>` whose registry `implements tenantRegistry`
+(nothing to switch within), or a read in a context hosted by a backend
+deployable without `auth: required`. The runtime proof is the `org-context`
+leg of `tenancy-e2e` on all five backends (`npm run test:tenancy-org-context*`).
+
 ## Scope and roadmap
 
 Phase 1 is flat tenancy (`local` reads — tenant-id equality). The registry

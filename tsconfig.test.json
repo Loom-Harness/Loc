@@ -1,4 +1,26 @@
 {
+  // Typecheck project for `test/` (M-T9.50).  `tsconfig.json` excludes `test/`
+  // and nothing else covers it, so `scripts/test-typecheck.mjs` runs THIS
+  // project and fails on any error.
+  //
+  // What `exclude` leaves out is, in every case, source this project does not
+  // compile — it is text the suite COPIES into a generated project, which is
+  // then built by that project's own toolchain against its own dependencies:
+  //
+  //   - `test/fixtures`      byte-for-byte snapshots of generated output
+  //                          (already excluded from vitest discovery too).
+  //   - `test/__snapshots__` captured generated React/Mantine modules — they
+  //                          import `@mantine/core`, a dependency of the
+  //                          GENERATED project, not of the toolchain.
+  //   - `*.pw.ts` / `test/e2e/support/*.spec.ts`
+  //                          hand-authored Playwright specs copied into a
+  //                          generated e2e project (`paged-ui.mjs`,
+  //                          `run-heex-ui.mjs`, `auth-gate-ui-e2e.test.ts` all
+  //                          `copyFileSync` them) and run by ITS
+  //                          `@playwright/test`, which the toolchain does not
+  //                          depend on.
+  //
+  // Anything else under `test/` is this project's own code and is checked.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": false,
@@ -9,5 +31,12 @@
     "outDir": "out-tsc-test"
   },
   "include": ["test/**/*.ts", "src/**/*.ts"],
-  "exclude": ["node_modules", "out", "test/fixtures"]
+  "exclude": [
+    "node_modules",
+    "out",
+    "test/fixtures",
+    "test/__snapshots__",
+    "test/**/*.pw.ts",
+    "test/e2e/support/*.spec.ts"
+  ]
 }

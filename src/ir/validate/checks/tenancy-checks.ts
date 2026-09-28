@@ -1,5 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
+import { contextReadsOrgContext } from "../../util/org-context.js";
 import {
   classifyTenantStance,
   hasTenantOwned,
@@ -8,6 +10,7 @@ import {
   type TenantStance,
   tenancyClaimBinding,
 } from "../../util/tenant-stance.js";
+import { constructibleAggregates } from "./aggregate-constructible-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -407,7 +410,73 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
+/** Backend families that host the operating-scope switch gate — every
+ *  domain-logic backend.  A frontend family never reaches here with a read:
+ *  `organizationContext` on a `ui` is refused at the AST
+ *  (`loom.org-context-surface#frontend`). */
+const ORG_CONTEXT_GATE_FAMILIES: ReadonlySet<string> = new Set([
+  "node",
+  "dotnet",
+  "java",
+  "python",
+  "elixir",
+]);
+
+/** `loom.org-context-gate-unmet` — the operating-scope accessor
+ *  (`organizationContext.orgPath`, organization-context.md; M-T3.6 items 3+5)
+ *  lands ONLY together with its fail-closed switch gate, so a model that reads
+ *  it where the gate's preconditions are not derivable is refused by name:
+ *
+ *   #no-hierarchy — the gate admits a requested org only inside the caller's
+ *     `orgPath` subtree, so a `tenancy by … of <Registry>` whose registry
+ *     `implements tenantRegistry` must exist (no hierarchy ⇒ nothing to switch
+ *     within, and no subtree to check against).
+ *   #no-auth — every BACKEND deployable hosting a reading context must carry
+ *     `auth: required` (with a `user { … }` block): the gate lives in the auth
+ *     middleware, so a deployable without one would serve a read of a value
+ *     nothing validated.
+ *
+ *  "Reads" is derived from the lowered expressions (`contextReadsOrgContext`),
+ *  the same walk every backend's auth emitter asks before emitting the gate. */
+function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const readers = sys.subdomains
+    .flatMap((mod) => mod.contexts)
+    .filter((ctx) => contextReadsOrgContext(ctx));
+  if (readers.length === 0) return;
+  const hierarchy = hierarchyRegistry(sys) !== undefined;
+  for (const ctx of readers) {
+    if (!hierarchy) {
+      diags.push({
+        severity: "error",
+        code: "loom.org-context-gate-unmet",
+        message: diagMessage("loom.org-context-gate-unmet#no-hierarchy", {
+          ctx: ctx.name,
+          name: sys.name,
+        }),
+        source: `${sys.name}/${ctx.name}`,
+      });
+      continue;
+    }
+    for (const dep of sys.deployables) {
+      if (!dep.contextNames.includes(ctx.name)) continue;
+      const family = platformFamily(dep.platform);
+      if (family === undefined || !ORG_CONTEXT_GATE_FAMILIES.has(family)) continue;
+      if (dep.auth?.required && sys.user) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.org-context-gate-unmet",
+        message: diagMessage("loom.org-context-gate-unmet#no-auth", {
+          ctx: ctx.name,
+          dep: dep.name,
+        }),
+        source: `${sys.name}/${dep.name}`,
+      });
+    }
+  }
+}
+
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  validateOrgContextGate(sys, diags);
   validateTenantRegistry(sys, diags);
   validateRegistryConstructible(sys, diags);
   validatePolicyReadLevels(sys, diags);
@@ -674,12 +743,18 @@ function inheritedStance(
  *
  *  A WARNING, not an error: a registry seeded by migration or provisioned out
  *  of band is a coherent (if unusual) choice, and the shapes that count as a
- *  create path are deliberately generous — a declared `create`, a workflow that
- *  saves one, or a seed row.  Measured across all 496 tracked `.ddd`: 7 hits,
- *  every one a genuine dead-end.  (The same check written for EVERY aggregate
- *  rather than the registry fires on 233 of 496 — an aggregate with no create
- *  is ordinary, a tenant registry with no create is a bootstrap that cannot
- *  start.) */
+ *  create path are deliberately generous — a declared `create`, a workflow or
+ *  commandHandler that builds or saves one, or a seed row.  Measured across
+ *  all 496 tracked `.ddd`: 7 hits, every one a genuine dead-end.
+ *
+ *  The same question asked of EVERY aggregate is now
+ *  `loom.aggregate-not-constructible` (F-114,
+ *  `aggregate-constructible-checks.ts`), and the split between them is the
+ *  severity, not the rule: an aggregate with no create is ordinary — a
+ *  read-only table fed out of band — so it is ADVISORY, while a tenant
+ *  registry with no create is a signup loop that cannot start, so it stays a
+ *  warning.  Both read the same `constructibleAggregates` predicate, because
+ *  two answers to one question is how they would drift. */
 export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const tenancy = sys.tenancy;
   if (!tenancy) return;
@@ -688,16 +763,14 @@ export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnost
       const registry = ctx.aggregates.find((a) => a.name === tenancy.registryName);
       if (!registry || registry.isAbstract) continue;
       if (registry.canonicalCreate || (registry.creates ?? []).length > 0) return;
-      // A workflow that SAVES the registry constructs it just as well as a
-      // route does — `savesAtExit` covers created and mutated alike, which
+      // The construction-path question is the same one
+      // `loom.aggregate-not-constructible` asks of every aggregate, so it is
+      // answered in one place (`aggregate-constructible-checks.ts`): a
+      // workflow or commandHandler that BUILDS or SAVES the registry
+      // constructs it just as well as a route does, and so does a seed row.
+      // `savesAtExit` covers created and mutated alike, which
       // over-approximates in the safe direction for a warning.
-      const savedByWorkflow = ctx.workflows.some(
-        (w) =>
-          w.savesAtExit.some((s) => s.aggName === registry.name) ||
-          (w.creates ?? []).some((c) => c.savesAtExit.some((s) => s.aggName === registry.name)),
-      );
-      if (savedByWorkflow) return;
-      if ((ctx.seeds ?? []).some((s) => s.rows.some((r) => r.aggregate === registry.name))) return;
+      if (constructibleAggregates(ctx).has(registry.name)) return;
       diags.push({
         severity: "warning",
         code: "loom.tenant-registry-not-constructible",

@@ -51,6 +51,26 @@ Open PRs whose trees overlap a packet. A packet reads the PR's diff first, avoid
 2. Coordinator merges the sub-branch into `claude/wave-2`, runs `npx tsc -b`, `npm test`, the corpus snapshot diff and the packet's compile leg on the folded tree, appends the note under §Hand-offs, and pushes — at most once a day.
 3. Rebase onto `main` only on a real conflict. Flip to ready once, when the whole wave is green locally. Revert a packet rather than hold the wave for it.
 
+## §F queue — re-verified 2026-09-22 on the merged tree (Wave C4 packet 4a)
+
+Wave 2's exit clause (`improvement-waves-2026-09.md` §Wave 2) reads *"the 08-24
+§F queue rows F2/F3/F5 read `done`"*. Re-verified on the C4 base
+(`0a00c372` = `main` @ `a45fc948b` + the C4 wave log). The canonical status
+table is [`../../audits/generator-code-review-2026-08-24.md`](../../audits/generator-code-review-2026-08-24.md)
+§"Architecture queue (§F) — verified status", updated in the same commit.
+
+| row | verdict on the merged tree | evidence / where it lives now |
+|---|---|---|
+| **F2** — emission *mode* explicit on the shared renderers | **done** (already recorded; re-confirmed) | `QUERY_EMISSION_MODES` / `QueryEmissionMode` / `QUERY_EMISSION_VOCABULARY` / `refuseOutOfVocabulary` at `src/generator/_expr/target.ts:470` and its surrounding block; `java/render-jpql.ts`'s `isEntityManagerMode(ctx)` replaced the `principalAccessors` branch the row named; gate `test/generator/_expr/emission-mode.test.ts` present and green. Landed by wave packet 2.4 / [#2770](https://github.com/Loom-Harness/Loc/pull/2770); ledger `G2667-F2` = `done` |
+| **F3** — one ref-walker per IR family | **flipped `PARTIAL` → `done`** | The audit table was the stale copy — ledger `G2667-F3` has read `done` (#2770) since packet 2.3. The residue row 16 named is gone: `collectStmtExprImports` (`src/generator/python/emit/domain-service.ts:256-258`) is two lines over `walkStmtExprsDeep`, so the hand-enumerated 10-of-11 `StmtIR` switch no longer exists (M-T6.50 site 3, verified 2026-09-11). The class is ratcheted, not drained once: `test/system/ir-walk-census.test.ts` (133 sites, 17 exhaustive / 116 categorised waivers, waivers ratcheting) plus the `CLAUDE.md` convention "No hand-rolled IR walks" |
+| **F4** — the realtime contract | **still open, narrowed → M-T4.12 (`partial`)** | The contract IS now stated in the shared plan (`src/ir/util/realtime-rooms.ts:154-232`: RULE 1 stream-inherits-auth, RULE 2 same-credential-as-an-API-call) with one predicate `realtimeStreamCredential(deployable, target, user)` that six frontend emitters call, and the live hole (no generated SPA could authenticate its own stream) is closed on all six frontends. **Open:** the cross-backend RULE 1 conformance test (asserted at runtime on node only), the durable-event tee at write time (§A9 — stays with M-T4.3), and a browser-level runtime leg |
+| **F5** — the i18n round-trip gate | **still open → M-T9.39 (`open`)** | Only the A13-*instance* gate exists (`test/generator/_walker/i18n-dead-key-cross-target.test.ts`, describes `A13a`/`A13b`). The four i18n tests under `test/generator/_walker/` are unchanged; the general both-directions gate (every catalog key has a `t("<key>"` consumption site per target, and every user-visible slot renders through a key) does not exist. Queued as improvement-wave row 3.6 and completion-wave row 3f; M-T9.39 carries the two-way mutation-proof requirement. **Note:** #2668's ledger still buckets `G2667-F5` as `claimed`, which it is not — the audit row already warns about this and it was left alone rather than re-bucketed mid-wave |
+| **B3** — fold the twin golden-coverage gates | **still open** | `test/conformance/wire-golden-coverage.test.ts` and `test/behavioral/golden-coverage.test.ts` both still exist independently. Ledger `G2667-B3` |
+
+So the wave-2 exit clause is met for F2 and F3 and **cannot be met for F5 by a
+follow-through packet**: F5 is a whole mission (M-T9.39, size M) already
+scheduled in two later waves. Recorded here rather than silently dropped.
+
 ## Hand-offs
 
 *(appended as packets land)*

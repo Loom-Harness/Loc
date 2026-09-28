@@ -46,6 +46,14 @@ system LifecycleGuard {
         reference: string
         quantity: int = 0
 
+        // A MESSAGED wire rule, so an invalid create body answers the same
+        // 422 text and `msg.<hash>` code on every backend — the precondition
+        // for goldening the ORDER of the wire rung and the create gate
+        // (M-T3.16 C2, the ladder's "INVALID body" surface in
+        // test/behavioral/cases.mjs).  A native, message-less refusal would
+        // carry each framework's own wording and could not be goldened.
+        invariant reference.length >= 3 message "A shipment reference needs at least 3 characters"
+
         // Principal-only guard: no `this` exists yet.
         create(reference: string) {
           requires currentUser.permissions.contains(permissions.manage)

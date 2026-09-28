@@ -129,10 +129,21 @@ function checkNullableRepoLoad(
     if (call.kind !== "call" || call.callKind !== "repo-read" || !call.repoRead) continue;
     const { repo: repoName, method } = call.repoRead;
     if (method === "getById") continue;
-    const find = ctx.repositories
+    // Optionality has TWO sources, and reading only the first is how the
+    // built-in nullable read slipped past this gate: a DECLARED find carries it
+    // on its own return type, but `findById` is a BUILT-IN — there is no
+    // declaration to look up, so `finds.find(...)` returned undefined and the
+    // `!== "optional"` test below skipped it.  `findById` is nullable by
+    // construction (it is the return-absent sibling of the throwing `getById`),
+    // so honour it explicitly.  The handler-tier twin
+    // (`api-checks.ts:validateApplicationHandlers`) needs no equivalent arm: it
+    // decides on the IR statement's own `returnType`, which
+    // `lower-workflow.ts` now types `optional` for `findById`.
+    const declared = ctx.repositories
       .find((r) => r.name === repoName)
       ?.finds.find((f) => f.name === method);
-    if (find?.returnType.kind !== "optional") continue;
+    const nullable = method === "findById" || declared?.returnType.kind === "optional";
+    if (!nullable) continue;
     const key = `${repoName}.${method}`;
     if (flagged.has(key)) continue;
     flagged.add(key);
