@@ -148,7 +148,9 @@ const DOMAIN_WORD_FLOOR = [
  *  rules of `plural()` and kept when a candidate re-pluralises onto it. */
 function pluralSlugKeywords(keywords: readonly string[]): string[] {
   return keywords.filter((k) => {
-    const stems = [k.slice(0, -1), k.slice(0, -2), `${k.slice(0, -3)}y`].filter((s) => s.length > 0);
+    const stems = [k.slice(0, -1), k.slice(0, -2), `${k.slice(0, -3)}y`].filter(
+      (s) => s.length > 0,
+    );
     return stems.some((stem) => {
       const name = upperFirst(stem);
       return snake(plural(name)) === k || lowerFirst(plural(name)) === k;

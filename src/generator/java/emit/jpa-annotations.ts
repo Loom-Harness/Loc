@@ -218,7 +218,11 @@ export function jpaFieldAnnotations(
       t.element.kind === "enum" && !opts.mangledEnums?.has(t.element.name)
         ? [`    @Enumerated(EnumType.STRING)`]
         : [];
-    return [...byName, `    @JdbcTypeCode(SqlTypes.ARRAY)`, `    @Column(name = "${hbIdent(col)}")`];
+    return [
+      ...byName,
+      `    @JdbcTypeCode(SqlTypes.ARRAY)`,
+      `    @Column(name = "${hbIdent(col)}")`,
+    ];
   }
 
   // `X id` reference → embedded id record over one column.

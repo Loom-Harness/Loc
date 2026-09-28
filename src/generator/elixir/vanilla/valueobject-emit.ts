@@ -59,9 +59,7 @@ function renderValueObjectModule(
   const moduleName = voModule(appModule, ctx, vo);
   const typeEntries = vo.fields.map((f) => `${snake(f.name)}: ${voEctoType(f.type)}`).join(", ");
   const tagging = messageCodeTagging(vo);
-  const validators = [...voConstraintLines(vo), ...(tagging.pipe ? [tagging.pipe] : [])].join(
-    "\n",
-  );
+  const validators = [...voConstraintLines(vo), ...(tagging.pipe ? [tagging.pipe] : [])].join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
   return `# Auto-generated.
 defmodule ${moduleName} do

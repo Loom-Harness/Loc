@@ -3,8 +3,8 @@ import {
   type SingleFieldPattern,
   singleFieldConstraints,
 } from "../../../ir/validate/invariant-classify.js";
-import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
 import { messageCode } from "../../../util/message-code.js";
+import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 
@@ -166,13 +166,13 @@ export function messageCodeTagging(owner: {
   const codes = new Map<string, string>();
   for (const inv of owner.invariants ?? []) {
     if (!inv.message) continue;
-    const routed = (singleFieldConstraints(inv) ?? []).some((c) =>
-      fieldNames.has(snake(c.field)),
-    );
+    const routed = (singleFieldConstraints(inv) ?? []).some((c) => fieldNames.has(snake(c.field)));
     if (routed) codes.set(inv.message.text, messageCode(inv.message.text));
   }
   if (codes.size === 0) return { pipe: "", defs: "" };
-  const entries = [...codes].map(([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`);
+  const entries = [...codes].map(
+    ([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`,
+  );
   return {
     pipe: "    |> __loom_tag_codes()",
     defs: `  @loom_codes %{${entries.join(", ")}}
