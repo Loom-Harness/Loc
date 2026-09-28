@@ -1022,9 +1022,13 @@ function validateWorkflowStatements(
   const checkNestedBodyOpCalls = (
     body: import("../../types/loom-ir.js").WorkflowStmtIR[],
     loopVar: string,
-    messageKey:
-      | "loom.workflow-foreach-unknown-binding#workflow-in-for-references"
-      | "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
+    /** Which nesting this body belongs to.  The two message keys are spelled
+     *  LITERALLY at their `diagMessage` call sites below rather than passed in
+     *  as a parameter: `diagnostic-catalog.test.ts` reads the call site, so a
+     *  key behind a local is invisible to it — the catalog then reports the
+     *  site as inline wording and both keys as orphans (CLAUDE.md,
+     *  "Diagnostic wording lives in one catalog"). */
+    nesting: "for" | "if-let",
   ): void => {
     const bodyLocal: string[] = [];
     for (const inner of body) {
@@ -1036,12 +1040,18 @@ function validateWorkflowStatements(
           diags.push({
             severity: "error",
             code: "loom.workflow-foreach-unknown-binding",
-            message: diagMessage(messageKey, {
-              name: wf.name,
-              var: loopVar,
-              target: inner.target,
-              op: inner.op,
-            }),
+            message:
+              nesting === "for"
+                ? diagMessage("loom.workflow-foreach-unknown-binding#workflow-in-for-references", {
+                    name: wf.name,
+                    var: loopVar,
+                    target: inner.target,
+                    op: inner.op,
+                  })
+                : diagMessage(
+                    "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
+                    { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
+                  ),
             source: `${ctx.name}/${wf.name}`,
           });
         }
@@ -1446,11 +1456,7 @@ function validateWorkflowStatements(
           });
         }
         bindingAgg.set(st.var, st.varAggName);
-        checkNestedBodyOpCalls(
-          st.body,
-          st.var,
-          "loom.workflow-foreach-unknown-binding#workflow-in-for-references",
-        );
+        checkNestedBodyOpCalls(st.body, st.var, "for");
         break;
       }
       case "if-let": {
@@ -1529,11 +1535,7 @@ function validateWorkflowStatements(
           break;
         }
         const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
-          checkNestedBodyOpCalls(
-            body,
-            st.var,
-            "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
-          );
+          checkNestedBodyOpCalls(body, st.var, "if-let");
         };
         bindingAgg.set(st.var, st.aggName); // `var` bound only in the then-branch
         checkBranchOpCalls(st.thenBody);
