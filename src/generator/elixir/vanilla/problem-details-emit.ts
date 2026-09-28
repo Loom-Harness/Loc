@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
 export function renderVanillaProblemDetailsModule(
@@ -248,7 +249,7 @@ export function renderVanillaProblemDetailsModule(
     body =
       Jason.encode!(%{
         type: "about:blank",
-        title: ${JSON.stringify(bodyValueObjects.title)},
+        title: ${elixirString(bodyValueObjects.title)},
         status: ${bodyValueObjects.status},
         detail: detail,
         instance: conn.request_path,
