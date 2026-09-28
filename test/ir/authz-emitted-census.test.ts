@@ -40,7 +40,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { LoomModel } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 import { BACKENDS, type Backend, PLATFORM_CLAUSE } from "../fixtures/corpus/backends.js";
@@ -270,15 +270,15 @@ function cell(c: Case, v: Variant): Promise<Cell> {
   const hit = CELLS.get(key);
   if (hit) return hit;
   const made = (async (): Promise<Cell> => {
-    const { model, errors } = await parseString(
-      c.tokenized.replaceAll("__PLATFORM__", clauseFor(v)),
-    );
+    const source = c.tokenized.replaceAll("__PLATFORM__", clauseFor(v));
+    const { model, errors } = await parseString(source);
     if (errors.length > 0) throw new Error(`${key}: parse errors\n${errors.join("\n")}`);
     const refused = validateLoomModel(enrichLoomModel(lowerModel(model)))
       .filter((d) => d.severity === "error")
       .map((d) => d.code ?? "?");
     if (refused.length > 0) return { refused };
-    return { files: generateSystems(model).files };
+    // Through the gated helper (phases ①/④/⑦ asserted), not the orchestrator.
+    return { files: await generateSystemFiles(source) };
   })();
   CELLS.set(key, made);
   return made;
