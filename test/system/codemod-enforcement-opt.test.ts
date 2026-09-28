@@ -9,6 +9,11 @@
 // the gate — every tracked `.ddd` that still relies on the default must
 // VALIDATE under it, so a fixture that lands with an unpinned, ungated `auth`
 // block fails here with the remedy named, instead of in some corpus leg later.
+// The third half reads the `.ddd` sources CI writes INLINE — the `cat > x.ddd
+// <<'DDD'` heredocs in `.github/workflows/*.yml` — which are `.ddd` fixtures
+// no tree walk reaches: the flip's own fold pinned every tracked file and
+// every test-inline source and still went red on `flutter-build`, whose
+// app-shell fixture is such a heredoc.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -155,5 +160,73 @@ describe("the repo's own .ddd corpus under the new default", () => {
     // Remedy: `node scripts/codemod-enforcement-opt.mjs <file>` to keep the
     // pre-flip posture, or add the `requires` gates the model is missing.
     expect(ungated, `${rel} relies on the default and is ungated`).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The same gate over the workflow heredocs.
+// ---------------------------------------------------------------------------
+
+const HEREDOC_OPEN = /cat\s*>\s*(\S+\.ddd)\s*<<\s*'?(\w+)'?\s*$/;
+
+/** Every `cat > <file>.ddd <<'TAG' … TAG` block in the workflows, dedented, keyed
+ *  `<workflow> → <file>`. */
+function workflowInlineDdd(): Array<{ id: string; src: string }> {
+  const dir = path.join(repoRoot, ".github", "workflows");
+  const out: Array<{ id: string; src: string }> = [];
+  for (const f of fs
+    .readdirSync(dir)
+    .filter((n) => n.endsWith(".yml"))
+    .sort()) {
+    const lines = fs.readFileSync(path.join(dir, f), "utf8").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const m = HEREDOC_OPEN.exec(lines[i] ?? "");
+      if (!m) continue;
+      const body: string[] = [];
+      for (i++; i < lines.length && (lines[i] ?? "").trim() !== m[2]; i++)
+        body.push(lines[i] ?? "");
+      const nonBlank = body.filter((l) => l.trim().length > 0);
+      const indent =
+        nonBlank.length === 0
+          ? 0
+          : Math.min(...nonBlank.map((l) => l.length - l.trimStart().length));
+      out.push({ id: `${f} → ${m[1]}`, src: `${body.map((l) => l.slice(indent)).join("\n")}\n` });
+    }
+  }
+  return out;
+}
+
+const workflowBlocks = workflowInlineDdd();
+
+describe("the .ddd sources the workflows write inline, under the new default", () => {
+  it("reaches the heredoc fixtures (vacuity guard)", () => {
+    // The two legs known to carry an `auth`-shaped fixture: if the extractor
+    // stops seeing them, the gate below asserts over nothing.
+    expect(workflowBlocks.map((b) => b.id)).toEqual(
+      expect.arrayContaining([
+        "generated-flutter-build.yml → ci-flutter-shell/shell.ddd",
+        "generated-feliz-build.yml → ci-feliz/authgate.ddd",
+      ]),
+    );
+  });
+
+  it("every block that relies on the default validates under denyByDefault", async () => {
+    const failures: string[] = [];
+    for (const b of workflowBlocks) {
+      if (!findAuthBlocks(b.src).some((x) => !x.hasEnforcement)) continue;
+      const { model } = await parseString(b.src, { validate: false });
+      const ungated = validateLoomModel(enrichLoomModel(lowerModel(model)))
+        .filter(
+          (d) =>
+            d.severity === "error" &&
+            (d.code === "loom.default-deny-ungated" || d.code === "loom.audit-history-ungated"),
+        )
+        .map((d) => `${d.code}: ${d.source}`);
+      if (ungated.length > 0) failures.push(`${b.id}: ${ungated.join(", ")}`);
+    }
+    // Remedy: write `enforcement: opt` into the heredoc's `auth { … }` block (the
+    // codemod's insertion, by hand — it does not read YAML), or add the
+    // `requires` gates the fixture is missing.
+    expect(failures, "a workflow heredoc relies on the default and is ungated").toEqual([]);
   });
 });

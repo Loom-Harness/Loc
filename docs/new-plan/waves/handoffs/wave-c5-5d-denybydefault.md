@@ -14,7 +14,7 @@ it rewrote.*
 | — | **the flip** | **done.** `DEFAULT_ENFORCEMENT = "denyByDefault"` — `src/ir/lower/lower-auth.ts:22`, read at `:62`. An `auth { … }` block that names no `enforcement:` is deny-by-default; a system with **no** `auth` block still has no posture (`sys.auth` undefined — see decision D1 below) |
 | a | **codemod** | **done.** `scripts/codemod-enforcement-opt.mjs` (+ `.d.mts`): `findAuthBlocks` `:64`, `pinEnforcementOpt` `:110`; `--list` / `--check` / write modes. Comment- and string-aware, idempotent, never touches a block that already names `enforcement:` (either value). Run over the whole tree; outcome per file below |
 | b | **docs** | **done.** `docs/migrations.md:829` "Language-version migrations" → `:836` "The `enforcement:` default flip (M-T3.1)" (the migration note + codemod recipe); `docs/auth.md:25` (the enforcement note rewritten) and the `requires` section; `docs/language.md` (the `auth` row + the `requires` row); `docs/language-reference/17-auth.md` (clause list `:200`, the Default-deny paragraph) |
-| c | **fixtures still validate** | **done — codemod on 15 `.ddd` + 29 test files, 4 `.ddd` left on the new default, 0 gates added.** Table below; `test/system/codemod-enforcement-opt.test.ts` is the standing tree gate |
+| c | **fixtures still validate** | **done — codemod on 15 `.ddd` + 29 test files, 4 `.ddd` left on the new default, 0 gates added; plus ONE fixture the tree walk missed, pinned after CI (below).** Table below; `test/system/codemod-enforcement-opt.test.ts` is the standing tree gate |
 | d | **`ddd new`** | **done.** The commented-out `user`/`auth { enforcement: denyByDefault }` block is gone from `main.ddd` (a 6-line pointer at `src/cli/new-templates.ts:254` remains); the README gains "Authentication and authorization" (`:340`) with the paste-able `user`/`auth` blocks and an explicit `enforcement: opt` example |
 | — | **witnesses** | `test/ir/default-deny-language-default.test.ts` (validator) and `test/cli/enforcement-default-generate.test.ts` (node leg through the real CLI), both mutation-proved (below) |
 
@@ -49,7 +49,14 @@ default before deciding:
 
 No fixture in the tree was *meant* to exercise `denyByDefault` implicitly (the
 ones that do spell `enforcement: denyByDefault` explicitly and are unaffected),
-so no gate was added to any fixture. `examples/acme.ddd`, `vue-showcase.ddd`,
+so no gate was added to any fixture. **Post-fold correction (2026-09-28):** one
+fixture is not a file at all — `generated-flutter-build.yml` writes its app-shell
+fixture with `cat > ci-flutter-shell/shell.ddd <<'DDD'`, and its `auth` block on
+the default plus a deliberately ungated `reprice` failed the leg's `generate
+system` step with `loom.default-deny-ungated`. The coordinator pinned
+`enforcement: opt` in the heredoc and extended the tree gate to extract and
+validate every `.ddd` heredoc under `.github/workflows/` (seven today), so a
+workflow-inline fixture is now reached locally. `examples/acme.ddd`, `vue-showcase.ddd`,
 everything under `web/src/examples/`, `journey/`, `eval-*/` and
 `docs/audits/models/` already name `enforcement:` or have no `auth` block —
 nothing to rewrite.
