@@ -4,20 +4,28 @@
 // It used to be a hand-rolled `switch (expr.kind)` recursion inside
 // `src/generator/react/pages-emitter.ts` (waived twice in the ir-walk census).
 // That copy enumerated its own children and therefore had blind spots: a
-// `CodeBlock` reachable only through a `list` literal, a `call`'s `style:`
-// entries, a `match`'s VARIANT arms, or an `i18nFormat` hole was invisible —
-// the app emitted the markup and shipped no highlighter.  It now rides
-// `walkExprDeep`, whose child enumeration is `never`-checked against `ExprIR`.
+// `CodeBlock` reachable only through a `list` literal, a `match`'s VARIANT
+// arms, or an `i18nFormat` hole was invisible — the app emitted the markup and
+// shipped no highlighter.  It now rides `walkExprDeep`, whose child
+// enumeration is `never`-checked against `ExprIR`.
 //
-// Each case below is a slot the hand-rolled version dropped.
+// Every case below except the first two is a slot the hand-rolled version
+// dropped on the floor.
 
 import { describe, expect, it } from "vitest";
-import type { ExprIR } from "../../src/ir/types/loom-ir.js";
 import { bodyUsesCodeBlock } from "../../src/ir/util/code-block.js";
+import { type ExprOf, STRING_T } from "../_helpers/ir-builders.js";
 
-const codeBlock = (): ExprIR => ({ kind: "call", name: "CodeBlock", args: [] }) as ExprIR;
-const other = (name: string, args: ExprIR[] = []): ExprIR =>
-  ({ kind: "call", name, args }) as ExprIR;
+/** A walker-primitive call — `CodeBlock { … }` when `name` says so.  Page
+ *  primitives resolve to no declaration, so they lower as `callKind: "free"`. */
+const primitive = (name: string, args: ExprOf<"call">["args"] = []): ExprOf<"call"> => ({
+  kind: "call",
+  callKind: "free",
+  name,
+  args,
+});
+
+const codeBlock = (): ExprOf<"call"> => primitive("CodeBlock");
 
 describe("bodyUsesCodeBlock", () => {
   it("finds a direct call", () => {
@@ -25,38 +33,43 @@ describe("bodyUsesCodeBlock", () => {
   });
 
   it("is false for a body with no CodeBlock, and for no body at all", () => {
-    expect(bodyUsesCodeBlock(other("Stack", [other("Text")]))).toBe(false);
+    expect(bodyUsesCodeBlock(primitive("Stack", [primitive("Text")]))).toBe(false);
     expect(bodyUsesCodeBlock(undefined)).toBe(false);
   });
 
   it("finds one nested in a plain argument", () => {
-    expect(bodyUsesCodeBlock(other("Stack", [other("Card", [codeBlock()])]))).toBe(true);
+    expect(bodyUsesCodeBlock(primitive("Stack", [primitive("Card", [codeBlock()])]))).toBe(true);
   });
 
   it("finds one inside a `list` literal", () => {
-    const body = other("Tabs", [{ kind: "list", elements: [codeBlock()] } as unknown as ExprIR]);
-    expect(bodyUsesCodeBlock(body)).toBe(true);
+    const list: ExprOf<"list"> = { kind: "list", elements: [codeBlock()] };
+    expect(bodyUsesCodeBlock(primitive("Tabs", [list]))).toBe(true);
   });
 
   it("finds one inside a `match` VARIANT arm", () => {
-    const body = {
+    const match: ExprOf<"match"> = {
       kind: "match",
       arms: [],
-      variantArms: [{ value: codeBlock() }],
-    } as unknown as ExprIR;
-    expect(bodyUsesCodeBlock(body)).toBe(true);
+      variantArms: [{ varType: STRING_T, value: codeBlock() }],
+    };
+    expect(bodyUsesCodeBlock(match)).toBe(true);
   });
 
   it("finds one inside an i18n-wrapped hole", () => {
-    const body = { kind: "i18nFormat", inner: codeBlock() } as unknown as ExprIR;
-    expect(bodyUsesCodeBlock(body)).toBe(true);
+    const wrapped: ExprOf<"i18nFormat"> = {
+      kind: "i18nFormat",
+      inner: codeBlock(),
+      format: ", number",
+    };
+    expect(bodyUsesCodeBlock(wrapped)).toBe(true);
   });
 
   it("finds one inside a block-bodied lambda's statements", () => {
-    const body = {
+    const lambda: ExprOf<"lambda"> = {
       kind: "lambda",
+      param: "e",
       block: [{ kind: "expression", expr: codeBlock() }],
-    } as unknown as ExprIR;
-    expect(bodyUsesCodeBlock(body)).toBe(true);
+    };
+    expect(bodyUsesCodeBlock(lambda)).toBe(true);
   });
 });

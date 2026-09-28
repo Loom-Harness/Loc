@@ -76,8 +76,14 @@ const MODULE_PATH: Record<(typeof FRONTENDS)[number], string> = {
 
 /** The file that pulls the module into the bundle graph, per frontend. */
 const INJECTION: Record<(typeof FRONTENDS)[number], { path: string; needle: string }> = {
-  webreact: { path: "webreact/index.html", needle: '<script type="module" src="/src/lib/highlight.ts">' },
-  webvue: { path: "webvue/index.html", needle: '<script type="module" src="/src/lib/highlight.ts">' },
+  webreact: {
+    path: "webreact/index.html",
+    needle: '<script type="module" src="/src/lib/highlight.ts">',
+  },
+  webvue: {
+    path: "webvue/index.html",
+    needle: '<script type="module" src="/src/lib/highlight.ts">',
+  },
   websvelte: { path: "websvelte/src/routes/+layout.svelte", needle: 'import "$lib/highlight";' },
   webangular: { path: "webangular/src/main.ts", needle: 'import "./lib/highlight";' },
 };
