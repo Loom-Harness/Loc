@@ -75,6 +75,7 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.correlation-field-ambiguous",
   "loom.correlation-type-mismatch",
   "loom.correlation-uninferrable",
+  "loom.create-field-id-target",
   "loom.create-field-type",
   "loom.create-name-conflict-workflow",
   "loom.create-server-field",

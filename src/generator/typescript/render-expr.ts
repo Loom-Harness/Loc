@@ -220,6 +220,10 @@ export function renderTsExprWithMarks(e: ExprIR, ctx: TsRenderContext = DEFAULT)
 function renderTsConvert(target: string, from: string | undefined, v: string): string {
   if (target === "string") {
     if (from === "money") return `${v}.toString()`;
+    // ISO-8601, not the host default: `String(new Date())` is
+    // "Mon Sep 22 2026 07:00:00 GMT+0000 (UTC)" — locale-shaped, not a wire
+    // form, and not what .NET / java / python emit for the same conversion.
+    if (from === "datetime") return `${v}.toISOString()`;
     return `String(${v})`;
   }
   if (target === "long" || target === "decimal") {

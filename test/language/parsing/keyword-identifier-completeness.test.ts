@@ -81,6 +81,16 @@ const POSITIONS: Record<string, (k: string) => string> = {
   lValue: (k) => `context C { aggregate A { name: string\n operation op() { ${k} := 1 } } }`,
   // page/component reactive state field name — `StateFieldName`
   stateField: (k) => `system S { ui U { page P { state { ${k}: string } } } }`,
+  // migration rename/backfill target — the migration `ColumnStep`'s field slot.
+  // The SEVENTH position, and the one this gate did not cover: `ColumnStep`
+  // reused the deliberately narrow `UserFieldName` (the `user { }` claim
+  // shape) instead of the field-declaration name set, so 81 names you are
+  // allowed to DECLARE could never be renamed or backfilled — only
+  // `--allow-destructive` (data loss) or a raw `sql "…"` step.  Being able to
+  // declare a field named `description` is not a guarantee if you can never
+  // rename it, so this is a FLOOR position, not snapshot-only.
+  migrationField: (k) =>
+    `context C { aggregate A { ${k}: string } }\nmigration "m" { A.${k} -> renamed }`,
 };
 const POSITION_KEYS = Object.keys(POSITIONS).sort();
 
@@ -130,7 +140,13 @@ const DOMAIN_WORD_FLOOR = [
 // coverage is looser across the six lists and is governed by the snapshot only.
 // `fieldNameAfterField` is a floor position too: "you can name a field
 // `secret`" is not a guarantee if it only holds when the field comes first.
-const FLOOR_POSITIONS = ["fieldName", "fieldNameAfterField", "paramName", "nameRef"] as const;
+const FLOOR_POSITIONS = [
+  "fieldName",
+  "fieldNameAfterField",
+  "paramName",
+  "nameRef",
+  "migrationField",
+] as const;
 
 describe("keyword-as-identifier completeness (M-T5.18 Track B)", () => {
   let parse: ReturnType<typeof parseHelper>;
@@ -151,7 +167,7 @@ describe("keyword-as-identifier completeness (M-T5.18 Track B)", () => {
       }
       coverage[k] = soft;
     }
-    // Budget: ~280 keywords x 7 positions, each a full document build.  Runs
+    // Budget: ~280 keywords x 8 positions, each a full document build.  Runs
     // in ~70s idle; the ceiling is generous because CI shards share a runner
     // and the whole matrix lives in this one hook (a timeout here reports as
     // "the suite failed", which is the least diagnosable failure shape).
@@ -175,7 +191,7 @@ describe("keyword-as-identifier completeness (M-T5.18 Track B)", () => {
     }
     expect(
       breaks,
-      `A keyword stole a common domain identifier. Re-admit it as a soft keyword in the failing position's rule (LooseName / NameRefIdent / Property.name):\n  ${breaks.join("\n  ")}`,
+      `A keyword stole a common domain identifier. Re-admit it as a soft keyword in the failing position's rule (LooseName / NameRefIdent / PropertyName):\n  ${breaks.join("\n  ")}`,
     ).toEqual([]);
   });
 

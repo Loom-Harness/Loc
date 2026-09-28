@@ -239,7 +239,18 @@ export function isInfallibleConversion(source: string, target: string): boolean 
       source === "long" ||
       source === "decimal" ||
       source === "money" ||
-      source === "bool"
+      source === "bool" ||
+      // Both have ONE canonical text form, so the conversion is infallible and
+      // backend-agnostic: a guid renders as its UUID text, a datetime as
+      // ISO-8601.  Three backends already carried the `from === "datetime"`
+      // arm (.NET's round-trip "O", java's `java.time` ISO `toString`,
+      // python's `.isoformat()`) while this gate refused every call that
+      // could reach them; TS and elixir gained the matching arm alongside
+      // this change.  `json` / `File` stay refused — neither has a canonical
+      // scalar form, which is the actual reason the old "any primitive"
+      // wording was wrong.
+      source === "guid" ||
+      source === "datetime"
     );
   }
   if (target === "long") return source === "int";

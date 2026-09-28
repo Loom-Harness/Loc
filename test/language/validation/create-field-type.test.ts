@@ -115,3 +115,65 @@ system Demo {
     expect(codesOf(diagnostics)).toContain(TYPE);
   });
 });
+
+// ---------------------------------------------------------------------------
+// `loom.create-field-id-target` — the sibling the wire-family comparison above
+// cannot make.
+//
+// The permissiveness of `loom.create-field-type` is deliberate and documented:
+// a create call is the WIRE boundary, so a `string` literal standing in for a
+// `datetime` / `guid` / `X id` is idiomatic and must pass.  It compares wire
+// FAMILIES, and two ids both serialise as text — so passing a `B id` where an
+// `A id` is declared sailed through with `0 error(s)`, in a production workflow,
+// writing a row that points at the wrong table.  The same confusion in an
+// assignment or a comparison was already caught precisely ("Cannot assign
+// 'B id' to 'A id'"), which is what made the create hole worth its own arm:
+// it is the one position where the wrong id is PERSISTED.
+// ---------------------------------------------------------------------------
+
+const ID_TARGET = "loom.create-field-id-target";
+
+const twoAggregates = (call: string) => `
+context C {
+  aggregate A with crudish { code: string  derived display: string = code }
+  aggregate B with crudish { label: string  derived display: string = label }
+  aggregate R with crudish { a: A id  n: int  at: datetime  ref: guid }
+  repository As for A { }
+  repository Bs for B { }
+  repository Rs for R { }
+  workflow W {
+    create(aid: A id, bid: B id, s: string) {
+      ${call}
+    }
+  }
+}`;
+
+describe("loom.create-field-id-target — the wrong aggregate's id", () => {
+  it("rejects a `B id` where the field declares `A id`", async () => {
+    const { diagnostics } = await parseString(
+      twoAggregates(`let r = R.create({ a: bid, n: 1, at: now(), ref: s })`),
+      { validate: true },
+    );
+    expect(codesOf(diagnostics)).toContain(ID_TARGET);
+  });
+
+  it("accepts the matching id", async () => {
+    const { diagnostics } = await parseString(
+      twoAggregates(`let r = R.create({ a: aid, n: 1, at: now(), ref: s })`),
+      { validate: true },
+    );
+    expect(codesOf(diagnostics)).not.toContain(ID_TARGET);
+  });
+
+  // The three wire coercions the gate above exists to permit.  If any of these
+  // starts failing, the id arm has over-reached into the JSON boundary it was
+  // explicitly carved out of.
+  it("still accepts a plain string for an id, a datetime and a guid", async () => {
+    const { diagnostics } = await parseString(
+      twoAggregates(`let r = R.create({ a: s, n: 1, at: s, ref: s })`),
+      { validate: true },
+    );
+    expect(codesOf(diagnostics)).not.toContain(ID_TARGET);
+    expect(codesOf(diagnostics)).not.toContain(TYPE);
+  });
+});
