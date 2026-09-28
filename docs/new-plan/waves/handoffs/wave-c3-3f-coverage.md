@@ -70,9 +70,16 @@ Neither label exists on the repo yet: `run-size-boot` and `security` must be cre
 - M-T3.14: forbidden 7 + required 2 rules; `TRIAGE` 3; `SEEDS` 9.
 - M-T9.23: 9 cells; 4 pinned, 5 unpinned-with-reason.
 
-## Local gates (on the merged tree)
+## Local gates (on the merged tree — coordinator head `d7f38b229` merged in, rebuilt)
 
-See the final section appended at hand-off time.
+- `npx tsc -b` — exit 0.
+- `node scripts/test-typecheck.mjs` — OK (test/ and src/ clean under tsconfig.test.json).
+- `npx biome ci . --diagnostic-level=error` — clean (3434 files).
+- `NODE_USE_ENV_PROXY=1 node scripts/mission-counts.mjs --check` — up to date (regenerated with `--write`).
+- `node scripts/ledger-counts.mjs --check` — matches.
+- `node docs/build.mjs` — exit 0.
+- `npm test > log 2>&1` — **NPM_TEST_EXIT=0**: 2238 files passed / 92 skipped; 27413 tests passed, 6 expected-fail, 1267 skipped. No starvation re-runs needed.
+- Opt-in legs run locally: `LOOM_SAST=1 … sast-generated.test.ts` green (semgrep 1.178 in a venv, 9/9 seeds named); `LOOM_SIZE_BOOT_CASE=bundle:<each of the four>` measured (angular under node 24 — the Angular CLI refuses the sandbox's 22.22.2); boot cells could not build images here (see M-T9.23 residue).
 
 ## Open-PR overlaps
 
