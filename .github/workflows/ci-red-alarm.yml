@@ -81,6 +81,7 @@ on:
       - "Generated Vue e2e"
       - "Generated a11y (axe-core)"
       - "Generated size + boot budget"
+      - "SAST over generated auth + tenancy"
       - "Hono OIDC auth (runtime e2e)"
       - "Hono observability events (runtime e2e)"
       - "Java OIDC auth (runtime e2e)"
