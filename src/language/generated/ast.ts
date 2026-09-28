@@ -2038,7 +2038,7 @@ export interface LValue extends langium.AstNode {
     args: Array<Expression>;
     call: boolean;
     head: LValueIdent;
-    tail: Array<LValueIdent>;
+    tail: Array<LValueTail>;
     thisRef: boolean;
 }
 
@@ -2059,6 +2059,12 @@ export type LValueIdent = 'aggregates' | 'api' | 'contains' | 'contexts' | 'crea
 
 export function isLValueIdent(item: unknown): item is LValueIdent {
     return isCommonSoftKeywords(item) || item === 'aggregates' || item === 'api' || item === 'contains' || item === 'contexts' || item === 'create' || item === 'destroy' || item === 'id' || item === 'modules' || item === 'page' || item === 'permissions' || item === 'ui' || item === 'views' || item === 'workflows' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+}
+
+export type LValueTail = LValueIdent | PluralSlugKeyword;
+
+export function isLValueTail(item: unknown): item is LValueTail {
+    return isLValueIdent(item) || isPluralSlugKeyword(item);
 }
 
 export interface MacroArg extends langium.AstNode {
@@ -2243,10 +2249,10 @@ export function isMatchStmt(item: unknown): item is MatchStmt {
     return reflection.isInstance(item, MatchStmt.$type);
 }
 
-export type MemberName = 'aggregates' | 'api' | 'as' | 'carries' | 'claims' | 'contains' | 'contexts' | 'coreComponents' | 'covers' | 'create' | 'destroy' | 'entitles' | 'extends' | 'find' | 'hosts' | 'httpStatus' | 'id' | 'ignoring' | 'implies' | 'modules' | 'nats' | 'page' | 'permissions' | 'persistedAs' | 'postgres' | 'redis' | 'requires' | 'scopes' | 'serves' | 'ses' | 'sessions' | 'targets' | 'this' | 'ui' | 'verifies' | 'views' | 'where' | 'workflows' | CommonSoftKeywords | string;
+export type MemberName = 'aggregates' | 'api' | 'contains' | 'contexts' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'modules' | 'page' | 'permissions' | 'ui' | 'views' | 'where' | 'workflows' | CommonSoftKeywords | PluralSlugKeyword | string;
 
 export function isMemberName(item: unknown): item is MemberName {
-    return isCommonSoftKeywords(item) || item === 'aggregates' || item === 'api' || item === 'contains' || item === 'contexts' || item === 'create' || item === 'destroy' || item === 'find' || item === 'id' || item === 'ignoring' || item === 'modules' || item === 'page' || item === 'permissions' || item === 'ui' || item === 'views' || item === 'where' || item === 'workflows' || item === 'as' || item === 'carries' || item === 'claims' || item === 'coreComponents' || item === 'covers' || item === 'entitles' || item === 'extends' || item === 'hosts' || item === 'httpStatus' || item === 'implies' || item === 'nats' || item === 'persistedAs' || item === 'postgres' || item === 'redis' || item === 'requires' || item === 'scopes' || item === 'serves' || item === 'ses' || item === 'sessions' || item === 'targets' || item === 'this' || item === 'verifies' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+    return isCommonSoftKeywords(item) || isPluralSlugKeyword(item) || item === 'aggregates' || item === 'api' || item === 'contains' || item === 'contexts' || item === 'create' || item === 'destroy' || item === 'find' || item === 'id' || item === 'ignoring' || item === 'modules' || item === 'page' || item === 'permissions' || item === 'ui' || item === 'views' || item === 'where' || item === 'workflows' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface MemberSuffix extends langium.AstNode {
@@ -2757,6 +2763,12 @@ export type Platform = 'angular' | 'dotnet' | 'elixir' | 'feliz' | 'flutter' | '
 
 export function isPlatform(item: unknown): item is Platform {
     return item === 'dotnet' || item === 'node' || item === 'react' || item === 'svelte' || item === 'vue' || item === 'angular' || item === 'feliz' || item === 'flutter' || item === 'static' || item === 'elixir' || item === 'python' || item === 'java' || (typeof item === 'string' && (/"(\\.|[^"\\])*"/.test(item)));
+}
+
+export type PluralSlugKeyword = 'as' | 'carries' | 'claims' | 'coreComponents' | 'covers' | 'entitles' | 'extends' | 'hosts' | 'httpStatus' | 'implies' | 'nats' | 'persistedAs' | 'postgres' | 'redis' | 'requires' | 'scopes' | 'serves' | 'ses' | 'sessions' | 'targets' | 'this' | 'verifies';
+
+export function isPluralSlugKeyword(item: unknown): item is PluralSlugKeyword {
+    return item === 'as' || item === 'carries' || item === 'claims' || item === 'coreComponents' || item === 'covers' || item === 'entitles' || item === 'extends' || item === 'hosts' || item === 'httpStatus' || item === 'implies' || item === 'nats' || item === 'persistedAs' || item === 'postgres' || item === 'redis' || item === 'requires' || item === 'scopes' || item === 'serves' || item === 'ses' || item === 'sessions' || item === 'targets' || item === 'this' || item === 'verifies';
 }
 
 export interface PolicyDecl extends langium.AstNode {

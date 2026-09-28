@@ -225,6 +225,17 @@ describe("keyword-as-identifier completeness (M-T5.18 Track B)", () => {
       breaks,
       `A plural-shaped keyword is some aggregate's e2e slug (api.<slug>) and does not parse after a '.'. Admit it in MemberName (src/language/ddd.langium): ${breaks.join(", ")}`,
     ).toEqual([]);
+    // The same slug as a CALL STATEMENT (`api.claims.file(rec)` on its own
+    // line) goes through `LValue`'s tail, not `MemberName`.
+    const stmtBreaks: string[] = [];
+    for (const k of slugs) {
+      const src = `context C { aggregate A { name: string\n operation op() { api.${k}.go() } } }`;
+      if (!(await parsesClean(src))) stmtBreaks.push(k);
+    }
+    expect(
+      stmtBreaks,
+      `A plural-slug keyword does not parse as a call-statement segment (api.<slug>.<op>(…)). Admit it in LValueTail via PluralSlugKeyword: ${stmtBreaks.join(", ")}`,
+    ).toEqual([]);
     // The e2e surface itself, not just the probe position.
     const doc = await parse(`system S {
       subdomain D { context C {
@@ -237,7 +248,8 @@ describe("keyword-as-identifier completeness (M-T5.18 Track B)", () => {
       deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
       test e2e "addressable" against d {
         let c = api.claims.create({ title: "x" })
-        expect(api.claims.getById(c).title).toBe("x")
+        api.claims.update(c, { title: "y" })
+        expect(api.claims.getById(c).title).toBe("y")
       }
     }`);
     expect(doc.parseResult.parserErrors.map((e) => e.message)).toEqual([]);
