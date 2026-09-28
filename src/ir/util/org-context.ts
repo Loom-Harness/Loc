@@ -26,18 +26,14 @@ export function isOrgContextRead(e: ExprIR): boolean {
   );
 }
 
-const byContext = new WeakMap<BoundedContextIR, boolean>();
-
-/** Does any expression in `ctx` read the operating scope?  Memoized per
- *  context object (the IR is immutable once enriched). */
+/** Does any expression in `ctx` read the operating scope?  Recomputed per
+ *  call (no module-global memo — the walk is one pass over one context, and a
+ *  cache would be module state the census would have to pin). */
 export function contextReadsOrgContext(ctx: BoundedContextIR): boolean {
-  const cached = byContext.get(ctx);
-  if (cached !== undefined) return cached;
   let found = false;
   forEachContextExpr(ctx, (v) => {
     if (!found && isOrgContextRead(v.expr)) found = true;
   });
-  byContext.set(ctx, found);
   return found;
 }
 

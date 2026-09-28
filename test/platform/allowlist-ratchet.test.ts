@@ -581,7 +581,17 @@ const REGISTERED: Ratchet[] = [
     // **M-T9.13**, which owns the behavioural-tier drain; the broker one
     // additionally needs a broker container, exactly as `channels-broker`
     // beside it does.
-    max: 25,
+    //
+    // 25 -> 26 (2026-09-28, wave C5 moment 5e, M-T3.6 items 3+5):
+    // `org-context`.  A RAISE whose runtime home already exists: the subject is
+    // the `x-org-context` REQUEST HEADER each backend's auth middleware
+    // validates before routing, which the `test e2e` vocabulary cannot set, so a
+    // behavioural block could only drive the no-switch default (indistinguishable
+    // from `tenancy-hierarchy`).  The switch itself is proven on a booted app per
+    // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
+    // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
+    // once #2976's registry-row principal lands).
+    max: 26,
   },
 ];
 
