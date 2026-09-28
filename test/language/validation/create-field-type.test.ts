@@ -152,7 +152,7 @@ describe("loom.create-field-id-target — the wrong aggregate's id", () => {
       twoAggregates(`let r = R.create({ a: bid, n: 1, at: now(), ref: s })`),
       { validate: true },
     );
-    expect(codesOf(diagnostics)).toContain(ID_TARGET);
+    expect(lspCodes(diagnostics)).toContain(ID_TARGET);
   });
 
   it("accepts the matching id", async () => {
@@ -160,7 +160,7 @@ describe("loom.create-field-id-target — the wrong aggregate's id", () => {
       twoAggregates(`let r = R.create({ a: aid, n: 1, at: now(), ref: s })`),
       { validate: true },
     );
-    expect(codesOf(diagnostics)).not.toContain(ID_TARGET);
+    expect(lspCodes(diagnostics)).not.toContain(ID_TARGET);
   });
 
   // The three wire coercions the gate above exists to permit.  If any of these
@@ -171,7 +171,7 @@ describe("loom.create-field-id-target — the wrong aggregate's id", () => {
       twoAggregates(`let r = R.create({ a: s, n: 1, at: s, ref: s })`),
       { validate: true },
     );
-    expect(codesOf(diagnostics)).not.toContain(ID_TARGET);
-    expect(codesOf(diagnostics)).not.toContain(TYPE);
+    expect(lspCodes(diagnostics)).not.toContain(ID_TARGET);
+    expect(lspCodes(diagnostics)).not.toContain(TYPE);
   });
 });
