@@ -57,7 +57,7 @@ system Ports {
         berth: Berth
         // …and the same VO in a collection, so the id-typed column is proven
         // on the child-table path too.
-        berths: Berth[]
+        berths: Berth[] = []
 
         // Pure-domain (unit) test — runs on every backend's unit tier and mints
         // no wire golden.  It proves the id SURVIVES the value object: the
@@ -74,7 +74,7 @@ system Ports {
         // it.
         test "an id carried by a value object survives construction and value equality" {
           let s = Ship.create({ name: "Aurora" })
-          let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 }, berths: [] })
+          let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
           expect(d.berth.position).toBe(3)
           expect(d.berth.ship == s.id).toBe(true)
           expect(d.berth.assignedShip == s.id).toBe(true)

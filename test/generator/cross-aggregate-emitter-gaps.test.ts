@@ -136,19 +136,22 @@ describe("A — a unit-test body may name a second aggregate", () => {
     expect(src).toMatch(/[A-Z]\w*\.Docking\.Ship\.create\(/);
   });
 
-  it("elixir's skip of the corpus block stays HONEST — tagged, with a reason", async () => {
-    // The corpus fixture's block passes `berths: []`, and elixir cannot lower a
-    // list literal in test position.  That is a pre-existing, documented parity
-    // gap, unrelated to the sibling import fixed here.  Pinning the shape of
-    // the refusal is what keeps it from decaying into a silently-passing test:
-    // a skip that loses its tag would RUN and fail, one that loses its reason
-    // would be indistinguishable from an oversight.
+  it("elixir lowers the corpus block for real — no skip, no sentinel", async () => {
+    // The fixture's block is deliberately list-free.  An empty `berths: []` in
+    // the create call put elixir's test lowering over its documented limit
+    // ("unsupported expression kind 'list' in vanilla test position") and it
+    // emitted a `@tag :skip` body carrying the word `unsupported` — which
+    // `generated-output-sentinels` rejects outright.  Giving the collection a
+    // `= []` DEFAULT instead lets the call omit it, so all five backends emit a
+    // test that actually runs.  Pinned because the fix is one word in the
+    // fixture and nothing else would notice it regressing.
     const src = fileEndingWith(
       await generateCorpusCase("vo-id-reference", "vanilla"),
       "test/docking/dock_test.exs",
     );
-    expect(src).toContain("@tag :skip");
-    expect(src).toContain("unsupported expression kind 'list' in vanilla test position");
+    expect(src).not.toContain("@tag :skip");
+    expect(src).not.toContain("unsupported");
+    expect(src).toMatch(/[A-Z]\w*\.Docking\.Ship\.create\(/);
   });
 
   it("a test body that names NO sibling keeps an import-clean header", async () => {
