@@ -24,6 +24,7 @@ import type {
   ObjectLit,
   Operation,
   PayloadDecl,
+  Projection,
   Property,
   Repository,
   Resource,
@@ -302,6 +303,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   const ambientEnums = new Map<string, EnumDecl>();
   const ambientEntities = new Map<string, Aggregate | EntityPart>();
   const ambientDomainServices = new Map<string, DomainService>();
+  const ambientProjections = new Map<string, Projection>();
   const indexMembers = (members: readonly AstNode[]): void => {
     for (const m of members) {
       if (isValueObject(m)) {
@@ -350,6 +352,16 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
       if (isAggregate(m)) {
         if (!ambientEntities.has(m.name)) ambientEntities.set(m.name, m);
       }
+      // Projections ride the same recursion, for the same page-body reason
+      // (M-T5.33): `QueryView { of: <apiHandle>.<Projection> }` names a
+      // declaration no context in scope can resolve, and without it the
+      // `data:` lambda binds at the `string` placeholder and every field read
+      // off the row types as `string`.  The shadowing objection above does not
+      // reach here — this map is never consulted to decide what a bare name in
+      // a page body MEANS (see `AmbientDeclIndex.projections`).
+      if (isProjection(m)) {
+        if (!ambientProjections.has(m.name)) ambientProjections.set(m.name, m);
+      }
       for (const key of ["members", "contexts"] as const) {
         const kids = (m as unknown as Record<string, unknown>)[key];
         if (Array.isArray(kids)) indexAggregatesDeep(kids as AstNode[]);
@@ -362,6 +374,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
     enums: ambientEnums,
     entities: ambientEntities,
     domainServices: ambientDomainServices,
+    projections: ambientProjections,
     apiOperations: new Map(),
   });
   // M-T4.8 structural pre-pass — the operation set of every `api` an
@@ -382,6 +395,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
       enums: ambientEnums,
       entities: ambientEntities,
       domainServices: ambientDomainServices,
+      projections: ambientProjections,
       apiOperations,
     });
   }

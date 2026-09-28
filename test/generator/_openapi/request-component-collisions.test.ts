@@ -165,6 +165,232 @@ describe("shipped examples publish unique request components", () => {
   });
 });
 
+// Phoenix: the collision landed on the FILE PATH as well as the name, and that
+// is what made it destructive rather than merely confusing. Both render
+// functions ran, but the operation schema went to
+// `${snake(op)}_${snake(agg)}_request.ex` and the workflow's to
+// `${snake(wf)}_request.ex` — the same path on a collision — and the workflow
+// loop runs second, so `files.set` overwrote the operation's module. One module
+// survived carrying the WORKFLOW's fields, and both `$ref`s in `<api>_spec.ex`
+// pointed at it.
+//
+// Resolution is deployable-scoped here, not per context, because
+// `<App>Web.Api.Schemas` is ONE namespace (and the schema dir one directory) for
+// the whole deployable — a per-context scope would leave two hosted contexts
+// free to collide inside it.
+describe("phoenix request-component modules (F-026)", () => {
+  const ELIXIR_SRC = `system Dispatch {
+  subdomain Field {
+    context Work {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+
+        operation schedule(at: string) {
+          scheduled := true
+        }
+      }
+      repository WorkOrders for WorkOrder { }
+
+      workflow scheduleWorkOrder transactional {
+        create(note: string) {
+          let w = WorkOrder.create({ title: note, scheduled: false })
+        }
+      }
+    }
+  }
+  api WorkApi from Field { }
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+}`;
+
+  it("emits BOTH schema modules to distinct files, each with its own fields", async () => {
+    const files = await generateSystemFiles(ELIXIR_SRC);
+    const dir = "api/lib/api_web/api/schemas";
+    const opFile = files.get(`${dir}/work_orders_schedule_work_order_request.ex`);
+    const wfFile = files.get(`${dir}/workflows_schedule_work_order_request.ex`);
+
+    // The defect: exactly one of these used to exist, under the shared path
+    // `schedule_work_order_request.ex`, carrying the workflow's fields.
+    expect(files.has(`${dir}/schedule_work_order_request.ex`)).toBe(false);
+    expect(opFile).toBeDefined();
+    expect(wfFile).toBeDefined();
+
+    expect(opFile).toContain("defmodule ApiWeb.Api.Schemas.WorkOrdersScheduleWorkOrderRequest do");
+    expect(wfFile).toContain("defmodule ApiWeb.Api.Schemas.WorkflowsScheduleWorkOrderRequest do");
+    // Each carries its OWN params — the operation's `at`, the workflow's `note`.
+    expect(opFile).toContain("required: [:at]");
+    expect(wfFile).toContain("required: [:note]");
+  });
+
+  it("points each spec path at its own module, and every $ref resolves", async () => {
+    const files = await generateSystemFiles(ELIXIR_SRC);
+    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    expect(spec).not.toBe("");
+    expect(spec).toContain("ApiWeb.Api.Schemas.WorkOrdersScheduleWorkOrderRequest");
+    expect(spec).toContain("ApiWeb.Api.Schemas.WorkflowsScheduleWorkOrderRequest");
+
+    // A renamed module the spec still references by its old name is a COMPILE
+    // error, not a spec defect — so pin that every referenced schema module is
+    // actually defined by some emitted file. This is the assertion that would
+    // fail on a half-applied rename.
+    const defined = new Set(
+      [...files.values()]
+        .flatMap((c) => [...c.matchAll(/defmodule (ApiWeb\.Api\.Schemas\.\w+) do/g)])
+        .map((m) => m[1]),
+    );
+    const referenced = new Set([...spec.matchAll(/ApiWeb\.Api\.Schemas\.\w+/g)].map((m) => m[0]));
+    expect([...referenced].filter((r) => !defined.has(r))).toEqual([]);
+  });
+});
+
+// The canonical CREATE request is minted by its own rule and is NOT an
+// `agg.operations` entry — measured, `agg.operations` for a `crudish` aggregate
+// is `[schedule, update]` with no `create` in it, and every backend emits
+// `Create<Agg>Request` from a separate path. The first version of this module
+// enumerated owners from `agg.operations` alone and therefore never saw the
+// create request, so a workflow named `create<Agg>` collided with it and nothing
+// was qualified. That was a reachable instance of the very defect this module
+// exists to close, so it is pinned here.
+// Phoenix's create schema is emitted UNCONDITIONALLY (the schema loop has no
+// gate; only the spec's reference to it is gated, on the derived create entry),
+// so `create_<agg>_request.ex` is an occupied path whether or not the document
+// links to it. That is why the elixir owner list carries a create owner for
+// every aggregate rather than gating on `emitsRestCreate` the way the Hono side
+// does: the minter's contract is "the owners this backend actually publishes",
+// and a path is occupied either way.
+describe("phoenix create request is an owner too (F-026)", () => {
+  const ELIXIR_CREATE_COLLIDES = `system P {
+  subdomain S {
+    context C {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+        operation schedule(at: string) { scheduled := true }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow createWorkOrder {
+        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: elixir, contexts: [C], dataSources: [r], port: 4000 }
+}`;
+
+  it("splits the create schema from a workflow named create<Agg>", async () => {
+    const files = await generateSystemFiles(ELIXIR_CREATE_COLLIDES);
+    const dir = "api/lib/api_web/api/schemas";
+
+    // The defect: one `create_work_order_request.ex`, carrying whichever the
+    // second loop wrote.
+    expect(files.has(`${dir}/create_work_order_request.ex`)).toBe(false);
+    const aggFile = files.get(`${dir}/work_orders_create_work_order_request.ex`);
+    const wfFile = files.get(`${dir}/workflows_create_work_order_request.ex`);
+    expect(aggFile).toBeDefined();
+    expect(wfFile).toBeDefined();
+    expect(aggFile).toContain("defmodule ApiWeb.Api.Schemas.WorkOrdersCreateWorkOrderRequest do");
+    expect(wfFile).toContain("defmodule ApiWeb.Api.Schemas.WorkflowsCreateWorkOrderRequest do");
+    // Each carries its own input: the aggregate's create field, the workflow's param.
+    expect(aggFile).toContain("required: [:title]");
+    expect(wfFile).toContain("required: [:note]");
+
+    // `schedule` / `update` do not collide here, so they keep short names.
+    expect(files.has(`${dir}/schedule_work_order_request.ex`)).toBe(true);
+    expect(files.has(`${dir}/update_work_order_request.ex`)).toBe(true);
+
+    // Every schema module the spec references must exist, or the app will not
+    // compile — the assertion a renamed-but-unreferenced module fails.
+    const spec = [...files].find(([p]) => p.endsWith("_spec.ex"))?.[1] ?? "";
+    const defined = new Set(
+      [...files.values()]
+        .flatMap((c) => [...c.matchAll(/defmodule (ApiWeb\.Api\.Schemas\.\w+) do/g)])
+        .map((m) => m[1]),
+    );
+    const referenced = new Set([...spec.matchAll(/ApiWeb\.Api\.Schemas\.\w+/g)].map((m) => m[0]));
+    expect([...referenced].filter((r) => !defined.has(r))).toEqual([]);
+  });
+});
+
+describe("the create request is an owner too (F-026)", () => {
+  const CREATE_COLLIDES = `system P {
+  subdomain S {
+    context C {
+      aggregate WorkOrder with crudish {
+        title: string
+        scheduled: bool
+        operation schedule(at: string) { scheduled := true }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow createWorkOrder {
+        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`;
+
+  it("qualifies Create<Agg>Request against a workflow named create<Agg>", async () => {
+    const files = await generateSystemFiles(CREATE_COLLIDES);
+    const routes = files.get("api/http/workOrder.routes.ts") ?? "";
+    const workflows = files.get("api/http/workflows.ts") ?? "";
+
+    expect(routes).toContain('}).openapi("WorkOrdersCreateWorkOrderRequest");');
+    expect(workflows).toContain('}).openapi("WorkflowsCreateWorkOrderRequest");');
+    // Neither side may still publish the bare name the other also minted.
+    expect(routes).not.toContain('openapi("CreateWorkOrderRequest")');
+    expect(workflows).not.toContain('openapi("CreateWorkOrderRequest")');
+    // The const identifier and the `schema:` reference move with the label, or
+    // the emitted TypeScript does not compile.
+    expect(routes).toContain("const WorkOrdersCreateWorkOrderRequest = z.object({");
+    expect(routes).toContain("schema: WorkOrdersCreateWorkOrderRequest }");
+
+    // `schedule` does NOT collide in this model, so it stays short — the narrow
+    // property, checked on the same document as a real collision.
+    expect(routes).toContain('}).openapi("ScheduleWorkOrderRequest");');
+    expect(routes).toContain('}).openapi("UpdateWorkOrderRequest");');
+
+    const published = [...files.values()]
+      .flatMap((c) => [...c.matchAll(/\.openapi\("(\w+Request)"\)/g)])
+      .map((m) => m[1]);
+    expect(new Set(published).size).toBe(published.length);
+  });
+
+  it("does not invent a create owner for an aggregate with no REST create", () => {
+    // Gated by the shared `emitsRestCreate` predicate: listing a create owner
+    // that is never emitted would qualify a workflow that never clashed.
+    const names = resolveRequestComponentNames([
+      { kind: "workflow", workflow: "createWorkOrder" },
+      { kind: "operation", aggregate: "WorkOrder", operation: "schedule" },
+    ]);
+    expect([...names.values()].sort()).toEqual([
+      "CreateWorkOrderRequest",
+      "ScheduleWorkOrderRequest",
+    ]);
+  });
+
+  it("qualifies a create/workflow collision with the aggregate plural", () => {
+    const names = resolveRequestComponentNames([
+      { kind: "create", aggregate: "WorkOrder" },
+      { kind: "workflow", workflow: "createWorkOrder" },
+    ]);
+    expect([...names.values()].sort()).toEqual([
+      "WorkOrdersCreateWorkOrderRequest",
+      "WorkflowsCreateWorkOrderRequest",
+    ]);
+  });
+});
+
 describe("resolveRequestComponentNames", () => {
   const op = (aggregate: string, operation: string) =>
     ({ kind: "operation", aggregate, operation }) as const;
