@@ -1391,6 +1391,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `variant 'match' subject is not a union — its type is ${
       p.subjectType
     }. A variant match discriminates an 'or'-union value by variant.`,
+  "loom.union-read-undiscriminated": (p: {
+    receiver: unknown;
+    member: unknown;
+    variants: unknown;
+    first: unknown;
+  }) =>
+    `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }' — or declare the find ': ${p.first}' to answer 404 when the row is absent.`,
+  "loom.union-read-undiscriminated#op-call": (p: {
+    receiver: unknown;
+    op: unknown;
+    variants: unknown;
+    first: unknown;
+  }) =>
+    `'${p.receiver}.${p.op}()' invokes an operation on an 'or'-union value (${p.variants}) — it holds ONE of those variants, so there is no aggregate to run it on until the value is discriminated. Load it with a find declared ': ${p.first}' (absent → 404) or 'getById', or branch on the variant with 'match'.`,
   "loom.match-unknown-variant": (p: { varType: unknown; variants: unknown }) =>
     `variant 'match' arm names '${p.varType}', which is not a variant of the subject union {${p.variants}}.`,
   "loom.match-duplicate-variant": (p: { varType: unknown }) =>

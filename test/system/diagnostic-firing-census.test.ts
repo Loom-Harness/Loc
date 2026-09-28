@@ -836,6 +836,26 @@ system S {
     `outcome { Order o => o.code, Order p => p.code, NotFound => "" }`,
   ),
   "loom.match-non-exhaustive": unionMatch(`outcome { Order o => o.code }`),
+  // M-T5.1 A4 — reading straight through a union find's `Order or NotFound`
+  // without a variant `match` (an unguarded dereference on all five backends).
+  "loom.union-read-undiscriminated": `
+system S {
+  subdomain D { context Shop {
+    error NotFound { resource: string }
+    aggregate Order with crudish { code: string }
+    aggregate Note with crudish { text: string }
+    repository Orders for Order {
+      find byCode(code: string): Order or NotFound where this.code == code
+    }
+    repository Notes for Note { }
+    workflow label {
+      create(code: string) {
+        let outcome = Orders.byCode(code)
+        let n = Note.create({ text: outcome.code })
+      }
+    }
+  } }
+}`,
   "loom.match-subject-not-simple": unionMatch(
     `Orders.byCode(code) { Order o => o.code, NotFound => "" }`,
   ),
