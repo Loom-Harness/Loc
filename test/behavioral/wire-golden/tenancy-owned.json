@@ -344,6 +344,71 @@
         "number": "LADDER-1",
         "version": 1
       }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "DELETE",
+      "path": "/api/invoices/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 34,
+      "method": "DELETE",
+      "path": "/api/invoices/{id}",
+      "status": 204,
+      "body": ""
     }
   ]
 }
