@@ -1371,10 +1371,17 @@ export function generateTypeScriptForContexts(
   const hasChannelConsumers = hasChannels && merged.eventSubscriptions.some((s) => !s.projection);
 
   const projectUsesMoney = contexts.some(contextUsesMoney);
+  // `decimal.js` is also the exact-`decimal` arithmetic runtime (RS-37): a
+  // money-free project whose domain computes a `decimal` imports it too.  The
+  // dependency follows the invariant that matters — an emitted module imports
+  // it ⇒ `package.json` declares it — rather than a second IR predicate that
+  // would have to re-derive every expression site the renderers reach.
+  const projectImportsDecimalJs =
+    projectUsesMoney || [...out.values()].some((c) => c.includes('from "decimal.js"'));
   out.set(
     "package.json",
     projectPackageJson(pins, {
-      withMoney: projectUsesMoney,
+      withMoney: projectImportsDecimalJs,
       withOidc: !!oidcAuth,
       withCronTimers: hasTimers && anyTimerUsesCron(ownedTimers),
       withRedisChannels: hasChannels && channelBindings.some((b) => b.transport === "redis"),

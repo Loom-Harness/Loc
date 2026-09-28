@@ -93,6 +93,9 @@ const BASELINE: Record<string, Divergence> = {
   //     `isResponsePayloadName`.  A re-derivation has to undo it.
   "collection-op-shapes.ddd Sales.Order": "containment-response-suffix",
   "core-domain.ddd Orders.Order": "containment-response-suffix",
+  // (added with the RS-37 witness — a fixture carrying a containment, so the
+  // same deliberate B1 shape; not a new divergence class.)
+  "decimal-exact.ddd Lab.Sample": "containment-response-suffix",
   "document-collection-read.ddd Shop.Order": "containment-response-suffix",
   "document.ddd Cms.Article": "containment-response-suffix",
   "embedded.ddd Shop.Order": "containment-response-suffix",

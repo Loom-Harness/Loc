@@ -1673,3 +1673,80 @@ nothing and the test passes vacuously.
   vacuous by construction today (the page-body gate above); should that gate
   ever widen, the frontends follow this same rule rather than degrading to
   `undefined`.
+
+### RS-37 · `decimal` arithmetic is **EXACT** — `0.1 + 0.2` is `0.3` on the wire and in storage
+- **Guarantee.** Every backend computes `decimal` arithmetic in DECIMAL, not in
+  binary floating point: `+`, `-`, `*`, `/`, `%` whose result types as `decimal`
+  (including the `int / int` division the type system widens to `decimal`), a
+  `decimal` `sum` fold, and `decimal.round(n)` (half away from zero on the
+  exact value). `0.1 + 0.2` answers `0.3`, and so does the value an operation
+  writes to a stored column and a later read returns. RS-24 is unchanged — the result still *serializes* as a float64 JSON number; only
+  the *computation* moved.
+- **Trigger.** `test/fixtures/corpus/decimal-exact.ddd`:
+
+  | expression | double | exact |
+  |---|---|---|
+  | `a + b` (0.1 + 0.2) | `0.30000000000000004` | `0.3` |
+  | `c * c * c` (1.1³ — a chain) | `1.3310000000000004` | `1.331` |
+  | `d / a` (0.3 / 0.1) | `2.9999999999999996` | `3` |
+  | `(a + b) * 3 - d` | `0.6000000000000001` | `0.6` |
+  | `tie.round(2)` (1.005) | `1` | `1.01` |
+  | `parts.sum(p => p.weight)` over 0.1, 0.2 | `0.30000000000000004` | `0.3` |
+  | `total := total + x` (0.1 + 0.2, stored, read back) | `0.30000000000000004` | `0.3` |
+
+  Every literal is binary-INEXACT on purpose, and each pair differs AFTER the
+  RS-24 narrowing — a value that differed only in the 20th digit would pass
+  with the fix reverted. One more row witnesses the *chain*, not the double:
+  `a / 3 * 3` (0.1) is `0.0999…9` exactly and narrows to `0.1` on the wire,
+  while a backend that computed each step exactly but narrowed to a double
+  between steps answers `0.09999999999999999` — so a chain stays decimal until
+  its root. It is asserted on the wire only: in-process, the decimal-typed
+  backends hold the un-narrowed `0.0999…9`.
+- **Why it hid.** RS-24 pinned how a `decimal` serializes and nothing pinned
+  how it computes. .NET (`System.Decimal`), Java (`BigDecimal`) and Elixir
+  (`Decimal`) computed exactly; node (a JS `number`) and python (a `float`)
+  computed in doubles — and persisted the result into the shared unbounded
+  `DECIMAL` column. Single divisions of binary-exact operands agree by
+  coincidence (double division is correctly rounded), which is why `7 / 3`
+  never exposed it, and the corpus carried no float-error-visible decimal
+  arithmetic at all: the witness could not be added first, because against the
+  node oracle it alone would have turned the three CORRECT backends red.
+- **The ruling.** **D-DECIMAL-EXACT-MOMENT**, given by the owner 2026-09-07:
+  `decimal` exists precisely to avoid binary-float error, so a decimal that
+  answers `0.30000000000000004` is broken by its own definition. It superseded
+  the numeric-types audit's proposed float64/node-oracle default. `money` was
+  never at stake (a fixed-scale-4 string, already exact on all five — RS-12).
+- **Per-backend shape.** node lifts the operation into decimal.js and narrows
+  with `.toNumber()` **once, at the root of the chain** — a nested decimal
+  operand hands over its `Decimal` un-narrowed, so `c * c * c` is one exact
+  product, not two re-rounded doubles (`src/generator/typescript/render-expr.ts`:
+  `new Decimal(this._c).times(this._c).times(this._c).toNumber()`). python lifts
+  each operand through `Decimal(str(x))` — the shortest-repr route, a no-op by
+  value for an operand that already is a `Decimal` — and narrows with
+  `float(...)` once (`src/generator/python/render-expr.ts`:
+  `float(Decimal(str(self._a)) + Decimal(str(self._b)))`); a `decimal` `%` stops
+  detouring through `trunc_mod`, because `Decimal`'s remainder already truncates.
+  Both keep the domain and wire type a double, so no repository, DTO or codec
+  changed. .NET / Java / Elixir are unchanged.
+- **Historical rows.** Values node and python persisted before this rule are
+  NOT rewritten — see [`migrations.md`](migrations.md).
+- **Not part of the guarantee (named, handed off).** node computes at decimal.js's
+  default 20 significant digits (python/.NET/Elixir 28; Java exact for `+ - *`,
+  34 digits for `/`) — every value above agrees after the narrowing, and a
+  result that differs only in its 18th–28th digit is the precision-alignment
+  follow-up, not a conformance claim here. The wire-boundary zod `.refine` node
+  emits for a cross-field invariant (`src/generator/zod-refine.ts`, shared with
+  the JS frontends) still evaluates in doubles; the domain's own invariant
+  check behind it is exact.
+- **Numbering.** D-DECIMAL-EXACT-MOMENT's text says "take RS-38" because
+  D-ABSENT-JOIN-DATETIME-WIRE reserved RS-37 for the datetime wire form. This
+  rule landed first, and the registry's gap-free gate refuses an RS-38 with no
+  RS-37, so it is RS-37; the datetime rule takes the next free number when it
+  lands.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** Raised by the numeric-types audit
+  ([F11](audits/numeric-types-audit-2026-08-23.md)); ruled as
+  D-DECIMAL-EXACT-MOMENT; built as M-T5.22 (wave C5 moment 5a). Tier:
+  **behavioral** — the witness's unit `test` block runs on all five unit tiers
+  and its `test e2e` block records `test/behavioral/wire-golden/decimal-exact.json`,
+  diffed by all seven wire-gated legs.

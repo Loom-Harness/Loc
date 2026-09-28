@@ -528,9 +528,10 @@ describe("py renderPyExpr — operators / ternary / match / convert", () => {
 describe("py renderPyExpr — A1 int-division widening + divTrunc", () => {
   const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
 
-  // `int / int` widens to `decimal`.  On Python `decimal` is `float` (already
-  // fractional — `/` is true division), so the division stays native `/`.
-  it("renders int/int→decimal division as native `/` (Python `/` is true division)", () => {
+  // `int / int` widens to `decimal`, and `decimal` arithmetic is EXACT (RS-37):
+  // the division computes on `Decimal` and narrows to the `float` domain type
+  // once, like every other decimal arithmetic chain.
+  it("renders int/int→decimal division as exact Decimal division", () => {
     expect(
       renderPyExpr({
         kind: "binary",
@@ -541,7 +542,7 @@ describe("py renderPyExpr — A1 int-division widening + divTrunc", () => {
         rightType: INT,
         resultType: DECIMAL,
       }),
-    ).toBe("5 / 2");
+    ).toBe('float(Decimal("5") / Decimal("2"))');
   });
 
   // `a.divTrunc(b)` — truncating integer division toward zero via `int(...)`.
@@ -755,8 +756,10 @@ describe("py renderPyExpr — money × decimal lifts the float operand (M-T6.45)
         resultType: DECIMAL,
       },
     };
+    // RS-37: the int/int division is itself exact decimal arithmetic now, so
+    // the money arm takes its un-narrowed `Decimal` (no `float` round trip).
     expect(renderPyExpr(scale("*", money, ratio, MONEY, DECIMAL))).toBe(
-      "self._price * Decimal(str((numerator / denominator)))",
+      "self._price * ((Decimal(str(numerator)) / Decimal(str(denominator))))",
     );
   });
 

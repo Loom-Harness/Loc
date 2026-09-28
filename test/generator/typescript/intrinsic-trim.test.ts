@@ -111,8 +111,11 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
     const domain = generateHono(model).get("domain/invoice.ts")!;
     // int → Math.*, money → decimal.js Decimal methods.
     expect(domain).toContain("Math.abs(this._qty)");
+    // A `decimal` round is decimal ARITHMETIC (RS-37): half-away-from-zero on
+    // the exact value, not the float-scaled `Math.round` (which rounds the
+    // binary-inexact tie 1.005 DOWN).
     expect(domain).toContain(
-      "Math.sign(this._amount) * (Math.round(Math.abs(this._amount) * 10 ** (2)) / 10 ** (2))",
+      "new Decimal(this._amount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber()",
     );
     expect(domain).toContain("Math.floor(this._amount)");
     expect(domain).toContain(".toDecimalPlaces(0, Decimal.ROUND_HALF_UP)");

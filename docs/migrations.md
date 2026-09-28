@@ -806,6 +806,29 @@ regression acceptable to catch one merge later — but applying the
 `run-migration-e2e` label to a PR runs all five legs against that branch before
 merge.
 
+## Semantic changes that emit no migration — exact `decimal` arithmetic (RS-37)
+
+Not every change to what lands in a column is a schema change. When
+[RS-37](conformance-semantics.md) made `decimal` arithmetic exact on node and
+python (M-T5.22 — the other three backends already computed it exactly), the
+column type did not move, so phase ⑨ derives **no migration** and none is
+needed. What moved is the *value* those two backends compute and then write: a
+`derived x: decimal = a + b`, or an operation's `total := total + x`, now stores
+`0.3` where it stored `0.30000000000000004`.
+
+**Historical rows are not rewritten.** A row node or python persisted before the
+change keeps its binary-float value, so an unchanged input can read back
+`0.30000000000000004` from an old row and `0.3` from a new one — and a
+`find … where` equality against a stored computed value can match one and miss
+the other. A stored `derived` column can be brought into line by re-saving the
+row through the regenerated backend (a save recomputes every `derived` from the
+row's own fields) or by a one-off `UPDATE … SET x = <the same expression in
+SQL>` — Postgres `numeric` arithmetic is exact, so the SQL answer is the new
+answer. A value an OPERATION wrote cannot be recomputed that way — the inputs it
+was computed from are gone — so it keeps its old spelling unless the
+deployment rounds it itself. Loom emits no backfill for either: it has no record
+of which stored values were computed rather than entered.
+
 ## Relationship to `.loom/` and `wire-spec.json`
 
 Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
