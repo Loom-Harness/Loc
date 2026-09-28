@@ -227,7 +227,7 @@ Today `POST /<plural>` always takes the **field-derived** create input. A narrow
 
 **Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
 
-## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `open` · **M** · P1
+## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `in-flight` (#3050) · **M** · P1
 
 `src/ir/lower/lower-expr.ts:1214` lowers a bare lambda with a hard-coded placeholder element type:
 
@@ -247,7 +247,9 @@ This is the enabling change for the formatter work: a per-type formatter table c
 
 **Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
 
-Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.
+Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.  **That claim went stale** — both merged without it — and #3050 picked it up on 2026-09-27, cutting the QUERYVIEW-OVER-A-PROJECTION half: `ofReadResultType` recognised only `<handle>.<Aggregate>.<verb>`, so the fifth documented `of:` form (`<apiHandle>.<Projection>`, `page-metamodel.md` §9.3) reached `queryDataType` as `undefined` and the `data:` lambda fell to the placeholder.  Two shipped defects came off that erasure: a projection money field rendered raw into a React text slot (TS2322, invisible to #2871's D4 gate, which resolves its row through `wireFieldsForAggregate`) and `money.round(n)` emitting decimal.js's zero-argument `.round(n)` (TS2554).
+
+**Still open after #3050:** the `lower-expr.ts` bare-lambda site keeps its `string` placeholder for the cases nothing supplies a type to (`env.rowElem ?? { kind: "primitive", name: "string" }`), and the mission's "make the no-known-type case a diagnostic rather than a silent `string`" half is untouched.  #3050 removes the erasure for the `of:` forms the page DSL documents; it does not remove the fallback.
 ## M-T5.34 — the rulings the dev-experience audits deferred, as one diagnostics packet — `done` (2026-09-13) · **M** · P1
 
 Mints three `loom.*` codes in one packet because each one edits the shared catalog (`src/diagnostics/messages.ts`), and separate PRs against that file conflict on every merge. Closes [#2864](https://github.com/Loom-Harness/Loc/pull/2864) findings **D5**, **D6** and **G2**; implements decisions **D-1(c)** and **D-2** of the freight-audit fleet plan (`docs/audits/2026-09-10-freight-fleet-plan.md`, landing with #2864).

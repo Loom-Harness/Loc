@@ -54,6 +54,8 @@ import {
   isPolicyDecl,
   isPostfixChain,
   isPrimitiveConversion,
+  isProjection,
+  isProjectionOn,
   isProperty,
   isRepository,
   isStringLit,
@@ -1600,7 +1602,7 @@ function ofReadResultType(of: Expression, env: Env): TypeIR | undefined {
       break;
     }
   }
-  if (!agg) return undefined;
+  if (!agg) return projectionReadResultType(of, members);
   const element: TypeIR = { kind: "entity", name: agg.name };
   const verb = members[aggIdx + 1] ? String(members[aggIdx + 1]!.member) : undefined;
   // `<Agg>.all` / no verb at all is the whole collection; `byId` the record.
@@ -1619,6 +1621,97 @@ function ofReadResultType(of: Expression, env: Env): TypeIR | undefined {
     if (find) return lowerType(find.returnType, env);
   }
   return undefined;
+}
+
+/** The result type of the FIFTH documented `of:` form — `<apiHandle>.<Projection>`
+ *  (`docs/page-metamodel.md` §9.3, "What an `of:` read may name").
+ *
+ *  Until M-T5.33 this form had no arm at all: `ofReadResultType` scanned for a
+ *  declared AGGREGATE and returned `undefined` for everything else, so
+ *  `queryDataType` could not answer and the `data:` lambda bound at the
+ *  `string` placeholder.  Every field read off the row then typed as `string`
+ *  — which is why `money` rendered raw into a React text slot (a `Decimal`
+ *  into a `ReactNode`, TS2322) and `s.gross.round(2)` missed the `money.round`
+ *  intrinsic and emitted decimal.js's zero-argument `.round(n)` (TS2554).
+ *
+ *  A projection read names no verb — the projection IS the read — so a
+ *  trailing suffix means this is not the projection form and the caller's
+ *  `undefined` (no binding) stays the honest answer. */
+function projectionReadResultType(
+  of: Expression,
+  members: readonly MemberSuffix[],
+): TypeIR | undefined {
+  for (let i = members.length - 1; i >= 0; i--) {
+    const proj = projectionInDocument(of, String(members[i]!.member));
+    if (!proj) continue;
+    // A suffix AFTER the projection is a verb, and a projection has none.
+    if (i !== members.length - 1) return undefined;
+    const shape = astProjectionReadShape(proj);
+    if (!shape) return undefined;
+    const row: TypeIR = { kind: "entity", name: proj.name };
+    return shape === "many" ? { kind: "array", element: row } : row;
+  }
+  return undefined;
+}
+
+/** The RESPONSE SHAPE a frontend read of this AST `projection` yields, or
+ *  `undefined` when a frontend cannot read it at all.
+ *
+ *  An AST-side MIRROR of `projectionReadShape` / `isFrontendReadableProjection`
+ *  (`src/ir/util/projection-read.ts`), which answer the same question over
+ *  `ProjectionIR`.  Lowering is where the answer is first needed — a page
+ *  body's `data:` lambda binds before any `ProjectionIR` exists — and the IR
+ *  predicates cannot be reached from here without lowering the projection
+ *  twice.
+ *
+ *  Two copies of one rule is exactly what `projection-read.ts`'s header warns
+ *  against, so the copies are PINNED to agree:
+ *  `test/ir/projection-read-shape-parity.test.ts` runs both over every
+ *  projection in the shipped corpus and fails on any disagreement — the same
+ *  device `adapter-metadata-consistency.test.ts` uses for its pure-data
+ *  mirror.  Each clause below cites the IR predicate it mirrors.
+ *
+ *  Exported for that gate alone: a parity test that re-transcribed these
+ *  clauses would pin its own copy against the IR and leave THIS one free to
+ *  drift — a green check that never reaches the thing it names. */
+export function astProjectionReadShape(p: Projection): "one" | "many" | undefined {
+  const handlers = p.members.filter(isProjectionOn); // → IR `handlers`
+  const fields = p.members.filter(isProperty); // → IR `stateFields`
+  // isQueryTimeProjection: a query source with no fold handlers.
+  if (!p.source || handlers.length > 0) return undefined;
+  // isSingletonProjection: no `keyed by` ⇒ no correlation field.
+  if (p.key !== undefined) return undefined;
+  // isGroupedProjection / isShorthandProjection — both ride the wire as an
+  // array.  Ask "is it the whole-table aggregation", not "is it grouped":
+  // a shorthand read (no declared fields, no `select`) returns the filtered
+  // SOURCE ROWS, and is unkeyed too.
+  if (p.groupBys.length > 0) return "many";
+  if (fields.length === 0 && p.selects.length === 0) return "many";
+  return "one";
+}
+
+/** Per-document projection index, built on first use and keyed by the `Model`
+ *  root — the projection twin of `aggregatesByDocument`. */
+const projectionsByDocument = new WeakMap<AstNode, ReadonlyMap<string, Projection>>();
+
+/** The `projection` named `name` declared anywhere in `node`'s own document.
+ *
+ *  Same narrowing, and same reason, as `aggregateInDocument` above: a page
+ *  body has no context in scope, and the declaration it NAMES is the only
+ *  handle on the read's row type. */
+function projectionInDocument(node: AstNode, name: string): Projection | undefined {
+  const root = AstUtils.getContainerOfType(node, isModel);
+  if (!root) return undefined;
+  let index = projectionsByDocument.get(root);
+  if (!index) {
+    const built = new Map<string, Projection>();
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (isProjection(n) && !built.has(n.name)) built.set(n.name, n);
+    }
+    index = built;
+    projectionsByDocument.set(root, index);
+  }
+  return index.get(name);
 }
 
 /** The type a `QueryView`'s `data:` lambda parameter binds: the query result
