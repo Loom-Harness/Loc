@@ -121,7 +121,8 @@ describe("python domain primitives", () => {
     expect(vos).toContain('        return self.currency + " " + str(self.amount)');
     // Public (no underscore): VO functions are cross-boundary surface.
     expect(vos).toContain("    def doubled(self) -> float:");
-    expect(vos).toContain("        return self.amount * 2");
+    // decimal arithmetic is exact (RS-37) — computed on Decimal, narrowed once.
+    expect(vos).toContain('        return float(Decimal(str(self.amount)) * Decimal("2"))');
   });
 
   it("events render as frozen dataclasses with a ClassVar wire tag", async () => {
