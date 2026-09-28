@@ -293,6 +293,39 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
     expect(codes).not.toContain(CODE);
   });
 
+  it("refuses the guard on a NAMED event-sourced create — the one the backends render", async () => {
+    // The refusal used to read `agg.canonicalCreate` only.  On an event-sourced
+    // aggregate the create the backends render is `agg.creates[0]` BY INDEX, so a
+    // NAMED `create open(...)` is the emitted one and is NOT `canonicalCreate` —
+    // which meant its guard sailed past the refusal untouched.  Measured on node
+    // before the fix: `ddd parse` reported `0 error(s)`, and the guard rendered
+    // into the domain `_init` as a free identifier:
+    //
+    //     private _init(owner: string): void {
+    //       if (!(currentUser.role === "admin")) throw new ForbiddenError(...);
+    //
+    //   $ tsc acct.ts
+    //   acct.ts(68,11): error TS2304: Cannot find name 'currentUser'.
+    //   acct.ts(68,52): error TS2304: Cannot find name 'ForbiddenError'.
+    //
+    // So the generated project did not compile, and where it is coaxed into
+    // compiling the gate cannot deny — a fail-open outcome in a leak-shaped
+    // feature, out of source the compiler called clean.  `validateNamedLifecycleDropped`
+    // had already learned the same lesson one check over
+    // (`loom.named-lifecycle-dropped`, #2532); this arm had not.
+    const codes = await codesFor(`
+      event Opened { order: Order id, owner: string }
+      aggregate Order persistedAs: eventLog {
+        owner: string
+        create open(owner: string) {
+          requires currentUser.role == "admin"
+          emit Opened { order: id, owner: owner }
+        }
+        apply(e: Opened) { owner := e.owner }
+      }`);
+    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+  });
+
   it("rejects a CREATE guard reading a declared parameter", async () => {
     // The parameter list never reaches the wire — the create input is derived
     // from the FIELD set — so there is nowhere to read the value from.

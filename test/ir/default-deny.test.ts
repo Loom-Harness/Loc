@@ -19,6 +19,20 @@ async function denyErrors(source: string): Promise<string[]> {
     .map((d) => d.message);
 }
 
+/** Every diagnostic, any severity and any code — the deadlock cases below turn
+ *  on what does NOT fire as an error as much as on what does, and on the code
+ *  that replaces it. */
+async function allDiags(
+  source: string,
+): Promise<{ severity: string; code: string; message: string }[]> {
+  const { model } = await parseString(source, { validate: false });
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => ({
+    severity: d.severity,
+    code: d.code ?? "",
+    message: d.message,
+  }));
+}
+
 function sys(opts: { enforcement: string; authRequired: boolean; gate: string }): string {
   return `
 system Helpdesk {
@@ -311,5 +325,164 @@ describe("default-deny — route-bound explicit handlers", () => {
     expect(msg).toContain("has no body");
     expect(msg).toContain("drop `extern`");
     expect(msg).not.toContain("Add a `requires <expr>` to its body");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-004 — `denyByDefault` × `persistedAs: eventLog`, and where a lifecycle
+// gate actually goes.
+//
+// Both halves of this block are regressions against a REPORTED conclusion, not
+// against a hypothetical.  A platform evaluation read the `default-deny-ungated`
+// remedy ("Add a `requires <expr>`"), tried it in the header position every
+// SIBLING declaration uses, hit `Expecting token of type '{' but found
+// \`requires\``, and concluded that `enforcement: denyByDefault` and
+// `persistedAs: eventLog` are mutually exclusive — "an event-sourced aggregate
+// may have a creation endpoint, or the recommended security posture, not both."
+//
+// For a STATE-BASED aggregate that was never true: the gate is a body statement
+// and always satisfied the check (the suites above have asserted exactly that
+// since #2519).  For an EVENT-SOURCED one it was true, for a reason the report
+// never reached — two validators demanding contradictory things.
+// ---------------------------------------------------------------------------
+describe("an event-sourced create under denyByDefault", () => {
+  /** `persistedAs: eventLog` + `denyByDefault`, create gated by `gate`. */
+  function esSys(gate: string): string {
+    return `
+system Ledger {
+  user { id: string role: string }
+  auth { enforcement: denyByDefault }
+  subdomain S {
+    context Accounts {
+      event Opened { account: Account id, owner: string }
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        create(owner: string) { ${gate}emit Opened { account: id, owner: owner } }
+        apply(e: Opened) { owner := e.owner }
+      }
+      repository Accounts for Account { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Accounts, kind: state, use: primary }
+  resource el { for: Accounts, kind: eventLog, use: primary }
+  api LedgerApi from S
+  deployable api { platform: node contexts: [Accounts] serves: LedgerApi dataSources: [st, el] port: 8080 auth: required }
+}
+`;
+  }
+
+  it("is BUILDABLE ungated — the deadlock, and the finding's headline claim", async () => {
+    // Before: gate absent → `loom.default-deny-ungated` (error), gate present →
+    // `loom.lifecycle-guard-event-sourced` (error).  Every option errored, so the
+    // two settings really were mutually exclusive for any event-sourced
+    // aggregate with a creation endpoint.  The exit is the RECOURSE rule
+    // `default-deny-checks.ts` already states for the by-id read: an arm the
+    // author cannot satisfy is a warning with its own code, never an error.
+    const diags = await allDiags(esSys(""));
+    expect(diags.filter((x) => x.severity === "error")).toEqual([]);
+    const warn = diags.find((x) => x.code === "loom.default-deny-es-create-ungateable");
+    expect(warn).toBeDefined();
+    // The warning has to carry the security consequence AND a remedy that
+    // exists — the failure mode of the error it replaces was naming one that
+    // does not.
+    expect(warn!.message).toContain("ANY authenticated caller");
+    expect(warn!.message).toContain("persistedAs: eventLog");
+    expect(warn!.message).toContain("operation");
+  });
+
+  it("keeps the hard error on an ELIXIR host, where the author does have recourse", async () => {
+    // The exemption is scoped to "no host can enforce a gate here", not to
+    // "event-sourced".  Phoenix hoists a lifecycle gate to its context function
+    // (`create_<agg>(attrs, current_user \\ nil)`) and the controller passes the
+    // real principal, so on elixir an ES create CAN be gated — pinned by
+    // `test/generator/elixir/es-command-principal.test.ts`.  Handing it the
+    // warning would quietly drop the gate requirement on the one backend that
+    // honours it: a fail-open exemption, which is what this asserts against.
+    const diags = await allDiags(esSys("").replace("platform: node", "platform: elixir"));
+    const codes = diags.map((x) => x.code);
+    expect(codes).not.toContain("loom.default-deny-es-create-ungateable");
+    expect(
+      diags.filter((x) => x.severity === "error" && x.code === "loom.default-deny-ungated").length,
+    ).toBe(1);
+  });
+
+  it("accepts a gated create on an ELIXIR host — no refusal, no deny error", async () => {
+    // The other half of the same fact: the gate is both REQUIRED and ACCEPTED
+    // there, so the elixir model is satisfiable in the ordinary way.
+    const diags = await allDiags(
+      esSys('requires currentUser.role == "admin" ').replace("platform: node", "platform: elixir"),
+    );
+    expect(diags.filter((x) => x.severity === "error")).toEqual([]);
+  });
+
+  it("still refuses a gate written in the create body", async () => {
+    // The other side of the vice, unchanged: the refusal is right — the ES
+    // create body renders into a domain `_init` with no principal in scope.
+    // Downgrading the default-deny arm must not have downgraded THIS.
+    const diags = await allDiags(esSys('requires currentUser.role == "admin" '));
+    const codes = diags.filter((x) => x.severity === "error").map((x) => x.code);
+    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+  });
+
+  it("does not hand the ungateable warning to a STATE-BASED create", async () => {
+    // The over-fire guard.  A state-based create HAS a gate surface, so it must
+    // keep the hard error — the exemption is scoped to "no recourse exists",
+    // not to "a create".
+    const diags = await allDiags(`
+system Ledger {
+  user { id: string role: string }
+  auth { enforcement: denyByDefault }
+  subdomain S {
+    context Accounts {
+      aggregate Account {
+        owner: string
+        create(o: string) { owner := o }
+      }
+      repository Accounts for Account { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Accounts, kind: state, use: primary }
+  api LedgerApi from S
+  deployable api { platform: node contexts: [Accounts] serves: LedgerApi dataSources: [st] port: 8080 auth: required }
+}
+`);
+    const codes = diags.map((x) => x.code);
+    expect(codes).not.toContain("loom.default-deny-es-create-ungateable");
+    expect(codes).toContain("loom.default-deny-ungated");
+  });
+});
+
+describe("the lifecycle arm of `loom.default-deny-ungated` names the POSITION", () => {
+  it("sends a hand-written create to the BODY, not the header", async () => {
+    // The whole cost of F-004 was one missing clause in this message.  "Add a
+    // `requires <expr>`" is true of an `operation`, whose header takes one; on a
+    // `create` it routes the reader straight into a parse error, and from there
+    // to "the posture is unsatisfiable".
+    const errs = await denyErrors(`
+system Helpdesk {
+  user { id: string role: string }
+  auth { enforcement: denyByDefault }
+  subdomain S {
+    context Tickets {
+      aggregate Ticket {
+        subject: string
+        create(s: string) { subject := s }
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Tickets, kind: state, use: primary }
+  api SupportApi from S
+  deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
+}
+`);
+    const msg = errs.find((m) => m.includes("Ticket.create"))!;
+    expect(msg).toContain("FIRST STATEMENT of the body");
+    expect(msg).toContain("create(...) { requires <expr>");
+    // and it must SAY the header form does not parse, so nobody tries it twice
+    expect(msg).toContain("is a parse error");
   });
 });
