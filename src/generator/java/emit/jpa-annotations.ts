@@ -197,8 +197,17 @@ export function jpaFieldAnnotations(
   }
 
   // Primitive / enum array → a native Postgres array column.
+  // An ENUM element is stored by NAME in the `text[]` column, exactly like the
+  // scalar enum arm below: without `@Enumerated(STRING)` Hibernate wrote
+  // ORDINALS and could not read them back (`No enum constant …Skill.2`, wave
+  // C3 D3).  A reserved-word enum's codec is a scalar `AttributeConverter` that
+  // cannot convert a list, so that crossing keeps the plain array mapping.
   if (t.kind === "array") {
-    return [`    @JdbcTypeCode(SqlTypes.ARRAY)`, `    @Column(name = "${hbIdent(col)}")`];
+    const byName =
+      t.element.kind === "enum" && !opts.mangledEnums?.has(t.element.name)
+        ? [`    @Enumerated(EnumType.STRING)`]
+        : [];
+    return [...byName, `    @JdbcTypeCode(SqlTypes.ARRAY)`, `    @Column(name = "${hbIdent(col)}")`];
   }
 
   // `X id` reference → embedded id record over one column.

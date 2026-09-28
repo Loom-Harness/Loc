@@ -974,6 +974,17 @@ function fieldConfigLines(
       `${indent}${builder}.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${colName};`,
     ];
   }
+  // An enum COLLECTION (`skills: Skill[]` → `List<Skill>`) stores member NAMES
+  // in a `text[]` column, exactly as the scalar arm above stores one.  EF maps
+  // `List<Skill>` as a primitive collection whose ELEMENT defaults to the
+  // enum's int, so every read 500'd ("Reading as 'System.Int32[]' is not
+  // supported for fields having DataTypeName 'text[]'", wave C3 D3); the
+  // element converter is the scalar arm's `HasConversion<string>()`.
+  if (leaf.kind === "array" && leaf.element.kind === "enum") {
+    return [
+      `${indent}${builder}.PrimitiveCollection(x => x.${upperFirst(f.name)}).ElementType(e => e.HasConversion<string>())${colName};`,
+    ];
+  }
   if (leaf.kind === "valueobject") {
     // Relational root: the value object flattens into the owner table's
     // columns (the migration emits `price_amount`, `price_currency`), so the
