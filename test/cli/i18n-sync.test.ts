@@ -127,9 +127,9 @@ describe("ddd i18n — extract/init/sync", () => {
 // ---------------------------------------------------------------------------
 // The design-pack family swap, end to end over REAL packs (merge case 5).
 //
-// `shadcn@v4` and `mui@v7` are both React packs and spell six chrome roles
-// identically ("Remove", "Add {item}", "Yes", "No", "This operation has no
-// parameters.", "{operation} succeeded"), so swapping one for the other re-keys
+// `shadcn@v4` and `mui@v7` are both React packs and spell seven chrome roles
+// identically (removeItem, addItem, boolTrue, boolFalse, noParameters,
+// operationSucceeded, arrayUnsupported), so swapping one for the other re-keys
 // `pack.shadcn.<role>.<h>` -> `pack.mui.<role>.<h>` with the SAME `<h>` - the
 // hash of the unchanged English.  shadcn also declares two roles mui does not
 // (`closeDialog`, `breadcrumbsLandmark`), which have nowhere to carry to and
