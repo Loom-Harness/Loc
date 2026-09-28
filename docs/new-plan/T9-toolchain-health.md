@@ -376,7 +376,7 @@ Does NOT depend on M-T9.40's enumeration the way the original framing assumed �
 
 Sources: [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §4 C3. Relates to M-T9.9 (sentinel `ExprIR` → typed nodes, done — the prerequisite that made these sentinels inspectable), M-T9.28 (the authorization-surface census this generalises).
 
-## M-T9.42 — Promote the duplicated per-target scenarios into the corpus, then delete them — `in progress` (1 of 42 landed: `temporal`) · **L** · P2 ⭐ the only route that shrinks the suite without losing a claim
+## M-T9.42 — Promote the duplicated per-target scenarios into the corpus, then delete them — `partial` (20 of 42 landed: `temporal` + 19 in wave C3 3d) · **L** · P2 ⭐ the only route that shrinks the suite without losing a claim
 
 Minted 2026-08-31 by the [verification-architecture audit](../audits/verification-architecture-2026-08-31.md) §1, §5.
 
@@ -424,21 +424,9 @@ So the unit of work here is not a new fixture but a **runtime driver for fixture
 
 Deliberately NOT taking the largest candidate first. `generator` (5,236 LOC ×5) is bigger, and #2766 independently measured `generator-dotnet.test.ts` as this mission's largest single target — but that PR now holds an exact-count ratchet over it (dotnet: 39 files / 150 call sites), so deleting tests there would break its gate and conflict. It waits until #2766 lands.
 
+**Wave C3 3d (2026-09-28) — 20 of 42.** Nineteen more scenarios promoted, each a fixture (three new: `stamps-principal`, `intrinsics`, `wire-ingress`; the rest extensions of existing ones) with a value-asserting `test e2e` block and a node-minted golden verified on all seven legs, then its string copies deleted — ~234 `it` blocks and 4 files, `test/generator` −3,403 / +1,099 LOC (the plus is mostly M-T9.43's harness). Promoted: audit-history, provenance, projection-groupby, field-mask, seed, stamping, render-expr-kinds (via M-T9.43), lifecycle-audit, intrinsic-trim, the `generator-dotnet` batch (66 → 58 pinned sites), message-clause, projection, workflow-instances, query-projection-join-missing, workflow-own-state-assign, saga-starter-guard, tenancy-registry-self-scope, wire-numeric-ingress, document-capability-filter (its non-principal arm; the principal arm needs authz-census probes, handed to 3c). Every promotion is mutation-proved on node; every kept string claim is named with its reason. **Promoting found 25 defects (D1–D25), all handed off with repros** — among them .NET/Dapper accepting a money `"12,50"` as 1250, node 500ing on a reloaded saga money compound (the hono string test pins that exact broken spelling), `unique(...)` unenforced on Dapper and MikroORM, and MikroORM 500ing every `transactional` workflow. The audit's list of 42 was never committed; recomputed by the same rule it is 71 names on this base, and the hand-off note gives a reason for every unpromoted one (frontend-only, harness capability, a D-defect, or owned elsewhere). `explicit-handlers` still waits on #3024. Details: [wave-c3-3d-promote.md](waves/handoffs/wave-c3-3d-promote.md).
+
 Sources: [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §1, §2, §5. Relates to M-T9.13 (the behavioural matrix that unblocks the compile-only cells), M-T9.29 (the driven-primitive census — the same "emitted but never exercised" question from the other side).
-
-## M-T9.43 — `render-expr-kinds` wants an EVALUATED value table, not a rendered-string table — `open` · **M** · P2
-
-Minted 2026-09-03 to stop [M-T9.42](#m-t942--promote-the-duplicated-per-target-scenarios-into-the-corpus-then-delete-them)'s reference dangling: its promotion ranking names `render-expr-kinds` (3,203 LOC across four backends) as the one candidate that "wants M-T9.43's shape". This row is that shape.
-
-**The problem with the current tables.** Each backend's `render-expr-kinds.test.ts` (plus `phoenix-render-expr.test.ts`) pins, per `ExprIR.kind` arm, the STRING the target's leaf table renders. Four copies of the same arm list, each asserting a different spelling of the same meaning — so the shared dispatcher (`src/generator/_expr/target.ts`) is well covered on syntax and not covered at all on agreement. Two backends can render an arm in a way that compiles on both and evaluates differently, and every one of these tests stays green: the wire-golden differential recorded exactly that failure once already (RS-11 — three backends agreed, and all three were wrong).
-
-**The shape.** One table of `(ExprIR, expected VALUE)` rows, driven per backend by rendering the expression into a tiny executable harness in the target language and comparing the value, not the text. The rows are the semantics; the four leaf tables are the implementations under test. Divergences that are legitimate (money scale, integer division, `null` ordering) become named rows rather than four unrelated string pins.
-
-**What it is not.** Not a reference interpreter for Loom IR — the verification audit priced that and declined it, answering the same question more cheaply with a committed reviewed golden. This table is per-arm and shallow by design: it proves the five leaf tables mean the same thing on a fixed row set, and hands anything deeper to the behavioural tier.
-
-**Verification when it lands.** Mutation-proved per backend: change one leaf's operator (`&&` → `||`, integer `/` → float `/`, money `+` losing its scale) and the value row must fail on that backend and only that backend. The current string tables catch the first of those three and miss the other two — that difference is the whole justification, and the PR states it as a measured before/after, not as a claim.
-
-Sources: [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §1, §5 (the duplication ranking). Relates to M-T9.42 (the promotion campaign this unblocks for one of its six candidates), M-T9.13 (the behavioural matrix that owns the deep cases).
 
 ## M-T9.46 — Ten per-feature docs contradict the code — `open` · **M** · P3 ⚠ verify-first, docs-only, route to `status-refresh`
 
@@ -524,18 +512,6 @@ Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.m
 **Verification when it lands.** If (b) or (c): both `UNPARSEABLE` (`test/system/ddd-source-census.test.ts`) and `NON_PARSING_SOURCES` (`test/ir/authz-gate-census-pins.ts`) empty in the same PR, and their stale-pin ratchets prove it. For the `auth-capabilities.ddd` half, the failure shape to avoid is a glob that matches and a runner that silently continues — `experience_gathered.md` §59 verbatim.
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md), "Findings handed off, not fixed here". Relates to M-T9.3 (corpus/example coverage) and M-T9.8 (a fixture nothing executes is hollow).
-
-## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `open` (D-MISC-C0 item 1 applied by default 2026-09-13: the boundary stays, M-T9.42's promotion goes first) · **S** · P2
-
-Minted 2026-09-07 as the explicit residue of [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all), which closed the *wrapper* and deliberately left the rung below it out of scope.
-
-**What is left.** `generateDotnetForContexts` — the system-mode entry the orchestrator itself calls — is still imported straight from `src/` by **six `test/` files** (re-counted 2026-09-07: `dotnet-find-gate`, `dotnet-schema-id-collisions`, `dotnet-tph-capability-filter`, `dotnet-tph`, `field-mask-dotnet`, `generator-dotnet`; a seventh hit is the ratchet naming it). Those call sites bypass `assertModelVerifies` exactly as the 136 wrapper-bypassing sites did before M-T9.49. The boundary was drawn on purpose and symmetrically — the Hono ratchet gates `generateHono`, not `generateTypeScriptForContexts` — so **this row's first job is to decide whether the boundary is still right**, not to assume it is wrong: the `ForContexts` entry is what `src/system/` calls in production, so a helper wrapper there is a different argument from the legacy-CLI-path one.
-
-**Note the overlap before picking a route.** `generator-dotnet.test.ts` alone is **66 of the 150 pinned .NET call sites** and is also M-T9.42's largest corpus-promotion candidate. Promoting it first shrinks this mission's surface by nearly half and shrinks the ratchet's pins in the same move; doing this mission first makes that promotion a bigger diff. Sequence accordingly.
-
-**Verification when it lands.** Whichever route: re-seed M-T9.40's `enumName: undefined` mutation at the enum-value lowering site and measure **both sides** — with the new assertion and with it stripped — reporting the count of *previously-silent* tests that now fail, the way M-T9.48 (5) and M-T9.49 (60) both did. A one-sided "N tests fail" number does not distinguish a working instrument from an unrelated string assertion.
-
-Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.2 residue. Relates to M-T9.49 (the wrapper this sits below), M-T9.42 (the promotion that shrinks it), M-T9.40 (the verifier).
 
 ## M-T9.53 — Three `src/` files carry a raw NUL byte, so the tools treat them as binary — `done` (wave C4 packet 4f, 2026-09-22) · **XS** · P3
 
