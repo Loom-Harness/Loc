@@ -2,7 +2,7 @@
 
 Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 "Wave C5". Rules: §3 there and §3/§3a of [`../improvement-waves-2026-09.md`](../improvement-waves-2026-09.md). The wave lands as **one docs PR (the rulings) followed by one PR per moment**, each on `claude/loom-review-planning-adz0n4` restarted from `main` after the previous one merges — the plan's "sequenced so their fixture re-baselines never overlap" is enforced by the branch, not by discipline.
 
-## Status: **opened 2026-09-28 — the 5.0 rulings docs PR is the claim; the five moments follow one PR at a time**
+## Status: **5.0 MERGED — #3053 → `main` 2026-09-28 06:00Z (first queue attempt). Moment 5a (M-T5.22 decimal-exact) launched 2026-09-28; 5c/5d build in parallel worktrees and land after it; 5b after 5a; 5e last.**
 
 ## Why C5 is the next moment, and what it is not
 
@@ -35,5 +35,6 @@ Each is one Opus agent in an isolated worktree on a local `claude/c5-<packet>` b
 
 ## Fold notes
 
+- **5.0 merged (2026-09-28 06:00Z, #3053 → `main`, one queue attempt — a docs-only PR enqueues six minutes after CI starts and its group builds immediately when the queue is empty).**
 - **5.0 built (2026-09-28, #3053).** Twenty-three `proposed` rulings past their 48-hour default flipped to `applied` with the merge date and the PR that carried each (eleven from C0.6 via #2863, three from C2 batch 1 via #2907, four from batch 2 via #2933, five from batch 3 via #2970); the three still `proposed` are the two owner-only rulings and D-WIRESHAPE-KEEP, whose 48 hours run to 2026-09-30. Ten mission rows lost their `blocked(D-…)`: M-T5.22 (→ moment 5a), M-T3.15, M-T3.6 (6), M-T3.11 (4), M-T4.2 B20, M-T4.3 (5), M-T6.13, M-T7.9, M-T9.52, M-T1.20's `first` arm; M-T6.60 stays blocked on the owner-only D-NUMERIC-INGRESS-STRICT. Docs-only; `test/system` 130 files / 2929 green, README counts regenerated.
 
