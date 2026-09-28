@@ -2,9 +2,11 @@ import {
   isServerSourcedDefault,
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
+import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
   PROVENANCED_REQUEST_ERROR,
   provenancedEntries,
@@ -32,7 +34,11 @@ import {
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
-import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
+import {
+  aggHasFieldMask,
+  canonicalIsoExpr,
+} from "../../../generator/typescript/repository-wire-builder.js";
+import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   chainSingleFieldNative,
   openapiLengthMeta,
@@ -117,6 +123,7 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
+  enumPool,
   findValueObjectInScope,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -154,6 +161,26 @@ import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
  *  body is assembled — the named list depends on what the body references (see
  *  the patch at the bottom of `renderAggregateRoutes`). */
 const PROBLEM_IMPORT_PLACEHOLDER = "/* __LOOM_PROBLEM_IMPORT__ */";
+
+/** Marker line standing in for the `decimal.js` default import until the router
+ *  body is assembled.
+ *
+ *  The header used to assert an invariant instead of checking one — "the route
+ *  file itself never names `Decimal` directly, so a `moneySchema` import is
+ *  sufficient" — and a `money` field with a LITERAL DEFAULT breaks it.  The
+ *  default is rendered into the create-request zod schema through
+ *  `wireDefaultLiteral` → `renderTsExpr`, which spells a money literal as a
+ *  decimal.js construction:
+ *
+ *      weight: moneySchema.default(new Decimal("0.00")),   // TS2304
+ *
+ *  `money` is the flagship primitive and `= <literal>` the most ordinary
+ *  modifier there is, so every such field in a model is one compile error (14
+ *  in the 39-aggregate model this was found in).  Like the two placeholders
+ *  either side of it, the line is decided from the ASSEMBLED BODY rather than
+ *  from a predicate about what the body ought to contain — the only form of the
+ *  claim that a new render site cannot falsify. */
+const DECIMAL_IMPORT_PLACEHOLDER = "/* __LOOM_DECIMAL_IMPORT__ */";
 
 /** RFC 9110 §15.6.2 — the route exists and the request was fine, but the
  *  implementation behind it is ABSENT.  That is what an `extern` operation whose
@@ -472,12 +499,18 @@ export function buildRoutesFile(
   // reading the principal from the ambient request context.
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
+  // Deferred: `decimal.js` joins the header only when the assembled body
+  // actually names `Decimal` — which a money field's literal DEFAULT makes it
+  // do (`.default(new Decimal("0.00"))`).  Patched from the body at the bottom
+  // of this function, like the `./problem-details` and value-object imports.
+  // Emitted first so the header keeps Biome's import order (a package
+  // specifier sorts ahead of the relative `../lib/schemas` below it).
+  lines.push(DECIMAL_IMPORT_PLACEHOLDER);
   if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
-    // Money-bearing routes consume the parsed `Decimal` via Zod's
-    // type inference through `moneySchema`; the route file itself
-    // never names `Decimal` directly, so a `moneySchema` import is
-    // sufficient (the underlying `decimal.js` dep is pulled in by
-    // the shared helpers file).
+    // Money crosses the wire through `moneySchema`, whose parse output is a
+    // `Decimal`; the routes consume that by type inference.  This import is
+    // about the SCHEMA, and is why the file used to get away with never
+    // importing the class itself.
     lines.push(`import { moneySchema } from "../lib/schemas";`);
   }
   lines.push(`import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";`);
@@ -638,6 +671,11 @@ export function buildRoutesFile(
   // action (validator-enforced); without one it exposes no POST route (rather
   // than calling the suppressed field-based factory).
   const emitCreate = emitsRestCreate(agg);
+  // Resolved ONCE per file: the request-component namespace is a per-document
+  // property, so the collision set has to be decided over the whole context
+  // rather than per call site.  Hoisted above the create block because the
+  // canonical create request is one of the owners (F-026).
+  const reqNameFor = requestComponentNamer(ctx);
   // THE UNIFICATION SEAM (api-surface.ts): which routes exist, at which path,
   // declaring which error statuses — from the shared derivation the other four
   // backends already render.  Hono unified LAST on purpose: it is the
@@ -675,10 +713,13 @@ export function buildRoutesFile(
         default: wireCreateDefault(f),
       }));
   if (emitCreate) {
+    // Collision-aware: `Create<Agg>Request` is minted by its own rule, and a
+    // workflow named `create<Agg>` spells the same string (F-026).
+    const createReqName = reqNameFor({ kind: "create", aggregate: agg.name });
     lines.push(
       ...emitWireSchema(
-        `const Create${agg.name}Request`,
-        `Create${agg.name}Request`,
+        `const ${createReqName}`,
+        createReqName,
         requiredFields.map((f) => {
           // An explicit `= default` field is optional input: omitted → the
           // default is applied at the wire (`.default(...)`), so it drops
@@ -745,10 +786,16 @@ export function buildRoutesFile(
   }
 
   for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+    // Collision-aware: two independent rules mint request-component names (this
+    // one, and the workflow builder's `<Workflow>Request`), and `schedule` on
+    // `WorkOrder` spells the same string as workflow `scheduleWorkOrder`.  The
+    // shared minter owner-qualifies both halves when — and only when — they
+    // genuinely collide (F-026).
+    const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
     lines.push(
       ...emitWireSchema(
-        `const ${upperFirst(op.name)}${agg.name}Request`,
-        `${upperFirst(op.name)}${agg.name}Request`,
+        `const ${reqName}`,
+        reqName,
         op.params.map((p) => ({ name: p.name, base: zodFor(p.type) })),
         // Field-level invariants (SYS-1): the update/mutating-op request DTO
         // gets the SAME wire constraints as create, not just the op's own
@@ -930,7 +977,7 @@ export function buildRoutesFile(
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
-      `        body: { content: { "application/json": { schema: Create${agg.name}Request } } },`,
+      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } } },`,
     );
     lines.push(`      },`);
     lines.push(`      responses: {`);
@@ -1063,7 +1110,7 @@ export function buildRoutesFile(
         .map((f) => {
           const value =
             f.default.kind === "literal" && f.default.lit === "now"
-              ? "new Date().toISOString()"
+              ? canonicalIsoExpr("new Date()")
               : renderTsExpr(f.default);
           return `${f.name}: ${value}`;
         })
@@ -1329,6 +1376,7 @@ export function buildRoutesFile(
         op!,
         ctx,
         entry,
+        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
         auditOps.includes(op!),
         provOps.includes(op!),
         emitTrace,
@@ -1445,7 +1493,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message);`,
+    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, problemTitle(domainStatus), `problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message)`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);
@@ -1584,12 +1632,29 @@ export function buildRoutesFile(
   if (/\brequireJsonContentType\(/.test(assembledSoFar))
     problemNamed.push("requireJsonContentType");
   if (/\bversionETag\(/.test(assembledSoFar)) problemNamed.push("versionETag");
+  if (/\bdomainFloorProblem\(/.test(assembledSoFar)) problemNamed.push("domainFloorProblem");
+  // Patch the deferred `decimal.js` import.  Read off the assembled text with
+  // string literals blanked, so a message or an `.openapi("…")` label naming
+  // the word cannot mint a dead import; `new Decimal(` is the only way this
+  // file spells the class today, and the wider `Decimal` test covers a type
+  // annotation or a static call if a future render site adds one.
+  const assembledScan = assembledSoFar
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/`(?:\\.|[^`\\])*`/g, "``")
+    .replace(DECIMAL_IMPORT_PLACEHOLDER, "");
+  // Replaced WITH its trailing newline so the unused case removes the line
+  // outright rather than leaving a blank one in the header.
+  const decimalImport = /(?<![.\w$])Decimal\b/.test(assembledScan)
+    ? `import Decimal from "decimal.js";\n`
+    : "";
   const assembled = lines
     .join("\n")
     .replace(
       PROBLEM_IMPORT_PLACEHOLDER,
       `import { ${problemNamed.join(", ")} } from "./problem-details";`,
-    );
+    )
+    .replace(`${DECIMAL_IMPORT_PLACEHOLDER}\n`, decimalImport);
   // Patch the deferred VO import: keep only names the body actually
   // references; tag each as `type` unless the body constructs it via
   // `new <Vo>(`.
@@ -1858,6 +1923,9 @@ function emitOperationRoute(
   op: OperationIR,
   ctx: BoundedContextIR,
   entry: ApiOperationIR,
+  /** The published request-component name — resolved over the WHOLE context by
+   *  `buildRoutesFile`, because a collision is a per-document property (F-026). */
+  reqName: string,
   audit: boolean,
   prov: boolean,
   emitTrace: boolean,
@@ -1878,7 +1946,17 @@ function emitOperationRoute(
   // `extern` returning ops remain a separate (declared) seam — the body lives
   // outside the toolchain.
   if (op.returnType && !op.extern) {
-    return emitReturningOperationRoute(agg, op, ctx, entry, emitTrace, audit, prov, usingMikro);
+    return emitReturningOperationRoute(
+      agg,
+      op,
+      ctx,
+      entry,
+      reqName,
+      emitTrace,
+      audit,
+      prov,
+      usingMikro,
+    );
   }
   // The canonical `update(...)` operation (crudish, or a hand-declared one of
   // the same name) is the one route that honours the client's optimistic-
@@ -1898,9 +1976,7 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(
-    `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
-  );
+  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);
@@ -2037,6 +2113,8 @@ function emitReturningOperationRoute(
   op: OperationIR,
   ctx: BoundedContextIR,
   entry: ApiOperationIR,
+  /** See `emitOperationRoute` — resolved over the whole context (F-026). */
+  reqName: string,
   emitTrace: boolean,
   audit = false,
   prov = false,
@@ -2070,9 +2148,7 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(
-    `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
-  );
+  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
   // 200 declares the whole tagged union; only success variants actually reach
@@ -2784,7 +2860,13 @@ function collectUsedEnums(
   ctx: BoundedContextIR,
 ): EnumIR[] {
   const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), valueObjectPool(ctx));
-  return ctx.enums.filter((e) => enums.has(e.name));
+  // `enumPool`, not `ctx.enums`: an enum declared in a SIBLING context is a
+  // legal field type, and this list is what MINTS the route file's
+  // `const <E>Schema = z.enum([...])`.  Filtering `ctx.enums` dropped the
+  // declaration while the request/response schemas below still referenced the
+  // name — `ReferenceError: <E>Schema is not defined` at module load, so the
+  // api process exited on boot.
+  return enumPool(ctx).filter((e) => enums.has(e.name));
 }
 
 /** Every type named on the aggregate's HTTP surface — its own fields,

@@ -96,120 +96,89 @@
     "primitive-money": [
       {
         "from": "$lib/format",
-        "named": [
-          "formatMoney"
-        ]
+        "named": ["formatMoney"]
       }
     ],
     "primitive-date-display": [
       {
         "from": "$lib/format",
-        "named": [
-          "formatDateTime"
-        ]
+        "named": ["formatDateTime"]
       }
     ],
     "primitive-id-link": [
       {
         "from": "$lib/format",
-        "named": [
-          "formatId"
-        ]
+        "named": ["formatId"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "$lib/components/ui",
-        "named": [
-          "Tabs"
-        ]
+        "named": ["Tabs"]
       }
     ],
     "primitive-form-of": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm"
-        ]
+        "named": ["createForm"]
       }
     ],
     "form-of-decls": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm"
-        ]
+        "named": ["createForm"]
       }
     ],
     "form-runs-decls": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm"
-        ]
+        "named": ["createForm"]
       }
     ],
     "form-default-onsubmit": [
       {
         "from": "$lib/toast.svelte",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "form-op-module": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "modalTrap"
-        ]
+        "named": ["modalTrap"]
       }
     ],
     "primitive-modal": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm",
-          "type LoomForm"
-        ]
+        "named": ["createForm", "type LoomForm"]
       },
       {
         "from": "$lib/toast.svelte",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "field-input-money": [
       {
         "from": "decimal.js",
-        "named": [
-          "Decimal"
-        ]
+        "named": ["Decimal"]
       }
     ],
     "realtime-toast": [
       {
         "from": "$lib/toast.svelte",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "field-input-file": [
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ]
   },

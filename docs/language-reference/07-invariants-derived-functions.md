@@ -90,6 +90,141 @@ aggregate A {
 }
 ```
 
+### A value object refused inside a body — 422 with `errors[]`
+
+A value object runs its invariants when it is built.  In a request body that is the wire layer (below) and answers the §3.2 422 with a pointer to the offending field.  A value object a **body** builds — an operation, a workflow step, a handler — refuses at its constructor instead, and answers the domain-floor status with **one** `errors[]` entry: the rule's message, its content-hash `code` when the rule is messaged, and the pointer `""` (the whole request — the body computed the value, so it names no member of the request).
+
+```ddd
+valueobject Qty { value: int  invariant value > 0 message "Quantity must be positive" }
+aggregate Order with crudish {
+  qty: Qty
+  operation resize(n: int) { qty := Qty { value: n } }
+}
+```
+
+`POST /api/orders/{id}/resize {"n": 0}` answers, on all five backends (pinned by the `vo-invariant-in-body` wire golden):
+
+```json
+{ "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+  "detail": "Quantity must be positive", "instance": "/api/orders/{id}/resize",
+  "errors": [{ "pointer": "", "message": "Quantity must be positive", "code": "msg.bqyhlx" }] }
+```
+
+::: tabs backend
+== node
+```ts
+// domain/value-objects.ts
+if (!(this.value > 0)) throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx");
+// http/order.routes.ts — the DomainError arm
+return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
+```
+== dotnet
+```csharp
+// Domain/ValueObjects/Qty.cs
+if (!(this.Value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx");
+// Api/DomainExceptionFilter.cs — ahead of the DomainException arm
+if (context.Exception is ValueObjectInvariantException voe) { … Extensions["errors"] = … }
+```
+== java
+```java
+// domain/valueobjects/Qty.java — a DomainException subclass
+if (!(value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx");
+// api/ApiExceptionAdvice.java
+@ExceptionHandler(ValueObjectInvariantException.class)
+public ResponseEntity<ProblemDetail> onValueObjectInvariant(ValueObjectInvariantException e, WebRequest request) { … }
+```
+== python
+```python
+# app/domain/value_objects.py — a DomainError subclass
+raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")
+# app/http/problem.py
+@app.exception_handler(ValueObjectInvariantError)
+```
+== elixir
+```elixir
+# lib/d/orders.ex — the op persists the body's rebinding through force_change,
+# which runs no validator, so the constructor is re-run on the way to the write
+|> Ecto.Changeset.force_change(:qty, record.qty)
+|> D.Orders.OrderChangeset.validate_body_value_objects()
+```
+::: end
+
+A message-less rule carries no `code`, and its text is each backend's derived default — on elixir the value object's Ecto validator chain (`should be at least 1 character(s)`), elsewhere `Invariant violated: <source>` — the same native-chain split the wire layer has for a message-less rule.  Before M-T5.1 elixir did not check a body-built value object at all (`resize(0)` persisted `{"value": 0}` and answered 204), and the other four answered the domain floor with no `errors[]`.
+
+### A messaged rule at the domain floor — the same `errors[]` entry, with its code
+
+A rule the **wire** layer can evaluate answers the wire rung (below): 422 "Validation failed", one `errors[]` entry per field, each messaged rule carrying its content-hash `code`.  A rule that reads the aggregate's own **state** — a `precondition` relating a field to a parameter, an `invariant` an operation body breaks — is invisible to any request validator and trips at the **domain floor**.  Since M-T1.11 (c) a MESSAGED rule there answers the domain-floor status with **one** `errors[]` entry of the value-object shape above: the rule's message, the **same** `msg.<hash>` code the wire rung carries (so one catalog entry localises both rungs), and the pointer `/<field>` when the rule is single-field-shaped, `""` otherwise.  A message-less rule keeps the plain domain floor — it has no code, and its text is each backend's own default.
+
+```ddd
+aggregate Account with crudish {
+  owner: string
+  balance: int
+  ceiling: int
+  invariant balance >= 0 message "Balance cannot be negative"
+  invariant balance <= ceiling message "Balance cannot exceed the ceiling"
+  operation withdraw(amount: int) {
+    precondition balance >= amount message "Insufficient funds"
+    balance := balance - amount
+  }
+  operation overdraw(amount: int) { balance := balance - amount }
+}
+```
+
+`POST /api/accounts/{id}/withdraw {"amount": 50}` on a balance of 12, and `overdraw` by the same amount, answer on all five backends (pinned by the `domain-floor-messages` wire golden):
+
+```json
+{ "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+  "detail": "Insufficient funds", "instance": "/api/accounts/{id}/withdraw",
+  "errors": [{ "pointer": "", "message": "Insufficient funds", "code": "msg.p55wf6" }] }
+
+{ "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+  "detail": "Balance cannot be negative", "instance": "/api/accounts/{id}/overdraw",
+  "errors": [{ "pointer": "/balance", "message": "Balance cannot be negative", "code": "msg.11ks9e" }] }
+```
+
+::: tabs backend
+== node
+```ts
+// domain/account.ts — the throw carries the rule's code and pointer
+if (!(this._balance >= amount)) throw new DomainError("Insufficient funds", "msg.p55wf6", "");
+if (!(this._balance >= 0)) throw new DomainError("Balance cannot be negative", "msg.11ks9e", "/balance");
+// http/account.routes.ts — the DomainError arm (one serializer for both refusals)
+return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
+```
+== dotnet
+```csharp
+// Domain/Accounts/Account.cs
+if (!(this.Balance >= amount)) throw new DomainException("Insufficient funds", "msg.p55wf6", "");
+// Api/DomainExceptionFilter.cs — the value-object arm's template, ahead of the plain DomainException arm
+if (context.Exception is DomainException dfe && dfe.RuleCode != null) { … Extensions["errors"] = … }
+```
+== java
+```java
+// features/accounts/Account.java
+if (!(this.balance >= amount)) throw new DomainException("Insufficient funds", "msg.p55wf6", "");
+// api/ApiExceptionAdvice.java — onDomain shares domainFloorWithEntry with onValueObjectInvariant
+if (e.getRuleCode() != null) return domainFloorWithEntry(e, e.getRuleCode(), e.getPointer() == null ? "" : e.getPointer(), request);
+```
+== python
+```python
+# app/domain/account.py
+raise DomainError("Insufficient funds", "msg.p55wf6", "")
+# app/http/problem.py — _domain shares _domain_floor_with_entry with the value-object handler
+if err.code is not None:
+    return _domain_floor_with_entry(request, err, err.pointer if err.pointer is not None else "")
+```
+== elixir
+```elixir
+# lib/d/accounts.ex — a messaged precondition's denial carries a coded detail map…
+:ok <- ensure(record.balance >= amount, {:precondition_failed, %{detail: "Insufficient funds", code: "msg.p55wf6", pointer: ""}})
+# …and the op persist re-asserts the invariants at the DOMAIN FLOOR, tagging a
+# messaged violation so ProblemDetails answers this rung, not "Validation failed"
+|> D.Accounts.AccountChangeset.validate_domain_floor()
+```
+::: end
+
+Before M-T1.11 (c) the four non-elixir backends answered the domain floor with `detail` only — no `errors[]`, so no code a client could localise by and no pointer a form could bind — and elixir answered a messaged invariant tripped by an operation with the WIRE rung's shape ("Validation failed") and a messaged precondition with the bare floor.
+
 ### `.length` counts code points
 
 A string `.length` — in a domain rule, an invariant, a precondition, anywhere — is a count of **Unicode code points**, not of the host language's native string length. This is the unit the emitted JSON Schema publishes as `minLength`/`maxLength`, so the rule the server enforces and the bound it advertises are the same number:
@@ -447,6 +582,8 @@ end
 ## `function` — a pure helper
 
 `function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type on every path, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a private method on the aggregate on node/.NET/java (`_`-prefixed on python; a public context-facade function on Phoenix) — never part of the public command surface.
+
+The same purity contract binds the four RULE positions — `invariant Expr`, its `when Guard`, a field's `check Expr`, and `derived name: T = Expr`. All four are spliced into the per-instance floor, which runs with nothing in scope but `this`, so a rule expression may not reach a repository, an aggregate, a workflow or any other declaration it cannot address, and may not call one of the aggregate's own actions (`operation` / `create` / `destroy`). Both are refused by `loom.rule-expr-impure` (`src/language/validators/types.ts`, slugs `#unaddressable` and `#operation`) at the offending head / call. A cross-aggregate rule such as `invariant Technicians.getById(technicianId).skills.contains(…)` used to validate clean and then emit an unresolvable identifier into every backend (`TS2304: Cannot find name 'Technicians'`) — or, on Phoenix, silently emit nothing at all. Denormalize the value onto the aggregate and assert over that, or move the rule into the operation / workflow that already loads it. A pure `domainService` call stays legal in a rule: it is a calculator, and every backend threads its import.
 
 The block form is held to the same purity contract by the IR check `loom.function-block-impure` (`src/ir/validate/checks/structural-checks.ts`; its wording lives in `src/diagnostics/messages.ts` under five `#`-slug variants — `#mutation`, `#emit`, `#call-stmt`, `#call-expr`, `#method-call`): no `:=` / `+=` / `-=` on aggregate state, no `emit`, and no call other than another pure `function` or a value-object constructor (operations, repository reads, domain services, externs, workflows, page actions and method calls on a receiver are all rejected).
 

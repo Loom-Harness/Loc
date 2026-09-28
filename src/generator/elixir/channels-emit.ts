@@ -1,6 +1,7 @@
 import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import type { BrokerBinding } from "../_channels/bindings.js";
+import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { ELIXIR_NUMERIC } from "./vanilla/numeric-codec.js";
@@ -132,18 +133,51 @@ function encodeExpr(access: string, t: TypeIR): string {
 
 /** Elixir expression reconstructing one struct field from the decoded
  *  envelope-data map. */
+/** Elixir's `WireDecodeTarget` — the leaf half of the shared channel wire
+ *  codec (`src/generator/_channels/wire-codec.ts`).
+ *
+ *  Behaviour is unchanged from the private `decodeExpr` this replaces (the
+ *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
+ *  which now lives once, is exhaustive, and `never`-checks.
+ *
+ *  Elixir is the one backend whose pre-port codec was already mostly
+ *  identity — a decoded JSON map IS the struct's field vocabulary — so only
+ *  the two types with no JSON form of their own convert. */
+const ELIXIR_WIRE_DECODE: WireDecodeTarget = {
+  lang: "elixir",
+  read: (payload, field) => `${payload}[${JSON.stringify(field)}]`,
+  primitive: {
+    datetime: (e) => `elem(DateTime.from_iso8601(${e}), 1)`,
+    // `Decimal` has no native JSON form on either side of this wire, so both
+    // money and plain decimal cross as strings and rebuild the same way.
+    money: (e) => `Decimal.new(${e})`,
+    decimal: (e) => `Decimal.new(${e})`,
+    int: (e) => e,
+    long: (e) => e,
+    bool: (e) => e,
+    string: (e) => e,
+    guid: (e) => e,
+    json: (e) => e,
+    File: (e) => e,
+    duration: (e) => e,
+  },
+  // Ecto ids and enum values are plain strings/atoms off the decoded map.
+  id: (e) => e,
+  enumValue: (e) => e,
+  // `x && conv` — Elixir's own nil-guard.  Applied ONLY when there is
+  // something to guard: for an identity leaf the pre-port codec emitted the
+  // bare read, and `data["x"] && data["x"]` would be both noisier and a
+  // different value for `false`.
+  optional: (e, decoded) => (decoded === e ? e : `${e} && ${decoded}`),
+  passthrough: (e) => e,
+};
+
 function decodeExpr(name: string, t: TypeIR): string {
-  const get = `data[${JSON.stringify(name)}]`;
-  const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive" && inner.name === "datetime") {
-    const conv = `elem(DateTime.from_iso8601(${get}), 1)`;
-    return t.kind === "optional" ? `${get} && ${conv}` : conv;
-  }
-  if (inner.kind === "primitive" && (inner.name === "money" || inner.name === "decimal")) {
-    const conv = `Decimal.new(${get})`;
-    return t.kind === "optional" ? `${get} && ${conv}` : conv;
-  }
-  return get;
+  return decodeField(
+    "data",
+    { name, type: t, optional: t.kind === "optional" },
+    ELIXIR_WIRE_DECODE,
+  );
 }
 
 export interface ElixirChannelFiles {

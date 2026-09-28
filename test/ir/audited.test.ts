@@ -11,6 +11,7 @@ import {
   type Operation,
 } from "../../src/language/generated/ast.js";
 import { generateSystems } from "../../src/system/index.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // `audited` operation modifier — per-invocation audit records instrumented
@@ -29,8 +30,8 @@ async function parseModel(
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
-    warnings: diags.filter((d) => d.severity === 2).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
+    warnings: diags.filter((d) => d.severity === 2).map(diagText),
   };
 }
 

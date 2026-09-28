@@ -18,21 +18,20 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { diagText } from "../_helpers/diagnostics.js";
 import { parseString } from "../_helpers/parse.js";
 
 async function irErrors(source: string, code: string): Promise<string[]> {
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error" && d.code === code)
-    .map((d) => d.message);
+    .map(diagText);
 }
 
 /** Langium-side (AST) diagnostics for a source, by code. */
 async function astErrors(source: string, code: string): Promise<string[]> {
   const { doc } = await parseString(source);
-  return (doc.diagnostics ?? [])
-    .filter((d) => d.severity === 1 && d.code === code)
-    .map((d) => d.message);
+  return (doc.diagnostics ?? []).filter((d) => d.severity === 1 && d.code === code).map(diagText);
 }
 
 const PRELUDE = `

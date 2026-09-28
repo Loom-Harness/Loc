@@ -101,7 +101,7 @@ SqlStep:
 // `=` carries the backfill intent exactly as `->` carries rename — no new
 // keyword.
 ColumnStep:
-    aggregate=[Aggregate:ID] '.' field=UserFieldName ('->' renamedTo=UserFieldName | '=' value=Expression);
+    aggregate=[Aggregate:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
 
 // `OldName -> NewAggregate` — the aggregate's table `plural(snake(OldName))`
 // is renamed to `plural(snake(NewAggregate))` in the derived diff, cascading
@@ -147,6 +147,25 @@ UserBlock:
 UserField:
     name=UserFieldName ':' type=TypeRef;
 
+// Every spelling a DECLARED FIELD name can take.  Shared by `Property` (the
+// declaration site) and the migration `ColumnStep` (which ADDRESSES a declared
+// field), so the two cannot drift: a field you are allowed to declare is a
+// field you are allowed to rename or backfill.  They did drift — `ColumnStep`
+// reused the deliberately narrow `UserFieldName` below, so 81 legal field
+// names (`description`, `key`, `kind`, `message`, `title`, …) could be
+// declared and then never renamed through the supported surface, leaving only
+// `--allow-destructive` (data loss) or a raw `sql "…"` step.  Pinned by the
+// `migrationField` position in `keyword-identifier-completeness.test.ts`.
+PropertyName returns string:
+    ID | CommonSoftKeywords
+    // Property-only (soft here but not in every value position):
+    | 'await' | 'ignoring' | 'page';
+
+// The `user { }` claim-shape field name.  DELIBERATELY NARROW and NOT
+// `PropertyName`: this is a JWT claim surface, not a domain aggregate, and
+// widening it is not free — `CommonSoftKeywords` does not carry `id`, so a
+// naive "just reuse PropertyName here too" drops `user { id: guid }` and
+// breaks every model that declares one.
 UserFieldName returns string:
     ID | 'id' | 'permissions'
     // `migration` is hard only at the top-level `Migration` block head;
@@ -683,7 +702,8 @@ PageProp:
 // reference resolves + carries the action's param type during
 // lowering so backends never re-resolve.
 ActionDecl:
-    'action' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'action' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers CallableGates
         '{' stmts+=Statement* '}';
 
 RouteProp:
@@ -970,11 +990,13 @@ ContextMember:
 // (`loom.extern-handler-has-body` / `loom.handler-missing-body`), not the
 // grammar.
 CommandHandler:
-    (extern?='extern')? 'commandHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' (':' returnType=TypeRef)?
+    CallableLeadModifiers (extern?='extern')? 'commandHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers (':' returnType=TypeRef)? CallableGates
         ( '{' body+=Statement* '}' | ';' );
 
 QueryHandler:
-    (extern?='extern')? 'queryHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ':' returnType=TypeRef
+    CallableLeadModifiers (extern?='extern')? 'queryHandler' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers ':' returnType=TypeRef CallableGates
         ( '{' body+=Statement* '}' | ';' );
 
 EnumDecl:
@@ -1482,10 +1504,11 @@ WorkflowMember:
 // `by` reuses CorrelationExpr (the restricted name/postfix grammar `on` uses, so a
 // BuilderCall can't swallow the body block).
 WorkflowCreateDecl:
-    'create' (name=ID)?
+    CallableLeadModifiers 'create' (name=ID)?
         '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers
         ('by' correlation=CorrelationExpr)?
-        ('requires' gate=Expression)?
+        CallableGates
     '{'
         body+=Statement*
     '}';
@@ -1497,7 +1520,8 @@ WorkflowCreateDecl:
 // `handle` is a fresh keyword so it can never start a Statement.  Multiple
 // handles make a workflow a multi-command saga.
 HandleDecl:
-    'handle' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ('requires' gate=Expression)? '{'
+    CallableLeadModifiers 'handle' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1508,8 +1532,10 @@ HandleDecl:
 // correlation fields, and `by` collides with existing identifier usage until
 // handled as a soft keyword there).
 OnDecl:
-    'on' '(' param=LooseName ':' event=[EventDecl:ID] ')'
+    CallableLeadModifiers 'on' '(' param=LooseName ':' event=[EventDecl:ID] ')'
+        CallableSigModifiers
         ('by' correlation=CorrelationExpr)?
+        CallableGates
     '{'
         body+=Statement*
     '}';
@@ -1582,8 +1608,18 @@ ProjectionMember:
 // per group in SQL, per-row `select`s restricted to the grouping columns
 // (`loom.projection-groupby-*` gates).  `group` stays a SOFT keyword
 // (CommonSoftKeywords) so a field / value named `group` keeps parsing; rows
-// come back ordered by the grouping columns so the read is deterministic
-// across backends.
+// come back ordered by the grouping columns, ASCENDING, by their STORED
+// COLUMN VALUE — so the read is deterministic across backends.
+//
+// "By their stored column value" is the load-bearing half, and it is what the
+// clause used to leave unsaid.  It matters for an ENUM key, where two readings
+// are available and they disagree: an enum column is stored as TEXT on every
+// backend (`mapTypeToColumn` in `src/system/migrations-builder.ts`), so the
+// order is the LEXICOGRAPHIC order of the member NAME — not the order the
+// members are declared in.  `enum OrderStatus { Draft Confirmed Cancelled }`
+// grouped on therefore comes back `Cancelled`, `Confirmed`, `Draft`.  (A read
+// that wants declaration order has to select an explicit rank column; there is
+// no `order by` clause on a projection yet — see the NOTE above.)
 // A query-time projection's `from` source — an AGGREGATE (read through its
 // repository), a WORKFLOW (read through its persisted instance / saga-state
 // rows, `instanceWireShape`), or another materialized PROJECTION (read through
@@ -1749,8 +1785,8 @@ DomainService:
 // NOT carry `private` / `extern` / `audited` / `when` — those are
 // aggregate-operation-only.
 DomainServiceOperation:
-    'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-    (':' returnType=TypeRef)? '{'
+    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         stmts+=Statement*
     '}';
 
@@ -1802,9 +1838,7 @@ FieldAccess returns string:
 // the `FieldAccess` slot below.  See `LooseName` and `NameRefIdent`
 // for the same admission in parameter / expression positions.
 Property:
-    name=(ID | CommonSoftKeywords
-        // Property-only (soft here but not in every value position):
-        | 'await' | 'page')
+    name=PropertyName
     ':' type=TypeRef
     // `provenanced` / `sensitive(...)` / the access modifier are pure
     // flag-like keywords carrying no expression content, so they parse in
@@ -1886,6 +1920,42 @@ Invariant:
 Unique:
     'unique' '(' columns+=LooseName (',' columns+=LooseName)* ')';
 
+// ---------------------------------------------------------------------------
+// The callable surface (M-T5.21)
+// ---------------------------------------------------------------------------
+//
+// Fifteen grammar rules mean "a named body of statements runs here", and each
+// one used to pick its OWN arbitrary subset of the modifier/clause surface —
+// so `audited` was legal on an aggregate `operation` and a PARSE ERROR on a
+// `domainService` operation, with nothing to tell the author why.  The three
+// fragments below are that surface, stated ONCE; every callable site includes
+// them, so the grammar ACCEPTS the whole set everywhere.
+//
+// What is legal WHERE is declared data, not grammar: `CALLABLE_SITES`
+// (`src/language/callable-sites.ts`) is the legality table, and ONE validator
+// (`src/language/validators/callable-sites.ts`, code
+// `loom.callable-modifier-not-allowed-here`) reads it and reports the REASON.
+// A capability is neither added nor removed by this: every combination the
+// grammar newly accepts is rejected by that validator, so emission is
+// unchanged (byte-identical across all eleven targets).
+//
+// Position follows the aggregate `Operation` spelling, which is the one every
+// other site is a fork of: `private` leads, `extern`/`audited` sit after the
+// parameter list, `requires`/`when` after the return type and before the body.
+// Phase 3 of the design collapses the three LEGACY `extern` positions (handler
+// prefix, `component`/ui-`function` suffix) onto the single infix spelling;
+// until then both spellings parse, which is why `CommandHandler` /
+// `QueryHandler` carry an `extern` assignment in two places.
+
+fragment CallableLeadModifiers:
+    (private?='private')?;
+
+fragment CallableSigModifiers:
+    (extern?='extern')? (audited?='audited')?;
+
+fragment CallableGates:
+    ('requires' gate=Expression)? ('when' when=Expression)?;
+
 // A pure helper over its parameters.  Two body forms:
 //   `= Expression`        — expression form; SQL-inlinable like a `criterion`.
 //   `{ Statement* }`      — block form; `let` + branch + bug-regime
@@ -1894,7 +1964,8 @@ Unique:
 //                           NOT queryable.  `'='` vs `'{'` is the discriminator
 //                           (distinct tokens — the AST stays non-recursive).
 FunctionDecl:
-    'function' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ':' returnType=TypeRef
+    CallableLeadModifiers 'function' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers ':' returnType=TypeRef CallableGates
         ( '=' body=Expression
         | '{' block+=Statement* '}'
         );
@@ -1905,7 +1976,8 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    (private?='private')? 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')' (extern?='extern')? (audited?='audited')? (':' returnType=TypeRef)? ('requires' gate=Expression)? ('when' when=Expression)? '{'
+    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1917,7 +1989,8 @@ Operation:
 // creator.  Lowers to an `OperationIR` with `kind: "create"`; never
 // joins `agg.operations` (which stays mutate-only).
 Create:
-    'create' (name=ID)? '(' (params+=Parameter (',' params+=Parameter)*)? ')' (audited?='audited')? '{'
+    CallableLeadModifiers 'create' (name=ID)? '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1928,7 +2001,8 @@ Create:
 // canonical hard delete reads `destroy { }`.  Lowers to an
 // `OperationIR` with `kind: "destroy"`.
 Destroy:
-    'destroy' (name=ID)? ('(' (params+=Parameter (',' params+=Parameter)*)? ')')? (audited?='audited')? '{'
+    CallableLeadModifiers 'destroy' (name=ID)? ('(' (params+=Parameter (',' params+=Parameter)*)? ')')?
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1941,7 +2015,8 @@ Destroy:
 // `-=`) and derivations only, no `emit` and no side-effecting calls.
 // Lowers to `ApplyIR`; never joins `agg.operations`.
 Apply:
-    'apply' '(' param=LooseName ':' event=[EventDecl:ID] ')' '{'
+    CallableLeadModifiers 'apply' '(' param=LooseName ':' event=[EventDecl:ID] ')'
+        CallableSigModifiers CallableGates '{'
         body+=Statement*
     '}';
 
@@ -1963,11 +2038,11 @@ CommonSoftKeywords returns string:
       'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
       | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
       | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
-      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
+      | 'index' | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'link' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
       | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
-      | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
+      | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'route' | 'schema'
       | 'secret' | 'select' | 'service' | 'slot' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
-      | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
+      | 'tenancy' | 'title' | 'token' | 'ttl' | 'type' | 'use' | 'user' | 'write';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`
@@ -2283,7 +2358,25 @@ MatchExpr:
              '}');
 
 MatchArm:
-    cond=Expression '=>' value=Expression;
+    cond=MatchArmCond '=>' value=Expression;
+
+// An arm CONDITION is a boolean expression, never a lambda.  `Expression`
+// admits `Lambda` (`ID '=>' body`) at the top of the ladder, so a BARE-NAME
+// condition was swallowed whole:
+//
+//     match {
+//       pwOk => Badge { "ok" }     // parsed as the lambda `pwOk => Badge {…}`
+//       else => Text { "no" }      // …so the arm's own `=>` was missing here
+//     }
+//
+// and the error landed on `else`, two lines below the real cause, saying
+// `Expecting token of type '=>' but found 'else'`.  `pwOk == true` parsed
+// fine, which is the tell: a binary expression cannot start a lambda, so only
+// the bare-name form was affected.  Excluding `Lambda` from the condition
+// costs nothing — a lambda is not a boolean — and is the same reasoning that
+// already keeps `Lambda` out of binary operands (see `Expression`).
+MatchArmCond infers Expression:
+    MatchExpr | TernaryExpr;
 
 // The variant-match scrutinee.  Reuses `ForIterable` (a `NameRef` plus
 // optional postfix suffixes) so a bare name (`outcome`) or a simple

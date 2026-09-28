@@ -32,9 +32,10 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
-import { statementSubRegions } from "../../_trace/sourcemap.js";
+import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   MONEY_MAX_EXCLUSIVE,
   MONEY_PRECISION,
@@ -48,8 +49,13 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
-import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
+import {
+  aggregateHasDomainFloorCodes,
+  aggregateHasResidualInvariants,
+} from "./changeset-invariant-emit.js";
+import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialTerm } from "./denial.js";
 import {
   isVanillaDocAgg,
@@ -250,7 +256,7 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
       // reached nothing until an op assigned a `datetime` field FROM A
       // PARAMETER; `now()` renders `DateTime.utc_now()` and never takes this
       // branch, so no fixture had ever compiled this emission.
-      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> DateTime.truncate(loom_d, :second)\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
+      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> ${normalizeDatetime("loom_d")}\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
     default:
       return varName;
   }
@@ -279,7 +285,15 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
     case "money":
     case "decimal":
       return `{:ok, ${snake(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
+    // An `int` is an int4 COLUMN, so the guard carries its declared range as
+    // well as its type: without it a contract-conforming-looking value like
+    // 9543751572142 cast cleanly, reached the column and the DATABASE refused
+    // it — a 500 for a client fault, the same shape as the money-range guard
+    // beside it (Schemathesis F11).  `long` keeps the type-only guard: its
+    // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
+    // moving it is a five-backend ruling rather than this row.
     case "int":
+      return `{:ok, ${snake(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
       return `{:ok, ${snake(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
     default:
@@ -301,7 +315,24 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  given as text: `"5"` is refused, matching node's `z.number()` body slot and
  *  .NET.  A fractional value for an `int` is refused rather than truncated —
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
-function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): string {
+/** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
+ *  guard here and the create/update changeset in `changeset-emit.ts`.
+ *
+ *  Spelled like `MONEY_RANGE_MESSAGE` beside it, and for the same reason: a
+ *  client sees ONE family of wire refusals rather than a different sentence per
+ *  column kind.  It is elixir-local because the other four backends each render
+ *  their framework's own text for this (zod's "Number must be less than or
+ *  equal to …", pydantic's "Input should be less than or equal to …", Bean
+ *  Validation's "must be less than or equal to …"), so there is no shared
+ *  string to converge on — only a shared STATUS, which is the part that
+ *  matters: 422, not the 500 the database used to answer. */
+export const INT32_RANGE_MESSAGE = "Integer out of range";
+
+function renderNumericParamHelpers(
+  needsDecimal: boolean,
+  needsInt: boolean,
+  needsInt32: boolean,
+): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
   // param but no `money` must not carry the decimal helper.  (The generated
@@ -353,10 +384,30 @@ function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): st
   defp __loom_int_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
 `;
+  // RANGE, not format — the int32 twin of `__loom_money_in_range?` above, and
+  // the same failure it prevents: an `int` param is an int4 COLUMN, so a value
+  // past 2147483647 casts cleanly, reaches the column and the DATABASE refuses
+  // it with a 500 for what is a client fault (Schemathesis F11).  The published
+  // schema now declares the bound (`openapi-emit.ts` `INT32_SCHEMA`), so a
+  // contract-conforming request can no longer produce a 500, and both numbers
+  // come from `src/util/numeric-range.ts`.
+  const int32 = `
+  defp __loom_int32_param(_record, _field, nil), do: {:ok, nil}
+
+  defp __loom_int32_param(_record, _field, value)
+       when is_integer(value) and value >= ${INT32_MIN} and value <= ${INT32_MAX},
+       do: {:ok, value}
+
+  defp __loom_int32_param(record, field, value) when is_integer(value),
+    do: {:error, __loom_param_error(record, field, value, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
+
+  defp __loom_int32_param(record, field, value),
+    do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
+`;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}`;
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}`;
 }
 
 function renderContextModule(
@@ -494,10 +545,13 @@ function renderContextModule(
             `dir \\\\ "asc"`,
           ]
         : [];
+      // A find whose own `where` reads `currentUser` carries the actor arg too —
+      // the repository fn declares it (see `findUsesPrincipal`), so a delegate
+      // built from the aggregate-level `principal` alone would mismatch arity.
       const findArgs = [
         ...baseArgs,
         ...pageArgs,
-        ...(principal ? ["current_user \\\\ nil"] : []),
+        ...(principal || findUsesPrincipal(f) ? ["current_user \\\\ nil"] : []),
       ].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
     });
@@ -672,14 +726,28 @@ ${body}
     // backend's workflow body calls the domain factory directly — so routing
     // those through the guarded seam would 403 (or MatchError) a workflow whose
     // own caller does hold the permission, on this backend only.
+    // M-T3.16 C2 — the WIRE-VALIDATION rung precedes the lifecycle gate, the
+    // order the other four backends answer in: their request validator (zod /
+    // FluentValidation / bean validation / pydantic) runs at the route boundary
+    // before the handler that evaluates the gate, so a guarded create with an
+    // invalid body answers 422 there.  Gating first made this backend alone
+    // answer 403 for the same request.  The validation clause builds the SAME
+    // changeset the insert does and only reports it (`apply_action` touches no
+    // row); the insert still runs after the gate.  Deny-first was considered and
+    // declined — see the M-T3.16 note: the wire rung is a function of the body
+    // and the PUBLISHED schema alone, so answering it first discloses nothing an
+    // unauthorized caller could not compute.
+    const createValidateClause = isDoc
+      ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
+      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(attrs), :insert)`;
     const createDelegate =
       createClauses.length === 0
         ? `  defdelegate create_${aggSnake}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
-        : `  @doc "Create a ${aggPascal} — the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
+        : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
     lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
   )}) do
-    with ${createClauses.join(",\n         ")} do
+    with ${[createValidateClause, ...createClauses].join(",\n         ")} do
       ${unguardedName("create", agg.name)}(attrs${createStampsActor ? ", current_user" : ""})
     end
   end
@@ -813,9 +881,10 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const assembledBody = [blocks.join("\n"), ensureBlock].join("\n");
   const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
   const needsIntParam = assembledBody.includes("__loom_int_param(");
+  const needsInt32Param = assembledBody.includes("__loom_int32_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam)}`
+    needsDecimalParam || needsIntParam || needsInt32Param
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param)}`
       : "";
 
   return `# Auto-generated.
@@ -964,8 +1033,12 @@ function contextMutatesRelationalContainment(ctx: BoundedContextIR, sys?: System
   });
 }
 
-/** `__truncate_dt/1` — the second-precision guard for a `:utc_datetime` column
- *  written through an OPERATION's `force_change` persist line.
+/** `__truncate_dt/1` — the millisecond normalisation (RS-38) for a `datetime`
+ *  column written through an OPERATION's `force_change` persist line.  It used
+ *  to truncate to the SECOND because the column was `:utc_datetime`; the column
+ *  is `Loom.Datetime` now (`datetime-type-emit.ts`), which dumps any precision,
+ *  so what is left is putting the in-memory value on the precision the wire
+ *  prints.  The history below is why the seam exists at all.
  *
  *  `now()` renders to `DateTime.utc_now()`, which carries MICROSECONDS, and
  *  `force_change` bypasses the cast that would drop them — so Ecto refuses the
@@ -987,11 +1060,12 @@ function contextMutatesRelationalContainment(ctx: BoundedContextIR, sys?: System
  *  inferred type, so it is never flagged even at a DateTime-only call site
  *  (verified empirically against the corpus gate's hexpm/elixir image). */
 function renderTruncateDtHelper(): string {
-  return `  # Second-precision guard for a \`:utc_datetime\` column assigned by an
-  # operation body.  \`now()\` yields microsecond precision and \`force_change\`
-  # skips casting, so Ecto would refuse the dump; truncating here matches what
-  # the stamp / audit / provenance writers already do.
-  defp __truncate_dt(%DateTime{} = dt), do: DateTime.truncate(dt, :second)
+  return `  # Millisecond normalisation (RS-38) for a \`datetime\` column assigned by
+  # an operation body.  \`now()\` yields microsecond precision and
+  # \`force_change\` skips the \`Loom.Datetime\` cast, so the in-memory value
+  # would otherwise print six fractional digits; the stamp writers normalise
+  # the same way.
+  defp __truncate_dt(%DateTime{} = dt), do: ${normalizeDatetime("dt")}
   defp __truncate_dt(other), do: other`;
 }
 
@@ -1136,8 +1210,10 @@ function renderExternOpFunction(
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
   // before the write (D3c) — byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
+  // M-T1.11 (c): the domain-floor twin when a messaged invariant is present.
+  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
   const invPipe = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.validate_invariants()`
+    ? `\n      |> ${changesetMod}.${invFn}()`
     : "";
   // Persist EVERY scalar column off the returned struct, not an empty
   // `change(%{})`: `force_change`, because the changeset data already carries
@@ -1305,7 +1381,11 @@ function renderNamedOpFunction(
   if (opFragments && bodyLines.length > 0) {
     opFragments.push({
       fragmentText: bodyLines.join("\n"),
-      subRegions: statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      subRegions: [
+        // F-021 — see `declarationSubRegion`.
+        ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+        ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      ],
     });
   }
 
@@ -1370,11 +1450,28 @@ function renderNamedOpFunction(
   // unmet invariant returns `{:error, changeset}` (422) instead of committing.
   // Gated on residual invariants → byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
-  const invPipe = aggregateHasResidualInvariants(agg)
-    ? `\n    |> ${changesetMod}.validate_invariants()`
-    : "";
+  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a messaged
+  // invariant present it runs the `validate_domain_floor/1` twin, so a messaged
+  // violation answers the domain-floor 422 with its errors[] entry (not the
+  // request changeset's "Validation failed").
+  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
+  const invPipe = aggregateHasResidualInvariants(agg) ? `\n    |> ${changesetMod}.${invFn}()` : "";
   const invPipe6 = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.validate_invariants()`
+    ? `\n      |> ${changesetMod}.${invFn}()`
+    : "";
+  // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
+  // is persisted through `force_change`, which runs no validator; re-run its
+  // constructor so a refused value answers the domain-floor 422 with an
+  // `errors[]` entry instead of committing.  Only when THIS op assigns such a
+  // field (the changeset module emits the function for the aggregate-level
+  // union of the same derivation), so every other op is byte-identical.
+  const opAssigned = opAssignedFields(op);
+  const bodyVoPipeOn = aggregateBodyValueObjectFields(agg, ctx.valueObjects).some((f) =>
+    opAssigned.has(f.field),
+  );
+  const bodyVoPipe = bodyVoPipeOn ? `\n    |> ${changesetMod}.validate_body_value_objects()` : "";
+  const bodyVoPipe6 = bodyVoPipeOn
+    ? `\n      |> ${changesetMod}.validate_body_value_objects()`
     : "";
 
   const prelude = [...paramBinds, ...bodyLines].join("\n");
@@ -1421,7 +1518,7 @@ function renderNamedOpFunction(
     // unchanged.
     persist = `${durableEmit.bind.length > 0 ? `${durableEmit.bind.join("\n")}\n\n` : ""}    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     tx_result =
       ${appModule}.Repo.transaction(fn ->
@@ -1450,7 +1547,7 @@ ${durableEmit.broadcast.join("\n")}
         // rollback drops the events too.
         `    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     tx_result =
       ${appModule}.Repo.transaction(fn ->
@@ -1474,7 +1571,7 @@ ${dispatchBlock}
     end`
       : `    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     ${appModule}.Repo.transaction(fn ->
       case ${repoMod}.persist_change(changeset) do
@@ -1493,7 +1590,7 @@ ${txTail.join("\n")}
         // context Dispatcher (saga seam) + the raw broadcast.
         `    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     case ${repoMod}.persist_change(changeset) do
       {:ok, saved} ->
@@ -1504,7 +1601,7 @@ ${dispatchBlock}
         {:error, reason}
     end`
       : `    ${persistBase}
-    |> Ecto.Changeset.change(%{})${putBlock}${opLockPipe}${invPipe}
+    |> Ecto.Changeset.change(%{})${putBlock}${bodyVoPipe}${opLockPipe}${invPipe}
     |> ${repoMod}.persist_change()`;
   }
 

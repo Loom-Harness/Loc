@@ -37,6 +37,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/generate.js";
+import { litExpr, memberExpr, paramRef, STRING_T } from "../_helpers/ir-builders.js";
 import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.toast-message-unsupported";
@@ -99,10 +100,12 @@ const OUT_OF_SUBSET: ReadonlyArray<{
     detail: /`method-call` expression/,
     elixirProbe: {
       kind: "method-call",
-      receiver: { kind: "ref", name: "e" },
+      receiver: paramRef("e", STRING_T),
       member: "toUpper",
       args: [],
-    } as ExprIR,
+      receiverType: STRING_T,
+      isCollectionOp: false,
+    },
   },
   {
     label: "a cast/conversion call",
@@ -110,9 +113,10 @@ const OUT_OF_SUBSET: ReadonlyArray<{
     detail: /`convert` expression/,
     elixirProbe: {
       kind: "convert",
-      to: { kind: "primitive", name: "string" },
-      value: { kind: "ref", name: "e" },
-    } as ExprIR,
+      target: "string",
+      from: "datetime",
+      value: paramRef("e"),
+    },
   },
   {
     label: "a ternary",
@@ -120,21 +124,17 @@ const OUT_OF_SUBSET: ReadonlyArray<{
     detail: /`ternary` expression/,
     elixirProbe: {
       kind: "ternary",
-      cond: { kind: "literal", lit: "bool", value: "true" },
+      cond: litExpr("bool", "true"),
       // biome-ignore lint/suspicious/noThenProperty: `then` is the IR ternary's branch field, not a thenable.
-      then: { kind: "literal", lit: "string", value: "a" },
-      else: { kind: "literal", lit: "string", value: "b" },
-    } as ExprIR,
+      then: litExpr("string", "a"),
+      otherwise: litExpr("string", "b"),
+    },
   },
   {
     label: "a chain rooted at a name that is not the event binding",
     toast: `toast(currentUser.email)`,
     detail: /member access off the event binding 'e' only/,
-    elixirProbe: {
-      kind: "member",
-      receiver: { kind: "ref", name: "currentUser" },
-      member: "email",
-    } as ExprIR,
+    elixirProbe: memberExpr(paramRef("currentUser"), "email", STRING_T, STRING_T),
   },
 ];
 

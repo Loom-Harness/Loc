@@ -63,6 +63,12 @@ export interface RenderCtx {
   thisName: string;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
+  /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
+   *  its miss `{:not_found, "<Agg> <id> not found"}` so the workflows
+   *  dispatcher answers the 404 naming the row.  Unset on every other path
+   *  (explicit handlers, mutating domain services), whose dispatchers only know
+   *  the bare `{:error, :not_found}` term. */
+  tagGetByIdMiss?: boolean;
   /** Variant-`match` binding side-channel (variant-match.md) — maps a bound
    *  name to its `case`-clause pattern variable while rendering an arm value. */
   matchBindings?: ReadonlyMap<string, string>;
@@ -379,6 +385,10 @@ function renderElixirConvert(
   const decimalStruct = (name: string | undefined) => !inFilter && isDecimalStruct(name);
   if (target === "string") {
     if (decimalStruct(from)) return `Decimal.to_string(${v})`;
+    // ISO-8601, not `String.Chars`: `to_string(~U[2026-01-01 00:00:00Z])` is
+    // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
+    // not the value .NET / java / python / node emit for this conversion.
+    if (from === "datetime") return `DateTime.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {
@@ -531,6 +541,23 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   ) {
     return snake(e.member);
   }
+  // PRINCIPAL CLAIM INSIDE AN ECTO QUERY (`ctx.filterArgs`).  `current_user` is
+  // an ordinary Elixir local, and Ecto's `where:` admits no unbound locals — a
+  // bare `current_user.id` raises `Ecto.Query.CompileError: unbound variable
+  // \`current_user\` in query` at COMPILE time.  It has to be interpolated, the
+  // same way `param` / `enum-value` refs already are in this mode (`renderRef`).
+  // Nil-safe, because the actor may be absent on an internal / unauthenticated
+  // read: a pinned `nil` matches no rows (Ecto binds `= NULL`, never `IS NULL`),
+  // so the read fails CLOSED instead of raising `KeyError` on `nil.id`.
+  //
+  // This is the ONE place the pin is applied, so every Ecto read path gets it:
+  // the derived capability/tenancy filters (`capability-filter.ts`) AND the
+  // author-written `find … where` / `retrieval … where:` / query-projection
+  // `where` predicates, which previously emitted the unpinned form.
+  if (ctx.filterArgs && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
+    const claim = snake(e.member);
+    return `^(current_user && current_user.${claim})`;
+  }
   // Array/list size shorthand.  The DSL admits both `.count` and
   // `.length` on arrays (see the .NET renderer's matching comment);
   // both map to Elixir `Enum.count/1`.  Without the `.length` arm an
@@ -570,7 +597,31 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // typed-VO handling the other backends get for free.
   if (e.receiverType.kind === "valueobject") {
     const k = snake(e.member);
-    return `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
+    const read = `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
+    // …and a FOURTH inconsistency the shapes above don't cover: the NUMERIC
+    // TYPE.  A `decimal`/`money` in its own column loads as `%Decimal{}`, but
+    // the same field inside the jsonb map loads as whatever JSON decoding
+    // produced — a FLOAT.  `Decimal.mult/2` refuses an implicit float
+    // ("implicit conversion of 1.0 to Decimal is not allowed"), so a `derived`
+    // doing arithmetic over a value object's fields compiled clean, booted
+    // clean, accepted a POST, and then raised on EVERY read of that aggregate.
+    // Coerced here rather than at the arithmetic, because the arithmetic's
+    // premise ("both are Decimal structs") is true for every other source.
+    // `Decimal.cast/1` is total over integer / float / binary / Decimal, and
+    // the `_ ->` arm leaves anything it refuses exactly as it was, so a nil
+    // optional VO field still fail-softs to nil instead of raising here.
+    //
+    // The binding is `dec`, NOT the `__`-prefixed name the generated helpers
+    // in this backend use (`__decimal_num`, `__money_round`).  Those are
+    // FUNCTION names; a leading underscore on a VARIABLE tells Elixir the
+    // value is meant to be ignored, and using it anyway is a warning — fatal
+    // under the `mix compile --warnings-as-errors` every elixir build gate
+    // runs.  Shadowing is harmless: the binding lives only in this clause
+    // body, which is the bare `dec`.
+    if (e.memberType.kind === "primitive" && isDecimalStruct(e.memberType.name)) {
+      return `(case Decimal.cast(${read}) do {:ok, dec} -> dec; _ -> ${read} end)`;
+    }
+    return read;
   }
   return `${recv}.${snake(e.member)}`;
 }
@@ -922,7 +973,12 @@ export const ELIXIR_COLLECTION_RENDERERS: Record<
   any: (recv, args) => `Enum.any?(${recv}, ${args[0] ?? "fn _ -> true end"})`,
   contains: (recv, args) => `Enum.member?(${recv}, ${args[0] ?? "nil"})`,
   where: (recv, args) => `Enum.filter(${recv}, ${args[0] ?? "fn _ -> true end"})`,
-  first: (recv) => `List.first(${recv})`,
+  // `first` is PARTIAL and `firstOrNull` TOTAL (D-FIRST-ON-EMPTY / RS-36).
+  // These two were literally the SAME snippet, so `first` — declared as a
+  // non-optional `T` — silently returned `nil` on an empty list.  `hd/1` raises
+  // `ArgumentError` on `[]`, which is the raise the other four targets already
+  // make natively; `List.first/1` stays the total form.
+  first: (recv) => `hd(${recv})`,
   firstOrNull: (recv) => `List.first(${recv})`,
   map: (recv, args) => `Enum.map(${recv}, ${args[0]})`,
   // The sorter is TYPE-AWARE for the same reason min/max's is (see
@@ -1114,7 +1170,26 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
       const fn = contextFindFnFor(read.method, read.aggregate);
-      return `(case ${fn}(${args.join(", ")}) do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
+      const call = `${fn}(${args.join(", ")})`;
+      // `getById` is contractually NON-NULL — it throws rather than returning
+      // absent ("Use getById (throws → 404)", the remedy
+      // `loom.handler-load-nullable-unsupported#domain-service` prescribes), and
+      // `repoReadResultType` (#2968) types it as a bare entity, not `T?`.  The
+      // context facade fn it routes to is `find_by_id`, which DOES signal
+      // absence (`{:error, :not_found}`), so flattening that to `nil` here
+      // contradicted the contract and handed the caller a nil to dereference —
+      // `one.label` on nil is a KeyError at RUNTIME, with nothing catching it at
+      // compile time (the shape .NET at least fails on as CS8602).  Raise
+      // instead: `Ecto.NoResultsError` is what the sibling load-or-raise seams
+      // in `vanilla/context-emit.ts` (`get_<agg>!`, `destroy_<agg>!`) already
+      // raise, and the generated shell maps a `Plug.Exception` 4xx straight
+      // through (`Ecto.NoResultsError` -> 404, `vanilla/shell-emit.ts`), so
+      // "throws → 404" holds here too.  A declared find keeps the
+      // value-or-nil unwrap and stays byte-identical.
+      if (read.method === "getById") {
+        return `(case ${call} do\n      {:ok, value} -> value\n      _ -> raise Ecto.NoResultsError, queryable: ${ctx.contextModule}.${upperFirst(read.aggregate)}\n    end)`;
+      }
+      return `(case ${call} do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
     }
     case "action":
     // Sibling action call (Proposal A Stage 1) — frontend-only; never lowered

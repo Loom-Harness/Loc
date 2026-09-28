@@ -56,7 +56,7 @@ per-feature doc that carries the fuller design:
 | `commandHandler` / `queryHandler`, `api { route GET "/…" -> Handler }`, `httpStatus` mappings | [chapter 14](14-apis-storage-resources-channels.md) for `route` and the handler gates; [chapter 3](03-domain-modeling.md) for the declarations; [`../architecture.md`](../architecture.md) |
 | `timerSource` (`cron:` / `every: 15s`) | [chapter 13](13-workflows.md) — there is no per-feature scheduling doc, so that chapter is the reference |
 | `match` as a statement, `match await`, effect markers, page `action` handlers, stores (`persist` / `local`) | [chapter 15](15-ui-pages-structure.md) and [chapter 6](06-behavior-and-statements.md); [`../actions.md`](../actions.md) and [`../page-metamodel.md`](../page-metamodel.md) |
-| Interpolation format specs (`{x, number, ::currency/USD}`, `plural`, `select`), the i18n catalog | [`../new-plan/T1-ui-frontend.md`](../new-plan/T1-ui-frontend.md) § M-T1.11 |
+| Interpolation format specs (`{x, number, ::currency/USD}`, `plural`, `select`), the i18n catalog | [`../new-plan/archive/T1-done.md`](../new-plan/archive/T1-done.md) § M-T1.11 |
 | `duration` constructors (`days(n)` …) and datetime arithmetic, the scalar intrinsics | [chapter 5](05-expressions.md) and [chapter 4](04-type-system.md); [`../stdlib.md`](../stdlib.md) for the generated registry |
 | Mailer resources (`smtp` / `ses` / `sendgrid`), `localDisk` object storage, the `File` type | [chapter 14](14-apis-storage-resources-channels.md), with the type in [chapter 4](04-type-system.md); [`../resources.md`](../resources.md) |
 

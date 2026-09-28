@@ -63,7 +63,7 @@ function input(over: Partial<CrashReportInput> = {}): CrashReportInput {
     build: BUILD,
     ua: "Mozilla/5.0 (X11; Linux x86_64) Chrome/140",
     viewport: { w: 1280, h: 720 },
-    url: "https://lemmit.github.io/Loc/playground/?x=1#project=eJyrVkrLz1eyUlAqSy0qzszPUwjJz1MAAJbfB4E",
+    url: "https://loom-harness.github.io/Loc/playground/?x=1#project=eJyrVkrLz1eyUlAqSy0qzszPUwjJz1MAAJbfB4E",
     generatedAt: "2026-07-30T10:00:01.000Z",
     ...over,
   };
@@ -249,7 +249,7 @@ describe("crash report — truncation budgets", () => {
     expect(url).toContain(`template=${ISSUE_TEMPLATE}`);
     expect(url).toContain(`labels=${ISSUE_LABEL}`);
     expect(url).toContain("report=");
-    expect(url.startsWith("https://github.com/lemmit/Loc/issues/new?")).toBe(true);
+    expect(url.startsWith("https://github.com/Loom-Harness/Loc/issues/new?")).toBe(true);
   });
 
   it("stays under budget even for one pathological stack", () => {

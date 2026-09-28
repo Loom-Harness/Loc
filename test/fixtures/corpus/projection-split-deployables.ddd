@@ -1,0 +1,59 @@
+// A query-time projection on a deployable that does NOT host every context in
+// the system — the axis pair no projection fixture carried.
+//
+// `domain/value-objects.ts` emits the HOSTED contexts' value objects
+// (`ctx.valueObjects`), while the projection routes file imported
+// `valueObjectPool(ctx)` — own UNION sibling-context.  A sibling context is
+// only merged into `ctx` when this deployable hosts it, so on a split system
+// the import named a type the module never exports:
+// `TS2306: File 'domain/value-objects.ts' is not a module` on a deployable
+// whose own context declares no value object at all.
+//
+// `reports` below is the affected deployable: it hosts `Analytics` (which has
+// a projection and NO value object) while `Billing`'s `Money` lives on the
+// other one.  Two deployables is the point of the fixture; the platform axis
+// applies to both.
+system ProjectionSplitSys {
+  subdomain Ops {
+    context Analytics {
+      aggregate Visit {
+        page: string
+        seconds: int
+      }
+      repository Visits for Visit { }
+      criterion LongVisits() of Visit = seconds > 0
+      projection VisitStats {
+        total: int
+        from Visit as v
+        where LongVisits
+        select total = count
+      }
+    }
+    context Billing {
+      valueobject Money {
+        amount: decimal
+        currency: string
+      }
+      aggregate Invoice {
+        reference: string
+        charged: Money
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  storage pg { type: postgres }
+  resource analyticsState { for: Analytics, kind: state, use: pg }
+  resource billingState { for: Billing, kind: state, use: pg }
+  deployable reports {
+    platform: __PLATFORM__
+    contexts: [Analytics]
+    dataSources: [analyticsState]
+    port: 4000
+  }
+  deployable billing {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    port: 4001
+  }
+}

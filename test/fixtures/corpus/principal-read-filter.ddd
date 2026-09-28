@@ -1,0 +1,86 @@
+// An AUTHOR-WRITTEN read filter that reads the request principal — a row-level
+// "my own records" query spelled directly in a `find`'s / `retrieval`'s `where`,
+// rather than derived by a tenancy capability.
+//
+// No corpus fixture carried this shape before.  `currentUser` appeared only in
+// GATES (`requires currentUser.role == "agent"` — read-gates, auth-simple,
+// auth-oidc, lifecycle-guard) and in DERIVED tenancy filters the enrichment
+// synthesises (tenancy-*), never inside a predicate the author wrote on a query.
+// The two are different emitter paths, and the crossing is where ELIXIR broke
+// (audit F-013, S1) — twice over on the same line:
+//
+//   1. the principal was interpolated UNPINNED into the Ecto query, which
+//      admits no unbound locals:
+//
+//        query = from(record in Api.Field.WorkOrder,
+//                     where: record.technician_user_id == current_user.id)
+//
+//        ** (Ecto.Query.CompileError) unbound variable `current_user` in query.
+//           If you are attempting to interpolate a value, use ^var
+//
+//      The fail-closed pin `^(current_user && current_user.<claim>)` was applied
+//      by a post-pass that only ever saw the DERIVED capability filters — the
+//      compiler-generated tenancy filter on the very next emitted line pinned
+//      correctly while the author's predicate did not.
+//
+//   2. the actor was never THREADED: the "does this aggregate need the
+//      principal" predicate read the aggregate's capability `filter`s only, so
+//      the find's head bound no `current_user` and the pin then named an
+//      undefined variable.
+//
+// Both are hard `mix compile` failures on the emitted project, so the corpus
+// elixir leg catches a regression the moment this fixture exists.  The other
+// four backends reach the principal through an AMBIENT accessor
+// (`requireCurrentUser()`, `RequestContext.Current`, the Spring SpEL
+// `@currentUserAccessor`), which is why the gap stayed invisible there.
+//
+// The aggregate deliberately carries NO tenancy capability: with one, the
+// derived filter would thread the actor and MASK the author-written half — the
+// exact reason the defect survived.  A find with no principal in its predicate
+// sits beside it so the threading stays scoped to the finds that need it.
+//
+// COMPILE-TIER fixture on purpose: no `test e2e` block (signed in
+// E2E_LESS_CORPUS_FIXTURES).  The defect is a compile error in the emitted
+// project, so the five corpus compile legs are the oracle; a behavioural block
+// would need the harness principal's id to MATCH a seeded row's
+// `technicianUserId`, which the dev-claim surface cannot express (it carries
+// `string` / `string[]` claims against a generated row id), so every assertion
+// would read the empty fail-closed result and prove nothing about the filter.
+system FieldOps {
+  user { id: guid  role: string }
+  subdomain Field {
+    context Work {
+      aggregate WorkOrder with crudish {
+        technicianUserId: guid
+        title: string
+        done: bool
+      }
+      repository WorkOrders for WorkOrder {
+        // THE SUBJECT — an author-written predicate over the principal.
+        find mine(): WorkOrder[] where this.technicianUserId == currentUser.id
+        // …crossed with a declared parameter, so the pinned principal and the
+        // pinned param share one predicate (different renderer arms).
+        find mineByState(d: bool): WorkOrder[] where this.technicianUserId == currentUser.id && this.done == d
+        // A find with NO principal in its predicate — the threading must stay
+        // scoped to the finds that need it, not spread aggregate-wide.
+        find byTitle(t: string): WorkOrder[] where this.title == t
+      }
+      // The same predicate on the RETRIEVAL path, which is a separate emitter
+      // (its own module + `opts`-threaded actor) on the backend that broke.
+      retrieval MyOpenWork() of WorkOrder {
+        where: this.technicianUserId == currentUser.id && this.done == false
+      }
+    }
+  }
+  api WorkApi from Field
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+    auth: required
+  }
+}

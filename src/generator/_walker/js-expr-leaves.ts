@@ -70,7 +70,13 @@ export const jsExprLeaves: ExprLeaves = {
     target: PrimitiveName | string,
     from: PrimitiveName | string | undefined,
   ): string {
-    // Mirrors `generator/typescript/render-expr.ts`'s renderTsConvert.
+    // Mirrors `generator/typescript/render-expr.ts`'s renderTsConvert, with
+    // ONE deliberate divergence: `datetime`.  The backend holds a `Date` and
+    // so converts with `.toISOString()`; on this surface a datetime has
+    // already crossed the wire as `z.string()`, so it IS the ISO text and
+    // `String(value)` is the identity.  Copying the backend's arm here would
+    // emit `.toISOString()` on a `string` — TS2339.  Same Loom expression,
+    // different host representation either side of the wire.
     if (target === "string") {
       if (from === "money") return `${value}.toString()`;
       return `String(${value})`;

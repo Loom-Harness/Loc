@@ -1,5 +1,6 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
@@ -187,6 +188,23 @@ export function renderPyNegatedGuard(e: ExprIR, ctx: PyRenderContext = DEFAULT):
     const arg = e.args[0] ? renderPyExpr(e.args[0], ctx) : "None";
     return `${arg} not in ${recv}`;
   }
+  // `x == null` / `x != null` negate by FLIPPING the identity test, not by
+  // wrapping it: `renderBinary` renders these as `x is None` / `x is not None`
+  // (E711), and `not (x is None)` is then ruff **E714** ("test for object
+  // identity should be `is not`").  The parentheses do not help — ruff's E714
+  // is AST-based, unlike pycodestyle's regex, so it sees `UnaryOp(Not,
+  // Compare(Is))` whatever the source spelling.  Two emitted sites hit it: an
+  // `operation … when <field> == null` state gate, in the aggregate method AND
+  // in its route pre-check (F-015).
+  {
+    const inner = e.kind === "paren" ? e.inner : e;
+    const nullTest =
+      inner.kind === "binary" ? nullComparison(inner.op, inner.left, inner.right) : null;
+    if (nullTest) {
+      // `negated` is `!=` (`is not None`), whose negation is `is None`.
+      return `${renderPyExpr(nullTest.operand, ctx)} is ${nullTest.negated ? "" : "not "}None`;
+    }
+  }
   return `not (${renderPyExpr(e, ctx)})`;
 }
 
@@ -233,7 +251,9 @@ export function addPyExprImport(x: ExprIR, into: Set<string>): void {
       // A money `sum` renders an explicit `Decimal(0)` start (fleet-bug-hunt
       // B4), so the module needs the `Decimal` import even when no money
       // LITERAL appears in the expression.
-      if (x.member === "sum" && x.isCollectionOp && sumIsMoney(x)) into.add("decimal");
+      if (x.member === "sum" && x.isCollectionOp && (sumIsMoney(x) || sumIsDecimal(x))) {
+        into.add("decimal");
+      }
       break;
     case "binary":
       // A money-scaling binary lifts its `decimal` operand through
@@ -243,6 +263,9 @@ export function addPyExprImport(x: ExprIR, into: Set<string>): void {
       // undefined `Decimal` (F821 / NameError).  Same mirror duty as the
       // money-`sum` arm above.
       if (moneyScalarCoercionSide(x)) into.add("decimal");
+      // Exact `decimal` arithmetic lifts its operands through `Decimal`
+      // (`renderDecimalArithmetic`, RS-37) — same mirror duty.
+      if (isDecimalArithmetic(x)) into.add("decimal");
       break;
     case "convert":
       if (x.target === "money") into.add("decimal");
@@ -450,13 +473,15 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "money.max": (recv, args) => `max(${recv}, ${args[0]})`,
   // `round(places?)` is HALF-AWAY-FROM-ZERO by catalogue contract — Python's
   // builtin round() is banker's (half-even), so it must NOT appear here.
-  // Float path: copysign(floor(|x|·10^p + 0.5), x) / 10^p — exact half-away
-  // at float precision, mypy-strict clean (floor's int is float-compatible),
-  // self-parenthesised.  Needs `import math` (collectPyExprImports mirrors).
-  "decimal.round": (recv, args) => {
-    const p = args[0] ?? "0";
-    return `(math.copysign(math.floor(abs(${recv}) * 10 ** (${p}) + 0.5), ${recv}) / 10 ** (${p}))`;
-  },
+  // `decimal` is a `float` in the domain, but rounding is decimal ARITHMETIC
+  // (RS-37): the float path (`floor(|x|·10^p + 0.5)`) rounded a tie the double
+  // cannot represent DOWN — `1.005` is 1.00499… in binary, so `1.005.round(2)`
+  // answered `1.0` where the decimal-typed backends answer `1.01`.  Quantize
+  // the shortest-repr `Decimal` half-away-from-zero (`ROUND_HALF_UP` is
+  // away-from-zero in Python's decimal module) and narrow back to `float`.
+  // Needs `from decimal import Decimal` (collectPyExprImports mirrors).
+  "decimal.round": (recv, args) =>
+    `float(Decimal(str(${recv})).quantize(Decimal(1).scaleb(-(${args[0] ?? "0"})), rounding="ROUND_HALF_UP"))`,
   // Decimal path: quantize to 10^-places with the explicit ROUND_HALF_UP mode
   // (Decimal's own default is context-dependent half-even).  Stays Decimal.
   // Needs `from decimal import Decimal` (collectPyExprImports mirrors).
@@ -484,7 +509,7 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
 // `money.round` constructs `Decimal(1)` (the receiver alone wouldn't force
 // the import when no money literal appears in the expression).
 const PY_INTRINSIC_IMPORTS: Record<string, "math" | "decimal" | "datetime"> = {
-  "decimal.round": "math",
+  "decimal.round": "decimal",
   "decimal.floor": "math",
   "decimal.ceil": "math",
   "money.round": "decimal",
@@ -535,6 +560,22 @@ export function sumIsMoney(e: MethodCallExpr | undefined): boolean {
   return elem?.kind === "primitive" && elem.name === "money";
 }
 
+/** True iff a `sum` reduction accumulates a plain `decimal` (a Python `float`
+ *  in the domain) — the `decimal` twin of `sumIsMoney`, folded exactly
+ *  (RS-37). */
+export function sumIsDecimal(e: MethodCallExpr | undefined): boolean {
+  if (!e) return false;
+  const lam = e.args[0];
+  const bodyT =
+    lam?.kind === "lambda" && lam.body
+      ? bodyTypeOf(lam.body)
+      : (() => {
+          const rt = e.receiverType.kind === "optional" ? e.receiverType.inner : e.receiverType;
+          return rt.kind === "array" ? rt.element : undefined;
+        })();
+  return bodyT?.kind === "primitive" && bodyT.name === "decimal";
+}
+
 /** True iff `e.args[1]` is the boolean literal `true` (a `sortBy(λ, true)`
  *  descending flag — the only collection op carrying a 2nd arg). */
 function isDescendingSort(e: MethodCallExpr): boolean {
@@ -561,6 +602,13 @@ export const PY_COLLECTION_RENDERERS: Record<
   sum: (recv, args, e) => {
     // A generator expression must be parenthesised when it isn't the sole
     // argument, hence the two spellings.
+    // A `decimal` fold is decimal ARITHMETIC (RS-37): `sum` over floats is
+    // binary (`[0.1, 0.2]` → 0.30000000000000004).  Lift each element through
+    // `Decimal(str(…))`, fold from `Decimal(0)`, narrow once.
+    if (sumIsDecimal(e)) {
+      const elem = args.length === 1 ? `(${args[0]})(__x)` : "__x";
+      return `float(sum((Decimal(str(${elem})) for __x in ${recv}), Decimal(0)))`;
+    }
     if (!sumIsMoney(e)) {
       return args.length === 1 ? `sum((${args[0]})(__x) for __x in ${recv})` : `sum(${recv})`;
     }
@@ -724,6 +772,12 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // SQL-side `%` never reaches here: `find-predicate.ts` lowers binaries
   // itself and only calls back for value-side leaves (Postgres `%` already
   // truncates, so the emitted query needs no adjustment).
+  //
+  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37) — and it is
+  // checked BEFORE the `%` detour: a `decimal` `%` computes on `Decimal`,
+  // whose remainder already truncates (sign of the dividend), so it needs no
+  // `trunc_mod`.  See `renderDecimalArithmetic`.
+  if (isDecimalArithmetic(e)) return renderDecimalArithmetic(left, right, e);
   if (e.op === "%") return `trunc_mod(${left}, ${right})`;
   // A5 temporal — Python's datetime/timedelta overload the native
   // operators (`datetime ± timedelta`, `datetime - datetime → timedelta`,
@@ -740,8 +794,14 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // route, and a no-op-by-value when the operand happens to already BE a
   // `Decimal` (the column case), so both provenances land on one type.
   const coerce = moneyScalarCoercionSide(e);
-  if (coerce === "right") return `${left} ${pyBinOp(e.op)} Decimal(str(${right}))`;
-  if (coerce === "left") return `Decimal(str(${left})) ${pyBinOp(e.op)} ${right}`;
+  // An exact decimal chain on the scalar side hands over its un-narrowed
+  // `Decimal` (RS-37) rather than round-tripping through `float`.
+  if (coerce === "right") {
+    return `${left} ${pyBinOp(e.op)} ${decimalChainOperand(right, e.right) ?? `Decimal(str(${right}))`}`;
+  }
+  if (coerce === "left") {
+    return `${decimalChainOperand(left, e.left) ?? `Decimal(str(${left}))`} ${pyBinOp(e.op)} ${right}`;
+  }
   // Same bargain as the money lift above, for the other operand pair Python
   // refuses to combine: `str + datetime`.
   //
@@ -818,6 +878,64 @@ function moneyScalarCoercionSide(
 
 function isNullLiteral(e: ExprIR): boolean {
   return e.kind === "literal" && e.lit === "null";
+}
+
+const DECIMAL_ARITH_OPS: ReadonlySet<BinOp> = new Set<BinOp>(["+", "-", "*", "/", "%"]);
+
+/** True iff a binary is `decimal` ARITHMETIC: an arithmetic operator whose
+ *  result types as `decimal` — `decimal ∘ decimal`, the widened `int ∘ decimal`
+ *  mixes, and the `int / int` division the type system widens to `decimal`
+ *  (D-DECIMAL-EXACT-MOMENT, RS-37). */
+export function isDecimalArithmetic(e: ExprIR): boolean {
+  if (e.kind !== "binary" || !DECIMAL_ARITH_OPS.has(e.op)) return false;
+  return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
+}
+
+/** `decimal` arithmetic, computed EXACTLY (RS-37).  A Loom `decimal` is a
+ *  Python `float` in this backend's domain (the representation rule on
+ *  `PY_TYPE_TARGET`), and float arithmetic answered `0.1 + 0.2` =
+ *  `0.30000000000000004` — on the wire and into the `Numeric` column — where
+ *  .NET/Java/Elixir answer `0.3`.  Lift each operand through `Decimal(str(…))`
+ *  (the shortest-repr route: `str(0.1)` is `"0.1"`, and it is a no-op by value
+ *  for an operand that already IS a `Decimal`), compute in the default 28-digit
+ *  context, and narrow back to `float` ONCE at the root of the chain: a nested
+ *  decimal operand hands over its un-narrowed `Decimal` (`decimalChainOperand`),
+ *  so `c * c * c` is one exact product.  The domain/wire type stays `float`
+ *  (RS-24) — only the computation moves. */
+function renderDecimalArithmetic(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string {
+  const l = decimalChainOperand(left, e.left) ?? liftDecimal(left, e.left);
+  const r = decimalChainOperand(right, e.right) ?? liftDecimal(right, e.right);
+  return `float(${l} ${pyBinOp(e.op)} ${r})`;
+}
+
+/** A non-chain `decimal` arithmetic operand as a `Decimal`: a numeric literal
+ *  is spelled directly (`Decimal("0.1")`), anything else goes through
+ *  `Decimal(str(…))`. */
+function liftDecimal(text: string, e: ExprIR): string {
+  if (e.kind === "literal" && (e.lit === "decimal" || e.lit === "int" || e.lit === "long")) {
+    return `Decimal(${JSON.stringify(e.value)})`;
+  }
+  return `Decimal(str(${text}))`;
+}
+
+/** A `decimal` arithmetic operand's UN-NARROWED `Decimal` text (parenthesised,
+ *  since it is an infix expression), or null when the operand is not itself a
+ *  decimal arithmetic chain.  Every chain renders as `float(<Decimal expr>)`,
+ *  so a parent drops the child's `float(…)` narrowing (through any `paren`
+ *  wrappers, which the shared dispatcher renders as `(<inner>)`). */
+function decimalChainOperand(text: string, e: ExprIR): string | null {
+  if (e.kind === "paren") {
+    const inner = decimalChainOperand(text.slice(1, -1), e.inner);
+    return inner === null ? null : `(${inner})`;
+  }
+  if (isDecimalArithmetic(e) && text.startsWith("float(") && text.endsWith(")")) {
+    return `(${text.slice("float(".length, -1)})`;
+  }
+  return null;
 }
 
 function pyBinOp(op: BinOp): string {

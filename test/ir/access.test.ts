@@ -7,6 +7,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { AggregateIR } from "../../src/ir/types/loom-ir.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // Field access modifier — grammar + lowering + enrichment resolution.
@@ -25,8 +26,8 @@ async function parseModel(
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
-    warnings: diags.filter((d) => d.severity === 2).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
+    warnings: diags.filter((d) => d.severity === 2).map(diagText),
   };
 }
 

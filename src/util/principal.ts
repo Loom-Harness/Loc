@@ -37,6 +37,40 @@ export const PRINCIPAL_ORG_PATH = "orgPath";
  *  root-segment claim, so `rootOrg == orgPath`. */
 export const PRINCIPAL_ROOT_ORG = "rootOrg";
 
+/** The ambient OPERATING-scope accessor (organization-context.md; M-T3.6
+ *  items 3+5) — a peer of `currentUser`.  `currentUser` is the PRINCIPAL
+ *  (identity, permissions, home org); `organizationContext` is the org the
+ *  request operates IN.  Its one member, {@link ORG_CONTEXT_ORG_PATH}, is the
+ *  operating org's materialized path — the principal's own `orgPath` unless the
+ *  request carries a validated {@link ORG_CONTEXT_HEADER} naming a descendant.
+ *
+ *  Two flat accessors on the surface, ONE execution-context frame underneath:
+ *  lowering rewrites `organizationContext.orgPath` to the derived principal
+ *  member {@link PRINCIPAL_ORG_CONTEXT_PATH}, so every backend's existing
+ *  principal threading (the `current-user` ref) carries it with no new plumbing,
+ *  and the value is set exactly once — by the auth middleware's switch gate. */
+export const ORG_CONTEXT_ACCESSOR = "organizationContext";
+
+/** The one member `organizationContext` exposes: the operating org's
+ *  materialized path.  (`orgId` is deliberately NOT exposed: deriving it from a
+ *  submitted path needs a registry read by `dataKey`, and the `tenantId` stamp
+ *  stays principal-anchored — see docs/tenancy.md → "organizationContext".) */
+export const ORG_CONTEXT_ORG_PATH = "orgPath";
+
+/** The derived principal member `organizationContext.orgPath` lowers to — the
+ *  operating path, resolved ONCE per request by the auth middleware's
+ *  fail-closed switch gate: the {@link ORG_CONTEXT_HEADER} value when it lies
+ *  inside the principal's `orgPath` subtree (equal to it, or prefixed by
+ *  `orgPath + "."`), the principal's own `orgPath` when the header is absent,
+ *  and a pre-body 403 otherwise.  Never read off the token. */
+export const PRINCIPAL_ORG_CONTEXT_PATH = "orgContextPath";
+
+/** The request header that carries a requested operating scope — the operating
+ *  org's materialized path (lower-cased: every backend matches headers
+ *  case-insensitively).  A request-level fact: absent ⇒ the principal's own
+ *  scope, never a widening. */
+export const ORG_CONTEXT_HEADER = "x-org-context";
+
 /** The principal's id field — the field named `id`, else the first declared
  *  field of the `user { ... }` block.  A `currentUser` stamp / filter value
  *  resolves to `currentUser.<thisField>` (the principal id), mirroring the

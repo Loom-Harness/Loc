@@ -1,7 +1,7 @@
 // Auto-generated.  Do not edit by hand.
 import { z } from "zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, seg } from "./client";
+import { api, ifMatch, seg } from "./client";
 
 
 export const CreateCustomerRequest = z.object({
@@ -93,7 +93,8 @@ export function useUpdateCustomer(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: UpdateCustomerRequest) => {
-      await api.post(`/customers/${seg(id)}/update`, input);
+      const loaded = qc.getQueryData<CustomerResponse>(["customers", id]);
+      await api.post(`/customers/${seg(id)}/update`, input, ifMatch(loaded?.version));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers", id] });

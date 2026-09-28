@@ -776,7 +776,13 @@ export function renderDocumentRepositoryImpl(
     // The capability filter narrows the visible set BEFORE the find's own
     // predicate runs, so a find never returns a capability-hidden (foreign
     // tenant, soft-deleted) document.
-    const loadAll = `var __all = (await _db.${setName}.ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`;
+    // OrderBy(Id) — the document carrier's whole-table read answers in
+    // Postgres heap order without it, and an `update` rewrites the tuple, so a
+    // row MOVES after an unrelated write.  Java's document store has ordered
+    // by id since it was written; the other four did not, so one fixture
+    // answered two different orders across the backends.  Id is the primary
+    // key, so this is an index scan.
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });

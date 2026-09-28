@@ -74,6 +74,7 @@ import {
   stateCtx,
   stateSetterMethods,
 } from "./riverpod-emit.js";
+import { FLUTTER_TOAST_MARKER } from "./toast-runtime.js";
 
 /** Context the component walk needs — the same lookups the page walk threads. */
 export interface ComponentWalkCtx {
@@ -558,6 +559,9 @@ export function renderComponentsFile(
   // a `State` object's action runs outside a build and reuses the Notifier
   // statement renderer, which spells `navigateTo(` (F2-CFE-1).
   if (blocks.join("\n").includes(FLUTTER_NAV_MARKER)) imports.push("import 'nav.dart';");
+  // `toast(…)` from a component action — the out-of-tree twin of the nav bridge
+  // above (`lib/toast.dart`), found by the same marker rule.
+  if (blocks.join("\n").includes(FLUTTER_TOAST_MARKER)) imports.push("import 'toast.dart';");
   const source = `${lines(
     "// User components — one widget per `component Foo(params) { body }` a ui",
     "// hosts (StatelessWidget, or StatefulWidget when it carries `state`).",

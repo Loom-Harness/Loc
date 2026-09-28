@@ -1,5 +1,6 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import {
   collectCsExprUsings,
@@ -69,7 +70,11 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
     const check = inv.guard
       ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
       : `if (!(${renderCsExpr(inv.expr, renderCtx)}))`;
-    return `        ${check} throw new DomainException(${JSON.stringify(inv.message ? inv.message.text : `Invariant violated: ${inv.source}`)});`;
+    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    // M-T5.1 — its own exception, answered with an errors[] entry; a messaged
+    // rule carries the wire rung's content-hash code.
+    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    return `        ${check} throw new ValueObjectInvariantException(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
   });
   const efCtorAssignments = vo.fields.map((f) => `        ${upperFirst(f.name)} = default!;`);
   const derivedLines = vo.derived.map(

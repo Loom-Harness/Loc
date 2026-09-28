@@ -1,0 +1,12 @@
+flowchart LR
+  r0["US-001: A dispatcher can schedule a work order to a qualified technician"]
+  r1["AC-001: A work order can only be scheduled to a technician holding the asset's required skill"]
+  r2["US-002: Completing a work order decrements parts stock atomically"]
+  r3["US-003: A technician may only see their own work orders"]
+  r0 --> r1
+  classDef verified fill:#16a34a,color:#fff;
+  classDef failing fill:#dc2626,color:#fff;
+  classDef untested fill:#9ca3af,color:#fff;
+  classDef unverified fill:#eab308,color:#000;
+  class r2 failing
+  class r0,r1,r3 unverified

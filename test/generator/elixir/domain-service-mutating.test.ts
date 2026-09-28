@@ -106,7 +106,7 @@ describe("phoenix vanilla — mutating-tier domainService (domain-services.md re
 
     // The clauses sit inside the same with-chain as the loads (one Repo.transaction).
     expect(wf).toMatch(
-      /with \{:ok, s\} <- Context\.get_account\(src\),\s*\{:ok, d\} <- Context\.get_account\(dst\),\s*\{:ok, _\} <- Context\.withdraw_account\(s, %\{"amount" => amount\}\),\s*\{:ok, _\} <- Context\.deposit_account\(d, %\{"amount" => amount\}\) do/,
+      /with \{:ok, s\} <- \(case Context\.get_account\(src\) do[\s\S]*?end\),\s*\{:ok, d\} <- \(case Context\.get_account\(dst\) do[\s\S]*?end\),\s*\{:ok, _\} <- Context\.withdraw_account\(s, %\{"amount" => amount\}\),\s*\{:ok, _\} <- Context\.deposit_account\(d, %\{"amount" => amount\}\) do/,
     );
 
     // The atomic, persisted commit is the workflow's Repo.transaction.
@@ -140,6 +140,13 @@ describe("phoenix vanilla — mutating-tier domainService (domain-services.md re
     // A pure op alongside the mutating one still emits its module — the mutating
     // skip must not regress pure placement.
     const fee = bySuffix(files, "domain/services/fee_quote.ex");
+    // The `amount` read is `Decimal.cast`-wrapped and the `currency` read is
+    // not: a `money`/`decimal` field inside a value object arrives as a
+    // jsonb-decoded FLOAT, where the same type in its own column arrives as
+    // `%Decimal{}` (sweep F-029).  The coercion sits at the READ, not at the
+    // consumer, because the read is what lies about the type — narrowing it to
+    // "reads that feed Decimal arithmetic" would leave `Decimal.compare`, a
+    // `@spec`-narrowed helper and every future consumer broken the same way.
     expect(
       fee,
     ).toBe(`# Auto-generated — stateless pure-calculator domain service (domain-services.md).
@@ -148,7 +155,7 @@ defmodule Api.Domain.Services.FeeQuote do
 
   @spec for_amount(map()) :: map()
   def for_amount(amount) do
-    %{amount: Map.get(amount, :amount, Map.get(amount, "amount")), currency: Map.get(amount, :currency, Map.get(amount, "currency"))}
+    %{amount: (case Decimal.cast(Map.get(amount, :amount, Map.get(amount, "amount"))) do {:ok, dec} -> dec; _ -> Map.get(amount, :amount, Map.get(amount, "amount")) end), currency: Map.get(amount, :currency, Map.get(amount, "currency"))}
   end
 end
 `);

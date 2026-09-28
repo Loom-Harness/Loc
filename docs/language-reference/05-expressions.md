@@ -656,7 +656,9 @@ def summary(self) -> str:
 
 ## Conversions
 
-The explicit, infallible widening/projection vocabulary — `string(x)`, `long(x)`, `decimal(x)`, `money(x)` (`PrimitiveConversion`). Admitted pairs: `string ← {int,long,decimal,money,bool}`, `long ← int`, `decimal ← {int,long,money}`, `money ← {int,long,decimal}`. Fallible parses (`int("42")`, `datetime("…")`) are deliberately **not** in the vocabulary. The per-(from, target) leaf decides the idiom:
+The explicit, infallible widening/projection vocabulary — `string(x)`, `long(x)`, `decimal(x)`, `money(x)` (`PrimitiveConversion`). Admitted pairs: `string ← {int,long,decimal,money,bool,guid,datetime}`, `long ← int`, `decimal ← {int,long,money}`, `money ← {int,long,decimal}`. Fallible parses (`int("42")`, `datetime("…")`) are deliberately **not** in the vocabulary, and `json` / `File` are not stringifiable — neither has a canonical scalar form. `guid` and `datetime` do (UUID text, ISO-8601), so `string(…)` on either is infallible; the ISO form is the same text on every backend, not the host's default `toString` (which on node would be `"Mon Sep 22 2026 07:00:00 GMT+0000"` and on elixir a space-separated `"2026-01-01 00:00:00Z"`).
+
+Note the asymmetry with **implicit** stringification (`"x " + v`, a bare interpolation hole): that stays narrower — `guid` and `datetime` must go through an explicit `string(…)`, because a reader cannot tell from `` `at {t}` `` which of several plausible formats was meant. `string(…)` makes the choice visible at the call site. The per-(from, target) leaf decides the idiom:
 
 ```ddd
 aggregate Order {
@@ -728,13 +730,14 @@ derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
 
 ## Magic references
 
-Three identifiers resolve specially in expression position, plus the implicit `this`:
+Four identifiers resolve specially in expression position, plus the implicit `this`:
 
 | Reference | Meaning | renders as |
 |---|---|---|
 | `this` | the aggregate/VO instance | the receiver name (`this` / `self` / `record`) |
 | `id` | the instance's identity | `this._id` (TS, inside) / `this.Id` / `record.id`; the explicit `this.id` spelling is rejected inside a `create` body (`loom.this-id-in-create` — the id is allocated at persistence, after the body runs). A bare `id` in a create body is *not* gated, and is the spelling an event-sourced `create` uses in its `emit` |
 | `currentUser` | the authenticated user-claim shape (`refKind: current-user`) | the per-request `currentUser` param/local each emitter materialises |
+| `organizationContext.orgPath` | the request's OPERATING scope — the org it acts in: the principal's own `orgPath`, or a validated `x-org-context` switch into a descendant org. The only member; backend code only (`loom.org-context-surface`), and only where the fail-closed switch gate exists (`loom.org-context-gate-unmet`) | lowered to the derived principal member `currentUser.orgContextPath` (`OrgContextPath` / `orgContextPath()` / `org_context_path`), so it rides the same principal threading. See [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate) |
 | `permissions.<name>` | a permission from the module catalogue | rewritten at lowering to the **string literal** of its runtime name (`"Projects.manageProjects"`), so `currentUser.permissions.contains(permissions.x)` is a plain membership test |
 
 `this` is byte-identical across backends (handled in `renderExprWith` itself, not the target table). Inside a `capability` body, `Self id` names the implementing aggregate (`loom.self-outside-capability` elsewhere). See [Auth](17-auth.md#currentuser--claim-access-in-domain-logic) for how `currentUser` / `permissions` thread through the request, and the `loom.current-user-needs-auth-ui` / `loom.guard-principal-without-auth` gates that require a bound principal on the hosting deployable.

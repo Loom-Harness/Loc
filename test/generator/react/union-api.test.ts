@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { allContexts } from "../../../src/ir/types/loom-ir.js";
+import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const SRC = `
@@ -25,7 +25,7 @@ const SRC = `
 async function apiModule(): Promise<string> {
   const { model } = await parseString(SRC, { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
-  const ctx = allContexts(enriched).find((c) => c.name === "Orders")!;
+  const ctx = enrichedContexts(enriched).find((c) => c.name === "Orders")!;
   const agg = ctx.aggregates.find((a) => a.name === "Order")!;
   const repo = ctx.repositories.find((r) => r.aggregateName === "Order");
   return buildApiModule(agg, repo, ctx);

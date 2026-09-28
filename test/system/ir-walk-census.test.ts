@@ -331,6 +331,19 @@ const INFLIGHT_2742 =
 const CLOSED_PREDICATE =
   "closed, kind-specific predicate/classifier — every unhandled kind falls through to a safe, generic default; not a traversal, nothing silently drops from emitted output. Classified by default-arm shape, not individually re-verified per kind this packet; follow-up drain";
 
+/** The client-evaluable GATE SUBSET (`src/ir/util/ui-gate.ts`, audit D2).
+ *  Both sites are closed CLASSIFIERS over a deliberately small allowlist, and
+ *  in both the `default` arm is the CONSERVATIVE answer, not a fall-through:
+ *  `firstNonUiGateNode` REJECTS an unrecognised kind (a new `ExprIR` kind is
+ *  not client-evaluable until all six frontend gate renderers learn to render
+ *  it, so rejecting is the only safe default and a `never`-check would force
+ *  every future kind to edit this file to say "no"), and `printGateExpr`
+ *  degrades to `<kind>` inside a diagnostic string. Neither traverses for
+ *  emission, so no generated output can silently lose a node here — the
+ *  failure mode the census targets is structurally absent. */
+const UI_GATE_CLOSED_SUBSET =
+  "closed client-evaluable-gate classifier whose default arm is the conservative answer (reject / degrade-to-<kind>), not a silent fall-through; a new ExprIR kind is correctly refused until every frontend gate renderer can render it";
+
 /** A closed, kind-specific EMISSION dispatcher whose `default` arm THROWS
  *  for any kind outside its declared vocabulary — a LOUD failure (a crash
  *  on generation, immediately visible), not the SILENT drop the M-T6.50
@@ -382,6 +395,10 @@ const WAIVERS: Record<string, string> = {
   "src/ir/validate/checks/ui-action-body-checks.ts#visitExpr": HOTSPOT_SPLIT_REASON,
   "src/ir/validate/checks/ui-action-body-checks.ts#visitStmt": HOTSPOT_SPLIT_REASON,
   "src/generator/typescript/emit/mikroorm-filter.ts#filterValue": HOTSPOT_SPLIT_REASON,
+
+  // --- the client-evaluable UI-gate subset (audit D2) --------------------
+  "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
+  "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
 
   // --- in-flight PR fence (docs/new-plan/waves/wave-2.md §In-flight fence) --
   "src/generator/zod-refine.ts#refineRenderable": INFLIGHT_2736,
@@ -507,8 +524,6 @@ const WAIVERS: Record<string, string> = {
   // surfaced that param into the `run/1` destructure and the emitted Elixir
   // named an undefined variable.  Migrated onto `walkWorkflowStmtChildren`
   // (F58 / M-T6.62); the waiver goes with the fix, per the ratchet convention.
-  "src/system/e2e-render.ts#visit": TRAVERSAL_TIME_BOXED,
-  "src/system/e2e-render.ts#visit$2": TRAVERSAL_TIME_BOXED,
 };
 
 describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/WorkflowStmtIR", () => {

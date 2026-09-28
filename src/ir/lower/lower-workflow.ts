@@ -50,7 +50,6 @@ import type {
   LoadPlanIR,
   LoadSegmentIR,
   OnIR,
-  ParamIR,
   PathIR,
   QueryHandlerIR,
   SortTermIR,
@@ -60,6 +59,7 @@ import type {
 } from "../types/loom-ir.js";
 import { aggregateOpResolver, type SaveResolver } from "../util/domain-service-tier.js";
 import { isWriteMethod } from "../util/repo-methods.js";
+import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
   inferExprType,
@@ -207,14 +207,9 @@ function lowerWorkflowCreate(
   repoForAgg: Map<string, string>,
   saveResolver?: SaveResolver,
 ): CreateIR {
-  let inner = baseEnv;
-  const params: ParamIR[] = [];
-  for (const p of c.params) {
-    const t = lowerType(p.type, baseEnv);
-    const def = p.default ? lowerExprInContext(p.default, t, baseEnv) : undefined;
-    params.push({ name: p.name, type: t, ...(def ? { default: def } : {}) });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  const boundParams = lowerCallableParams(c.params, baseEnv, { defaults: true });
+  const params = boundParams.params;
+  let inner = boundParams.env;
   const correlation = c.correlation ? lowerExpr(c.correlation, inner) : undefined;
   // Event-triggered when routed by a `by` clause; capture the sole event param.
   const triggerKind: "event" | "command" = correlation ? "event" : "command";
@@ -271,13 +266,11 @@ function lowerHandle(
   repoForAgg: Map<string, string>,
   saveResolver?: SaveResolver,
 ): HandleIR {
-  let inner = baseEnv;
-  const params: ParamIR[] = [];
-  for (const p of h.params) {
-    const t = lowerType(p.type, baseEnv);
-    params.push({ name: p.name, type: t });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  // A workflow `handle` parameter default is not lowered today — the same
+  // deliberate hold the domain-service row records (`callable-params.ts`).
+  const boundParams = lowerCallableParams(h.params, baseEnv, { defaults: false });
+  const params = boundParams.params;
+  let inner = boundParams.env;
   // `requires Expr` — authorization gate (authorization.md §11.3), lowered as a
   // prepended 403 pre-check in the param-bound env (currentUser + command
   // params).  See `lowerWorkflowCreate`.
@@ -351,13 +344,9 @@ export function lowerCommandHandler(
 ): CommandHandlerIR {
   const { aggsByName, reposByName, repoForAgg } = ctxAggRepoMaps(ctx);
   const saveResolver = saveResolverFor(lowered);
-  let inner = env;
-  const params: ParamIR[] = [];
-  for (const p of h.params) {
-    const t = lowerType(p.type, env);
-    params.push({ name: p.name, type: t });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  const boundParams = lowerCallableParams(h.params, env, { defaults: false });
+  const params = boundParams.params;
+  let inner = boundParams.env;
   // Extern handler (`extern commandHandler … ;`): BODYLESS.  There is no DSL
   // body to lower — statements / savesAtExit / returnValue stay empty, and only
   // the signature (params + optional returnType) survives.  The generated
@@ -406,13 +395,9 @@ export function lowerQueryHandler(
 ): QueryHandlerIR {
   const { aggsByName, reposByName, repoForAgg } = ctxAggRepoMaps(ctx);
   const saveResolver = saveResolverFor(lowered);
-  let inner = env;
-  const params: ParamIR[] = [];
-  for (const p of h.params) {
-    const t = lowerType(p.type, env);
-    params.push({ name: p.name, type: t });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  const boundParams = lowerCallableParams(h.params, env, { defaults: false });
+  const params = boundParams.params;
+  let inner = boundParams.env;
   // Extern queryHandler (`extern queryHandler … ;`): BODYLESS — see
   // `lowerCommandHandler`.  The required `returnType` is preserved (the user
   // impl file's return contract); statements / savesAtExit stay empty.
@@ -855,6 +840,18 @@ function lowerWorkflowStatementInner(
       if (repoCall.method !== "getById") {
         const find = repo.finds.find((f) => f.name === repoCall.method);
         if (find) returnType = lowerType(find.returnType);
+        // `findById` is a BUILT-IN, so there is no declared find to read a
+        // return type off — and the bare-entity default above then claims the
+        // nullable by-id read cannot be absent.  That silences
+        // `loom.handler-load-nullable-unsupported`, which decides purely on
+        // `returnType.kind === "optional"`, so the handler tier emitted an
+        // unguarded dereference of a value its own port types as
+        // `Optional<T>` / `T | null`.  `getById` (which throws) keeps the bare
+        // entity; see `repoReadResultType` in `repo-read.ts`, the domain-service
+        // twin of this table.
+        else if (repoCall.method === "findById") {
+          returnType = { kind: "optional", inner: { kind: "entity", name: aggName } };
+        }
       }
       // The let binding's local type is the unwrapped aggregate
       // (validator rejects array/optional repo-lets).  Use the

@@ -24,6 +24,7 @@ import { lowerFirst, plural } from "../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited } from "./emit/audit-stamp.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -259,9 +260,11 @@ export function buildDocumentRepositoryFile(
     // Domain-side repository PORT this concrete implements (audit S7).
     repoPortImportLine(agg.name),
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-    versioned
-      ? `import { and, eq, inArray } from "drizzle-orm";`
-      : `import { eq, inArray } from "drizzle-orm";`,
+    // Derived from the rendered body rather than branched on `versioned` — the
+    // `shape: document` reads lower through the same Drizzle predicate builder
+    // as the other two shapes, so a filter shape that renders `ne(`/`gt(`/`or(`
+    // was named-but-unimported here too.  See `drizzle-imports.ts`.
+    drizzleImportLine(bodyStr),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
@@ -494,7 +497,14 @@ function documentFindMethod(
   const needsPrincipalBind = aggregateUsesPrincipalContextFilter(agg) && !usesUser;
   const loadLines = [
     ...(needsPrincipalBind ? [`    const currentUser = requireCurrentUser();`] : []),
-    `    const rows = await this.db.select().from(schema.${tableName});`,
+    // ORDER BY id — a document aggregate's whole-table read is the root LIST
+    // route's only source, and an unordered `select` answers in Postgres heap
+    // order, which MOVES a row the moment an `update` rewrites its tuple.  The
+    // java document store has ordered here since it was written; the other four
+    // did not, so the same fixture answered one order on java and another
+    // everywhere else — caught by the wire golden, not by any assertion.  `id`
+    // is the primary key, so this is an index scan, not a sort.
+    `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
     `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${aggregateIsVersioned(agg) ? ", r.version" : ""}));`,
   ];
   // `find … paged` — the route is built for the paged contract, so the

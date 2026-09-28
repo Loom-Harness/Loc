@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TestOutcome } from "../../src/ir/types/loom-ir.js";
+import type { EnrichedLoomModel, TestOutcome } from "../../src/ir/types/loom-ir.js";
 import { computeVerification } from "../../src/verify/verification.js";
 import { buildLoomModel as build } from "../_helpers/index.js";
 
@@ -29,7 +29,7 @@ const SOURCE = `
   testCase TC-002 verifies AC-002 { covers [ Identity.Auth.LoginSession.start ] }
 `;
 
-function verify(loom: LoomModel, results: TestOutcome[]) {
+function verify(loom: EnrichedLoomModel, results: TestOutcome[]) {
   return computeVerification(
     loom.traceability!,
     loom.requirements.map((r) => r.id),

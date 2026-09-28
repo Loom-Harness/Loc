@@ -18,6 +18,7 @@ import {
   diffSchema,
   INITIAL_SUBBLOCK_SPAN,
   MigrationAmbiguousRenameError,
+  MigrationBackfillDiscardedError,
   MigrationDestructiveError,
   MigrationShapeChangeError,
   schemaFromModule,
@@ -2883,5 +2884,320 @@ system P {
     const v2 = src('name: string  status: string = "queued"');
     expect(diffSchema(await snapOf(v1), await snapOf(v2))).toEqual([]);
     expect(await evolve(v1, v2)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-018 — an author-declared NEW column must never be collapsed into a rename.
+//
+// The heuristic cannot tell "one rename" from "one drop plus one unrelated
+// add": both are one dropColumn + one addColumn of the same type on one table.
+// Guessing wrong is SILENT MISATTRIBUTION — every row's `bin_code` becomes its
+// `supplier_ref` — which is worse than a drop, because the data is still there
+// and now lies.  So the collapse yields to any signal from the author that the
+// added column is NEW: a declared backfill (the rule docs/migrations.md has
+// stated all along, which this pass did not implement) or a scalar-literal
+// field default.  Both are statements about rows that ALREADY EXIST, which is
+// only meaningful for a column that is not carrying its own data across.
+//
+// NON-VACUITY is the point of this block: a fix that simply stopped collapsing
+// renames would pass every "must not rename" assertion here.  So each negative
+// case is paired with the byte-identical positive case minus the signal,
+// asserting the genuine rename still collapses.
+// ---------------------------------------------------------------------------
+
+describe("applyDestructivePolicy — backfilled/defaulted adds are never renames (F-018)", () => {
+  const idCol = { name: "id", type: { kind: "uuid" as const }, nullable: false };
+  const parts = (extra: TableShape["columns"]): SchemaSnapshot => ({
+    schemaVersion: 1,
+    tables: [tbl("parts", [idCol, ...extra])],
+  });
+  const noFlag = { allowDestructive: false, module: "Ops" } as const;
+  // The reported repro, reduced: v1 has `bin_code`, v2 drops it and adds an
+  // unrelated `supplier_ref` of the SAME type, with a declared backfill.
+  const sku = { name: "sku", type: { kind: "text" as const }, nullable: false };
+  const prev = parts([sku, { name: "bin_code", type: { kind: "text" }, nullable: false }]);
+  const next = parts([sku, { name: "supplier_ref", type: { kind: "text" }, nullable: false }]);
+  const backfills = [{ table: "parts", column: "supplier_ref", valueSql: "'NO-SUPPLIER'" }];
+
+  it("CONTROL (non-vacuity): the very same diff WITHOUT the backfill still collapses to a rename", () => {
+    const steps = applyDestructivePolicy(diffSchema(prev, next), prev, noFlag);
+    expect(steps).toEqual([
+      {
+        op: "renameColumn",
+        table: "parts",
+        from: "bin_code",
+        to: "supplier_ref",
+        type: { kind: "text" },
+      },
+    ]);
+  });
+
+  it("the repro no longer emits RENAME COLUMN — it refuses, naming the drop", () => {
+    let thrown: unknown;
+    try {
+      applyDestructivePolicy(diffSchema(prev, next), prev, { ...noFlag, backfills });
+    } catch (e) {
+      thrown = e;
+    }
+    // Refused, not silently mis-migrated.
+    expect(thrown).toBeInstanceOf(MigrationDestructiveError);
+    const err = thrown as MigrationDestructiveError;
+    // The drop is the honest description: the author asked for a NEW column,
+    // so what is left over is a plain drop, not an unannotated rename.
+    expect(err).not.toBeInstanceOf(MigrationAmbiguousRenameError);
+    expect(err.message).toContain("DROP COLUMN parts.bin_code");
+    expect(err.message).not.toMatch(/RENAME/i);
+  });
+
+  it("--allow-destructive is the one-change drop+add path: DROP → ADD NULL → UPDATE → SET NOT NULL", () => {
+    const steps = applyDestructivePolicy(diffSchema(prev, next), prev, {
+      allowDestructive: true,
+      module: "Ops",
+      backfills,
+    });
+    expect(steps.map((s) => s.op)).toEqual([
+      "dropColumn",
+      "addColumn",
+      "backfillColumn",
+      "alterColumnNullable",
+    ]);
+    // No rename anywhere: the old column's data is dropped, not misattributed.
+    expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
+    const sql = steps.map(renderPgStep).join("\n");
+    expect(sql).toContain('ALTER TABLE "parts" DROP COLUMN "bin_code";');
+    expect(sql).toContain('ALTER TABLE "parts" ADD COLUMN "supplier_ref" TEXT NULL;');
+    // And the declared backfill is NOT discarded — the third failure in F-018.
+    expect(sql).toContain(
+      `UPDATE "parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;`,
+    );
+    expect(sql).toContain('ALTER TABLE "parts" ALTER COLUMN "supplier_ref" SET NOT NULL;');
+  });
+
+  it("a scalar-literal field default is the same signal — not a rename either", () => {
+    // `supplierRef: string = "NO-SUPPLIER"` → addColumnDefault on the add.
+    const defaulted: SchemaSnapshot = {
+      schemaVersion: 1,
+      tables: [
+        tbl("parts", [
+          idCol,
+          sku,
+          {
+            name: "supplier_ref",
+            type: { kind: "text" as const },
+            nullable: false,
+            addColumnDefault: "'NO-SUPPLIER'",
+          },
+        ]),
+      ],
+    };
+    expect(() => applyDestructivePolicy(diffSchema(prev, defaulted), prev, noFlag)).toThrow(
+      MigrationDestructiveError,
+    );
+    const steps = applyDestructivePolicy(diffSchema(prev, defaulted), prev, {
+      allowDestructive: true,
+      module: "Ops",
+    });
+    expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
+    // add-WITH-DEFAULT → DROP DEFAULT (M-T2.16), so existing rows get the
+    // declared value instead of the dropped column's.
+    expect(steps.map((s) => s.op)).toEqual(["dropColumn", "addColumn", "alterColumnDefault"]);
+  });
+
+  it("a NULLABILITY mismatch blocks the collapse — the last shape that could still corrupt silently", () => {
+    // `drop bin_code NOT NULL` + `add note NULL` needs neither a backfill nor
+    // a default to clear every other gate, so before this it collapsed into a
+    // rename and the bin codes became notes.  A rename leaves a column's shape
+    // alone; a shape change on top of a name change is the family the docs
+    // already refuse to guess at.
+    const nullableAdd = parts([sku, { name: "note", type: { kind: "text" }, nullable: true }]);
+    let thrown: unknown;
+    try {
+      applyDestructivePolicy(diffSchema(prev, nullableAdd), prev, noFlag);
+    } catch (e) {
+      thrown = e;
+    }
+    // Rename-SHAPED and un-collapsible → the diagnostic that names the remedy.
+    expect(thrown).toBeInstanceOf(MigrationAmbiguousRenameError);
+    expect((thrown as MigrationAmbiguousRenameError).renames).toEqual([
+      { table: "parts", drops: ["bin_code"], adds: ["note"] },
+    ]);
+    // CONTROL: same diff with matching nullability still collapses.
+    const notNullAdd = parts([sku, { name: "note", type: { kind: "text" }, nullable: false }]);
+    expect(
+      applyDestructivePolicy(diffSchema(prev, notNullAdd), prev, noFlag).map((s) => s.op),
+    ).toEqual(["renameColumn"]);
+  });
+
+  it("the signal is per-column: a backfill on a DIFFERENT column does not block the rename", () => {
+    // Non-vacuity again — the gate must key on the ADDED column, not merely on
+    // "this module declares some backfill somewhere".
+    const steps = applyDestructivePolicy(diffSchema(prev, next), prev, {
+      ...noFlag,
+      backfills: [{ table: "parts", column: "sku", valueSql: "''" }],
+    });
+    expect(steps.map((s) => s.op)).toEqual(["renameColumn"]);
+  });
+
+  it("an explicit rename block still wins over a backfill on the new name (data comes with it)", () => {
+    const steps = applyDestructivePolicy(
+      diffSchema(prev, next, [{ table: "parts", from: "bin_code", to: "supplier_ref" }]),
+      prev,
+      { ...noFlag, backfills },
+    );
+    expect(steps.map((s) => s.op)).toEqual(["renameColumn"]);
+    expect(steps.some((s) => s.op === "dropColumn")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-018 §4 — a declared backfill must never be silently discarded.
+//
+// A backfill is LEGITIMATELY inert once its column is in the baseline; that is
+// the documented ledger property and must stay silent.  The error fires on the
+// strictly narrower shape that can only be a compiler bug: the column is
+// arriving in THIS migration and nothing consumed the step.  That is exactly
+// what the pre-fix rename collapse produced.
+// ---------------------------------------------------------------------------
+
+describe("applyDestructivePolicy — discarded-backfill invariant (F-018 §4)", () => {
+  const idCol = { name: "id", type: { kind: "uuid" as const }, nullable: false };
+  const baseline: SchemaSnapshot = {
+    schemaVersion: 1,
+    tables: [tbl("parts", [idCol, { name: "sku", type: { kind: "text" }, nullable: false }])],
+  };
+
+  it("throws loom.migration-backfill-discarded when the column arrives but nothing consumed it", () => {
+    // Hand the pass a diff whose addColumn has been elided (what the collapse
+    // used to do) while the backfill still names the arriving column.
+    let thrown: unknown;
+    try {
+      applyDestructivePolicy([], baseline, {
+        allowDestructive: false,
+        module: "Ops",
+        backfills: [{ table: "parts", column: "supplier_ref", valueSql: "'NO-SUPPLIER'" }],
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(MigrationBackfillDiscardedError);
+    const err = thrown as MigrationBackfillDiscardedError;
+    expect(err.code).toBe("loom.migration-backfill-discarded");
+    expect(err.message).toContain("parts.supplier_ref = 'NO-SUPPLIER'");
+  });
+
+  it("fires under --allow-destructive too — the flag accepts data loss, not dropped declarations", () => {
+    expect(() =>
+      applyDestructivePolicy([], baseline, {
+        allowDestructive: true,
+        module: "Ops",
+        backfills: [{ table: "parts", column: "supplier_ref", valueSql: "'x'" }],
+      }),
+    ).toThrow(MigrationBackfillDiscardedError);
+  });
+
+  it("stays SILENT for the ledger-inert case — the column is already in the baseline", () => {
+    expect(
+      applyDestructivePolicy([], baseline, {
+        allowDestructive: false,
+        module: "Ops",
+        backfills: [{ table: "parts", column: "sku", valueSql: "''" }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("stays SILENT when the table is RENAMED AWAY this generation (the M-T2.4 reshape backup)", () => {
+    // Reshape moves `parts` to `parts__pre_reshape` and creates the new shape
+    // empty; the data move is the operator's TODO.  The baseline still has a
+    // `parts` row-set, but nothing survives under that identity, so a backfill
+    // against it is inert for the same reason a first-run one is.
+    const steps: MigrationStep[] = [
+      { op: "renameTable", from: "parts", to: "parts__pre_reshape" },
+      {
+        op: "createTable",
+        table: tbl("parts", [idCol, { name: "note", type: { kind: "text" }, nullable: true }]),
+      },
+    ];
+    expect(
+      applyDestructivePolicy(steps, baseline, {
+        allowDestructive: true,
+        module: "Ops",
+        backfills: [{ table: "parts", column: "note", valueSql: "''" }],
+      }),
+    ).toEqual(steps);
+  });
+
+  it("stays SILENT when the whole table is created this generation", () => {
+    const created: MigrationStep = {
+      op: "createTable",
+      table: tbl("widgets", [idCol, { name: "note", type: { kind: "text" }, nullable: true }]),
+    };
+    expect(
+      applyDestructivePolicy([created], baseline, {
+        allowDestructive: false,
+        module: "Ops",
+        backfills: [{ table: "widgets", column: "note", valueSql: "''" }],
+      }),
+    ).toEqual([created]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-018 end to end, through `buildMigrations` on the reported `.ddd` pair —
+// the level the CLI actually runs at, so the unit-level pins above cannot pass
+// while the real pipeline still renames.
+// ---------------------------------------------------------------------------
+
+describe("buildMigrations — the F-018 repro (drop binCode, add backfilled supplierRef)", () => {
+  const V2_SRC = `
+migration "add-supplier-ref" { Part.supplierRef = "NO-SUPPLIER" }
+
+system M {
+  subdomain S {
+    context C {
+      aggregate Part { sku: string  supplierRef: string }
+      repository Parts for Part { }
+    }
+  }
+  deployable api { platform: node, contexts: [C], port: 3000 }
+}
+`;
+
+  /** v2's schema with `supplier_ref` swapped back to `bin_code` — i.e. exactly
+   *  the v1 baseline, so the diff is one drop + one same-type add. */
+  const v1Baseline = (next: SchemaSnapshot): SchemaSnapshot =>
+    withModifiedTable({ ...next, lastVersion: BASE_TIMESTAMP }, "parts", (t) => ({
+      ...t,
+      columns: t.columns.map((c) => (c.name === "supplier_ref" ? { ...c, name: "bin_code" } : c)),
+    }));
+
+  it("refuses instead of emitting RENAME COLUMN bin_code TO supplier_ref", async () => {
+    const loom = await buildLoomModel(V2_SRC);
+    const sys = loom.systems[0]!;
+    const baseline = v1Baseline(schemaFromModule(sys.subdomains[0]!));
+    expect(() =>
+      buildMigrations(sys, memorySnapshotStore({ S: baseline }), {
+        backfillIntents: loom.backfillIntents,
+        sqlSteps: loom.sqlMigrationSteps,
+      }),
+    ).toThrow(MigrationDestructiveError);
+  });
+
+  it("under --allow-destructive the declared backfill actually runs", async () => {
+    const loom = await buildLoomModel(V2_SRC);
+    const sys = loom.systems[0]!;
+    const baseline = v1Baseline(schemaFromModule(sys.subdomains[0]!));
+    const out = buildMigrations(sys, memorySnapshotStore({ S: baseline }), {
+      backfillIntents: loom.backfillIntents,
+      sqlSteps: loom.sqlMigrationSteps,
+      allowDestructive: true,
+    });
+    const steps = out[0]!.steps;
+    expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
+    const sql = steps.map(renderPgStep).join("\n");
+    expect(sql).toContain('DROP COLUMN "bin_code"');
+    expect(sql).toContain(
+      `UPDATE "parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;`,
+    );
   });
 });

@@ -247,8 +247,11 @@ const SPECS: Record<Backend, BackendSpec> = {
     // controller-level gate has a second front door (plan Appendix A / A1).
     create: {
       region: { file: "lib/d/warehouse.ex", from: "def create_shipment(", to: "\n  end" },
+      // M-T3.16 C2: the request is validated FIRST (the wire rung the other
+      // four answer at the route boundary), then the gate, then the insert.
       gate:
-        "with :ok <- ensure(not is_nil(current_user) and " +
+        "with {:ok, _} <- Ecto.Changeset.apply_action(D.Warehouse.ShipmentChangeset.base_changeset(attrs), :insert),\n" +
+        "         :ok <- ensure(not is_nil(current_user) and " +
         '(Enum.member?(current_user.permissions, "ops.manage")), ' +
         '{:forbidden, "Forbidden: currentUser.permissions.contains(permissions.manage)"}) do',
       before: ["create_shipment_unguarded(attrs)"],

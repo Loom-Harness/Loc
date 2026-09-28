@@ -14,6 +14,18 @@
 // silent degradation).  The output is plain JS boolean syntax, identical across
 // the JS-family frontends (React / Vue / Svelte / Angular), so each framework
 // host reuses this one renderer.
+//
+// The throws below are INTERNAL INVARIANTS, not the user-facing diagnostic.
+// `loom.page-gate-not-client-evaluable` (`src/ir/validate/checks/ui-gate-checks.ts`,
+// over the subset described once in `src/ir/util/ui-gate.ts`) refuses such a gate
+// at phase ⑦, before any emitter runs — so reaching one of these throws means the
+// IR check and this renderer have drifted apart, which is a compiler bug and not
+// something an author can cause from `.ddd`.  (Audit D2: they used to be the
+// FIRST thing the author heard — a bare JS `Error` with no `loom.*` code, no page
+// name and no source position, after `0 error(s), 0 warning(s)`.)
+// `tryRenderGate` below is a different contract: it is the best-effort
+// CLASSIFIER for ACTION gates, which are legitimately allowed to fall outside
+// the subset (the backend 403 still enforces them).
 
 import type { BinOp, ExprIR } from "../../ir/types/loom-ir.js";
 

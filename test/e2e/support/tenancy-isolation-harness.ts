@@ -485,3 +485,197 @@ export async function assertHierarchyIsolation(base: string, pg: Postgres): Prom
   expect(await labels("accounts", orgABC)).not.toContain("legacy");
   expect(await getStatus("accounts", orgABC, legacyId)).toBe(404);
 }
+
+// ---------------------------------------------------------------------------
+// `organizationContext` — the operating-scope switch gate (M-T3.6 items 3+5,
+// docs/tenancy.md → "organizationContext").
+//
+// Driven over the `org-context` corpus fixture: its `tenantOwned` re-roots the
+// WRITE stamp onto `organizationContext.orgPath` (the reconciled surface), its
+// read filter stays on `currentUser`, and `Account` carries `allow deep`.  The
+// request header `x-org-context` asks to operate in a descendant org; every
+// backend's auth middleware must validate it BEFORE any handler runs.  The four
+// arms the mission names, each asserted on the wire AND in the table:
+//
+//   1. an in-scope switch stamps the sub-scope `dataKey` on a write, and the
+//      row is then visible to a deep read from the parent and invisible to a
+//      sibling (and to the delimiter-trap root `org_ab`);
+//   2. an out-of-write-scope switch (an ancestor, a sibling, the delimiter trap,
+//      an unrelated root) is 403 with NO write;
+//   3. a forged header on a token with no `orgPath` is 403 with no write;
+//   4. reads stay principal-anchored (M-T3.6 (4) — verified, not rebuilt): a
+//      switched read answers exactly what the unswitched one does.
+//
+// `bootLog` is threaded through for the catalog check: the deny must surface as
+// the neutral `org_context_denied` event on every backend.
+// ---------------------------------------------------------------------------
+
+const ORG_CONTEXT_HEADER = "x-org-context";
+
+/** The dev-claims principal of `tenantId`, operating in `orgContext` when given. */
+function actingAs(tenantId: string, orgContext?: string): Record<string, string> {
+  return orgContext === undefined
+    ? claims(tenantId)
+    : { ...claims(tenantId), [ORG_CONTEXT_HEADER]: orgContext };
+}
+
+export async function assertOrgContextGate(
+  base: string,
+  pg: Postgres,
+  bootLog: () => string,
+): Promise<void> {
+  async function createOrg(name: string, parent?: string): Promise<string> {
+    const r = await fetch(`${base}/api/orgs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" }, // claim-less signup
+      body: JSON.stringify(parent ? { name, parent } : { name }),
+    });
+    expect(r.status, await r.clone().text()).toBe(201);
+    return ((await r.json()) as { id: string }).id;
+  }
+  async function setPath(orgId: string, p: string): Promise<void> {
+    const r = await fetch(`${base}/api/orgs/${orgId}/set_path`, {
+      method: "POST",
+      headers: claims(orgId),
+      body: JSON.stringify({ p }),
+    });
+    expect(r.status, await r.clone().text()).toBe(204);
+  }
+  async function create(
+    headers: Record<string, string>,
+    label: string,
+  ): Promise<{ status: number; id?: string; body: string }> {
+    const r = await fetch(`${base}/api/accounts`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ label }),
+    });
+    const body = await r.text();
+    const id = r.status === 201 ? (JSON.parse(body) as { id: string }).id : undefined;
+    return { status: r.status, id, body };
+  }
+  async function labels(headers: Record<string, string>): Promise<string[]> {
+    const r = await fetch(`${base}/api/accounts`, { headers });
+    expect(r.status, await r.clone().text()).toBe(200);
+    return rows<{ label: string }>(await r.json())
+      .map((x) => x.label)
+      .sort();
+  }
+
+  // The org tree: org_a → { org_a.b, org_a.c } (siblings), plus the
+  // delimiter-trap root `org_ab` (NOT under org_a — `org_ab` must not prefix-
+  // match `org_a`, in the gate exactly as in the deep read).
+  const orgA = await createOrg("A");
+  await setPath(orgA, "org_a");
+  const orgAB = await createOrg("A.B", orgA);
+  await setPath(orgAB, "org_a.b");
+  const orgAC = await createOrg("A.C", orgA);
+  await setPath(orgAC, "org_a.c");
+  const orgAb = await createOrg("Ab");
+  await setPath(orgAb, "org_ab");
+
+  // The accounts table — located by the fixture-unique `scope` column.
+  const acctTable = runSql(
+    pg,
+    "SELECT format('%I.%I', table_schema, table_name) FROM information_schema.columns WHERE lower(column_name) = 'scope' LIMIT 1",
+  );
+  expect(acctTable, "could not locate the accounts table via information_schema").toBeTruthy();
+  const dataKeyOf = (label: string): string =>
+    runSql(pg, `SELECT coalesce(data_key, '<null>') FROM ${acctTable} WHERE label = '${label}'`);
+  const rowCount = (label: string): string =>
+    runSql(pg, `SELECT count(*) FROM ${acctTable} WHERE label = '${label}'`);
+
+  // === No header: the principal's own scope — never a widening. ===
+  const own = await create(actingAs(orgA), "own-a");
+  expect(own.status, own.body).toBe(201);
+  expect(dataKeyOf("own-a")).toBe("org_a");
+
+  // === (1) In-scope switch: org_a operating in its child org_a.b. ===
+  const switched = await create(actingAs(orgA, "org_a.b"), "switched");
+  expect(switched.status, switched.body).toBe(201);
+  // The stamp wrote the OPERATING scope, not the principal's own path.
+  expect(dataKeyOf("switched")).toBe("org_a.b");
+  // Deep-visible from the parent (the caller) and from the target org itself…
+  expect(await labels(actingAs(orgA))).toContain("switched");
+  expect(await labels(actingAs(orgAB))).toContain("switched");
+  // …and invisible to the sibling and to the delimiter-trap root.
+  expect(await labels(actingAs(orgAC))).not.toContain("switched");
+  expect(await labels(actingAs(orgAb))).not.toContain("switched");
+  expect(
+    (await fetch(`${base}/api/accounts/${switched.id}`, { headers: actingAs(orgAC) })).status,
+  ).toBe(404);
+  // A switch to the caller's OWN path is admitted and changes nothing.
+  const selfSwitch = await create(actingAs(orgA, "org_a"), "self-switch");
+  expect(selfSwitch.status, selfSwitch.body).toBe(201);
+  expect(dataKeyOf("self-switch")).toBe("org_a");
+
+  // The operating scope reaches an OPERATION body too (the principal-threading
+  // path, not only the stamp seam) — and is readable back on the wire.
+  const noteSwitched = await fetch(`${base}/api/accounts/${switched.id}/note`, {
+    method: "POST",
+    headers: actingAs(orgA, "org_a.b"),
+    body: JSON.stringify({}),
+  });
+  expect([200, 204], await noteSwitched.clone().text()).toContain(noteSwitched.status);
+  const afterSwitchedNote = (await (
+    await fetch(`${base}/api/accounts/${switched.id}`, { headers: actingAs(orgA) })
+  ).json()) as { scope?: string | null };
+  expect(afterSwitchedNote.scope).toBe("org_a.b");
+  const noteOwn = await fetch(`${base}/api/accounts/${own.id}/note`, {
+    method: "POST",
+    headers: actingAs(orgA),
+    body: JSON.stringify({}),
+  });
+  expect([200, 204], await noteOwn.clone().text()).toContain(noteOwn.status);
+  const afterOwnNote = (await (
+    await fetch(`${base}/api/accounts/${own.id}`, { headers: actingAs(orgA) })
+  ).json()) as { scope?: string | null };
+  expect(afterOwnNote.scope).toBe("org_a");
+
+  // === (2) Out-of-write-scope switches: 403, and NOTHING is written. ===
+  const refused: [string, string, string][] = [
+    [orgAB, "org_a", "to-ancestor"], // a child cannot climb to its parent
+    [orgAB, "org_a.c", "to-sibling"], // nor sideways
+    [orgA, "org_ab", "delimiter-trap"], // `org_ab` is not under `org_a`
+    [orgA, "org_z", "unrelated-root"],
+  ];
+  for (const [who, ctx, label] of refused) {
+    const r = await create(actingAs(who, ctx), label);
+    expect(r.status, `${label}: ${r.body}`).toBe(403);
+    expect((JSON.parse(r.body) as { title?: string }).title, label).toBe("Forbidden");
+    expect(rowCount(label), `${label} must not have been written`).toBe("0");
+  }
+  // The switch is a REQUEST-level fact: an out-of-scope header refuses a read,
+  // and an operation on an existing row, just as it refuses a create.
+  expect((await fetch(`${base}/api/accounts`, { headers: actingAs(orgAB, "org_a") })).status).toBe(
+    403,
+  );
+  const noteRefused = await fetch(`${base}/api/accounts/${own.id}/note`, {
+    method: "POST",
+    headers: actingAs(orgAB, "org_a"),
+    body: JSON.stringify({}),
+  });
+  expect(noteRefused.status).toBe(403);
+
+  // === (3) A forged header on a token with no orgPath: 403, no write. ===
+  const forged = await create(actingAs("", "org_a"), "forged");
+  expect(forged.status, forged.body).toBe(403);
+  expect(rowCount("forged")).toBe("0");
+
+  // === (4) Reads stay principal-anchored. ===
+  // A validated switch widens nothing and narrows nothing on the read side: the
+  // tenant filter and the deep ladder anchor on `currentUser`, so the switched
+  // list is exactly the caller's own list.
+  expect(await labels(actingAs(orgA, "org_a.b"))).toEqual(await labels(actingAs(orgA)));
+  expect(await labels(actingAs(orgAB, "org_a.b"))).toEqual(await labels(actingAs(orgAB)));
+
+  // === The deny is logged through the neutral catalog. ===
+  const deadline = Date.now() + 15_000;
+  while (!bootLog().includes("org_context_denied") && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  expect(
+    bootLog().includes("org_context_denied"),
+    "no `org_context_denied` catalog line in the server log",
+  ).toBe(true);
+}

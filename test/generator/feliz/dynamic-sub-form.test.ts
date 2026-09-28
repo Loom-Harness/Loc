@@ -54,22 +54,22 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
 
   it("wires Add / Remove / indexed setter Msgs for the row group", async () => {
     const app = await appFs(SUB);
-    expect(app).toContain("  | AddOrderFormItems");
-    expect(app).toContain("  | RemoveOrderFormItems of int");
-    expect(app).toContain("  | SetOrderFormItemsSku of int * string");
-    expect(app).toContain("  | SetOrderFormItemsQty of int * string");
+    expect(app).toContain("  | AddOrderCreateFormItems");
+    expect(app).toContain("  | RemoveOrderCreateFormItems of int");
+    expect(app).toContain("  | SetOrderCreateFormItemsSku of int * string");
+    expect(app).toContain("  | SetOrderCreateFormItemsQty of int * string");
   });
 
   it("projects the update arms — append, index-filter remove, mapi set", async () => {
     const app = await appFs(SUB);
     expect(app).toContain(
-      "  | AddOrderFormItems -> { model with OrderForm = { model.OrderForm with items = model.OrderForm.items @ [ emptyLineItemRow ] } }, Cmd.none",
+      "  | AddOrderCreateFormItems -> { model with OrderCreateForm = { model.OrderCreateForm with items = model.OrderCreateForm.items @ [ emptyLineItemRow ] } }, Cmd.none",
     );
     expect(app).toContain(
-      "  | RemoveOrderFormItems i -> { model with OrderForm = { model.OrderForm with items = model.OrderForm.items |> List.indexed |> List.filter (fun (j, _) -> j <> i) |> List.map snd } }, Cmd.none",
+      "  | RemoveOrderCreateFormItems i -> { model with OrderCreateForm = { model.OrderCreateForm with items = model.OrderCreateForm.items |> List.indexed |> List.filter (fun (j, _) -> j <> i) |> List.map snd } }, Cmd.none",
     );
     expect(app).toContain(
-      "  | SetOrderFormItemsQty (i, v) -> { model with OrderForm = { model.OrderForm with items = model.OrderForm.items |> List.mapi (fun j row -> if j = i then { row with qty = v } else row) } }, Cmd.none",
+      "  | SetOrderCreateFormItemsQty (i, v) -> { model with OrderCreateForm = { model.OrderCreateForm with items = model.OrderCreateForm.items |> List.mapi (fun j row -> if j = i then { row with qty = v } else row) } }, Cmd.none",
     );
   });
 
@@ -85,25 +85,25 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
   it("renders repeatable rows via List.mapi with an Add and per-row Remove", async () => {
     const app = await appFs(SUB);
     // The row list splices in via `yield!` (F# implicit-yield alongside yield!).
-    expect(app).toContain("yield! (model.OrderForm.items |> List.mapi (fun i row ->");
+    expect(app).toContain("yield! (model.OrderCreateForm.items |> List.mapi (fun i row ->");
     // Each row sub-field binds to `row.<field>` and dispatches the INDEXED setter.
     expect(app).toContain(
-      "prop.value row.sku; prop.onChange (fun (v: string) -> dispatch (SetOrderFormItemsSku (i, v)))",
+      "prop.value row.sku; prop.onChange (fun (v: string) -> dispatch (SetOrderCreateFormItemsSku (i, v)))",
     );
     // Numeric sub-field carries the number input type.
     expect(app).toContain('prop.type\'.number; prop.placeholder "qty"; prop.value row.qty');
     // Add / per-row Remove controls.
-    expect(app).toContain("dispatch (RemoveOrderFormItems i)");
-    expect(app).toContain('dispatch AddOrderFormItems); prop.text "Add Line Item"');
+    expect(app).toContain("dispatch (RemoveOrderCreateFormItems i)");
+    expect(app).toContain('dispatch AddOrderCreateFormItems); prop.text "Add Line Item"');
   });
 
   it("also drives the scaffolded update OperationForm (its own indexed Msgs)", async () => {
     const app = await appFs(SUB);
     // The crudish update op form gets the SAME row machinery under its form type.
-    expect(app).toContain("  | AddUpdateOrderFormItems");
-    expect(app).toContain("  | SetUpdateOrderFormItemsSku of int * string");
+    expect(app).toContain("  | AddUpdateOrderOpFormItems");
+    expect(app).toContain("  | SetUpdateOrderOpFormItemsSku of int * string");
     expect(app).toContain(
-      "UpdateOrderForm with items = model.UpdateOrderForm.items @ [ emptyLineItemRow ]",
+      "UpdateOrderOpForm with items = model.UpdateOrderOpForm.items @ [ emptyLineItemRow ]",
     );
   });
 

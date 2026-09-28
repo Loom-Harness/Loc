@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": ".loom/architecture.c4"
+    },
+    {
+      "path": ".loom/asyncapi.yaml"
+    },
+    {
+      "path": ".loom/datasources.md"
+    },
+    {
+      "path": ".loom/deployment.mmd"
+    },
+    {
+      "path": ".loom/domain.mmd"
+    },
+    {
+      "path": ".loom/er.mmd"
+    },
+    {
+      "path": ".loom/manifest.json"
+    },
+    {
+      "path": ".loom/messages.en.json"
+    },
+    {
+      "path": ".loom/sequence.mmd"
+    },
+    {
+      "path": ".loom/snapshots/Core.snapshot.json"
+    },
+    {
+      "path": ".loom/wire-spec.json"
+    },
+    {
+      "path": ".loom/workflows.mmd"
+    },
+    {
+      "path": "api/.dockerignore"
+    },
+    {
+      "path": "api/Dockerfile"
+    },
+    {
+      "path": "api/certs/.gitkeep"
+    },
+    {
+      "path": "api/db/migrations/20260101000000_core_initial.sql"
+    },
+    {
+      "path": "api/db/migrations/meta/_journal.json"
+    },
+    {
+      "path": "api/db/repositories/project-repository.ts"
+    },
+    {
+      "path": "api/db/repositories/task-repository.ts"
+    },
+    {
+      "path": "api/db/schema.ts"
+    },
+    {
+      "path": "api/domain/errors.ts"
+    },
+    {
+      "path": "api/domain/events.ts"
+    },
+    {
+      "path": "api/domain/ids.ts"
+    },
+    {
+      "path": "api/domain/project.ts"
+    },
+    {
+      "path": "api/domain/repository-ports.ts"
+    },
+    {
+      "path": "api/domain/task.ts"
+    },
+    {
+      "path": "api/domain/value-objects.ts"
+    },
+    {
+      "path": "api/drizzle.config.ts"
+    },
+    {
+      "path": "api/http/index.ts"
+    },
+    {
+      "path": "api/http/problem-details.ts"
+    },
+    {
+      "path": "api/http/project.routes.ts"
+    },
+    {
+      "path": "api/http/task.routes.ts"
+    },
+    {
+      "path": "api/index.ts"
+    },
+    {
+      "path": "api/obs/als.ts"
+    },
+    {
+      "path": "api/obs/log.ts"
+    },
+    {
+      "path": "api/obs/metrics.ts"
+    },
+    {
+      "path": "api/obs/request-id.ts"
+    },
+    {
+      "path": "api/obs/tracing.ts"
+    },
+    {
+      "path": "api/package.json"
+    },
+    {
+      "path": "api/tsconfig.json"
+    },
+    {
+      "path": "api/tsup.config.ts"
+    },
+    {
+      "path": "db-init/00-create-databases.sql"
+    },
+    {
+      "path": "docker-compose.obs.yml"
+    },
+    {
+      "path": "docker-compose.yml"
+    },
+    {
+      "path": "monitoring/prometheus.yml"
+    },
+    {
+      "path": "web_app/.dockerignore"
+    },
+    {
+      "path": "web_app/.npmrc"
+    },
+    {
+      "path": "web_app/Dockerfile"
+    },
+    {
+      "path": "web_app/certs/.gitkeep"
+    },
+    {
+      "path": "web_app/e2e/fixtures.ts"
+    },
+    {
+      "path": "web_app/e2e/package.json"
+    },
+    {
+      "path": "web_app/e2e/pages/project.ts"
+    },
+    {
+      "path": "web_app/e2e/pages/task.ts"
+    },
+    {
+      "path": "web_app/e2e/playwright.config.ts"
+    },
+    {
+      "path": "web_app/e2e/smoke.spec.ts"
+    },
+    {
+      "path": "web_app/e2e/tsconfig.json"
+    },
+    {
+      "path": "web_app/index.html"
+    },
+    {
+      "path": "web_app/package.json"
+    },
+    {
+      "path": "web_app/src/App.tsx"
+    },
+    {
+      "path": "web_app/src/ErrorBoundary.tsx"
+    },
+    {
+      "path": "web_app/src/api/client.ts"
+    },
+    {
+      "path": "web_app/src/api/config.ts"
+    },
+    {
+      "path": "web_app/src/api/project.ts"
+    },
+    {
+      "path": "web_app/src/api/task.ts"
+    },
+    {
+      "path": "web_app/src/i18n.ts"
+    },
+    {
+      "path": "web_app/src/lib/apply-server-errors.ts"
+    },
+    {
+      "path": "web_app/src/lib/format.tsx"
+    },
+    {
+      "path": "web_app/src/lib/strict-field-map.ts"
+    },
+    {
+      "path": "web_app/src/locales/en.json"
+    },
+    {
+      "path": "web_app/src/logger.ts"
+    },
+    {
+      "path": "web_app/src/main.tsx"
+    },
+    {
+      "path": "web_app/src/pages/home.tsx"
+    },
+    {
+      "path": "web_app/src/pages/projects/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/projects/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/projects/new.tsx"
+    },
+    {
+      "path": "web_app/src/pages/tasks/detail.tsx"
+    },
+    {
+      "path": "web_app/src/pages/tasks/list.tsx"
+    },
+    {
+      "path": "web_app/src/pages/tasks/new.tsx"
+    },
+    {
+      "path": "web_app/src/theme.ts"
+    },
+    {
+      "path": "web_app/src/vite-env.d.ts"
+    },
+    {
+      "path": "web_app/tsconfig.json"
+    },
+    {
+      "path": "web_app/tsconfig.node.json"
+    },
+    {
+      "path": "web_app/vite.config.ts"
+    }
+  ]
+}

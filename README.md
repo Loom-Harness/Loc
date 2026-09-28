@@ -15,7 +15,7 @@ line that's generated.
 - All the source you'd write by hand
 - Zero vendor lock-in
 
-**Live site:** <https://lemmit.github.io/Loc/> — landing, browser
+**Live site:** <https://loom-harness.github.io/Loc/> — landing, browser
 playground (typed editor + visual system builder + live preview +
 in-browser test runner), and the full documentation set.
 
@@ -51,7 +51,7 @@ everything turns into a check mark:
   the model doesn't have or write a frontend that disagrees with its
   backend.
 
-Full feature-by-feature comparison: <https://lemmit.github.io/Loc/#compare>.
+Full feature-by-feature comparison: <https://loom-harness.github.io/Loc/#compare>.
 
 ## Quick example
 
@@ -156,10 +156,16 @@ system Acme {
 }
 ```
 
-`ddd generate system acme.ddd -o ./out` → runnable multi-project tree
-+ `docker-compose.yml` + healthchecks + generated migrations + e2e
-suite.  `docker compose up -d` → everything running on ports
-3000 / 8080 / 4000 / 3001.
+`node bin/cli.js generate system acme.ddd -o ./out` → runnable
+multi-project tree + `docker-compose.yml` + healthchecks + generated
+migrations + e2e suite.  `docker compose up -d` → everything running on
+ports 3000 / 8080 / 4000 / 3001.
+
+**Every REST route the backends serve is mounted under `/api`**, named by
+the aggregate's snake_cased plural — so it is
+`curl localhost:3000/api/orders` (and `/api/orders/{id}`), not
+`/orders`.  The full surface of a generated backend is always its own
+`GET /openapi.json`.
 
 ## Install
 
@@ -171,16 +177,23 @@ npm run build               # tsc -b
 
 Requires Node 20+.
 
+**There is no global `ddd` on your PATH after this** — `npm install` in a
+clone does not link the bin.  Every command below is spelled
+`node bin/cli.js <args>` from the repo root; `npx ddd <args>` works too
+(and is what an install from a published package gives you).  Add
+`alias ddd='node "$PWD/bin/cli.js"'` if you want the short form in a shell
+session.
+
 ## CLI
 
 ```bash
-ddd parse <file.ddd>                       # parse + validate, exit non-zero on errors
-ddd generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
-ddd generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
-ddd generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
-ddd snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
-ddd verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
-ddd verify          <file.ddd> --from-vitest <report.json>  # …reading `vitest run --reporter=json` directly
+node bin/cli.js parse <file.ddd>                       # parse + validate, exit non-zero on errors
+node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
+node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
+node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
+node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
+node bin/cli.js verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
+node bin/cli.js verify  <file.ddd> --from-vitest <report.json>  # …reading `vitest run --reporter=json` directly
 ```
 
 Common flags:
@@ -215,7 +228,7 @@ just templates against a small page contract.
 builder for deployables and modules, live preview of the generated
 app booting in a sandboxed iframe, in-browser test runner.  Same
 `.ddd` source across all views.  Open it at
-<https://lemmit.github.io/Loc/playground/>.
+<https://loom-harness.github.io/Loc/playground/>.
 
 **Built-in traceability.** Declare `requirement`, `solution`, and
 `testCase` alongside your domain.  Executable tests link back to test
@@ -348,7 +361,7 @@ derived-artifact directory, and
 The live roadmap lives under [`docs/new-plan/`](docs/new-plan/) (tracks
 + agent-pickable missions); the archived design corpus &mdash; frozen
 proposals and plans &mdash; lives under `docs/old/` (not deployed to
-the docs site; [browse on GitHub](https://github.com/lemmit/Loc/tree/main/docs/old/));
+the docs site; [browse on GitHub](https://github.com/Loom-Harness/Loc/tree/main/docs/old/));
 empirical snapshots live under [`docs/audits/`](docs/audits/).
 
 Plus [`experience_gathered.md`](experience_gathered.md) &mdash; running

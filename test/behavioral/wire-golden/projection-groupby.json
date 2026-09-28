@@ -64,6 +64,22 @@
     {
       "seq": 6,
       "method": "GET",
+      "path": "/api/projections/orders_by_status",
+      "status": 200,
+      "body": [
+        {
+          "orders": 2,
+          "status": "Confirmed"
+        },
+        {
+          "orders": 1,
+          "status": "Draft"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "GET",
       "path": "/api/projections/revenue_by_day",
       "status": 200,
       "body": [
@@ -80,7 +96,7 @@
       ]
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "GET",
       "path": "/api/projections/{id}",
       "status": 200,
@@ -102,7 +118,7 @@
       ]
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "GET",
       "path": "/api/projections/orders_by_total",
       "status": 200,
@@ -122,14 +138,14 @@
       ]
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "GET",
       "path": "/api/projections/sales_by_status",
       "status": 200,
@@ -143,7 +159,19 @@
       ]
     },
     {
-      "seq": 11,
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/projections/orders_by_status",
+      "status": 200,
+      "body": [
+        {
+          "orders": 3,
+          "status": "Confirmed"
+        }
+      ]
+    },
+    {
+      "seq": 13,
       "method": "GET",
       "path": "/api/projections/{id}",
       "status": 200,
@@ -165,7 +193,7 @@
       ]
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -182,7 +210,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -229,7 +257,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/api/customers",
       "status": 200,
@@ -253,7 +281,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "GET",
       "path": "/api/customers/{id}",
       "status": 200,
@@ -264,14 +292,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "POST",
       "path": "/api/customers/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "GET",
       "path": "/api/customers/{id}",
       "status": 200,
@@ -282,21 +310,21 @@
       }
     },
     {
-      "seq": 18,
-      "method": "DELETE",
-      "path": "/api/orders/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 19,
-      "method": "DELETE",
-      "path": "/api/orders/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
       "seq": 20,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
       "method": "GET",
       "path": "/api/projections/revenue_by_day",
       "status": 200,
@@ -309,14 +337,14 @@
       ]
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -329,28 +357,28 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "GET",
       "path": "/api/projections/sales_by_status",
       "status": 200,
       "body": []
     },
     {
-      "seq": 24,
-      "method": "DELETE",
-      "path": "/api/customers/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 25,
-      "method": "DELETE",
-      "path": "/api/customers/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
       "seq": 26,
+      "method": "DELETE",
+      "path": "/api/customers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "DELETE",
+      "path": "/api/customers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 28,
       "method": "GET",
       "path": "/api/customers/{id}",
       "status": 404,
@@ -363,7 +391,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "GET",
       "path": "/api/customers",
       "status": 200,
@@ -376,7 +404,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "PATCH",
       "path": "/api/customers",
       "status": 405,
@@ -389,7 +417,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -402,7 +430,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "POST",
       "path": "/api/customers",
       "status": 400,

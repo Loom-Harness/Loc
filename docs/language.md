@@ -240,11 +240,11 @@ preserved at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
 | `context Name { … }` | Allowed directly inside a system; treated as if it were in an implicit `_default` subdomain. |
 | `test e2e "name" against <deployable> [verifies <TestCase>] { … }` | End-to-end test that runs against the named deployable — HTTP (vitest + fetch) for a backend, Playwright page objects for a frontend; lowers to `<system>/e2e/<System>.e2e.test.ts` / `<frontend>/e2e/<System>.ui.spec.ts`.  See [End-to-end tests](#end-to-end-tests-against-a-deployable). |
 | `user { id: string, role: string, … }` | System-wide JWT-claim shape decoded by the verifier hook.  At most one per system; required when any deployable opts in via `auth: required` and by an `auth { … }` block (`loom.auth-without-user`).  The `currentUser` magic identifier in operation / workflow / find / projection expressions is typed against this shape.  See [`auth.md`](auth.md). |
-| `auth { provider: …, oidc { issuer: …, clientId: … }, sessions: cookie\|jwt, claims: { … }, enforcement: denyByDefault\|opt }` | System-wide OIDC configuration: who issues the token and how its claims map onto the `user { … }` shape.  At most one per system; needs a `user` block.  Generates the token verifier + `/auth/*` handshake (PKCE, refresh rotation).  See [`auth.md`](auth.md). |
-| `tenancy by user.<claim> of <RegistryAggregate>` | Multi-tenant partitioning: names the claim that partitions data and the aggregate that is the tenant registry.  Pairs with the `tenantOwned` / `tenantRegistry` capabilities, the per-aggregate `crossTenant` marker and the `policy { allow deep\|global … }` ladder; every aggregate must take an explicit stance (`loom.tenancy-stance-unmarked`).  See [`tenancy.md`](tenancy.md). |
+| `auth { provider: …, oidc { issuer: …, clientId: … }, sessions: cookie\|jwt, claims: { … }, enforcement: denyByDefault\|opt }` | System-wide OIDC configuration: who issues the token and how its claims map onto the `user { … }` shape.  At most one per system; needs a `user` block.  Generates the token verifier + `/auth/*` handshake (PKCE, refresh rotation).  `enforcement:` defaults to `denyByDefault` (every client-reachable command and declared read on an `auth: required` deployable needs a `requires` gate); `enforcement: opt` is the explicit opt-out — the default until M-T3.1, see [`migrations.md`](migrations.md#the-enforcement-default-flip-m-t31).  See [`auth.md`](auth.md). |
+| `tenancy by user.<claim> of <RegistryAggregate>` | Multi-tenant partitioning: names the claim that partitions data and the aggregate that is the tenant registry.  Pairs with the `tenantOwned` / `tenantRegistry` capabilities, the per-aggregate `crossTenant` marker and the `policy { allow deep\|global … }` ladder; every aggregate must take an explicit stance (`loom.tenancy-stance-unmarked`).  Under a hierarchy, backend code may read the ambient **`organizationContext.orgPath`** — the org the request operates *in*: the principal's own `orgPath`, or a validated `x-org-context` switch into a descendant org (every backend's auth middleware refuses anything else with a pre-body 403).  `orgPath` is its only member and it is backend-only (`loom.org-context-surface`); a read needs the hierarchy and `auth: required` on its hosting deployables (`loom.org-context-gate-unmet`).  See [`tenancy.md`](tenancy.md) and its [`organizationContext`](tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate) section. |
 | `theme { primary: "#…", radius: "md", … }` | System-wide visual identity — design tokens consumed by the react / vue / svelte / angular frontends and the Phoenix LiveView shell (feliz and flutter render their own toolkit defaults and ignore it).  At most one per system.  Colour properties (`primary`, `secondary`, `accent`, `success`, `warning`, `error`, `neutral`) accept CSS hex values (`#RGB` / `#RRGGBB` / `#RRGGBBAA`).  `radius` is one of `none / sm / md / lg / xl`.  `fontFamily` and `fontFamilyMono` are free-form strings.  `colorScheme` is `light / dark / auto`.  Unknown property names and invalid values are validator errors. |
-| `api Name [with …] from <Subdomain> [{ urlStyle: literal\|resource, <statuses>, <routes> }]` | First-class API contract derived from a subdomain's domain (aggregates expose `all / byId / create / update / delete`, repositories expose their finds, workflows expose mutations).  Backend deployables `serves:` an api; UIs reference one via `api X: <ApiName>` parameters; the optional body adds `httpStatus <Error> -> <code>` mappings and hand-written routes (`route GET\|POST\|PUT\|PATCH\|DELETE "/path" -> <handler>`) over `commandHandler` / `queryHandler` declarations.  See [`architecture.md`](architecture.md). |
-| `storage Name { type: <sourceType>, connection: env("…")\|service(x)\|secret(x)\|literal("…"), config: { k: v } }` | Typed physical store / service reusable across deployables.  `type:` names the built-in **sourceType**: relational `postgres` / `mysql` / `sqlite` / `inMemory`, `redis`, `kafka`, object stores `s3` / `localDisk`, queue `rabbitmq`, `restApi`, mailers `smtp` / `ses` / `sendgrid` — these bind to a `resource kind:` and activate dev-compose sidecars + client emission per the kind × sourceType matrix in [`resources.md`](resources.md#kinds) (`postgres` is the fully-supported state store).  Five further literals **parse but bind to nothing**: `elastic` / `meilisearch` (search), `clickhouse` / `bigquery` (analytics) and `nats` — there is no search or analytics `kind`, and `queue` admits `rabbitmq` only, so a `resource` over one of these is refused by `loom.kind-incompatible` and nothing is emitted ([`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet)). |
+| `api Name [with …] from <Subdomain> [{ urlStyle: literal\|resource, <statuses>, <routes> }]` | First-class API contract derived from a subdomain's domain (aggregates expose `all / byId`, plus whatever lifecycle they DECLARE — `create` / `update` / `delete` appear only for an aggregate that declares an unnamed `create` / `destroy`, by hand or via `with crudish`; an aggregate with none exposes reads and its operations only, with no diagnostic, because being constructed solely by a `workflow` is a legitimate design.  See [Identity and `X id`](#identity-and-x-id) and the `create` row in [Aggregate / entity-part members](#aggregate--entity-part-members)).  Repositories expose their finds, workflows expose mutations.  Backend deployables `serves:` an api; UIs reference one via `api X: <ApiName>` parameters; the optional body adds `httpStatus <Error> -> <code>` mappings and hand-written routes (`route GET\|POST\|PUT\|PATCH\|DELETE "/path" -> <handler>`) over `commandHandler` / `queryHandler` declarations.  See [`architecture.md`](architecture.md). |
+| `storage Name { type: <sourceType>, connection: env("…")\|service(x)\|secret(x)\|literal("…"), config: { k: v } }` | Typed physical store / service reusable across deployables.  `type:` names the built-in **sourceType**: relational `postgres` / `mysql` / `sqlite` / `inMemory`, `redis`, `kafka`, object stores `s3` / `localDisk`, queue `rabbitmq`, `restApi`, mailers `smtp` / `ses` / `sendgrid` — these bind to a `resource kind:` and activate dev-compose sidecars + client emission per the kind × sourceType matrix in [`resources.md`](resources.md#kinds) (`postgres` is the fully-supported state store).  Five further literals **parse but bind to nothing**: `elastic` / `meilisearch` (search), `clickhouse` / `bigquery` (analytics) and `nats` — there is no search or analytics `kind`, and `queue` admits `rabbitmq` only, so a `resource` over one of these is refused by the resource kind ↔ sourceType check (an uncoded error from `src/language/validators/datasource.ts`) and nothing is emitted ([`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet)). |
 | `resource Name { for: <Ctx>, kind: <k>, use: <storage>\|<api>, … }` | The configured binding (renamed from `dataSource`) from a bounded context's data of kind `state` / `eventLog` / `snapshot` / `cache` / `replica` / `objectStore` / `queue` / `api` / `mailer` to a physical `storage` (or, for `kind: api`, a sibling `api` served in the same system — a typed client).  Optional knobs: `schema`, `tablePrefix`, `keyPrefix`, `ttl`, `every`, `retain`, `isolationLevel`, `readonly`, `shape`, `index: [Entity.col, Entity.(a, b)]`, `config { … }`.  Every backend deployable hosting an aggregate must list a matching `resource` under its `dataSources:` field.  See [`resources.md`](resources.md) for the full model (sourceTypes, kinds, capabilities, interfaces) and workflow-level consumption. |
 | `channelSource Name { for: <channel>, use: <storage> }` / `timerSource Name { for: <Event>, cron: "…" \| every: 15s, in: "<tz>", overlap: allow }` | System-scope transports: a `channelSource` binds a context `channel` to a broker `storage` (redis / rabbitmq / kafka) and is attached to deployables via `channels:` ([`channels.md`](channels.md)); a `timerSource` is a cron / cadence tick that raises the named event into a context (`loom.timer-*`; the target aggregate must be state-based — `loom.timer-needs-state`). |
 | `ui Name [with scaffold(...)] { framework: react\|vue\|svelte\|angular\|feliz\|flutter\|phoenixLiveView, … }` | Block of pages, components, stores, areas, menu, and api / channel parameters that a deployable binds via `ui:`.  See [`page-metamodel.md`](page-metamodel.md). |
@@ -269,7 +269,7 @@ A subdomain body may also include one or more
 used in operation / workflow expression bodies — optionally with an
 `implies` closure (`admin implies [read, write]`;
 `loom.permission-implies-*`).  The `permissions.<name>` magic identifier
-lowers to the runtime string `<lowercase-subdomain>.<name>`; see
+lowers to the runtime string `<lowercase-subdomain>.<name>`.  The block is **subdomain-local**, and the qualifier is part of the emitted string — so declaring the same permission name in two subdomains mints two DIFFERENT runtime permissions (`shipping.routeCargo` and `operations.routeCargo`), both of which the identity provider must then grant.  See
 [`auth.md`](auth.md).
 
 #### Deployable platforms
@@ -340,7 +340,7 @@ order:
 | `test "name" for <Aggregate\|ValueObject\|DomainService\|Context> { … }` | A unit test hoisted beside its subject (`for` names the home; a test nested inside its subject needs no `for` — `loom.test-redundant-for` / `loom.test-needs-target`). |
 | `policy [Name] { allow [write] local\|deep\|global on Aggregate … }` | Read/write-scope ladder for `tenantOwned` aggregates under a tenant hierarchy — widens the tenant floor to the caller's org subtree (`deep`) or root-org subtree (`global`); the optional `write` verb gates instance mutations. The name is optional; one rule per aggregate. See [tenancy.md](tenancy.md) → "The `policy {}` read ladder". |
 | `policy [Name] { deny [write] on Aggregate … }` | **Deny-wins carve-out** (Phase 4): removes access to an aggregate. `deny on X` denies READ (X becomes invisible → empty / 404; writes fail too since the write load reuses the read filter); `deny write on X` denies WRITE only (reads stay, mutations 404). All-or-nothing at the aggregate (no level word); applied after the `allow` passes, so deny wins. Not restricted to `tenantOwned`. Diagnostics: `loom.policy-deny-unknown-aggregate`, `loom.policy-deny-duplicate`, `loom.policy-deny-shadows-allow` (warning). See [auth.md](auth.md) → "Deny carve-outs". |
-| `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable, ambient boolean authorization predicate (sees `currentUser` + its own parameters), referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
+| `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (the `requires` there reports `must be of type 'bool', got 'unknown'`), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
 
 ### Identity and `X id`
 
@@ -1007,7 +1007,7 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   format is `loom.interp-format-unknown`; a format that doesn't fit the hole's
   type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
-  string catalog — see [`new-plan/T1-ui-frontend.md`](new-plan/T1-ui-frontend.md) § M-T1.11.
+  string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
 - **Escaping** — a literal brace or backtick in the text is `\{` / `\}` / `` \` ``;
   `\n` / `\t` / `\\` behave as in a string literal.
 - **Not queryable** — an interpolated string desugars to `+`/`convert`, so (like any
@@ -1151,8 +1151,8 @@ decimal`.
 | Form | Purpose |
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
-| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `create` / `handle` / `find` / `projection`.  See [`auth.md`](auth.md). |
-| `lhs := Expression` | Assignment to a property reachable from `this`.  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
+| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not on `create`** — the grammar has no `requires` slot there (`'create' (name=ID)? '(' params ')' (audited?='audited')? '{'`), so a hand-written `create` cannot carry its own gate; under `enforcement: denyByDefault` (the default) reach it with `with crudish(requires: <Policy>)`, or gate the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
+| `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |
@@ -1220,11 +1220,14 @@ test "negative money rejected" {
 Assertions are **method-based**: every `expect` carries a matcher — a bare
 `expect <bool>` is a validation error.  The matcher set is a closed,
 compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
-`toBeLessThan(OrEqual)` / `toBeSameInstant` / `toHaveText` / `toHaveCount` /
+`toBeLessThan(OrEqual)` / `toBeSameInstant` / `toBeNull` / `toBeAbsent` /
+`toContain` / `toHaveText` / `toHaveCount` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
 assertions the compiler type-checks and lowers per backend.  Some are context-
-restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body, and `toThrow(<kind>)` only in a unit `test` —
+restricted (validator-enforced): `toThrow(<status>)`, `toBeSameInstant` and
+`toBeAbsent` are
+only valid in a `test e2e` body, `toThrow(<kind>)` only in a unit `test`, and
+neither `toBeNull` nor `toBeAbsent` is legal in a **ui** e2e body —
 and `toThrow` in *any* form is rejected in
 a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
 exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
@@ -1241,6 +1244,66 @@ operation statements are allowed plus:
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
+| `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
+| `expect(<read>.<field>).toBeAbsent()` | api e2e only — `expect("<field>" in <read>).toBe(false)` (the key is not in the payload). |
+| `expect(<actual>).toContain(<x>)` | membership for a collection, substring for a string — chosen by the subject's type. |
+
+###### absence — `toBeNull()` / `toBeAbsent()`
+
+Loom has **one** absence value; the wire has **two spellings of it**.  A
+`int?` holding nothing can be serialized either as `"estimate": null` or by
+omitting the `estimate` key altogether, and the five backends have genuinely
+disagreed about which they send — which is why
+`test/fixtures/corpus/absent-optional.ddd` exists.  The two matchers let a test
+pin the spelling **deliberately**:
+
+```ddd
+expect(read.estimate).toBeNull()      // present, explicitly null
+expect(read.estimate).toBeAbsent()    // the key is not in the payload at all
+```
+
+What keeps that from being backend-roulette is not the author's care but the
+**conformance gate**: every behavioural leg diffs its recording against the
+committed wire golden with `diffBodies`, which unions both key sets and raises
+a `key-set` divergence.  The enforced contract today is **explicit null on all
+five backends** — [RS-35](conformance-semantics.md) — so `toBeNull()` asserts
+the gated reality and `toBeAbsent()` currently has **no passing subject**.  That
+is deliberate: it is not special-cased into passing, so a backend that starts
+omitting a key turns a test red instead of drifting silently.
+
+Neither absence matcher is legal in a **ui** `test e2e` body
+(`loom.e2e-ui-absence-invalid`): a ui assertion reads rendered text off a
+Playwright locator, which is always a string — so `toBeNull()` can never hold
+and `toBeAbsent()` is not a runtime matcher at all. Assert what the page shows
+(`toHaveText("")` / `toBeVisible()`), or move the absence claim to a block
+targeting a backend deployable. This is the same ruling
+`loom.e2e-ui-throw-invalid` makes for `toThrow`. `toContain` **is** legal
+there — a substring of the rendered text is a real claim.
+
+`toBeAbsent()` is **e2e-only** (`loom.unit-absent-invalid`).  "The key is not in
+the payload" needs a payload to be about; a unit `test` asserts against an
+in-memory aggregate, where a declared field always exists — on three of the five
+backends (C# `int?`, Java `Integer`, an Elixir struct's `nil` default) in-process
+absence is not observable at all.  Use `toBeNull()` there; in-process, that is
+the whole of Loom's absence.
+
+###### `toContain()` — membership or substring
+
+One matcher, two lowerings, chosen by the **subject's type**:
+
+```ddd
+expect(read.tags).toContain("urgent")   // collection membership
+expect(read.title).toContain("Ship")    // substring
+```
+
+Any other subject is refused (`loom.contain-receiver-invalid`) — there is no
+third lowering.  Most targets spell both the same way (`in` in Python,
+`.contains(...)` in Java, `Contain` in AwesomeAssertions, and vitest's
+`toContain` dispatches at run time), but Elixir does not: membership is
+`x in list` and substring is `String.contains?(s, x)`, and picking the wrong one
+crashes the generated suite rather than returning a wrong answer.  The dispatch
+therefore reads the subject's resolved type off the IR.
+
 
 ##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
 
@@ -1340,12 +1403,24 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
+| `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
 nobody: the paged envelope (`{ items, page, pageSize, total, totalPages }`)
 for a relational aggregate, a bare JSON array where `all` is typed `T[]`
 — exactly like a declared collection find, so `expect(xs.items.length)`
 reads the same as it does for `find … paged`.
+
+A ROUTED HANDLER is addressed through the same two-level shape, with the
+bounded CONTEXT in the slug position and the HANDLER in the method
+position — the spelling `route POST "/echo/{text}" -> Sales.Echo` already
+uses, so `api.sales.echo("hi")` posts `/api/echo/hi`.  Arguments bind
+POSITIONALLY to the declared params; a wrong count is
+`loom.e2e-routed-handler-arity`, and a `GET`/`DELETE` route whose handler
+declares a param no `{token}` binds is
+`loom.e2e-routed-handler-bodyless-method` (the backends read it from a
+body those methods cannot carry).  An aggregate verb always wins, so a
+context whose name slugs like an aggregate changes no existing call.
 
 The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can
@@ -1487,7 +1562,7 @@ repository Orders for Order {
 }
 ```
 
-The full form is `find name(params): T | T? | T[] | T paged [requires Expr]
+The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged [requires Expr]
 [where Expr] [ignoring Cap, … | ignoring *]` — `requires` is the read-side
 authorization gate, `ignoring` bypasses a capability's contributed query
 filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
@@ -1499,7 +1574,10 @@ on the generated repository plus a Mediator query in the .NET backend.
 > SQL-inlined — see [`criterion.md`](criterion.md)), so a bespoke list finder
 > on the repository is discouraged.  A unique-key find returning `T` / `T?`
 > is the intended shape.  (The `activeForCustomer` find above still generates;
-> it just carries the warning.)
+> it just carries the warning.)  **Interim scope:** the warning fires only in a
+> context that already declares a `criterion` or a `retrieval` — until the
+> replacement carries its own route, a model with neither has nothing of equal
+> power to migrate to ([`criterion.md`](criterion.md#advisories--the-compiler-steers-you-toward-criteria)).
 
 - **TypeScript**: when no `where` is given, parameters are equality-
   matched against aggregate columns and lowered to a Drizzle
@@ -1529,12 +1607,34 @@ all five backends always expose `GET /<plural>` and every frontend
 render.  Declaring your own `find all(...)` in the DSL overrides the
 implicit one.
 
+**Absence, in a body.**  `getById` and a find declared `: T` load a single
+row and answer the declared **404** when it is not there — on the GET route,
+an operation route and a workflow step alike (the not-found-on-load policy;
+the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
+find `: T or NotFound` / `: T option` and read the binding through a variant
+`match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
+binding straight through — `r.code`, `r.touch()` — is refused with
+`loom.union-read-undiscriminated`; a `: T?` find stays a native nullable and is
+refused in workflow / handler / domain-service bodies
+(`loom.workflow-load-nullable-unsupported` / `loom.handler-load-nullable-unsupported`).
+See [`payloads.md`](payloads.md) → "Union finds".
+
 ---
 
 ## Validation rules
 
 The validator runs after parsing and reports errors for:
 
+- A modifier or header clause written at a callable site that does not carry it
+  (`loom.callable-modifier-not-allowed-here`). The grammar accepts the whole
+  surface — `private`, `extern`, `audited`, `requires`, `when` — at every site
+  that runs a named body (`operation`, `create`, `destroy`, `apply`,
+  `function`, `commandHandler` / `queryHandler`, a `domainService` operation, a
+  workflow `create` / `handle` / `on`, a page `action`); what each site
+  actually carries is a declared table, so `audited` on a domain-service
+  operation is an error that *explains itself* rather than a bare parse
+  failure. The per-site table is in
+  [Behavior & statements § The callable modifier surface](language-reference/06-behavior-and-statements.md#the-callable-modifier-surface).
 - `precondition` and `invariant` expressions whose type is not `bool`.
 - A blank `message "..."` clause — empty or whitespace-only — on an
   `invariant`, property `check`, or `precondition` (`loom.blank-message`). A

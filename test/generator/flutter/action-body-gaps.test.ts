@@ -15,7 +15,8 @@
 //
 // WHEN M-T1.32 LANDS: these expectations flip from "throws" to a real emission,
 // in the same PR that deletes the register row.  That is what makes them the
-// mission's verification rather than a freeze of the gap.
+// mission's verification rather than a freeze of the gap.  The `toast` case
+// HAS flipped (wave C2 packet 2l); the standard-op `match await` has not.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFilesUnchecked } from "../../_helpers/generate.js";
@@ -54,13 +55,21 @@ const WHY =
   "makes these shapes unreachable through `ddd generate`";
 
 describe("flutter action-body gaps — the emitter no longer degrades silently", () => {
-  for (const [label, body] of [["toast", `        toast("hi")`]] as const) {
-    it(`a \`${label}(…)\` view effect throws the coded floor instead of emitting a TODO`, async () => {
-      await expect(generateSystemFilesUnchecked(sys(body), WHY)).rejects.toThrow(
-        /internal: the Flutter Riverpod Notifier emitter cannot render a 'private-operation' call/,
-      );
-    });
-  }
+  // THE FLIP M-T1.32's half 1 promised.  This case used to assert the coded
+  // floor for `toast(…)`; wave C2 packet 2l built the bridge the refusal was
+  // waiting for, so the expectation is now a real emission and the `#view-effect`
+  // gate arm is deleted in the same commit.  Full coverage (the byte-identity
+  // negative control, the realtime split, `main.dart`'s key) lives in
+  // `action-toast.test.ts`; this is the SAME driver the two remaining
+  // floor cases use, which is what makes the flip visible side by side.
+  it("a `toast(…)` view effect EMITS through the out-of-tree bridge (M-T1.32 half 1)", async () => {
+    const files = await generateSystemFilesUnchecked(sys(`        toast("hi")`), WHY);
+    const page = [...files.entries()].find(([k]) => k.endsWith("edit_page.dart"));
+    expect(page, "no Edit page emitted").toBeDefined();
+    expect(page![1]).toContain("showToast('hi');");
+    expect(page![1]).not.toContain("TODO(flutter full-parity)");
+    expect([...files.keys()].some((k) => k.endsWith("lib/toast.dart"))).toBe(true);
+  });
 
   it("a `match await` on a STANDARD agg op throws instead of dropping the whole effect", async () => {
     const body = `        match await Shop.Order.delete() {

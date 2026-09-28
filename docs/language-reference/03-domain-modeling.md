@@ -31,6 +31,8 @@ context Orders {
 
 The implicit `id` is a branded/strongly-typed key (`guid` → UUID), the root gets a private constructor + a public `create(...)` factory + a `_create(state)` rehydrator, and a table is emitted with `id` as the primary key.
 
+**A public `create(...)` factory is not a public `POST` route.** Declaring an aggregate gets you a table and read routes; it does not get you a way to put a row in one. Unless something in the model actually constructs it — a declared `create`, `with crudish`, an `Agg.create({ … })` in a workflow or `commandHandler`, a `seed` row, or an `apply` fold — `POST /api/<plural>` answers `405` and the table can only ever be empty. That is legal (a table fed by a migration or an out-of-band importer is a real design), so it is reported as advice rather than a warning: `loom.aggregate-not-constructible`, under the `Suggestions:` heading, never affecting the exit code. Creating a SUBTYPE writes its base's row, so a base with a constructible subtype is not flagged.
+
 ::: tabs backend
 == node
 ```ts
@@ -187,7 +189,7 @@ OpenApiSpex.schema(%{
 
 ## `entity` parts & `contains`
 
-An `entity` part is a child entity with its own identity that has no independent existence — it lives only as a member of its aggregate. You declare the part inline, then bind it with `contains <name>: <Part>[]` (collection), `<Part>` (single), or `<Part>?` (optional); a plain field typed with the part (`lines: Line[]`) is the same containment with the keyword inferred. A containment carries only a name, `[]` and `?` — the value-property modifiers (`provenanced`, an access modifier, `= default`, `sensitive(...)`, `check`) are rejected on it (`loom.entity-field-modifier`), and `[]?` is rejected because an empty collection already encodes absence (`loom.entity-field-optional-collection`). The part gets its own child table keyed back to the parent via a `<parent>_id` foreign key with `ON DELETE CASCADE` and an index. A part may carry its own `Property` / `check` / `invariant` / `derived` / `function` / nested `contains`; a part declared in one aggregate cannot be contained by another (`loom.cross-aggregate-entity-part`).
+An `entity` part is a child entity with its own identity that has no independent existence — it lives only as a member of its aggregate. You declare the part inline, then bind it with `contains <name>: <Part>[]` (collection), `<Part>` (single), or `<Part>?` (optional); a plain field typed with the part (`lines: Line[]`) is the same containment with the keyword inferred. A containment carries only a name, `[]` and `?` — the value-property modifiers (`provenanced`, an access modifier, `= default`, `sensitive(...)`, `check`) are rejected on it (`loom.entity-field-modifier`), and `[]?` is rejected because an empty collection already encodes absence (`loom.entity-field-optional-collection`). The part gets its own child table keyed back to the parent via a `<parent>_id` foreign key with `ON DELETE CASCADE` and an index. A part may carry its own `Property` / `check` / `invariant` / `derived` / `function` / nested `contains`; a part declared in one aggregate cannot be contained by another (`loom.cross-aggregate-entity-part`). Nesting must form a TREE: two parts that contain each other (directly or through a longer chain) describe a graph with no bottom, which can be neither hydrated nor persisted, so the cycle is refused at the `contains` clause that closes it and the loop is named (`loom.containment-cycle`, `X → Y → X`). Use `<Aggregate> id` for a reference where ownership is not what you mean.
 
 ```ddd
 context Orders {
@@ -353,7 +355,7 @@ Raising one (`emit OrderPlaced { … }`) and the `apply(e: OrderPlaced) { … }`
 
 ## `enum`
 
-An `enum` is a closed set of bare-identifier values, referenced bare in expressions and defaults (`status := Confirmed`). It emits as a native enum on every backend and as a Postgres `pgEnum` / string-converted column for the DB layer — members re-quoted into string literals (the source `USD` arrives at the compiler as the 3-char string `USD`; see [Lexical structure](01-lexical-structure.md) §Literals). Duplicate members are `loom.duplicate-enum-value`; an enum may not share a name with an aggregate (`loom.enum-shadows-root`).
+An `enum` is a closed set of bare-identifier values, referenced bare in expressions and defaults (`status := Confirmed`). It emits as a native enum on every backend and as a **`TEXT` column** for the DB layer on every backend (`mapTypeToColumn` maps `enum → text`; node keeps the literal union via `text(col, { enum: … })`, .NET via `HasConversion<string>()`, java via `@Enumerated(STRING)`, Ecto via `Ecto.Enum`) — members re-quoted into string literals (the source `USD` arrives at the compiler as the 3-char string `USD`; see [Lexical structure](01-lexical-structure.md) §Literals). Duplicate members are `loom.duplicate-enum-value`; an enum may not share a name with an aggregate (`loom.enum-shadows-root`).
 
 ```ddd
 context Orders {
@@ -372,8 +374,10 @@ export const Currency = { USD: "USD", EUR: "EUR", GBP: "GBP" } as const;
 export type Currency = "USD" | "EUR" | "GBP";
 ```
 ```ts
-// db/schema.ts — bare members re-quoted into a pgEnum
-export const currencyEnum = pgEnum("currency", ["USD", "EUR", "GBP"]);
+// db/schema.ts — bare members re-quoted into the column's value tuple
+export const currencyValues = ["USD", "EUR", "GBP"] as const;
+// …and the column itself, TEXT with the literal union kept on the TS side:
+//   currency: text("currency", { enum: currencyValues }).notNull(),
 ```
 == dotnet
 ```csharp

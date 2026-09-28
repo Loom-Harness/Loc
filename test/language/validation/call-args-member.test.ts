@@ -5,10 +5,8 @@
 // scalar intrinsics resolve to no member node, so they're never flagged.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 const sys = (members: string) => `
 system Demo {
@@ -35,7 +33,7 @@ system Demo {
 
 async function codes(members: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(members), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 const COUNT = "loom.call-arg-count";

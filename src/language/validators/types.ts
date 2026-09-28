@@ -6,6 +6,7 @@ import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
+import { ORG_CONTEXT_ACCESSOR } from "../../util/principal.js";
 import type {
   Aggregate,
   BinaryChain,
@@ -25,16 +26,20 @@ import type {
   TernaryExpr,
 } from "../generated/ast.js";
 import {
+  isAggregate,
   isBinaryChain,
   isBoundedContext,
+  isCreate,
   isCriterion,
   isDerivedProp,
+  isDestroy,
   isFunctionDecl,
   isIfStmt,
   isLambda,
   isLetStmt,
   isMemberSuffix,
   isNameRef,
+  isOperation,
   isPolicyDecl,
   isPostfixChain,
   isPreconditionStmt,
@@ -42,6 +47,7 @@ import {
   isReturnStmt,
   isTernaryExpr,
   isUi,
+  isValueObject,
 } from "../generated/ast.js";
 import { isWellFormedMoneyLiteral, moneyLiteralText } from "../money-literal.js";
 import {
@@ -177,6 +183,11 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
+    // `organizationContext.<m>` — the operating-scope accessor's surface is
+    // owned by `loom.org-context-surface` (validators/tenancy.ts), which
+    // admits `.orgPath` only; it types against the principal record, so
+    // without this an unknown member would ALSO read as an undeclared claim.
+    if (isNameRef(chain.head) && chain.head.name === ORG_CONTEXT_ACCESSOR) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
     for (const suffix of chain.suffixes) {
@@ -621,8 +632,12 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       if (!lBool || !rBool) {
         accept(
           "error",
-          `Operator '${op}' requires boolean operands; got '${typeToString(lt)}' and '${typeToString(rt)}'.`,
-          info,
+          diagMessage("loom.operator-non-bool-operands", {
+            op,
+            left: typeToString(lt),
+            right: typeToString(rt),
+          }),
+          { ...info, code: "loom.operator-non-bool-operands" },
         );
       }
       lt = T.prim("bool");
@@ -674,9 +689,13 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
             : ` Numeric arithmetic requires both operands in the int / long / decimal chain.`;
       accept(
         "error",
-        `Operator '${op}' has incompatible operand types: ` +
-          `left is '${typeToString(lt)}', right is '${typeToString(rt)}'.${moneyHint}`,
-        info,
+        diagMessage("loom.operator-operand-mismatch", {
+          op,
+          left: typeToString(lt),
+          right: typeToString(rt),
+          hint: moneyHint,
+        }),
+        { ...info, code: "loom.operator-operand-mismatch" },
       );
     }
     lt = result;
@@ -812,11 +831,11 @@ export function checkSinglePrimitiveConversion(
     }
     accept(
       "error",
-      `Aggregate '${valueType.ref.name}' has no display form — ` +
-        `declare \`derived display: string = ...\` on '${valueType.ref.name}' ` +
-        `to enable \`string(${valueType.ref.name.toLowerCase()})\` and implicit ` +
-        `string concatenation.`,
-      { node, property: "value" },
+      diagMessage("loom.convert-aggregate-no-display", {
+        name: valueType.ref.name,
+        lower: valueType.ref.name.toLowerCase(),
+      }),
+      { node, property: "value", code: "loom.convert-aggregate-no-display" },
     );
     return;
   }
@@ -825,26 +844,21 @@ export function checkSinglePrimitiveConversion(
   if (valueType.kind !== "primitive") {
     accept(
       "error",
-      `Cannot convert '${typeToString(valueType)}' to '${target}': ` +
-        `value objects, entities, and collections have no canonical string ` +
-        `form.  Reference a specific field (e.g. \`string(value.<field>)\`) ` +
-        `or wait for a future toString derivation.`,
-      { node, property: "value" },
+      diagMessage("loom.convert-non-primitive", {
+        source: typeToString(valueType),
+        target,
+      }),
+      { node, property: "value", code: "loom.convert-non-primitive" },
     );
     return;
   }
   const source = valueType.name;
   if (source === target) return; // identity no-op
   if (isInfallibleConversion(source, target)) return;
-  accept(
-    "error",
-    `Cannot convert '${source}' to '${target}': not supported.  ` +
-      `Today's conversion vocabulary admits: string ← any primitive | enum | X id; ` +
-      `long ← int; decimal ← int | long | money; money ← int | long | decimal.  ` +
-      `Fallible parses (string → numeric / datetime / bool) and narrowing ` +
-      `(long → int, decimal → long) are deferred pending a failure-model decision.`,
-    { node },
-  );
+  accept("error", diagMessage("loom.convert-pair-invalid", { source, target }), {
+    node,
+    code: "loom.convert-pair-invalid",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -854,12 +868,13 @@ export function checkSinglePrimitiveConversion(
 export function checkPropertyCheck(p: Property, env: Env, accept: ValidationAcceptor): void {
   if (!p.check) return;
   checkBlankMessage(p, p.message, accept);
+  checkRuleExprPurity(p.check, env, `check on '${p.name}'`, accept);
   const t = typeOf(p.check, env);
   if (t.kind !== "primitive" || t.name !== "bool") {
     accept(
       "error",
-      `Property check on '${p.name}' must be of type 'bool', got '${typeToString(t)}'.`,
-      { node: p, property: "check" },
+      diagMessage("loom.property-check-not-bool", { name: p.name, actual: typeToString(t) }),
+      { node: p, property: "check", code: "loom.property-check-not-bool" },
     );
   }
 }
@@ -876,8 +891,8 @@ export function checkPropertyMask(p: Property, env: Env, accept: ValidationAccep
   if (t.kind !== "primitive" || t.name !== "bool") {
     accept(
       "error",
-      `'mask unless' on '${p.name}' must be of type 'bool', got '${typeToString(t)}'.`,
-      { node: p, property: "maskUnless" },
+      diagMessage("loom.mask-unless-not-bool", { name: p.name, actual: typeToString(t) }),
+      { node: p, property: "maskUnless", code: "loom.mask-unless-not-bool" },
     );
   }
 }
@@ -903,8 +918,12 @@ export function checkPropertyDefault(p: Property, env: Env, accept: ValidationAc
   ) {
     accept(
       "error",
-      `Default for '${p.name}' has type '${typeToString(actual)}' but the field is declared '${typeToString(declared)}'.`,
-      { node: p, property: "default" },
+      diagMessage("loom.property-default-type-mismatch", {
+        name: p.name,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: p, property: "default", code: "loom.property-default-type-mismatch" },
     );
   }
   warnSensitivityDrop(actual, declared, accept, { node: p, property: "default" });
@@ -929,9 +948,200 @@ export function checkParameterDefault(p: Parameter, env: Env, accept: Validation
   ) {
     accept(
       "error",
-      `Default for parameter '${p.name}' has type '${typeToString(actual)}' but the parameter is declared '${typeToString(declared)}'.`,
-      { node: p, property: "default" },
+      diagMessage("loom.parameter-default-type-mismatch", {
+        name: p.name,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: p, property: "default", code: "loom.parameter-default-type-mismatch" },
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// `loom.rule-expr-impure` — a RULE expression must be a pure predicate over
+// the instance it is attached to.
+//
+// The four rule positions are `invariant <expr>`, its `when <guard>`, a field's
+// `check <expr>`, and `derived <name> = <expr>`.  All four are spliced into the
+// per-instance floor (`_assertInvariants()` / the derived getter / the wire
+// refine), which runs with nothing in scope but `this` — no repository handle,
+// no service locator, no await.  The language reference already states the rule
+// for its sibling, a pure `function`: it "may not call a repository /
+// operation / domain-service / extern".  Nothing applied it here.
+//
+// So this validated clean, and emitted code that cannot compile:
+//
+//     aggregate WorkOrder {
+//       assetId: Asset id
+//       technicianId: Technician id?
+//       invariant Technicians.getById(technicianId).skills
+//                   .contains(Assets.getById(assetId).requiredSkill)
+//     }
+//
+//     // hono  domain/workOrder.ts(37,11): TS2304: Cannot find name 'Technicians'
+//     // .NET / java: the same unresolvable symbol
+//     // python: compiles, then NameError at runtime on an unbound global
+//     // elixir: the invariant is emitted NOWHERE — the rule silently does not exist
+//
+// `Technicians` is a repository: declared, so `loom.unknown-name` (whose
+// universe is deliberately every declaration name anywhere) does not report it,
+// and unresolvable from an aggregate body, so lowering hands it
+// `refKind: "unknown"` and every backend renders the bare identifier.  The same
+// hole swallowed a WORKFLOW name used as a value (`invariant ship.k > 0` →
+// `if (!(ship.k > 0))`) and a call to the aggregate's OWN mutating operation
+// (`invariant this.bump(1) == 0` → a void-returning call compared to a number,
+// and unbounded recursion if it ever typed).
+//
+// Two arms, deliberately narrow — a false positive here rejects a valid model:
+//
+//   1. UNBOUND HEAD.  A bare head name that `env.resolve` cannot bind AND that
+//      names a declaration of a kind no rule expression can address (a
+//      repository, aggregate, workflow, api, ui, deployable, storage, …).
+//      Both halves are required: a name absent from the universe entirely is
+//      already `loom.unknown-name`'s, and a name the env DOES bind is a
+//      shadowing local, not the declaration.
+//   2. OPERATION CALL.  `this.<op>(…)` / `<op>(…)` where `<op>` is an
+//      `operation` / `create` / `destroy` on the owning aggregate — the
+//      mutating layer, which a rule may not enter.
+//
+// Deliberately NOT rejected: a `domainService` call.  `Pricing.quote(qty)` in
+// an invariant emits correctly today (the Hono emitter threads
+// `import { Pricing } from "./services"` and renders `Pricing.quote(this._qty)`),
+// so it is a supported pure calculator, not part of this defect.
+// ---------------------------------------------------------------------------
+
+/** Declaration kinds that exist in a rule expression's neighbourhood but are
+ *  NOT addressable from one.  `$type` → the word the diagnostic uses.
+ *
+ *  Deliberately excludes the INFRASTRUCTURE handles — `resource`, `storage`,
+ *  `channel`, `channelSource`.  A resource handle is AMBIENT over its context
+ *  (`lowerContext` seeds `resources` into the same `Env` an aggregate body
+ *  resolves against), so it genuinely resolves at the IR layer even though the
+ *  AST-side `envForNode` does not model it — and its misuse in a rule already
+ *  has a dedicated, better-worded gate (`loom.resource-op-outside-workflow`,
+ *  `src/ir/validate/checks/…`) that names the resource verb.  Listing them here
+ *  would double-report and pre-empt the specific diagnostic with a generic one. */
+const UNADDRESSABLE_FROM_RULE: ReadonlyMap<string, string> = new Map([
+  ["Repository", "repository"],
+  ["Aggregate", "aggregate"],
+  ["Workflow", "workflow"],
+  ["Projection", "projection"],
+  ["Seed", "seed"],
+  ["Api", "api"],
+  ["Ui", "ui"],
+  ["Page", "page"],
+  ["Component", "component"],
+  ["Store", "store"],
+  ["Deployable", "deployable"],
+  ["Subdomain", "subdomain"],
+  ["BoundedContext", "context"],
+  ["System", "system"],
+  ["Solution", "solution"],
+  ["Requirement", "requirement"],
+  ["Layout", "layout"],
+  ["Migration", "migration"],
+]);
+
+/** name → kind-word, for every unaddressable declaration in the document.
+ *  Built once per Model root — `checkInvariant` runs per rule, and streaming
+ *  the whole tree each time would be quadratic. */
+const unaddressableIndexCache = new WeakMap<AstNode, ReadonlyMap<string, string>>();
+
+function unaddressableIndex(root: AstNode): ReadonlyMap<string, string> {
+  const hit = unaddressableIndexCache.get(root);
+  if (hit) return hit;
+  const index = new Map<string, string>();
+  const add = (node: AstNode): void => {
+    const kind = UNADDRESSABLE_FROM_RULE.get(node.$type);
+    if (!kind) return;
+    const name = (node as unknown as { name?: unknown }).name;
+    if (typeof name === "string" && !index.has(name)) index.set(name, kind);
+  };
+  add(root);
+  for (const node of AstUtils.streamAllContents(root)) add(node);
+  unaddressableIndexCache.set(root, index);
+  return index;
+}
+
+/** The mutating action names declared on the aggregate / value object that owns
+ *  this rule — `operation` (incl. `private` / `extern`), `create`, `destroy`. */
+function ownerActionNames(from: AstNode): ReadonlySet<string> {
+  const owner =
+    AstUtils.getContainerOfType(from, isAggregate) ??
+    AstUtils.getContainerOfType(from, isValueObject);
+  const out = new Set<string>();
+  if (!owner) return out;
+  for (const m of owner.members) {
+    if (isOperation(m) || isCreate(m) || isDestroy(m)) {
+      const name = (m as unknown as { name?: unknown }).name;
+      // The canonical (unnamed) `create` / `destroy` have no name to collide on.
+      out.add(typeof name === "string" && name.length > 0 ? name : m.$type.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/** Gate the four rule positions.  `where` names the position in the message
+ *  (`invariant` / `invariant guard ('when ...')` / `check on 'x'` / `derived 'x'`).
+ *  Each diagnostic is hung on the offending NODE, not the rule, so the editor
+ *  underlines the exact head / call that reaches out. */
+export function checkRuleExprPurity(
+  expr: Expression | undefined,
+  env: Env,
+  where: string,
+  accept: ValidationAcceptor,
+): void {
+  if (!expr) return;
+  const index = unaddressableIndex(AstUtils.findRootNode(expr));
+  const actions = ownerActionNames(expr);
+  // Names bound INSIDE the expression itself — lambda parameters, plus any
+  // `let` a statement-bodied lambda introduces.  `env` is the rule's OUTER
+  // scope (`envForAggregate`), so it cannot see them, and a lambda param that
+  // happens to share a declaration's name (`items.all(Assets => Assets.k > 0)`)
+  // would otherwise read as an unreachable reference.  Collected for the WHOLE
+  // expression rather than per-path: over-approximating the bound set only ever
+  // suppresses a report, never invents one.
+  const locallyBound = new Set<string>();
+  for (const n of AstUtils.streamAllContents(expr)) {
+    if (isLambda(n)) locallyBound.add(n.param);
+    else if (isLetStmt(n)) locallyBound.add(n.name);
+  }
+
+  for (const n of [expr, ...AstUtils.streamAllContents(expr)]) {
+    // --- arm 1: an unbound head naming an unaddressable declaration ---------
+    if (isNameRef(n)) {
+      const name = n.name;
+      const kind = index.get(name);
+      if (kind && !env.resolve(name) && !locallyBound.has(name)) {
+        accept("error", diagMessage("loom.rule-expr-impure#unaddressable", { where, name, kind }), {
+          node: n,
+          property: "name",
+          code: "loom.rule-expr-impure",
+        });
+        continue;
+      }
+    }
+    // --- arm 2: a call into the mutating layer -----------------------------
+    if (!isPostfixChain(n)) continue;
+    const first = n.suffixes[0];
+    if (!first) continue;
+    // `this.<op>(…)` — an explicit receiver, so the member is unambiguously the
+    // owner's action.  A bare `<op>(…)` is the chain `NameRef` + `CallSuffix`.
+    const called = isMemberSuffix(first)
+      ? first.call && n.head.$type === "ThisRef"
+        ? first.member
+        : undefined
+      : isNameRef(n.head)
+        ? n.head.name
+        : undefined;
+    if (!called || !actions.has(called)) continue;
+    // A local binding of the same name shadows the action — not the defect.
+    if (!isMemberSuffix(first) && (env.resolve(called) || locallyBound.has(called))) continue;
+    accept("error", diagMessage("loom.rule-expr-impure#operation", { where, name: called }), {
+      node: n,
+      code: "loom.rule-expr-impure",
+    });
   }
 }
 
@@ -939,25 +1149,28 @@ export function checkInvariant(inv: Invariant, env: Env, accept: ValidationAccep
   checkConstructionArgTypes(inv.expr, env, accept);
   checkExprCallArgs(inv.expr, env, accept);
   checkBlankMessage(inv, inv.message, accept);
+  checkRuleExprPurity(inv.expr, env, "invariant", accept);
   if (inv.guard) {
     checkConstructionArgTypes(inv.guard, env, accept);
     checkExprCallArgs(inv.guard, env, accept);
+    checkRuleExprPurity(inv.guard, env, "invariant guard ('when ...')", accept);
   }
   const t = typeOf(inv.expr, env);
   if (t.kind !== "primitive" || t.name !== "bool") {
-    accept("error", `Invariant must be of type 'bool', got '${typeToString(t)}'.`, {
+    accept("error", diagMessage("loom.invariant-not-bool", { actual: typeToString(t) }), {
       node: inv,
       property: "expr",
+      code: "loom.invariant-not-bool",
     });
   }
   if (inv.guard) {
     const g = typeOf(inv.guard, env);
     if (g.kind !== "primitive" || g.name !== "bool") {
-      accept(
-        "error",
-        `Invariant guard ('when ...') must be of type 'bool', got '${typeToString(g)}'.`,
-        { node: inv, property: "guard" },
-      );
+      accept("error", diagMessage("loom.invariant-guard-not-bool", { actual: typeToString(g) }), {
+        node: inv,
+        property: "guard",
+        code: "loom.invariant-guard-not-bool",
+      });
     }
   }
 }
@@ -972,6 +1185,7 @@ export function checkDerived(d: DerivedProp, env: Env, accept: ValidationAccepto
   if (!d.expr) return;
   checkConstructionArgTypes(d.expr, env, accept);
   checkExprCallArgs(d.expr, env, accept);
+  checkRuleExprPurity(d.expr, env, `derived '${d.name}'`, accept);
   const declared = resolveTypeRef(d.type);
   const actual = typeOf(d.expr, env);
   if (
@@ -982,8 +1196,12 @@ export function checkDerived(d: DerivedProp, env: Env, accept: ValidationAccepto
   ) {
     accept(
       "error",
-      `Derived '${d.name}' has expression of type '${typeToString(actual)}' but declared type is '${typeToString(declared)}'.`,
-      { node: d, property: "expr" },
+      diagMessage("loom.derived-type-mismatch", {
+        name: d.name,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: d, property: "expr", code: "loom.derived-type-mismatch" },
     );
   }
   warnSensitivityDrop(actual, declared, accept, { node: d, property: "expr" });
@@ -1012,8 +1230,12 @@ export function checkFunction(
     ) {
       accept(
         "error",
-        `Function '${fn.name}' returns '${typeToString(actual)}' but is declared to return '${typeToString(declared)}'.`,
-        { node: fn, property: "body" },
+        diagMessage("loom.function-return-type-mismatch", {
+          name: fn.name,
+          actual: typeToString(actual),
+          declared: typeToString(declared),
+        }),
+        { node: fn, property: "body", code: "loom.function-return-type-mismatch" },
       );
     }
     warnSensitivityDrop(actual, declared, accept, { node: fn, property: "body" });
@@ -1099,11 +1321,22 @@ function checkFunctionBlock(
     if (isPreconditionStmt(stmt) || isRequiresStmt(stmt)) {
       const t = typeOf(stmt.expr, blockEnv);
       if (t.kind !== "primitive" || t.name !== "bool") {
-        accept(
-          "error",
-          `'${isRequiresStmt(stmt) ? "requires" : "precondition"}' must be of type 'bool', got '${typeToString(t)}'.`,
-          { node: stmt, property: "expr" },
-        );
+        // Two separate `accept` calls, not one with a computed `code:` — a
+        // conditional code is invisible to the catalog ratchet, which is how
+        // this whole class of site kept inline wording (invariant 4).
+        if (isRequiresStmt(stmt)) {
+          accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(t) }), {
+            node: stmt,
+            property: "expr",
+            code: "loom.requires-not-bool",
+          });
+        } else {
+          accept("error", diagMessage("loom.precondition-not-bool", { actual: typeToString(t) }), {
+            node: stmt,
+            property: "expr",
+            code: "loom.precondition-not-bool",
+          });
+        }
       }
       continue;
     }
@@ -1118,8 +1351,12 @@ function checkFunctionBlock(
       ) {
         accept(
           "error",
-          `Function '${fn.name}' returns '${typeToString(actual)}' but is declared to return '${typeToString(declared)}'.`,
-          { node: stmt, property: "value" },
+          diagMessage("loom.function-return-type-mismatch", {
+            name: fn.name,
+            actual: typeToString(actual),
+            declared: typeToString(declared),
+          }),
+          { node: stmt, property: "value", code: "loom.function-return-type-mismatch" },
         );
       }
       warnSensitivityDrop(actual, declared, accept, { node: stmt, property: "value" });

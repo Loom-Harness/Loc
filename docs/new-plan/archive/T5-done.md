@@ -161,3 +161,94 @@ Found 2026-08-23 by the numeric-types audit ([F14](../../audits/numeric-types-au
 **Verification when it lands.** A lowering test plus a behavioral golden for an avg-over-money projection; mutation-proved through the coercion.
 
 Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.
+
+## M-T5.37 — test surface v2: a workflow accessor and three matchers — `done` (2026-09-22 — P9 [#2985](https://github.com/Loom-Harness/Loc/pull/2985) + [#3002](https://github.com/Loom-Harness/Loc/pull/3002), P11a [#2987](https://github.com/Loom-Harness/Loc/pull/2987), P11b [#3001](https://github.com/Loom-Harness/Loc/pull/3001); F6 deferred by the owner) · **M** · P1
+
+Design: [`missions/M-T5.37-test-surface-v2-design.md`](missions/M-T5.37-test-surface-v2-design.md).
+Wave 3 of the testability-audit fleet ([findings](../../audits/2026-09-13-testability-audit.md) F5 + F11,
+[plan](../../audits/2026-09-14-testability-fleet-plan.md)). Six owner decisions are recorded in the
+design doc against who made them; the syntax is signed off.
+
+**Two halves, deliberately sized apart.** The **workflow accessor** (`api.<wf>.run()` /
+`.instances()` / `.instance(key)`) touches ONE emitter — the e2e suite is backend-agnostic HTTP,
+emitted once by `src/system/e2e-render.ts` and replayed against every compatible backend — and
+needs no new route: all five backends already mount the command and instance reads (python states
+it plainest, `APIRouter(prefix="/workflows")`). The **matchers** touch FIVE, because unit tests run
+in-process. The cheap-looking half is the expensive one.
+
+- **P9 — the workflow accessor** — **LANDED**
+  ([#2985](https://github.com/Loom-Harness/Loc/pull/2985), and the payload/response contract behind it in [#3002](https://github.com/Loom-Harness/Loc/pull/3002)). Closes
+  F5 and M-T9.12's own follow-up, which says asserting a folded workflow instance's scalars "needs a
+  workflow-instance read verb the `test e2e` DSL doesn't have yet". Shipped: `api.<wf>.run({…})` /
+  `.instances()` / `.instance(key)`, resolved once in `src/ir/util/e2e-workflow-accessor.ts` and read by
+  all three call sites (phase-④ `test-checks`, phase-⑦ `e2e-route-checks`, phase-⑧ `e2e-render`).
+  Two things the build had to get right and are worth not re-deriving: route emission gates on
+  `wf.correlationField`, **not** `instanceWireShape`, because the latter is enrichment-derived and
+  absent at phases ④/⑦; and a slug resolves to a workflow only after `findAggregateBySlug` misses,
+  which is safe precisely because `loom.workflow-name-collision` compares *names*, not slugs.
+  #3002 then closed the gap the new verbs opened — they were briefly the only routes in the surface
+  with no payload or response check at all. Its wording is deliberately **not** the aggregate's: a
+  `<Wf>Request` is a plain `z.object` / `BaseModel`, so an unknown key is silently DROPPED and the
+  POST still answers 204, which is worse than the aggregate's 422, not milder.
+- **P11a — `toThrow(precondition)` / `toThrow(invariant)`** — **LANDED**
+  ([#2987](https://github.com/Loom-Harness/Loc/pull/2987)). Unit tier only; refused in an e2e body,
+  where both kinds are a 422 whose only discriminator is a `detail` sentence an authored
+  `invariant … message` can overwrite. Motivated by a measured false pass: the audit deleted a
+  `precondition` from generated source and the test stayed GREEN, because an invariant threw instead.
+- **P11b — `toBeNull` / `toBeAbsent` / `toContain`** + verify-and-document the absence conformance
+  contract — **LANDED** ([#3001](https://github.com/Loom-Harness/Loc/pull/3001)). Stacked on P11a (shared `intrinsic-matchers.ts`).
+
+**Deferred by the owner, recorded so it is not mistaken for an oversight:** a principal clause for
+`test e2e` (F6) — "a gap, not a bug". Consequence: `requires` / `policy` / `mask unless` and tenancy
+denial stay untestable from a user's model, and the repo's own coverage of them stays in
+`AUTHZ_LADDERS`, harness-side, shipped to nobody.
+
+**Verified on `main` after the last packet merged.** `e3391083d` (#2985) settled at 825 check runs
+with all ten `behavioral-*` legs green — including `behavioral-elixir`, which had to be fixed on the way
+in: the vanilla Phoenix workflow controller answered `202` + a JSON body where the wire golden and the
+other four backends answer `204` + empty. That divergence was real, not a golden that needed re-minting,
+and it was closed by [#2994](https://github.com/Loom-Harness/Loc/pull/2994) rather than by weakening the
+oracle. `workflow-create-state` carries the first wire golden anywhere that records
+`/api/workflows/<wf>/instances`.
+
+## M-T5.22 — Decimal arithmetic has no governing rule: `0.1 + 0.2` diverges on the wire AND in storage — `done` (2026-09-28, Wave C5 moment 5a — RS-37; the precision/refine/doc-drift residue handed off) · **L** · P1 ⭐ ruling GIVEN 2026-09-07: exact
+
+Found 2026-08-23 by the numeric-types audit ([F11](../../audits/numeric-types-audit-2026-08-23.md)). RS-24 pins how a `decimal` *serializes* (a JSON number through a float64) but nothing pins how it *computes*: node/python run float64 arithmetic, .NET/Java/Elixir run exact decimal (System.Decimal / DECIMAL128 / Decimal-context-28). A `derived x: decimal = 0.1 + 0.2` ships — and **persists into the shared unbounded `DECIMAL` column** — `0.30000000000000004` from two backends and `0.3` from three. Single divisions agree only coincidentally (double division is correctly rounded), which is why `7/3` never exposed it.
+
+**Why every existing gate is green.** Zero corpus coverage of float-error-visible decimal arithmetic — and the witness cannot be added first, because it alone turns three backends red against the node oracle. The ruling comes first.
+
+**THE RULING — given by the owner 2026-09-07. `decimal` arithmetic is EXACT.** `0.1 + 0.2` answers `0.3` on every backend, on the wire and in storage. .NET/Java/Elixir already conform; **node and python change to match them**.
+
+This **supersedes the audit's proposed float64/node-oracle default**, which is struck rather than left standing beside it — the rationale for the override: `decimal` exists precisely to avoid binary-float error, so a decimal type that answers `0.30000000000000004` is broken by its own definition. Do not re-open this as "the audit suggested otherwise".
+
+**The cost, accepted knowingly.** This is a WIRE-VISIBLE change on node and python: their API responses and newly-persisted values change. Existing rows are NOT rewritten, so historical rows may disagree with new ones — an implementing PR should say so in its body and consider whether a migration note belongs in `docs/migrations.md`. And the node oracle that the wire-golden and behavioural tiers compare every other backend against MOVES with this change, so those goldens are re-captured as part of this mission (`LOOM_WIRE_UPDATE=1`), reviewed diff-by-diff — never as a drive-by rebaseline.
+
+**Scope the implementation FIRST, before writing any of it.** Python already has `Decimal` in play on the column side (M-T6.45 landed that), so its gap may be narrow. The Hono/node backend is the unknown: it likely needs a decimal library threaded through the domain layer and the derived-field evaluator, and that cost — not the ruling — decides how this mission is sliced. Report the finding before implementing.
+
+**Not at stake, so nobody re-litigates it:** `money` is a fixed-scale-4 string, already exact and identical on all five backends. This ruling concerns plain `decimal` only.
+
+Mint the RS rule per the registry's own claim-the-number protocol (`docs/conformance-semantics.md`). Then add the corpus witness and bring node/python into compliance.
+
+**Also carried here** (same ruling's blast radius, from the register annex): node money arithmetic runs at decimal.js default 20-significant-digit precision (no `Decimal.set` emitted) vs 28+ elsewhere; the inbound `decimal` precision-acceptance skew (Java unlimited vs .NET 28–29 vs double-clamped — a Java-written 30-digit value can `OverflowException` a .NET reader of the same column); and the numeric doc drift (`docs/language.md` host-type table predates #2575 and mislabels Java; the stdlib catalog signature `sum → decimal` in `src/util/collection-ops.ts` disagrees with `type-system.ts`'s body-type rule — fix the catalog, regen `docs:stdlib`).
+
+**This is a COORDINATED MOMENT — one PR, nothing else in it.** Measured
+2026-09-10: `jq -r .oracle test/behavioral/wire-golden/*.json | sort | uniq -c`
+answers **54 node**, and SEVEN behavioural legs diff against those goldens
+(`behavioral`, `-mikroorm`, `-dotnet`, `-dapper`, `-python`, `-java`,
+`-elixir`). So the instant node goes exact, all seven are red until all 54 are
+re-captured — node, python and the goldens have to land **together, alone**.
+Landing it as one row inside a multi-row cross-backend packet is the failure
+mode to avoid: there, any other row being wrong is indistinguishable from the
+oracle move, and a conflict on the goldens blocks the whole packet. Treat it as
+a fourth coordinated moment alongside the three in
+[completion-waves-2026-09](../completion-waves-2026-09.md) (A4 `getById`,
+`denyByDefault`, `organizationContext`). Note the move is more visible than it
+was before [#2807](https://github.com/Loom-Harness/Loc/pull/2807): the differential
+now compares number FORMATS as well as values, so an oracle shift diverges on
+spelling too, not only on magnitude.
+
+**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/Loom-Harness/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
+
+**Landed 2026-09-28 (Wave C5 moment 5a).** Scope measured first and reported before building: node's cost was **M, not L** — one leaf (`TS_TARGET`'s binary arm in `src/generator/typescript/render-expr.ts`, plus the `sum` fold and `decimal.round` intercepts), one aggregate import scan, one `package.json` flag; no repository, DTO or wire codec moved, because each chain narrows back to a `number` once at its root (RS-24 is unchanged). Python is the same three sites in `src/generator/python/render-expr.ts` plus one arm of `addPyExprImport`. Witness `test/fixtures/corpus/decimal-exact.ddd` (0.1 + 0.2, a chained multiply, 0.3 / 0.1, a mixed chain, a non-terminating chain `a / 3 * 3`, `1.005.round(2)`, a `sum` fold, and an operation writing a computed value to a stored column) proven red on node and python before the fix (`expected 0.30000000000000004 to be 0.3`) and green, unit + api + wire, on all seven behavioural legs after (node, mikroorm, python, dotnet, dapper, java, elixir — every one run locally). Goldens re-captured from a node run under `LOOM_WIRE_UPDATE=1`: the 63 existing files are byte-identical, `decimal-exact.json` is the one new file. Rule minted as **RS-37** (the gap-free registry refuses an RS-38 before the datetime rule that had reserved 37 lands). Mutation-proved twice on node (revert the leaf → `expected 0.30000000000000004 to be 0.3`; disable only the chain carry → `expected 0.09999999999999999 to be 0.1`). `docs/migrations.md` § "Semantic changes that emit no migration" records that historical rows are not rewritten. **Handed off, not closed here** (none moved a golden, so none rides this PR): node's decimal.js default 20-digit precision (`Decimal.set` / a clone at 28), the inbound decimal precision-acceptance skew, the zod `.refine` that still evaluates a cross-field decimal invariant in doubles (`src/generator/zod-refine.ts`), the numeric doc drift (`docs/language.md` host-type table; `sum → decimal` in `src/util/collection-ops.ts` vs `type-system.ts`), and two side defects the witness found (.NET create param named `e`; java unit `toBe(<int>)` against a decimal) — recipes in [`waves/handoffs/wave-c5-5a-decimal.md`](../waves/handoffs/wave-c5-5a-decimal.md).

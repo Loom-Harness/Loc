@@ -1,0 +1,18 @@
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      n: string
+      derived display: string = n
+      function ok(): bool = n.length > 0
+      // documented form: "aggregate root -> Order.create({ … }) - the create factory"
+      test "thing is ok" {
+        let t = Thing.create({ n: "x" })
+        expect(t.ok()).toBe(true)
+      }
+    }
+    repository Things for Thing {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

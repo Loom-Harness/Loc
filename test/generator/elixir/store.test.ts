@@ -62,7 +62,7 @@ async function gen(source: string): Promise<Map<string, string>> {
 async function irCodes(source: string): Promise<string[]> {
   const { model, errors } = await parseString(source);
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 // The canonical store-showcase source — one store, a page reading it + calling
