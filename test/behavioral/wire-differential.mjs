@@ -541,30 +541,35 @@ const __authzLadder = async (spec, creds, dispatch) => {
   // operation whose emitted event a folded read model needs) — they run in
   // order under the authorized principal, and the first id any of them returns
   // is the one \`{id}\` substitutes.
-  const seedSteps = Array.isArray(spec.seed) ? spec.seed : [spec.seed];
-  let id = null;
-  for (const step of seedSteps) {
-    const r = await dispatch({
-      method: step.method ?? "POST",
-      url: origin + step.path.replace("{id}", id ?? ""),
-      headers: json(authorized),
-      ...withBody(step.method ?? "POST", step.body),
-    });
-    const st = r?.response?.status;
-    if (!(st >= 200 && st < 300)) {
-      push("authz ladder: seed", "fail", \`seed \${step.method ?? "POST"} \${step.path} → \${st}: \${String(r?.response?.body ?? "").slice(0, 200)}\`);
-      return out;
+  // Run seed steps under the authorized principal; the first id any step
+  // returns is the one \`{id}\` substitutes.  Null (with a failed result pushed)
+  // when a step is refused or no step returns an id.
+  const seedRows = async (seed, label) => {
+    const seedSteps = Array.isArray(seed) ? seed : [seed];
+    let sid = null;
+    for (const step of seedSteps) {
+      const r = await dispatch({
+        method: step.method ?? "POST",
+        url: origin + step.path.replace("{id}", sid ?? ""),
+        headers: json(authorized),
+        ...withBody(step.method ?? "POST", step.body),
+      });
+      const st = r?.response?.status;
+      if (!(st >= 200 && st < 300)) {
+        push(label, "fail", \`seed \${step.method ?? "POST"} \${step.path} → \${st}: \${String(r?.response?.body ?? "").slice(0, 200)}\`);
+        return null;
+      }
+      if (sid === null) {
+        try {
+          sid = JSON.parse(r?.response?.body ?? "{}")?.id ?? null;
+        } catch { /* handled by the null check below */ }
+      }
     }
-    if (id === null) {
-      try {
-        id = JSON.parse(r?.response?.body ?? "{}")?.id ?? null;
-      } catch { /* handled by the null check below */ }
-    }
-  }
-  if (!id) {
-    push("authz ladder: seed", "fail", \`seed \${seedSteps[0].path}: no id in any seed response body\`);
-    return out;
-  }
+    if (!sid) push(label, "fail", \`seed \${seedSteps[0].path}: no id in any seed response body\`);
+    return sid;
+  };
+  const id = await seedRows(spec.seed, "authz ladder: seed");
+  if (!id) return out;
 
   // ONE spec may gate SEVERAL surfaces — the read side alone has three distinct
   // emission sites (gated list read, folded projection, query-time projection)
@@ -578,9 +583,17 @@ const __authzLadder = async (spec, creds, dispatch) => {
     body: g.body,
     label: g.label ?? null,
     arms: g.arms ?? spec.arms,
+    // A surface may SEED ITS OWN ROW (M-T9.28 residue): the spec-level seed
+    // carries ONE \`{id}\`, so a second aggregate's row — or a fresh row for a
+    // surface whose arms would otherwise act on one another's leftovers (a
+    // destroy after an update) — was unaddressable.  Run immediately before
+    // this surface's arms, under the authorized principal, like the spec seed.
+    seed: g.seed ?? null,
+    // Why a \`null\` arm on THIS surface is skipped (overrides anonymousNote).
+    note: g.note ?? null,
   }));
 
-  const arm = async (surface, rung, headers, expected, skipNote) => {
+  const arm = async (surface, rung, headers, expected, skipNote, sid) => {
     const where = surface.label ? \`\${surface.label} — \` : "";
     if (expected === null || expected === undefined) {
       push(\`authz ladder: \${where}\${rung} (skipped — \${skipNote ?? spec.anonymousNote ?? "not expressible"})\`, "skip");
@@ -588,7 +601,7 @@ const __authzLadder = async (spec, creds, dispatch) => {
     }
     const r = await dispatch({
       method: surface.method,
-      url: origin + surface.path.replace("{id}", id),
+      url: origin + surface.path.replace("{id}", sid),
       headers: json(headers),
       ...withBody(surface.method, surface.body),
     });
@@ -630,8 +643,13 @@ const __authzLadder = async (spec, creds, dispatch) => {
   // tenancy statement, and an undeclared arm skips (see \`arm\`) rather than
   // inventing an expectation.
   for (const s of surfaces) {
-    await arm(s, "unauthenticated", {}, s.arms.anonymous);
-    await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized);
+    let sid = id;
+    if (s.seed) {
+      sid = await seedRows(s.seed, \`authz ladder: \${s.label ?? s.path} — seed\`);
+      if (!sid) continue;
+    }
+    await arm(s, "unauthenticated", {}, s.arms.anonymous, null, sid);
+    await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized, s.note, sid);
     if (s.arms.otherTenant !== undefined) {
       await arm(
         s,
@@ -639,9 +657,10 @@ const __authzLadder = async (spec, creds, dispatch) => {
         otherTenant,
         otherTenant ? s.arms.otherTenant : null,
         "this system's auth flavour carries no tenancy claim to vary",
+        sid,
       );
     }
-    await arm(s, "authorized", authorized, s.arms.authorized);
+    await arm(s, "authorized", authorized, s.arms.authorized, s.note, sid);
   }
   return out;
 };`;

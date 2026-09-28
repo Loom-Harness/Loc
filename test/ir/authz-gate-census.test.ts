@@ -169,16 +169,24 @@ interface LadderArms {
   readonly anonymous?: number | null;
   readonly unauthorized?: number | null;
   /** The CROSS-TENANT rung (wave-3 row 3.3): a principal with the SAME granting
-   *  role and permissions as the authorized one, in a different tenant.  It is
-   *  deliberately NOT counted as a refusal arm below — a tenancy statement and
-   *  an authorization statement are different claims, and letting a hidden-row
-   *  arm satisfy the census's "this gate refuses somebody" question would let a
-   *  gated surface look covered while its `requires` was never exercised. */
+   *  role and permissions as the authorized one, in a different tenant.  It
+   *  counts as a refusal ONLY on a surface whose gates are the tenancy
+   *  predicate and nothing else (`isSurfaceRefused`): a tenancy statement and an
+   *  authorization statement are different claims, and letting a hidden-row
+   *  arm satisfy the census for a surface that ALSO carries a `requires`,
+   *  `policy` stance or mask would let that gate look covered while it was
+   *  never exercised.  With no other gate on the surface there is nothing for
+   *  it to stand in for — the foreign tenant's 404 IS the gate refusing
+   *  (wave C3 packet 3c, M-T9.28 residue). */
   readonly otherTenant?: number | null;
   readonly authorized?: number | null;
 }
 interface LadderSurface {
   readonly label?: string;
+  /** The surface's OWN seed (run right before its arms) — see `__authzLadder`. */
+  readonly seed?: unknown;
+  /** Why a `null` arm on this surface is skipped. */
+  readonly note?: string;
   readonly method: string;
   readonly path: string;
   readonly body?: unknown;
@@ -442,15 +450,26 @@ function ladderSurfaces(spec: LadderSpec | undefined): (LadderSurface & { arms: 
  *  already the derivation's spelling. */
 const probePath = (p: string): string => p.split("?")[0];
 
-/** `<METHOD> <path>` keys of every route a ladder probe REFUSES someone on. */
+/** `<METHOD> <path>` keys of every route a ladder probe REFUSES someone on,
+ *  plus `tenant:<METHOD> <path>` for a route only the CROSS-TENANT rung
+ *  refuses (credited to tenancy-only surfaces by `isSurfaceRefused`). */
 function refusedRoutes(spec: LadderSpec | undefined): Set<string> {
   const out = new Set<string>();
   for (const s of ladderSurfaces(spec)) {
-    if (isRefusal(s.arms.unauthorized) || isRefusal(s.arms.anonymous)) {
-      out.add(`${s.method.toUpperCase()} ${probePath(s.path)}`);
-    }
+    const route = `${s.method.toUpperCase()} ${probePath(s.path)}`;
+    if (isRefusal(s.arms.unauthorized) || isRefusal(s.arms.anonymous)) out.add(route);
+    if (isRefusal(s.arms.otherTenant)) out.add(`tenant:${route}`);
   }
   return out;
+}
+
+/** Is gated surface `s` refused by some ladder arm?  An authorization-rung
+ *  refusal covers any surface; a cross-tenant refusal covers only a surface
+ *  whose sole gate is the tenancy predicate (see `LadderArms.otherTenant`). */
+function isSurfaceRefused(s: GatedSurface, refused: ReadonlySet<string>): boolean {
+  const route = `${s.method} ${s.path}`;
+  if (refused.has(route)) return true;
+  return s.gates.every((g) => g === "tenancy") && refused.has(`tenant:${route}`);
 }
 
 /** The gate, as data: one message per gated surface that is unrefused-and-
@@ -462,7 +481,7 @@ function censusFailures(
   refused: ReadonlySet<string>,
   pins: Record<string, string>,
 ): string[] {
-  const unrefused = surfaces.filter((s) => !refused.has(`${s.method} ${s.path}`));
+  const unrefused = surfaces.filter((s) => !isSurfaceRefused(s, refused));
   const unrefusedKeys = new Set(unrefused.map((s) => s.key));
   const out: string[] = [];
   for (const s of unrefused) {
@@ -657,7 +676,7 @@ describe("authz gate census — every emitted gate has a refused caller or a pin
       }
       const refused =
         c.ladderKey === null ? new Set<string>() : refusedRoutes(LADDERS[c.ladderKey]);
-      refusedTotal += gated.filter((s) => refused.has(`${s.method} ${s.path}`)).length;
+      refusedTotal += gated.filter((s) => isSurfaceRefused(s, refused)).length;
     }
     const pinned = Object.values(AUTHZ_GATE_PINS).reduce((n, m) => n + Object.keys(m).length, 0);
     expect(
