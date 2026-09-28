@@ -78,8 +78,13 @@ system Ports {
           expect(d.berth.position).toBe(3)
           expect(d.berth.ship == s.id).toBe(true)
           expect(d.berth.assignedShip == s.id).toBe(true)
-          expect(d.berth.equals(Berth { ship: s.id, position: 3 })).toBe(true)
-          expect(d.berth.equals(Berth { ship: s.id, position: 4 })).toBe(false)
+          // Value equality via the OPERATOR, not `.equals(…)`: the method is a
+          // node-side spelling (python's value object is a frozen dataclass and
+          // has no `equals`, so `.equals` fails `mypy --strict` there).  That
+          // asymmetry is a real parity gap, reported separately — this fixture
+          // is not the place to pin it.
+          expect(d.berth == Berth { ship: s.id, position: 3 }).toBe(true)
+          expect(d.berth == Berth { ship: s.id, position: 4 }).toBe(false)
         }
       }
 
