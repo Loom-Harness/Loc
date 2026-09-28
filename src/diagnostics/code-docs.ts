@@ -159,6 +159,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.inheritance-modifier-misplaced":
     "08-inheritance-and-polymorphism.md#inheritanceusing---the-storage-strategy",
   "loom.union-duplicate-variant": "09-payloads-and-unions.md#anonymous-union--a-or-b",
+  "loom.union-read-undiscriminated":
+    "09-payloads-and-unions.md#reading-a-union-in-a-body--match-first",
   "loom.union-position": "09-payloads-and-unions.md#anonymous-union--a-or-b",
   "loom.union-variant-not-carrier": "09-payloads-and-unions.md#anonymous-union--a-or-b",
   "loom.unmapped-error-status":

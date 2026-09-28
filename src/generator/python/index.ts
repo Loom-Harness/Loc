@@ -30,6 +30,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -541,7 +542,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // append-time `(stream_id, version)` 23505 collision — a concurrency-free app
   // omits both and stays byte-identical.
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  out.set("app/domain/errors.py", errorsPy(hasConcurrency));
+  out.set("app/domain/errors.py", errorsPy(hasConcurrency, hasValueObjectInvariants(merged)));
   out.set("app/domain/value_objects.py", renderPyEnumsAndValueObjects(merged));
   out.set("app/domain/events.py", renderPyEvents(merged));
 
@@ -663,6 +664,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // exception handlers have no per-context tag, so they read it here.
       (args.sys as EnrichedSystemIR).structuralErrorStatuses,
       validationMessages.length > 0,
+      // M-T5.1: the value-object-invariant handler rides on a hosted value
+      // object declaring an invariant; a project without one is byte-identical.
+      hasValueObjectInvariants(merged),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1668,6 +1672,9 @@ function renderProblemPy(
    *  each messaged rule's wire `code` against the catalog for the request
    *  locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
   localizeMessages = false,
+  /** True when a hosted value object declares an invariant — the module then
+   *  carries the `ValueObjectInvariantError` handler (M-T5.1). */
+  valueObjectInvariants = false,
 ): string {
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
@@ -1770,6 +1777,28 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
   const localizeLine = localizeMessages
     ? '\n                entry["message"] = localize_message(code, entry["message"])'
     : "";
+  // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
+  // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
+  // the body computed the value, so it names no request member), the rule's
+  // message, and for a messaged rule its content-hash code resolved through the
+  // same catalog the wire rung uses.  Starlette dispatches on the exception's
+  // MRO, so this subclass handler wins over `_domain`.
+  const voImport = valueObjectInvariants ? "    ValueObjectInvariantError,\n" : "";
+  const voLocalize = localizeMessages
+    ? '\n            entry["message"] = localize_message(err.code, str(err))'
+    : "";
+  const voHandler = valueObjectInvariants
+    ? `    @app.exception_handler(ValueObjectInvariantError)
+    async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
+        log("warn", "domain_error", message=str(err), status=${domainStatus})
+        record_domain_fault("domain_error")
+        entry: dict[str, str] = {"pointer": "", "message": str(err)}
+        if err.code is not None:
+            entry["code"] = err.code${voLocalize}
+        return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err), [entry])
+
+`
+    : "";
   return `"""RFC 7807 problem responses + exception handlers.  Auto-generated."""
 
 from http import HTTPStatus
@@ -1787,7 +1816,7 @@ from app.domain.errors import (
 ${versionedImport}    DisallowedError,
     DomainError,
     ForbiddenError,
-)
+${voImport})
 from app.obs.log import log
 from app.obs.metrics import record_domain_fault${i18nImport}
 
@@ -1925,7 +1954,7 @@ def install_error_handlers(app: FastAPI) -> None:
         record_domain_fault("domain_error")
         return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err))
 
-${integrityHandler}${versionedHandler}    @app.exception_handler(AggregateNotFoundError)
+${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(AggregateNotFoundError)
     async def _not_found(request: Request, err: AggregateNotFoundError) -> JSONResponse:
         log("warn", "not_found", message=str(err), status=${notFoundStatus})
         record_domain_fault("not_found")

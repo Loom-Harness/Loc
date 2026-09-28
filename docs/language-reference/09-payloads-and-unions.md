@@ -254,6 +254,53 @@ end
 
 > **Why the split.** A find's absent case is an *edge* (the row wasn't there), not a domain-modelled alternative the producer chose — so it belongs at a status code, exactly like an optional find's miss. An operation return is producer-selected variant data, so it carries the tag.
 
+### Reading a union in a body — `match` first
+
+A union find binds ONE of its variants, so a body reads it through a variant `match` — never straight through. The arm binding is narrowed to its variant; every backend lowers the absence shape to a presence check:
+
+```ddd
+workflow label {
+  create(code: string) {
+    let r = Orders.byCode(code)                                  // Order or NotFound
+    let t = match r { Order o => o.code, NotFound => "missing" }
+    let n = Note.create({ text: t })
+  }
+}
+```
+
+::: tabs backend
+== node
+```ts
+const r = await orders.byCode(code);
+const t = r !== null ? r.code : "missing";
+```
+== dotnet
+```csharp
+var r = await _orders.ByCode(command.Code, cancellationToken);
+var t = r is not null ? r.Code : "missing";
+```
+== java
+```java
+var r = ordersRepository.byCode(code);
+var t = switch (r) {
+  case null -> "missing";
+  case Order o -> r.code();
+};
+```
+== python
+```python
+r = await orders.by_code(code)
+t = (r.code if r is not None else "missing")
+```
+== elixir
+```elixir
+with {:ok, r} <- Context.by_code_order(code),
+     t <- ((if r != nil, do: r.code, else: "missing")),
+```
+::: end
+
+Reading through the union — `r.code`, or an operation call `r.touch()` — is refused with `loom.union-read-undiscriminated`: it is an unguarded dereference of a value each backend types as nullable (TS18047 on node, CS8602 on .NET, a 500 on java/python/elixir). The same rule covers an `or`-returning operation's result. To answer 404 instead of branching, declare the find `: Order` (or load with `getById`) — the absent row is then the not-found-on-load policy, never a value in the body.
+
 ## Named union — `payload Foo = A | B`
 
 The named form declares the variant set up front with identity **by name** (nominal — unlike the structural anonymous form). Use `=` and `|` (the `PayloadDecl` `'=' variants+=TypeAtom ('|' variants+=TypeAtom)*` arm):

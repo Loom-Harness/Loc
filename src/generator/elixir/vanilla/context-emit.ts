@@ -51,6 +51,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
+import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
 import { denialTerm } from "./denial.js";
 import {
   isVanillaDocAgg,
@@ -1430,6 +1431,20 @@ function renderNamedOpFunction(
   const invPipe6 = aggregateHasResidualInvariants(agg)
     ? `\n      |> ${changesetMod}.validate_invariants()`
     : "";
+  // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
+  // is persisted through `force_change`, which runs no validator; re-run its
+  // constructor so a refused value answers the domain-floor 422 with an
+  // `errors[]` entry instead of committing.  Only when THIS op assigns such a
+  // field (the changeset module emits the function for the aggregate-level
+  // union of the same derivation), so every other op is byte-identical.
+  const opAssigned = opAssignedFields(op);
+  const bodyVoPipeOn = aggregateBodyValueObjectFields(agg, ctx.valueObjects).some((f) =>
+    opAssigned.has(f.field),
+  );
+  const bodyVoPipe = bodyVoPipeOn ? `\n    |> ${changesetMod}.validate_body_value_objects()` : "";
+  const bodyVoPipe6 = bodyVoPipeOn
+    ? `\n      |> ${changesetMod}.validate_body_value_objects()`
+    : "";
 
   const prelude = [...paramBinds, ...bodyLines].join("\n");
   const preludeBlock = prelude
@@ -1475,7 +1490,7 @@ function renderNamedOpFunction(
     // unchanged.
     persist = `${durableEmit.bind.length > 0 ? `${durableEmit.bind.join("\n")}\n\n` : ""}    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     tx_result =
       ${appModule}.Repo.transaction(fn ->
@@ -1504,7 +1519,7 @@ ${durableEmit.broadcast.join("\n")}
         // rollback drops the events too.
         `    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     tx_result =
       ${appModule}.Repo.transaction(fn ->
@@ -1528,7 +1543,7 @@ ${dispatchBlock}
     end`
       : `    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     ${appModule}.Repo.transaction(fn ->
       case ${repoMod}.persist_change(changeset) do
@@ -1547,7 +1562,7 @@ ${txTail.join("\n")}
         // context Dispatcher (saga seam) + the raw broadcast.
         `    changeset =
       ${persistBase}
-      |> Ecto.Changeset.change(%{})${putBlock6}${opLockPipe6}${invPipe6}
+      |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
     case ${repoMod}.persist_change(changeset) do
       {:ok, saved} ->
@@ -1558,7 +1573,7 @@ ${dispatchBlock}
         {:error, reason}
     end`
       : `    ${persistBase}
-    |> Ecto.Changeset.change(%{})${putBlock}${opLockPipe}${invPipe}
+    |> Ecto.Changeset.change(%{})${putBlock}${bodyVoPipe}${opLockPipe}${invPipe}
     |> ${repoMod}.persist_change()`;
   }
 

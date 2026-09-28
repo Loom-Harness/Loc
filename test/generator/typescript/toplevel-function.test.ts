@@ -32,7 +32,11 @@ describe("typescript generator — Phase B top-level function", () => {
     const model = await parseValid(SRC);
     const domain = generateHono(model).get("domain/invoice.ts")!;
     // `taxed(net, 20)` inlined, paren-wrapped, args substituted.
-    expect(domain).toContain("get gross(): number { return (this._net + this._net * 20 / 100); }");
+    // (`int / int` widens to `decimal`, and decimal arithmetic is exact —
+    // RS-37 — so the chain from the division up rides decimal.js.)
+    expect(domain).toContain(
+      "get gross(): number { return (new Decimal(this._net).plus(new Decimal(this._net * 20).div(100)).toNumber()); }",
+    );
     // `!isBlank(customerName)` inlined into the invariant guard.
     // `.length` on a string is a CODE-POINT count (RS-31).
     expect(domain).toContain("[...this._customerName.trim()].length === 0");

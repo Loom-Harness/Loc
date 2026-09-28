@@ -90,6 +90,67 @@ aggregate A {
 }
 ```
 
+### A value object refused inside a body — 422 with `errors[]`
+
+A value object runs its invariants when it is built.  In a request body that is the wire layer (below) and answers the §3.2 422 with a pointer to the offending field.  A value object a **body** builds — an operation, a workflow step, a handler — refuses at its constructor instead, and answers the domain-floor status with **one** `errors[]` entry: the rule's message, its content-hash `code` when the rule is messaged, and the pointer `""` (the whole request — the body computed the value, so it names no member of the request).
+
+```ddd
+valueobject Qty { value: int  invariant value > 0 message "Quantity must be positive" }
+aggregate Order with crudish {
+  qty: Qty
+  operation resize(n: int) { qty := Qty { value: n } }
+}
+```
+
+`POST /api/orders/{id}/resize {"n": 0}` answers, on all five backends (pinned by the `vo-invariant-in-body` wire golden):
+
+```json
+{ "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+  "detail": "Quantity must be positive", "instance": "/api/orders/{id}/resize",
+  "errors": [{ "pointer": "", "message": "Quantity must be positive", "code": "msg.bqyhlx" }] }
+```
+
+::: tabs backend
+== node
+```ts
+// domain/value-objects.ts
+if (!(this.value > 0)) throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx");
+// http/order.routes.ts — the DomainError arm
+return valueObjectProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
+```
+== dotnet
+```csharp
+// Domain/ValueObjects/Qty.cs
+if (!(this.Value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx");
+// Api/DomainExceptionFilter.cs — ahead of the DomainException arm
+if (context.Exception is ValueObjectInvariantException voe) { … Extensions["errors"] = … }
+```
+== java
+```java
+// domain/valueobjects/Qty.java — a DomainException subclass
+if (!(value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx");
+// api/ApiExceptionAdvice.java
+@ExceptionHandler(ValueObjectInvariantException.class)
+public ResponseEntity<ProblemDetail> onValueObjectInvariant(ValueObjectInvariantException e, WebRequest request) { … }
+```
+== python
+```python
+# app/domain/value_objects.py — a DomainError subclass
+raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")
+# app/http/problem.py
+@app.exception_handler(ValueObjectInvariantError)
+```
+== elixir
+```elixir
+# lib/d/orders.ex — the op persists the body's rebinding through force_change,
+# which runs no validator, so the constructor is re-run on the way to the write
+|> Ecto.Changeset.force_change(:qty, record.qty)
+|> D.Orders.OrderChangeset.validate_body_value_objects()
+```
+::: end
+
+A message-less rule carries no `code`, and its text is each backend's derived default — on elixir the value object's Ecto validator chain (`should be at least 1 character(s)`), elsewhere `Invariant violated: <source>` — the same native-chain split the wire layer has for a message-less rule.  Before M-T5.1 elixir did not check a body-built value object at all (`resize(0)` persisted `{"value": 0}` and answered 204), and the other four answered the domain floor with no `errors[]`.
+
 ### `.length` counts code points
 
 A string `.length` — in a domain rule, an invariant, a precondition, anywhere — is a count of **Unicode code points**, not of the host language's native string length. This is the unit the emitted JSON Schema publishes as `minLength`/`maxLength`, so the rule the server enforces and the bound it advertises are the same number:

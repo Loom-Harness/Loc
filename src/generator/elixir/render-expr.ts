@@ -63,6 +63,12 @@ export interface RenderCtx {
   thisName: string;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
+  /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
+   *  its miss `{:not_found, "<Agg> <id> not found"}` so the workflows
+   *  dispatcher answers the 404 naming the row.  Unset on every other path
+   *  (explicit handlers, mutating domain services), whose dispatchers only know
+   *  the bare `{:error, :not_found}` term. */
+  tagGetByIdMiss?: boolean;
   /** Variant-`match` binding side-channel (variant-match.md) — maps a bound
    *  name to its `case`-clause pattern variable while rendering an arm value. */
   matchBindings?: ReadonlyMap<string, string>;

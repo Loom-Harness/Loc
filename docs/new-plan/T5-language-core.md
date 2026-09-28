@@ -4,9 +4,15 @@
 
 *The expression language is deliberately small; these missions finish the in-flight type-system families (errors-as-data, criteria, payloads), close audited correctness bugs, and keep the surface honest.*
 
-## M-T5.1 — Exception-less completion (A4/A5/A6 + VO→422) — `partial` · **L** · P1 ⚠ coordinated
+## M-T5.1 — Exception-less completion (A4/A5/A6 + VO→422) — `partial` (VO→422 `done`, A4's consumer half + load-path parity `done`, A6 superseded; A4's `getById` retype awaits an owner ruling, A5 blocked on the effect-form `match` — Wave C5 moment 5c, 2026-09-28) · **L** · P1 ⚠ coordinated
 The remaining errors-as-data arc: **A4** re-shape `Repo.getById` from `: X` to `X or NotFound` (`: X?` → `X option`) — THE coordinated single-PR fixture re-baseline across all backends; **A5** parse-intrinsic/external-api results as `or`; **A6** `validate for X` → `X or ValidationError[]`; VO-construction `invariant` → 422 routing with RFC-7807 `errors[]` (failure-taxonomy's highest-leverage piece); variant-`match` with scrutinee + variant-pattern binding (real prerequisite — `match` is boolean-guard-only today). The `?` propagation operator stays DROPPED — do not reintroduce.
 Sources: [exception-less](../old/proposals/exception-less.md), [failure-taxonomy](../old/proposals/failure-taxonomy.md), [implementation-plan](../old/proposals/implementation-plan.md) decision table.
+
+**Moment 5c (2026-09-28) — measured first, then built; full record in [`waves/handoffs/wave-c5-5c-exceptionless.md`](waves/handoffs/wave-c5-5c-exceptionless.md).** The premise "`match` is boolean-guard-only" is stale: the **value** form (`match r { Order o => o.code, NotFound => … }`) ships on all five backends over union finds and `or`-returning ops (a presence check for the absence shape); only the **effect** form (arms that run statements) is frontend-only (`loom.variant-match-placement`).
+- **VO→422 — `done`.** A value object BUILT by a body (`qty := Qty { value: n }`) and refused by its constructor answers the domain floor plus one `errors[]` entry `{pointer: "", message, code?}` on all five (was: bare domain floor on four, and elixir did not check the value at all — `resize(0)` → 204). Corpus fixture + wire golden `vo-invariant-in-body`; runtime-proven on node, python, elixir; RS-9 carries the rule.
+- **A4 — the consumer half `done`, the retype NOT done (owner ruling wanted).** `loom.union-read-undiscriminated` refuses reading a union straight through (`r.code`, `r.touch()`) — it was an unguarded dereference on all five (TS18047 / CS8602 / NPE / AttributeError / KeyError). The `getById` miss answers the declared 404 on the GET route, an operation route and a workflow step alike (elixir's workflow miss said "Resource not found"; fixed). Retyping `getById` itself to `X or NotFound` is NOT built: with `?` dropped and no effect-form `match`, every `let o = Repo.getById(id); o.op()` in the corpus would become a type error, and failure-taxonomy (which revisits exception-less) classifies not-found-on-load as a **policy** ("declarative, auto-mapped, never named") and softens A4 "from law to default + `: X?` opt-out" — which is what ships: a find opts into the union by declaring `X or NotFound` / `X option`. The owner decides whether A4's letter stands (see the hand-off note §5).
+- **A6 — superseded.** `validate for X` was never grammar; failure-taxonomy calls it "a hallucination in an earlier draft" and routes validation to the VO `invariant` — the VO→422 row above.
+- **A5 — blocked on the effect-form `match`.** No parse intrinsic exists to re-shape; the typed in-system api call (M-T4.8) is the external-call site, and making it `T or ApiError` is only consumable once a workflow can ACT in a `match` arm. **Remaining (sized, L):** the effect-form variant `match` in domain + workflow bodies — a new `WorkflowStmtIR` kind, five `StmtTarget` leaves (the `_stmt/target.ts` throw), four `WorkflowStmtTarget` leaves plus the elixir `with`-chain branch, `walk.ts` + census, and flipping `loom.variant-match-placement` from permanent to lifted for those owners.
 
 ## M-T5.2 — Backend failure-sink contract — `open` · **M** · P2
 Uniform problem+json envelope + `traceId` as a cross-backend wire contract; `errors {}` policy override (backend half of M-T1.8); `expose`/public-contract error translation at api blocks (failure-taxonomy OQ4).
@@ -128,46 +134,6 @@ The fork leaks downstream: the duplicate diagnostic pairs (`loom.workflow-emitte
 Design: [`M-T5.21-callable-unification-design.md`](missions/M-T5.21-callable-unification-design.md).
 
 Sources: language-size review 2026-08-04. `src/language/ddd.langium` (the fifteen rules, line numbers in the design doc), [`docs/customization-gradient.md`](../customization-gradient.md), [`surface-redundancy-cuts.md`](../old/proposals/surface-redundancy-cuts.md) (same "one spelling per concept" principle, previously applied only to trivia). Relates to M-T5.17 (modifier zoo, one layer up), M-T5.18 (soft-keyword sprawl).
-
-## M-T5.22 — Decimal arithmetic has no governing rule: `0.1 + 0.2` diverges on the wire AND in storage — `open` (D-DECIMAL-EXACT-MOMENT applied by default 2026-09-13; Wave C5 moment 5a) · **L** · P1 ⭐ ruling GIVEN 2026-09-07: exact
-
-Found 2026-08-23 by the numeric-types audit ([F11](../audits/numeric-types-audit-2026-08-23.md)). RS-24 pins how a `decimal` *serializes* (a JSON number through a float64) but nothing pins how it *computes*: node/python run float64 arithmetic, .NET/Java/Elixir run exact decimal (System.Decimal / DECIMAL128 / Decimal-context-28). A `derived x: decimal = 0.1 + 0.2` ships — and **persists into the shared unbounded `DECIMAL` column** — `0.30000000000000004` from two backends and `0.3` from three. Single divisions agree only coincidentally (double division is correctly rounded), which is why `7/3` never exposed it.
-
-**Why every existing gate is green.** Zero corpus coverage of float-error-visible decimal arithmetic — and the witness cannot be added first, because it alone turns three backends red against the node oracle. The ruling comes first.
-
-**THE RULING — given by the owner 2026-09-07. `decimal` arithmetic is EXACT.** `0.1 + 0.2` answers `0.3` on every backend, on the wire and in storage. .NET/Java/Elixir already conform; **node and python change to match them**.
-
-This **supersedes the audit's proposed float64/node-oracle default**, which is struck rather than left standing beside it — the rationale for the override: `decimal` exists precisely to avoid binary-float error, so a decimal type that answers `0.30000000000000004` is broken by its own definition. Do not re-open this as "the audit suggested otherwise".
-
-**The cost, accepted knowingly.** This is a WIRE-VISIBLE change on node and python: their API responses and newly-persisted values change. Existing rows are NOT rewritten, so historical rows may disagree with new ones — an implementing PR should say so in its body and consider whether a migration note belongs in `docs/migrations.md`. And the node oracle that the wire-golden and behavioural tiers compare every other backend against MOVES with this change, so those goldens are re-captured as part of this mission (`LOOM_WIRE_UPDATE=1`), reviewed diff-by-diff — never as a drive-by rebaseline.
-
-**Scope the implementation FIRST, before writing any of it.** Python already has `Decimal` in play on the column side (M-T6.45 landed that), so its gap may be narrow. The Hono/node backend is the unknown: it likely needs a decimal library threaded through the domain layer and the derived-field evaluator, and that cost — not the ruling — decides how this mission is sliced. Report the finding before implementing.
-
-**Not at stake, so nobody re-litigates it:** `money` is a fixed-scale-4 string, already exact and identical on all five backends. This ruling concerns plain `decimal` only.
-
-Mint the RS rule per the registry's own claim-the-number protocol (`docs/conformance-semantics.md`). Then add the corpus witness and bring node/python into compliance.
-
-**Also carried here** (same ruling's blast radius, from the register annex): node money arithmetic runs at decimal.js default 20-significant-digit precision (no `Decimal.set` emitted) vs 28+ elsewhere; the inbound `decimal` precision-acceptance skew (Java unlimited vs .NET 28–29 vs double-clamped — a Java-written 30-digit value can `OverflowException` a .NET reader of the same column); and the numeric doc drift (`docs/language.md` host-type table predates #2575 and mislabels Java; the stdlib catalog signature `sum → decimal` in `src/util/collection-ops.ts` disagrees with `type-system.ts`'s body-type rule — fix the catalog, regen `docs:stdlib`).
-
-**This is a COORDINATED MOMENT — one PR, nothing else in it.** Measured
-2026-09-10: `jq -r .oracle test/behavioral/wire-golden/*.json | sort | uniq -c`
-answers **54 node**, and SEVEN behavioural legs diff against those goldens
-(`behavioral`, `-mikroorm`, `-dotnet`, `-dapper`, `-python`, `-java`,
-`-elixir`). So the instant node goes exact, all seven are red until all 54 are
-re-captured — node, python and the goldens have to land **together, alone**.
-Landing it as one row inside a multi-row cross-backend packet is the failure
-mode to avoid: there, any other row being wrong is indistinguishable from the
-oracle move, and a conflict on the goldens blocks the whole packet. Treat it as
-a fourth coordinated moment alongside the three in
-[completion-waves-2026-09](completion-waves-2026-09.md) (A4 `getById`,
-`denyByDefault`, `organizationContext`). Note the move is more visible than it
-was before [#2807](https://github.com/Loom-Harness/Loc/pull/2807): the differential
-now compares number FORMATS as well as values, so an oracle shift diverges on
-spelling too, not only on magnitude.
-
-**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/Loom-Harness/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 
 ## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
 

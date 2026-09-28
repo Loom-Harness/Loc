@@ -2520,7 +2520,7 @@ it.
 | 10 | `D-DAPPER-ALTER` | build the ALTER path in phase ⑨; the widened refusal lands first |
 | 11 | `D-PROJECTION-IMPLICIT-SUB` | an `on(Event)` subscribes in-process with or without a channel |
 | 12 | `D-FIRST-ON-EMPTY` | `first` is partial and fails on empty; `firstOrNull` is total; **RS-36** minted — APPLIED (packet 2n) |
-| 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-37** |
+| 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-38** (was RS-37 — Wave C5 5a minted decimal-exact as RS-37 first, the registry forbids gaps) |
 | 14 | `D-FLUTTER-BEARER` | Flutter native = bearer, Flutter web = cookie (a RULE 2 amendment) |
 | 15 | `D-MISC-C0` | four small rulings: the .NET entry-point boundary, `connection:` semantics, per-op OpenAPI tags, `scopeId` |
 | 16 | `D-PAGE-BODY-EXPRESSION` | a page body is an expression tree; the statement `if` stays refused, owner **M-T1.20** |
@@ -2815,6 +2815,10 @@ Consequences).
   **RS-35**, and no open PR claims it (checked against the 11 open PRs on
   2026-09-10). RS-36 and RS-37 are claimed inside this same batch by
   D-FIRST-ON-EMPTY and D-ABSENT-JOIN-DATETIME-WIRE — take RS-38 next.
+  **Superseded at the Wave C5 5a fold (2026-09-28):** the datetime rule had not
+  landed when decimal-exact minted, and the registry test forbids a gap, so
+  decimal-exact took **RS-37**; D-ABSENT-JOIN-DATETIME-WIRE mints RS-38 when it
+  lands.
 - The PR body states that **historical rows are not rewritten**, so values
   persisted before the change may disagree with values persisted after, and it
   carries the migration note.
@@ -3419,8 +3423,10 @@ default table) already decides it.
   zero fraction trimmed. This ruling therefore keeps RS-4's whole-second form and
   applies "exactly three digits" only when a fraction is present.
 
-**Consequences.** Mints **RS-37** for the datetime wire form (RS-35 and RS-36 are
-claimed elsewhere in this batch). RS-34 gains its .NET value-typed arm and its
+**Consequences.** Mints **RS-38** for the datetime wire form (RS-35 and RS-36 are
+claimed elsewhere in this batch; RS-37 went to decimal-exact at the Wave C5 5a
+fold on 2026-09-28, because the registry forbids gaps and this rule had not
+landed). RS-34 gains its .NET value-typed arm and its
 "Open" section closes — the absent branch stops being `default!` and the
 Response schema widens that joined member to nullable. Elixir moves declared
 datetime columns to `:utc_datetime_usec` with the matching `timestamptz`

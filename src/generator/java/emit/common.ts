@@ -39,6 +39,44 @@ export const JAVA_PAGED_QUERY_PARAMS: readonly string[] = [
   `@RequestParam(defaultValue = "asc") String dir`,
 ];
 
+/** A value object's invariant refused a value (M-T5.1) — a DomainException
+ *  subclass, so every existing catch and `assertThrows(DomainException.class)`
+ *  still classifies it; `ApiExceptionAdvice` answers it with the domain-floor
+ *  status plus one RFC 7807 `errors[]` entry. */
+export function renderValueObjectInvariantException(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.domain.common;`,
+    ``,
+    `/** A value object's invariant refused a value.  Answered with the domain-floor`,
+    ` *  status plus one RFC 7807 errors[] entry: the whole-request pointer "" (a`,
+    ` *  body computed the value, so it names no request member), the rule's`,
+    ` *  message and, for a messaged rule, its content-hash code. */`,
+    `public class ValueObjectInvariantException extends DomainException {`,
+    `    private final String valueObject;`,
+    `    private final String ruleCode;`,
+    ``,
+    `    public ValueObjectInvariantException(String valueObject, String message) {`,
+    `        this(valueObject, message, null);`,
+    `    }`,
+    ``,
+    `    public ValueObjectInvariantException(String valueObject, String message, String ruleCode) {`,
+    `        super(message);`,
+    `        this.valueObject = valueObject;`,
+    `        this.ruleCode = ruleCode;`,
+    `    }`,
+    ``,
+    `    public String getValueObject() {`,
+    `        return valueObject;`,
+    `    }`,
+    ``,
+    `    public String getRuleCode() {`,
+    `        return ruleCode;`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 export function renderDomainException(basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.common;`,

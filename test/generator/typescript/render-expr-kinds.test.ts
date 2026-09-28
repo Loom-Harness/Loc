@@ -424,16 +424,18 @@ describe("ts renderTsExpr — sum type-awareness (money folds decimal.js)", () =
     );
   });
 
-  // int/long/decimal are plain `number` on this backend → native `+`/`0` seed.
+  // int/long are plain `number` on this backend → native `+`/`0` seed.
   it("keeps an int `sum(λ)` on the native `+`/`0`-seed reduce", () => {
     expect(renderTsExpr(sumMc(INT, [proj("qty", INT)]))).toBe(
       "(this._items).reduce((acc, x) => acc + ((x) => x.qty)(x), 0)",
     );
   });
 
-  it("keeps a decimal `sum(λ)` on the native `+`/`0`-seed reduce (decimal is `number` here)", () => {
+  // `decimal` is a `number` too, but a decimal fold is decimal ARITHMETIC
+  // (RS-37): folded through decimal.js from a zero seed, narrowed once.
+  it("folds a decimal `sum(λ)` exactly through decimal.js", () => {
     expect(renderTsExpr(sumMc(DECIMAL, [proj("d", DECIMAL)]))).toBe(
-      "(this._items).reduce((acc, x) => acc + ((x) => x.d)(x), 0)",
+      "(this._items).reduce((acc, x) => acc.plus(((x) => x.d)(x)), new Decimal(0)).toNumber()",
     );
   });
 
@@ -816,9 +818,10 @@ describe("ts renderTsExpr — lambda, new, list, object", () => {
 describe("ts renderTsExpr — A1 int-division widening + divTrunc", () => {
   const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
 
-  // `int / int` widens to `decimal`.  On TS `decimal` is `number` (already
-  // fractional), so the division stays the native `/` — no cast/box.
-  it("renders int/int→decimal division as native `/` (number is already fractional)", () => {
+  // `int / int` widens to `decimal`, and `decimal` arithmetic is EXACT
+  // (RS-37): decimal.js division, narrowed back to `number` once — the same
+  // real decimal division .NET/Java/Elixir already emit here.
+  it("renders int/int→decimal division as exact decimal.js division", () => {
     expect(
       renderTsExpr({
         kind: "binary",
@@ -829,7 +832,7 @@ describe("ts renderTsExpr — A1 int-division widening + divTrunc", () => {
         rightType: INT,
         resultType: DECIMAL,
       }),
-    ).toBe("5 / 2");
+    ).toBe("new Decimal(5).div(2).toNumber()");
   });
 
   // `a.divTrunc(b)` — truncating integer division toward zero.

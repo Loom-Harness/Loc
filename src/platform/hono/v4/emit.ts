@@ -118,6 +118,7 @@ import {
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
+import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
@@ -142,18 +143,66 @@ import { buildRoutesFile } from "./routes-builder.js";
 import { anyTimerUsesCron, renderTimerScheduler } from "./scheduler-builder.js";
 import { buildWorkflowsFile } from "./workflow-builder.js";
 
+/** A value object's invariant refused a value (M-T5.1) — see
+ *  `src/generator/typescript/value-object-problem.ts`. */
+const VALUE_OBJECT_INVARIANT_ERROR_TS = `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
+ *  every catch still classifies it; the routers answer it with the domain-floor
+ *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
+ *  a messaged rule, its content-hash code. */
+export class ValueObjectInvariantError extends DomainError {
+  readonly valueObject: string;
+  readonly code: string | undefined;
+  constructor(valueObject: string, message: string, code?: string) {
+    super(message);
+    this.name = "ValueObjectInvariantError";
+    this.valueObject = valueObject;
+    this.code = code;
+  }
+}
+`;
+
+/** `valueObjectProblem` — the domain-floor answer for a value object's
+ *  invariant refused inside a body (M-T5.1). */
+function valueObjectProblemTs(localizeMessages: boolean): string {
+  const message = localizeMessages ? "localizeMessage(err.code, err.message)" : "err.message";
+  return `
+/** A value object's invariant refused a value a domain BODY built (an
+ *  operation, a workflow, a handler — not the request body, whose value objects
+ *  the request schema already checked).  Answers the domain-floor status with
+ *  one RFC 7807 errors[] entry: the rule's message and, for a messaged rule, its
+ *  content-hash code.  The pointer is "" — the whole request — because the
+ *  value was computed by the body and names no member of it.  Anything else
+ *  answers undefined and the caller's own arm runs. */
+export function valueObjectProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
+  if (!(err instanceof ValueObjectInvariantError)) return undefined;
+  const trace_id = c.get("requestId") ?? "";
+  const entry = { pointer: "", message: ${message}, ...(err.code ? { code: err.code } : {}) };
+  return c.body(
+    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
+    status as 422,
+    { "content-type": "application/problem+json", "x-request-id": trace_id },
+  );
+}
+`;
+}
+
 /** `emitConcurrency` is true when some aggregate in scope declares the
  *  `versioned` capability (optimistic concurrency) — only then does the
  *  repository save's guarded write have anything to throw, so a
  *  concurrency-free project's `domain/errors.ts` stays byte-identical.
  *  `emitNotImplemented` is the same kind of gate for `NotImplementedError`:
- *  only an `extern` OPERATION's scaffold-once stub raises it. */
-function errorsTs(emitConcurrency: boolean, emitNotImplemented: boolean): string {
+ *  only an `extern` OPERATION's scaffold-once stub raises it.
+ *  `emitValueObjectInvariant` gates `ValueObjectInvariantError` the same way. */
+function errorsTs(
+  emitConcurrency: boolean,
+  emitNotImplemented: boolean,
+  emitValueObjectInvariant = false,
+): string {
   return `// Auto-generated.
 export class DomainError extends Error {
   constructor(message: string) { super(message); this.name = "DomainError"; }
 }
-export class AggregateNotFoundError extends Error {
+${emitValueObjectInvariant ? VALUE_OBJECT_INVARIANT_ERROR_TS : ""}export class AggregateNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "AggregateNotFoundError"; }
 }
 /** Authorization failure — raised by \`requires\` expressions in
@@ -234,13 +283,17 @@ export class ConcurrencyError extends Error {
  *  `defaultHook` (passed to `new OpenAPIHono({ defaultHook })` so Zod parse
  *  failures translate to 422 ProblemDetails with per-field `errors[]`
  *  consumed by the frontend ACL's `applyServerErrors`). */
-function problemDetailsTs(localizeMessages: boolean, versioned: boolean): string {
+function problemDetailsTs(
+  localizeMessages: boolean,
+  versioned: boolean,
+  valueObjectInvariants = false,
+): string {
   return `// Auto-generated.  Do not edit by hand.
 import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
-${localizeMessages ? 'import { localizeMessage } from "./messages";\n' : ""}
+${valueObjectInvariants ? 'import { ValueObjectInvariantError } from "../domain/errors";\n' : ""}${localizeMessages ? 'import { localizeMessage } from "./messages";\n' : ""}${valueObjectInvariants ? valueObjectProblemTs(localizeMessages) : ""}
 /** The wire schema for a \`guid\`-valued id — the canonical dashed-hex uuid
  *  form, and nothing more.
  *
@@ -681,7 +734,11 @@ export function generateTypeScriptForContexts(
   // — the only seam whose generated stub throws it.  A project with none stays
   // byte-identical.
   const emitNotImplemented = merged.aggregates.some((a) => a.operations.some((o) => o.extern));
-  out.set("domain/errors.ts", errorsTs(emitConcurrency, emitNotImplemented));
+  // `ValueObjectInvariantError` + its `valueObjectProblem` answer ride on a
+  // hosted value object declaring an invariant (M-T5.1) — nothing else raises
+  // it, so a project without one stays byte-identical.
+  const emitVoInvariant = hasValueObjectInvariants(merged);
+  out.set("domain/errors.ts", errorsTs(emitConcurrency, emitNotImplemented, emitVoInvariant));
   // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
   // SERVER-side against this project's catalog, so a localised client is no
   // longer the only way to see a translated rule.  No messaged rule ⇒ no catalog
@@ -692,7 +749,11 @@ export function generateTypeScriptForContexts(
   }
   out.set(
     "http/problem-details.ts",
-    problemDetailsTs(validationMessages.length > 0, merged.aggregates.some(aggregateIsVersioned)),
+    problemDetailsTs(
+      validationMessages.length > 0,
+      merged.aggregates.some(aggregateIsVersioned),
+      emitVoInvariant,
+    ),
   );
   if (emitProvenance) out.set("domain/provenance.ts", PROVENANCE_TS);
   // Per-aggregate dataSource lookup — feeds `pgSchema(...)` /
@@ -1310,10 +1371,17 @@ export function generateTypeScriptForContexts(
   const hasChannelConsumers = hasChannels && merged.eventSubscriptions.some((s) => !s.projection);
 
   const projectUsesMoney = contexts.some(contextUsesMoney);
+  // `decimal.js` is also the exact-`decimal` arithmetic runtime (RS-37): a
+  // money-free project whose domain computes a `decimal` imports it too.  The
+  // dependency follows the invariant that matters — an emitted module imports
+  // it ⇒ `package.json` declares it — rather than a second IR predicate that
+  // would have to re-derive every expression site the renderers reach.
+  const projectImportsDecimalJs =
+    projectUsesMoney || [...out.values()].some((c) => c.includes('from "decimal.js"'));
   out.set(
     "package.json",
     projectPackageJson(pins, {
-      withMoney: projectUsesMoney,
+      withMoney: projectImportsDecimalJs,
       withOidc: !!oidcAuth,
       withCronTimers: hasTimers && anyTimerUsesCron(ownedTimers),
       withRedisChannels: hasChannels && channelBindings.some((b) => b.transport === "redis"),

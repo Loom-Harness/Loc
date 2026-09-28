@@ -43,6 +43,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
@@ -406,7 +407,11 @@ function emitProjectFromContexts(
       fileUpload = { putBytes: `${call}_PutBytes`, getBytes: `${call}_GetBytes` };
     }
   }
-  emitCommon(ns, out, { concurrencyException: emitsConcurrencyException, file: hasFileField });
+  emitCommon(ns, out, {
+    concurrencyException: emitsConcurrencyException,
+    file: hasFileField,
+    valueObjectInvariant: contexts.some(hasValueObjectInvariants),
+  });
   emitDispatcher(ns, out, hasSubscriptions);
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
   // Adapter dispatch context — built once per system-mode emit so
@@ -978,6 +983,7 @@ function emitProjectFromContexts(
       // foreign-key violation on a write, so it stays byte-identical.
       hasDanglingRef: aggregatesCanTripDanglingReference(merged.aggregates),
       localizeMessages: validationMessages.length > 0,
+      valueObjectInvariants: contexts.some(hasValueObjectInvariants),
       // App-wide structural-conflict `httpStatus` overrides (M-T3.4a) — the
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
@@ -1266,7 +1272,7 @@ function emitContext(
   emitEnums(ctx, ns, out);
   emitValueObjects(ctx, ns, out);
   emitEvents(ctx, ns, out, hasSubscriptions);
-  emitCommon(ns, out);
+  emitCommon(ns, out, { valueObjectInvariant: hasValueObjectInvariants(ctx) });
   emitDispatcher(ns, out, hasSubscriptions);
   for (const agg of ctx.aggregates) {
     emitAggregate(agg, ctx, ns, out, undefined, emitTrace);
@@ -1841,6 +1847,7 @@ function emitInfrastructure(
       usesValidators,
       structuralStatuses: ctx.structuralErrorStatuses,
       localizeMessages: validationMessages.length > 0,
+      valueObjectInvariants: hasValueObjectInvariants(ctx),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in

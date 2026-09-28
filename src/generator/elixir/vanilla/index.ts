@@ -63,8 +63,9 @@ import { emitAggregateTests, emitTestHelper } from "../tests-emit.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
 import { emitVanillaChangesets } from "./changeset-emit.js";
+import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
-import { denialOverrides, denialStatus, opHasWireDenial } from "./denial.js";
+import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./denial.js";
 import { emitVanillaEventModules } from "./events-emit.js";
 import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
@@ -188,6 +189,17 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       resolveErrorStatus("ReferencedInUse", structuralStatuses),
       validationMessages.length > 0,
       hasWireDenials,
+      // M-T5.1 — an op body builds a constructor-carrying value object; its
+      // refusal answers the domain-floor rung (status + title resolved like
+      // every other rung of the ladder).
+      contexts.some((c) =>
+        c.aggregates.some((a) => aggregateBodyValueObjectFields(a, c.valueObjects).length > 0),
+      )
+        ? {
+            status: denialStatus("precondition", ladderStatuses),
+            title: denialTitle("precondition", ladderStatuses),
+          }
+        : undefined,
     ),
   );
 
