@@ -8,7 +8,7 @@ import {
   intrinsicsForReceiver,
   isIntrinsicName,
 } from "../util/intrinsics.js";
-import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
+import { ORG_CONTEXT_ACCESSOR, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import type {
   Aggregate,
@@ -750,6 +750,16 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
     // instead of falsely rejecting — resolving it to `unknown` passes only
     // when a surrounding `==`/`&&`/`||` forces the result to bool.
     if (expr.name === "currentUser") {
+      const ub = userBlockFor(expr);
+      if (ub) return { kind: "userclaim", ref: ub };
+    }
+    // `organizationContext` — the operating-scope peer of `currentUser`
+    // (organization-context.md).  One execution-context frame underneath, so
+    // it types against the same principal record: its one member, `orgPath`,
+    // is a derived principal member typed `string` by `lookupUserMember`.  Any
+    // other member is refused by name at the AST (`loom.org-context-surface`),
+    // so the shared record never lets `organizationContext.<claim>` through.
+    if (expr.name === ORG_CONTEXT_ACCESSOR) {
       const ub = userBlockFor(expr);
       if (ub) return { kind: "userclaim", ref: ub };
     }

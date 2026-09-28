@@ -71,7 +71,13 @@ import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
-import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../../util/principal.js";
+import {
+  ORG_CONTEXT_ACCESSOR,
+  ORG_CONTEXT_ORG_PATH,
+  PRINCIPAL_ORG_CONTEXT_PATH,
+  PRINCIPAL_ORG_PATH,
+  PRINCIPAL_ROOT_ORG,
+} from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
@@ -415,6 +421,41 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     }
     let recv = permIR;
     let recvType: TypeIR = { kind: "primitive", name: "string" };
+    for (let i = 1; i < chain.suffixes.length; i++) {
+      const out = applySuffixToRecv(recv, recvType, chain.suffixes[i]!, env);
+      recv = out.recv;
+      recvType = out.recvType;
+    }
+    return recv;
+  }
+  // Probe: `organizationContext.orgPath` — the OPERATING-scope accessor
+  // (organization-context.md; M-T3.6 items 3+5).  Two flat accessors on the
+  // surface, one execution-context frame underneath: it lowers to the derived
+  // principal member `currentUser.orgContextPath`, so every backend's existing
+  // principal threading (the `current-user` ref — auth params, ambient
+  // accessors, `usesUser` detection) carries it with no new plumbing, and the
+  // value itself is set in exactly one place per backend — the auth
+  // middleware's fail-closed switch gate.  Unshadowable, like `currentUser`.
+  // Any other shape (a bare `organizationContext`, another member, a call) is
+  // refused at the AST (`loom.org-context-surface`) and left to fall through.
+  if (
+    first &&
+    isMemberSuffix(first) &&
+    !first.call &&
+    isNameRef(chain.head) &&
+    chain.head.name === ORG_CONTEXT_ACCESSOR &&
+    first.member === ORG_CONTEXT_ORG_PATH
+  ) {
+    const userShape: TypeIR = { kind: "entity", name: USER_SHAPE_NAME };
+    const pathType: TypeIR = { kind: "primitive", name: "string" };
+    let recv: ExprIR = {
+      kind: "member",
+      receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: userShape },
+      member: PRINCIPAL_ORG_CONTEXT_PATH,
+      receiverType: userShape,
+      memberType: pathType,
+    };
+    let recvType: TypeIR = pathType;
     for (let i = 1; i < chain.suffixes.length; i++) {
       const out = applySuffixToRecv(recv, recvType, chain.suffixes[i]!, env);
       recv = out.recv;
@@ -3031,7 +3072,11 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
     // `currentUser.orgPath` — the derived tenant materialized-path member
     // (tenancy.md).  Not a `user {}` claim; computed per
     // backend from the tenancy claim, typed as the DataKey path (a string).
-    if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG)
+    if (
+      name === PRINCIPAL_ORG_PATH ||
+      name === PRINCIPAL_ROOT_ORG ||
+      name === PRINCIPAL_ORG_CONTEXT_PATH
+    )
       return { kind: "primitive", name: "string" };
     const f = env.user.fields.find((f) => f.name === name);
     if (f) return f.optional ? { kind: "optional", inner: f.type } : f.type;
@@ -3387,7 +3432,11 @@ function stepInto(t: TypeIR, name: string, env: Env): TypeIR {
   // step into currentUser because it's read-only, but the symmetric
   // case keeps the two functions in sync.
   if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
-    if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG)
+    if (
+      name === PRINCIPAL_ORG_PATH ||
+      name === PRINCIPAL_ROOT_ORG ||
+      name === PRINCIPAL_ORG_CONTEXT_PATH
+    )
       return { kind: "primitive", name: "string" };
     const f = env.user.fields.find((f) => f.name === name);
     if (f) return f.optional ? { kind: "optional", inner: f.type } : f.type;

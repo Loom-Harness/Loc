@@ -1471,6 +1471,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `'currentUser.${p.member}' requires a 'tenancy by user.<claim> of <Registry>' ` +
     `declaration — it is derived from the caller's tenant materialized path, resolved from ` +
     `the tenancy claim and registry.  Add the tenancy line, or drop the '${p.member}' reference.`,
+  "loom.org-context-surface#member": (p: { shape: unknown }) =>
+    `'${p.shape}' is not an operating-scope read — 'organizationContext' exposes exactly one ` +
+    `member, 'organizationContext.orgPath' (the materialized path of the org this request ` +
+    `operates in).  The principal's own claims stay on 'currentUser'.`,
+  "loom.org-context-surface#frontend":
+    `'organizationContext' is read inside a 'ui' — the operating scope exists only in backend ` +
+    `code, where each backend's auth middleware resolves it through the fail-closed ` +
+    `'x-org-context' switch gate.  A frontend has no switch gate; read 'currentUser' there, or ` +
+    `move the read into the operation / stamp that needs it.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/test-placement.ts
@@ -3845,6 +3854,18 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/tenancy-checks.ts
   // ----------------------------------------------------------------------
+  "loom.org-context-gate-unmet#no-hierarchy": (p: { ctx: unknown; name: unknown }) =>
+    `context '${p.ctx}' reads 'organizationContext.orgPath', but system '${p.name}' has no ` +
+    `tenant hierarchy to switch within — the operating-scope switch gate admits a requested org ` +
+    `only inside the caller's 'orgPath' subtree, which needs 'tenancy by user.<claim> of ` +
+    `<Registry>' AND the registry 'implements tenantRegistry'.  Add both, or read ` +
+    `'currentUser.orgPath' instead.`,
+  "loom.org-context-gate-unmet#no-auth": (p: { ctx: unknown; dep: unknown }) =>
+    `context '${p.ctx}' reads 'organizationContext.orgPath', but deployable '${p.dep}' hosts it ` +
+    `without 'auth: required' (and a 'user { … }' block) — the operating scope is resolved by ` +
+    `the auth middleware's fail-closed 'x-org-context' switch gate, and a deployable with no ` +
+    `auth has no gate: the read would be an unvalidated caller-submitted value.  Add ` +
+    `'auth: required' to '${p.dep}'.`,
   "loom.tenant-registry-without-tenancy": (p: { agg: unknown; name: unknown }) =>
     `aggregate '${p.agg}' implements 'tenantRegistry' but system '${p.name}' declares no ` +
     `'tenancy by user.<claim> of <Registry>' line.  The registry tree (parent + dataKey) is ` +

@@ -971,6 +971,16 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // RUNTIME HOME IS TENANCY-E2E (M-T3.6 items 3+5, `organizationContext`).  The
+  // subject is a REQUEST HEADER (`x-org-context`) that each backend's auth
+  // middleware validates before routing, which the `test e2e` vocabulary cannot
+  // set — and, like `tenancy-hierarchy` above, a switch is a statement about
+  // principals in different parts of the tree.  The booted `tenancy-org-context*`
+  // leg drives all four arms on five backends (in-scope switch → sub-scope stamp,
+  // deep-visible from the parent, hidden from a sibling; out-of-subtree switch →
+  // 403 with no write; forged header on an orgPath-less token → 403; reads stay
+  // principal-anchored).
+  "org-context",
   // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
   // is an enum.  Both halves of what it pins are STATIC, and both are caught by
   // legs that already gate this fixture: the node backend named `<Enum>Schema`

@@ -294,6 +294,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "tenancy-owned", title: "first-class tenancy — `tenancy by` + tenantOwned + crossTenant", doc: "tenancy", backends: ALL },
   { id: "tenancy-hierarchy", title: "tenancy hierarchy — `implements tenantRegistry` + `policy` deep/global/local read ladder", doc: "tenancy", backends: ALL },
+  {
+    id: "org-context",
+    title:
+      "`organizationContext` — the operating-scope accessor re-rooting the tenantOwned write stamp, behind every backend's fail-closed `x-org-context` switch gate",
+    doc: "tenancy",
+    backends: ALL,
+    note: "M-T3.6 items 3+5.  The accessor lands only with its gate, so this fixture is what puts BOTH in front of all five compile tiers: the stamp (`dataKey := organizationContext.orgPath`) and an operation body read lower to the derived principal member `currentUser.orgContextPath`, and every backend's auth layer emits the gate that sets it.  No `test e2e` block and no wire golden: no wire shape is new (the accessor never reaches the wire), and the runtime proof — in-scope switch stamps + deep-read visibility, out-of-scope switch 403 with no write, forged header on an orgPath-less token 403, reads principal-anchored — is the booted `tenancy-org-context*` leg of tenancy-e2e.",
+  },
   { id: "tenancy-claim-name", title: "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter", doc: "tenancy", backends: ALL },
   { id: "policy-deny", title: "`policy { deny [write] on <Agg> }` — the deny-wins carve-out on both the read-filter and write-scope seams", doc: "auth", backends: ALL },
   { id: "policy-document", title: "`policy { allow deep / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
