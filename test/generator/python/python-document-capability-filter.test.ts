@@ -34,6 +34,23 @@ describe("python shape: document capability filter", () => {
     expect(await repo()).toContain("from app.auth.user import require_current_user");
   });
 
+  it("gates find_by_id by the in-app predicate (hidden → not-found)", async () => {
+    const r = await repo();
+    expect(r).toContain("current_user = require_current_user()");
+    expect(r).toContain("rec = _article_from_doc(row.data, row.version)");
+    expect(r).toContain(
+      "if not ((not rec.archived) and (rec.tenant_id == current_user.tenant_id)):",
+    );
+    expect(r).toContain("            return None");
+  });
+
+  it("filters all() over the rehydrated documents", async () => {
+    expect(await repo()).toContain(
+      "return [x for x in (_article_from_doc(r.data, r.version) for r in rows) " +
+        "if ((not x.archived) and (x.tenant_id == current_user.tenant_id))]",
+    );
+  });
+
   it("filters find_many_by_ids by the capability predicate", async () => {
     const r = await repo();
     // The id-restricted SQL read still rehydrates + filters in-app.
@@ -41,6 +58,17 @@ describe("python shape: document capability filter", () => {
     expect(r).toContain(
       "return [x for x in (_article_from_doc(r.data, r.version) for r in rows) " +
         "if ((not x.archived) and (x.tenant_id == current_user.tenant_id))]",
+    );
+  });
+
+  it("applies the capability predicate BEFORE a custom find's own where (raw load)", async () => {
+    const r = await repo();
+    // Custom find reads a RAW load (not the already-filtered all()) and AND-s
+    // the capability predicate with its own where, so bypass can drop a conjunct.
+    expect(r).toContain("items = [_article_from_doc(r.data, r.version) for r in rows]");
+    expect(r).toContain(
+      "result = [x for x in items if ((not x.archived) and " +
+        "(x.tenant_id == current_user.tenant_id)) and (x.view_count >= min)]",
     );
   });
 });

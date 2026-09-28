@@ -111,4 +111,18 @@ describe("node document principal capability filter (DEBT-02 Slice B)", () => {
       "rows.map((r) => orderFromDoc(r.data as OrderDoc, r.version)).filter((x) => (x.tenantId === currentUser.tenantId));",
     );
   });
+
+  it("narrows the synthesized findAll by the principal predicate", async () => {
+    const r = await principalRepo();
+    expect(r).toContain(
+      "const all = rows.map((r) => orderFromDoc(r.data as OrderDoc, r.version));",
+    );
+    expect(r).toContain("all.filter((x) => (x.tenantId === currentUser.tenantId))");
+  });
+
+  it("applies the principal capability BEFORE a custom find's own predicate", async () => {
+    expect(await principalRepo()).toContain(
+      "all.filter((x) => (x.tenantId === currentUser.tenantId)).filter((x) => x.code === c)",
+    );
+  });
 });
