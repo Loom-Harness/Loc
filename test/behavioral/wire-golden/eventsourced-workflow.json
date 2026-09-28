@@ -50,6 +50,30 @@
     },
     {
       "seq": 4,
+      "method": "GET",
+      "path": "/api/workflows/order_fulfillment/instances",
+      "status": 200,
+      "body": [
+        {
+          "cancelled": true,
+          "orderId": "<volatile:key>",
+          "paid": 0
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/workflows/order_fulfillment/instances/{id}",
+      "status": 200,
+      "body": {
+        "cancelled": true,
+        "orderId": "<volatile:key>",
+        "paid": 0
+      }
+    },
+    {
+      "seq": 6,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -62,7 +86,7 @@
       }
     },
     {
-      "seq": 5,
+      "seq": 7,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -75,7 +99,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -84,6 +108,19 @@
         "instance": "/api/orders",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/workflows/order_fulfillment/instances/{id}",
+      "status": 404,
+      "body": {
+        "detail": "OrderFulfillment {id} not found",
+        "instance": "/api/workflows/order_fulfillment/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

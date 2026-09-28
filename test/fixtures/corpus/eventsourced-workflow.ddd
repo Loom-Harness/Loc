@@ -79,5 +79,17 @@ system FulfillmentSys {
     let listed = api.orders.all()
     expect(listed.items.length).toBe(1)
     expect(listed.total).toBe(1)
+
+    // The saga's INSTANCE reads (PROMOTED from the per-backend
+    // `*-workflow-instances.test.ts` string copies, M-T9.42).  An
+    // event-sourced saga has no state table: LIST folds every stream and
+    // by-key folds one, so the instance these routes answer is the fold of
+    // the events the placement set off — the starter's PaymentRegistered
+    // (amount 0) and the reactor's FulfillmentCancelled.
+    let running = api.orderFulfillment.instances()
+    expect(running.count()).toBe(1)
+    let inst = api.orderFulfillment.instance(o)
+    expect(inst.paid).toBe(0)
+    expect(inst.cancelled).toBe(true)
   }
 }

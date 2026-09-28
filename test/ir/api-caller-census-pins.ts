@@ -534,7 +534,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // (`GET /api/projections/order_board/{key}`), which `deriveContextOperations`
   // lists under `apiSurfaceCoverage.notLifted`.  Lifting projection queries into
   // the derivation would make this attributable — and this entry stale.
-  "corpus/projection": ["api.orderBoard.byKey (no such aggregate)"],
+  "corpus/projection": [
+    "api.orderBoard.byKey (no such aggregate)",
+    "api.orderBoard.list (no such aggregate)",
+  ],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
@@ -631,6 +634,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.fulfillment.instance (no such aggregate)",
     "api.fulfillment.instances (no such aggregate)",
     "api.fulfillment.run (no such aggregate)",
+  ],
+  // M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream,
+  // by-key folds one), the same not-lifted workflow-route class as above.
+  "corpus/eventsourced-workflow": [
+    "api.orderFulfillment.instance (no such aggregate)",
+    "api.orderFulfillment.instances (no such aggregate)",
   ],
 };
 
