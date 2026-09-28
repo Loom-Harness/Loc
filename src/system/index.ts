@@ -1048,12 +1048,20 @@ function renderKeycloakRealm(sys: SystemIR): string {
   //
   // The dotted-path test is the same rule's safety net: a nested path addresses
   // a structure the IdP owns, whether or not it was reached through `claims:`.
-  const explicitlyMapped = new Set((sys.auth?.claims ?? []).map((c) => c.field));
+  //
+  // THE EXCLUSION IS THE DOTTED PATH, NOT THE MAPPING'S EXISTENCE.  Keeping a
+  // blanket `explicitlyMapped` exclusion beside it looked like the same rule
+  // stated twice; it is not, and the difference is a whole class of dead claim.
+  // `realm_access.roles` is IdP-owned because of its SHAPE — a nested path into
+  // a structure Keycloak mints — and the dotted test already refuses it.  A
+  // FLAT declared path is the opposite case: `claims: { role: "role" }` names a
+  // top-level claim Keycloak does not mint at all, so excluding it emits
+  // neither a mapper nor an attribute and `currentUser.role` decodes to null.
+  // That is what put showcase's `role == "admin"` operations behind a
+  // permanent 403 and `conformance-full` red for four nights.
   const claimFields = (sys.user?.fields ?? []).filter(
     (f) =>
-      !IDP_PROVIDED.has(f.name) &&
-      !explicitlyMapped.has(f.name) &&
-      !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
+      !IDP_PROVIDED.has(f.name) && !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
   );
   const claimMappers = claimFields.map((f) => {
     const multivalued = f.type.kind === "array";
@@ -1103,9 +1111,19 @@ function renderKeycloakRealm(sys: SystemIR): string {
   const demoAttributes: Record<string, string[]> = {};
   for (const f of claimFields) {
     if (f.type.kind === "array" && AUTHORITY_CLAIMS.has(f.name)) continue;
+    // The scalar `role` is seeded `admin` — and that is NOT the superuser seed
+    // the comment above rejects.  The two live on different claims: the denial
+    // gate showcase exists to demonstrate reads `currentUser.permissions`, the
+    // realm-roles ARRAY, which stays `[user, agent]` and is never seeded here.
+    // `currentUser.role` is a scalar attribute claim nothing else consults, so
+    // seeding it `admin` opens the role-gated ALLOW paths (`promote`, `rename`)
+    // while leaving every permission-gated DENY path exactly as denied as
+    // before.  Demoting it to `user` closed the allow paths and bought no
+    // denial in exchange — it made two cross-backend runtime tests unsatisfiable
+    // rather than stricter.
     demoAttributes[f.name] =
       f.name === "role"
-        ? ["user"]
+        ? ["admin"]
         : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
   }
 

@@ -2180,6 +2180,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `(frontend '${p.fw}' generates no projection read). Projection reads ` +
     `ship on ${p.frameworks}; host this ui on one of those, or read the source ` +
     `aggregate directly.`,
+  "loom.ui-multi-backend-unsupported": (p: {
+    dName: unknown;
+    uiName: unknown;
+    pairs: unknown;
+    targetName: unknown;
+    count: unknown;
+  }) =>
+    `Frontend deployable '${p.dName}' binds ui '${p.uiName}' to ${p.count} different backends ` +
+    `(${p.pairs}), which is not supported yet. A frontend is generated against the ONE backend ` +
+    `named in 'targets:' ('${p.targetName}'): only that backend's aggregates reach the page ` +
+    `emitter, and the emitted client reads a single API_BASE_URL. A page reading any other ` +
+    `handle therefore imports an api module that is never written (the generated frontend fails ` +
+    `to typecheck), and every request it does make goes to '${p.targetName}', which does not ` +
+    `serve that contract. Point every handle at one backend, or split the ui — one frontend ` +
+    `deployable per backend — until per-handle clients land.`,
   "loom.current-user-needs-auth-ui": (p: { what: unknown; uiName: unknown; dName: unknown }) =>
     `${p.what} on ui '${p.uiName}' reads 'currentUser', but deployable '${p.dName}' binds no verified session user, so the read emits a dangling reference (react 'undefined.<claim>', invalid Dart on flutter, an unbound match on feliz). Add the auth guard: 'auth: ui' on a frontend deployable, or 'auth: required' on a fullstack deployable that mounts the ui itself.`,
   "loom.auth-ui-unsupported-framework": (p: {

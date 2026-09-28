@@ -1016,3 +1016,162 @@ correct SQL and deliberately waived; it was changed to `.is_not(None)` only as a
 matches the node shape. Cross-backend result for `this.technicianId != null`: **node was the only
 broken target** — .NET, Java and Elixir were already correct (`!= null` via EF, `cb.isNotNull(...)`,
 `not is_nil(...)`).
+
+---
+
+### F-026 — Two DIFFERENT naming rules mint one OpenAPI component name, so the published spec documents an endpoint with another endpoint's body (all five backends)
+
+**Class: SILENT** (valid input, `0 error(s), 0 warning(s)`, wrong output). Found while
+closing out F-023; it is NOT the same defect. F-023 was an operation and a workflow that
+*share a name*. This one needs no shared name at all — two independent naming rules
+happen to produce the same string:
+
+| producer | rule | example |
+|---|---|---|
+| `src/platform/hono/v4/routes-builder.ts:777` | `` `${upperFirst(op.name)}${agg.name}Request` `` | op `schedule` on aggregate `WorkOrder` → `ScheduleWorkOrderRequest` |
+| `src/platform/hono/v4/workflow-builder.ts:204` | `` `${upperFirst(wf.name)}Request` `` | workflow `scheduleWorkOrder` → `ScheduleWorkOrderRequest` |
+
+Neither rule is wrong on its own. They are two halves of one contract — the OpenAPI
+component namespace — computed independently with nothing checking they agree
+(`experience_gathered.md` §89's class exactly).
+
+**Repro:** `eval-fieldops/repro/f026/openapi-schema-name-collision.ddd` — an aggregate
+`WorkOrder` with `operation schedule(at: string)`, plus `workflow scheduleWorkOrder` taking
+`note: string`. It parses clean and generates 45 files.
+
+```
+$ node bin/cli.js parse eval-fieldops/repro/f026/openapi-schema-name-collision.ddd
+0 error(s), 0 warning(s).
+
+$ grep -rn 'ScheduleWorkOrderRequest' out/api --include=*.ts
+api/http/workflows.ts:15:      }).openapi("ScheduleWorkOrderRequest");     // { note: string }
+api/http/workOrder.routes.ts:20:  }).openapi("ScheduleWorkOrderRequest");  // { at: string }
+```
+
+**Why it is SILENT, measured rather than assumed.** `@hono/zod-openapi` does not throw on a
+duplicate component name. Running the real library against the two emitted schemas:
+
+```
+NO THROW — document generated
+component ScheduleWorkOrderRequest = {"type":"object","properties":{"note":{"type":"string"}},"required":["note"]}
+wf body ref: {"$ref":"#/components/schemas/ScheduleWorkOrderRequest"}
+op body ref: {"$ref":"#/components/schemas/ScheduleWorkOrderRequest"}
+```
+
+Both endpoints `$ref` one component, and the component carries the WORKFLOW's shape. So
+`POST /api/work-orders/{id}/schedule`, which really requires `{ at }`, is published as
+requiring `{ note }`. Every client generated from that spec sends the wrong body.
+
+**CORRECTION — it is NOT "all five backends".** The claim as first filed said all five emit
+the collision, inferring from the fact that all five emit both names. Measuring each one
+changes the picture substantially, and two backends are simply not affected:
+
+| backend | verdict | how it was established |
+|---|---|---|
+| **node** | **SILENT — wrong spec** | Ran the real `@hono/zod-openapi`: no throw, both endpoints `$ref` one component carrying the WORKFLOW's `{note}`, so the operation is published as requiring the wrong body. |
+| **elixir** | **SILENT — wrong spec, worse** | Only ONE `ScheduleWorkOrderRequest` module is emitted at all (`note`), and BOTH `/workflows/schedule_work_order` and `/work_orders/{id}/schedule` reference it in `api_spec.ex`. The operation's `at` schema is never emitted anywhere. Doc-level only: no `OpenApiSpex.Plug.CastAndValidate` is wired in the router, so request parsing does not consult it. |
+| **python** | **NOT AFFECTED** | Ran FastAPI 0.141 / pydantic 2.13 against the two emitted model shapes: it auto-qualifies by module — `app__http__work_order_routes__ScheduleWorkOrderRequest` = `{at}` and `app__http__workflows_routes__ScheduleWorkOrderRequest` = `{note}` — and each path refs the correct one. |
+| **dotnet** | **NOT AFFECTED — already solved in-tree** | The emitter ALREADY detects this collision. Generated `Program.cs` builds a `collidingSchemaIds` map and a `CustomSchemaIds` selector publishing `WorkOrdersScheduleWorkOrderRequest` / `WorkflowsScheduleWorkOrderRequest`. Its own comment says Swashbuckle "would throw on the duplicate schemaId and fail the WHOLE document". |
+| **java** | **SILENT — wrong spec, and a spec-generated client is BROKEN** | Measured by booting the generated app (jar built in `gradle:9-jdk25` per docs/tools.md, run against postgres). springdoc does NOT disambiguate: the published spec contains exactly ONE `ScheduleWorkOrderRequest`, carrying the workflow's `{note}`, and BOTH `/api/work_orders/{id}/schedule` and `/api/workflows/schedule_work_order` `$ref` it. The operation's `{at}` schema is absent from the spec entirely, as on elixir. The emitted `OpenApiContractCustomizer`'s short-name patch (`RequiredSet("ScheduleWorkOrderRequest", ["note"])`) landed on that single surviving schema, reinforcing the workflow's shape for both. |
+
+**The sharpest evidence in this finding — a spec-generated client is broken.** On the
+booted Java app, the published spec and the running API disagree, and the spec is the one
+that is wrong:
+
+```
+$ curl -X POST /api/work_orders/<id>/schedule -d '{"note":"x"}'   # the shape the SPEC publishes
+HTTP 422
+$ curl -X POST /api/work_orders/<id>/schedule -d '{"at":"2026-01-01T00:00:00Z"}'   # the shape the CODE wants
+HTTP 204
+```
+
+Runtime binding is correct — each controller binds its own record — so this is not a
+request-handling bug. It is worse in one specific way: anyone who generates a client from
+Loom's own `/openapi.json` sends `{note}` to that endpoint and gets a hard 422. The same
+reasoning applies to node and elixir, whose routes likewise validate against their own
+(correct) schema while publishing the other one.
+
+**This changes the shape of the fix.** It is no longer an open three-way design question,
+because **.NET has already answered it in-tree**: detect short-name collisions across
+owners and publish an owner-qualified id (`<Owner><Name>`). The defect is that this lives
+in ONE backend's emitter instead of in the shared layer every backend's OpenAPI naming
+goes through. node and elixir need it; python and dotnet already have equivalents by
+different means; java needs it and additionally has a short-name-keyed patch table that
+would need to move with it.
+
+**It is not hypothetical: a SHIPPED example collides.** The synthetic repro above was
+written to isolate the defect, so it proves only that the defect is reachable. Censusing
+every `.ddd` git tracks (598 contexts, base names from the two rules) finds **48**
+colliding contexts — 45 in the `eval*/` corpora (two independent evaluations, mine and the
+earlier `eval/`, both hit it within the first model they wrote, which is a statement about
+how natural the idiom is: an `operation <verb>` on `<Agg>` beside a `workflow
+<verb><Agg>`), and **three outside them, in the corpus CI actually builds**:
+
+| file | collision | affected? |
+|---|---|---|
+| `web/src/examples/extern-showcase.ddd` | `Order.confirm` + `workflow confirmOrder` → `ConfirmOrderRequest` | **YES** — its `deployable api` is `platform: node`, and `generated-react-build.yml`'s matrix generates from it |
+| `test/e2e/fixtures/python-build/auth.ddd` | `Order.cancel` + `workflow CancelOrder` | no — python auto-qualifies by module (see the table above) |
+| `test/e2e/fixtures/python-build/domain.ddd` | `Customer.rename` + `workflow renameCustomer` | no — same |
+
+The first one is the finding's strongest single artifact, because it is shipped code rather
+than a probe. Generated from the pre-fix emitter:
+
+```
+$ node bin/cli.js generate system web/src/examples/extern-showcase.ddd -o out
+$ grep -rn ConfirmOrderRequest out/api/http/*.ts
+order.routes.ts:20:const ConfirmOrderRequest = z.object({          # the operation's shape
+order.routes.ts:21:}).openapi("ConfirmOrderRequest");
+workflows.ts:13:const ConfirmOrderRequest = z.object({             # the workflow's shape
+workflows.ts:15:}).openapi("ConfirmOrderRequest");
+```
+
+Two `const ConfirmOrderRequest` declarations with different shapes — and because they are
+in two different FILES, TypeScript compiles clean. Nothing but the OpenAPI registry ever
+sees the conflict, and it resolves it by silently keeping one. That is the whole mechanism
+of why this shipped.
+
+**Why no existing gate catches it.** `docs/conformance.md` does list a "Request-body refs"
+parity dimension (`requestBodySchemas(spec)`), which compares which component each op's
+body points at — across BACKENDS. It is blind here by construction: node, elixir and java
+all have the same defect, so all three collapse the same pair onto one component and the
+cross-backend diff finds them in perfect agreement. The missing check is the
+*within-document* one — that a single spec never mints one component name twice — and
+nothing asserted it.
+
+**FIXED (node) — `src/generator/_openapi/request-component-names.ts`.** Rather than add a
+sixth rule, the fix lifts .NET's existing convention into a shared collision-aware minter
+both node builders now call: group owners by base name, leave a unique base name ALONE, and
+owner-qualify only a genuine collision with .NET's own qualifiers (the aggregate plural, or
+the literal `Workflows`). So a fixed backend AGREES with the ids .NET already publishes
+instead of inventing a third spelling, and a collision-free model — the whole existing
+corpus bar the three rows above — emits byte-identical output.
+
+```
+# after, on the shipped example
+order.routes.ts:21:}).openapi("OrdersConfirmOrderRequest");
+workflows.ts:15:}).openapi("WorkflowsConfirmOrderRequest");
+```
+
+Mutation-proved (revert by file copy, per §84): reverting both builders fails the two
+defect-naming tests and leaves the three "must not change" tests green. The sharpest single
+number comes from the uniqueness assertion — pre-fix the repro deployable publishes **4
+request components under 3 distinct names**; post-fix, 4 under 4.
+
+**Still open — elixir and java.** Each needs a different mechanism and neither is a rename:
+- **elixir** must additionally *emit* the missing schema module. Today only one is generated,
+  so qualifying the names is not enough — there is no second schema to point at.
+- **java** needs a schema-name override (`@Schema(name=)`) AND the emitted
+  `OpenApiContractCustomizer`'s `RequiredSet` patch table, which is keyed by the SHORT name,
+  has to move with the naming or it will patch the wrong schema.
+
+Fixing node first makes the cross-backend parity diff *useful* again on a colliding model:
+node now disagrees with elixir/java there, which surfaces the two remaining halves instead
+of hiding them behind a shared bug. No shipped gate moves, because the only colliding file
+in the CI corpus with an affected backend is `extern-showcase.ddd`, whose node output the
+new test now pins directly.
+
+**Not yet fixed.** The remaining decision is narrower than it first looked: adopt .NET's
+existing convention in the shared layer (owner-qualified ids for colliding short names),
+which changes published component names on node/elixir/java, or refuse a colliding model
+with a `loom.*` diagnostic and leave every published name alone. The first is what the
+codebase already does once; the second costs users a model that is legal today.

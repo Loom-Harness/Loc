@@ -43,7 +43,11 @@ import {
   flatColumnKey,
   sqlColumnName,
 } from "../../../ir/util/projection-column.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  enumPool,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
@@ -283,8 +287,33 @@ export function buildQueryProjectionsFile(
       `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
     );
   }
-  const vos = valueObjectPool(ctx).map((v) => v.name);
-  const enums = ctx.enums.map((e) => e.name);
+  // Resolve through the POOLS, then keep only what these projections actually
+  // REACH — the second half is what was missing, and `loom-ir.ts` states it as
+  // the contract: emitters resolve a name through `ctx.valueObjects` ∪
+  // siblings, "then keep only what the aggregate's wire shape actually
+  // reaches".  This file imported the whole pool unfiltered, so on a
+  // multi-deployable system it named types that
+  // `domain/value-objects.ts` — which emits `ctx.valueObjects`
+  // (`typescript/emit/value-objects.ts:46`) — never exports:
+  // `TS2306: File 'domain/value-objects.ts' is not a module` on a deployable
+  // whose own context declares no value object at all.
+  //
+  // Filtering by REACHABILITY rather than narrowing to `ctx.valueObjects` is
+  // the distinction that matters: a cross-context type is a legal field type
+  // (#3033), so a projection that genuinely names a sibling VO must keep its
+  // import — narrowing would have traded TS2306 for TS2304.  Same shape as
+  // `routes-builder.ts`'s `collectUsedValueObjects` / `collectUsedEnums`, and
+  // the same intent as python's `.filter(refersTo)`; java / dotnet / elixir
+  // emit nothing foreign here.
+  const voPool = valueObjectPool(ctx);
+  const reachable = collectReachableTypes(
+    projections.flatMap((p) => p.stateFields.map((f) => f.type)),
+    voPool,
+  );
+  const vos = voPool.filter((v) => reachable.valueObjects.has(v.name)).map((v) => v.name);
+  const enums = enumPool(ctx)
+    .filter((e) => reachable.enums.has(e.name))
+    .map((e) => e.name);
   if (vos.length + enums.length > 0) {
     lines.push(`import { ${[...vos, ...enums].join(", ")} } from "../domain/value-objects";`);
   }

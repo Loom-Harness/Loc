@@ -64,6 +64,28 @@ system Banking {
 }
 `;
 
+/** The same system, with a reading service that binds the BUILT-IN `getById`
+ *  and dereferences the binding.  `getById` is contractually NON-NULL — it
+ *  throws rather than returning absent ("Use getById (throws → 404)", the remedy
+ *  `loom.handler-load-nullable-unsupported#domain-service` prescribes), and
+ *  `repoReadResultType` types it as a bare entity, not `T?`.
+ *
+ *  Elixir routes it to the context facade's `find_by_id`, which DOES signal
+ *  absence (`{:error, :not_found}`), so flattening that to `nil` contradicted
+ *  the contract and handed `one.holder` a nil to dereference — a KeyError at
+ *  RUNTIME, with nothing catching it at compile time (the shape .NET at least
+ *  fails on as CS8602).  It must raise instead. */
+const GETBYID_SRC = SRC.replace(
+  `      domainService FeeQuote {`,
+  `      domainService Lookup {
+        operation holderOf(a: Account id): string {
+          let one = Accounts.getById(a)
+          return one.holder
+        }
+      }
+      domainService FeeQuote {`,
+);
+
 function bySuffix(f: Map<string, string>, suffix: string): string {
   const key = [...f.keys()].find((k) => k.endsWith(suffix));
   if (!key) throw new Error(`no generated file ending in ${suffix}`);
@@ -129,6 +151,31 @@ defmodule Api.Domain.Services.FeeQuote do
   end
 end
 `);
+  });
+
+  it("raises on an absent getById instead of flattening it to nil", async () => {
+    const files = await generateSystemFiles(GETBYID_SRC);
+    const context = bySuffix(files, "/accounts.ex");
+    expect(context).toContain("def holder_of(a) do");
+    // The absent arm RAISES — `Ecto.NoResultsError` is what the sibling
+    // load-or-raise facade seams (`get_<agg>!`, `destroy_<agg>!`) already raise,
+    // and the generated shell maps a `Plug.Exception` 4xx straight through
+    // (`Ecto.NoResultsError` -> 404), so "throws → 404" holds here too.
+    expect(context).toContain("_ -> raise Ecto.NoResultsError, queryable: Api.Accounts.Account");
+    // The defect shape: the getById read must NOT flatten absence to nil.
+    expect(context).not.toMatch(
+      /case get_account\(a\) do\n\s*\{:ok, value\} -> value\n\s*_ -> nil/,
+    );
+  });
+
+  it("leaves a DECLARED find's nil-unwrap alone — only getById is contractually non-null", async () => {
+    // `byHolder` is declared `Account?`, so it is legitimately nullable: the
+    // `{:ok, value} -> value / _ -> nil` unwrap feeding `is_nil(...)` is correct
+    // and must stay byte-identical.  Only the getById arm raises.
+    const context = bySuffix(await generateSystemFiles(GETBYID_SRC), "/accounts.ex");
+    const byHolder = context.slice(context.indexOf("def is_email_available"));
+    expect(byHolder).toContain("by_holder_account(holder)");
+    expect(byHolder.slice(0, byHolder.indexOf("end\n"))).not.toContain("raise Ecto.NoResultsError");
   });
 
   it("calls the reading service from the workflow with NO handle argument", async () => {

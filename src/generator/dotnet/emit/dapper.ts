@@ -2210,7 +2210,15 @@ export function renderDapperDocumentRepository(
     const usesUser = findUsesCurrentUser(f);
     const loadAllLines = [
       "await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
-      `var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table}", cancellationToken: cancellationToken));`,
+      // ORDER BY id — the document carrier's whole-table read answers in
+      // Postgres heap order without it, and an `update` rewrites the tuple, so
+      // a row MOVES after an unrelated write.  The EF twin of this read (see
+      // `emit/repository.ts`) gained its `OrderBy(__d => __d.Id)` when the
+      // other four backends did; .NET has TWO persistence adapters and only
+      // that one was reached, so dapper kept answering heap order while EF did
+      // not.  It is the same read on the same table, so it gets the same
+      // ordering.  Id is the primary key, so this is an index scan.
+      `var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: cancellationToken));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
