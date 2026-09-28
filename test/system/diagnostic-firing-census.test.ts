@@ -2888,7 +2888,7 @@ system S {
 }`,
 
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
-  // projection under the LANGUAGE-DEFAULT `enforcement: opt` — 0 errors /
+  // projection under `enforcement: opt` (the language default until M-T3.1) — 0 errors /
   // 0 warnings before the gate, while the emitted route served every
   // tenant's revenue to any authenticated caller.
   "loom.tenancy-filter-bypass": `

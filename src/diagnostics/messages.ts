@@ -2997,7 +2997,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // tenant filter drops the isolation boundary itself.  A WARNING, not an
   // error — the deliberate platform-admin cross-tenant report is a real,
   // supported shape — but an unconditional one: it does not consult
-  // `auth { enforcement: }` (the default `opt` mode gates nothing, and
+  // `auth { enforcement: }` (an explicit `opt` mode gates nothing, and
   // `requires true` satisfies `denyByDefault` while leaking exactly as hard).
   "loom.tenancy-filter-bypass": (p: {
     site: unknown;
