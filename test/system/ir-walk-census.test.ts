@@ -446,8 +446,6 @@ const WAIVERS: Record<string, string> = {
   "src/generator/python/find-predicate.ts#isColumnRooted": CLOSED_PREDICATE,
   "src/generator/python/find-predicate.ts#lower": CLOSED_PREDICATE,
   "src/generator/python/render-expr.ts#addPyExprImport": CLOSED_PREDICATE,
-  "src/generator/react/pages-emitter.ts#exprUsesCodeBlock": CLOSED_PREDICATE,
-  "src/generator/react/pages-emitter.ts#stmtUsesCodeBlock": CLOSED_PREDICATE,
   "src/generator/typescript/emit/schema.ts#collectColumnRefs": CLOSED_PREDICATE,
   "src/generator/typescript/render-stmt.ts#markableExprsOf": CLOSED_PREDICATE,
   "src/ir/util/domain-service-tier.ts#classifyDomainServiceTier": CLOSED_PREDICATE,
