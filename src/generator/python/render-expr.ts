@@ -264,7 +264,7 @@ export function addPyExprImport(x: ExprIR, into: Set<string>): void {
       // money-`sum` arm above.
       if (moneyScalarCoercionSide(x)) into.add("decimal");
       // Exact `decimal` arithmetic lifts its operands through `Decimal`
-      // (`renderDecimalArithmetic`, RS-38) — same mirror duty.
+      // (`renderDecimalArithmetic`, RS-37) — same mirror duty.
       if (isDecimalArithmetic(x)) into.add("decimal");
       break;
     case "convert":
@@ -474,7 +474,7 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `round(places?)` is HALF-AWAY-FROM-ZERO by catalogue contract — Python's
   // builtin round() is banker's (half-even), so it must NOT appear here.
   // `decimal` is a `float` in the domain, but rounding is decimal ARITHMETIC
-  // (RS-38): the float path (`floor(|x|·10^p + 0.5)`) rounded a tie the double
+  // (RS-37): the float path (`floor(|x|·10^p + 0.5)`) rounded a tie the double
   // cannot represent DOWN — `1.005` is 1.00499… in binary, so `1.005.round(2)`
   // answered `1.0` where the decimal-typed backends answer `1.01`.  Quantize
   // the shortest-repr `Decimal` half-away-from-zero (`ROUND_HALF_UP` is
@@ -562,7 +562,7 @@ export function sumIsMoney(e: MethodCallExpr | undefined): boolean {
 
 /** True iff a `sum` reduction accumulates a plain `decimal` (a Python `float`
  *  in the domain) — the `decimal` twin of `sumIsMoney`, folded exactly
- *  (RS-38). */
+ *  (RS-37). */
 export function sumIsDecimal(e: MethodCallExpr | undefined): boolean {
   if (!e) return false;
   const lam = e.args[0];
@@ -602,7 +602,7 @@ export const PY_COLLECTION_RENDERERS: Record<
   sum: (recv, args, e) => {
     // A generator expression must be parenthesised when it isn't the sole
     // argument, hence the two spellings.
-    // A `decimal` fold is decimal ARITHMETIC (RS-38): `sum` over floats is
+    // A `decimal` fold is decimal ARITHMETIC (RS-37): `sum` over floats is
     // binary (`[0.1, 0.2]` → 0.30000000000000004).  Lift each element through
     // `Decimal(str(…))`, fold from `Decimal(0)`, narrow once.
     if (sumIsDecimal(e)) {
@@ -773,7 +773,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // itself and only calls back for value-side leaves (Postgres `%` already
   // truncates, so the emitted query needs no adjustment).
   //
-  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-38) — and it is
+  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37) — and it is
   // checked BEFORE the `%` detour: a `decimal` `%` computes on `Decimal`,
   // whose remainder already truncates (sign of the dividend), so it needs no
   // `trunc_mod`.  See `renderDecimalArithmetic`.
@@ -879,13 +879,13 @@ const DECIMAL_ARITH_OPS: ReadonlySet<BinOp> = new Set<BinOp>(["+", "-", "*", "/"
 /** True iff a binary is `decimal` ARITHMETIC: an arithmetic operator whose
  *  result types as `decimal` — `decimal ∘ decimal`, the widened `int ∘ decimal`
  *  mixes, and the `int / int` division the type system widens to `decimal`
- *  (D-DECIMAL-EXACT-MOMENT, RS-38). */
+ *  (D-DECIMAL-EXACT-MOMENT, RS-37). */
 export function isDecimalArithmetic(e: ExprIR): boolean {
   if (e.kind !== "binary" || !DECIMAL_ARITH_OPS.has(e.op)) return false;
   return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
 }
 
-/** `decimal` arithmetic, computed EXACTLY (RS-38).  A Loom `decimal` is a
+/** `decimal` arithmetic, computed EXACTLY (RS-37).  A Loom `decimal` is a
  *  Python `float` in this backend's domain (the representation rule on
  *  `PY_TYPE_TARGET`), and float arithmetic answered `0.1 + 0.2` =
  *  `0.30000000000000004` — on the wire and into the `Numeric` column — where

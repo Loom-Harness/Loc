@@ -370,7 +370,7 @@ function renderMethodCall(
     }
     return `new RegExp(${args[0]}).test(${recv})`;
   }
-  // `decimal.round(n)` is decimal ARITHMETIC (RS-38).  The shared JS intrinsic
+  // `decimal.round(n)` is decimal ARITHMETIC (RS-37).  The shared JS intrinsic
   // scales in binary floating point, so a tie the double cannot represent
   // (`1.005` is 1.00499… in binary) rounds DOWN — `1.005.round(2)` answered `1`
   // where the four decimal-typed backends answer `1.01`.  Round the exact value
@@ -429,7 +429,7 @@ function renderCollectionOp(
   args: string[],
   e: Extract<ExprIR, { kind: "method-call" }>,
 ): string {
-  // A `decimal` fold is decimal ARITHMETIC (RS-38): the shared JS table's
+  // A `decimal` fold is decimal ARITHMETIC (RS-37): the shared JS table's
   // native `acc + x` sums in binary floating point (`[0.1, 0.2]` → 0.30000000000000004).
   // Fold through decimal.js from a `new Decimal(0)` seed — the money fold's
   // shape — and narrow once.  Node-only: the shared table also serves the
@@ -550,7 +550,7 @@ function renderNew(
 }
 
 function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "binary" }>): string {
-  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-38).  A Loom
+  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37).  A Loom
   // `decimal` is a plain JS `number` on this backend, and native `+`/`*`/`/`
   // compute in binary floating point — `0.1 + 0.2` answered
   // `0.30000000000000004` here (and was persisted) while .NET/Java/Elixir
@@ -649,7 +649,7 @@ const DECIMAL_METHOD: Partial<Record<BinOp, string>> = {
 /** True iff a binary is `decimal` ARITHMETIC: an arithmetic operator whose
  *  result types as `decimal` — `decimal ∘ decimal`, the widened `int ∘ decimal`
  *  mixes, and the `int / int` division the type system widens to `decimal`.
- *  Rendered exactly through decimal.js (D-DECIMAL-EXACT-MOMENT, RS-38). */
+ *  Rendered exactly through decimal.js (D-DECIMAL-EXACT-MOMENT, RS-37). */
 export function isDecimalArithmetic(e: ExprIR): boolean {
   if (e.kind !== "binary" || DECIMAL_METHOD[e.op] === undefined) return false;
   return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
