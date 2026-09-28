@@ -726,14 +726,28 @@ ${body}
     // backend's workflow body calls the domain factory directly — so routing
     // those through the guarded seam would 403 (or MatchError) a workflow whose
     // own caller does hold the permission, on this backend only.
+    // M-T3.16 C2 — the WIRE-VALIDATION rung precedes the lifecycle gate, the
+    // order the other four backends answer in: their request validator (zod /
+    // FluentValidation / bean validation / pydantic) runs at the route boundary
+    // before the handler that evaluates the gate, so a guarded create with an
+    // invalid body answers 422 there.  Gating first made this backend alone
+    // answer 403 for the same request.  The validation clause builds the SAME
+    // changeset the insert does and only reports it (`apply_action` touches no
+    // row); the insert still runs after the gate.  Deny-first was considered and
+    // declined — see the M-T3.16 note: the wire rung is a function of the body
+    // and the PUBLISHED schema alone, so answering it first discloses nothing an
+    // unauthorized caller could not compute.
+    const createValidateClause = isDoc
+      ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
+      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(attrs), :insert)`;
     const createDelegate =
       createClauses.length === 0
         ? `  defdelegate create_${aggSnake}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
-        : `  @doc "Create a ${aggPascal} — the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
+        : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
     lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
   )}) do
-    with ${createClauses.join(",\n         ")} do
+    with ${[createValidateClause, ...createClauses].join(",\n         ")} do
       ${unguardedName("create", agg.name)}(attrs${createStampsActor ? ", current_user" : ""})
     end
   end
