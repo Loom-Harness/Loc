@@ -59,6 +59,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-derived": "07-invariants-derived-functions.md#reserved-display-and-inspect",
   // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
   "loom.sensitivity-drop": "03-domain-modeling.md#sensitive",
+  "loom.aggregate-not-constructible": "03-domain-modeling.md#aggregate",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
@@ -206,6 +207,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
+  "loom.workflow-param-unused": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-applier-on-non-event-sourced":
     "13-workflows.md#create--handle--starters--continuations",

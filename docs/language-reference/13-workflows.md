@@ -115,6 +115,8 @@ workflow placeOrder {
 
 The handler builds each repository, logs `workflow_started`, runs the body, `save`s in declaration order, drains workflow-level events, and logs `workflow_completed` ([Observability](20-observability-provenance.md)).
 
+**The parameter list is the request contract, so an unread parameter is a lie.** Every param becomes a REQUIRED field of the emitted request schema and is destructured into a local; if the body never reads it, the caller is obliged to send data the system discards. `loom.workflow-param-unused` (a warning) names it. Two parameters are exempt because something other than the body consumes them: the event binding of `create(e: Event) by e.field`, which the header routes on, and the command create's correlation parameter (`create(orderId: Order id)` where `orderId` is a workflow state field), which the runtime uses to load-or-allocate the saga row before the first statement runs. A wholly EMPTY body is not flagged either — that is "not wired yet", not "wired wrong".
+
 ::: tabs backend
 == node
 ```ts

@@ -4517,7 +4517,7 @@ defect further, and it cannot be done byte-identically in any case.
   `wireFieldsFor` — and the conformance-parity tier reads it. Options 1+2
   ("drop entirely, `ddd snapshot --wire` as the escape hatch") presuppose that
   contract source is the diffable artefact, which fact 2 says it is not.
-- The retirement is re-scoped as **M-T5.39** and inverted: first make the
+- The retirement is re-scoped as **M-T5.40** and inverted: first make the
   record reproduce the derived shape (closing the 25 rows, which fixes real
   defects), then — and only then — consider which consumer reads which.
 - The access-modifier filter matrix and the three `wireFieldsFor*` walks stay
@@ -4525,7 +4525,7 @@ defect further, and it cannot be done byte-identically in any case.
   the derived shape and any future re-derivation from records agree on.
 
 **Re-open it when** the record layer reproduces the derived shape for every
-corpus node (M-T5.39 rows A1/A2/B3/C closed) **and** the implicit
+corpus node (M-T5.40 rows A1/A2/B3/C closed) **and** the implicit
 `api … from …` form expands through `scaffoldHandlers`, so the records exist
 for the paths that actually ship. Until both hold, retirement trades a pure
 function for a source of truth that is absent 100 % of the time and wrong 20 %
@@ -4534,6 +4534,6 @@ of the rest.
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`
 (`apiReadFields`); the response-DTO emitters on all five backends; missions
-M-T5.10 and M-T5.39;
+M-T5.10 and M-T5.40;
 `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 and its coordination
 note's item 3.

@@ -7,7 +7,7 @@ Plan row: [`../wave-c4.md`](../wave-c4.md) §Packets, "4e M-T5.10 `wireShape` re
 shipped; the thing the spin-off called an XL refactor is a stale count, and the
 direction it points in would widen a live defect. The measurement is recorded as
 [`D-WIRESHAPE-KEEP`](../../../decisions.md) (proposed, 48-hour default) and
-**M-T5.39** (open, L, P1); M-T5.10 stays `partial` with exactly one remaining
+**M-T5.40** (open, L, P1); M-T5.10 stays `partial` with exactly one remaining
 item. One in-fence slice was built — the last dead reader of the retired stamp.
 
 ---
@@ -220,7 +220,7 @@ that.
 | `node scripts/test-typecheck.mjs` | ratchet **OK — 181 files, 469 errors, `src/` clean** (unchanged; the new suite is at 0 after fixing its two TS2345s rather than baselining them) |
 | `npm run lint` (`biome ci .`) | 3285 files, 0 errors |
 | corpus byte-identical | 395 cells / 26,534 files, identical (see §5 for why the probe carries the proof) |
-| `node scripts/mission-counts.mjs --check` | up to date (regenerated with `--write` after minting M-T5.39) |
+| `node scripts/mission-counts.mjs --check` | up to date (regenerated with `--write` after minting M-T5.40) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | 0 errors |
 | `test/system/unsupported-register.test.ts` | 9 passed (the mission-id check that guards a newly minted `## M-T5.x`) |
@@ -266,7 +266,7 @@ mystery red.
   `wire-projection.ts`, `wire-spec.ts` or the walker hunk; left alone. #2947's
   `managed`-field row and #2918's collection create-input row are both on the
   CREATE side of `wire-projection.ts` and are adjacent to, but not part of,
-  M-T5.39's read-side census.
+  M-T5.40's read-side census.
 - **#2942** (page emitter fails open) edits
   `src/generator/_walker/walker-core.ts` at ~line 1790. This packet's hunk is at
   lines 1939 and 2203–2214 of the same file — **named here per the shared-file
@@ -276,7 +276,7 @@ mystery red.
 
 ## 9. Hand-offs and decisions wanted
 
-**H1 — M-T5.39 is the drain, and it is a `src/macros/**` packet, outside this
+**H1 — M-T5.40 is the drain, and it is a `src/macros/**` packet, outside this
 fence.** The four fixes (A1 macro ordering in `apiReadFields`, A2 the
 `extends`-chain walk at record-build time, B3 the `provenanced` carrier wrap, C
 the walk order) all live in `src/macros/api/factories.ts` +
@@ -300,7 +300,7 @@ option 1+2 ("contract source is the diffable artefact") rests on the records
 existing, and §3a measures them at 0 %.
 
 **D2 — decision recorded, not asked: M-T5.10 stays `partial`.** Its spun-off
-item is closed (into M-T5.39 + D-WIRESHAPE-KEEP), but the line also carried
+item is closed (into M-T5.40 + D-WIRESHAPE-KEEP), but the line also carried
 "Extern handler LSP/scaffold polish is a separate tail", which nothing else in
 `docs/new-plan/` tracks. Flipping the mission to `done` would have dropped it,
 so the mission now names that tail as the one remaining item. If the owner

@@ -1,4 +1,4 @@
-// The wire-shape / contract-record divergence census (M-T5.39, wave C4 packet 4e).
+// The wire-shape / contract-record divergence census (M-T5.40, wave C4 packet 4e).
 //
 // Two things claim to describe an aggregate's READ wire today:
 //
@@ -27,7 +27,7 @@
 //                                           CustomerResponse {id,tier,version}
 //
 // So this file is NOT a "these should match" assertion — they do not, and
-// closing the gap is M-T5.39's job.  It is a SHRINK-ONLY ratchet on the exact
+// closing the gap is M-T5.40's job.  It is a SHRINK-ONLY ratchet on the exact
 // set of diverging nodes, so (a) the retirement mission has a measured
 // denominator instead of an estimate, and (b) a new emitter or capability
 // cannot widen the split silently.  Fixing a row means deleting it here.
@@ -210,7 +210,7 @@ const UNCONTRACTED = [
   "part-rules-private-op.ddd Billing.Invoice.Line",
 ];
 
-describe("wire shape vs. the declared response contract (M-T5.39 census)", () => {
+describe("wire shape vs. the declared response contract (M-T5.40 census)", () => {
   it("diverges on exactly the baselined nodes — shrink-only", async () => {
     const { found, nodes, uncontracted } = await census();
 

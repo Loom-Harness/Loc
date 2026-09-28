@@ -28,6 +28,7 @@
 // and case 2 was covered nowhere outside a workflow body.)
 
 import { describe, expect, it } from "vitest";
+import { isAdvisoryCode } from "../../src/diagnostics/advisory.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
@@ -43,6 +44,12 @@ ${body}
   return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
+/** Every diagnostic the IR validator raises, minus the advisory
+ *  `Suggestions:` channel.  The zero-diagnostic assertions below mean "this
+ *  model is well formed", and an advisory is not a verdict on that — the
+ *  fixtures here declare aggregates no route constructs (they are built from
+ *  a `test` block), which is exactly what `loom.aggregate-not-constructible`
+ *  says out loud. */
 async function diagsFor(body: string) {
   const { model } = await parseString(
     `system S { subdomain M { context C {
@@ -50,7 +57,9 @@ ${body}
     }}}`,
     { validate: false },
   );
-  return validateLoomModel(enrichLoomModel(lowerModel(model)));
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
+    (d) => !isAdvisoryCode(d.code),
+  );
 }
 
 /** The repro: one invariant over a containment removes the factory. */
