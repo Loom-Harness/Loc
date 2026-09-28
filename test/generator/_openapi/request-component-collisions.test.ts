@@ -448,3 +448,104 @@ describe("resolveRequestComponentNames", () => {
     expect([...names.values()]).toEqual(["ScheduleWorkOrderRequest"]);
   });
 });
+
+// Java is the third shape this defect takes, and the one that cannot be fixed
+// by renaming. `ScheduleWorkOrderRequest` is part of the GENERATED code's own
+// API — the controller binds it, the service takes it — so only the PUBLISHED
+// name may diverge, via springdoc's `@Schema(name = ...)` (the analogue of
+// .NET's `CustomSchemaIds`). The class name stays put.
+//
+// The customizer's `RequiredSet` table is the other half of the same bug: it is
+// keyed by PUBLISHED name, so pre-fix a collision made two `setRequired` calls
+// target one key and the survivor reinforced the wrong field set for BOTH
+// endpoints. Distinct published names split the table too.
+describe("java request components (F-026)", () => {
+  const JAVA_COLLIDES = COLLIDING_SRC.replace(
+    "deployable api { platform: node, contexts: [Work], dataSources: [r], port: 3000 }",
+    "deployable api { platform: java, contexts: [Work], dataSources: [r], port: 8080 }",
+  );
+  const JAVA_CLEAN = JAVA_COLLIDES.replaceAll("scheduleWorkOrder", "bookWorkOrder");
+
+  const SRC_ROOT = "api/src/main/java/com/loom/api";
+  const AGG_REQ = `${SRC_ROOT}/features/workorders/ScheduleWorkOrderRequest.java`;
+  const WF_REQ = `${SRC_ROOT}/application/workflows/ScheduleWorkOrderRequest.java`;
+
+  it("publishes each colliding record under an owner-qualified name, keeping the class name", async () => {
+    const files = await generateSystemFiles(JAVA_COLLIDES);
+    const agg = files.get(AGG_REQ);
+    const wf = files.get(WF_REQ);
+    expect(agg).toBeDefined();
+    expect(wf).toBeDefined();
+
+    // The class name is load-bearing for the generated code, so it is UNCHANGED
+    // on both — the divergence is entirely in the published name.
+    expect(agg).toContain("public record ScheduleWorkOrderRequest(");
+    expect(wf).toContain("public record ScheduleWorkOrderRequest(");
+
+    expect(agg).toContain('@Schema(name = "WorkOrdersScheduleWorkOrderRequest")');
+    expect(wf).toContain('@Schema(name = "WorkflowsScheduleWorkOrderRequest")');
+    // The annotation is worthless without its import.
+    for (const c of [agg, wf]) {
+      expect(c).toContain("import io.swagger.v3.oas.annotations.media.Schema;");
+    }
+
+    // Each keeps its own field set — the aggregate operation's param vs the
+    // workflow's. If the two had been conflated, these would match.
+    expect(agg).toContain("String at");
+    expect(wf).toContain("String note");
+  });
+
+  it("leaves a non-colliding record's published name alone", async () => {
+    const files = await generateSystemFiles(JAVA_CLEAN);
+    const agg = files.get(AGG_REQ);
+    const wf = files.get(`${SRC_ROOT}/application/workflows/BookWorkOrderRequest.java`);
+    expect(agg).toBeDefined();
+    expect(wf).toBeDefined();
+    // No collision => no qualification, and so no annotation and no import: the
+    // fix must be inert on every model that did not have the bug.
+    for (const c of [agg, wf]) {
+      expect(c).not.toContain("@Schema(name =");
+      expect(c).not.toContain("import io.swagger.v3.oas.annotations.media.Schema;");
+    }
+  });
+
+  it("gives the customizer's required-set table one entry per owner", async () => {
+    const files = await generateSystemFiles(JAVA_COLLIDES);
+    const customizer = files.get(`${SRC_ROOT}/config/OpenApiContractCustomizer.java`) ?? "";
+    const rows = [...customizer.matchAll(/new RequiredSet\("(\w+)", List\.of\(([^)]*)\)\)/g)].map(
+      (m) => [m[1], m[2]] as const,
+    );
+
+    // Pre-fix both `setRequired` calls keyed on `ScheduleWorkOrderRequest`, so
+    // the table held ONE row for two endpoints with different required fields.
+    const keys = rows.map(([k]) => k);
+    expect(keys).not.toContain("ScheduleWorkOrderRequest");
+    expect(keys).toContain("WorkOrdersScheduleWorkOrderRequest");
+    expect(keys).toContain("WorkflowsScheduleWorkOrderRequest");
+
+    const byKey = new Map(rows);
+    expect(byKey.get("WorkOrdersScheduleWorkOrderRequest")).toContain('"at"');
+    expect(byKey.get("WorkflowsScheduleWorkOrderRequest")).toContain('"note"');
+
+    // A duplicate key means the later row silently wins at runtime.
+    expect(keys.length).toBe(new Set(keys).size);
+  });
+
+  it("publishes a unique name for every request record in the tree", async () => {
+    const files = await generateSystemFiles(JAVA_COLLIDES);
+    // springdoc computes the document at runtime, so the static proxy for
+    // "no two components collide" is: the published name of every emitted
+    // request record — the `@Schema(name=)` override when present, else the
+    // class name — is distinct.
+    const published: string[] = [];
+    for (const [path, content] of files) {
+      if (!path.startsWith(`${SRC_ROOT}/`) || !path.endsWith("Request.java")) continue;
+      const cls = /public record (\w+)\(/.exec(content)?.[1];
+      if (!cls) continue;
+      published.push(/@Schema\(name = "(\w+)"\)/.exec(content)?.[1] ?? cls);
+    }
+    expect(published.length).toBeGreaterThan(1);
+    const dupes = published.filter((n, i) => published.indexOf(n) !== i);
+    expect(dupes).toEqual([]);
+  });
+});
