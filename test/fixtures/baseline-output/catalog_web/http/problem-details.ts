@@ -3,6 +3,25 @@ import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { ValueObjectInvariantError } from "../domain/errors";
+
+/** A value object's invariant refused a value a domain BODY built (an
+ *  operation, a workflow, a handler — not the request body, whose value objects
+ *  the request schema already checked).  Answers the domain-floor status with
+ *  one RFC 7807 errors[] entry: the rule's message and, for a messaged rule, its
+ *  content-hash code.  The pointer is "" — the whole request — because the
+ *  value was computed by the body and names no member of it.  Anything else
+ *  answers undefined and the caller's own arm runs. */
+export function valueObjectProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
+  if (!(err instanceof ValueObjectInvariantError)) return undefined;
+  const trace_id = c.get("requestId") ?? "";
+  const entry = { pointer: "", message: err.message, ...(err.code ? { code: err.code } : {}) };
+  return c.body(
+    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
+    status as 422,
+    { "content-type": "application/problem+json", "x-request-id": trace_id },
+  );
+}
 
 /** The wire schema for a `guid`-valued id — the canonical dashed-hex uuid
  *  form, and nothing more.

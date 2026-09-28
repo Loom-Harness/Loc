@@ -812,6 +812,9 @@ export function renderExceptionFilter(
      *  then resolves each messaged rule's wire `code` against the catalog for the
      *  request locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
     localizeMessages?: boolean;
+    /** True when a hosted value object declares an invariant — the filter then
+     *  carries the `ValueObjectInvariantException` arm (M-T5.1). */
+    valueObjectInvariants?: boolean;
   },
 ): string {
   const usesValidators = !!options?.usesValidators;
@@ -844,6 +847,45 @@ export function renderExceptionFilter(
   // A project with no cross-aggregate `X id` field emits no dangling-reference
   // arm — only such a write can raise 23503.
   const hasDanglingRef = !!options?.hasDanglingRef;
+  // A value object refused inside a domain body (M-T5.1) — the domain-floor
+  // status plus one RFC 7807 errors[] entry: the whole-request pointer "" (the
+  // value was computed by the body, so it names no request member), the rule's
+  // message and, for a messaged rule, its content-hash code.  Ahead of the
+  // DomainException arm; absent (byte-identical) when no hosted value object
+  // declares an invariant, since nothing else raises the exception.
+  const voMessage = localizeMessages
+    ? `global::${ns}.Localization.LoomMessages.Localize(voe.RuleCode, voe.Message)`
+    : "voe.Message";
+  const valueObjectInvariantArm = options?.valueObjectInvariants
+    ? `
+        if (context.Exception is ValueObjectInvariantException voe)
+        {
+            ${renderDotnetLogCall("domainError", [
+              { name: "message", valueExpr: "voe.Message" },
+              { name: "status", valueExpr: `${domainStatus}` },
+            ])}
+            global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.HttpContext.Response.Headers["x-request-id"] = trace_id;
+            var voProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "${problemTitle(domainStatus)}",
+                Status = ${domainStatus},
+                Detail = voe.Message,
+                Instance = context.HttpContext.Request.Path,
+            };
+            voProblem.Extensions["errors"] = voe.RuleCode != null
+                ? new object[] { new { pointer = "", message = ${voMessage}, code = voe.RuleCode } }
+                : new object[] { new { pointer = "", message = voe.Message } };
+            context.Result = new ObjectResult(voProblem)
+            {
+                StatusCode = ${domainStatus},
+                ContentTypes = { "application/problem+json" },
+            };
+            context.ExceptionHandled = true;
+            return;
+        }`
+    : "";
   // Persistence selection (D-REALIZATION-AXES): the EF adapter surfaces a
   // Postgres unique-violation wrapped in `Microsoft.EntityFrameworkCore.
   // DbUpdateException`; the Dapper adapter throws the bare
@@ -1096,7 +1138,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.Result = Problem(context, ${disallowedStatus}, "Disallowed", dx.Message, trace_id);
             context.ExceptionHandled = true;
             return;
-        }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}
+        }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}${valueObjectInvariantArm}
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.

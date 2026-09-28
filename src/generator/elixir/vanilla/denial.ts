@@ -422,6 +422,13 @@ export function respondErrorTail(
    *  produce this term, and an arm nothing reaches is a clause a reader has to
    *  disprove. */
   invalidParams = false,
+  /** True when a workflow body here loads through `getById` (M-T5.1 A4).  The
+   *  load tags its miss `{:not_found, "<Agg> <id> not found"}` — the detail the
+   *  other four backends' `AggregateNotFound` carries and the GET-by-id route
+   *  here already answers — so the workflow 404 names the row rather than the
+   *  generic "Resource not found".  Gated so a dispatcher that cannot produce
+   *  the term keeps the exact tail it had. */
+  notFoundDetail = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -430,6 +437,14 @@ export function respondErrorTail(
       `def ${fnName}(conn, {:error, :not_found})`,
       denialResponse("notFound", '"Resource not found"', overrides),
     ),
+    ...(notFoundDetail
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, {:not_found, detail}})`,
+            denialResponse("notFound", "detail", overrides),
+          ),
+        ]
+      : []),
     ...(invalidParams
       ? [
           clause(

@@ -1,9 +1,10 @@
-import type { TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import type { StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
   type SingleFieldPattern,
   singleFieldConstraints,
 } from "../../../ir/validate/invariant-classify.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
+import { opBodyStmtsDeep } from "../domain/predicates.js";
 
 // ---------------------------------------------------------------------------
 // Shared Ecto-changeset validator rendering — the
@@ -191,4 +192,67 @@ export function voEctoType(t: TypeIR): string {
     default:
       return ":string";
   }
+}
+
+/** An aggregate field an operation BODY assigns a value object to, whose value
+ *  object carries a validating constructor (`voHasConstraints`) — M-T5.1.
+ *
+ *  On the other four backends the value object's constructor runs its
+ *  invariants wherever it is built, so a body-side `qty := Qty { value: n }`
+ *  refuses a bad `n` at the domain floor.  On Phoenix a value object is a plain
+ *  map: the body rebinds `record.qty` and the op persists it through
+ *  `force_change`, which bypasses every validator — so `resize(0)` persisted
+ *  `{"value": 0}` and answered 204.  These are the fields the op persist tail
+ *  re-validates (`<Agg>Changeset.validate_body_value_objects/1`). */
+export interface BodyValueObjectField {
+  /** Snake-cased aggregate field name. */
+  readonly field: string;
+  readonly vo: ValueObjectIR;
+}
+
+/** Every aggregate field some operation body assigns (at any depth) whose type
+ *  is a constructor-carrying value object, in declaration order.  `assigned`
+ *  is the snake-cased field set the caller collected from the op bodies. */
+export function bodyValueObjectFields(
+  fields: readonly { name: string; type: TypeIR }[],
+  valueObjects: readonly ValueObjectIR[],
+  assigned: ReadonlySet<string>,
+): BodyValueObjectField[] {
+  const byName = new Map(valueObjects.map((v) => [v.name, v]));
+  const out: BodyValueObjectField[] = [];
+  for (const f of fields) {
+    const t = f.type.kind === "optional" ? f.type.inner : f.type;
+    if (t.kind !== "valueobject") continue;
+    const vo = byName.get(t.name);
+    if (!vo || !voHasConstraints(vo)) continue;
+    if (!assigned.has(snake(f.name))) continue;
+    out.push({ field: snake(f.name), vo });
+  }
+  return out;
+}
+
+/** The snake-cased fields ONE operation's body assigns (at any depth). */
+export function opAssignedFields(op: { statements: readonly StmtIR[] }): Set<string> {
+  const out = new Set<string>();
+  for (const s of opBodyStmtsDeep(op.statements)) {
+    if (s.kind === "assign" && s.target.segments[0]) out.add(snake(s.target.segments[0]));
+  }
+  return out;
+}
+
+/** The aggregate-level set: every field any of the aggregate's operations
+ *  assigns a constructor-carrying value object to.  ONE derivation shared by the
+ *  changeset module (which emits `validate_body_value_objects/1` for exactly
+ *  these) and the op persist tail (which pipes into it) — so an op can never
+ *  call a function the module did not emit. */
+export function aggregateBodyValueObjectFields(
+  agg: {
+    fields: readonly { name: string; type: TypeIR }[];
+    operations: readonly { statements: readonly StmtIR[] }[];
+  },
+  valueObjects: readonly ValueObjectIR[],
+): BodyValueObjectField[] {
+  const assigned = new Set<string>();
+  for (const op of agg.operations) for (const f of opAssignedFields(op)) assigned.add(f);
+  return bodyValueObjectFields(agg.fields, valueObjects, assigned);
 }

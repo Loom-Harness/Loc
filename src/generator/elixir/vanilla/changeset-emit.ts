@@ -28,7 +28,8 @@ import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf } from "../../../ir/util/inheritance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { messageCode } from "../../../util/message-code.js";
+import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import {
@@ -43,7 +44,11 @@ import {
   messagedRoutesToResidual,
   renderInvariantValidatorFn,
 } from "./changeset-invariant-emit.js";
-import { ectoValidator, voHasConstraints } from "./changeset-validators.js";
+import {
+  aggregateBodyValueObjectFields,
+  ectoValidator,
+  voHasConstraints,
+} from "./changeset-validators.js";
 import { INT32_RANGE_MESSAGE } from "./context-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
@@ -498,6 +503,76 @@ ${keyAliasPairs.join(",\n")}
   defp __vo_errors(_field, _ok), do: []`
       : "";
 
+  // M-T5.1 — value objects BUILT by an operation body.  The op persists the
+  // body's rebinding through `force_change`, which runs no validator, so a
+  // body-side `qty := Qty { value: n }` was never checked on this backend.
+  // `validate_body_value_objects/1` runs each such field's validating
+  // constructor, tagging the error `loom_body_value_object` so ProblemDetails
+  // answers it on the DOMAIN-FLOOR rung with one `errors[]` entry — the shape
+  // the other four backends' value-object constructor throw answers — rather
+  // than the wire-validation 422 a request-body field earns.  A messaged rule
+  // carries its content-hash code (looked up by the authored text the VO's
+  // own changeset reports).  Emitted only when some op body assigns such a
+  // field, so every other aggregate's changeset module is byte-identical.
+  const bodyVoFields = aggregateBodyValueObjectFields(agg, ctx.valueObjects);
+  const bodyVoCodes = [
+    ...new Map(
+      bodyVoFields.flatMap(({ vo }) =>
+        vo.invariants.flatMap((inv) =>
+          inv.message ? [[inv.message.text, messageCode(inv.message.text)] as const] : [],
+        ),
+      ),
+    ),
+  ];
+  const bodyVoHelper =
+    bodyVoFields.length > 0
+      ? `
+
+  @doc "Re-validate the value objects an operation BODY assigned (M-T5.1) — \`force_change\` bypasses every validator, so without this a body-built value object was persisted unchecked."
+  def validate_body_value_objects(changeset) do
+    changeset
+${bodyVoFields
+  .map(
+    ({ field, vo }) =>
+      `    |> __validate_body_vo(:${field}, &${appModule}.${ctxModule}.${upperFirst(vo.name)}.new/1)`,
+  )
+  .join("\n")}
+  end
+
+  # A value object the body built, refused by its own constructor: ONE error on
+  # the aggregate field, tagged so ProblemDetails answers the domain floor.
+  defp __validate_body_vo(changeset, field, new_fun) do
+    validate_change(changeset, field, fn ^field, value ->
+      case is_map(value) and new_fun.(value) do
+        {:error, %Ecto.Changeset{errors: [{_inner, {msg, opts}} | _]}} ->
+          [{field, {msg, __body_vo_opts(msg, opts)}}]
+
+        {:error, _} ->
+          [{field, {"is invalid", [loom_body_value_object: true]}}]
+
+        _ ->
+          []
+      end
+    end)
+  end
+${
+  bodyVoCodes.length > 0
+    ? `
+  @loom_body_vo_codes %{${bodyVoCodes.map(([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`).join(", ")}}
+
+  defp __body_vo_opts(msg, opts) do
+    opts = Keyword.put(opts, :loom_body_value_object, true)
+
+    case Map.get(@loom_body_vo_codes, msg) do
+      nil -> opts
+      code -> Keyword.put(opts, :loom_code, code)
+    end
+  end`
+    : `
+  defp __body_vo_opts(_msg, opts), do: Keyword.put(opts, :loom_body_value_object, true)`
+}`
+      : "";
+
   // `unique (...)` domain invariants (D-UNIQUE-DOMAIN) — one
   // `unique_constraint/3` per key, tied to the SAME deterministic index name
   // the migration emits (`<table>_<cols>_uq`, `uniqueIndexName` in
@@ -703,7 +778,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> cast(attrs, @all_fields)${defaultBlock}
     |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

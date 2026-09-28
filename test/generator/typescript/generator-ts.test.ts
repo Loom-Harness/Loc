@@ -589,7 +589,10 @@ describe("typescript generator", () => {
         /"content-type": "application\/problem\+json", "x-request-id": trace_id/,
       );
       expect(routes).toMatch(/return problem\(403, "Forbidden", err\.message\)/);
-      expect(routes).toMatch(/return problem\(422, "Unprocessable Entity", err\.message\)/);
+      // M-T5.1 — a value-object breach answers first when the project has one.
+      expect(routes).toMatch(
+        /return (?:valueObjectProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message\)/,
+      );
       expect(routes).toMatch(/return problem\(404, "Not Found", err\.message\)/);
       expect(routes).toMatch(/return problem\(500, "Internal Server Error", "internal"\)/);
     });

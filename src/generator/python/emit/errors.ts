@@ -8,7 +8,24 @@
 /** The domain error taxonomy module.  A `ConcurrencyError` (mapped to
  *  HTTP 409) is added only when some in-scope aggregate carries the
  *  `versioned` capability, so a concurrency-free app stays byte-identical. */
-export function errorsPy(hasVersioned: boolean): string {
+export function errorsPy(hasVersioned: boolean, hasValueObjectInvariant = false): string {
+  // M-T5.1 — a value object's invariant refused a value.  A DomainError, so
+  // every existing handler still classifies it; `app/http/problem.py`
+  // answers it with the domain-floor status plus one RFC 7807 errors[] entry.
+  const valueObjectInvariantError = hasValueObjectInvariant
+    ? `
+
+
+class ValueObjectInvariantError(DomainError):
+    """A value object's invariant refused a value (surfaces as HTTP 422 with
+    one errors[] entry: the whole-request pointer "", the rule's message and,
+    for a messaged rule, its content-hash code)."""
+
+    def __init__(self, value_object: str, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.value_object = value_object
+        self.code = code`
+    : "";
   const concurrencyError = hasVersioned
     ? `
 
@@ -21,7 +38,7 @@ class ConcurrencyError(Exception):
 
 
 class DomainError(Exception):
-    """Precondition or invariant violation (surfaces as HTTP 422)."""
+    """Precondition or invariant violation (surfaces as HTTP 422)."""${valueObjectInvariantError}
 
 
 class AggregateNotFoundError(Exception):

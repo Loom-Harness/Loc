@@ -34,6 +34,7 @@ import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/do
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
+import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   chainSingleFieldNative,
   openapiLengthMeta,
@@ -124,6 +125,7 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExpr } from "../../../ir/validate/checks/shared.js";
 import type {
@@ -1488,7 +1490,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message);`,
+    `      return ${domainFloorAnswer(hasValueObjectInvariants(ctx), domainStatus, problemTitle(domainStatus), `problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message)`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);
@@ -1627,6 +1629,7 @@ export function buildRoutesFile(
   if (/\brequireJsonContentType\(/.test(assembledSoFar))
     problemNamed.push("requireJsonContentType");
   if (/\bversionETag\(/.test(assembledSoFar)) problemNamed.push("versionETag");
+  if (/\bvalueObjectProblem\(/.test(assembledSoFar)) problemNamed.push("valueObjectProblem");
   // Patch the deferred `decimal.js` import.  Read off the assembled text with
   // string literals blanked, so a message or an `.openapi("…")` label naming
   // the word cannot mint a dead import; `new Decimal(` is the only way this

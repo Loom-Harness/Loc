@@ -106,7 +106,7 @@ describe("phoenix vanilla — mutating-tier domainService (domain-services.md re
 
     // The clauses sit inside the same with-chain as the loads (one Repo.transaction).
     expect(wf).toMatch(
-      /with \{:ok, s\} <- Context\.get_account\(src\),\s*\{:ok, d\} <- Context\.get_account\(dst\),\s*\{:ok, _\} <- Context\.withdraw_account\(s, %\{"amount" => amount\}\),\s*\{:ok, _\} <- Context\.deposit_account\(d, %\{"amount" => amount\}\) do/,
+      /with \{:ok, s\} <- \(case Context\.get_account\(src\) do[\s\S]*?end\),\s*\{:ok, d\} <- \(case Context\.get_account\(dst\) do[\s\S]*?end\),\s*\{:ok, _\} <- Context\.withdraw_account\(s, %\{"amount" => amount\}\),\s*\{:ok, _\} <- Context\.deposit_account\(d, %\{"amount" => amount\}\) do/,
     );
 
     // The atomic, persisted commit is the workflow's Repo.transaction.

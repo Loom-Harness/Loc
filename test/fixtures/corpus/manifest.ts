@@ -491,6 +491,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "the FIRST corpus fixture with a `message` clause at all — before it, every backend's messaged-rule carrier AND the M-T1.11 catalog emission were uncompiled by the corpus tier (retro §78: a conditional emission needs a fixture that satisfies its condition)",
   },
+  {
+    id: "vo-invariant-in-body",
+    title:
+      "a value object BUILT by a domain body whose invariant refuses the value — 422 with an RFC 7807 `errors[]` entry; plus the `getById` miss on every load path",
+    doc: "payloads",
+    backends: ALL,
+    note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a messaged and a message-less rule, and both body routers (aggregate operation, workflow step).",
+  },
 ] as const;
 
 /** Lookup by id. */
