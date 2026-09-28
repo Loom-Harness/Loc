@@ -2,6 +2,7 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 // A bindable input (Field/NumberField/Toggle/…) binds to page state via
 // `bind:`.  Passing `value:` instead (the React habit) is silently ignored by
@@ -13,8 +14,8 @@ async function parse(source: string) {
   const doc = await parseHelper(services.Ddd)(source, { validation: true });
   const diags = doc.diagnostics ?? [];
   return {
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
-    warnings: diags.filter((d) => d.severity === 2).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
+    warnings: diags.filter((d) => d.severity === 2).map(diagText),
   };
 }
 

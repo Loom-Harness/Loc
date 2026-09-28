@@ -854,7 +854,11 @@ function ectoColumnType(t: ColumnType): string {
     case "decimal":
       return ":decimal";
     case "datetime":
-      return ":utc_datetime";
+      // `timestamptz`, the column every other backend uses: a microsecond UTC
+      // instant the `Loom.Datetime` field type reads back at millisecond
+      // precision (RS-38).  `:utc_datetime` was `timestamp(0)` — SECOND
+      // precision, so a written fraction was lost (ledger `F2-W-06`).
+      return ":timestamptz";
     case "json":
       return ":map";
     case "array":

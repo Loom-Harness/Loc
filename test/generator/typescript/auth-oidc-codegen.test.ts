@@ -11,6 +11,7 @@ const OIDC = `
 system Helpdesk {
   user { id: string role: string email: string permissions: string[] }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc {
       issuer: env("OIDC_ISSUER")

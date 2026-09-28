@@ -48,7 +48,7 @@ const projection = (
       param: "e",
       body: {
         kind: "member",
-        receiver: { kind: "ref", name: "e", refKind: "lambda-param" },
+        receiver: { kind: "ref", name: "e", refKind: "lambda" },
         member: prop,
         receiverType: ENTRY,
         memberType: propType,
@@ -121,14 +121,15 @@ describe("B4 — Python money sum carries an explicit Decimal(0) start", () => {
     expect(renderPyExpr(e)).toBe("sum(self._amounts, Decimal(0))");
   });
 
-  it("leaves int and decimal sums on the bare form", () => {
-    // Loom `decimal` is a Python `float`; `float | Literal[0]` collapses to
-    // `float` under mypy's numeric tower, so no start is needed.
+  it("leaves an int sum on the bare form; folds a decimal sum exactly (RS-37)", () => {
     expect(renderPyExpr(projection("sum", "n", INT))).toBe(
       "sum((lambda e: e.n)(__x) for __x in self._entries)",
     );
+    // Loom `decimal` is a Python `float`, and a float fold is binary
+    // (`[0.1, 0.2]` → 0.30000000000000004): each element is lifted through
+    // `Decimal(str(…))`, folded from `Decimal(0)`, and narrowed once.
     expect(renderPyExpr(projection("sum", "rate", DECIMAL))).toBe(
-      "sum((lambda e: e.rate)(__x) for __x in self._entries)",
+      "float(sum((Decimal(str((lambda e: e.rate)(__x))) for __x in self._entries), Decimal(0)))",
     );
   });
 });

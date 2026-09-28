@@ -63,9 +63,17 @@ function bySuffix(files: Map<string, string>, suffix: string): string {
  *  and the idiomatic string conversion that must. */
 const ROWS = [
   {
+    // `.toISOString()`, not `String(...)`.  This row read `String(this._placedAt)`
+    // when the gap was closed, because that was the node arm's generic
+    // fallthrough at the time; F-111 then replaced it, since `String(new Date())`
+    // yields `"Mon Sep 22 2026 07:00:00 GMT+0000 (UTC)"` — a JS locale string,
+    // not a wire form.  Both contracts hold on the new spelling: it is still a
+    // string CONVERSION (this test's subject — the project typechecks) and it
+    // is now the same ISO-8601 the three rows below already asserted, so all
+    // four backends agree on the emitted TEXT and not merely on its type.
     platform: "node",
     file: "domain/order.ts",
-    fixed: "get d(): string { return String(this._placedAt); }",
+    fixed: "get d(): string { return this._placedAt.toISOString(); }",
     raw: "get d(): string { return this._placedAt; }",
   },
   {

@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
 export function renderVanillaProblemDetailsModule(
@@ -53,6 +54,17 @@ export function renderVanillaProblemDetailsModule(
    *  app without one is byte-identical (an unused `defp` is a `mix compile
    *  --warnings-as-errors` failure). */
   hasWireDenials = false,
+  /** M-T5.1 — some operation body builds a constructor-carrying value object
+   *  (`validate_body_value_objects/1` exists).  Carries the DOMAIN-FLOOR status
+   *  + title the refusal answers with; `undefined` ⇒ byte-identical. */
+  bodyValueObjects?: { status: number; title: string },
+  /** M-T1.11 (c) — a MESSAGED rule can trip at the DOMAIN FLOOR: an invariant
+   *  re-asserted after an operation body (a changeset error tagged
+   *  `loom_domain_floor`) or a precondition denying with a coded map detail.
+   *  Both answer through the SAME domain-floor entry sender the body-built value
+   *  object uses (the caller then passes `bodyValueObjects` too).  False ⇒
+   *  byte-identical. */
+  domainFloorCodes = false,
 ): string {
   // Optimistic-concurrency 409 (`versioned` capability, D-VERSIONED).  A stale
   // write raises `Ecto.StaleEntryError`, which the repository rescues into
@@ -197,7 +209,68 @@ export function renderVanillaProblemDetailsModule(
     { name: "status", valueExpr: "422" },
   ]);
   // The 422 body — shared by the plain (no-`unique`) and the unique-aware forms.
-  const body422 = `    send_validation_problem(conn, collect_changeset_errors(changeset, []))`;
+  //
+  // M-T5.1: a value object an operation BODY built and its own constructor
+  // refused arrives as a changeset error tagged `loom_body_value_object`.  It
+  // is not a request-field failure — the body computed the value — so it answers
+  // the DOMAIN-FLOOR rung the other four backends' constructor throw answers:
+  // the domain-floor title/status, the message as `detail`, and ONE `errors[]`
+  // entry whose pointer is `""` (the whole request; it names no member of it).
+  const body422 = bodyValueObjects
+    ? `    case body_value_object_error(changeset) do
+      nil -> send_validation_problem(conn, collect_changeset_errors(changeset, []))
+      {detail, entry} -> send_body_value_object_problem(conn, detail, entry)
+    end`
+    : `    send_validation_problem(conn, collect_changeset_errors(changeset, []))`;
+  const logBodyVo = renderPhoenixLogCall("domainError", [
+    { name: "message", valueExpr: "detail" },
+    { name: "status", valueExpr: `${bodyValueObjects?.status ?? 422}` },
+  ]);
+  const bodyValueObjectFns = bodyValueObjects
+    ? `
+
+  # M-T5.1 — the first changeset error a body-built value object raised, as the
+  # interpolated message (\`detail\`) plus its \`errors[]\` entry re-pointed at the
+  # whole request.  \`nil\` when the changeset carries none (every other 422).
+  defp body_value_object_error(%Ecto.Changeset{errors: errors}) do
+    Enum.find_value(errors, fn
+      {_field, {msg, opts}} = error ->
+        if Keyword.get(opts, :loom_body_value_object)${domainFloorCodes ? " || Keyword.get(opts, :loom_domain_floor)" : ""} do
+          detail =
+            Enum.reduce(opts, msg, fn {key, value}, acc ->
+              String.replace(acc, "%{#{key}}", error_opt_to_string(value))
+            end)
+
+          {detail, Map.put(render_changeset_error(error, []), :pointer, ${domainFloorCodes ? 'Keyword.get(opts, :loom_pointer, "")' : '""'})}
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp send_body_value_object_problem(conn, detail, entry) do
+    ${logBodyVo}
+    ${renderPhoenixDomainFault("domain_error")}
+
+    body =
+      Jason.encode!(%{
+        type: "about:blank",
+        title: ${elixirString(bodyValueObjects.title)},
+        status: ${bodyValueObjects.status},
+        detail: detail,
+        instance: conn.request_path,
+        errors: [entry]
+      })
+
+    trace_id = conn |> get_resp_header("x-request-id") |> List.first("")
+
+    conn
+    |> put_resp_content_type("application/problem+json")
+    |> put_resp_header("x-request-id", trace_id)
+    |> send_resp(${bodyValueObjects.status}, body)
+  end`
+    : "";
   // The one §3.2 `errors[]` 422 SENDER.  Both rungs that produce this body pass
   // through it — the changeset path above and, when the app has one, the
   // wire-translatable `precondition` path below (M-T6.20) — so the two can never
@@ -330,7 +403,7 @@ defmodule ${appModule}Web.ProblemDetails do
   Send a 422 ProblemDetails response carrying the §3.2 \`errors[]\`
   extension built from an \`Ecto.Changeset\` errors map.${conflictDoc}
   """
-${responseFns}${sendValidationProblemFn}${wireErrorsFn}
+${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
 
   @doc """
   Send the 422 a MALFORMED path \`{id}\` earns.
@@ -360,7 +433,20 @@ ${responseFns}${sendValidationProblemFn}${wireErrorsFn}
 
   @doc """
   Send a base ProblemDetails response (no \`errors[]\` extension).
-  """
+  """${
+    domainFloorCodes
+      ? `
+  # M-T1.11 (c) — a MESSAGED precondition denied at the domain floor carries its
+  # detail as a map with the rule's code and pointer: the same domain-floor
+  # answer, plus the errors[] entry the other four backends' coded throw gets.
+  def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer}) do
+    send_body_value_object_problem(conn, detail, %{pointer: pointer, message: ${
+      localizeMessages ? "localize(code, detail)" : "detail"
+    }, code: code})
+  end
+`
+      : ""
+  }
   def problem_response(conn, status, title, detail) do
     # Classify the fault onto the cross-backend catalog event by status, so
     # every fault response (incl. not_found_response/3, which delegates here)

@@ -157,16 +157,20 @@ export function checkTheme(block: ThemeBlock, accept: ValidationAcceptor): void 
     if (!knownNames.has(p.name)) {
       accept(
         "error",
-        `unknown theme property '${p.name}'. Known properties: ${[...knownNames].join(", ")}.`,
-        { node: p, property: "name" },
+        diagMessage("loom.theme-property-unknown", {
+          name: p.name,
+          known: [...knownNames].join(", "),
+        }),
+        { node: p, property: "name", code: "loom.theme-property-unknown" },
       );
       continue;
     }
     // (2) Duplicate property name.
     if (seen.has(p.name)) {
-      accept("error", `theme property '${p.name}' declared more than once.`, {
+      accept("error", diagMessage("loom.theme-property-duplicate", { name: p.name }), {
         node: p,
         property: "name",
+        code: "loom.theme-property-duplicate",
       });
       continue;
     }
@@ -174,26 +178,32 @@ export function checkTheme(block: ThemeBlock, accept: ValidationAcceptor): void 
     // (3) Per-property value validation.
     if (colorNames.has(p.name)) {
       if (!hexColor.test(p.value)) {
-        accept(
-          "error",
-          `theme '${p.name}' must be a CSS hex color (#RGB, #RRGGBB, or #RRGGBBAA); got '${p.value}'.`,
-          { node: p, property: "value" },
-        );
+        accept("error", diagMessage("loom.theme-color-invalid", { name: p.name, value: p.value }), {
+          node: p,
+          property: "value",
+          code: "loom.theme-color-invalid",
+        });
       }
     } else if (p.name === "radius") {
       if (!knownRadius.has(p.value)) {
         accept(
           "error",
-          `theme 'radius' must be one of ${[...knownRadius].join(" | ")}; got '${p.value}'.`,
-          { node: p, property: "value" },
+          diagMessage("loom.theme-radius-invalid", {
+            known: [...knownRadius].join(" | "),
+            value: p.value,
+          }),
+          { node: p, property: "value", code: "loom.theme-radius-invalid" },
         );
       }
     } else if (p.name === "colorScheme") {
       if (!knownColorSchemes.has(p.value)) {
         accept(
           "error",
-          `theme 'colorScheme' must be one of ${[...knownColorSchemes].join(" | ")}; got '${p.value}'.`,
-          { node: p, property: "value" },
+          diagMessage("loom.theme-color-scheme-invalid", {
+            known: [...knownColorSchemes].join(" | "),
+            value: p.value,
+          }),
+          { node: p, property: "value", code: "loom.theme-color-scheme-invalid" },
         );
       }
     }
@@ -260,8 +270,8 @@ export function checkUi(ui: Ui, sys: System, accept: ValidationAcceptor): void {
       if (seen.has(m.name)) {
         accept(
           "error",
-          `Duplicate page '${m.name}' in ${scopeLabel}.  Pages within a scope (the ui top level or one area) must have unique names; an explicit override-by-name displaces a single scaffolded page, not another explicit one.`,
-          { node: m, property: "name" },
+          diagMessage("loom.ui-page-duplicate", { name: m.name, scope: scopeLabel }),
+          { node: m, property: "name", code: "loom.ui-page-duplicate" },
         );
       } else {
         seen.set(m.name, m);
@@ -274,11 +284,10 @@ export function checkUi(ui: Ui, sys: System, accept: ValidationAcceptor): void {
   const menuBlocks = ui.members.filter((m) => m.$type === "MenuBlock");
   if (menuBlocks.length > 1) {
     for (const extra of menuBlocks.slice(1)) {
-      accept(
-        "error",
-        `ui '${ui.name}' declares more than one 'menu { ... }' block; keep just the first.`,
-        { node: extra },
-      );
+      accept("error", diagMessage("loom.ui-menu-duplicate", { name: ui.name }), {
+        node: extra,
+        code: "loom.ui-menu-duplicate",
+      });
     }
   }
 
@@ -292,18 +301,26 @@ export function checkUi(ui: Ui, sys: System, accept: ValidationAcceptor): void {
     if (m.$type !== "UiApiParam") continue;
     const prior = apiParamSeen.get(m.name);
     if (prior) {
-      accept("error", `ui '${ui.name}' declares api parameter '${m.name}' more than once.`, {
-        node: m,
-        property: "name",
-      });
+      accept(
+        "error",
+        diagMessage("loom.ui-api-param-duplicate", { name: ui.name, param: m.name }),
+        {
+          node: m,
+          property: "name",
+          code: "loom.ui-api-param-duplicate",
+        },
+      );
     } else {
       apiParamSeen.set(m.name, m);
     }
     if (!m.apiRef?.ref) {
       accept(
         "error",
-        `ui '${ui.name}' references undeclared api '${m.apiRef?.$refText ?? "<missing>"}'.  Declare it at system scope as 'api ${m.apiRef?.$refText ?? "<Name>"} from <Module>'.`,
-        { node: m, property: "apiRef" },
+        diagMessage("loom.ui-api-unknown", {
+          name: ui.name,
+          apiName: m.apiRef?.$refText ?? "<missing>",
+        }),
+        { node: m, property: "apiRef", code: "loom.ui-api-unknown" },
       );
     }
   }
@@ -320,9 +337,10 @@ export function checkUi(ui: Ui, sys: System, accept: ValidationAcceptor): void {
     if (m.$type !== "UiChannelParam") continue;
     const prior = channelParamSeen.get(m.name) ?? apiParamSeen.get(m.name);
     if (prior) {
-      accept("error", `ui '${ui.name}' declares parameter '${m.name}' more than once.`, {
+      accept("error", diagMessage("loom.ui-param-duplicate", { name: ui.name, param: m.name }), {
         node: m,
         property: "name",
+        code: "loom.ui-param-duplicate",
       });
     } else {
       channelParamSeen.set(m.name, m);
@@ -357,10 +375,15 @@ export function checkUi(ui: Ui, sys: System, accept: ValidationAcceptor): void {
       });
     }
     if (fnSeen.has(m.name)) {
-      accept("error", `ui '${ui.name}' declares function '${m.name}' more than once.`, {
-        node: m,
-        property: "name",
-      });
+      accept(
+        "error",
+        diagMessage("loom.ui-function-duplicate", { name: ui.name, fnName: m.name }),
+        {
+          node: m,
+          property: "name",
+          code: "loom.ui-function-duplicate",
+        },
+      );
     }
     fnSeen.add(m.name);
   }
@@ -504,8 +527,11 @@ export function checkPage(p: Page, ui: Ui, accept: ValidationAcceptor): void {
     if (count > 1) {
       accept(
         "error",
-        `Page '${p.name}' declares more than one '${pagePropDisplayName(key)}' property; keep just the first.`,
-        { node: p, property: "name" },
+        diagMessage("loom.page-property-duplicate", {
+          name: p.name,
+          prop: pagePropDisplayName(key),
+        }),
+        { node: p, property: "name", code: "loom.page-property-duplicate" },
       );
     }
   }
@@ -526,10 +552,12 @@ export function checkPage(p: Page, ui: Ui, accept: ValidationAcceptor): void {
       if (!allowedMenuMetaKeys.has(entry.name)) {
         accept(
           "error",
-          `Unknown menu metadata key '${entry.name}' on page '${p.name}'.  Recognised keys: ${[
-            ...allowedMenuMetaKeys,
-          ].join(", ")}.`,
-          { node: entry, property: "name" },
+          diagMessage("loom.page-menu-key-unknown", {
+            key: entry.name,
+            name: p.name,
+            known: [...allowedMenuMetaKeys].join(", "),
+          }),
+          { node: entry, property: "name", code: "loom.page-menu-key-unknown" },
         );
       }
     }
@@ -558,9 +586,10 @@ export function checkPage(p: Page, ui: Ui, accept: ValidationAcceptor): void {
     const isPreset = v === "default" || v === "none";
     if (!isPreset && !declaredLayouts.has(v)) {
       const known = ["default", "none", ...declaredLayouts].join(", ");
-      accept("error", `Unknown layout '${v}' on page '${p.name}'.  Recognised: ${known}.`, {
+      accept("error", diagMessage("loom.page-layout-unknown", { layout: v, name: p.name, known }), {
         node: prop,
         property: "value",
+        code: "loom.page-layout-unknown",
       });
     }
   }
@@ -615,10 +644,11 @@ export function checkMenuBlock(block: MenuBlock, ui: Ui, accept: ValidationAccep
         if (!allowedLinkKeys.has(prop.name)) {
           accept(
             "error",
-            `Unknown menu link property '${prop.name}'.  Recognised: ${[...allowedLinkKeys].join(
-              ", ",
-            )}.`,
-            { node: prop, property: "name" },
+            diagMessage("loom.menu-link-property-unknown", {
+              prop: prop.name,
+              known: [...allowedLinkKeys].join(", "),
+            }),
+            { node: prop, property: "name", code: "loom.menu-link-property-unknown" },
           );
         }
       }
@@ -671,8 +701,12 @@ export function checkApiBodyRefs(p: Page, ui: Ui, accept: ValidationAcceptor): v
     if (!aggregate) {
       accept(
         "error",
-        `Aggregate '${aggregateName}' not found in api '${apiNode.name}' (subdomain '${moduleName}').`,
-        { node: aggSuffix, property: "member" },
+        diagMessage("loom.ui-api-aggregate-unknown", {
+          aggName: aggregateName,
+          apiName: apiNode.name,
+          moduleName,
+        }),
+        { node: aggSuffix, property: "member", code: "loom.ui-api-aggregate-unknown" },
       );
       continue;
     }
@@ -681,8 +715,12 @@ export function checkApiBodyRefs(p: Page, ui: Ui, accept: ValidationAcceptor): v
       const allowed = listValidApiOperations(aggregate);
       accept(
         "error",
-        `Operation '${op}' is not declared on aggregate '${aggregateName}'.  Available: ${allowed.join(", ")}.`,
-        { node: opSuffix, property: "member" },
+        diagMessage("loom.ui-api-operation-unknown", {
+          op,
+          aggName: aggregateName,
+          allowed: allowed.join(", "),
+        }),
+        { node: opSuffix, property: "member", code: "loom.ui-api-operation-unknown" },
       );
     }
   }
@@ -691,11 +729,11 @@ export function checkApiBodyRefs(p: Page, ui: Ui, accept: ValidationAcceptor): v
 /** Validate a named `layout <Name> { … }` SystemMember. */
 export function checkLayout(layout: Layout, accept: ValidationAcceptor): void {
   if (layout.name === "default" || layout.name === "none") {
-    accept(
-      "error",
-      "Layout name '" + layout.name + "' shadows a reserved layout preset.  Pick a different name.",
-      { node: layout, property: "name" },
-    );
+    accept("error", diagMessage("loom.layout-name-reserved", { name: layout.name }), {
+      node: layout,
+      property: "name",
+      code: "loom.layout-name-reserved",
+    });
   }
   let mainCount = 0;
   const slotCounts = new Map<string, number>();
@@ -708,28 +746,24 @@ export function checkLayout(layout: Layout, accept: ValidationAcceptor): void {
     slotCounts.set(slotName, (slotCounts.get(slotName) ?? 0) + 1);
   }
   if (mainCount === 0) {
-    accept(
-      "error",
-      "Layout '" + layout.name + "' must declare a 'main' slot (the page-body Outlet position).",
-      { node: layout, property: "name" },
-    );
+    accept("error", diagMessage("loom.layout-main-slot-missing", { name: layout.name }), {
+      node: layout,
+      property: "name",
+      code: "loom.layout-main-slot-missing",
+    });
   } else if (mainCount > 1) {
-    accept(
-      "error",
-      "Layout '" + layout.name + "' declares more than one 'main' slot; keep just the first.",
-      { node: layout, property: "name" },
-    );
+    accept("error", diagMessage("loom.layout-slot-duplicate#main", { name: layout.name }), {
+      node: layout,
+      property: "name",
+      code: "loom.layout-slot-duplicate",
+    });
   }
   for (const [slotName, count] of slotCounts) {
     if (count > 1) {
       accept(
         "error",
-        "Layout '" +
-          layout.name +
-          "' declares more than one '" +
-          slotName +
-          "' slot; keep just the first.",
-        { node: layout, property: "name" },
+        diagMessage("loom.layout-slot-duplicate", { name: layout.name, slot: slotName }),
+        { node: layout, property: "name", code: "loom.layout-slot-duplicate" },
       );
     }
   }

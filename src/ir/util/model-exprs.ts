@@ -689,6 +689,14 @@ function visitSystem(sys: SystemIR, v: ExprVisitor) {
  * cross-cutting proofs, the checks that will drop their own partial loops)
  * wants it available at both stages of the pipeline.
  */
+/** {@link forEachModelExpr} narrowed to one bounded context — every
+ *  expression a context holds (aggregates, workflows, finds, handlers, …),
+ *  deep.  For per-context facts such as "does this context read the operating
+ *  scope" (`src/ir/util/org-context.ts`). */
+export function forEachContextExpr(ctx: BoundedContextIR, visit: ExprVisitor): void {
+  visitContext(ctx, visit);
+}
+
 export function forEachModelExpr(model: LoomModel, visit: ExprVisitor): void {
   for (const sys of model.systems) visitSystem(sys, visit);
   for (const c of model.contexts) visitContext(c, visit);

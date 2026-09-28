@@ -145,7 +145,7 @@ describe("scaffoldHandlers + scaffoldApi — equivalence with explicit form", ()
     const macroCtx = allContexts(lowerModel(macro.model)).find((c) => c.name === "Ordering")!;
     const explicitCtx = allContexts(lowerModel(explicit.model)).find((c) => c.name === "Ordering")!;
 
-    const sliceCmd = (h: (typeof macroCtx.commandHandlers)[number]) => ({
+    const sliceCmd = (h: NonNullable<typeof macroCtx.commandHandlers>[number]) => ({
       name: h.name,
       params: h.params.map((p) => p.name),
       statements: h.statements.map((s) => s.kind),

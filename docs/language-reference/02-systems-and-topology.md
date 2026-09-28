@@ -581,3 +581,21 @@ system Shop {
 ```
 
 The generated filters, stamps, hierarchical `dataKey` scoping, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
+
+### `organizationContext` — the operating scope
+
+Under a hierarchy (the registry `implements tenantRegistry`), backend code may read `organizationContext.orgPath` — the materialized path of the org the request operates *in*. It is the principal's own `currentUser.orgPath` unless the request carries an `x-org-context: <path>` header naming an org inside the caller's subtree; every backend's auth middleware validates that header before any handler runs and answers anything else with a 403. Its first use is the tenant write stamp:
+
+```ddd
+capability tenantOwned {
+  tenantId: string internal
+  dataKey: string? internal
+  stamp onCreate {
+    tenantId := currentUser.tenantId
+    dataKey := organizationContext.orgPath   // the operating scope
+  }
+  filter this.tenantId == currentUser.tenantId // reads stay on the principal
+}
+```
+
+`orgPath` is the only member, and it is backend-only (`loom.org-context-surface`); a read needs the hierarchy and `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). The gate table, the per-backend seams and what a switched write is visible to are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).

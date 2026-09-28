@@ -1157,12 +1157,95 @@ defect-naming tests and leaves the three "must not change" tests green. The shar
 number comes from the uniqueness assertion — pre-fix the repro deployable publishes **4
 request components under 3 distinct names**; post-fix, 4 under 4.
 
-**Still open — elixir and java.** Each needs a different mechanism and neither is a rename:
-- **elixir** must additionally *emit* the missing schema module. Today only one is generated,
-  so qualifying the names is not enough — there is no second schema to point at.
-- **java** needs a schema-name override (`@Schema(name=)`) AND the emitted
-  `OpenApiContractCustomizer`'s `RequiredSet` patch table, which is keyed by the SHORT name,
-  has to move with the naming or it will patch the wrong schema.
+**FIXED (elixir, then java) — both after the correction below, which changed what the
+elixir fix had to be.**
+
+**CORRECTION on elixir.** This entry first said elixir "must additionally *emit* the missing
+schema module … there is no second schema to point at". That was wrong about the mechanism,
+and only reading the emitter showed it. Elixir *does* emit both modules —
+`renderOperationRequestSchema` and `renderWorkflowRequestSchema` (both in
+`src/generator/elixir/vanilla/openapi-emit.ts`) exist and both run. The collision lands on
+the **file path**, not the emission:
+
+| owner | path | on a collision |
+|---|---|---|
+| operation | `<schema_dir>/${snake(op.name)}_${snake(agg.name)}_request.ex` | `schedule_work_order_request.ex` |
+| workflow | `<schema_dir>/${snake(wf.name)}_request.ex` | `schedule_work_order_request.ex` |
+
+Same path. The workflow loop runs second, so `files.set` **clobbers** the operation's module.
+Measured on `eval/matrix/be-elixir.ddd`: exactly one `schedule_work_order_request.ex` exists,
+and it carries the workflow's params (`workOrder, technician, asset, at`), not the
+operation's. So "the schema was never emitted" describes the symptom, not the cause — it was
+emitted and then overwritten.
+
+That makes elixir the SAME fix as node: thread the resolved name into both render functions
+*and* derive each `files.set` path from it. `snake(resolvedName)` is byte-identical to today's
+path derivation for every non-colliding name (verified against `snake()` for the operation,
+workflow and qualified forms), so the path change is a no-op except exactly where it must not
+be.
+
+**FIXED (elixir).** Exactly that: the owner list is built over the deployable's aggregates
+and workflows, the resolved name is threaded into all three render functions, and every
+`files.set` path derives from `snake(resolvedName)`. The elixir owner list lists a create
+owner **unconditionally**, unlike node's — measured, not assumed: phoenix's schema loop has
+no `emitsRestCreate` gate (only the spec's *reference* to the schema is gated), so the path
+is occupied whether or not the document links to it, and gating it would have left an
+orphaned module. Proved by real compilation: a fixture carrying BOTH collision shapes
+(`operation schedule` + `workflow scheduleWorkOrder`, and a `crudish` create + `workflow
+createWorkOrder`) reaches `mix compile --warnings-as-errors` → `Generated api app`, exit 0.
+A renamed-but-unreferenced module, or a spec referencing a module that no longer exists,
+fails that.
+
+- **java** does genuinely need a different mechanism, and unlike the elixir claim above
+  this one SURVIVED checking. Java emits BOTH records, to different packages, and both
+  files exist:
+
+  ```
+  com.loom.api.features.workorders.ScheduleWorkOrderRequest
+    public record ScheduleWorkOrderRequest(@NotNull UUID technician, @NotNull String at)
+  com.loom.api.application.workflows.ScheduleWorkOrderRequest
+    public record ScheduleWorkOrderRequest(@NotNull UUID workOrder, @NotNull UUID technician,
+                                           @NotNull UUID asset, @NotNull String at)
+  ```
+
+  So nothing is clobbered — this is the .NET/Swashbuckle shape exactly: two distinct types
+  with one SHORT name, which is what springdoc uses as the schema name, so the two collapse
+  onto one published component. The difference from .NET is only that Swashbuckle throws and
+  springdoc keeps one silently.
+
+  That makes renaming the wrong tool: the Java class names are part of the generated code's
+  own API and must stay. Only the PUBLISHED name may diverge, via `@Schema(name = "...")` —
+  the springdoc analogue of .NET's `CustomSchemaIds`. AND the emitted
+  `OpenApiContractCustomizer`'s `RequiredSet` patch table, keyed by the SHORT name at
+  `openapi-customizer.ts:279` (operations) and `:468` (workflows) — the same two rules again —
+  has to move with the naming or it patches the wrong schema.
+
+  **FIXED (java).** Both halves. `@Schema(name = "…")` publishes the owner-qualified name
+  while the class name stays put, emitted only where the base name genuinely collides; and
+  the `RequiredSet` table, being keyed by published name, splits with it. Java's create
+  owner is gated on `emitsRestCreate` — a **third** answer, differing from both node
+  (gated) and elixir (unconditional), so pattern-matching either neighbour would have
+  produced a phantom owner or an orphan. The owner list is derived once, in
+  `src/generator/java/request-component-owners.ts`, imported by both
+  `buildJavaOpenApiContract` and `emitProjectFromContexts`: deriving it twice in two places
+  IS the §89 shape this whole finding is about, and one function cannot disagree with
+  itself.
+
+  Verified the only way a springdoc claim can be, by booting the app and reading the live
+  `/openapi.json` (jar via `gradle:9-jdk25`, against postgres):
+
+  ```
+  before   POST /api/work_orders/{id}/schedule     -> ScheduleWorkOrderRequest
+           POST /api/workflows/schedule_work_order -> ScheduleWorkOrderRequest
+           components: ScheduleWorkOrderRequest required ["note"]   # the workflow's shape
+                       (no schema for the operation's {at} at all)
+
+  after    POST /api/work_orders/{id}/schedule     -> WorkOrdersScheduleWorkOrderRequest  required ["at"]
+           POST /api/workflows/schedule_work_order -> WorkflowsScheduleWorkOrderRequest   required ["note"]
+  ```
+
+  That top block is the finding stated as an executable fact: a client generated from the
+  published spec sends `{note}` to an endpoint that needs `{at}`.
 
 Fixing node first makes the cross-backend parity diff *useful* again on a colliding model:
 node now disagrees with elixir/java there, which surfaces the two remaining halves instead
@@ -1170,8 +1253,65 @@ of hiding them behind a shared bug. No shipped gate moves, because the only coll
 in the CI corpus with an affected backend is `extern-showcase.ddd`, whose node output the
 new test now pins directly.
 
-**Not yet fixed.** The remaining decision is narrower than it first looked: adopt .NET's
-existing convention in the shared layer (owner-qualified ids for colliding short names),
-which changes published component names on node/elixir/java, or refuse a colliding model
-with a `loom.*` diagnostic and leave every published name alone. The first is what the
-codebase already does once; the second costs users a model that is legal today.
+**RESOLVED, the first way.** The choice was between adopting .NET's existing convention in
+the shared layer (owner-qualified ids for colliding short names) and refusing a colliding
+model with a `loom.*` diagnostic. The first won because the codebase already does it once:
+a fixed backend now AGREES with the ids .NET publishes rather than inventing a third
+spelling, and no user loses a model that is legal today. All three affected backends
+(node, elixir, java) route through `src/generator/_openapi/request-component-names.ts`;
+python and dotnet were already correct by their own means and are untouched.
+
+**THE GATE IS NOW IN — `test/system/openapi-component-uniqueness-census.test.ts`.** The
+four fixes above close four instances; this closes most of the class. A whole-corpus census
+(the `corpus` vitest project, ~76 s) generates every tracked `.ddd` and asserts that no
+deployable publishes one request-component name under two different shapes.
+
+Three things make it worth having rather than decorative:
+
+1. **It is not circular.** Asserting that `resolveRequestComponentNames` returns distinct
+   names proves nothing — it does so by construction. The bug that ships is an owner the
+   minter never saw, which is exactly what #3047 was. A forgotten owner emits a name the
+   minter never resolved, so only the emitted output shows it; the census reads the emitted
+   output.
+2. **It compares SHAPES, not registrations.** The first version asserted "no name registered
+   twice" and went red on ~30 corpus files. Investigating rather than waiving them showed
+   why: a shared value object or enum (`Money`, `TaskStatus`) legitimately reaches several
+   route files and re-registers an IDENTICAL component, which is a no-op. Only differing
+   shapes under one name are the defect.
+3. **Mutation-proved on its final shape** (revert by file copy, §84): neutralising the
+   shared minter fails the node case, the java case and the non-vacuity anchor, and the
+   failure names real corpus collisions — including `SendReferralRequest` in
+   `eval-clinica/clinica/main.ddd`, which NONE of the per-shape fixtures had ever named.
+   That is the census earning its keep: it sees instances nobody wrote a fixture for.
+
+**A false positive I nearly reported as a finding, and what it cost to disprove.** The
+census's first red run also flagged `AllQuery` — every aggregate's auto-`findAll` mints
+`<Find>Query` with no aggregate qualifier (`routes-builder.ts:855`), so in a multi-aggregate
+node deployable the label collides, with genuinely different `sort` enums per aggregate. It
+looks exactly like a third instance of the class, and I wrote it up as one. It is not.
+Dumping the real document from a booted generated app (`sales-system.ddd`) settled it:
+
+| | labels the emitter writes | components in the published document |
+|---|---|---|
+| `sales-system.ddd` | 25 | **22** |
+
+`AllQuery` is one of the three missing. zod-openapi decomposes a query object into
+individual `parameters`, so the label is dropped and each endpoint carries its OWN inlined
+schema — measured, each list endpoint keeps its correct enum (`customers`:
+`["id","name","email",""]`, `products`: `["id","sku",""]`, `orders`:
+`["id","status","placedAt",""]`). The other two are `<Agg>ListResponse`, labelled but
+referenced by no route, so never emitted.
+
+The lesson is the finding's own lesson turned on the gate: **a label is not a published
+component**, and the only way to know which labels reach the document is to read the
+document. That is why the census is scoped to `*Request` — measured to be exactly the set
+where labels and components coincide — and why the scoping is written down in
+`test/_helpers/published-openapi-components.ts` rather than left as a hunch.
+
+**What the census still does NOT cover**, stated so the coverage claim stays honest: only
+node and java, because only they carry the registry key in emitted source (node's
+`.openapi("…")` literal, java's `@Schema(name=)`-or-class-name). elixir's failure mode is a
+file-path clobber that leaves one legitimate-looking module; python auto-qualifies by module
+so a collision cannot form; dotnet's Swashbuckle throws rather than silently keeping one.
+And response components are out of scope — their rules are aggregate-qualified so they
+cannot collide the way the two request rules did, which is an argument rather than a gate.

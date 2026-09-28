@@ -16,7 +16,7 @@ import {
   tenancyClaimBinding,
 } from "../../src/ir/util/tenant-stance.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { buildLoomModel } from "../_helpers/ir.js";
+import { buildLoomModel, reEnrich } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
 function findAgg(ir: LoomModel, name: string): AggregateIR {
@@ -127,7 +127,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
   it("is idempotent — a second enrichment pass appends nothing", async () => {
     const { model } = await parseString(TENANCY_SRC, { validate: false });
     const once = enrichLoomModel(lowerModel(model));
-    const twice = enrichLoomModel(once);
+    const twice = reEnrich(once);
     expect(findAgg(twice, "Organization").contextFilters).toHaveLength(1);
     expect(twice).toEqual(once);
   });

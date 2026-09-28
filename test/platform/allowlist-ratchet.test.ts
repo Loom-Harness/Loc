@@ -582,28 +582,35 @@ const REGISTERED: Ratchet[] = [
     // additionally needs a broker container, exactly as `channels-broker`
     // beside it does.
     //
-    // 25 -> 26: a RAISE, so it is spelled out (#3024 — `dotnet-bcl-type-collision`).
-    // ARITHMETIC AGAINST `main`'s value at this merge, per the rule above, and
-    // re-derived a SECOND time because `main` moved again: the shared base reads
-    // **23**, `main` has since raised it by TWO (to 25, the two witnesses
-    // described just above), and this branch adds ONE fixture — so 23 + 2 + 1 =
-    // **26**.  The 24 this branch carried was correct against the 23 it merged
-    // from and is stale now; restoring it would have silently eaten both of
-    // main's raises, which is the exact failure this file's rule names.
-    // remembers.  Re-derived at each merge rather than carried: `main` reads 24
-    // again here (slice 2's drain took it to 22, `enum-collection` and
-    // `principal-read-filter` raised it by two), so this drain subtracts one
-    // from 24.  Restoring a remembered number is how a ratchet silently loses
-    // somebody else's raise.
+    // 25 -> 26 (2026-09-28, wave C5 moment 5e, M-T3.6 items 3+5):
+    // `org-context`.  A RAISE whose runtime home already exists: the subject is
+    // the `x-org-context` REQUEST HEADER each backend's auth middleware
+    // validates before routing, which the `test e2e` vocabulary cannot set, so a
+    // behavioural block could only drive the no-switch default (indistinguishable
+    // from `tenancy-hierarchy`).  The switch itself is proven on a booted app per
+    // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
+    // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
+    // once #2976's registry-row principal lands).
+    // 25 -> 27, SECOND raise at this merge (#3024 — `dotnet-bcl-type-collision`).
     //
-    // A NEW corpus fixture whose subject the compile tier does not merely gate
-    // but IS: a domain type named after a BCL type (`aggregate Task` vs
-    // `System.Threading.Tasks.Task`) made the emitted .NET project fail its own
-    // build with 17 errors — CS0104 in every file that wildcard-imports the
-    // domain namespace, CS0535/CS0738 where the repository interface DECLARES it
-    // — while `generate system` reported `0 error(s), 0 warning(s)`.  The shipped
-    // `ddd new --platform dotnet --template crud` starter emits exactly that
-    // shape, so the starter did not compile.
+    // READ THIS BEFORE TOUCHING THE NUMBER.  `main` and this branch BOTH raised
+    // 25 -> 26 at the same time, for DIFFERENT fixtures — `org-context` above,
+    // `dotnet-bcl-type-collision` here.  Because both sides wrote the identical
+    // literal `26`, git auto-merged the `max:` line WITHOUT a conflict and left
+    // only the prose to collide.  The number it produced was wrong: two +1
+    // raises off a base of 25 are ADDITIVE, so the answer is **27**.
+    // A ratchet bound is the one kind of value where a clean textual merge
+    // proves nothing — always re-derive it as base + each side's delta, and
+    // mutation-prove the result, rather than trusting the merged literal.
+    //
+    // The fixture itself: a NEW corpus entry whose subject the compile tier does
+    // not merely gate but IS — a domain type named after a BCL type (`aggregate
+    // Task` vs `System.Threading.Tasks.Task`) made the emitted .NET project fail
+    // its own build with 17 errors (CS0104 in every file that wildcard-imports
+    // the domain namespace, CS0535/CS0738 where the repository interface
+    // DECLARES it) while `generate system` reported `0 error(s), 0 warning(s)`.
+    // The shipped `ddd new --platform dotnet --template crud` starter emits
+    // exactly that shape, so the starter did not compile.
     //
     // A `test e2e` block here would be the hollowing-out this gate was minted to
     // stop rather than a drain: the fix is a compile-time `using` alias plus a
@@ -617,7 +624,7 @@ const REGISTERED: Ratchet[] = [
     // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
     // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
-    max: 26,
+    max: 27,
   },
 ];
 

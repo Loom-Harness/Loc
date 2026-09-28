@@ -1,7 +1,7 @@
-import { AstUtils, EmptyFileSystem } from "langium";
+import { type AstNode, AstUtils, EmptyFileSystem } from "langium";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
+import { isAggregate, isBoundedContext, type Model } from "../../../src/language/generated/ast.js";
 import {
   addConstructSource,
   listContextNames,
@@ -30,10 +30,10 @@ const SRC = `system S {
  *  $container up the parsed tree. */
 function contextOf(src: string, agg: string): string | undefined {
   for (const n of AstUtils.streamAst(parse(src))) {
-    if (n.$type === "Aggregate" && (n as { name: string }).name === agg) {
-      let p = n.$container;
-      while (p && p.$type !== "BoundedContext") p = p.$container;
-      return (p as { name?: string } | undefined)?.name;
+    if (isAggregate(n) && n.name === agg) {
+      let p: AstNode | undefined = n.$container;
+      while (p && !isBoundedContext(p)) p = p.$container;
+      return p?.name;
     }
   }
   return undefined;

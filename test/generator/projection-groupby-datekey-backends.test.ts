@@ -122,7 +122,10 @@ describe("java — computed date grouping key", () => {
     // `2026-08-01 00:00:00.0` — NOT ISO-8601, and a silent wire divergence
     // from the other four backends rather than an error.
     const svc = file(await build("java"), "OrdersQueryProjections.java");
-    expect(svc).toContain("groupKeyInstant(r[0]).toString()");
+    // …and then through the canonical millisecond wire form (RS-38).
+    expect(svc).toContain(
+      "groupKeyInstant(r[0]).truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()",
+    );
     expect(svc).toContain("private static java.time.Instant groupKeyInstant(Object v) {");
     expect(svc).toContain("if (v instanceof java.sql.Timestamp t) return t.toInstant();");
   });
@@ -160,17 +163,18 @@ describe("elixir — computed date grouping key", () => {
     expect(mod.split(frag).length - 1).toBe(3);
   });
 
-  it("normalises the fragment's key back onto the :utc_datetime convention", async () => {
+  it("normalises the fragment's key back onto the canonical `Loom.Datetime` form", async () => {
     // Regression: a raw `fragment` bypasses Ecto's schema type mapping, so
     // Postgrex returns a microsecond-precision `%NaiveDateTime{}` where the
     // schema-typed field yields a second-precision `%DateTime{}` — the key
     // serialised `2026-08-01T00:00:00.000000` against the other four
     // backends' `2026-08-01T00:00:00Z`.  A wrong VALUE, not an error.
+    // The normaliser is the declared-`datetime` column type's own
+    // (`Loom.Datetime.normalize/1`, RS-38), so a key reads exactly as the
+    // schema-typed field would.
     const mod = file(await build("elixir"), "daily_revenue.ex");
     expect(mod).toContain("day: group_key_utc(row.day)");
-    expect(mod).toContain(
-      "defp group_key_utc(%DateTime{} = dt), do: DateTime.truncate(dt, :second)",
-    );
+    expect(mod).toContain("defp group_key_utc(%DateTime{} = dt), do: Loom.Datetime.normalize(dt)");
     expect(mod).toContain("defp group_key_utc(%NaiveDateTime{} = ndt)");
   });
 

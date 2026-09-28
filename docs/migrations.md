@@ -806,6 +806,58 @@ regression acceptable to catch one merge later — but applying the
 `run-migration-e2e` label to a PR runs all five legs against that branch before
 merge.
 
+## Semantic changes that emit no migration — exact `decimal` arithmetic (RS-37)
+
+Not every change to what lands in a column is a schema change. When
+[RS-37](conformance-semantics.md) made `decimal` arithmetic exact on node and
+python (M-T5.22 — the other three backends already computed it exactly), the
+column type did not move, so phase ⑨ derives **no migration** and none is
+needed. What moved is the *value* those two backends compute and then write: a
+`derived x: decimal = a + b`, or an operation's `total := total + x`, now stores
+`0.3` where it stored `0.30000000000000004`.
+
+**Historical rows are not rewritten.** A row node or python persisted before the
+change keeps its binary-float value, so an unchanged input can read back
+`0.30000000000000004` from an old row and `0.3` from a new one — and a
+`find … where` equality against a stored computed value can match one and miss
+the other. A stored `derived` column can be brought into line by re-saving the
+row through the regenerated backend (a save recomputes every `derived` from the
+row's own fields) or by a one-off `UPDATE … SET x = <the same expression in
+SQL>` — Postgres `numeric` arithmetic is exact, so the SQL answer is the new
+answer. A value an OPERATION wrote cannot be recomputed that way — the inputs it
+was computed from are gone — so it keeps its old spelling unless the
+deployment rounds it itself. Loom emits no backfill for either: it has no record
+of which stored values were computed rather than entered.
+
+## A column type that moved without a migration — elixir `datetime` (RS-38)
+
+[RS-38](conformance-semantics.md) (wave C5 moment 5b, ledger `F2-W-06`) moved
+the Phoenix backend's declared `datetime` columns from `:utc_datetime` — Ecto's
+`timestamp(0)`, SECOND precision — to `timestamptz`, the microsecond column the
+other four backends already used, read through the `Loom.Datetime` Ecto type
+(milliseconds on the wire). The MigrationsIR did not change: the column is still
+a `datetime`, and phase ⑨ derives **no** migration step for it. What changed is
+how the elixir migration emitter *renders* that column type, so:
+
+- **A fresh database** gets `timestamptz` from the initial migration, and a
+  written fraction round-trips.
+- **A database created before the change** keeps its `timestamp(0)` columns —
+  its initial migration already ran and Ecto does not re-run it. The regenerated
+  app still boots and still reads, but Postgres ROUNDS a sub-second value to the
+  second on write (`.999` becomes the next second), so the stored value can
+  disagree with what the request carried. Alter the columns once:
+
+  ```sql
+  ALTER TABLE <schema>.<table>
+    ALTER COLUMN <column> TYPE timestamptz USING <column> AT TIME ZONE 'UTC';
+  ```
+
+  for every declared `datetime` column (the stamped `created_at` / `updated_at`
+  of an `auditable` aggregate included) and the event-log `occurred_at`. Loom
+  emits no such step: a type change that does not move the IR is invisible to
+  the diff that would have to produce it — the same limit the RS-37 note above
+  records for values.
+
 ## Relationship to `.loom/` and `wire-spec.json`
 
 Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
@@ -825,3 +877,56 @@ Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
 
 See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.
+
+## Language-version migrations
+
+The rest of this page is about *schema* migrations the compiler derives. This
+section is about the other kind: a language change that moves what an
+unchanged `.ddd` means, and the mechanical edit that keeps a project's
+behaviour across it.
+
+### The `enforcement:` default flip (M-T3.1)
+
+**What changed.** An `auth { … }` block that writes no `enforcement:` used to
+be in `enforcement: opt` — only members that declare a `requires` gate were
+gated, and every other client-reachable command and read served any
+authenticated caller. It is now in `enforcement: denyByDefault`: every
+client-reachable command (operations, creates, destroys, workflow starters and
+handlers, route-bound command/query handlers) and every declared read (named
+finds, projections, workflow-instance reads, `audited` history) on an
+`auth: required` deployable must carry a `requires` gate, or the build fails
+with `loom.default-deny-ungated` / `loom.audit-history-ungated`
+([`auth.md`](auth.md) lists every arm and the two warning-only exceptions).
+
+**What did not change.** A system with no `auth { … }` block has no enforcement
+posture and is not checked, before or after. `enforcement:` has no effect on
+the generated code — `denyByDefault` is a compile-time refusal, not a runtime
+filter — so a model that validates under both postures emits byte-identical
+output under either. A gated route answers 403 exactly as it did.
+
+**Keeping the old behaviour.** Write `enforcement: opt` into the `auth` block.
+The codemod does it for every block that names no `enforcement:`:
+
+```bash
+node scripts/codemod-enforcement-opt.mjs .            # rewrite every *.ddd under .
+node scripts/codemod-enforcement-opt.mjs --list .     # print what it would rewrite
+node scripts/codemod-enforcement-opt.mjs --check .    # exit 1 while any block still relies on the default
+```
+
+```ddd
+auth {
+  enforcement: opt          // inserted by the codemod
+  provider: keycloak
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+}
+```
+
+It is a text edit — comments and formatting outside the inserted clause are
+untouched, a commented-out `auth {` is not a block, and a block that already
+names `enforcement:` (either value) is left alone, so it is safe to re-run.
+
+**Adopting the new default instead.** Delete the `enforcement: opt` line (or
+never run the codemod), run `ddd parse`, and answer each
+`loom.default-deny-ungated` with a `requires <expr>` — `requires true` where a
+member is intentionally public. `with crudish(requires: <Policy>)` gates the
+members the macro emits.

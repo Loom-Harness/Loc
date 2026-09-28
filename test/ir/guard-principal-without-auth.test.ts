@@ -55,7 +55,7 @@ ${opts.agg ?? AGG}
 async function codesFor(src: string): Promise<string[]> {
   return validateLoomModel(await buildLoomModel(src))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 describe("validator — a principal guard on a deployable with no auth", () => {

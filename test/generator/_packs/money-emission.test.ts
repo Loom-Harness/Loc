@@ -16,16 +16,16 @@ import { describe, expect, it } from "vitest";
 import { renderCsType } from "../../../src/generator/dotnet/render-expr.js";
 import { mapTypeToEcto } from "../../../src/generator/elixir/vanilla/schema-emit.js";
 import { renderTsType } from "../../../src/generator/typescript/render-expr.js";
-import {
-  buildExternHandlersFile as _externStub,
-  type AggregateIR,
-  type BoundedContextIR,
+import type {
+  EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
 } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/index.js";
 
-void _externStub; // re-export anchor; not invoked here
-
-async function billingFixture(): Promise<{ ctx: BoundedContextIR; inv: AggregateIR }> {
+async function billingFixture(): Promise<{
+  ctx: EnrichedBoundedContextIR;
+  inv: EnrichedAggregateIR;
+}> {
   const src = fs.readFileSync(
     path.resolve(__dirname, "..", "../..", "examples/money-primitive.ddd"),
     "utf8",

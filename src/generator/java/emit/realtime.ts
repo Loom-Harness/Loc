@@ -5,6 +5,7 @@ import { lines } from "../../../util/code-builder.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { jid } from "../java-ident.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
+import { javaInstantWire } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Realtime SSE wire — `<base>/api/RealtimeController.java` (channels.md,
@@ -40,7 +41,7 @@ function javaRealtimeValue(access: string, t: TypeIR): string {
   const opt = t.kind === "optional";
   let base = access;
   if (inner.kind === "id") base = `${access}.value()`;
-  else if (inner.kind === "primitive" && inner.name === "datetime") base = `${access}.toString()`;
+  else if (inner.kind === "primitive" && inner.name === "datetime") base = javaInstantWire(access);
   // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
   // whatever scale the domain `BigDecimal` happens to carry rather than the
   // canonical 4dp every other read path (REST, channels) now applies (see

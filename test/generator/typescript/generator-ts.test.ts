@@ -143,12 +143,17 @@ describe("typescript generator", () => {
     // the routes file and a workflow body call an aggregate `function` from
     // outside the class, so `private` was a TS2341 (see
     // `aggregate-function-visibility.test.ts`).
-    expect(cart).toMatch(/public lineTotal\(\): number \{ return this\._weight \* this\._rate; \}/);
+    // (`decimal` arithmetic is exact — RS-37 — so the operands ride decimal.js.)
+    expect(cart).toContain(
+      "public lineTotal(): number { return new Decimal(this._weight).times(this._rate).toNumber(); }",
+    );
     // Block form emits its lowered statements.
     expect(cart).toMatch(/public shippingFor\(extra: number\): number \{/);
-    expect(cart).toMatch(/const base = this\._weight \* this\._rate;/);
+    expect(cart).toContain("const base = new Decimal(this._weight).times(this._rate).toNumber();");
     expect(cart).toMatch(/if \(!\(base >= 0\)\) throw new DomainError/);
-    expect(cart).toMatch(/return \(this\._domestic \? base : base \+ this\._surcharge\) \+ extra;/);
+    expect(cart).toContain(
+      "return new Decimal((this._domestic ? base : new Decimal(base).plus(this._surcharge).toNumber())).plus(extra).toNumber();",
+    );
   });
 
   it("emits Dockerfile + .dockerignore", async () => {
@@ -589,7 +594,10 @@ describe("typescript generator", () => {
         /"content-type": "application\/problem\+json", "x-request-id": trace_id/,
       );
       expect(routes).toMatch(/return problem\(403, "Forbidden", err\.message\)/);
-      expect(routes).toMatch(/return problem\(422, "Unprocessable Entity", err\.message\)/);
+      // M-T5.1 — a value-object breach answers first when the project has one.
+      expect(routes).toMatch(
+        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message\)/,
+      );
       expect(routes).toMatch(/return problem\(404, "Not Found", err\.message\)/);
       expect(routes).toMatch(/return problem\(500, "Internal Server Error", "internal"\)/);
     });
