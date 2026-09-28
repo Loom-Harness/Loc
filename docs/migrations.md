@@ -825,3 +825,56 @@ Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
 
 See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.
+
+## Language-version migrations
+
+The rest of this page is about *schema* migrations the compiler derives. This
+section is about the other kind: a language change that moves what an
+unchanged `.ddd` means, and the mechanical edit that keeps a project's
+behaviour across it.
+
+### The `enforcement:` default flip (M-T3.1)
+
+**What changed.** An `auth { … }` block that writes no `enforcement:` used to
+be in `enforcement: opt` — only members that declare a `requires` gate were
+gated, and every other client-reachable command and read served any
+authenticated caller. It is now in `enforcement: denyByDefault`: every
+client-reachable command (operations, creates, destroys, workflow starters and
+handlers, route-bound command/query handlers) and every declared read (named
+finds, projections, workflow-instance reads, `audited` history) on an
+`auth: required` deployable must carry a `requires` gate, or the build fails
+with `loom.default-deny-ungated` / `loom.audit-history-ungated`
+([`auth.md`](auth.md) lists every arm and the two warning-only exceptions).
+
+**What did not change.** A system with no `auth { … }` block has no enforcement
+posture and is not checked, before or after. `enforcement:` has no effect on
+the generated code — `denyByDefault` is a compile-time refusal, not a runtime
+filter — so a model that validates under both postures emits byte-identical
+output under either. A gated route answers 403 exactly as it did.
+
+**Keeping the old behaviour.** Write `enforcement: opt` into the `auth` block.
+The codemod does it for every block that names no `enforcement:`:
+
+```bash
+node scripts/codemod-enforcement-opt.mjs .            # rewrite every *.ddd under .
+node scripts/codemod-enforcement-opt.mjs --list .     # print what it would rewrite
+node scripts/codemod-enforcement-opt.mjs --check .    # exit 1 while any block still relies on the default
+```
+
+```ddd
+auth {
+  enforcement: opt          // inserted by the codemod
+  provider: keycloak
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+}
+```
+
+It is a text edit — comments and formatting outside the inserted clause are
+untouched, a commented-out `auth {` is not a block, and a block that already
+names `enforcement:` (either value) is left alone, so it is safe to re-run.
+
+**Adopting the new default instead.** Delete the `enforcement: opt` line (or
+never run the codemod), run `ddd parse`, and answer each
+`loom.default-deny-ungated` with a `requires <expr>` — `requires true` where a
+member is intentionally public. `with crudish(requires: <Policy>)` gates the
+members the macro emits.
