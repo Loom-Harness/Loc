@@ -36,6 +36,7 @@ system Storefront {
     customerId: Customer id?
   }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc {
       issuer: env("OIDC_ISSUER")

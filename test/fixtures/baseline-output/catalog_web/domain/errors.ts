@@ -2,6 +2,20 @@
 export class DomainError extends Error {
   constructor(message: string) { super(message); this.name = "DomainError"; }
 }
+/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
+ *  every catch still classifies it; the routers answer it with the domain-floor
+ *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
+ *  a messaged rule, its content-hash code. */
+export class ValueObjectInvariantError extends DomainError {
+  readonly valueObject: string;
+  readonly code: string | undefined;
+  constructor(valueObject: string, message: string, code?: string) {
+    super(message);
+    this.name = "ValueObjectInvariantError";
+    this.valueObject = valueObject;
+    this.code = code;
+  }
+}
 export class AggregateNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "AggregateNotFoundError"; }
 }

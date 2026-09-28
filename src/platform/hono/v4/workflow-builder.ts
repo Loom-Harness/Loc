@@ -1,4 +1,6 @@
+import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
+import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
   recordPayloadOf,
   workflowParamPayloads,
@@ -17,6 +19,7 @@ import {
 } from "../../../generator/typescript/emit/mikroorm.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
+import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -195,13 +198,22 @@ export function buildWorkflowsFile(
   // surface.  An event-triggered-only workflow is invoked by the dispatcher,
   // not POSTed, and its facade param is an event type (no wire/zod form), so
   // it gets neither a request schema nor a route.
+  // Resolved ONCE per file: the request-component namespace is a per-document
+  // property, so the collision set has to be decided over the whole context
+  // rather than per call site.
+  const reqNameFor = requestComponentNamer(ctx);
   for (const wf of ctx.workflows) {
     if (!emitsCommandRoute(wf)) continue;
-    body.push(`const ${upperFirst(wf.name)}Request = z.object({`);
+    // Collision-aware: an aggregate operation mints `<Op><Agg>Request` by the
+    // other half of this contract, and `scheduleWorkOrder` spells the same
+    // string as `schedule` on `WorkOrder`.  The shared minter owner-qualifies
+    // both halves when — and only when — they genuinely collide (F-026).
+    const reqName = reqNameFor({ kind: "workflow", workflow: wf.name });
+    body.push(`const ${reqName} = z.object({`);
     for (const p of wf.params) {
       body.push(`  ${p.name}: ${zodForWorkflowParam(p.type, ctx)},`);
     }
-    body.push(`}).openapi("${upperFirst(wf.name)}Request");`);
+    body.push(`}).openapi("${reqName}");`);
   }
   // Per-workflow instance response DTOs (workflow-instance-visibility.md):
   // the persisted correlation-state row's wire shape + its list carrier.
@@ -279,7 +291,14 @@ export function buildWorkflowsFile(
   for (const wf of ctx.workflows) {
     if (!emitsCommandRoute(wf)) continue;
     body.push(
-      ...emitWorkflowRoute(wf, ctx, aggsByName, opFragments, usingMikro).map((l) => `  ${l}`),
+      ...emitWorkflowRoute(
+        wf,
+        ctx,
+        aggsByName,
+        reqNameFor({ kind: "workflow", workflow: wf.name }),
+        opFragments,
+        usingMikro,
+      ).map((l) => `  ${l}`),
     );
     body.push("");
   }
@@ -383,7 +402,7 @@ export function buildWorkflowsFile(
     `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, "Disallowed", err.message);`,
   );
   body.push(
-    `    if (err instanceof DomainError) return problem(${wfDomainStatus}, ${JSON.stringify(problemTitle(wfDomainStatus))}, err.message);`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, problemTitle(wfDomainStatus), `problem(${wfDomainStatus}, ${JSON.stringify(problemTitle(wfDomainStatus))}, err.message)`)};`,
   );
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(problemTitle(wfNotFoundStatus))}, err.message);`,
@@ -446,6 +465,27 @@ export function buildWorkflowsFile(
         usingMikro,
       ),
     );
+  } else if (durableEventTypes(ctx).size > 0) {
+    // PRODUCER-ONLY, but this context HAS a workflow — so the early return to
+    // `buildProducerOutboxFile` above did not fire, and the branch that would
+    // have emitted the machinery (`emitSubscriptionHandlers`) is skipped
+    // because there is no reactor.  Neither path ran, while `index.ts` and
+    // `http/index.ts` import and call all three factories unconditionally:
+    // both key off "this context has durable events", not "it has a reactor"
+    // (`emit.ts` ~L1794, `routes.ts` ~L255).  Emitter condition ≠ reference
+    // condition, so `tsc` failed with TS2304 + three TS2305 on a model that
+    // validated `0 error(s)` — the ordinary "this service publishes, that one
+    // consumes" saga, which is uncompilable the moment the producer also owns
+    // one workflow.
+    //
+    // Same two emissions `buildProducerOutboxFile` makes for the workflow-LESS
+    // shape, in the same order: an empty in-process fan-out plus the outbox.
+    // The file's imports are derived from the body text below, so they pick
+    // these up without a second hard-coded import list.
+    body.push("");
+    body.push(...emitDispatcherFactory(new Map(), usingMikro));
+    body.push("");
+    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro));
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");
@@ -506,6 +546,7 @@ export function buildWorkflowsFile(
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
+    /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))
@@ -737,6 +778,9 @@ function emitWorkflowRoute(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
   aggsByName: Map<string, AggregateIR>,
+  /** The published request-component name — resolved over the WHOLE context by
+   *  `buildWorkflowsFile`, because a collision is a per-document property (F-026). */
+  reqName: string,
   /** Source-map (workflow-body statement regions) — when passed,
    *  pushes ONE `OpFragment` covering this route's workflow-body chunk list.
    *  `http/workflows.ts` is a POOLED file (every workflow + reactor shares
@@ -751,7 +795,6 @@ function emitWorkflowRoute(
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
 ): string[] {
-  const reqName = `${upperFirst(wf.name)}Request`;
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);

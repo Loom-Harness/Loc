@@ -1151,6 +1151,14 @@ export interface BoundedContextIR {
    *  Populated by `enrichLoomModel`; undefined when the model has a single
    *  context. */
   siblingValueObjects?: ValueObjectIR[];
+  /** Enums declared in the OTHER contexts of the same system — the enum twin
+   *  of `siblingValueObjects`, and populated the same way.  An emitter that
+   *  must MATERIALISE a referenced enum (a route file's
+   *  `const <E>Schema = z.enum([...])`, a migration's `CHECK (<col> IN (...))`)
+   *  resolves the name through `enumPool(ctx)`; without this it saw only
+   *  `ctx.enums` and a cross-context enum silently resolved to nothing.  Own
+   *  names shadow.  Undefined when the model has a single context. */
+  siblingEnums?: EnumIR[];
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -2598,9 +2606,10 @@ export interface AuthIR {
   sessions: "cookie" | "jwt";
   /** IdP-claim → user-field projections. */
   claims: ClaimMappingIR[];
-  /** Default-deny posture.  `opt` (default) preserves today's
-   *  per-`requires` opt-in; `denyByDefault` forces every reachable
-   *  command on an `auth: required` deployable to declare a gate. */
+  /** Default-deny posture.  `denyByDefault` (the language default since
+   *  M-T3.1) forces every client-reachable command and read on an
+   *  `auth: required` deployable to declare a gate; `opt` (written
+   *  explicitly) keeps the per-`requires` opt-in. */
   enforcement: "denyByDefault" | "opt";
 }
 

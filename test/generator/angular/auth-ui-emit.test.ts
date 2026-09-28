@@ -13,6 +13,7 @@ const BASE = (authUi: boolean) => `
 system Helpdesk {
   user { id: string role: string }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
   }

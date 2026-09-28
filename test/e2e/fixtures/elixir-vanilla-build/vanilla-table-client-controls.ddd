@@ -57,7 +57,13 @@ system Sales {
           rows: rows,
           filter: q,
           Column { "Code", o => Text { o.code } },
-          Column { "Total", o => Text { o.total } }
+          // `Money`, not `Text`: `total` is a `money` column, and a raw money
+          // value in a text slot renders the wire decimal with no currency on
+          // LiveView (and is a hard TS2322 on the JSX frontends).
+          // `loom.money-in-text-slot` refuses it — it did not see this slot
+          // before M-T5.33 because the gate's row-scope machinery binds
+          // `QueryView` and `For` lambdas only, never a `Column`'s.
+          Column { "Total", o => Money { o.total } }
         }
       }
     }

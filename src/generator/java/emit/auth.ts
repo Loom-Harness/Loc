@@ -6,16 +6,19 @@ import type {
   SystemIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
 import {
   guidClaimAccessorName,
   guidFromStringTenancyClaim,
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -119,6 +122,25 @@ export function renderAuthFiles(
   // `orgPath()` (up to the first `.`).  A record accessor off `orgPath()`
   // (pure, no extra read), correct under both flat and hierarchy tenancy;
   // anchors the `global` read level's root-subtree widening.
+  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
+  // — only where something reads the operating scope; the phase-⑦
+  // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.  The
+  // record cannot carry per-request state, so `orgContextPath()` reads the
+  // `OrgContext` holder UserFilter fills from a validated `x-org-context`,
+  // falling back to the principal's own `orgPath()` (no switch ⇒ own scope).
+  const orgContext = !!orgPathClaim && !!orgPathRegistry && systemReadsOrgContext(sys);
+  const orgContextAccessor = orgContext
+    ? [
+        ``,
+        `    /** The request's OPERATING scope (\`organizationContext.orgPath\`) — the`,
+        `     *  validated \`${ORG_CONTEXT_HEADER}\` path when the request switches into a`,
+        `     *  descendant org, else \`orgPath()\`.  Set once per request by`,
+        `     *  UserFilter's fail-closed switch gate; never read off the token. */`,
+        `    public String orgContextPath() {`,
+        `        return OrgContext.currentOr(orgPath());`,
+        `    }`,
+      ]
+    : [];
   const rootOrgAccessor = orgPathClaim
     ? [
         ``,
@@ -172,6 +194,7 @@ export function renderAuthFiles(
       `public record User(${components}) {`,
       ...orgPathAccessor,
       ...rootOrgAccessor,
+      ...orgContextAccessor,
       ...guidClaimAccessor,
       `}`,
       ``,
@@ -339,6 +362,7 @@ export function renderAuthFiles(
       ``,
       `import java.io.IOException;`,
       ``,
+      orgContext ? `import ${basePkg}.config.CatalogLog;` : null,
       `import ${basePkg}.config.RequestContext;`,
       ``,
       `import org.springframework.stereotype.Component;`,
@@ -423,9 +447,33 @@ export function renderAuthFiles(
         ? [`        RequestContext.putActorId(String.valueOf(user.${actorIdField.name}()));`]
         : []),
       `        try {`,
+      // The operating-scope switch gate — inside the try so the finally drops
+      // the principal, the switch and the orgPath memo on the refusal path too.
+      // A request whose `x-org-context` names an org outside the caller's
+      // `orgPath()` subtree (equal, or anchored under `orgPath() + "."`), or any
+      // org at all when the caller has no `orgPath()`, is a 403 before the chain
+      // runs — no handler, no write.  Absent / empty ⇒ the principal's own scope.
+      ...(orgContext
+        ? [
+            `            String requestedOrgContext = request.getHeader("${ORG_CONTEXT_HEADER}");`,
+            `            if (requestedOrgContext != null && !requestedOrgContext.isEmpty()) {`,
+            `                String scope = user.orgPath();`,
+            `                boolean inScope = !scope.isEmpty()`,
+            `                    && (requestedOrgContext.equals(scope) || requestedOrgContext.startsWith(scope + "."));`,
+            `                if (!inScope) {`,
+            `                    CatalogLog.event(${javaLogEvent("orgContextDenied")}, "org_context", requestedOrgContext,`,
+            `                        "reason", scope.isEmpty() ? "no_principal_scope" : "outside_scope", "status", 403);`,
+            `                    orgContextForbidden(request, response);`,
+            `                    return;`,
+            `                }`,
+            `                OrgContext.set(requestedOrgContext);`,
+            `            }`,
+          ]
+        : []),
       `            chain.doFilter(request, response);`,
       `        } finally {`,
       `            accessor.clear();`,
+      orgContext ? `            OrgContext.clear();` : null,
       // Hierarchy: drop the per-request orgPath memo so a pooled thread
       // never serves a stale tenant path to the next request.
       orgPathRegistry ? `            OrgPathResolver.clearRequestCache();` : null,
@@ -451,10 +499,27 @@ export function renderAuthFiles(
       `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
       `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
       `    }`,
+      ...(orgContext
+        ? [
+            ``,
+            // RFC 7807 403 for a refused switch, written straight onto the
+            // servlet response (this filter runs before any @ControllerAdvice).
+            `    private static void orgContextForbidden(HttpServletRequest request, HttpServletResponse response)`,
+            `            throws java.io.IOException {`,
+            `        response.setStatus(403);`,
+            `        response.setCharacterEncoding("UTF-8");`,
+            `        response.setContentType("application/problem+json");`,
+            `        response.getWriter().write(`,
+            `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Forbidden\\",\\"status\\":403,\\"detail\\":\\"the requested organization context is outside the caller's organization scope\\",\\"instance\\":\\""`,
+            `                + request.getRequestURI() + "\\"}");`,
+            `    }`,
+          ]
+        : []),
       `}`,
       ``,
     ),
   );
+  if (orgContext) out.set("OrgContext.java", renderOrgContextHolder(pkg));
 
   // The session probe (`/auth/me`) + — under an `auth { oidc }` block —
   // the redirect handshake (/auth/login|callback|logout).  Always emitted
@@ -482,6 +547,42 @@ export function renderAuthFiles(
 }
 
 // ---------------------------------------------------------------------------
+/** `OrgContext.java` — the request's OPERATING scope holder
+ *  (`organizationContext.orgPath`, M-T3.6 items 3+5).  The `User` record
+ *  cannot carry per-request state, so UserFilter's fail-closed switch gate
+ *  writes the validated `x-org-context` path here and clears it at request end;
+ *  `User.orgContextPath()` reads it, falling back to the principal's own
+ *  `orgPath()` when the request did not switch. */
+function renderOrgContextHolder(pkg: string): string {
+  return lines(
+    `package ${pkg};`,
+    ``,
+    `/** The request's operating scope (\`organizationContext.orgPath\`) — set only by`,
+    ` *  UserFilter's fail-closed switch gate, from a validated \`${ORG_CONTEXT_HEADER}\`. */`,
+    `public final class OrgContext {`,
+    `    private OrgContext() {}`,
+    ``,
+    `    private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();`,
+    ``,
+    `    static void set(String path) {`,
+    `        CURRENT.set(path);`,
+    `    }`,
+    ``,
+    `    static void clear() {`,
+    `        CURRENT.remove();`,
+    `    }`,
+    ``,
+    `    /** The validated switched path, or \`fallback\` (the principal's own`,
+    `     *  \`orgPath()\`) when this request did not switch. */`,
+    `    public static String currentOr(String fallback) {`,
+    `        String path = CURRENT.get();`,
+    `        return path == null ? fallback : path;`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 // currentUser.orgPath under hierarchy (multi-tenancy) — the registry
 // `data_key` read.  Two files:
 //

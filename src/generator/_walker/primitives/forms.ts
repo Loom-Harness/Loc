@@ -23,6 +23,7 @@ import {
   initialValuesTs,
   needsController,
 } from "../../_frontend/form-helpers.js";
+import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
@@ -727,7 +728,14 @@ function emitFormRuns(
   const testidNamespace = stringNamed(call, "testid") ?? `workflow-${snake(workflow.name)}`;
   addImportsForPrimitive(ctx, "primitive-form-of");
   const prepared = prepareFormFields(ctx, fields, fieldsForHelpers, bc, testidNamespace);
-  const wfPascalForImport = upperFirst(workflow.name);
+  // Identifier base for the workflow's whole frontend surface, minted against
+  // the SAME universe the api-module emitter resolves against (the deployable's
+  // aggregates + workflows), so the import names the symbol `api/workflows.ts`
+  // really exported — see `_frontend/request-names.ts`.
+  const wfPascalForImport = frontendRequestNames(
+    ctx.aggregatesByName.values(),
+    ctx.workflowsByName.values(),
+  ).workflow(workflow.name);
   addImport(
     ctx,
     "../api/workflows",
@@ -741,6 +749,7 @@ function emitFormRuns(
   ctx.formOfs.push({
     kind: "workflow",
     workflow,
+    requestBase: wfPascalForImport,
     bc,
     formStateType: wfFormStateType,
     fields,
@@ -953,7 +962,7 @@ function emitControlledModal(
   // every other container primitive: JSX children juxtapose (empty separator),
   // but a Dart `<Widget>[…]` list needs the commas, and this emitter was the one
   // container that hardcoded the JSX assumption.
-  const children = positionalArgs(call).map((c) => walk(c, ctx, depth + 1));
+  const children = positionalArgs(call).map((c) => walk(c, ctx, depth + 1, "children"));
   const childrenJsx = children.join(`${ctx.target.interChildSeparator ?? ""}\n${indent}`);
   return renderPrimitive(ctx, "primitive-modal-controlled", {
     opened: stateName,

@@ -1,0 +1,242 @@
+{
+  "case": "domain-floor-messages",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/accounts/{id}/withdraw",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/accounts/{id}/deposit",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 12,
+        "ceiling": 100,
+        "id": "<volatile:key>",
+        "owner": "Ada",
+        "version": 3
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/accounts/{id}/withdraw",
+      "status": 422,
+      "body": {
+        "detail": "Insufficient funds",
+        "errors": [
+          {
+            "code": "msg.p55wf6",
+            "message": "Insufficient funds",
+            "pointer": ""
+          }
+        ],
+        "instance": "/api/accounts/{id}/withdraw",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/accounts/{id}/overdraw",
+      "status": 422,
+      "body": {
+        "detail": "Balance cannot be negative",
+        "errors": [
+          {
+            "code": "msg.11ks9e",
+            "message": "Balance cannot be negative",
+            "pointer": "/balance"
+          }
+        ],
+        "instance": "/api/accounts/{id}/overdraw",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/accounts/{id}/deposit",
+      "status": 422,
+      "body": {
+        "detail": "Balance cannot exceed the ceiling",
+        "errors": [
+          {
+            "code": "msg.aim2kq",
+            "message": "Balance cannot exceed the ceiling",
+            "pointer": ""
+          }
+        ],
+        "instance": "/api/accounts/{id}/deposit",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/accounts/{id}/drain",
+      "status": 422,
+      "body": {
+        "detail": "Precondition failed: balance >= amount",
+        "instance": "/api/accounts/{id}/drain",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 12,
+        "ceiling": 100,
+        "id": "<volatile:key>",
+        "owner": "Ada",
+        "version": 3
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/accounts/{id}/drain",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/accounts/{id}/overdraw",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/accounts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "balance": 9,
+            "ceiling": 100,
+            "id": "<volatile:key>",
+            "owner": "Ada",
+            "version": 5
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/accounts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 9,
+        "ceiling": 100,
+        "id": "<volatile:key>",
+        "owner": "Ada L.",
+        "version": 6
+      }
+    },
+    {
+      "seq": 14,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "PATCH",
+      "path": "/api/accounts",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/accounts",
+        "instance": "/api/accounts",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/accounts",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

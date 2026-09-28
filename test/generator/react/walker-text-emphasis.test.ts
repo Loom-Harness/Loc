@@ -20,7 +20,7 @@ async function buildAndGenerate(src: string): Promise<Map<string, string>> {
   const services = createDddServices(NodeFileSystem);
   const { parseHelper } = await import("langium/test");
   const helper = parseHelper(services.Ddd);
-  const doc = await helper(src, { valslugation: true });
+  const doc = await helper(src, { validation: true });
   return generateSystems(doc.parseResult.value as Model).files;
 }
 

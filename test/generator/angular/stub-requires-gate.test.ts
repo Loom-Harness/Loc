@@ -12,7 +12,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 const SYS = (opts: { authUi: boolean }) => `
 system Helpdesk {
   user { id: string role: string }
-  auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
+  auth { enforcement: opt, provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
   subdomain Support {
     context Tickets {
       aggregate Ticket with crudish { subject: string  status: string }

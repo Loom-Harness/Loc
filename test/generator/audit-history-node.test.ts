@@ -154,7 +154,7 @@ describe("entity history — negative authz", () => {
     const mapper = routes.slice(routes.indexOf("function employeeAuditEntry"));
     const atLine = mapper.split("\n").find((l) => l.trim().startsWith("at:"));
     expect(atLine).toBeDefined();
-    expect(atLine).toContain('row.at.toISOString().replace(/\\.?0+Z$/, "Z")');
+    expect(atLine).toContain('row.at.toISOString().replace(/\\.000Z$/, "Z")');
     // The defect was a WRONG STRING, not a compile break, so evaluate the
     // rendered expression: a whole-second instant must lose the fraction, and a
     // sub-second one must keep every digit it has.
@@ -169,7 +169,10 @@ describe("entity history — negative authz", () => {
         at: new Date(iso),
       });
     expect(evalAt("2026-01-01T00:00:00Z")).toBe("2026-01-01T00:00:00Z");
-    expect(evalAt("2026-01-01T00:00:00.120Z")).toBe("2026-01-01T00:00:00.12Z");
+    // RS-38: a present fraction keeps EXACTLY three digits.  This line pinned
+    // `.12Z` — the minimal trim that was itself the F2-W-06 divergence (java
+    // `.120Z`, python `.120000Z`), so the test agreed with the bug.
+    expect(evalAt("2026-01-01T00:00:00.120Z")).toBe("2026-01-01T00:00:00.120Z");
     expect(evalAt("2026-01-01T00:00:00.123Z")).toBe("2026-01-01T00:00:00.123Z");
   });
 });

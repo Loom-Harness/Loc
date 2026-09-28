@@ -136,9 +136,9 @@ system Shop {
 // A3 math batch — abs/min/max on the four numeric receivers plus
 // round/floor/ceil on decimal (float-backed) and money (Decimal-backed).
 // Round is HALF-AWAY-FROM-ZERO by catalogue contract: the money path forces
-// ROUND_HALF_UP on quantize (Decimal's default is context half-even), the
-// float path takes the copysign/floor route (builtin round() is banker's and
-// must not appear).  SQL side: func.round/floor/ceil + two-value
+// ROUND_HALF_UP on quantize (Decimal's default is context half-even), and so
+// does the float-backed decimal path, on its shortest-repr `Decimal` (RS-37 —
+// builtin round() is banker's and must not appear).  SQL side: func.round/floor/ceil + two-value
 // least/greatest.
 describe("python generator — numeric math intrinsics (stdlib A3)", () => {
   const SRC_A3 = `
@@ -190,10 +190,13 @@ system Shop {
     );
   });
 
-  it("renders decimal.round half-away-from-zero via math.copysign (not banker's round())", async () => {
+  // RS-37: the float path's `copysign(floor(|x|·10^p + 0.5), x)` rounded a
+  // binary-inexact tie DOWN (`1.005` is 1.00499… as a double), so a `decimal`
+  // round now quantizes the shortest-repr `Decimal` half-away-from-zero.
+  it("renders decimal.round half-away-from-zero on the exact value (not banker's round())", async () => {
     const domain = (await build(SRC_A3)).get(DOMAIN)!;
     expect(domain).toContain(
-      "(math.copysign(math.floor(abs(self._weight) * 10 ** (1) + 0.5), self._weight) / 10 ** (1))",
+      'float(Decimal(str(self._weight)).quantize(Decimal(1).scaleb(-(1)), rounding="ROUND_HALF_UP"))',
     );
     // Python's builtin round() is half-even — it must never carry a .round().
     const code = domain.replace(/"(?:\\.|[^"\\])*"/g, '""');
@@ -223,11 +226,11 @@ system Shop {
     expect(repo).toMatch(/from sqlalchemy import [^\n]*\bfunc\b/);
   });
 
-  it("renders a value-side decimal.round (param receiver) as host Python and imports math", async () => {
+  it("renders a value-side decimal.round (param receiver) as host Python and imports Decimal", async () => {
     const repo = (await build(SRC_A3)).get(REPO)!;
     expect(repo).toContain(
-      "(ProductRow.weight == (math.copysign(math.floor(abs(q) * 10 ** (1) + 0.5), q) / 10 ** (1)))",
+      '(ProductRow.weight == float(Decimal(str(q)).quantize(Decimal(1).scaleb(-(1)), rounding="ROUND_HALF_UP")))',
     );
-    expect(repo).toContain("import math");
+    expect(repo).toContain("from decimal import Decimal");
   });
 });

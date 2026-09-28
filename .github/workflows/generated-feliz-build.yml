@@ -290,7 +290,7 @@ jobs:
                 }
               }
               component ProductLine(p: Product) {
-                body: Card { p.name, Text { p.price } }
+                body: Card { p.name, Money { p.price } }
               }
               page Home {
                 route: "/"
@@ -485,7 +485,7 @@ jobs:
                     error:   Text { "Failed to load" },
                     empty:   Text { "Product not found." },
                     data:    p => Card { p.name,
-                      Text { p.price }
+                      Money { p.price }
                     }
                   },
                   Text { `Reserve: {reserveMsg}` },

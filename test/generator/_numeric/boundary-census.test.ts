@@ -92,7 +92,7 @@ const BACKENDS: BackendCensus[] = [
         file: "src/generator/typescript/render-expr.ts",
         contains: "return `new Decimal(${v})`;",
         reason:
-          "ExprTarget money-literal constructor (_expr/target.ts's leaf domain), not a read boundary",
+          "ExprTarget money-literal constructor (_expr/target.ts's leaf domain), not a read boundary. The same line is the body of `toDecimal`, the operand widening the money mirror arm and the RS-37 exact-`decimal` arms share (it replaced the money arm's own inline `new Decimal(${left})`)",
       },
       {
         file: "src/generator/typescript/render-expr.ts",
@@ -110,11 +110,6 @@ const BACKENDS: BackendCensus[] = [
         contains: "acc.plus(x), new Decimal(0))",
         reason:
           "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
-      },
-      {
-        file: "src/generator/typescript/render-expr.ts",
-        contains: "renderMoneyBinary(e.op, `new Decimal(${left})`, right);",
-        reason: "ExprTarget money-arithmetic operand widening, not a read boundary",
       },
       {
         file: "src/platform/hono/v4/workflow-eventsourced-builder.ts",

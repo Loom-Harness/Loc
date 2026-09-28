@@ -201,6 +201,11 @@ const PROSE_SAYS_UNDEFINED = [
   // (`/* unresolved: X */ undefined`).  The word IS the symptom the author will
   // grep for in the generated page, so it is content, not an interpolation.
   "loom.ui-read-unresolved#unbound",
+  // The boolean-`match` twin of the entry above (M-T9.56 drain of `match.ts`):
+  // a `match` with no `else` genuinely EVALUATES to `undefined` when no arm
+  // matches, which is the whole reason the warning exists.  The word is the
+  // message's content, not a template reaching one hop too far.
+  "loom.match-no-else",
 ];
 
 /** HAND-OFF (b).  Every variable-arg key interpolates at least one param

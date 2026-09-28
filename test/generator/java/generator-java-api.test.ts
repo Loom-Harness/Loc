@@ -118,7 +118,11 @@ describe("java generator — DTO records (S5)", () => {
     expect(dto).toContain(
       "value.total().setScale(4, java.math.RoundingMode.HALF_UP).toPlainString()",
     );
-    expect(dto).toContain("value.placedAt().toString()");
+    // RS-38: the canonical millisecond wire form (`Instant.toString()` alone
+    // printed a stored microsecond fraction in six digits).
+    expect(dto).toContain(
+      "value.placedAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()",
+    );
     expect(dto).toContain("value.lineItems().stream().map(LineItemResponse::from).toList()");
   });
 

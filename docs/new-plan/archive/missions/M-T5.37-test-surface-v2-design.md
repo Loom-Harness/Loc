@@ -1,8 +1,8 @@
 # M-T5.37 — test surface v2: a workflow accessor and three matchers — `design` · **M** · P1
 
 *Design pass for wave 3 of the testability fleet
-([plan](../../audits/2026-09-14-testability-fleet-plan.md), findings
-[F5, F11](../../audits/2026-09-13-testability-audit.md)). Owner-signed decisions below;
+([plan](../../../audits/2026-09-14-testability-fleet-plan.md), findings
+[F5, F11](../../../audits/2026-09-13-testability-audit.md)). Owner-signed decisions below;
 the syntax is what needs sign-off before any packet starts.*
 
 ## What is in, what is out

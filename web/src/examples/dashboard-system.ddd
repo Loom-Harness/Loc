@@ -109,6 +109,18 @@ system DashboardShop {
                             Stat { "Confirmed orders", t.orders },
                             Stat { "Revenue", Money { t.revenue } },
                             Stat { "Largest order", Money { t.biggest } },
+                            // M-T5.33: `round` on a money field READ OFF A
+                            // PROJECTION ROW.  The tile is ordinary; the
+                            // reason it is here is that it only emits
+                            // correctly if the row's element type survived
+                            // lowering.  Untyped, `t.revenue` was `string`,
+                            // the shared `money.round` intrinsic never
+                            // matched, and the walker fell through to a
+                            // verbatim `.round(0)` — which decimal.js's
+                            // zero-argument `Decimal.prototype.round` rejects
+                            // (TS2554), so this line is what puts the fix in
+                            // front of `generated-react-build`.
+                            Stat { "Revenue (rounded)", Money { t.revenue.round(0) } },
                             testid: "sales-totals"
                         }
                     },

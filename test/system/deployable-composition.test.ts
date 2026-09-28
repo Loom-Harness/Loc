@@ -14,6 +14,7 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 async function parse(source: string) {
   const services = createDddServices(NodeFileSystem);
@@ -21,8 +22,8 @@ async function parse(source: string) {
   const doc = await helper(source, { validation: true });
   const diags = doc.diagnostics ?? [];
   return {
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
-    warnings: diags.filter((d) => d.severity === 2).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
+    warnings: diags.filter((d) => d.severity === 2).map(diagText),
   };
 }
 

@@ -535,6 +535,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // lists under `apiSurfaceCoverage.notLifted`.  Lifting projection queries into
   // the derivation would make this attributable — and this entry stale.
   "corpus/projection": ["api.orderBoard.byKey (no such aggregate)"],
+  // M-T5.1 — the workflow router is one of the two body sites a value-object
+  // breach answers through, so the fixture drives `POST /api/workflows/bump`.
+  // A workflow run is the `notLifted` class (same as `workflow-create-state`).
+  "corpus/vo-invariant-in-body": ["api.bump.run (no such aggregate)"],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
@@ -549,6 +553,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/projection-aggregation": [
     "api.orderVolume.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
+  ],
+  // The document-source pair (wave-3 row 3.3).  `articleVolume` is the
+  // table-level `count(*)` over the `(id, data, version)` triple;
+  // `articleTitles` is the repository-hydrated per-row arm over the SAME
+  // source.  Both are projection reads, so neither lifts to a derived
+  // operation — the `notLifted` class, same as every sibling here.
+  "corpus/projection-document-aggregation": [
+    "api.articleTitles.list (no such aggregate)",
+    "api.articleVolume.list (no such aggregate)",
   ],
   // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
   // its three siblings above and below — three projection reads, none of which
@@ -570,6 +583,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // The by-id-follow join's read — same `notLifted` class, third shape.
   "corpus/projection-join": ["api.orderWithCustomer.list (no such aggregate)"],
+  // Wave C5 5b (RS-38 / RS-34): the query-time projection read the witness's
+  // absent-join half asserts through — the same not-yet-lifted class as above.
+  "corpus/datetime-wire": ["api.slotBoard.list (no such aggregate)"],
   "corpus/projection-groupby": [
     // All five are projection READS — the not-yet-lifted route class this map
     // exists for, not a call that fails to find its operation.  `ordersByTotal`
@@ -628,6 +644,26 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // COMPILE-TIER WITNESS (the "Assure" dev-experience evaluation) — a durable
+  // broker channel + a workflow + NO reactor.  The cell the corpus never
+  // paired: its sibling `channels-broker` is the same producer WITHOUT a
+  // workflow, so it takes the workflow-less emission path and emits the outbox
+  // machinery fine.  Owning one workflow leaves that path, and the
+  // with-workflows path emitted the machinery only from inside the
+  // subscription block — which a producer-only context never enters.  Four
+  // hard compile errors (TS2304 + three TS2305) on a model that validated
+  // `0 error(s)`, so the compile leg is the oracle.  Needs a broker container
+  // for a behavioural block, exactly as `channels-broker` does.  M-T9.13.
+  "channels-broker-workflow",
+  // COMPILE-TIER WITNESS (same evaluation) — a query-time projection on a
+  // deployable that does not host every context.  The projection routes file
+  // imported the own-UNION-sibling value-object pool while
+  // `domain/value-objects.ts` emits only the hosted contexts', so it named a
+  // type the module never exports (`TS2306: … is not a module`).  Needs a
+  // SECOND deployable to mean anything at runtime, and what a block would
+  // assert — a projection count — `projection-agg-filters` already boots on
+  // one.  M-T9.13.
+  "projection-split-deployables",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
@@ -721,9 +757,10 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
-  // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
-  // `projection-agg-filters` directly above — same capabilities, same missing
-  // harness.  The assertion this fixture wants is "a SECOND tenant's rows
+  // COMPILE-TIER WITNESS (M-T6.54 F18), for the same reason `projection-agg-
+  // filters` carried until wave-3 row 3.3 drained it — same capabilities, same
+  // missing harness.  (It is no longer "directly above": it left this register
+  // when its tenant conjunct turned out to be the only part still blocked.)  The assertion this fixture wants is "a SECOND tenant's rows
   // appear under `ignoring tenantOwned` and are absent without it", which needs
   // two principals; the behavioural runners authenticate as one
   // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
@@ -732,7 +769,8 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
   // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
   // two-principal harness `tenancy-e2e.yml` owns — the same one
-  // `projection-agg-filters` waits on.
+  // `projection-agg-filters`'s tenant conjunct still waits on, which is why
+  // that fixture drained on its `softDeletable` conjunct alone.
   "find-bypass",
   // UNIT-TIER WITNESS (M-T6.55 F14/F15/F24), the `numeric-operands` shape: it
   // carries a DOMAIN `test` block and no `test e2e`, so the behavioural runners
@@ -745,13 +783,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // test asserts, in memory, on all five.  Drain: give the runner a nested create
   // plus a `toThrow(422)` on it.
   "part-rules-private-op",
-  // COMPILE-TIER WITNESS (generator review A1, document half) — the row count
-  // over a `shape: document` source, the one aggregation that shape can express.
-  // The gate it exists for is a GENERATION one (four backends emit it, java is
-  // refused), and asserting the number needs seeded rows the behavioural runners
-  // set up per-fixture; `document.ddd` already drives the document write path at
-  // runtime.
-  "projection-document-aggregation",
   // TWO DEPLOYABLES — the caller's client is derived from the callee's served
   // operation set (see the manifest note), and the behavioural corpus requires
   // exactly one `platform: node` deployable per case so dispatch is unambiguous.
@@ -785,6 +816,14 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `extern` throws honest fail-fast, and asserting that 500 would pin the
   // scaffold instead of the feature.
   "extern",
+  // `extern-handlers` shares the fixture-shape blocker above but NOT its exit.
+  // Its whole surface is two ROUTED extern handlers (`route POST "/orders" ->
+  // Sales.PlaceOrder`, `route GET "/quotes/{sku}" -> Sales.GetQuote`), and a
+  // `test e2e` block cannot address a routed handler — see the measured
+  // `loom.e2e-unknown-aggregate` refusal recorded on `handler-triad` below.
+  // `extern`'s own drain is unaffected, because the half it names is aggregate
+  // OPERATIONS (`confirm` / `flag` / `cancel`), which `api.orders.<op>()`
+  // reaches once a row can be minted.
   "extern-handlers",
   // SIDECAR-BOUND, like `channels-broker`/`outbox`: the two routed handlers
   // exist precisely to issue objectStore / queue / mailer I/O, and the node
@@ -809,18 +848,39 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // land first.  Recorded because a reader who solved only the named blocker
   // would find the cell still undrainable.
   "handler-resource-ops",
-  // COMPILE-TIER WITNESS, and UNSEEDABLE besides.  Two of its three defects were
-  // "the emitted project does not exist / does not compile" on .NET and java
-  // (a dropped aggregate-less handler + route; a declared `byId` find renamed
-  // and its already-typed argument re-wrapped) — and the behavioural tier boots
-  // NODE, the one backend neither defect touched, so a caller would witness the
-  // one leg that was always green.  The two find-backed routes are unseedable on
-  // top of that: `Order` carries no `crudish` and no author-declared create, so
-  // nothing can mint a row for `LoadOrder` / `CodeStatus` to read (the same
-  // shape as `extern`'s pin).  The oracles that DO reach the bugs are the five
-  // compile legs plus `test/generator/handler-triad.test.ts` (per backend,
-  // mutation-proven).  Drain: give `Order` a create, then drive `Echo` / `Sum`
-  // — the two pure-computation routes need no data at all.
+  // NOT DRAINED — but for a DIFFERENT reason than this entry used to give, and
+  // the correction matters because both of the old claims were wrong.
+  //
+  //   • It named handlers the fixture does not have.  "nothing can mint a row
+  //     for `LoadOrder` / `CodeStatus` to read" — there is no `LoadOrder` and
+  //     no `CodeStatus` in `handler-triad.ddd`; the handlers are `Echo`, `Sum`,
+  //     `CountReplacing`, `Reachable` and `Doubled`.  The nouns had rotted.
+  //   • Its stated blocker ("unseedable") gates only the two id-taking
+  //     AGGREGATE routes.  The five ROUTED HANDLERS need no row at all: the
+  //     find-backed ones return a COUNT, so an empty table answers 0 / false.
+  //
+  // The real blocker was that a `test e2e` body could not ADDRESS a routed
+  // handler — `api.<x>.<y>(…)` resolved to an aggregate, a projection or a
+  // workflow only.  #2984 fixed that (`api.<context>.<handler>(…)`), and the
+  // block was written, booted on node, and then REVERTED, because booting it
+  // measured the thing that actually blocks this cell:
+  //
+  //   node / mikroorm  `POST /api/echo/hi` → `"hi"`   (the wire-golden oracle)
+  //   dotnet / dapper  404 — `[HttpPost("/echo/{text}")]` is ROOT-ABSOLUTE in
+  //                    ASP.NET, so the `/api` prefix is ignored
+  //   java             404 at `/api/echo/hi`
+  //   elixir           404 at `/api/echo/hi`
+  //   python           routes correctly, but WRAPS the scalar return:
+  //                    `{"result":"hi"}` where node answers `"hi"`
+  //
+  // The emitted e2e suite is backend-agnostic by construction (one file,
+  // replayed against every backend), and `gate-ledger.test.ts` refuses a
+  // feature that boots on some of its declared backends and not others.  So
+  // this cell cannot drain until the five explicit-route emitters agree on
+  // where a routed handler is mounted and what a scalar return looks like on
+  // the wire — a wire-contract change to a shipped feature, and its own PR.
+  // Drain: land that agreement, then restore the block (it is in #2984's
+  // history) and delete this entry.
   "handler-triad",
   // `lifecycle-guard` DRAINED — and, like `policy-document` before it, only
   // after the thing it was hiding was FIXED.  Its two named blockers both fell,
@@ -914,6 +974,16 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // RUNTIME HOME IS TENANCY-E2E (M-T3.6 items 3+5, `organizationContext`).  The
+  // subject is a REQUEST HEADER (`x-org-context`) that each backend's auth
+  // middleware validates before routing, which the `test e2e` vocabulary cannot
+  // set — and, like `tenancy-hierarchy` above, a switch is a statement about
+  // principals in different parts of the tree.  The booted `tenancy-org-context*`
+  // leg drives all four arms on five backends (in-scope switch → sub-scope stamp,
+  // deep-visible from the parent, hidden from a sibling; out-of-subtree switch →
+  // 403 with no write; forged header on an orgPath-less token → 403; reads stay
+  // principal-anchored).
+  "org-context",
   // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
   // is an enum.  Both halves of what it pins are STATIC, and both are caught by
   // legs that already gate this fixture: the node backend named `<Enum>Schema`

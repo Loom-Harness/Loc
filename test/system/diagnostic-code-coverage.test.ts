@@ -41,7 +41,11 @@ const SEVERITIES = new Set(["error", "warning", "info", "hint"]);
  *  a code lowers the number it touches; a PR that adds a codeless diagnostic
  *  fails here and should add the code instead. */
 const BASELINE = {
-  "src/language/validators": 122,
+  // Wave C4 packet 4c (M-T9.56's drain) took the AST layer 122 → 0, so both
+  // rows now read 0 and this file is an absolute gate on the first codeless
+  // `accept(...)` in either layer — the same promotion `diagnostic-catalog.test.ts`
+  // made to its invariant 5 in the same fold.
+  "src/language/validators": 0,
   "src/ir/validate/checks": 0,
 } as const;
 
@@ -51,13 +55,14 @@ interface Site {
   coded: boolean;
 }
 
-function sites(): Site[] {
+/** The scanner over ONE source text — exported to the population guard below
+ *  so it can be proved on a fixture that still holds a codeless site: with the
+ *  live population fully coded, "some site is codeless" is no longer something
+ *  the repo can supply. */
+function sitesInSource(rel: string, text: string): Site[] {
   const out: Site[] = [];
-  for (const dir of SCANNED_DIRS) {
-    for (const name of fs.readdirSync(path.join(repoRoot, dir)).sort()) {
-      if (!name.endsWith(".ts")) continue;
-      const rel = path.join(dir, name);
-      const text = fs.readFileSync(path.join(repoRoot, rel), "utf8");
+  {
+    {
       const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.ESNext, true);
       const visit = (n: ts.Node): void => {
         if (
@@ -89,6 +94,27 @@ function sites(): Site[] {
   return out;
 }
 
+function sites(): Site[] {
+  const out: Site[] = [];
+  for (const dir of SCANNED_DIRS) {
+    for (const name of fs.readdirSync(path.join(repoRoot, dir)).sort()) {
+      if (!name.endsWith(".ts")) continue;
+      const rel = path.join(dir, name);
+      out.push(...sitesInSource(rel, fs.readFileSync(path.join(repoRoot, rel), "utf8")));
+    }
+  }
+  return out;
+}
+
+/** One coded and one codeless `accept(...)` of the exact shape the scanner
+ *  classifies — the vacuity guard reads these, not the (now fully coded) tree. */
+const GUARD_FIXTURE = `
+export function check(node: unknown, accept: (s: string, m: string, o?: object) => void) {
+  accept("error", "coded", { node, property: "name", code: "loom.example" });
+  accept("warning", "codeless", { node, property: "name" });
+}
+`;
+
 describe("codeless diagnostics — ratchet", () => {
   const all = sites();
 
@@ -97,7 +123,12 @@ describe("codeless diagnostics — ratchet", () => {
     // vacuously — the recurring failure shape this repo logs as §59/§63.
     expect(all.length).toBeGreaterThan(250);
     expect(all.some((s) => s.coded)).toBe(true);
-    expect(all.some((s) => !s.coded)).toBe(true);
+    // The live tree carries no codeless site any more (M-T9.56 drained), so the
+    // "scanner sees a codeless site" half of the guard reads a fixture instead —
+    // a scanner that classified every site as coded would pass the rows above
+    // vacuously and fail here.
+    const fixture = sitesInSource("fixture.ts", GUARD_FIXTURE);
+    expect(fixture.map((s) => s.coded)).toEqual([true, false]);
   });
 
   it.each(Object.entries(BASELINE))("%s never grows more codeless", (dir, baseline) => {

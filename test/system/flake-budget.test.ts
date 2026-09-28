@@ -257,7 +257,10 @@ describe("flake budget — the claiming issue", () => {
 
 describe("flake budget — which legs are monitored", () => {
   const monitored = budget.monitoredWorkflows(workflowsDir);
-  const byFile = new Map(monitored.map((w: { file: string }) => [w.file, w]));
+  /** The fields this file reads off a monitored workflow — `flake-budget.mjs`
+   *  is plain JS, so the shape is named here rather than inferred. */
+  type Monitored = { file: string; name: string; triggers: { crons: string[] } };
+  const byFile = new Map<string, Monitored>((monitored as Monitored[]).map((w) => [w.file, w]));
 
   it("derives the watchlist from the directory rather than a hand-curated list", () => {
     expect(monitored.length).toBeGreaterThan(20);
@@ -283,7 +286,7 @@ describe("flake budget — which legs are monitored", () => {
   });
 
   it("the trigger reader sees a name and an on: block for every workflow it monitors", () => {
-    for (const w of monitored as { file: string; name: string }[]) {
+    for (const w of monitored as Monitored[]) {
       expect(w.name, `${w.file} has no top-level name:`).toBeTruthy();
       expect(w.name).not.toBe(w.file);
     }
@@ -292,6 +295,6 @@ describe("flake budget — which legs are monitored", () => {
   it("reads a real nightly-cron workflow as cron-triggered", () => {
     const nightly = byFile.get("generated-a11y.yml");
     expect(nightly, "generated-a11y.yml is not monitored").toBeTruthy();
-    expect(nightly.triggers.crons.length).toBeGreaterThan(0);
+    expect(nightly!.triggers.crons.length).toBeGreaterThan(0);
   });
 });

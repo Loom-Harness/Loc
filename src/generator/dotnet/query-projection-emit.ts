@@ -23,6 +23,7 @@ import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { numericEncode } from "../_numeric/target.js";
+import { joinReadFieldNames } from "../_projection/join-read.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
 import {
@@ -112,9 +113,30 @@ export function emitQueryProjections(
   );
 }
 
+const joinReadFields = joinReadFieldNames;
+
+/** The row-record type of a projection wire field.  A field read through a
+ *  join alias is widened to NULLABLE: the absent branch answers wire `null`
+ *  (RS-34), and a value-typed member (`int`, `bool`, `double`) cannot hold one —
+ *  its `default!` read `0` / `false` where the other four backends answer
+ *  `null` (RS-34's "Open" arm, closed with D-ABSENT-JOIN-DATETIME-WIRE). */
+function rowFieldType(
+  f: { name: string; type: TypeIR },
+  ctx: EnrichedBoundedContextIR,
+  joined: ReadonlySet<string>,
+): string {
+  const t = joined.has(f.name) && f.type.kind !== "optional" ? optionalOf(f.type) : f.type;
+  return wireType(t, ctx, "response");
+}
+
+function optionalOf(inner: TypeIR): TypeIR {
+  return { kind: "optional", inner } as TypeIR;
+}
+
 function renderRowRecord(proj: ProjectionIR, ctx: EnrichedBoundedContextIR, ns: string): string {
+  const joined = joinReadFields(proj);
   const fields = (proj.wireShape ?? [])
-    .map((f) => dtoParam(wireType(f.type, ctx, "response"), upperFirst(f.name)))
+    .map((f) => dtoParam(rowFieldType(f, ctx, joined), upperFirst(f.name)))
     .join(", ");
   return `// Auto-generated.
 using System.ComponentModel.DataAnnotations;
@@ -273,6 +295,7 @@ function renderHandler(
     // (two selects off the same alias are two declarations in ONE scope, which
     // would be CS0128).
     let joinTmp = 0;
+    const joinedFields = joinReadFields(proj);
     const args = (proj.wireShape ?? []).map((f) => {
       const sel = selectByField.get(f.name);
       if (!sel) return "default!";
@@ -299,7 +322,12 @@ function renderHandler(
       if (joined) {
         const tmp = `__j${joinTmp++}`;
         const value = projectToResponse(`${tmp}.${upperFirst(joined.member)}`, f.type, ctx);
-        return `(${joined.map.mapVar}.TryGetValue(${joined.map.keyExpr}, out var ${tmp}) ? ${value} : default!)`;
+        // The absent branch is `null` — the row member is nullable
+        // (`rowFieldType`), and the present branch is cast to that nullable
+        // type so a value-typed member (`int` → `int?`) unifies with `null`
+        // in the conditional instead of reading `default(int)` = 0 (RS-34).
+        const rowType = rowFieldType(f, ctx, joinedFields);
+        return `(${joined.map.mapVar}.TryGetValue(${joined.map.keyExpr}, out var ${tmp}) ? (${rowType})(${value}) : null)`;
       }
       return projectToResponse(renderCsExpr(sel.expr, { thisName: "d" }), f.type, ctx);
     });

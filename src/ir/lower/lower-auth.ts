@@ -18,6 +18,9 @@ function lowerAuthValue(v: AuthConfigValue | undefined): AuthValueIR | undefined
   return isEnvAuthValue(v) ? { kind: "env", env: v.env } : { kind: "literal", value: v.value };
 }
 
+/** The effective `auth { enforcement: }` when none is written (M-T3.1). */
+export const DEFAULT_ENFORCEMENT: AuthIR["enforcement"] = "denyByDefault";
+
 export function lowerAuth(node: AuthBlock): AuthIR {
   const preset = node.provider ? lookupPreset(node.provider) : undefined;
   const oidcNode = node.oidc;
@@ -49,6 +52,13 @@ export function lowerAuth(node: AuthBlock): AuthIR {
     oidc,
     sessions: node.sessions ?? "cookie",
     claims,
-    enforcement: node.enforcement ?? "opt",
+    // M-T3.1: the LANGUAGE DEFAULT is `denyByDefault` — an `auth { … }` block
+    // that writes no `enforcement:` gets the deny-by-default posture.  A
+    // project that relied on the pre-flip default (`opt`) keeps it by writing
+    // `enforcement: opt` explicitly — `scripts/codemod-enforcement-opt.mjs`
+    // does that mechanically (docs/migrations.md § "The `enforcement:`
+    // default flip").  A system with NO `auth { … }` block has no enforcement
+    // posture at all (`sys.auth` is undefined), exactly as before.
+    enforcement: node.enforcement ?? DEFAULT_ENFORCEMENT,
   };
 }

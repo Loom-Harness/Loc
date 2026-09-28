@@ -4,6 +4,7 @@
 // loom.policy-fn-cycle.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const ctx = (body: string) => `
@@ -26,9 +27,6 @@ const ctx = (body: string) => `
     deployable api { platform: node  contexts: [Orders]  dataSources: [st]  port: 8080  auth: required }
   }
 `;
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 describe("validator — named policy functions", () => {
   it("accepts a parameterised and a parameterless bool policy function", async () => {
@@ -54,7 +52,7 @@ describe("validator — named policy functions", () => {
 
   it("rejects a non-bool return type (loom.policy-fn-return-type)", async () => {
     const { diagnostics, errors } = await parseString(ctx(`policy BadReturn(): string = "nope"`));
-    expect(codesOf(diagnostics)).toContain("loom.policy-fn-return-type");
+    expect(lspCodes(diagnostics)).toContain("loom.policy-fn-return-type");
     expect(errors.join("\n")).toMatch(/must return 'bool'/);
   });
 
@@ -65,7 +63,7 @@ describe("validator — named policy functions", () => {
         policy Uses(): bool = NeedsArg()
       `),
     );
-    expect(codesOf(diagnostics)).toContain("loom.policy-fn-arity");
+    expect(lspCodes(diagnostics)).toContain("loom.policy-fn-arity");
   });
 
   it("rejects a parameterised policy function referenced bare (loom.policy-fn-arity)", async () => {
@@ -75,7 +73,7 @@ describe("validator — named policy functions", () => {
         policy Uses(): bool = NeedsArg
       `),
     );
-    expect(codesOf(diagnostics)).toContain("loom.policy-fn-arity");
+    expect(lspCodes(diagnostics)).toContain("loom.policy-fn-arity");
   });
 
   it("rejects a policy-function reference cycle (loom.policy-fn-cycle)", async () => {
@@ -85,7 +83,7 @@ describe("validator — named policy functions", () => {
         policy B(): bool = A()
       `),
     );
-    expect(codesOf(diagnostics)).toContain("loom.policy-fn-cycle");
+    expect(lspCodes(diagnostics)).toContain("loom.policy-fn-cycle");
     expect(errors.join("\n")).toMatch(/reference cycle/);
   });
 });

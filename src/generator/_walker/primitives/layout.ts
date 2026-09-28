@@ -269,7 +269,10 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
       // this fallback, the panel would emit a JSX comment as its only
       // child and tsc rejects it (Mantine's `TabsPanelProps` requires
       // a non-empty `children`).
-      const only = walk(arg, ctx, depth + 2);
+      // A tab PANEL is a children container (`bodyChildren` below is the
+      // list every target joins), so a `For` here splices like any other
+      // container child.
+      const only = walk(arg, ctx, depth + 2, "children");
       return {
         value: `tab-${i + 1}`,
         ...tabLabelForms(undefined, ctx, `Tab ${i + 1}`),
@@ -294,7 +297,9 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
     const bodyArgs = labelIsTextLike ? tabPositionals.slice(1) : tabPositionals;
     const isLiteralLabel = labelArg?.kind === "literal" && labelArg.lit === "string";
     const labelStr = isLiteralLabel ? labelArg.value : `Tab ${i + 1}`;
-    const bodyParts = bodyArgs.map((e) => walk(e, ctx, depth + 2));
+    // Panel body — a children SEQUENCE, joined below exactly as every other
+    // container joins its children.
+    const bodyParts = bodyArgs.map((e) => walk(e, ctx, depth + 2, "children"));
     return {
       // The switcher's anchor is derived from the SOURCE literal, never from the
       // translated caption — a `value:` that changed per locale would break
@@ -385,8 +390,10 @@ export function emitCard(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
   // `Card` is a `nesting: true` container in the a11y contract — its body
   // `Heading`s derive one rank deeper (accessibility.md).  The card
   // title itself is not a `Heading` primitive, so it is unaffected.
+  // The card BODY is a children sequence (joined with `interChildSeparator`
+  // below), so a `For` among these splices.
   const contentParts = withHeadingNesting(ctx, () =>
-    contentExprs.map((e) => walk(e, ctx, depth + 1)),
+    contentExprs.map((e) => walk(e, ctx, depth + 1, "children")),
   );
   const contentJsx =
     contentParts.length > 0

@@ -170,8 +170,9 @@ describe(".NET wireToCommandArgument — nullable value-type wires", () => {
     const ctx = { valueObjects: [] } as unknown as EnrichedBoundedContextIR;
     const out = wireToCommandArgument(
       "request.Parent",
-      { kind: "optional", inner: { kind: "id", targetName: "Project" } },
+      { kind: "optional", inner: { kind: "id", targetName: "Project", valueType: "guid" } },
       ctx,
+      { ns: "D", pointer: "/parent" },
     );
     expect(out).toBe("(request.Parent is null ? null : new ProjectId(request.Parent!.Value))");
   });

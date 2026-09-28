@@ -822,5 +822,554 @@
       }
     ],
     "imports": []
+  },
+  "route": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "PayloadDecl",
+            "kind": "command",
+            "name": "PlaceCmd",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "variants": []
+          },
+          {
+            "$type": "CommandHandler",
+            "name": "place",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "cmd",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "PlaceCmd"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "audited": false,
+            "body": [],
+            "extern": false,
+            "private": false
+          }
+        ]
+      },
+      {
+        "$type": "Api",
+        "name": "OrdApi",
+        "source": {
+          "$ref": "C"
+        },
+        "routes": [
+          {
+            "$type": "Route",
+            "method": "POST",
+            "path": "/place",
+            "target": {
+              "$type": "HandlerRef",
+              "context": {
+                "$ref": "C"
+              },
+              "handler": "place"
+            }
+          }
+        ],
+        "statuses": []
+      },
+      {
+        "$type": "Ui",
+        "name": "U",
+        "members": [
+          {
+            "$type": "Page",
+            "name": "Detail",
+            "props": [
+              {
+                "$type": "RouteProp",
+                "value": "/detail"
+              },
+              {
+                "$type": "BodyProp",
+                "expr": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "hi"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "params": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "type": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "Requirement",
+        "name": "US-001",
+        "props": [
+          {
+            "$type": "RequirementProp",
+            "name": "type",
+            "value": {
+              "$type": "NameRef",
+              "name": "UserStory"
+            }
+          },
+          {
+            "$type": "RequirementProp",
+            "name": "title",
+            "value": {
+              "$type": "StringLit",
+              "value": "A story"
+            }
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Storage",
+            "name": "primary",
+            "type": "postgres",
+            "config": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "index": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Storage",
+            "name": "primary",
+            "type": "postgres",
+            "config": []
+          },
+          {
+            "$type": "Resource",
+            "name": "ordState",
+            "context": {
+              "$ref": "C"
+            },
+            "kind": "state",
+            "use": {
+              "$ref": "primary"
+            },
+            "indexes": [
+              {
+                "$type": "IndexSpec",
+                "entity": "Order",
+                "columns": [
+                  "code"
+                ]
+              }
+            ],
+            "config": [],
+            "readonly": false
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "user": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Org",
+            "withClause": {
+              "$type": "WithClause",
+              "calls": [
+                {
+                  "$type": "MacroCall",
+                  "name": "tenantRegistry",
+                  "args": []
+                },
+                {
+                  "$type": "MacroCall",
+                  "name": "crudish",
+                  "args": []
+                }
+              ]
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "name",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "DerivedProp",
+                "name": "display",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "name"
+                }
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Doc",
+            "withClause": {
+              "$type": "WithClause",
+              "calls": [
+                {
+                  "$type": "MacroCall",
+                  "name": "tenantOwned",
+                  "args": []
+                },
+                {
+                  "$type": "MacroCall",
+                  "name": "crudish",
+                  "args": []
+                }
+              ]
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "title",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orgs",
+            "aggregate": {
+              "$ref": "Org"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Repository",
+            "name": "Docs",
+            "aggregate": {
+              "$ref": "Doc"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "guid"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              },
+              {
+                "$type": "UserField",
+                "name": "orgId",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          },
+          {
+            "$type": "TenancyDecl",
+            "claim": {
+              "$ref": "orgId"
+            },
+            "registry": {
+              "$ref": "Org"
+            }
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "link": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "Ui",
+        "name": "U",
+        "members": [
+          {
+            "$type": "Page",
+            "name": "Detail",
+            "props": [
+              {
+                "$type": "RouteProp",
+                "value": "/detail"
+              },
+              {
+                "$type": "BodyProp",
+                "expr": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "hi"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "params": []
+          },
+          {
+            "$type": "MenuBlock",
+            "sections": [
+              {
+                "$type": "MenuSection",
+                "label": "Main",
+                "links": [
+                  {
+                    "$type": "MenuLink",
+                    "page": {
+                      "$ref": "Detail"
+                    },
+                    "props": []
+                  },
+                  {
+                    "$type": "MenuLink",
+                    "externalLabel": "Docs",
+                    "externalUrl": "https://example.com",
+                    "props": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
   }
 }

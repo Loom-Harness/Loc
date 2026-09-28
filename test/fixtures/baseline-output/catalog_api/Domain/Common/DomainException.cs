@@ -14,6 +14,23 @@ public sealed class DomainException : Exception
     public DomainException(string message) : base(message) { }
 }
 
+/// <summary>A value object's invariant refused a value (M-T5.1).
+/// DomainExceptionFilter answers the domain-floor status with one RFC 7807
+/// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
+/// computed by a body, so it names no request member), the rule's message
+/// and, for a messaged rule, its content-hash code.</summary>
+public sealed class ValueObjectInvariantException : Exception
+{
+    public string ValueObject { get; }
+    public string? RuleCode { get; }
+    public ValueObjectInvariantException(string valueObject, string message, string? ruleCode = null)
+        : base(message)
+    {
+        ValueObject = valueObject;
+        RuleCode = ruleCode;
+    }
+}
+
 /// <summary>State-gate failure — an operation's 'when' predicate (the
 /// canCommand gate) evaluated false against the loaded aggregate.
 /// DomainExceptionFilter maps this to HTTP 409.</summary>

@@ -11,6 +11,7 @@ import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { giveUp } from "../give-up.js";
 import { lambdaArg, namedArgValue, positionalArgs } from "../shared/args.js";
 import { cellRowAggregate, extendRowScope } from "../shared/row-field-type.js";
+import type { ChildSlot } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
 import { emitExpr, propagateChildFlags, walk } from "../walker-core.js";
 
@@ -35,7 +36,17 @@ import { emitExpr, propagateChildFlags, walk } from "../walker-core.js";
  *  `keyExpr` so a programmatic IR (or a future grammar) can supply one.
  *
  *  Lowers to the target's native iteration via `renderForEach`. */
-export function emitFor(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
+export function emitFor(
+  call: ExprIR & { kind: "call" },
+  ctx: WalkContext,
+  depth: number,
+  /** The slot this `For` occupies — a children SEQUENCE (splice admissible)
+   *  or a single-expression VALUE slot (it is not).  Handed straight to the
+   *  target: only the target knows whether ITS children slot is a real list
+   *  literal, and the walker is the only layer that knows WHICH slot this is.
+   *  Defaults to the restrictive answer, like every other `ChildSlot`. */
+  slot: ChildSlot = "value",
+): string {
   const positionals = positionalArgs(call);
   // Collection: `each:` named arg, else the first positional non-lambda.
   const collArg = namedArgValue(call, "each") ?? positionals.find((a) => a.kind !== "lambda");
@@ -89,17 +100,30 @@ export function emitFor(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth
     itemVar,
     cellRowAggregate(collArg, ctx),
   );
-  const body = walk(itemLam.body, bodyCtx, depth + 1);
+  // The `"value"` slot is F-024: this body renders into a VALUE position, so a
+  // nested `For` must splice rather than emit a statement (Feliz FS0747 /
+  // Flutter `...`).  Orthogonal to the row scope above — one says what `item`
+  // resolves to, the other says how the body is allowed to render.
+  const body = walk(itemLam.body, bodyCtx, depth + 1, "value");
   propagateChildFlags(ctx, bodyCtx);
 
   // Optional empty-state arm — plain markup (no item binding), walked in
   // the parent ctx so its child flags mutate `ctx` directly.
   const emptyArg = namedArgValue(call, "empty");
-  const emptyBody = emptyArg ? walk(emptyArg, ctx, depth + 1) : undefined;
+  const emptyBody = emptyArg ? walk(emptyArg, ctx, depth + 1, "value") : undefined;
 
   // TSX wraps each iteration in a keyed `<Fragment>` — flag the shell
   // to import it.  Vue/Svelte iterate natively and never read this.
   if (ctx.target.framework === "react") ctx.usesFragment = true;
 
-  return ctx.target.renderForEach(collExpr, itemVar, indexVar, indexVar, body, depth, emptyBody);
+  return ctx.target.renderForEach(
+    collExpr,
+    itemVar,
+    indexVar,
+    indexVar,
+    body,
+    depth,
+    emptyBody,
+    slot,
+  );
 }

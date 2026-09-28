@@ -4,9 +4,15 @@
 
 *The expression language is deliberately small; these missions finish the in-flight type-system families (errors-as-data, criteria, payloads), close audited correctness bugs, and keep the surface honest.*
 
-## M-T5.1 — Exception-less completion (A4/A5/A6 + VO→422) — `partial` · **L** · P1 ⚠ coordinated
+## M-T5.1 — Exception-less completion (A4/A5/A6 + VO→422) — `partial` (VO→422 `done`, A4's consumer half + load-path parity `done`, A6 superseded; A4's `getById` retype awaits an owner ruling, A5 blocked on the effect-form `match` — Wave C5 moment 5c, 2026-09-28) · **L** · P1 ⚠ coordinated
 The remaining errors-as-data arc: **A4** re-shape `Repo.getById` from `: X` to `X or NotFound` (`: X?` → `X option`) — THE coordinated single-PR fixture re-baseline across all backends; **A5** parse-intrinsic/external-api results as `or`; **A6** `validate for X` → `X or ValidationError[]`; VO-construction `invariant` → 422 routing with RFC-7807 `errors[]` (failure-taxonomy's highest-leverage piece); variant-`match` with scrutinee + variant-pattern binding (real prerequisite — `match` is boolean-guard-only today). The `?` propagation operator stays DROPPED — do not reintroduce.
 Sources: [exception-less](../old/proposals/exception-less.md), [failure-taxonomy](../old/proposals/failure-taxonomy.md), [implementation-plan](../old/proposals/implementation-plan.md) decision table.
+
+**Moment 5c (2026-09-28) — measured first, then built; full record in [`waves/handoffs/wave-c5-5c-exceptionless.md`](waves/handoffs/wave-c5-5c-exceptionless.md).** The premise "`match` is boolean-guard-only" is stale: the **value** form (`match r { Order o => o.code, NotFound => … }`) ships on all five backends over union finds and `or`-returning ops (a presence check for the absence shape); only the **effect** form (arms that run statements) is frontend-only (`loom.variant-match-placement`).
+- **VO→422 — `done`.** A value object BUILT by a body (`qty := Qty { value: n }`) and refused by its constructor answers the domain floor plus one `errors[]` entry `{pointer: "", message, code?}` on all five (was: bare domain floor on four, and elixir did not check the value at all — `resize(0)` → 204). Corpus fixture + wire golden `vo-invariant-in-body`; runtime-proven on node, python, elixir; RS-9 carries the rule.
+- **A4 — the consumer half `done`, the retype NOT done (owner ruling wanted).** `loom.union-read-undiscriminated` refuses reading a union straight through (`r.code`, `r.touch()`) — it was an unguarded dereference on all five (TS18047 / CS8602 / NPE / AttributeError / KeyError). The `getById` miss answers the declared 404 on the GET route, an operation route and a workflow step alike (elixir's workflow miss said "Resource not found"; fixed). Retyping `getById` itself to `X or NotFound` is NOT built: with `?` dropped and no effect-form `match`, every `let o = Repo.getById(id); o.op()` in the corpus would become a type error, and failure-taxonomy (which revisits exception-less) classifies not-found-on-load as a **policy** ("declarative, auto-mapped, never named") and softens A4 "from law to default + `: X?` opt-out" — which is what ships: a find opts into the union by declaring `X or NotFound` / `X option`. The owner decides whether A4's letter stands (see the hand-off note §5).
+- **A6 — superseded.** `validate for X` was never grammar; failure-taxonomy calls it "a hallucination in an earlier draft" and routes validation to the VO `invariant` — the VO→422 row above.
+- **A5 — blocked on the effect-form `match`.** No parse intrinsic exists to re-shape; the typed in-system api call (M-T4.8) is the external-call site, and making it `T or ApiError` is only consumable once a workflow can ACT in a `match` arm. **Remaining (sized, L):** the effect-form variant `match` in domain + workflow bodies — a new `WorkflowStmtIR` kind, five `StmtTarget` leaves (the `_stmt/target.ts` throw), four `WorkflowStmtTarget` leaves plus the elixir `with`-chain branch, `walk.ts` + census, and flipping `loom.variant-match-placement` from permanent to lifted for those owners.
 
 ## M-T5.2 — Backend failure-sink contract — `open` · **M** · P2
 Uniform problem+json envelope + `traceId` as a cross-backend wire contract; `errors {}` policy override (backend half of M-T1.8); `expose`/public-contract error translation at api blocks (failure-taxonomy OQ4).
@@ -36,8 +42,19 @@ Sources: [aggregate-inheritance](../old/proposals/aggregate-inheritance.md), [do
 Backend route emission per action kind + action-param walking in API generators; `crudish` reframing (`createOp`/`destroyOp` factories); scaffold macros emit noun-named ops by default (+ fixture re-baseline).
 Sources: [lifecycle-operations](../old/proposals/lifecycle-operations.md).
 
-## M-T5.9 — Surface hygiene: signposting + with/implements — `open` · **S–M** · P2
+## M-T5.9 — Surface hygiene: signposting + with/implements — `open` · **S–M** · P2 ⚠ (b) is BLOCKED on its own two open questions (measured 2026-09-22, wave C4 packet 4f)
 (a) `loom.reserved-not-emitted` diagnostic routed through every parse-but-no-emit surface (old S1 — additive, self-emptying); (b) the `with`/`implements` keyword-kind split + fix-it + codemod (old S4). S2 redundancy cuts are DONE (#1795).
+
+**Measured on the folded C4 tree (packet 4f); neither half taken, both with the reason:**
+
+- **(a) the MECHANISM has landed; the DENOMINATOR has not.** `src/ir/validate/checks/reserved-surfaces.ts` is the single registry (`RESERVED_SURFACES`) behind one meta-diagnostic, with wording in `messages.ts`, a live `code-docs.ts` anchor, a firing fixture, and a no-stale-rows reachability test (`test/ir/reserved-not-emitted.test.ts`). It carries **3 rows** — `timer-source-timezone`, `timer-source-overlap`, `storage-connection`. **The DENOMINATOR now exists** — `test/system/inert-ir-field-census.test.ts` (wave C4 packet 4f): an IR field declared in `loom-ir.ts` and referenced by NO file under `src/generator/**`, `src/system/**` or `src/platform/**` is a candidate parse-but-no-emit surface. **Measured: 27 of 330 declared fields**, on a shrink-only exact baseline with an anti-slack arm, so a NEW unread field fails until it is given a reader, dispositioned, or given a `RESERVED_SURFACES` row. Mutation-proved by seeding an unread field onto `WorkflowIR`. The baseline is deliberately not zero: the scan over-approximates in one direction (IR-internal plumbing like `loadPlan`/`resourceInterfaces`, reads through a destructure, and fields the `ddd verify` / CLI surfaces consume instead of an emitter).
+
+**Three CONFIRMED by hand, each owed a `RESERVED_SURFACES` row — that work is `src/ir/validate/checks/**` (packet 4c's fence), so it is handed off, not taken:**
+- `uiBindings` + `sourceDeployableName` — written by `src/ir/lower/lower-deployment.ts:139,142,185` from a `uiCompose { … }` clause and read by **nothing**. The clause parses, lowers, and vanishes.
+- `accessSource` — stamped beside `access` (`lower-members.ts:141`, `enrich/enrichments.ts:1890,1909`, values `declared`/`default`/`stamp`). `access` IS read downstream; the provenance half is not.
+
+What remains on (a) is therefore the rows, not the measurement: one `RESERVED_SURFACES` row per confirmed find (each deleting its name from the census baseline in the same PR), plus a disposition pass over the other 24 candidates. Size **S**.
+- **(b) BLOCKED on the proposal's own §Open questions, and one is an owner call.** [`with-implements-split.md`](../old/proposals/with-implements-split.md) §OQ1 says plainly it is "not a soft 'open' item": the headline ergonomics (`aggregate Build with crudish implements versioned { … }`) put `implements` in HEADER position, and the grammar admits it only as a MEMBER (`ImplementsDecl`), so the split needs a grammar extension plus a Langium-ambiguity check on `with … implements …` before the `{` — and if that is ambiguous the proposal falls back to a different shape entirely. §OQ2 is a product decision: hard cutover (codemod + validator error), or a release where `with <capability>` warns before it errors. Packet 4f declined to force either, particularly right after packet 4d reshaped the callable grammar into three shared fragments. Size once unblocked: **L** (grammar + regenerate + a `print-structural` arm + the validator + fix-it + a `scripts/` codemod with a test + a byte-identical proof across eleven targets).
 Sources: [reserved-surface-signposting](../old/proposals/reserved-surface-signposting.md), [with-implements-split](../old/proposals/with-implements-split.md).
 
 ## M-T5.10 — API derivation completion — `partial` · **M→L** · P2 ⚠ verify-first
@@ -45,7 +62,8 @@ Sources: [reserved-surface-signposting](../old/proposals/reserved-surface-signpo
 - **PR1 (contract-record layer) landed** (#1900) — `scaffoldHandlers` now splices source-visible literal `response`/`command`/`query` `PayloadDecl` records (`src/macros/api/factories.ts` `payload`/`response`/`command`/`query` + `apiReadFields` = AST twin of `forApiRead(wireShape)`; `src/macros/stdlib/scaffold/_contracts-shared.ts`). Macro-layer only, additive + **inert** (byte-identical generation, proven). `unfold` ejects the contract as real `.ddd`.
 - **PR2–PR6 (response-DTO read-rewire) landed — all 5 backends** (#1905 .NET, #1909 Hono, #1910 Python, #1911 Java, #1912 Elixir). Each backend's response-DTO/schema emitter now READS the declared `<Agg>Response` record (override-by-name on `ctx.payloads`) instead of re-deriving from `wireShape`: .NET record params, Hono zod schema, Python Pydantic model, Java record + `from()` mapper, Elixir OpenApiSpex schema. The `id` row (grammar-reserved, omitted) is re-prepended and containment fields (already `<Part>Response`) map via an `isResponsePayloadName` guard (no `<Part>ResponseResponse` double-suffix). Each PR is **byte-identity + divergence gated** (scaffolded record ≡ wireShape baseline; a hand-declared divergent record emits differently). PR2 also threaded `env` into `lowerPayload`/`lowerField` (macro-spliced refs skip the Langium Linker). The DTO's source of truth now moves from enrichment-stamped `wireShape` to the declared contract.
 - **PR7 (handler-param rewrite) landed — all 5 backends** (branch `claude/handler-param-record-rewrite-atf3cj`). The scaffold + all 5 explicit-handler emitters now consume a single `command`/`query` **record param** (bodies reference `cmd.<field>`/`query.<field>`) instead of flat scalars, and the read handlers (getById/find) declare `<Agg>Response`/`<Agg>Response[]` returns. Path-param ids stay separate handler params (a route `{id}` can't live in a body record); query records assemble from path+query-string; empty command records (cancel-no-params, destroy) are omitted → `(orderId: Order id)`. Wire-preserving return contract: create keeps `<Agg> id`, operation/destroy stay void, reads declare their `<Agg>Response` (transport already projects entities to it, so the request/response wire is **byte-identical**). Grammar/IR-shape unchanged — payload-param member access reuses the workflow-`handle` machinery (`memberOnPayload`). Two shared helpers in `src/ir/util/handler-contracts.ts` — `requestRecordFor` (identify a record param) + `normalizeHandlerReturn` (map `<X>Response` → entity X for the internal type + projection trigger). Each backend keeps its transport idiom: Hono materialises the record from per-field wire sources (+ fixed a latent single-entity-only projection bug: find arrays now `r.map(x => repo.toWire(x))`); .NET/Java/Python/Elixir FLATTEN the record into their existing Mediator record / `@RequestBody` / Pydantic `Body` / string-keyed map (byte-identical to the flat form), rendering `cmd.<field>` as the flat field via a `recordParams` set threaded into each `render-expr`. Compile-gated on every backend (new `scaffold-handlers` fixtures: Hono `tsc`+`tsup`, .NET `/warnaserror`, Java `gradle bootJar`, Python `ruff`+`mypy --strict`, Elixir `mix --warnings-as-errors`). Hono 200 `z.unknown()`→`<Agg>Response` tightening is the separate #1917 tail. **M-T5.10 input+output axes now complete; only the spun-off `wireShape` retirement remains.**
-- **Spun off:** the `wireShape` retirement (proposal steps 6–8) — 179 refs / 49+45 files, gated on the contract layer + entangled with the still-active auto-derivation mainstream; XL, deserves its own mission (not this M). Extern handler LSP/scaffold polish is a separate tail.
+- **Spun off — re-measured and re-scoped by wave C4 packet 4e (2026-09-22), and the spin-off text below was STALE.** "the `wireShape` retirement (proposal steps 6–8) — 179 refs / 49+45 files, XL" counted the wrong thing: **steps 6 and 7 already shipped** (#1920 Phase 1, #1937 Phase 2 — the phase-⑥ stamp and `wireShapeFor` are gone, `EnrichedEntityPartIR`/`EnrichedValueObjectIR` alias their base types), so the 179 refs are call sites of the PURE RECOMPUTE helpers in `src/ir/enrich/wire-projection.ts`, which is what "derive, don't stamp" asks for — not readers of a denormalised field. What actually remains is the OPPOSITE direction and is now **M-T5.40**: the declared `<Agg>Response` records PR2–PR7 pointed every response-DTO emitter at do not reproduce the derived shape (25 of 126 contracted corpus nodes diverge), and three of those classes are live emission defects. Step 8 (`.loom/wire-spec.json` retirement) is declined: [`D-WIRESHAPE-KEEP`](../decisions.md).
+- **Still open on THIS mission:** the extern-handler LSP / scaffold polish tail (unsized, P3) — the only reason it is still `partial`.
 Sources: [unfoldable-api-derivation](../old/proposals/unfoldable-api-derivation.md) + [coordination note](../old/proposals/unfoldable-api-derivation-coordination-note.md).
 
 ## M-T5.12 — Typed-capabilities tail — `partial` · **M** · P3
@@ -80,8 +98,13 @@ The two statement forms that WOULD express them already exist and already render
 
 Sources: [domain-services](../old/proposals/domain-services.md), [workflow-and-applier](../old/proposals/workflow-and-applier.md); `src/ir/validate/checks/workflow-checks.ts`, `src/ir/validate/checks/api-checks.ts`.
 
-## M-T5.16 — Compiler-internal fragility guards — `open` · **M** · P2
-From the weak-spot review §7: (a) exhaustiveness-check the type-system's parallel walkers (`stepInto` + `typeAfterSuffix`) so a new bindable type can't silently miss one; (b) revisit the `unknown`-cascade suppression (a placeholder type silently disables ALL downstream operand checks) — at minimum a lint that counts suppressed sites; (c) full-code-review #22: macro expansion under LSP incremental rebuilds (C5).
+## M-T5.16 — Compiler-internal fragility guards — `partial` ((a) and (c) LANDED, (b) MEASURED — wave C4 packet 4f, 2026-09-22) · **S** · P2
+
+**(a) LANDED — and there were THREE parallel walkers, not two.** `typeAfterSuffix`, `stepInto` and `stepIntoNode` (`src/language/type-system.ts`) all answer "what does `recv.member` denote?" and all three were `if (t.kind === …)` chains falling through to a silent `T.unknown` / `undefined`. Each is now a `switch (t.kind)` covering every `DddType` member with a `const _exhaustive: never` default (the `src/ir/util/walk.ts` idiom), arm-for-arm behaviour-preserving. The divergence was already real and recorded nowhere — **`userclaim`, `id`, `array` and `primitive` resolve members on `typeAfterSuffix` and resolve to `unknown` on `stepInto`** — and is now declared data (`MEMBER_RESOLVING_KINDS`), asserted by `test/language/type-system/walker-exhaustiveness.test.ts`. Mutation-proved by file copy: adding a `{ kind: "probe" }` arm to `DddType` fails `tsc -b` at all three sites at once (`type-system.ts(1209,13)/(1845,13)/(2261,13)`, TS2322 "not assignable to type 'never'") and fails the runtime pin three times naming `probe`. Byte-identical on the 395-cell corpus snapshot.
+
+**(b) MEASURED, not narrowed — and the number is the finding.** `test/system/unknown-cascade-census.test.ts` pins the **21 suppression sites across 6 files** on an exact shrink-only baseline (adding one to a clean file fails, naming it — mutation-proved by seeding one into `validators/repository.ts`), and measures what stands behind the stop sign: **28 333 of 46 492 corpus expression nodes — 60.9 % — type as `unknown`** under the shared `envForNode` env, overwhelmingly `NameRef` (13 886) and `PostfixChain` (11 773). Read it as an UPPER BOUND on what the validators suppress (`envForNode` types `let` bindings as `unknown` by its own admission, and a validator building its env inline sees fewer) — but that is the SECOND finding, not a caveat: every LSP hover / go-to-definition / completion consumer reads the same env. **Still open, and both halves are `src/language/**` behaviour changes outside packet 4f's fence:** narrowing each of the 21 sites from "suppress every downstream check" to "suppress the one that would cascade", and giving `envForNode` real `let`-binding types. Recipe in [`waves/handoffs/wave-c4-4f-hygiene.md`](waves/handoffs/wave-c4-4f-hygiene.md).
+
+**(c) LANDED as a pin, with a measurement that says #22 does not reproduce today.** `test/macro/expansion-rebuild-idempotence.test.ts` drives the real `DocumentBuilder` through the three rebuild shapes an editor produces — host re-edited, SIBLING edited with the host untouched, sibling removed and restored — and asserts the spliced member count is stable. Measured on Langium 4: a sibling-triggered rebuild REPLACES the host's AST object (a re-parse), so the doubling C5 feared cannot occur; the test records which regime it observed in its own failure message, so the claim stays honest if a future Langium reuses the AST. Mutation-proved by seeding BOTH defenses off at once — a second `expandModel` call in the listener AND `mergeScopedMembers`'s override-by-name dedup disabled — pages 8 to 24. **That there are TWO independent defenses, neither written down, is itself the finding.**
 Sources: [weak-spots §7](../audits/architecture-weak-spots-2026-07.md), `experience_gathered.md` §unknown, full-code-review #22.
 
 ## M-T5.19 — Test-placement & test-authoring DSL — `partial` (placement largely shipped; authoring unbuilt) · **M–L** · P2
@@ -99,7 +122,9 @@ The back-fill of a feature that shipped **three phases with no mission tracking 
 **Ordering:** (a) before (b) — the anchor is a one-PR completion of a shipped phase, while the authoring surface is a new grammar family that should not land half-built across five backends.
 
 Sources: [`test-placement.md`](../old/proposals/test-placement.md) (incl. its runtime-grounded Phase 3 design), [`test-authoring-language.md`](../old/proposals/test-authoring-language.md), PRs #2163 / #2179 / #2188. Related: M-T9.3 (per-PR boot gates — the integration rung runs there), `docs/testing.md` (tier placement guide).
-## M-T5.21 — Callable unification: one production for "a named body runs here" — `open` · **L** · P2 ⭐ cost-of-growth
+## M-T5.21 — Callable unification: one production for "a named body runs here" — `partial` · **L** · P2 ⭐ cost-of-growth
+
+**Phase 1 LANDED (wave C4 packet 4d).** The grammar's callable surface is one production — three shared fragments (`CallableLeadModifiers` / `CallableSigModifiers` / `CallableGates` in `ddd.langium`) included by all twelve callable rules — and the per-site differences are declared data: `CALLABLE_SITES` (`src/language/callable-sites.ts`) read by ONE validator (`src/language/validators/callable-sites.ts`), so an excluded modifier reports **why** (`loom.callable-modifier-not-allowed-here`, one catalog arm per site kind) instead of failing as an unexplained parse error. The `lower/` half of the finding is drained too: the seven copies of the callable parameter binder are one leaf (`src/ir/lower/callable-params.ts`), with the one real divergence — whether a `param: T = <expr>` default is lowered — a parameter of the helper rather than a fork of it. Gated **byte-identical on all eleven targets** — the corpus snapshot (395 cells / 26 424 emitted files, five backends) plus a matching frontend snapshot over `examples/` + `web/src/examples/` (70 sources / 6 439 files, all six frontends), because every corpus fixture is backend-only and the widening reaches `ActionDecl` — with `print-completeness` + `print-structural-roundtrip` green and three mutation proofs. **Phases 2–4 remain open** — the six duplicate `loom.workflow-*` diagnostic pairs, the one `extern` spelling, and re-deriving the exclusions row by row; the hand-off ([`waves/handoffs/wave-c4-4d-callable.md`](waves/handoffs/wave-c4-4d-callable.md)) carries the recipe and the measured remainder.
 **Fifteen grammar rules mean the same thing.** `Operation`, `Create`, `Destroy`, `Apply`, `FunctionDecl`, `CommandHandler`, `QueryHandler`, `DomainServiceOperation`, `WorkflowCreateDecl`, `HandleDecl`, `OnDecl`, `ActionDecl`, `UiFunction`, `Component`, `Criterion` — each is "a name, params, an optional return type, a body", forked by *where it lives* and carrying an arbitrary modifier subset. The grammar records the arbitrariness itself: `DomainServiceOperation` "does NOT carry `private`/`extern`/`audited`/`when` — those are aggregate-operation-only" (no reason given, because it is where the rule was forked), and workflow `function` is validator-restricted to the expression form one layer away from the grammar that states it. `extern` has **four** spellings (prefix on handlers, infix on `operation`, suffix-with-path on `component`, and *as the body* on ui `function`); `function` means three different things depending on scope.
 
 The fork leaks downstream: the duplicate diagnostic pairs (`loom.workflow-emitted-event-no-applier` ↔ `loom.emitted-event-no-applier`, and five more) are one rule stated twice because the carrier was stated twice — plus a `lower/` branch, a mandatory `print-structural.ts` arm, and per-backend emitter arms each.
@@ -109,46 +134,6 @@ The fork leaks downstream: the duplicate diagnostic pairs (`loom.workflow-emitte
 Design: [`M-T5.21-callable-unification-design.md`](missions/M-T5.21-callable-unification-design.md).
 
 Sources: language-size review 2026-08-04. `src/language/ddd.langium` (the fifteen rules, line numbers in the design doc), [`docs/customization-gradient.md`](../customization-gradient.md), [`surface-redundancy-cuts.md`](../old/proposals/surface-redundancy-cuts.md) (same "one spelling per concept" principle, previously applied only to trivia). Relates to M-T5.17 (modifier zoo, one layer up), M-T5.18 (soft-keyword sprawl).
-
-## M-T5.22 — Decimal arithmetic has no governing rule: `0.1 + 0.2` diverges on the wire AND in storage — `blocked(D-DECIMAL-EXACT-MOMENT)` · **L** · P1 ⭐ ruling GIVEN 2026-09-07: exact
-
-Found 2026-08-23 by the numeric-types audit ([F11](../audits/numeric-types-audit-2026-08-23.md)). RS-24 pins how a `decimal` *serializes* (a JSON number through a float64) but nothing pins how it *computes*: node/python run float64 arithmetic, .NET/Java/Elixir run exact decimal (System.Decimal / DECIMAL128 / Decimal-context-28). A `derived x: decimal = 0.1 + 0.2` ships — and **persists into the shared unbounded `DECIMAL` column** — `0.30000000000000004` from two backends and `0.3` from three. Single divisions agree only coincidentally (double division is correctly rounded), which is why `7/3` never exposed it.
-
-**Why every existing gate is green.** Zero corpus coverage of float-error-visible decimal arithmetic — and the witness cannot be added first, because it alone turns three backends red against the node oracle. The ruling comes first.
-
-**THE RULING — given by the owner 2026-09-07. `decimal` arithmetic is EXACT.** `0.1 + 0.2` answers `0.3` on every backend, on the wire and in storage. .NET/Java/Elixir already conform; **node and python change to match them**.
-
-This **supersedes the audit's proposed float64/node-oracle default**, which is struck rather than left standing beside it — the rationale for the override: `decimal` exists precisely to avoid binary-float error, so a decimal type that answers `0.30000000000000004` is broken by its own definition. Do not re-open this as "the audit suggested otherwise".
-
-**The cost, accepted knowingly.** This is a WIRE-VISIBLE change on node and python: their API responses and newly-persisted values change. Existing rows are NOT rewritten, so historical rows may disagree with new ones — an implementing PR should say so in its body and consider whether a migration note belongs in `docs/migrations.md`. And the node oracle that the wire-golden and behavioural tiers compare every other backend against MOVES with this change, so those goldens are re-captured as part of this mission (`LOOM_WIRE_UPDATE=1`), reviewed diff-by-diff — never as a drive-by rebaseline.
-
-**Scope the implementation FIRST, before writing any of it.** Python already has `Decimal` in play on the column side (M-T6.45 landed that), so its gap may be narrow. The Hono/node backend is the unknown: it likely needs a decimal library threaded through the domain layer and the derived-field evaluator, and that cost — not the ruling — decides how this mission is sliced. Report the finding before implementing.
-
-**Not at stake, so nobody re-litigates it:** `money` is a fixed-scale-4 string, already exact and identical on all five backends. This ruling concerns plain `decimal` only.
-
-Mint the RS rule per the registry's own claim-the-number protocol (`docs/conformance-semantics.md`). Then add the corpus witness and bring node/python into compliance.
-
-**Also carried here** (same ruling's blast radius, from the register annex): node money arithmetic runs at decimal.js default 20-significant-digit precision (no `Decimal.set` emitted) vs 28+ elsewhere; the inbound `decimal` precision-acceptance skew (Java unlimited vs .NET 28–29 vs double-clamped — a Java-written 30-digit value can `OverflowException` a .NET reader of the same column); and the numeric doc drift (`docs/language.md` host-type table predates #2575 and mislabels Java; the stdlib catalog signature `sum → decimal` in `src/util/collection-ops.ts` disagrees with `type-system.ts`'s body-type rule — fix the catalog, regen `docs:stdlib`).
-
-**This is a COORDINATED MOMENT — one PR, nothing else in it.** Measured
-2026-09-10: `jq -r .oracle test/behavioral/wire-golden/*.json | sort | uniq -c`
-answers **54 node**, and SEVEN behavioural legs diff against those goldens
-(`behavioral`, `-mikroorm`, `-dotnet`, `-dapper`, `-python`, `-java`,
-`-elixir`). So the instant node goes exact, all seven are red until all 54 are
-re-captured — node, python and the goldens have to land **together, alone**.
-Landing it as one row inside a multi-row cross-backend packet is the failure
-mode to avoid: there, any other row being wrong is indistinguishable from the
-oracle move, and a conflict on the goldens blocks the whole packet. Treat it as
-a fourth coordinated moment alongside the three in
-[completion-waves-2026-09](completion-waves-2026-09.md) (A4 `getById`,
-`denyByDefault`, `organizationContext`). Note the move is more visible than it
-was before [#2807](https://github.com/Loom-Harness/Loc/pull/2807): the differential
-now compares number FORMATS as well as values, so an oracle shift diverges on
-spelling too, not only on magnitude.
-
-**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/Loom-Harness/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 
 ## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
 
@@ -227,7 +212,7 @@ Today `POST /<plural>` always takes the **field-derived** create input. A narrow
 
 **Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
 
-## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `open` · **M** · P1
+## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `partial` (#3050 landed the `of:`-form half) · **M** · P1
 
 `src/ir/lower/lower-expr.ts:1214` lowers a bare lambda with a hard-coded placeholder element type:
 
@@ -243,11 +228,14 @@ The collection-op path two hundred lines up does it correctly (`collElem && isLa
 
 This is the enabling change for the formatter work: a per-type formatter table cannot route `Text`'s child while every page-body field types as `string`. #2871's D4 is downstream of it.
 
-**The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`.
+**The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`. **The first half landed with #3050 for the `of:` forms the page DSL documents; the remainder this mission now covers is the second half** — the placeholder itself.
 
 **Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
 
-Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.
+Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.  **That claim went stale** — both merged without it — and #3050 picked it up on 2026-09-27, cutting the QUERYVIEW-OVER-A-PROJECTION half: `ofReadResultType` recognised only `<handle>.<Aggregate>.<verb>`, so the fifth documented `of:` form (`<apiHandle>.<Projection>`, `page-metamodel.md` §9.3) reached `queryDataType` as `undefined` and the `data:` lambda fell to the placeholder.  Two shipped defects came off that erasure: a projection money field rendered raw into a React text slot (TS2322, invisible to #2871's D4 gate, which resolves its row through `wireFieldsForAggregate`) and `money.round(n)` emitting decimal.js's zero-argument `.round(n)` (TS2554).
+
+**Still open after #3050:** the `lower-expr.ts` bare-lambda site keeps its `string` placeholder for the cases nothing supplies a type to (`env.rowElem ?? { kind: "primitive", name: "string" }`), and the mission's "make the no-known-type case a diagnostic rather than a silent `string`" half is untouched.  #3050 removes the erasure for the `of:` forms the page DSL documents; it does not remove the fallback.
+
 ## M-T5.34 — the rulings the dev-experience audits deferred, as one diagnostics packet — `done` (2026-09-13) · **M** · P1
 
 Mints three `loom.*` codes in one packet because each one edits the shared catalog (`src/diagnostics/messages.ts`), and separate PRs against that file conflict on every merge. Closes [#2864](https://github.com/Loom-Harness/Loc/pull/2864) findings **D5**, **D6** and **G2**; implements decisions **D-1(c)** and **D-2** of the freight-audit fleet plan (`docs/audits/2026-09-10-freight-fleet-plan.md`, landing with #2864).
@@ -288,36 +276,6 @@ Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workfl
 
 Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
 
-## M-T5.37 — test surface v2: a workflow accessor and three matchers — `in progress` · **M** · P1
-
-Design: [`missions/M-T5.37-test-surface-v2-design.md`](missions/M-T5.37-test-surface-v2-design.md).
-Wave 3 of the testability-audit fleet ([findings](../audits/2026-09-13-testability-audit.md) F5 + F11,
-[plan](../audits/2026-09-14-testability-fleet-plan.md)). Six owner decisions are recorded in the
-design doc against who made them; the syntax is signed off.
-
-**Two halves, deliberately sized apart.** The **workflow accessor** (`api.<wf>.run()` /
-`.instances()` / `.instance(key)`) touches ONE emitter — the e2e suite is backend-agnostic HTTP,
-emitted once by `src/system/e2e-render.ts` and replayed against every compatible backend — and
-needs no new route: all five backends already mount the command and instance reads (python states
-it plainest, `APIRouter(prefix="/workflows")`). The **matchers** touch FIVE, because unit tests run
-in-process. The cheap-looking half is the expensive one.
-
-- **P9 — the workflow accessor** ([#2985](https://github.com/Loom-Harness/Loc/pull/2985)). Closes
-  F5 and M-T9.12's own follow-up, which says asserting a folded workflow instance's scalars "needs a
-  workflow-instance read verb the `test e2e` DSL doesn't have yet".
-- **P11a — `toThrow(precondition)` / `toThrow(invariant)`** — **LANDED**
-  ([#2987](https://github.com/Loom-Harness/Loc/pull/2987)). Unit tier only; refused in an e2e body,
-  where both kinds are a 422 whose only discriminator is a `detail` sentence an authored
-  `invariant … message` can overwrite. Motivated by a measured false pass: the audit deleted a
-  `precondition` from generated source and the test stayed GREEN, because an invariant threw instead.
-- **P11b — `toBeNull` / `toBeAbsent` / `toContain`** + verify-and-document the absence conformance
-  contract. Stacked on P11a (shared `intrinsic-matchers.ts`).
-
-**Deferred by the owner, recorded so it is not mistaken for an oversight:** a principal clause for
-`test e2e` (F6) — "a gap, not a bug". Consequence: `requires` / `policy` / `mask unless` and tenancy
-denial stay untestable from a user's model, and the repo's own coverage of them stays in
-`AUTHZ_LADDERS`, harness-side, shipped to nobody.
-
 ## M-T5.38 — the IR's TWO SPELLINGS of a `this` property read, normalised at lowering — `open` · **M** · P2 ⚠ not byte-identical on three backends
 
 `this.<prop>` lowers to a `member` node whose receiver is `this`; the BARE `<prop>` spelling of the same field lowers to a `ref` with `refKind: "this-prop"` / `"this-derived"`. Two IR shapes for one source meaning, and every consumer that special-cases one of them silently misses the other. (Wave C2 packet 2a closed the CALL half — `this.<fn>(…)` now lowers to the bare form's `call` node — and left the READ half; packet 2f censused it on all five and recommended its own mission. This is it.)
@@ -357,3 +315,66 @@ src/generator/java/render-jpql.ts:333
 
 Sources: wave C2 hand-offs [`wave-c2-2a-elixir.md`](waves/handoffs/wave-c2-2a-elixir.md) (the two demonstrated defects) and [`wave-c2-2f-ir.md`](waves/handoffs/wave-c2-2f-ir.md) §5.4 (the five-backend measurement and the census above); `src/ir/lower/lower-expr.ts`; `src/ir/types/loom-ir.ts` (`RefKind`).
 
+
+## M-T5.39 — there is no `date` (or `time`) scalar, so every calendar field is a `datetime` — `open` · **L** · P1 ⚠ five-backend wire-contract change
+
+Found 2026-09-27 by the claims-system dev-experience run (`F-110`). `policy.startsOn`, `policy.endsOn`, `claim.incidentOn`, a due date, a date of birth — every one of them is a *calendar* value, and the scalar menu has no way to say so:
+
+```
+bool, datetime, decimal, File, guid, int, json, long, money, string
+```
+
+The diagnostic is honest (it prints the whole list, so nothing is hidden), and the only workaround is `datetime` — which re-introduces exactly the class of bug a `date` type exists to prevent. A policy that ends `2026-01-01T00:00:00Z` ends on **December 31** for every principal west of UTC, and the generated `Table` column, the `zod` schema, the Postgres column and the five backends' parsers all agree with each other and are all wrong together. That is the worst shape a defect can have here: cross-backend consistency makes it invisible to the differential gates.
+
+**This is not merely absent — it is half-present.** The i18n layer already ships `{at, date}` as an interpolation format spec, so the *rendering* side of the concept exists while the *type* side does not. `docs/language.md` never mentions `date`, not even as unsupported, so an author gets no signal that the omission was considered.
+
+**Why L, and why it needs a mission rather than a packet.** A new scalar is not one grammar token. `datetime` appears in **136 files under `src/`, 103 of them under `src/generator/` + `src/platform/`** — the type-mapping tables of five backends and six frontends, the SQL column renderer, the migration differ, the wire codecs, the filter-param kinds, the intrinsic receiver table (`src/util/intrinsics.ts`), the zod/refine emitters and the walker's field primitives. Every one of those is a place where "which SQL type / which wire form / which parser" must be answered again for the new scalar, and a missed arm degrades silently to a string.
+
+**Build order (proposed, owner may re-cut).**
+1. **Ruling first:** one scalar (`date`) or two (`date` + `time`)? The finding names only `date` from real use; `time` is symmetry, not demand. A `time` with no `date` has no defined ordering across DST and is the weaker half — recommend shipping `date` alone and leaving `time` explicitly declined in the message, so the decision is recorded rather than re-litigated.
+2. **Wire form:** ISO-8601 calendar date (`"2026-01-01"`), no offset, no time component — the one spelling every target's stdlib parses and the one Postgres `date` round-trips exactly.
+3. **Grammar + type system:** the `name=(…)` alternation at `src/language/ddd.langium:2048`, then the lowering type table and `src/util/filter-param-kinds.ts`.
+4. **Per-target type maps**, one arm each, with the SQL column (`date`) and the migration differ's `datetime → date` narrowing treated as a **destructive** change (it drops the time component) so it lands behind `--allow-destructive`.
+5. **Intrinsics:** what `date` supports (comparison, difference in days, `.year`/`.month`/`.day`, conversion to/from `datetime` at an explicit zone) — each one is an `ExprTarget` leaf on five backends, so keep the v1 set deliberately small.
+6. **Frontend:** the field primitive (a date picker, not a datetime picker) and the `{at, date}` catalog entry that already exists.
+
+**Verification when it lands.** A corpus fixture carrying a `date` field through create / read / filter / migration, compiling on all five backends (rule 13 — extended until every emitter arm a mutation names goes red), plus a runtime leg that writes `2026-01-01` from a client at UTC−5 and reads back `2026-01-01`. The timezone assertion is the whole point: a fixture that only checks the column type would have passed before this mission too.
+
+**Until it lands,** `datetime` is the honest answer and the docs should say so: `docs/language-reference/04-type-system.md` gains one line naming `date` as a known omission with this mission id, which is the difference between a gap and a silence.
+
+Sources: dev-experience run 2026-09-27 (`F-110`); `src/language/ddd.langium:2048`; `src/util/intrinsics.ts`; `docs/new-plan/archive/T1-done.md` § M-T1.11 (the i18n `{at, date}` format spec that already exists).
+
+## M-T5.40 — the declared response record does not describe the wire it claims to — `open` · **L** · P1 ⚠ three live emission defects
+The inverse of what M-T5.10 spun off. M-T5.10's PR2–PR7 pointed every backend's response-DTO and schema emitter at the source-visible `<Agg>Response` contract record (override-by-name on `ctx.payloads`), on PR1's claim that the spliced record is "additive and fully INERT". The repository serializer / `.loom/wire-spec.json` / every frontend model still read the DERIVED shape (`forApiRead(wireFieldsFor*(node))`). Wave C4 packet 4e measured the two against each other and they do not agree, so the two halves of one HTTP response disagree.
+
+**The census** (`test/system/wire-contract-divergence.test.ts`, exact shrink-only baseline — `with scaffoldHandlers` injected into all 79 corpus fixtures, 126 contracted nodes, **25 diverging**):
+
+| class | rows | what differs | live defect? |
+|---|---|---|---|
+| **A1** capability-injected fields | 7 | `softDeletable`'s `deletedAt`, `auditable`'s `createdAt`/`updatedAt`, `tenantRegistry`'s `parent`/`dataKey` reach the derived walk, not `apiReadFields` | **yes** |
+| **A2** inherited base fields | 8 | enrichment merges the `extends` chain into the concrete; the record's AST walk does not | **yes** |
+| **B3** `provenanced<T>` | 1 | `wireTypeForField` wraps the carrier for the wire; the record declares bare `T` | **yes** |
+| **B1** containment element | 7 | the record names `<Part>Response` (context scope cannot reference a raw part), the derived walk names the part | no — offset, un-suffixed by `isResponsePayloadName` |
+| **B2** optional containment | 1 | optionality in the TYPE (`optional<MemoResponse>`) vs the `optional` FLAG | no — representation |
+| **C** field ORDER | 1 | `versioned`'s `version` is a property (before containments) in the derived walk, appended after in the record | **yes on positional DTOs** (.NET/Java/F# records) |
+
+**Reproduce A1/A2 in two minutes** (`platform: node`, `with scaffoldHandlers` on the context):
+
+```
+aggregate Order with softDeletable { code: string  status: string = "new"  create(code: string) { code := code } }
+```
+```ts
+// api/db/repositories/order-repository.ts
+toWire(root: Order): unknown { return { id: …, code: …, status: …, deletedAt: …, version: … }; }
+// api/http/order.routes.ts   ← `deletedAt` is NOT here
+export const OrderResponse = z.object({ id: z.string(), code: z.string(), status: z.string(), version: z.number().int() });
+```
+and `return c.json(repo.toWire(found) as z.infer<typeof OrderResponse>, 200)` — the cast is why `tsc` never sees it. `aggregate Customer extends Party` is worse: `CustomerResponse` is `{id, tier, version}` while `toWire` emits `{id, name, email, tier, version}`, so every inherited field is missing from the OpenAPI schema and from any client generated off it. **The failure mode differs per backend:** on the record-based backends the projection mapper is generated FROM the record, so on `platform: java` `public record CustomerResponse(UUID id, String tier, int version)` with `from(Customer value)` returning only those three means `name`/`email` are **never serialised at all** — the API silently truncates, rather than merely mis-declaring.
+
+**Why it is only visible under the macro.** `with scaffoldHandlers` is the ONLY thing that splices the records, and exactly five tracked `.ddd` use it (the per-backend `scaffold-handlers` compile fixtures), none of which declares a capability or an `extends`. 0 of 117 corpus aggregates carry a record, so the whole shipped surface runs the derived path and nothing ever compared them. That is also why the `scaffold-handlers` compile gates are green: they compile, they are just not the shapes that diverge.
+
+**Order of work.** (1) A1 — make `apiReadFields` (`src/macros/api/factories.ts`, consumed by `src/macros/stdlib/scaffold/_contracts-shared.ts`) see the prelude-injected fields; this is a macro-ORDERING question (the capability mixin vs `scaffoldHandlers`), not a filter question. (2) A2 — walk the `extends` chain at record-build time; this is the coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain walk has two consumers"), now measured rather than predicted. (3) B3 — apply `wireTypeForField`'s carrier wrap. (4) C — align the record's walk order with `id → properties → containments → derived`. (5) B1/B2 stay as declared offsets, documented, with the un-suffixing rule stated once. Each row deleted from the census baseline in the PR that closes it. Add a corpus fixture that USES `scaffoldHandlers` over a capability-bearing, inheriting aggregate — the missing fixture is why the class survived seven PRs.
+
+**Not in scope, by decision.** Moving any consumer off the derived shape onto the records, and retiring `.loom/wire-spec.json` (proposal steps 6–8's remainder): [`D-WIRESHAPE-KEEP`](../decisions.md) — the derived shape stays the source of truth until the records reproduce it AND the implicit `api … from …` form expands through the scaffold, so the records exist for the paths that ship.
+
+Sources: [unfoldable-api-derivation](../old/proposals/unfoldable-api-derivation.md) steps 6–8 + [coordination note](../old/proposals/unfoldable-api-derivation-coordination-note.md) items 1–3; [`D-WIRESHAPE-KEEP`](../decisions.md); wave C4 hand-off [`wave-c4-4e-wireshape.md`](waves/handoffs/wave-c4-4e-wireshape.md); `test/system/wire-contract-divergence.test.ts`.

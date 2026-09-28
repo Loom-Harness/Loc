@@ -5,10 +5,16 @@
 import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { fillBlock, type SelectStyle } from "./page-objects-builder.js";
+import type { FrontendRequestNames } from "./request-names.js";
 
 export function buildWorkflowPageObject(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
+  /** Identifier bases for the whole deployable universe.  REQUIRED, not
+   *  defaulted: the imported request type must be the one `api/workflows.ts`
+   *  actually exported, and only the universe knows whether this workflow kept
+   *  its preferred spelling (`request-names.ts`). */
+  names: FrontendRequestNames,
   /** Root of the generated api modules as seen from
    *  `e2e/pages/workflows/` — `src/api` on react, `src/lib/api` on
    *  SvelteKit. */
@@ -17,7 +23,7 @@ export function buildWorkflowPageObject(
 ): string {
   const slug = snake(wf.name);
   const className = `${upperFirst(wf.name)}WorkflowPage`;
-  const requestType = `${upperFirst(wf.name)}Request`;
+  const requestType = `${names.workflow(wf.name)}Request`;
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import type { Page } from "@playwright/test";`);

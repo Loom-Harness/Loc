@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **118** |
+| open rows | **115** |
 | P0 | 0 |
 | P1 | 0 |
-| P2 | 3 |
+| P2 | 1 |
 | P3 | 30 |
-| P4 | 77 |
+| P4 | 76 |
 | P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 3 / 30 / 20 / 57 / 8 |
-| confidence: proven / likely / suspected | 20 / 97 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 1 / 30 / 19 / 57 / 8 |
+| confidence: proven / likely / suspected | 19 / 95 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 31 / 46 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 109 / 8 / 1 |
+| size S / M / L | 29 / 46 / 40 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 107 / 7 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 171 |
+| done / merged | 174 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -168,8 +168,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 
 | P | id | kind/class | conf | targets | size | title |
 |---|---|---|---|---|---|---|
-| P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
-| P2 | `M-T1.11-domain-floor-message-code` | silent | like | node, dotnet, java, python | L | M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor) |
 | P3 | `F2-CFE-11` | honest | prov | angular, flutter | S | `testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz) |
 | P3 | `F2-W-09` | honest | prov | node, elixir, dotnet, java, python | S | A `File` field is an inline anonymous object on node/elixir and a named `FileRef` component on dotnet/java/python |
 | P3 | `F2-W-12` | honest | like | java | S | Optional-field nullability: JAVA publishes a non-nullable schema for fields it serializes as `null` (elixir now emits `nullable: true`) |
@@ -207,7 +205,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `M-T3.1-language-default-flip` | mission | like | language, validator | S | `enforcement:` still defaults to `opt` — the deny-by-default language flip is the only piece left |
 | P4 | `M-T3.11-execution-context-build-flags` | mission | like | language, node, dotnet, java, python, elixir | S | No user-facing `emitContextBoundaries`/`emitProvenance`/`emitTracing` build-flag surface |
 | P4 | `M-T3.15-E1-handler-header-gate` | mission | like | language, node, dotnet, java, python, elixir | S | E1 — `commandHandler`/`queryHandler` still have no header `requires` (the default-deny half landed) |
-| P4 | `M-T3.16-C2-elixir-403-vs-422` | breadth | prov | elixir, node, dotnet, java, python | S | C2 — a guarded create with an invalid body answers 403 on Elixir vs 422 elsewhere, ungoldened |
 | P4 | `M-T3.9-logged-marker` | mission | like | language, node, dotnet, java, python, elixir | S | The `logged` marker never shipped |
 | P4 | `M-T6.11` | mission | like | node, dotnet, java, python, elixir | S | Reserved compose slots — three optional `ComposeServiceShape` data slots, undefined on every backend |
 | P4 | `M-T6.14` | mission | like | dotnet, elixir, node | S | Small parity leftovers — the register is partly stale; one of its four items is verifiably drained |

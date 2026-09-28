@@ -21,6 +21,7 @@ import type {
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
@@ -67,10 +68,22 @@ function recordFile(
   body: string[],
   imports: Set<string>,
   entityImport?: string,
+  /** The PUBLISHED OpenAPI schema name, when it differs from the record's own
+   *  class name (F-026).  springdoc names a schema after the short class name,
+   *  so two request records in different packages that share a short name
+   *  collapse onto one component -- the same collision .NET already qualifies
+   *  via `CustomSchemaIds`.  Renaming the CLASS is not an option here: it is
+   *  part of the generated code's own API (a controller signature, a service
+   *  parameter), so only the published name diverges, via `@Schema(name = ...)`.
+   *  Omitted (or equal to `name`) emits nothing, so every non-colliding record
+   *  stays byte-identical. */
+  schemaName?: string,
 ): string {
   // A `File` component is the shared `FileRef` record in domain.common (M-T1.2)
   // — imported precisely (not wildcarded) so a File-free DTO stays byte-identical.
   const usesFileRef = components.some((c) => /\bFileRef\b/.test(c));
+  const publishAs = schemaName && schemaName !== name ? schemaName : undefined;
+  if (publishAs) imports.add("io.swagger.v3.oas.annotations.media.Schema");
   return lines(
     `package ${pkg};`,
     ``,
@@ -82,6 +95,7 @@ function recordFile(
     usesFileRef ? `import ${basePkg}.domain.common.FileRef;` : null,
     entityImport ? entityImport : null,
     ``,
+    publishAs ? `@Schema(name = ${JSON.stringify(publishAs)})` : null,
     `public record ${name}(${components.join(", ")}) {`,
     ...body,
     `}`,
@@ -114,6 +128,16 @@ export function renderDtoFiles(
    *  before F2-W-07 it got the raw generic instead (springdoc named that
    *  component `Paged<Agg>Response` — a name no sibling backend publishes). */
   pagedAutoAll = false,
+  /** Deployable-wide request-component name lookup (F-026).  Resolved once by
+   *  `emitProjectFromContexts` -- springdoc's schema namespace is the whole
+   *  document, so the collision set has to be decided across every hosted
+   *  context, not per aggregate. */
+  reqNameFor: (owner: RequestComponentOwner) => string = (o) =>
+    o.kind === "create"
+      ? `Create${o.aggregate}Request`
+      : o.kind === "operation"
+        ? `${upperFirst(o.operation)}${o.aggregate}Request`
+        : `${upperFirst(o.workflow)}Request`,
 ): DtoFile[] {
   const out: DtoFile[] = [];
   const entityImport = entityPkg !== pkg ? `import ${entityPkg}.${agg.name};` : undefined;
@@ -223,7 +247,16 @@ export function renderDtoFiles(
     out.push({
       name: `Create${agg.name}Request.java`,
       category: "request-dto",
-      content: recordFile(pkg, basePkg, `Create${agg.name}Request`, components, [], imports),
+      content: recordFile(
+        pkg,
+        basePkg,
+        `Create${agg.name}Request`,
+        components,
+        [],
+        imports,
+        undefined,
+        reqNameFor({ kind: "create", aggregate: agg.name }),
+      ),
     });
   }
 
@@ -264,6 +297,8 @@ export function renderDtoFiles(
         components,
         [],
         imports,
+        undefined,
+        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name }),
       ),
     });
   }

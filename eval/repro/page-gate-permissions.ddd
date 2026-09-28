@@ -4,7 +4,7 @@
 // so `currentUser.permissions.contains(permissions.x)` IS currentUser-only.
 system X {
   user { id: string  permissions: string[] }
-  auth { oidc { issuer: env("I") clientId: env("C") } }
+  auth { enforcement: opt, oidc { issuer: env("I") clientId: env("C") } }
   subdomain S {
     permissions { read }
     context C {

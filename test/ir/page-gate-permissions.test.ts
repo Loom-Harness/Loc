@@ -39,7 +39,7 @@ async function irErrors(source: string) {
 const sys = (subdomains: string) => `
 system X {
   user { id: string  permissions: string[] }
-  auth { oidc { issuer: env("I") clientId: env("C") } }
+  auth { enforcement: opt, oidc { issuer: env("I") clientId: env("C") } }
 ${subdomains}
   ui Web {
     framework: react

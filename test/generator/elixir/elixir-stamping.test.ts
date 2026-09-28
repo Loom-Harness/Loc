@@ -75,14 +75,16 @@ describe("elixir/vanilla generator — lifecycle stamps", () => {
     // onCreate + onUpdate stamps both apply on insert (NOT-NULL updated_at on
     // create); onUpdate-only on update.
     expect(repo).toContain("def insert(attrs) when is_map(attrs) do");
-    // B7: a `now()` stamp into a `:utc_datetime` column truncates to second
+    // B7 → RS-38: a `now()` stamp is normalised to the millisecond
+    // `Loom.Datetime` form (it truncated to the second while the column was
+    // `:utc_datetime`).  Original note: a `now()` stamp truncates to second
     // precision — `DateTime.utc_now()` is microsecond precision, which Ecto
     // refuses to dump into `:utc_datetime` (→ 500 on insert).
     expect(repo).toContain(
-      "|> Ecto.Changeset.put_change(:created_at, DateTime.utc_now() |> DateTime.truncate(:second))",
+      "|> Ecto.Changeset.put_change(:created_at, Loom.Datetime.normalize(DateTime.utc_now()))",
     );
     expect(repo).toContain(
-      "|> Ecto.Changeset.put_change(:updated_at, DateTime.utc_now() |> DateTime.truncate(:second))",
+      "|> Ecto.Changeset.put_change(:updated_at, Loom.Datetime.normalize(DateTime.utc_now()))",
     );
     expect(repo).toContain("|> Repo.insert()");
     // A non-principal stamp threads no actor (byte-identical seam).
@@ -91,8 +93,8 @@ describe("elixir/vanilla generator — lifecycle stamps", () => {
     // The audit timestamp fields are REAL schema fields (so put_change is valid)
     // and the bundled `timestamps()` is dropped (it would collide on updated_at).
     const schema = files.get(VANILLA_SCHEMA)!;
-    expect(schema).toContain("field :created_at, :utc_datetime");
-    expect(schema).toContain("field :updated_at, :utc_datetime");
+    expect(schema).toContain("field :created_at, Loom.Datetime");
+    expect(schema).toContain("field :updated_at, Loom.Datetime");
     expect(schema).not.toContain("timestamps(");
   });
 
@@ -131,7 +133,7 @@ describe("elixir/vanilla generator — lifecycle stamps", () => {
     // `updated_at` field is present (it would collide); the migration must
     // mirror that or `ecto.migrate` aborts with a duplicate `updated_at`.
     const mig = (await generateSystemFiles(VANILLA_NON_PRINCIPAL)).get(MIGRATION)!;
-    expect(mig).toContain("add :updated_at, :utc_datetime, null: false");
+    expect(mig).toContain("add :updated_at, :timestamptz, null: false");
     expect(mig).not.toContain("timestamps(");
     expect(mig.match(/:updated_at/g)?.length).toBe(1);
   });

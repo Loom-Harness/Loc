@@ -23,6 +23,7 @@ import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-c
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { joinReadFieldNames } from "../../_projection/join-read.js";
 import { MONEY_WIRE_ZERO } from "../../money-scale.js";
 import {
   bypassDrops,
@@ -47,7 +48,7 @@ import {
 } from "../render-jpql.js";
 import { projectionRepoField } from "./projection-reads.js";
 import { projectionRowClass } from "./projection-state.js";
-import { collectWireImports, domainToWire, wireJavaType } from "./wire.js";
+import { collectWireImports, domainToWire, javaInstantWire, wireJavaType } from "./wire.js";
 import { workflowStateClass } from "./workflow-state.js";
 
 // ---------------------------------------------------------------------------
@@ -322,9 +323,18 @@ export function renderJavaQueryProjections(
 
     // Row record from the projection's wire shape.
     const rowImports = new Set<string>();
+    // A member read through a join alias is `null` when the join target is
+    // absent (RS-34), so it takes the BOXED/nullable wire type: a primitive
+    // `int` component unboxed the guard's `null` into a NullPointerException —
+    // a 500 on exactly the absent row the guard exists for.
+    const joined = joinReadFieldNames(proj);
     const components = shape.map((f) => {
-      collectWireImports(f.type, rowImports, "Response");
-      return `${jsonProp(f.name, rowImports)}${wireJavaType(f.type, "Response")} ${jid(f.name)}`;
+      const t: TypeIR =
+        joined.has(f.name) && f.type.kind !== "optional"
+          ? { kind: "optional", inner: f.type }
+          : f.type;
+      collectWireImports(t, rowImports, "Response");
+      return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${jid(f.name)}`;
     });
     out.set(`${rowName}.java`, {
       category: "view-service",
@@ -900,7 +910,9 @@ function groupKeyCoerce(
       case "datetime":
         // Instant → ISO-8601 wire string.  Through HQL's `function(…)` escape
         // Hibernate has no static return type, so normalise first.
-        return viaFunction ? `groupKeyInstant(${read}).toString()` : `${read}.toString()`;
+        // Canonical millisecond form (RS-38), the same `javaInstantWire` the
+        // aggregate `domainToWire` applies.
+        return javaInstantWire(viaFunction ? `groupKeyInstant(${read})` : read);
       case "string":
         return `(String) ${read}`;
       case "bool":

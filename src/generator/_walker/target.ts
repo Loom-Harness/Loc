@@ -87,6 +87,42 @@ import type { WalkContext } from "./walker-core.js";
  *  (`socket.assigns.step`).  TSX renders identically in both. */
 export type RenderPosition = "template" | "handler";
 
+/** Discriminator: the KIND of slot a walked child lands in.
+ *
+ *  - `"children"` — the child is one element of a container's children
+ *    SEQUENCE (`Stack { … }`'s positionals, a `Grid`'s cells).  A target
+ *    whose children slot is a real list/array literal may SPLICE there:
+ *    TSX/Vue/Svelte emit adjacent siblings, Feliz `yield!`s into the
+ *    `prop.children [ … ]` list, Flutter spreads with `...`.
+ *  - `"value"` — the child is the WHOLE of a single-expression slot: a
+ *    `QueryView` branch (`data:` / `loading:` / `error:` / `empty:`), a
+ *    `match` arm, a ternary branch, a table cell body, the page body root.
+ *    Exactly ONE value is admissible there, so a splice is a syntax error
+ *    in the expression languages — a bare `yield!` outside a list/seq
+ *    expression is F# FS0747, and a Dart `...` spread outside a collection
+ *    literal does not parse.
+ *
+ *  The markup targets (TSX, Vue, Svelte, Angular) do not read this: their
+ *  own emitters already normalise a spliced child in expression position
+ *  (React's `wrapMultiRoot` fragment).  It exists so a target that CANNOT
+ *  splice in a value slot can answer per slot instead of guessing from the
+ *  shape of a string.
+ *
+ *  **`"value"` is the DEFAULT everywhere this is optional, and `"children"`
+ *  is the opt-in.**  The distinction fails CLOSED on purpose.  Getting it
+ *  wrong is asymmetric: a value slot that splices does not compile (FS0747 /
+ *  a Dart parse error) and `ddd parse` reports nothing, while a children
+ *  sequence that declines to splice emits a redundant `React.fragment` /
+ *  `Column` wrapper around a list that still renders.  One is the silent
+ *  class this discriminator exists to close; the other is a cosmetic wrapper.
+ *  So a site that forgets to say which slot it is gets the answer that is
+ *  always VALID, and `child-slot-ratchet.test.ts` pins the `"children"`
+ *  opt-ins so growing the splice-admissible set stays a reviewed decision.
+ *  An explicit `"value"` argument is therefore never load-bearing — it is
+ *  documentation at a site where the reader would otherwise have to go
+ *  looking. */
+export type ChildSlot = "children" | "value";
+
 /** A state field reference — produced by the walker when it
  *  encounters a `LooseName` resolving to a state field declared in
  *  the enclosing `state { ... }` block. */
@@ -774,7 +810,16 @@ export interface WalkerTarget {
    *  reaches for its native idiom — Svelte's `{:else}`, a TSX
    *  `coll.length === 0 ? (emptyBody) : (.map(…))` ternary, a Vue
    *  `v-if="!coll.length"` sibling `<template>`.  (HEEx renders `For`
-   *  through its own engine, not this seam.) */
+   *  through its own engine, not this seam.)
+   *
+   *  `slot` says whether the `For` sits in a container's children SEQUENCE
+   *  or is the whole of a single-expression slot (see `ChildSlot`).  The
+   *  splice-based targets MUST honour it: `yield!` (F#) and `...` (Dart)
+   *  are only legal inside a list literal, so a `"value"` slot takes a
+   *  single wrapped element instead.  Absent ⇒ `"value"`: the seam fails
+   *  closed like every other `ChildSlot` position, so a future primitive
+   *  that reaches for `renderForEach` directly and forgets the argument
+   *  gets a wrapper rather than an app that will not build. */
   renderForEach(
     coll: string,
     itemVar: string,
@@ -783,6 +828,7 @@ export interface WalkerTarget {
     body: string,
     depth: number,
     emptyBody?: string,
+    slot?: ChildSlot,
   ): string;
 
   // --- Navigation seam ----------------------------------------------------

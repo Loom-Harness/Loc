@@ -90,78 +90,72 @@
     "selectEmptyOption": "Select…"
   },
   "imports": {
-    "primitive-data-grid": [{ "from": "flowbite-svelte", "named": ["Button", "Table", "TableBody", "TableBodyCell", "TableBodyRow", "TableHead", "TableHeadCell"] }],
-    "primitive-button": [
+    "primitive-data-grid": [
       {
         "from": "flowbite-svelte",
         "named": [
-          "Button"
+          "Button",
+          "Table",
+          "TableBody",
+          "TableBodyCell",
+          "TableBodyRow",
+          "TableHead",
+          "TableHeadCell"
         ]
+      }
+    ],
+    "primitive-button": [
+      {
+        "from": "flowbite-svelte",
+        "named": ["Button"]
       }
     ],
     "primitive-badge": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-enum-badge": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-loader": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Spinner"
-        ]
+        "named": ["Spinner"]
       }
     ],
     "primitive-alert": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Alert"
-        ]
+        "named": ["Alert"]
       }
     ],
     "primitive-avatar": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Avatar"
-        ]
+        "named": ["Avatar"]
       }
     ],
     "primitive-skeleton": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Skeleton"
-        ]
+        "named": ["Skeleton"]
       }
     ],
     "primitive-card": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Card"
-        ]
+        "named": ["Card"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "TabItem",
-          "Tabs"
-        ]
+        "named": ["TabItem", "Tabs"]
       }
     ],
     "primitive-table": [
@@ -180,292 +174,194 @@
     "primitive-field": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Toggle"
-        ]
+        "named": ["Toggle"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Input",
-          "Label"
-        ]
+        "named": ["Input", "Label"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Label",
-          "Textarea"
-        ]
+        "named": ["Label", "Textarea"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Label",
-          "Select"
-        ]
+        "named": ["Label", "Select"]
       }
     ],
     "field-input-string": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Helper", "Input", "Label"]
       }
     ],
     "field-input-int": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Helper", "Input", "Label"]
       }
     ],
     "field-input-decimal": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Helper", "Input", "Label"]
       }
     ],
     "field-input-money": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Helper", "Input", "Label"]
       },
       {
         "from": "decimal.js",
-        "named": [
-          "Decimal"
-        ]
+        "named": ["Decimal"]
       }
     ],
     "field-input-bool": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Label",
-          "Toggle"
-        ]
+        "named": ["Helper", "Label", "Toggle"]
       }
     ],
     "field-input-datetime": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Helper", "Input", "Label"]
       }
     ],
     "field-input-enum-select": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Label",
-          "Select"
-        ]
+        "named": ["Helper", "Label", "Select"]
       }
     ],
     "field-input-id-select": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Label",
-          "Select"
-        ]
+        "named": ["Helper", "Label", "Select"]
       }
     ],
     "field-input-id-text": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Helper", "Input", "Label"]
       }
     ],
     "field-input-valueobject": [],
     "field-input-array": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Button",
-          "Helper",
-          "Input",
-          "Label"
-        ]
+        "named": ["Button", "Helper", "Input", "Label"]
       }
     ],
     "primitive-form-of": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       },
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm"
-        ]
+        "named": ["createForm"]
       }
     ],
     "form-of-decls": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm"
-        ]
+        "named": ["createForm"]
       }
     ],
     "form-runs-decls": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm"
-        ]
+        "named": ["createForm"]
       }
     ],
     "form-default-onsubmit": [
       {
         "from": "$lib/toast.svelte",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "form-op-module": [
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "modalTrap"
-        ]
+        "named": ["modalTrap"]
       }
     ],
     "primitive-modal": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       },
       {
         "from": "$lib/forms.svelte",
-        "named": [
-          "createForm",
-          "type LoomForm"
-        ]
+        "named": ["createForm", "type LoomForm"]
       },
       {
         "from": "$lib/toast.svelte",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "primitive-money": [
       {
         "from": "$lib/format",
-        "named": [
-          "formatMoney"
-        ]
+        "named": ["formatMoney"]
       }
     ],
     "primitive-date-display": [
       {
         "from": "$lib/format",
-        "named": [
-          "formatDateTime"
-        ]
+        "named": ["formatDateTime"]
       }
     ],
     "primitive-id-link": [
       {
         "from": "$lib/format",
-        "named": [
-          "formatId"
-        ]
+        "named": ["formatId"]
       }
     ],
     "realtime-toast": [
       {
         "from": "$lib/toast.svelte",
-        "named": [
-          "toast"
-        ]
+        "named": ["toast"]
       }
     ],
     "field-input-file": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Fileupload",
-          "Helper",
-          "Label"
-        ]
+        "named": ["Fileupload", "Helper", "Label"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "flowbite-svelte",
-        "named": [
-          "Fileupload",
-          "Label"
-        ]
+        "named": ["Fileupload", "Label"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ]
   },
