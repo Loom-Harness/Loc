@@ -37,15 +37,40 @@
     },
     {
       "seq": 2,
-      "method": "POST",
-      "path": "/api/samples/{id}/accumulate",
-      "status": 204,
-      "body": ""
+      "method": "GET",
+      "path": "/api/samples",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "a": 0.1,
+            "b": 0.2,
+            "c": 1.1,
+            "cube": 1.331,
+            "d": 0.3,
+            "id": "<volatile:key>",
+            "mixed": 0.6,
+            "parts": [],
+            "partsWeight": 0,
+            "ratio": 3,
+            "rounded": 1.01,
+            "sum": 0.3,
+            "thirds": 0.1,
+            "tie": 1.005,
+            "total": 0.1,
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 3,
       "method": "POST",
-      "path": "/api/samples/{id}/add_part",
+      "path": "/api/samples/{id}/accumulate",
       "status": 204,
       "body": ""
     },
@@ -58,6 +83,13 @@
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/samples/{id}/add_part",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
       "method": "GET",
       "path": "/api/samples/{id}",
       "status": 200,
@@ -90,7 +122,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "PATCH",
       "path": "/api/samples",
       "status": 405,
@@ -103,7 +135,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -116,7 +148,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "POST",
       "path": "/api/samples",
       "status": 400,

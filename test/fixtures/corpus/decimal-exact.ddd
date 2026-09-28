@@ -126,6 +126,11 @@ system DecimalExact {
     expect(read.thirds).toBe(0.1)
     expect(read.rounded).toBe(1.01)
 
+    // The list route runs the collection serializer over the same derived
+    // values — its golden entry carries every row above a second time.
+    let all = api.samples.all()
+    expect(all.items.length).toBe(1)
+
     // An operation's computed value is WRITTEN to a stored column and read
     // back — the storage half of the ruling.
     api.samples.accumulate(s, { x: 0.2 })
