@@ -2019,6 +2019,7 @@ function emitAggregate(
     basePkg,
     pkgFor("test-class", agg.name),
     sys?.user?.fields,
+    (siblingName) => pkgFor("entity", siblingName),
   );
   if (testsFile) {
     place(`${agg.name}Tests.java`, "test-class", testsFile, agg.name, agg.origin, construct);

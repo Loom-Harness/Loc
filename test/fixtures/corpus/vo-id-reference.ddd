@@ -33,6 +33,13 @@ system Ports {
     context Docking {
       aggregate Ship {
         name: string
+        // A declared factory, so the aggregate has a code path that builds one
+        // (`loom.unseedable-aggregate` otherwise) — and so the unit test below
+        // has something to get a `Ship id` from.  Deliberately NOT `crudish`:
+        // this fixture's subject is what a value object's fields are TYPED as,
+        // and a full CRUD route surface on a second aggregate would widen every
+        // compile leg for nothing.
+        create(name: string) { }
       }
 
       valueobject Berth {
@@ -51,6 +58,29 @@ system Ports {
         // …and the same VO in a collection, so the id-typed column is proven
         // on the child-table path too.
         berths: Berth[]
+
+        // Pure-domain (unit) test — runs on every backend's unit tier and mints
+        // no wire golden.  It proves the id SURVIVES the value object: the
+        // brand goes in through the VO constructor and comes back out through
+        // the field and through the `derived` that re-exposes it, and value
+        // equality over an id-typed field agrees with the reference the Berth
+        // was built from.  A backend that widened the id to a bare string
+        // somewhere in that round trip still COMPILES; only this sees it.
+        //
+        // This block could not be written when the fixture landed: a test body
+        // naming a SECOND aggregate emitted `Ship.create(...)` unimported on
+        // four backends, which is why this fixture went into
+        // `BEHAVIOURAL_ABSENT` at all.  That is fixed, so the entry drains with
+        // it.
+        test "an id carried by a value object survives construction and value equality" {
+          let s = Ship.create({ name: "Aurora" })
+          let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 }, berths: [] })
+          expect(d.berth.position).toBe(3)
+          expect(d.berth.ship == s.id).toBe(true)
+          expect(d.berth.assignedShip == s.id).toBe(true)
+          expect(d.berth.equals(Berth { ship: s.id, position: 3 })).toBe(true)
+          expect(d.berth.equals(Berth { ship: s.id, position: 4 })).toBe(false)
+        }
       }
 
       repository Ships for Ship { }
