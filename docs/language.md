@@ -1558,7 +1558,7 @@ repository Orders for Order {
 }
 ```
 
-The full form is `find name(params): T | T? | T[] | T paged [requires Expr]
+The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged [requires Expr]
 [where Expr] [ignoring Cap, … | ignoring *]` — `requires` is the read-side
 authorization gate, `ignoring` bypasses a capability's contributed query
 filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
@@ -1602,6 +1602,18 @@ all five backends always expose `GET /<plural>` and every frontend
 (react, vue, svelte, angular, feliz, flutter) always has a list page to
 render.  Declaring your own `find all(...)` in the DSL overrides the
 implicit one.
+
+**Absence, in a body.**  `getById` and a find declared `: T` load a single
+row and answer the declared **404** when it is not there — on the GET route,
+an operation route and a workflow step alike (the not-found-on-load policy;
+the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
+find `: T or NotFound` / `: T option` and read the binding through a variant
+`match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
+binding straight through — `r.code`, `r.touch()` — is refused with
+`loom.union-read-undiscriminated`; a `: T?` find stays a native nullable and is
+refused in workflow / handler / domain-service bodies
+(`loom.workflow-load-nullable-unsupported` / `loom.handler-load-nullable-unsupported`).
+See [`payloads.md`](payloads.md) → "Union finds".
 
 ---
 

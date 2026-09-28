@@ -198,6 +198,28 @@ lifted for those owners. **L on its own** — per the brief, not widened into th
   "Invariant violated: …") is the same one the wire rung has; the fix is the wire rung's, not
   this moment's.
 
-## 8. Gate results on the merged tree
+## 8. Gate results on the branch tree (base `4816dda14` + this moment)
 
-(filled below)
+| gate | result |
+|---|---|
+| `npx tsc -b` | clean |
+| `node scripts/test-typecheck.mjs` | "test/ and src/ are both clean under tsconfig.test.json" |
+| `npx biome ci . --diagnostic-level=error` | clean |
+| `node scripts/mission-counts.mjs --check` / `ledger-counts.mjs --check` | up to date / matches |
+| `node docs/build.mjs` | exit 0 |
+| full `npm test` (redirected, `NPM_TEST_EXIT=0`) | **2222 files passed, 26 728 tests passed**, 6 expected-fail, 1227 skipped. The first full run (before the elixir scoping fix, `eebb629f1`) failed 11: 10 were elixir tests pinning the untagged `Context.get_<agg>` with-clause — which also exposed that the tag had leaked into the explicit-handler / mutating-service paths, now scoped to the workflow `run/1` body — and 1 was `cli-tooling-truth`, green on an isolated re-run (shared-box starvation). |
+| compile, every affected fixture | **node** tsc: `domain-services`, `validation-messages`, `vo-field-default`, `vo-id-reference`, `vo-invariant-in-body` ✓ · **python** (ruff + mypy corpus tier): same five ✓ · **.NET** `dotnet build /warnaserror` in `sdk:10.0`: same five, 0 warnings / 0 errors · **java** `gradle testClasses bootJar` in `gradle:9-jdk25`: same five ✓ · **elixir** corpus tier (`mix compile --warnings-as-errors`, hex mirror): `domain-services`, `tenancy-hierarchy`, `vo-field-default`, `vo-id-reference`, `vo-invariant-in-body` ✓ |
+| runtime | node ✓, python ✓, elixir ✓ — all three match `wire-golden/vo-invariant-in-body.json`; node also re-run on the three existing golden cases whose emission changed, `0 divergence(s)` |
+
+**Fixtures whose output changed and why** (byte-identical is not this moment's bar): the acme
+baseline (`test/fixtures/baseline-output/`) — `Money`'s invariant now throws the value-object
+error on node / .NET (`domain/value-objects.ts`, `Domain/ValueObjects/Money.cs`), which adds the
+error class (`domain/errors.ts`, `Domain/Common/DomainException.cs`), the answer
+(`http/problem-details.ts`, `Api/DomainExceptionFilter.cs`) and the router arm
+(`http/product.routes.ts`). No other committed fixture moves. Generated output (not committed)
+moves on every project with a value-object invariant (the five backends' VO + error + answer
+files) and on every elixir project whose workflow loads by id (the tagged with-clause + one
+dispatcher arm).
+
+**Housekeeping.** The postgres container `c5c-pg` (host port 55771) and the elixir boot
+container were this moment's; both removed at hand-off.
