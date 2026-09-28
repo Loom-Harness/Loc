@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { expectAudienceEnforced } from "./support/audience-probe.js";
 import { hasDocker } from "./support/docker-probe.js";
 import { declareRunPrecondition } from "./support/run-precondition.js";
 
@@ -94,6 +95,9 @@ describe.skipIf(!RUN)(
     let outDir = "";
     let apiDir = "";
     let backend: ChildProcess | undefined;
+    let startBackend: (port: number, extraEnv: Record<string, string>) => ChildProcess = () => {
+      throw new Error("startBackend used before beforeAll");
+    };
     let backendLog = "";
     const pgName = `loom-auth-dn-pg-${process.pid}`;
     const kcName = `loom-auth-dn-kc-${process.pid}`;
@@ -146,19 +150,24 @@ describe.skipIf(!RUN)(
         "keycloak discovery",
       );
 
-      backend = spawn("dotnet", ["run", "--no-restore", "--no-launch-profile"], {
-        cwd: apiDir,
-        env: {
-          ...process.env,
-          PORT: String(apiPort),
-          ASPNETCORE_URLS: apiBase,
-          ConnectionStrings__Default: `Host=127.0.0.1;Port=${pgPort};Database=api;Username=postgres;Password=postgres`,
-          OIDC_ISSUER: `${kcBase}/realms/helpdesk`,
-          OIDC_CLIENT_ID: "helpdesk-app",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
+      // Hoisted so the audience row can boot a SECOND instance of the same
+      // build with one env var changed (CR1-b / P0-4) — env is fixed at boot.
+      startBackend = (port, extraEnv) =>
+        spawn("dotnet", ["run", "--no-restore", "--no-launch-profile"], {
+          cwd: apiDir,
+          env: {
+            ...process.env,
+            PORT: String(port),
+            ASPNETCORE_URLS: `http://127.0.0.1:${port}`,
+            ConnectionStrings__Default: `Host=127.0.0.1;Port=${pgPort};Database=api;Username=postgres;Password=postgres`,
+            OIDC_ISSUER: `${kcBase}/realms/helpdesk`,
+            OIDC_CLIENT_ID: "helpdesk-app",
+            ...extraEnv,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+          detached: true,
+        });
+      backend = startBackend(apiPort, {});
       backend.stdout?.on("data", (d: Buffer) => {
         backendLog += d.toString();
       });
@@ -266,6 +275,14 @@ describe.skipIf(!RUN)(
         // Unauthenticated hitting the gated route → 401 (authn precedes authz;
         // the unscoped call is rejected before the gate is even reached).
         expect((await fetch(`${apiBase}/api/tickets/admin_scoped`)).status).toBe(401);
+        // --- Audience enforcement (CR1-b / P0-4).  The primary backend ran with
+        // no OIDC_AUDIENCE, so it accepted this token.  All five backends resolve
+        // the audience as "declared value, overridden by OIDC_AUDIENCE, empty =>
+        // skip" — this boots one more instance of the SAME build with the
+        // variable set to an audience the token cannot carry, and asserts the
+        // SAME token is now rejected.  (node emitted no audience term at all
+        // before CR1-b; this row is what would have caught that.)
+        await expectAudienceEnforced({ start: startBackend, token, readyTimeoutMs: 120_000 });
       } catch (err) {
         console.error(`\n===== backend log =====\n${backendLog}\n=======================\n`);
         throw err;
