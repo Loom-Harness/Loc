@@ -258,10 +258,11 @@ The three workflow blocks call `api.<wf>.run/instance/instances` and projection 
 | `npx tsc -b` | exit 0 |
 | `node scripts/test-typecheck.mjs` | exit 0 ("test/ and src/ are both clean") |
 | `npx biome ci . --diagnostic-level=error` | exit 0, 3417 files |
-| `NODE_USE_ENV_PROXY=1 node scripts/mission-counts.mjs --check` | see the commit that lands this note |
-| `node scripts/ledger-counts.mjs --check` | see the commit that lands this note |
-| `node docs/build.mjs` | see the commit that lands this note |
-| `npm test` | see the commit that lands this note |
+| `NODE_USE_ENV_PROXY=1 node scripts/mission-counts.mjs --check` | up to date (no mission changed status — M-T9.13 stays `partial`) |
+| `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
+| `node docs/build.mjs` | exit 0, no broken-link output |
+| `npm test` (full, `NPM_TEST_EXIT` appended) | **exit 0** — 2230 files passed / 90 skipped; 27045 tests passed, 6 expected-fail, 1264 skipped |
+| corpus tsc (`LOOM_TS_BUILD=1 LOOM_CORPUS_TSC_CASE=<id>`) on the four changed fixtures | 4 / 4 pass (the node behavioural leg bundles with esbuild and never type-checks, so this is the node compile proof for the `crudish` additions); the other four compile legs are implied by the booted legs that built them (`dotnet run`, `gradle bootJar`, `mix compile`, `uv sync`) |
 
 ## 6. Open PRs on the fence
 
