@@ -515,6 +515,22 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a messaged and a message-less rule, and both body routers (aggregate operation, workflow step).",
   },
+  {
+    id: "domain-floor-messages",
+    title:
+      "M-T1.11 (c) — a messaged invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `msg.<hash>` code",
+    doc: "language",
+    backends: ALL,
+    note: "the domain-floor half of the message ladder: every rule reads aggregate STATE, so no wire validator sees it.  Before item (c) node/.NET/java/python answered `detail` only (no `errors[]`, no code) and elixir answered the wire rung's shape for invariants and the bare floor for preconditions.  One case per pointer shape (state-vs-param precondition \"\", single-field invariant \"/balance\", cross-field invariant \"\") plus the message-less control.",
+  },
+  {
+    id: "datetime-wire",
+    title:
+      "RS-38 — the `datetime` wire form is milliseconds: three digits when a fraction is present, none on a whole second, sub-millisecond input truncated; an absent joined datetime is `null`",
+    doc: "language",
+    backends: ALL,
+    note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
+  },
 ] as const;
 
 /** Lookup by id. */

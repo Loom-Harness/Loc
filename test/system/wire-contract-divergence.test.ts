@@ -78,6 +78,10 @@ const BASELINE: Record<string, Divergence> = {
   // `tenancy-hierarchy`'s does, so its capability-injected `parent`/`dataKey`
   // reach the wire and not the record.  Drains with the A1 class fix.
   "org-context.ddd Books.Org": "missing-in-record",
+  // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
+  // carries the `softDeletable` mixin — one more instance of THIS class, not
+  // a new divergence.
+  "datetime-wire.ddd Booking.Venue": "missing-in-record",
   // A2. fields inherited from an `abstract aggregate` base.  Enrichment merges
   //     the extends chain into the concrete; the record's walk does not — the
   //     coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain

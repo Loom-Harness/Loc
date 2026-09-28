@@ -71,12 +71,24 @@ export interface VolatileValueRule {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// ISO-8601 datetime, tolerant of the precision/offset spellings that legitimately
-// differ per backend (`…Z`, `…+00:00`, `.000Z`, no-fraction) — the whole point
-// is that these normalize to ONE token so the value stops being a divergence.
-const ISO_DT_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+// The CANONICAL `datetime` wire spelling (RS-4 + RS-38): UTC `Z`, and either no
+// fraction (a whole second) or EXACTLY three digits.  Only that spelling
+// collapses to `<timestamp>` — the VALUE is per-run (a `now()` stamp), the
+// FORM is contract.
+//
+// This regex used to be tolerant of every spelling (`.12Z`, `.120000Z`,
+// `+00:00`, a space separator), which is exactly how four backends shipped four
+// spellings of one instant through a green wire gate (ledger `F2-W-06`):
+// "normalisation is what hid F2-W-05 and F2-W-06" (D-ABSENT-JOIN-DATETIME-WIRE).
+// A non-canonical timestamp now stays VERBATIM, so it cannot equal a golden's
+// `<timestamp>` and surfaces as a `value` divergence on the backend that spelled
+// it.  (Whether a whole second or a millisecond fraction is DUE is a question
+// about the value, not the form — the corpus witness `datetime-wire` asserts
+// that as exact strings in its `test e2e`, where the values are deterministic.)
+// (`.000Z` is NOT canonical: a whole second carries no fraction at all.)
+const ISO_DT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.(?!000)\d{3})?Z$/;
 
-/** The default allowlist — uuids and ISO timestamps by value-shape, plus the
+/** The default allowlist — uuids and CANONICAL timestamps by value-shape, plus the
  *  conventional volatile key names.  A real gate tunes this; the point of the
  *  registry is that every entry is an EXPLICIT reviewed decision, not a silent
  *  filter (cf. the openapi-normalize `isInfraPath` note). */

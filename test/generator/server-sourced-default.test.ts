@@ -35,7 +35,10 @@ describe("server-sourced create defaults (Hono + React shadcn)", () => {
     expect(routes).toMatch(
       /PrepareOrderResponse = z\.object\(\{ createdAt: [^}]*\}\)\.partial\(\)/,
     );
-    expect(routes).toMatch(/return c\.json\(\{ createdAt: new Date\(\)\.toISOString\(\) \}, 200\)/);
+    // RS-38: the canonical millisecond form (no `.000` on a whole second).
+    expect(routes).toMatch(
+      /return c\.json\(\{ createdAt: new Date\(\)\.toISOString\(\)\.replace\(\/\\\.000Z\$\/, "Z"\) \}, 200\)/,
+    );
   });
 
   it("emits usePrepareOrder + the create form's reset overlay", async () => {

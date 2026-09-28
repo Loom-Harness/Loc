@@ -43,6 +43,7 @@ import {
 } from "../shell/runtime.js";
 import { renderLayouts } from "../shell/web.js";
 import { renderTelemetry } from "../telemetry-emit.js";
+import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderObanConfig } from "./scheduler-emit.js";
 
@@ -180,6 +181,9 @@ export function emitVanillaShellFiles(
   // message prefix.  Domain layer, not `<App>Web.*`: `function-emit` /
   // `domain-service-emit` render into `lib/<app>/` (M-T6.20).
   out.set(`lib/${appName}/guard_error.ex`, renderGuardErrorModule(appModule));
+  // The declared-`datetime` column type — a UTC instant at MILLISECOND
+  // precision (RS-38).  Every datetime field of every schema is typed as it.
+  out.set(`lib/${appName}/loom_datetime.ex`, renderLoomDatetimeModule());
   out.set(
     `lib/${appName}_web.ex`,
     // The TEMPLATE-side gate is the ui, not the merged catalog: `pgettext/2` in

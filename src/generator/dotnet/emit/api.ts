@@ -815,6 +815,10 @@ export function renderExceptionFilter(
     /** True when a hosted value object declares an invariant — the filter then
      *  carries the `ValueObjectInvariantException` arm (M-T5.1). */
     valueObjectInvariants?: boolean;
+    /** True when a messaged aggregate rule can trip at the domain floor — the
+     *  filter then answers a `DomainException` carrying a `RuleCode` with the
+     *  same errors[] entry (M-T1.11 (c)). */
+    domainFloorCodes?: boolean;
   },
 ): string {
   const usesValidators = !!options?.usesValidators;
@@ -853,38 +857,69 @@ export function renderExceptionFilter(
   // message and, for a messaged rule, its content-hash code.  Ahead of the
   // DomainException arm; absent (byte-identical) when no hosted value object
   // declares an invariant, since nothing else raises the exception.
-  const voMessage = localizeMessages
-    ? `global::${ns}.Localization.LoomMessages.Localize(voe.RuleCode, voe.Message)`
-    : "voe.Message";
-  const valueObjectInvariantArm = options?.valueObjectInvariants
-    ? `
-        if (context.Exception is ValueObjectInvariantException voe)
+  // ONE arm template for both refusals that answer the domain floor WITH an
+  // errors[] entry — the value object refused inside a body (M-T5.1, pointer
+  // "") and the messaged invariant / check / precondition (M-T1.11 (c), the
+  // rule's own pointer) — so the two can never drift into different bodies.
+  const domainFloorErrorsArm = (
+    match: string,
+    v: string,
+    code: string,
+    pointer: string,
+    problemVar: string,
+  ): string => {
+    const message = localizeMessages
+      ? `global::${ns}.Localization.LoomMessages.Localize(${code}, ${v}.Message)`
+      : `${v}.Message`;
+    return `
+        if (${match})
         {
             ${renderDotnetLogCall("domainError", [
-              { name: "message", valueExpr: "voe.Message" },
+              { name: "message", valueExpr: `${v}.Message` },
               { name: "status", valueExpr: `${domainStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
             context.HttpContext.Response.Headers["x-request-id"] = trace_id;
-            var voProblem = new ProblemDetails
+            var ${problemVar} = new ProblemDetails
             {
                 Type = "about:blank",
                 Title = "${problemTitle(domainStatus)}",
                 Status = ${domainStatus},
-                Detail = voe.Message,
+                Detail = ${v}.Message,
                 Instance = context.HttpContext.Request.Path,
             };
-            voProblem.Extensions["errors"] = voe.RuleCode != null
-                ? new object[] { new { pointer = "", message = ${voMessage}, code = voe.RuleCode } }
-                : new object[] { new { pointer = "", message = voe.Message } };
-            context.Result = new ObjectResult(voProblem)
+            ${problemVar}.Extensions["errors"] = ${code} != null
+                ? new object[] { new { pointer = ${pointer}, message = ${message}, code = ${code} } }
+                : new object[] { new { pointer = ${pointer}, message = ${v}.Message } };
+            context.Result = new ObjectResult(${problemVar})
             {
                 StatusCode = ${domainStatus},
                 ContentTypes = { "application/problem+json" },
             };
             context.ExceptionHandled = true;
             return;
-        }`
+        }`;
+  };
+  const valueObjectInvariantArm = options?.valueObjectInvariants
+    ? domainFloorErrorsArm(
+        "context.Exception is ValueObjectInvariantException voe",
+        "voe",
+        "voe.RuleCode",
+        '""',
+        "voProblem",
+      )
+    : "";
+  // The messaged domain-floor rule (M-T1.11 (c)) — only a `DomainException`
+  // that CARRIES a code takes it; a message-less rule falls through to the
+  // plain domain-floor arm below, unchanged.
+  const domainFloorCodeArm = options?.domainFloorCodes
+    ? domainFloorErrorsArm(
+        "context.Exception is DomainException dfe && dfe.RuleCode != null",
+        "dfe",
+        "dfe.RuleCode",
+        'dfe.Pointer ?? ""',
+        "dfProblem",
+      )
     : "";
   // Persistence selection (D-REALIZATION-AXES): the EF adapter surfaces a
   // Postgres unique-violation wrapped in `Microsoft.EntityFrameworkCore.
@@ -1138,7 +1173,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.Result = Problem(context, ${disallowedStatus}, "Disallowed", dx.Message, trace_id);
             context.ExceptionHandled = true;
             return;
-        }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}${valueObjectInvariantArm}
+        }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}${valueObjectInvariantArm}${domainFloorCodeArm}
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.

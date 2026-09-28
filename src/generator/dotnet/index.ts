@@ -51,6 +51,7 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
+import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -411,6 +412,7 @@ function emitProjectFromContexts(
     concurrencyException: emitsConcurrencyException,
     file: hasFileField,
     valueObjectInvariant: contexts.some(hasValueObjectInvariants),
+    domainFloorCodes: contexts.some(hasDomainFloorMessages),
   });
   emitDispatcher(ns, out, hasSubscriptions);
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
@@ -984,6 +986,7 @@ function emitProjectFromContexts(
       hasDanglingRef: aggregatesCanTripDanglingReference(merged.aggregates),
       localizeMessages: validationMessages.length > 0,
       valueObjectInvariants: contexts.some(hasValueObjectInvariants),
+      domainFloorCodes: contexts.some(hasDomainFloorMessages),
       // App-wide structural-conflict `httpStatus` overrides (M-T3.4a) — the
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
@@ -1272,7 +1275,10 @@ function emitContext(
   emitEnums(ctx, ns, out);
   emitValueObjects(ctx, ns, out);
   emitEvents(ctx, ns, out, hasSubscriptions);
-  emitCommon(ns, out, { valueObjectInvariant: hasValueObjectInvariants(ctx) });
+  emitCommon(ns, out, {
+    valueObjectInvariant: hasValueObjectInvariants(ctx),
+    domainFloorCodes: hasDomainFloorMessages(ctx),
+  });
   emitDispatcher(ns, out, hasSubscriptions);
   for (const agg of ctx.aggregates) {
     emitAggregate(agg, ctx, ns, out, undefined, emitTrace);
@@ -1848,6 +1854,7 @@ function emitInfrastructure(
       structuralStatuses: ctx.structuralErrorStatuses,
       localizeMessages: validationMessages.length > 0,
       valueObjectInvariants: hasValueObjectInvariants(ctx),
+      domainFloorCodes: hasDomainFloorMessages(ctx),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in

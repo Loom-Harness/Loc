@@ -127,17 +127,18 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
   File: "FileRef",
 };
 
-/** C# expression rendering a domain `DateTime` as its canonical wire string:
- *  ISO-8601 UTC with trailing zero fractional seconds trimmed (and the '.'
- *  dropped when the fraction is entirely zero), matching the node (Hono),
- *  Python (`isoformat`) and Java (`Instant.toString()`) backends (RS-4 temporal
- *  round-trip).  `.ToString("o")` alone pads the fraction to a fixed 7 digits
- *  (`…00.0000000Z`); `Regex.Replace(…, @"\.?0+Z$", "Z")` collapses an all-zero
- *  fraction to `…00Z` while keeping genuine precision (`…00.123Z`).  The
- *  emitted `CanonicalInstant.Format` helper (canonical-instant.ts) applies the
- *  same trim to raw-DateTime serialization. */
-function csCanonicalInstantWire(domainExpr: string): string {
-  return `System.Text.RegularExpressions.Regex.Replace(${domainExpr}.ToUniversalTime().ToString("o"), @"\\.?0+Z$", "Z")`;
+/** C# expression rendering a domain `DateTime` as its canonical wire string
+ *  (RS-4 + RS-38): ISO-8601 UTC in MILLISECONDS — exactly three fractional
+ *  digits when the instant has a sub-second part (`…30.120Z`), none on a whole
+ *  second (`…30Z`).  The custom `fff` specifier TRUNCATES to the millisecond
+ *  (it never rounds, so `.9996` cannot carry into the next second), and the
+ *  all-zero `.000` group is then dropped.  The old `@"\.?0+Z$"` trim over the
+ *  7-digit `"o"` form stripped EVERY trailing zero — `.120` spelled `.12Z` —
+ *  and a microsecond value shipped six or seven digits (ledger `F2-W-06`,
+ *  D-ABSENT-JOIN-DATETIME-WIRE).  The emitted `CanonicalInstant.Format` helper
+ *  (canonical-instant.ts) applies the same rule to raw-DateTime serialization. */
+export function csCanonicalInstantWire(domainExpr: string): string {
+  return `${domainExpr}.ToUniversalTime().ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'", System.Globalization.CultureInfo.InvariantCulture).Replace(".000Z", "Z")`;
 }
 
 /** C# DTO property type for a `TypeIR`.  `dir` selects the suffix for
@@ -424,6 +425,9 @@ function wireParseGuard(
    *  magnitude question the COLUMN answers rather than a second format guard —
    *  so it needs its own message, nested INSIDE the successful parse. */
   postParse?: { predicate: (outVar: string) => string; message: string },
+  /** Rewrites the successfully-parsed out-variable before it reaches the domain
+   *  (datetime's millisecond truncation, RS-38). */
+  mapParsed?: (outVar: string) => string,
 ): string {
   const outVar = `__wp_${expr.replace(/[^A-Za-z0-9]/g, "_")}`;
   const refuse = (message: string): string =>
@@ -431,10 +435,11 @@ function wireParseGuard(
     `${JSON.stringify(site.pointer)}, ${message})`;
   // Interpolated so the message quotes the value the caller actually sent.
   // `{{` / `}}` are not needed: the only interpolation hole is the raw value.
+  const parsed = mapParsed ? mapParsed(outVar) : outVar;
   const ok = postParse
-    ? `(${postParse.predicate(outVar)}\n                    ? ${outVar}\n                    : ` +
+    ? `(${postParse.predicate(outVar)}\n                    ? ${parsed}\n                    : ` +
       `${refuse(`$"${postParse.message}: \\"{${expr}}\\""`)})`
-    : outVar;
+    : parsed;
   return (
     `${tryParse(outVar)}\n                ? ${ok}\n                : ` +
     refuse(`$"Invalid ${label}: \\"{${expr}}\\""`)
@@ -485,6 +490,12 @@ export function wireToCommandArgument(
           (out) =>
             `DateTime.TryParse(${expr}, CultureInfo.InvariantCulture, ` +
             `DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var ${out})`,
+          undefined,
+          // Sub-millisecond input is TRUNCATED at ingress (RS-38), so the
+          // stored value and the wire value agree and a read-back equals the
+          // write.  Truncation, never rounding: rounding `.9996` would carry the
+          // instant into the next second.
+          (out) => `${out}.AddTicks(-(${out}.Ticks % TimeSpan.TicksPerMillisecond))`,
         );
       }
       if (info.primitive === "money") {

@@ -77,14 +77,50 @@ export function renderValueObjectInvariantException(basePkg: string): string {
   );
 }
 
-export function renderDomainException(basePkg: string): string {
+export function renderDomainException(basePkg: string, domainFloorCodes = false): string {
+  if (!domainFloorCodes) {
+    return lines(
+      `package ${basePkg}.domain.common;`,
+      ``,
+      `/** Domain-rule violation (preconditions, invariants) — maps to HTTP 400. */`,
+      `public class DomainException extends RuntimeException {`,
+      `    public DomainException(String message) {`,
+      `        super(message);`,
+      `    }`,
+      `}`,
+      ``,
+    );
+  }
+  // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
+  // wire `msg.<hash>` code and RFC 6901 pointer along with the text, so
+  // `ApiExceptionAdvice.onDomain` answers the same errors[] entry the wire rung
+  // carries.  Emitted only when a messaged aggregate rule exists.
   return lines(
     `package ${basePkg}.domain.common;`,
     ``,
-    `/** Domain-rule violation (preconditions, invariants) — maps to HTTP 400. */`,
+    `/** Domain-rule violation (preconditions, invariants) — maps to HTTP 400.`,
+    ` *  A messaged rule carries its wire code and the pointer its domain-floor`,
+    ` *  errors[] entry names (M-T1.11 (c)); both are null for a message-less one. */`,
     `public class DomainException extends RuntimeException {`,
+    `    private final String ruleCode;`,
+    `    private final String pointer;`,
+    ``,
     `    public DomainException(String message) {`,
+    `        this(message, null, null);`,
+    `    }`,
+    ``,
+    `    public DomainException(String message, String ruleCode, String pointer) {`,
     `        super(message);`,
+    `        this.ruleCode = ruleCode;`,
+    `        this.pointer = pointer;`,
+    `    }`,
+    ``,
+    `    public String getRuleCode() {`,
+    `        return ruleCode;`,
+    `    }`,
+    ``,
+    `    public String getPointer() {`,
+    `        return pointer;`,
     `    }`,
     `}`,
     ``,
@@ -165,7 +201,10 @@ export function renderWireFormatException(basePkg: string): string {
     `     *  M-T6.48 and deliberately left this one). */`,
     `    public static java.time.Instant instant(String value, String pointer) {`,
     `        try {`,
-    `            return java.time.Instant.parse(value);`,
+    `            // Sub-millisecond input is TRUNCATED at ingress (RS-38): the stored`,
+    `            // value and the wire value then agree, and truncation (never`,
+    `            // rounding) cannot carry an instant into the next second.`,
+    `            return java.time.Instant.parse(value).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);`,
     `        } catch (RuntimeException e) {`,
     `            throw new WireFormatException(pointer, "Invalid datetime: " + quote(value));`,
     `        }`,

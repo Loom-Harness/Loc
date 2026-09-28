@@ -34,6 +34,7 @@ import {
   renderInvariantValidatorFn,
 } from "./changeset-invariant-emit.js";
 import { partConstraintLines } from "./changeset-validators.js";
+import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
 import { renderAggregatePureCore } from "./domain-core-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
@@ -328,8 +329,8 @@ function renderSchema(
   const hasCreatedAt = agg.fields.some((f) => f.name === "createdAt");
   const hasUpdatedAt = agg.fields.some((f) => f.name === "updatedAt");
   const auditTsLines = [
-    ...(hasCreatedAt ? ["    field :created_at, :utc_datetime"] : []),
-    ...(hasUpdatedAt ? ["    field :updated_at, :utc_datetime"] : []),
+    ...(hasCreatedAt ? [`    field :created_at, ${LOOM_DATETIME_MODULE}`] : []),
+    ...(hasUpdatedAt ? [`    field :updated_at, ${LOOM_DATETIME_MODULE}`] : []),
   ];
   const fieldLines = [...declaredLines, ...auditTsLines, ...provLines].join("\n");
   // Entity containments (`contains items: Item[]`) → `embeds_many`/`embeds_one`
@@ -513,7 +514,8 @@ function mapLeafTypeToEcto(t: TypeIR): string | null {
         case "bool":
           return ":boolean";
         case "datetime":
-          return ":utc_datetime";
+          // Millisecond UTC instant (RS-38) — see `datetime-type-emit.ts`.
+          return LOOM_DATETIME_MODULE;
         case "guid":
           return "Ecto.UUID";
         case "json":

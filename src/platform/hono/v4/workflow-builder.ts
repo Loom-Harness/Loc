@@ -1,3 +1,4 @@
+import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
@@ -57,7 +58,6 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
@@ -402,7 +402,7 @@ export function buildWorkflowsFile(
     `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, "Disallowed", err.message);`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasValueObjectInvariants(ctx), wfDomainStatus, problemTitle(wfDomainStatus), `problem(${wfDomainStatus}, ${JSON.stringify(problemTitle(wfDomainStatus))}, err.message)`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, problemTitle(wfDomainStatus), `problem(${wfDomainStatus}, ${JSON.stringify(problemTitle(wfDomainStatus))}, err.message)`)};`,
   );
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(problemTitle(wfNotFoundStatus))}, err.message);`,
@@ -546,7 +546,7 @@ export function buildWorkflowsFile(
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
-    /\bvalueObjectProblem\(/.test(bodyStr) ? "valueObjectProblem" : null,
+    /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))

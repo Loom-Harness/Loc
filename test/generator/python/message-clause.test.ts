@@ -66,8 +66,11 @@ describe("python — messaged rule → wire refine + domain floor text", () => {
 
   it("throws the author text (not the derived default) in _assert_invariants", async () => {
     const { domain } = await gen();
-    expect(domain).toContain('raise DomainError("Name must be 2-120 characters")');
-    expect(domain).toContain('raise DomainError("SKU is required")');
+    // M-T1.11 (c): the domain floor carries the rule's wire code + pointer.
+    expect(domain).toContain(
+      'raise DomainError("Name must be 2-120 characters", "msg.j985f2", "/name")',
+    );
+    expect(domain).toContain('raise DomainError("SKU is required", "msg.u3w71r", "/sku")');
     // message-less invariant keeps the derived default
     expect(domain).toContain('raise DomainError("Invariant violated: sku.length > 0")');
   });

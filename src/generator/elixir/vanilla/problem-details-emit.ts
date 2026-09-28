@@ -58,6 +58,13 @@ export function renderVanillaProblemDetailsModule(
    *  (`validate_body_value_objects/1` exists).  Carries the DOMAIN-FLOOR status
    *  + title the refusal answers with; `undefined` ⇒ byte-identical. */
   bodyValueObjects?: { status: number; title: string },
+  /** M-T1.11 (c) — a MESSAGED rule can trip at the DOMAIN FLOOR: an invariant
+   *  re-asserted after an operation body (a changeset error tagged
+   *  `loom_domain_floor`) or a precondition denying with a coded map detail.
+   *  Both answer through the SAME domain-floor entry sender the body-built value
+   *  object uses (the caller then passes `bodyValueObjects` too).  False ⇒
+   *  byte-identical. */
+  domainFloorCodes = false,
 ): string {
   // Optimistic-concurrency 409 (`versioned` capability, D-VERSIONED).  A stale
   // write raises `Ecto.StaleEntryError`, which the repository rescues into
@@ -228,13 +235,13 @@ export function renderVanillaProblemDetailsModule(
   defp body_value_object_error(%Ecto.Changeset{errors: errors}) do
     Enum.find_value(errors, fn
       {_field, {msg, opts}} = error ->
-        if Keyword.get(opts, :loom_body_value_object) do
+        if Keyword.get(opts, :loom_body_value_object)${domainFloorCodes ? " || Keyword.get(opts, :loom_domain_floor)" : ""} do
           detail =
             Enum.reduce(opts, msg, fn {key, value}, acc ->
               String.replace(acc, "%{#{key}}", error_opt_to_string(value))
             end)
 
-          {detail, Map.put(render_changeset_error(error, []), :pointer, "")}
+          {detail, Map.put(render_changeset_error(error, []), :pointer, ${domainFloorCodes ? 'Keyword.get(opts, :loom_pointer, "")' : '""'})}
         end
 
       _ ->
@@ -426,7 +433,20 @@ ${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
 
   @doc """
   Send a base ProblemDetails response (no \`errors[]\` extension).
-  """
+  """${
+    domainFloorCodes
+      ? `
+  # M-T1.11 (c) — a MESSAGED precondition denied at the domain floor carries its
+  # detail as a map with the rule's code and pointer: the same domain-floor
+  # answer, plus the errors[] entry the other four backends' coded throw gets.
+  def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer}) do
+    send_body_value_object_problem(conn, detail, %{pointer: pointer, message: ${
+      localizeMessages ? "localize(code, detail)" : "detail"
+    }, code: code})
+  end
+`
+      : ""
+  }
   def problem_response(conn, status, title, detail) do
     # Classify the fault onto the cross-backend catalog event by status, so
     # every fault response (incl. not_found_response/3, which delegates here)

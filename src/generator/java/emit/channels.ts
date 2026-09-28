@@ -11,6 +11,7 @@ import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
+import { javaInstantWire } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Broker transport classes (M-T4.4 slices 6b + 7c — the Java/Spring Boot leg
@@ -108,7 +109,7 @@ function transportPickLine(hasRedis: boolean, hasRabbit: boolean, hasKafka: bool
 function toDataExpr(access: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   const conv = (): string | null => {
-    if (inner.kind === "primitive" && inner.name === "datetime") return `${access}.toString()`;
+    if (inner.kind === "primitive" && inner.name === "datetime") return javaInstantWire(access);
     // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
     // whatever scale the domain `BigDecimal` happens to carry (the write scale,
     // an arithmetic result's scale), which need not be 4dp: the SAME class of

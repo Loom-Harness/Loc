@@ -13,8 +13,40 @@ import {
 
 export function renderCommon(
   ns: string,
-  opts: { concurrencyException?: boolean; file?: boolean; valueObjectInvariant?: boolean } = {},
+  opts: {
+    concurrencyException?: boolean;
+    file?: boolean;
+    valueObjectInvariant?: boolean;
+    /** A messaged aggregate rule can trip at the domain floor (M-T1.11 (c)) —
+     *  `DomainException` then carries the rule's wire code and pointer. */
+    domainFloorCodes?: boolean;
+  } = {},
 ): string {
+  // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
+  // `msg.<hash>` code and RFC 6901 pointer along with the text, so
+  // DomainExceptionFilter answers the same `errors[]` entry the wire rung
+  // carries.  Byte-identical without a messaged aggregate rule.
+  const domainException = opts.domainFloorCodes
+    ? `public sealed class DomainException : Exception
+{
+    /// <summary>A messaged rule's <c>msg.&lt;hash&gt;</c> code (the same one the
+    /// wire rung carries) and the RFC 6901 pointer its domain-floor
+    /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
+    /// rule.</summary>
+    public string? RuleCode { get; }
+    public string? Pointer { get; }
+    public DomainException(string message, string? ruleCode = null, string? pointer = null) : base(message)
+    {
+        RuleCode = ruleCode;
+        Pointer = pointer;
+    }
+}
+`
+    : `public sealed class DomainException : Exception
+{
+    public DomainException(string message) : base(message) { }
+}
+`;
   // A value object's invariant refused a value a domain BODY built (M-T5.1).
   // Its own exception, not a DomainException subclass (that class is sealed and
   // every project emits it), so the filter can answer it with an errors[] entry
@@ -87,11 +119,7 @@ using ${ns}.Domain.Events;
 
 namespace ${ns}.Domain.Common;
 
-public sealed class DomainException : Exception
-{
-    public DomainException(string message) : base(message) { }
-}
-
+${domainException}
 ${concurrencyException}${valueObjectInvariant}/// <summary>State-gate failure — an operation's 'when' predicate (the
 /// canCommand gate) evaluated false against the loaded aggregate.
 /// DomainExceptionFilter maps this to HTTP 409.</summary>
