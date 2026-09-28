@@ -8747,20 +8747,11 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
       "name": "MacroArgName",
       "dataType": "string",
       "definition": {
-        "$type": "Alternatives",
-        "elements": [
-          {
-            "$type": "RuleCall",
-            "rule": {
-              "$ref": "#/rules@178"
-            },
-            "arguments": []
-          },
-          {
-            "$type": "Keyword",
-            "value": "requires"
-          }
-        ]
+        "$type": "RuleCall",
+        "rule": {
+          "$ref": "#/rules@178"
+        },
+        "arguments": []
       },
       "entry": false,
       "fragment": false,
@@ -14533,7 +14524,19 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
         "elements": [
           {
             "$type": "Keyword",
+            "value": "abstract"
+          },
+          {
+            "$type": "Keyword",
             "value": "action"
+          },
+          {
+            "$type": "Keyword",
+            "value": "against"
+          },
+          {
+            "$type": "Keyword",
+            "value": "aggregates"
           },
           {
             "$type": "Keyword",
@@ -14541,7 +14544,43 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "angular"
+          },
+          {
+            "$type": "Keyword",
+            "value": "angularMaterial"
+          },
+          {
+            "$type": "Keyword",
+            "value": "api"
+          },
+          {
+            "$type": "Keyword",
+            "value": "area"
+          },
+          {
+            "$type": "Keyword",
             "value": "asc"
+          },
+          {
+            "$type": "Keyword",
+            "value": "audience"
+          },
+          {
+            "$type": "Keyword",
+            "value": "audited"
+          },
+          {
+            "$type": "Keyword",
+            "value": "auth"
+          },
+          {
+            "$type": "Keyword",
+            "value": "bigquery"
+          },
+          {
+            "$type": "Keyword",
+            "value": "bind"
           },
           {
             "$type": "Keyword",
@@ -14549,7 +14588,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "broadcast"
+          },
+          {
+            "$type": "Keyword",
             "value": "by"
+          },
+          {
+            "$type": "Keyword",
+            "value": "cache"
           },
           {
             "$type": "Keyword",
@@ -14557,11 +14604,59 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "capability"
+          },
+          {
+            "$type": "Keyword",
+            "value": "carries"
+          },
+          {
+            "$type": "Keyword",
+            "value": "chakra"
+          },
+          {
+            "$type": "Keyword",
+            "value": "channel"
+          },
+          {
+            "$type": "Keyword",
             "value": "channels"
           },
           {
             "$type": "Keyword",
+            "value": "channelSource"
+          },
+          {
+            "$type": "Keyword",
+            "value": "check"
+          },
+          {
+            "$type": "Keyword",
+            "value": "claims"
+          },
+          {
+            "$type": "Keyword",
+            "value": "clickhouse"
+          },
+          {
+            "$type": "Keyword",
+            "value": "clientId"
+          },
+          {
+            "$type": "Keyword",
+            "value": "clientSecret"
+          },
+          {
+            "$type": "Keyword",
             "value": "command"
+          },
+          {
+            "$type": "Keyword",
+            "value": "commandHandler"
+          },
+          {
+            "$type": "Keyword",
+            "value": "component"
           },
           {
             "$type": "Keyword",
@@ -14573,7 +14668,39 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "context"
+          },
+          {
+            "$type": "Keyword",
+            "value": "contexts"
+          },
+          {
+            "$type": "Keyword",
+            "value": "cookie"
+          },
+          {
+            "$type": "Keyword",
+            "value": "coreComponents"
+          },
+          {
+            "$type": "Keyword",
+            "value": "covers"
+          },
+          {
+            "$type": "Keyword",
+            "value": "criterion"
+          },
+          {
+            "$type": "Keyword",
+            "value": "cron"
+          },
+          {
+            "$type": "Keyword",
             "value": "crossTenant"
+          },
+          {
+            "$type": "Keyword",
+            "value": "daisyui"
           },
           {
             "$type": "Keyword",
@@ -14585,7 +14712,19 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "delivery"
+          },
+          {
+            "$type": "Keyword",
             "value": "deny"
+          },
+          {
+            "$type": "Keyword",
+            "value": "denyByDefault"
+          },
+          {
+            "$type": "Keyword",
+            "value": "deployable"
           },
           {
             "$type": "Keyword",
@@ -14597,6 +14736,50 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "design"
+          },
+          {
+            "$type": "Keyword",
+            "value": "directoryLayout"
+          },
+          {
+            "$type": "Keyword",
+            "value": "document"
+          },
+          {
+            "$type": "Keyword",
+            "value": "domainService"
+          },
+          {
+            "$type": "Keyword",
+            "value": "dotnet"
+          },
+          {
+            "$type": "Keyword",
+            "value": "e2e"
+          },
+          {
+            "$type": "Keyword",
+            "value": "elastic"
+          },
+          {
+            "$type": "Keyword",
+            "value": "elixir"
+          },
+          {
+            "$type": "Keyword",
+            "value": "embedded"
+          },
+          {
+            "$type": "Keyword",
+            "value": "enforcement"
+          },
+          {
+            "$type": "Keyword",
+            "value": "entitles"
+          },
+          {
+            "$type": "Keyword",
             "value": "env"
           },
           {
@@ -14605,7 +14788,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "ephemeral"
+          },
+          {
+            "$type": "Keyword",
             "value": "error"
+          },
+          {
+            "$type": "Keyword",
+            "value": "event"
           },
           {
             "$type": "Keyword",
@@ -14613,7 +14804,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "eventSourced"
+          },
+          {
+            "$type": "Keyword",
             "value": "every"
+          },
+          {
+            "$type": "Keyword",
+            "value": "extern"
           },
           {
             "$type": "Keyword",
@@ -14621,7 +14820,27 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "feliz"
+          },
+          {
+            "$type": "Keyword",
             "value": "filter"
+          },
+          {
+            "$type": "Keyword",
+            "value": "flowbite"
+          },
+          {
+            "$type": "Keyword",
+            "value": "flutter"
+          },
+          {
+            "$type": "Keyword",
+            "value": "footer"
+          },
+          {
+            "$type": "Keyword",
+            "value": "framework"
           },
           {
             "$type": "Keyword",
@@ -14637,11 +14856,39 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "header"
+          },
+          {
+            "$type": "Keyword",
+            "value": "hosts"
+          },
+          {
+            "$type": "Keyword",
+            "value": "httpStatus"
+          },
+          {
+            "$type": "Keyword",
             "value": "immutable"
           },
           {
             "$type": "Keyword",
             "value": "implements"
+          },
+          {
+            "$type": "Keyword",
+            "value": "implies"
+          },
+          {
+            "$type": "Keyword",
+            "value": "index"
+          },
+          {
+            "$type": "Keyword",
+            "value": "inheritanceUsing"
+          },
+          {
+            "$type": "Keyword",
+            "value": "inMemory"
           },
           {
             "$type": "Keyword",
@@ -14653,11 +14900,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "index"
+            "value": "isolationLevel"
           },
           {
             "$type": "Keyword",
-            "value": "isolationLevel"
+            "value": "issuer"
+          },
+          {
+            "$type": "Keyword",
+            "value": "java"
           },
           {
             "$type": "Keyword",
@@ -14665,7 +14916,19 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "jwt"
+          },
+          {
+            "$type": "Keyword",
+            "value": "kafka"
+          },
+          {
+            "$type": "Keyword",
             "value": "key"
+          },
+          {
+            "$type": "Keyword",
+            "value": "keyed"
           },
           {
             "$type": "Keyword",
@@ -14674,6 +14937,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "kind"
+          },
+          {
+            "$type": "Keyword",
+            "value": "layout"
           },
           {
             "$type": "Keyword",
@@ -14693,11 +14960,39 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "localDisk"
+          },
+          {
+            "$type": "Keyword",
+            "value": "log"
+          },
+          {
+            "$type": "Keyword",
             "value": "mailer"
           },
           {
             "$type": "Keyword",
+            "value": "main"
+          },
+          {
+            "$type": "Keyword",
             "value": "managed"
+          },
+          {
+            "$type": "Keyword",
+            "value": "mantine"
+          },
+          {
+            "$type": "Keyword",
+            "value": "mask"
+          },
+          {
+            "$type": "Keyword",
+            "value": "meilisearch"
+          },
+          {
+            "$type": "Keyword",
+            "value": "menu"
           },
           {
             "$type": "Keyword",
@@ -14709,7 +15004,27 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "modules"
+          },
+          {
+            "$type": "Keyword",
             "value": "money"
+          },
+          {
+            "$type": "Keyword",
+            "value": "mui"
+          },
+          {
+            "$type": "Keyword",
+            "value": "mysql"
+          },
+          {
+            "$type": "Keyword",
+            "value": "nats"
+          },
+          {
+            "$type": "Keyword",
+            "value": "node"
           },
           {
             "$type": "Keyword",
@@ -14725,11 +15040,35 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "oidc"
+          },
+          {
+            "$type": "Keyword",
+            "value": "onCreate"
+          },
+          {
+            "$type": "Keyword",
+            "value": "onUpdate"
+          },
+          {
+            "$type": "Keyword",
+            "value": "opt"
+          },
+          {
+            "$type": "Keyword",
             "value": "option"
           },
           {
             "$type": "Keyword",
             "value": "or"
+          },
+          {
+            "$type": "Keyword",
+            "value": "overlap"
+          },
+          {
+            "$type": "Keyword",
+            "value": "ownTable"
           },
           {
             "$type": "Keyword",
@@ -14745,7 +15084,11 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "query"
+            "value": "permissions"
+          },
+          {
+            "$type": "Keyword",
+            "value": "persistedAs"
           },
           {
             "$type": "Keyword",
@@ -14753,7 +15096,55 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "phoenixLiveView"
+          },
+          {
+            "$type": "Keyword",
+            "value": "platform"
+          },
+          {
+            "$type": "Keyword",
             "value": "policy"
+          },
+          {
+            "$type": "Keyword",
+            "value": "port"
+          },
+          {
+            "$type": "Keyword",
+            "value": "postgres"
+          },
+          {
+            "$type": "Keyword",
+            "value": "precondition"
+          },
+          {
+            "$type": "Keyword",
+            "value": "primeng"
+          },
+          {
+            "$type": "Keyword",
+            "value": "projection"
+          },
+          {
+            "$type": "Keyword",
+            "value": "provenanced"
+          },
+          {
+            "$type": "Keyword",
+            "value": "provider"
+          },
+          {
+            "$type": "Keyword",
+            "value": "python"
+          },
+          {
+            "$type": "Keyword",
+            "value": "query"
+          },
+          {
+            "$type": "Keyword",
+            "value": "queryHandler"
           },
           {
             "$type": "Keyword",
@@ -14761,11 +15152,55 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "rabbitmq"
+          },
+          {
+            "$type": "Keyword",
+            "value": "raw"
+          },
+          {
+            "$type": "Keyword",
+            "value": "react"
+          },
+          {
+            "$type": "Keyword",
+            "value": "readCommitted"
+          },
+          {
+            "$type": "Keyword",
             "value": "readonly"
           },
           {
             "$type": "Keyword",
+            "value": "readUncommitted"
+          },
+          {
+            "$type": "Keyword",
+            "value": "redis"
+          },
+          {
+            "$type": "Keyword",
+            "value": "relational"
+          },
+          {
+            "$type": "Keyword",
+            "value": "repeatableRead"
+          },
+          {
+            "$type": "Keyword",
             "value": "replica"
+          },
+          {
+            "$type": "Keyword",
+            "value": "required"
+          },
+          {
+            "$type": "Keyword",
+            "value": "requirement"
+          },
+          {
+            "$type": "Keyword",
+            "value": "requires"
           },
           {
             "$type": "Keyword",
@@ -14777,7 +15212,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "restApi"
+          },
+          {
+            "$type": "Keyword",
             "value": "retain"
+          },
+          {
+            "$type": "Keyword",
+            "value": "retention"
           },
           {
             "$type": "Keyword",
@@ -14789,7 +15232,15 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "s3"
+          },
+          {
+            "$type": "Keyword",
             "value": "schema"
+          },
+          {
+            "$type": "Keyword",
+            "value": "scopes"
           },
           {
             "$type": "Keyword",
@@ -14797,7 +15248,31 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "section"
+          },
+          {
+            "$type": "Keyword",
+            "value": "seed"
+          },
+          {
+            "$type": "Keyword",
             "value": "select"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sendgrid"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sensitive"
+          },
+          {
+            "$type": "Keyword",
+            "value": "serializable"
+          },
+          {
+            "$type": "Keyword",
+            "value": "serves"
           },
           {
             "$type": "Keyword",
@@ -14805,7 +15280,43 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "ses"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sessions"
+          },
+          {
+            "$type": "Keyword",
+            "value": "shadcn"
+          },
+          {
+            "$type": "Keyword",
+            "value": "shadcnSvelte"
+          },
+          {
+            "$type": "Keyword",
+            "value": "shadcnVue"
+          },
+          {
+            "$type": "Keyword",
+            "value": "shape"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sharedTable"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sidebar"
+          },
+          {
+            "$type": "Keyword",
             "value": "slot"
+          },
+          {
+            "$type": "Keyword",
+            "value": "smtp"
           },
           {
             "$type": "Keyword",
@@ -14813,11 +15324,23 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "solution"
+          },
+          {
+            "$type": "Keyword",
             "value": "sort"
           },
           {
             "$type": "Keyword",
+            "value": "spartanNg"
+          },
+          {
+            "$type": "Keyword",
             "value": "sql"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sqlite"
           },
           {
             "$type": "Keyword",
@@ -14829,7 +15352,19 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "storage"
+          },
+          {
+            "$type": "Keyword",
             "value": "store"
+          },
+          {
+            "$type": "Keyword",
+            "value": "subdomain"
+          },
+          {
+            "$type": "Keyword",
+            "value": "svelte"
           },
           {
             "$type": "Keyword",
@@ -14837,7 +15372,23 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "targets"
+          },
+          {
+            "$type": "Keyword",
             "value": "tenancy"
+          },
+          {
+            "$type": "Keyword",
+            "value": "testCase"
+          },
+          {
+            "$type": "Keyword",
+            "value": "theme"
+          },
+          {
+            "$type": "Keyword",
+            "value": "timerSource"
           },
           {
             "$type": "Keyword",
@@ -14849,6 +15400,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "transactional"
+          },
+          {
+            "$type": "Keyword",
             "value": "ttl"
           },
           {
@@ -14857,11 +15412,51 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "ui"
+          },
+          {
+            "$type": "Keyword",
+            "value": "urlStyle"
+          },
+          {
+            "$type": "Keyword",
             "value": "use"
           },
           {
             "$type": "Keyword",
             "value": "user"
+          },
+          {
+            "$type": "Keyword",
+            "value": "valueobject"
+          },
+          {
+            "$type": "Keyword",
+            "value": "verifies"
+          },
+          {
+            "$type": "Keyword",
+            "value": "views"
+          },
+          {
+            "$type": "Keyword",
+            "value": "vue"
+          },
+          {
+            "$type": "Keyword",
+            "value": "vuetify"
+          },
+          {
+            "$type": "Keyword",
+            "value": "work"
+          },
+          {
+            "$type": "Keyword",
+            "value": "workflow"
+          },
+          {
+            "$type": "Keyword",
+            "value": "workflows"
           },
           {
             "$type": "Keyword",
@@ -14896,47 +15491,11 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "aggregates"
-          },
-          {
-            "$type": "Keyword",
-            "value": "api"
-          },
-          {
-            "$type": "Keyword",
             "value": "await"
           },
           {
             "$type": "Keyword",
-            "value": "bind"
-          },
-          {
-            "$type": "Keyword",
-            "value": "cache"
-          },
-          {
-            "$type": "Keyword",
-            "value": "component"
-          },
-          {
-            "$type": "Keyword",
             "value": "contains"
-          },
-          {
-            "$type": "Keyword",
-            "value": "contexts"
-          },
-          {
-            "$type": "Keyword",
-            "value": "design"
-          },
-          {
-            "$type": "Keyword",
-            "value": "directoryLayout"
-          },
-          {
-            "$type": "Keyword",
-            "value": "framework"
           },
           {
             "$type": "Keyword",
@@ -14952,59 +15511,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "link"
-          },
-          {
-            "$type": "Keyword",
-            "value": "menu"
-          },
-          {
-            "$type": "Keyword",
-            "value": "modules"
-          },
-          {
-            "$type": "Keyword",
             "value": "page"
-          },
-          {
-            "$type": "Keyword",
-            "value": "permissions"
-          },
-          {
-            "$type": "Keyword",
-            "value": "route"
-          },
-          {
-            "$type": "Keyword",
-            "value": "section"
-          },
-          {
-            "$type": "Keyword",
-            "value": "static"
-          },
-          {
-            "$type": "Keyword",
-            "value": "targets"
-          },
-          {
-            "$type": "Keyword",
-            "value": "transactional"
-          },
-          {
-            "$type": "Keyword",
-            "value": "ui"
-          },
-          {
-            "$type": "Keyword",
-            "value": "urlStyle"
-          },
-          {
-            "$type": "Keyword",
-            "value": "views"
-          },
-          {
-            "$type": "Keyword",
-            "value": "workflows"
           }
         ]
       },
@@ -16652,19 +17159,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "aggregates"
-          },
-          {
-            "$type": "Keyword",
-            "value": "api"
-          },
-          {
-            "$type": "Keyword",
             "value": "contains"
-          },
-          {
-            "$type": "Keyword",
-            "value": "contexts"
           },
           {
             "$type": "Keyword",
@@ -16680,27 +17175,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "modules"
-          },
-          {
-            "$type": "Keyword",
             "value": "page"
-          },
-          {
-            "$type": "Keyword",
-            "value": "permissions"
-          },
-          {
-            "$type": "Keyword",
-            "value": "ui"
-          },
-          {
-            "$type": "Keyword",
-            "value": "views"
-          },
-          {
-            "$type": "Keyword",
-            "value": "workflows"
           }
         ]
       },
@@ -18969,19 +19444,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "aggregates"
-          },
-          {
-            "$type": "Keyword",
-            "value": "api"
-          },
-          {
-            "$type": "Keyword",
             "value": "contains"
-          },
-          {
-            "$type": "Keyword",
-            "value": "contexts"
           },
           {
             "$type": "Keyword",
@@ -19005,31 +19468,11 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "modules"
-          },
-          {
-            "$type": "Keyword",
             "value": "page"
           },
           {
             "$type": "Keyword",
-            "value": "permissions"
-          },
-          {
-            "$type": "Keyword",
-            "value": "ui"
-          },
-          {
-            "$type": "Keyword",
-            "value": "views"
-          },
-          {
-            "$type": "Keyword",
             "value": "where"
-          },
-          {
-            "$type": "Keyword",
-            "value": "workflows"
           }
         ]
       },
@@ -20039,31 +20482,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "aggregates"
-          },
-          {
-            "$type": "Keyword",
-            "value": "api"
-          },
-          {
-            "$type": "Keyword",
-            "value": "bind"
-          },
-          {
-            "$type": "Keyword",
-            "value": "cache"
-          },
-          {
-            "$type": "Keyword",
-            "value": "component"
-          },
-          {
-            "$type": "Keyword",
             "value": "contains"
-          },
-          {
-            "$type": "Keyword",
-            "value": "contexts"
           },
           {
             "$type": "Keyword",
@@ -20071,15 +20490,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "design"
-          },
-          {
-            "$type": "Keyword",
             "value": "destroy"
-          },
-          {
-            "$type": "Keyword",
-            "value": "framework"
           },
           {
             "$type": "Keyword",
@@ -20087,55 +20498,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "link"
-          },
-          {
-            "$type": "Keyword",
-            "value": "menu"
-          },
-          {
-            "$type": "Keyword",
-            "value": "modules"
-          },
-          {
-            "$type": "Keyword",
             "value": "page"
-          },
-          {
-            "$type": "Keyword",
-            "value": "permissions"
-          },
-          {
-            "$type": "Keyword",
-            "value": "route"
-          },
-          {
-            "$type": "Keyword",
-            "value": "section"
-          },
-          {
-            "$type": "Keyword",
-            "value": "static"
-          },
-          {
-            "$type": "Keyword",
-            "value": "targets"
-          },
-          {
-            "$type": "Keyword",
-            "value": "ui"
-          },
-          {
-            "$type": "Keyword",
-            "value": "urlStyle"
-          },
-          {
-            "$type": "Keyword",
-            "value": "views"
-          },
-          {
-            "$type": "Keyword",
-            "value": "workflows"
           }
         ]
       },

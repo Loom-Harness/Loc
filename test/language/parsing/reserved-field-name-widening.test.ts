@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { printStructural } from "../../../src/language/print/index.js";
+import { reservedFieldNameKeywords } from "../../../src/language/soft-keywords.js";
 import { parseRawResult } from "../../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +89,62 @@ type Word = {
   /** A source exercising EVERY hard-keyword position of the word. */
   hard: string;
 };
+
+/** Batch 3's context-level sample: the property modifiers (each written
+ *  directly before the next field, the shape the colon guard exists for), a
+ *  gated operation, an `emit`, and the `event` / `channel` / `projection`
+ *  declaration heads. */
+const MEMBER_SYNTAX = `context C {
+  aggregate Order {
+    code: string check code.length > 0
+    email: string sensitive(pii) provenanced
+    salary: int mask unless currentUser.id == "x"
+    total: int
+    operation ship() requires currentUser.id == "x" {
+      emit Shipped { code: code }
+    }
+  }
+  repository Orders for Order { }
+  criterion Big() of Order = this.total > 10
+  event Shipped { code: string }
+  channel Ships { carries: Shipped }
+  projection Revenue {
+    n: int
+    from Order as o
+    where Big
+    select n = count
+  }
+}
+system S { user { id: string } }`;
+
+/** Batch 3's system-level sample: `theme`, `layout`, a `ui` with an `api`
+ *  binding, and a deployable's `platform:` / `ui:` clauses. */
+const SYSTEM_SYNTAX = `context C {
+  aggregate Order { code: string }
+  repository Orders for Order { }
+  command PlaceCmd { code: string }
+  commandHandler place(cmd: PlaceCmd) { }
+}
+api OrdApi from C {
+  route POST "/place" -> C.place
+}
+system S {
+  theme { primary: "#3b82f6" }
+  layout Frame {
+    header { Text { "h" } }
+    main
+    footer { Text { "f" } }
+  }
+  ui Web {
+    api Orders: OrdApi
+    page Home {
+      route: "/"
+      body: Text { "hi" }
+    }
+  }
+  deployable api { platform: node, contexts: [C], port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+}`;
 
 const WORDS: Word[] = [
   {
@@ -305,6 +362,27 @@ ui U {
   }
 }`,
   },
+  // ---- Batch 3 (the reserved-keyword sweep).  Every word keyword became soft
+  // unless it is on the short hard list (see the comment above
+  // `CommonSoftKeywords` in `ddd.langium`).  That sweep's corpus proof is that
+  // all 559 tracked `.ddd` files parse to the same AST before and after; these
+  // samples pin the heaviest hard syntax among the ~150 words it softened —
+  // the member modifiers that TRAIL a property (and so also sit in the lexer's
+  // colon guard), the gate clause, and the declaration heads a context / system
+  // body is made of.
+  { word: "event", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "channel", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "check", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "requires", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "mask", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "provenanced", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "sensitive", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "projection", promoted: true, hard: MEMBER_SYNTAX },
+  { word: "theme", promoted: true, hard: SYSTEM_SYNTAX },
+  { word: "layout", promoted: true, hard: SYSTEM_SYNTAX },
+  { word: "platform", promoted: true, hard: SYSTEM_SYNTAX },
+  { word: "api", promoted: true, hard: SYSTEM_SYNTAX },
+  { word: "ui", promoted: true, hard: SYSTEM_SYNTAX },
 ];
 
 const PROMOTED = WORDS.filter((w) => w.promoted);
@@ -520,5 +598,24 @@ system S {
       fromDoc,
       "docs/language-reference/01-lexical-structure.md no longer lists the grammar's CommonSoftKeywords — update the sentence, it is what users read before naming a field",
     ).toEqual(fromGrammar);
+  });
+
+  it("the lexical-structure doc lists exactly the words that are NOT field names", () => {
+    // The other half of the sentence above, and the one a user needs more: the
+    // reserved-keyword sweep made every word keyword soft by default, so what
+    // is worth writing down is the short list that is left.  A keyword that
+    // becomes hard (a new one, or one moved out of `CommonSoftKeywords`) fails
+    // here until the doc says so — the review of that line is the checkpoint
+    // where "does this really have to steal a domain word?" gets asked.
+    const doc = readFileSync(LEXICAL_DOC, "utf8");
+    const line = /The words that are \*\*not\*\* field names today: ([^.]*)\./.exec(doc);
+    expect(line, "the doc's hard-list sentence was not found").not.toBeNull();
+    const fromDoc = [...(line?.[1] ?? "").matchAll(/`([A-Za-z_][A-Za-z0-9_]*)`/g)]
+      .map((m) => m[1] as string)
+      .sort((a, b) => a.localeCompare(b));
+    expect(
+      fromDoc,
+      "docs/language-reference/01-lexical-structure.md no longer lists the grammar's hard field-name keywords",
+    ).toEqual([...reservedFieldNameKeywords()]);
   });
 });
