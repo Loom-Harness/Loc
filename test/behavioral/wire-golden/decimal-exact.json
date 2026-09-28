@@ -1,0 +1,132 @@
+{
+  "case": "decimal-exact",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/samples",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/samples/{id}",
+      "status": 200,
+      "body": {
+        "a": 0.1,
+        "b": 0.2,
+        "c": 1.1,
+        "cube": 1.331,
+        "d": 0.3,
+        "id": "<volatile:key>",
+        "mixed": 0.6,
+        "parts": [],
+        "partsWeight": 0,
+        "ratio": 3,
+        "rounded": 1.01,
+        "sum": 0.3,
+        "thirds": 0.1,
+        "tie": 1.005,
+        "total": 0.1,
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/samples/{id}/accumulate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/samples/{id}/add_part",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/samples/{id}/add_part",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/samples/{id}",
+      "status": 200,
+      "body": {
+        "a": 0.1,
+        "b": 0.2,
+        "c": 1.1,
+        "cube": 1.331,
+        "d": 0.3,
+        "id": "<volatile:key>",
+        "mixed": 0.6,
+        "parts": [
+          {
+            "id": "<volatile:key>",
+            "weight": 0.1
+          },
+          {
+            "id": "<volatile:key>",
+            "weight": 0.2
+          }
+        ],
+        "partsWeight": 0.3,
+        "ratio": 3,
+        "rounded": 1.01,
+        "sum": 0.3,
+        "thirds": 0.1,
+        "tie": 1.005,
+        "total": 0.3,
+        "version": 4
+      }
+    },
+    {
+      "seq": 6,
+      "method": "PATCH",
+      "path": "/api/samples",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/samples",
+        "instance": "/api/samples",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/samples",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/samples",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
