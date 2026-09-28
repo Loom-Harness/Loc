@@ -2531,7 +2531,7 @@ it.
 
 ## D-ENVELOPE-RATIFY — `X envelope` is a single-row find, not an `{id, ts, body}` carrier
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** Does `find audit(): Order envelope` mean a wrapped
 `{id, ts, body}` payload, a single-row read, or nothing at all until the carrier
@@ -2659,7 +2659,7 @@ F13; `src/language/ddd.langium`, `src/ir/types/loom-ir.ts`,
 
 ## D-FOR-IN-DOMAIN — `for` in a domain body is an honest gap with a successor; `variant-match` and `if let` outside their home are permanent refusals
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** `for`, `if let` and `variant-match` all parse inside an operation
 body but lower only inside a workflow (or a page) — is each a permanent refusal,
@@ -2777,7 +2777,7 @@ RS-24.
 
 ## D-DECIMAL-EXACT-MOMENT — decimal exactness ships as ONE PR with every wire golden re-captured
 
-**Status:** proposed (default applies 48 h after merge unless overridden). The
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0). The
 *semantic* ruling was already given by the owner on 2026-09-07 (`decimal`
 arithmetic is EXACT) and is **not** re-opened here; what this entry rules is the
 rule NUMBER and the shipping shape.
@@ -2841,7 +2841,7 @@ claim-the-number protocol; `test/behavioral/wire-golden/*.json`.
 
 ## D-WRITE-TX — one write transaction: state + outbox + audit + provenance; dispatch after commit
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** Which writes and which emits share a transaction, and what does a
 write path with no enclosing transaction do instead?
@@ -2903,7 +2903,7 @@ item 5; [`generator-code-review-2026-08-24.md`](audits/generator-code-review-202
 
 ## D-CROSSTENANT-ACK — `policy { deny on X }` is the `crossTenant` acknowledgment; `allow global` stays refused
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** What does an author write to acknowledge that a `crossTenant`
 aggregate is deliberately unscoped, so that a `loom.crosstenant-needs-policy`
@@ -2953,7 +2953,7 @@ D-TENANCY-SCOPE, D-TENANCY-DEFAULT.
 
 ## D-READ-SURFACE-ORDER — projection masking first, then the two small gates, then the system-read construct
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** M-T3.15 has sat at `plan (awaiting sequencing sign-off)` while its
 premise moved under it — in what order do its remaining items land?
@@ -3004,7 +3004,7 @@ PRs #2523, #2766; `src/diagnostics/messages.ts`
 
 ## D-LONG-AVG-DEFAULTS — `long` gets a declared 2^53 ceiling; projection `avg` over money is typed `money`
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** Two numeric rows whose proposed defaults were recorded but never
 signed off: what is `long`'s contract, and what type does a query-time
@@ -3078,7 +3078,7 @@ F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,
 
 ## D-DAPPER-ALTER — dapper and mikroorm get a real ALTER path in phase ⑨; the widened refusal lands first
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** `persistence: dapper` (and its mikroorm twin) has no ALTER path at
 all — is that a permanent `scope` row, or a phase-⑨ build?
@@ -3211,7 +3211,7 @@ B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
 
 ## D-POLYMORPHIC-ID-REPRESENTATION — a `<Base> id` to a TPC base is a plain id column: no FK, no discriminator
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Owner mission **M-T5.7**; register row `loom.polymorphic-id-ref-unsupported`.
 
 **Question.** `src/language/validators/inheritance.ts` rule 6 refuses a
@@ -3370,7 +3370,7 @@ claim the frontends were changed.
 
 ## D-ABSENT-JOIN-DATETIME-WIRE — an absent join value is wire `null` on every target; sub-second datetimes ship as milliseconds
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** Two wire-form questions the `G2667-D3` row left open: what does a
 LEFT-JOINed field carry when the join target is absent, and what fractional-second
@@ -3449,7 +3449,7 @@ elixir note that sizes it);
 
 ## D-FLUTTER-BEARER — Flutter native authenticates with a bearer token; Flutter web keeps the cookie
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** RULE 2 of the realtime contract says a stream carries the same
 HttpOnly `session` cookie as an ordinary API call from the same frontend — a
@@ -3504,7 +3504,7 @@ item 1); [`auth.md`](auth.md) ("Session depth");
 
 ## D-MISC-C0 — four small rulings that needed a name, not a debate
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** Four rows whose proposed answers nobody disputes, but which no tag
 records — so each is re-decided by whoever picks the row up.
@@ -3682,7 +3682,7 @@ its own note on python's absence); [`platforms.md`](platforms.md);
 `docs/audits/targets-completeness-2026-08-30.ledger.json`.
 ## D-EMBEDDED-TPH — a `shape: embedded` concrete of a `sharedTable` base is forced to `ownTable`, like the other two non-relational shapes
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2907; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** `shape: embedded` × TPH (`inheritanceUsing: sharedTable`) does not
 work on any backend that implements `embedded`. Is that a cross-emitter mission,
@@ -3746,7 +3746,7 @@ deleting one disjunct — nothing here bakes the refusal into an emitter.
 [`inheritance.md`](inheritance.md); D-ES-TPH (the rule this extends).
 ## D-TPH-SUBTYPE-FILTER — a TPH subtype's capability filter is a declared v1 limit on the EF adapter, not a gap
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2907; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2b, which was asked to "build or decide" this row.
 
 **Question.** `loom.tph-filter-unsupported` refuses a `sharedTable` (TPH)
@@ -3827,7 +3827,7 @@ re-class); the build → **M-T6.72**.
 tail this sits beside); the F2-CB-C2 silent-drop row it replaced.
 ## D-PHOENIX-FORMAT-GATE — the generated-Elixir `mix format` gate is declined permanently; Dialyzer is unscheduled
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2907; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** M-T6.3 has deferred the `mix format` / Dialyzer CI gates over
 generated Phoenix output twice, each time with the same reasoning and no ruling.
@@ -3900,7 +3900,7 @@ Slices 1–2; `src/generator/elixir/vanilla/shell-emit.ts`
 
 ## D-ANGULAR-EXTERN-CHILDREN — children into an Angular component: built for the walked flavour, a language question for `extern`
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2933; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2h, which was asked to close
 `loom.component-children-unsupported`.
 
@@ -3961,7 +3961,7 @@ site (#2734) survives on the outlet arm only.
 
 ## D-FLUTTER-COMPONENT-BINDINGS — a Flutter component reaches the `ref`-backed page bindings, but never the route `id`
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2933; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
 **Question.** `loom.user-component-deferred-target` refuses **nine** Flutter
 component shapes and `loom.flutter-async-effect-unsupported` a tenth. All ten
@@ -4069,7 +4069,7 @@ internal floor the bypass reached).
 
 ## D-PAGE-BODY-EXPRESSION — a page body is an expression tree; the statement `if` stays refused on every frontend
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2933; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2f, which was asked to give
 `loom.if-stmt-page-body-unsupported` a mission id or a D-tag.
 
@@ -4130,7 +4130,7 @@ the UI arm); `src/diagnostics/messages.ts` (`loom.if-stmt-page-body-unsupported`
 
 ## D-SENSITIVE-INSPECT-ONLY — `sensitive(...)` is a DECLARATION with one shipped consequence; wire masking is `mask unless`, and phases 2–4 are a commissioned mission
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2933; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2f, which was asked to "build M-T3.8 phases 2–4, or
 record the S alternative as a `scope` decision".
 
@@ -4200,7 +4200,7 @@ M-T3.8 stays open and commissioned.
 
 ## D-ELIXIR-IF-BRANCH — the four refused `if`-branch shapes on Phoenix are a declared limit of the linear body renderer, not a per-target gap
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2m, which was asked to build the four sub-shapes
 `loom.elixir-if-stmt-unsupported` still refuses or re-class them.
 
@@ -4281,7 +4281,7 @@ than done here.
 
 ## D-HEEX-I18N-FORMAT — `i18nFormat` is a documented permanent LiveView divergence, not a gap
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2a (§7.1 of its hand-off), which found the ledger's own
 proposed disposition unavailable, and taken by packet 2m.
 
@@ -4335,7 +4335,7 @@ ruling should be re-opened — the cost argument is the whole argument.
 
 ## D-PAGE-PRIMITIVE-SHADOW — a `component` may not take a walker-primitive name; a `valueobject` may
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2g (§7.1, "does a user declaration shadow a page
 primitive in a ui body?") and settled by packet 2k on measurement.
 
@@ -4395,7 +4395,7 @@ removing the gate fails 4 of 7 with `expected [] to include
 
 ## D-MODAL-CONTROLLED-OP-FORM — `Modal { open:, OperationForm }` is a supported shape and `open:` must be honoured
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2g (§1), which measured the row and asked for a ruling
 before building; re-measured and ruled by packet 2k.
 
