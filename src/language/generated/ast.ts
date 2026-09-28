@@ -2243,10 +2243,10 @@ export function isMatchStmt(item: unknown): item is MatchStmt {
     return reflection.isInstance(item, MatchStmt.$type);
 }
 
-export type MemberName = 'aggregates' | 'api' | 'contains' | 'contexts' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'modules' | 'page' | 'permissions' | 'ui' | 'views' | 'where' | 'workflows' | CommonSoftKeywords | string;
+export type MemberName = 'aggregates' | 'api' | 'as' | 'carries' | 'claims' | 'contains' | 'contexts' | 'coreComponents' | 'covers' | 'create' | 'destroy' | 'entitles' | 'extends' | 'find' | 'hosts' | 'httpStatus' | 'id' | 'ignoring' | 'implies' | 'modules' | 'nats' | 'page' | 'permissions' | 'persistedAs' | 'postgres' | 'redis' | 'requires' | 'scopes' | 'serves' | 'ses' | 'sessions' | 'targets' | 'this' | 'ui' | 'verifies' | 'views' | 'where' | 'workflows' | CommonSoftKeywords | string;
 
 export function isMemberName(item: unknown): item is MemberName {
-    return isCommonSoftKeywords(item) || item === 'aggregates' || item === 'api' || item === 'contains' || item === 'contexts' || item === 'create' || item === 'destroy' || item === 'find' || item === 'id' || item === 'ignoring' || item === 'modules' || item === 'page' || item === 'permissions' || item === 'ui' || item === 'views' || item === 'where' || item === 'workflows' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+    return isCommonSoftKeywords(item) || item === 'aggregates' || item === 'api' || item === 'contains' || item === 'contexts' || item === 'create' || item === 'destroy' || item === 'find' || item === 'id' || item === 'ignoring' || item === 'modules' || item === 'page' || item === 'permissions' || item === 'ui' || item === 'views' || item === 'where' || item === 'workflows' || item === 'as' || item === 'carries' || item === 'claims' || item === 'coreComponents' || item === 'covers' || item === 'entitles' || item === 'extends' || item === 'hosts' || item === 'httpStatus' || item === 'implies' || item === 'nats' || item === 'persistedAs' || item === 'postgres' || item === 'redis' || item === 'requires' || item === 'scopes' || item === 'serves' || item === 'ses' || item === 'sessions' || item === 'targets' || item === 'this' || item === 'verifies' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface MemberSuffix extends langium.AstNode {

@@ -19030,6 +19030,94 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "workflows"
+          },
+          {
+            "$type": "Keyword",
+            "value": "as"
+          },
+          {
+            "$type": "Keyword",
+            "value": "carries"
+          },
+          {
+            "$type": "Keyword",
+            "value": "claims"
+          },
+          {
+            "$type": "Keyword",
+            "value": "coreComponents"
+          },
+          {
+            "$type": "Keyword",
+            "value": "covers"
+          },
+          {
+            "$type": "Keyword",
+            "value": "entitles"
+          },
+          {
+            "$type": "Keyword",
+            "value": "extends"
+          },
+          {
+            "$type": "Keyword",
+            "value": "hosts"
+          },
+          {
+            "$type": "Keyword",
+            "value": "httpStatus"
+          },
+          {
+            "$type": "Keyword",
+            "value": "implies"
+          },
+          {
+            "$type": "Keyword",
+            "value": "nats"
+          },
+          {
+            "$type": "Keyword",
+            "value": "persistedAs"
+          },
+          {
+            "$type": "Keyword",
+            "value": "postgres"
+          },
+          {
+            "$type": "Keyword",
+            "value": "redis"
+          },
+          {
+            "$type": "Keyword",
+            "value": "requires"
+          },
+          {
+            "$type": "Keyword",
+            "value": "scopes"
+          },
+          {
+            "$type": "Keyword",
+            "value": "serves"
+          },
+          {
+            "$type": "Keyword",
+            "value": "ses"
+          },
+          {
+            "$type": "Keyword",
+            "value": "sessions"
+          },
+          {
+            "$type": "Keyword",
+            "value": "targets"
+          },
+          {
+            "$type": "Keyword",
+            "value": "this"
+          },
+          {
+            "$type": "Keyword",
+            "value": "verifies"
           }
         ]
       },

@@ -2586,7 +2586,19 @@ MemberName returns string:
     // value core; member access after `.`).  Composing CommonSoftKeywords here also closes the
     // "declarable-but-unreadable" class (M-T5.18 Track C, BUG-004: `e.resource`).
     | 'aggregates' | 'api' | 'contains' | 'contexts' | 'create' | 'destroy' | 'find' | 'id'
-    | 'ignoring' | 'modules' | 'page' | 'permissions' | 'ui' | 'views' | 'where' | 'workflows';
+    | 'ignoring' | 'modules' | 'page' | 'permissions' | 'ui' | 'views' | 'where' | 'workflows'
+    // Plural-shaped HARD keywords (wave C3 D2).  An aggregate's e2e slug is
+    // `snake(plural(Name))`, so `aggregate Claim` is addressed as `api.claims`
+    // — and `claims` is the `auth { claims: … }` keyword, so the declarable
+    // aggregate was unaddressable from a `test e2e` block.  Every keyword that
+    // is the plural of some aggregate name is admitted here; the SLUG FLOOR in
+    // `keyword-identifier-completeness.test.ts` derives that set from the
+    // grammar and fails when a new plural-shaped keyword is not in this list
+    // (it is literal: `aggregate A` is `api.as`, `aggregate Extend` is
+    // `api.extends`, `aggregate CoreComponent` is `api.coreComponents`).
+    | 'as' | 'carries' | 'claims' | 'coreComponents' | 'covers' | 'entitles' | 'extends'
+    | 'hosts' | 'httpStatus' | 'implies' | 'nats' | 'persistedAs' | 'postgres' | 'redis'
+    | 'requires' | 'scopes' | 'serves' | 'ses' | 'sessions' | 'targets' | 'this' | 'verifies';
 
 // Lambdas accept either a single expression body or a brace-wrapped block of
 // statements.  Block bodies are required for multi-statement event handlers in

@@ -45,7 +45,9 @@
   ],
   "apply": [],
   "area": [],
-  "as": [],
+  "as": [
+    "memberAccess"
+  ],
   "asc": [
     "fieldName",
     "fieldNameAfterField",
@@ -107,7 +109,9 @@
     "stateField"
   ],
   "capability": [],
-  "carries": [],
+  "carries": [
+    "memberAccess"
+  ],
   "chakra": [],
   "channel": [],
   "channelSource": [],
@@ -122,7 +126,9 @@
     "stateField"
   ],
   "check": [],
-  "claims": [],
+  "claims": [
+    "memberAccess"
+  ],
   "clickhouse": [],
   "clientId": [],
   "clientSecret": [],
@@ -175,8 +181,12 @@
     "paramName"
   ],
   "cookie": [],
-  "coreComponents": [],
-  "covers": [],
+  "coreComponents": [
+    "memberAccess"
+  ],
+  "covers": [
+    "memberAccess"
+  ],
   "create": [
     "lValue",
     "memberAccess",
@@ -273,7 +283,9 @@
   "embedded": [],
   "emit": [],
   "enforcement": [],
-  "entitles": [],
+  "entitles": [
+    "memberAccess"
+  ],
   "entity": [],
   "enum": [],
   "env": [
@@ -330,7 +342,9 @@
     "stateField"
   ],
   "expect": [],
-  "extends": [],
+  "extends": [
+    "memberAccess"
+  ],
   "extern": [],
   "false": [
     "nameRef"
@@ -403,8 +417,12 @@
     "stateField"
   ],
   "header": [],
-  "hosts": [],
-  "httpStatus": [],
+  "hosts": [
+    "memberAccess"
+  ],
+  "httpStatus": [
+    "memberAccess"
+  ],
   "id": [
     "lValue",
     "memberAccess",
@@ -440,7 +458,9 @@
     "paramName",
     "stateField"
   ],
-  "implies": [],
+  "implies": [
+    "memberAccess"
+  ],
   "import": [],
   "in": [],
   "inMemory": [],
@@ -645,7 +665,9 @@
   ],
   "mui": [],
   "mysql": [],
-  "nats": [],
+  "nats": [
+    "memberAccess"
+  ],
   "node": [],
   "now": [],
   "null": [
@@ -756,7 +778,9 @@
     "paramName"
   ],
   "persist": [],
-  "persistedAs": [],
+  "persistedAs": [
+    "memberAccess"
+  ],
   "persistence": [
     "fieldName",
     "fieldNameAfterField",
@@ -780,7 +804,9 @@
     "stateField"
   ],
   "port": [],
-  "postgres": [],
+  "postgres": [
+    "memberAccess"
+  ],
   "precondition": [],
   "primeng": [],
   "private": [],
@@ -824,7 +850,9 @@
     "paramName",
     "stateField"
   ],
-  "redis": [],
+  "redis": [
+    "memberAccess"
+  ],
   "relational": [],
   "repeatableRead": [],
   "replica": [
@@ -840,7 +868,9 @@
   "repository": [],
   "required": [],
   "requirement": [],
-  "requires": [],
+  "requires": [
+    "memberAccess"
+  ],
   "resource": [
     "fieldName",
     "fieldNameAfterField",
@@ -905,7 +935,9 @@
     "paramName",
     "stateField"
   ],
-  "scopes": [],
+  "scopes": [
+    "memberAccess"
+  ],
   "secret": [
     "fieldName",
     "fieldNameAfterField",
@@ -934,7 +966,9 @@
   "sendgrid": [],
   "sensitive": [],
   "serializable": [],
-  "serves": [],
+  "serves": [
+    "memberAccess"
+  ],
   "service": [
     "fieldName",
     "fieldNameAfterField",
@@ -945,8 +979,12 @@
     "paramName",
     "stateField"
   ],
-  "ses": [],
-  "sessions": [],
+  "ses": [
+    "memberAccess"
+  ],
+  "sessions": [
+    "memberAccess"
+  ],
   "shadcn": [],
   "shadcnSvelte": [],
   "shadcnVue": [],
@@ -1047,6 +1085,7 @@
     "stateField"
   ],
   "targets": [
+    "memberAccess",
     "nameRef",
     "paramName"
   ],
@@ -1064,6 +1103,7 @@
   "testCase": [],
   "theme": [],
   "this": [
+    "memberAccess",
     "nameRef"
   ],
   "timerSource": [],
@@ -1146,7 +1186,9 @@
     "stateField"
   ],
   "valueobject": [],
-  "verifies": [],
+  "verifies": [
+    "memberAccess"
+  ],
   "views": [
     "lValue",
     "memberAccess",
