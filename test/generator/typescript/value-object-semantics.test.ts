@@ -65,11 +65,18 @@ describe("S9 · Hono value objects carry value semantics", () => {
     );
   });
 
-  it("invariant violations throw DomainError, not a bare Error", async () => {
+  it("invariant violations throw a DomainError (its value-object subclass), not a bare Error", async () => {
     const files = await generateSystemFiles(SYSTEM);
     const vos = files.get("d/domain/value-objects.ts")!;
-    expect(vos).toContain('import { DomainError } from "./errors"');
-    expect(vos).toContain('throw new DomainError("Invariant violated: title.length > 0")');
+    // M-T5.1 — `ValueObjectInvariantError extends DomainError`, answered with the
+    // domain-floor status plus one errors[] entry.
+    expect(vos).toContain('import { ValueObjectInvariantError } from "./errors"');
+    expect(vos).toContain(
+      'throw new ValueObjectInvariantError("Listing", "Invariant violated: title.length > 0")',
+    );
+    expect(files.get("d/domain/errors.ts")).toContain(
+      "export class ValueObjectInvariantError extends DomainError",
+    );
     expect(vos).not.toMatch(/throw new Error\(/);
   });
 });

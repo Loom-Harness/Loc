@@ -335,6 +335,20 @@ export interface AmbientDeclIndex {
    *  `Pricing.quote(...)` resolves its receiver here when the service is
    *  declared in a sibling context (domain-services.md). */
   domainServices: ReadonlyMap<string, DomainService>;
+  /** Project-global `projection` declarations (M-T5.33).  Widened for the same
+   *  reason aggregates are (`indexAggregatesDeep`, lower.ts): a PAGE BODY
+   *  reading `<apiHandle>.<Projection>` has no context in scope, so the
+   *  projection it NAMES is the only handle on the read's row type — and on
+   *  the member types inside the `data:` lambda that binds it.
+   *
+   *  Safe to widen where the value-object / enum / domainService halves are
+   *  not: those are consulted by BARE-NAME resolution in a page body, where a
+   *  user declaration would shadow a same-named walker primitive.  This map is
+   *  read only from positions that have already established "this names a
+   *  projection" — the `of:` read chain and `memberTypeOn`'s entity arm for a
+   *  type minted from that chain — never to decide what a bare builder name
+   *  means. */
+  projections: ReadonlyMap<string, Projection>;
   /** Operation set of every `api` some `resource { kind: api, use: <Api> }`
    *  binds, keyed by api name (M-T4.8).  Populated by the structural pre-pass
    *  in `lowerModel`: the target contexts are lowered STRUCTURALLY first (no
@@ -350,6 +364,7 @@ let ambientDeclIndex: AmbientDeclIndex = {
   enums: new Map(),
   entities: new Map(),
   domainServices: new Map(),
+  projections: new Map(),
   apiOperations: new Map(),
 };
 
@@ -560,11 +575,15 @@ export function findWorkflowByName(env: Env, name: string): Workflow | undefined
  *  query-time comprehension types as `{ kind: "entity", name }` resolved back
  *  through this lookup — the projection twin of `findWorkflowByName`. */
 export function findProjectionByName(env: Env, name: string): Projection | undefined {
-  if (!env.ctx) return undefined;
-  for (const m of env.ctx.members) {
-    if (isProjection(m) && m.name === name) return m;
+  if (env.ctx) {
+    for (const m of env.ctx.members) {
+      if (isProjection(m) && m.name === name) return m;
+    }
   }
-  return undefined;
+  // Project-global fallback — the ui-body case, which has no `ctx` at all
+  // (M-T5.33).  Env-local first so a context resolves its own declaration
+  // even when a sibling context declares the same name.
+  return ambientDeclIndex.projections.get(name);
 }
 
 /** Look up a context-level `enum` declaration by name.  Used by the

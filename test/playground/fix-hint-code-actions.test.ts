@@ -173,7 +173,7 @@ describe("playground fix-hint quick fixes", () => {
   });
 
   it("offers a fix only for a request that touches its line", () => {
-    const fix = { title: "t", edits: [], anchor: range(4, 3, 4, 9) };
+    const fix = { title: "t", edits: [], anchor: range(4, 3, 4, 9), preferred: false };
     expect(quickFixesAt([fix], range(4, 1, 4, 1))).toHaveLength(1);
     expect(quickFixesAt([fix], range(3, 1, 5, 1))).toHaveLength(1);
     expect(quickFixesAt([fix], range(5, 1, 5, 1))).toHaveLength(0);

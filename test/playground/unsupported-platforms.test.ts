@@ -24,6 +24,7 @@ describe("unsupported-platform labels", () => {
       elixir: "Phoenix LiveView",
       svelte: "SvelteKit",
       vue: "Vue",
+      angular: "Angular",
     };
     for (const [platform, label] of Object.entries(labels)) {
       expect(unsupportedPlatformLabel(platform as UnsupportedPlatform)).toBe(label);

@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { EmitCtx, EmittedArtifact } from "../../src/generator/_adapters/index.js";
+import type { DotnetArtifact } from "../../src/generator/dotnet/adapters/by-layer-layout.js";
 import * as cqrsStyleModule from "../../src/generator/dotnet/adapters/cqrs-style.js";
 import type { EnrichedAggregateIR, OperationIR } from "../../src/ir/types/loom-ir.js";
 import { generateSystems } from "../../src/system/index.js";
@@ -89,7 +90,9 @@ describe("F5d — cqrs per-operation decomposition", () => {
     for (const a of rename) {
       expect(byName.get(a.name)?.content, a.name).toBe(a.content);
       expect(byName.get(a.name)?.category, a.name).toBe(a.category);
-      expect(a.aggregateName).toBe("Order");
+      // `aggregateName` is the .NET refinement of the neutral artifact — the
+      // by-layer layout reads it to pick the per-aggregate folder.
+      expect((a as DotnetArtifact).aggregateName).toBe("Order");
     }
   });
 

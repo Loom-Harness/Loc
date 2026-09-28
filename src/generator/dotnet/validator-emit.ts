@@ -352,6 +352,11 @@ export function renderRequestValidators(
 ): string | null {
   const voByName = new Map(vos.map((v) => [v.name, v]));
   const classes: string[] = [];
+  // Namespaces the emitted `.Must(…)` predicates reach into beyond the SDK's
+  // implicit usings — the same set `renderValidatorFile` collects for the
+  // Commands file.  Dropping it here emitted `Regex.IsMatch(...)` under a bare
+  // `using FluentValidation;` and the project failed to build with CS0103.
+  const fileUsings = new Set<string>();
 
   // 1) A `<VO>RequestValidator` for every VO (used by this agg) carrying rules.
   const emittedVo = new Set<string>();
@@ -362,11 +367,12 @@ export function renderRequestValidators(
       emittedVo.add(voName);
       const vo = voByName.get(voName);
       if (!vo) continue;
-      const { ruleLines } = buildFluentRules(
+      const { ruleLines, usings } = buildFluentRules(
         vo.invariants,
         new Set(vo.fields.map((x) => x.name)),
         ns,
       );
+      for (const u of usings) fileUsings.add(u);
       classes.push(
         `public sealed class ${voName}RequestValidator : AbstractValidator<${voName}Request>\n` +
           `{\n    public ${voName}RequestValidator()\n    {\n${ruleLines.join("\n")}\n    }\n}`,
@@ -400,8 +406,12 @@ export function renderRequestValidators(
   }
 
   if (classes.length === 0) return null;
+  const extraUsings = [...fileUsings]
+    .sort()
+    .map((n) => `using ${n};`)
+    .join("\n");
   return `// Auto-generated.
-using FluentValidation;
+using FluentValidation;${extraUsings ? "\n" + extraUsings : ""}
 
 namespace ${ns}.Application.${plural(agg.name)}.Requests;
 

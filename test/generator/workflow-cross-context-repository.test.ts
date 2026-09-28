@@ -130,7 +130,7 @@ const BACKENDS: {
     // Phoenix routes the local load through the context module rather than the
     // repository directly — the contrast is the same: a resolved call vs an
     // unbound snake-cased local.
-    sibling: "{:ok, wo} <- Context.get_work_order(work_order_id),",
+    sibling: "{:ok, wo} <- (case Context.get_work_order(work_order_id) do",
   },
 ];
 

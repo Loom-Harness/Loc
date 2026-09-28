@@ -5,6 +5,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { AggregateIR } from "../../src/ir/types/loom-ir.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // Lifecycle operations — Phase 1 (grammar + IR + validator).
@@ -33,7 +34,7 @@ async function parseModel(src: string): Promise<{
   const doc = await parse(src, { validation: true });
   const diags = (doc.diagnostics ?? []).map((d) => ({
     severity: d.severity ?? 0,
-    message: d.message,
+    message: diagText(d),
     code: d.code,
   }));
   return {

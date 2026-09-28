@@ -8,6 +8,7 @@ import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/va
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { ectoValidator } from "./changeset-validators.js";
+import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,7 @@ function ectoFieldType(
         case "bool":
           return ":boolean";
         case "datetime":
-          return ":utc_datetime";
+          return LOOM_DATETIME_MODULE;
         case "guid":
           return "Ecto.UUID";
         case "json":

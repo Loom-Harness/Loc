@@ -75,6 +75,7 @@ system DevPlatform {
     // Auth config — OIDC handshake + claims mapping. Covers AuthBlock,
     // OidcConfig, LiteralAuthValue + EnvAuthValue, ClaimsMap, ClaimEntry.
     auth {
+        enforcement: opt
         provider: keycloak
         oidc {
             issuer: env("OIDC_ISSUER")

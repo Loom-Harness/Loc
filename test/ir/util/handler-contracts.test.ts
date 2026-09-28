@@ -4,6 +4,7 @@ import {
   normalizeHandlerReturn,
   requestRecordFor,
 } from "../../../src/ir/util/handler-contracts.js";
+import { primType } from "../../_helpers/ir-builders.js";
 
 // Every backend's explicit-handler emitter reads these two to interpret a
 // scaffolded handler's signature.  They decide whether a param deserialises
@@ -56,7 +57,7 @@ describe("requestRecordFor", () => {
   });
 
   it("is undefined for a non-entity type", () => {
-    expect(requestRecordFor({ kind: "string" } as TypeIR, ctx())).toBeUndefined();
+    expect(requestRecordFor(primType("string"), ctx())).toBeUndefined();
     // An ARRAY of a command record is not itself a record param: the function
     // does not unwrap, so a `Cmd[]` param stays a plain list.
     expect(requestRecordFor(array(entity("CreateOrderCommand")), ctx())).toBeUndefined();
@@ -69,7 +70,7 @@ describe("normalizeHandlerReturn", () => {
   });
 
   it("passes a scalar return through unchanged", () => {
-    const t = { kind: "string" } as TypeIR;
+    const t = primType("string");
     expect(normalizeHandlerReturn(t, ctx())).toBe(t);
   });
 

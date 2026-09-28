@@ -19,6 +19,7 @@ const SYS = (opts: { authUi: boolean }) => `
 system Shop {
   user { id: string role: string }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
   }

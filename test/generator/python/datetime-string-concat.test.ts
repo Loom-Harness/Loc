@@ -89,12 +89,24 @@ describe("python — a datetime interpolated into a string", () => {
     // The wrapper is documented as transparent (every backend renders `inner`
     // and drops the format); before this it hid its operand's type from every
     // consumer that asks what an expression is, which is the root cause above.
+    //
+    // The probe now reports `string`, not `datetime`: lowering coerces a
+    // FORMATTED hole whose type is not implicitly stringifiable, so the
+    // wrapper's inner is a `convert` node.  That is the same defect this file
+    // documents, fixed one layer up — the `+`-leaf lift below handled the
+    // `"on " + <datetime>` shape, but a SINGLE-hole template (``{startAt, date}``,
+    // no literal segment) builds no `+` at all, so the raw datetime landed
+    // straight in a `string` slot and node / dotnet / java / python ALL failed
+    // to compile.  What this assertion still pins is the property it was
+    // written for: the probe sees THROUGH the wrapper rather than stopping at
+    // it.  The Python lift stays — it is keyed on the operand pair, so it
+    // remains correct if lowering ever stops coercing.
     const loom = await model();
     const agg = loom.systems[0]!.subdomains[0]!.contexts[0]!.aggregates[0]!;
     const d1 = agg.derived.find((d) => d.name === "d1")!;
     expect(d1.expr.kind).toBe("binary");
     const rhs = (d1.expr as Extract<typeof d1.expr, { kind: "binary" }>).right;
     expect(rhs.kind).toBe("i18nFormat");
-    expect(bodyTypeOf(rhs)).toEqual({ kind: "primitive", name: "datetime" });
+    expect(bodyTypeOf(rhs)).toEqual({ kind: "primitive", name: "string" });
   });
 });

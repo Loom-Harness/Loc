@@ -74,8 +74,11 @@ describe("dotnet — messaged rule → FluentValidation .WithMessage carrier", (
 describe("dotnet — messaged rule → domain floor text", () => {
   it("throws the author text (not the derived default) in AssertInvariants", async () => {
     const { domain } = await gen();
-    expect(domain).toContain('throw new DomainException("Name must be 2-120 characters")');
-    expect(domain).toContain('throw new DomainException("SKU is required")');
+    // M-T1.11 (c): the domain floor carries the rule's wire code + pointer.
+    expect(domain).toContain(
+      'throw new DomainException("Name must be 2-120 characters", "msg.j985f2", "/name")',
+    );
+    expect(domain).toContain('throw new DomainException("SKU is required", "msg.u3w71r", "/sku")');
     // message-less invariant keeps the derived default.
     expect(domain).toContain('throw new DomainException("Invariant violated: sku.length > 0")');
   });

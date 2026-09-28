@@ -21,6 +21,7 @@ import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -625,7 +626,13 @@ export function renderJavaEntity(
     const opBody = operationBody(op);
     const baseParams = op.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
     const params = [baseParams, usesUser ? "User currentUser" : ""].filter(Boolean).join(", ");
-    const traceCtx = { emitTrace, aggregate: entity.name, op: op.name, eventSourced };
+    const traceCtx = {
+      emitTrace,
+      aggregate: entity.name,
+      op: op.name,
+      eventSourced,
+      domainFloorCodes: true,
+    };
     if (op.extern) {
       // Extern op (extern-domain-extension-point.md §3a, D2): the op body is a
       // hand-written domain hook Loom can't express.  The generated method runs
@@ -820,7 +827,15 @@ export function renderJavaEntity(
 
   // --- invariants -----------------------------------------------------------------
   const invariantLines = entity.invariants.flatMap((inv, i) => {
-    const thrown = `throw new DomainException(${JSON.stringify(inv.message ? inv.message.text : `Invariant violated: ${inv.source}`)})`;
+    // A MESSAGED rule carries its wire code + pointer THROUGH the throw
+    // (M-T1.11 (c)); a message-less one keeps the text-only throw.
+    const code = domainFloorCode(inv.message);
+    const text = JSON.stringify(
+      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
+    );
+    const thrown = code
+      ? `throw new DomainException(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      : `throw new DomainException(${text})`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderJavaExpr(inv.guard, renderCtx)}) && !(${renderJavaExpr(inv.expr, renderCtx)}))`

@@ -26,6 +26,7 @@ const SYS = (opts: {
 system Helpdesk {
   user { id: string role: string }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
   }
@@ -162,7 +163,7 @@ describe("react operation action-button gate", () => {
     const COMP_SYS = `
 system Helpdesk {
   user { id: string role: string }
-  auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
+  auth { enforcement: opt, provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
   subdomain Sales {
     context Sales {
       aggregate Order with crudish {

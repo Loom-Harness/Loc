@@ -2,6 +2,7 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Deployable, Model, System } from "../../../src/language/generated/ast.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 // The `deployable { … }` clauses (contexts / dataSources / targets / serves /
 // ui / hosts / port / auth / design / favicon) are ORDER-INDEPENDENT: each is
@@ -13,7 +14,7 @@ async function parse(src: string): Promise<{ model: Model; errors: string[] }> {
   const services = createDddServices(NodeFileSystem);
   const helper = parseHelper(services.Ddd);
   const doc = await helper(src, { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
   return { model: doc.parseResult.value as Model, errors };
 }
 

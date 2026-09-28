@@ -45,11 +45,11 @@ describe("persisted-positions — pure helpers", () => {
   it("pathHash is stable across calls with structurally equal paths", () => {
     const a: ViewPath = [
       { kind: "system", name: "S" },
-      { kind: "module", name: "M" },
+      { kind: "subdomain", name: "M" },
     ];
     const b: ViewPath = [
       { kind: "system", name: "S" },
-      { kind: "module", name: "M" },
+      { kind: "subdomain", name: "M" },
     ];
     expect(pathHash(a)).toBe(pathHash(b));
   });
@@ -108,8 +108,8 @@ describe("persisted-positions — pure helpers", () => {
   });
 
   it("different view-paths are stored under different keys", () => {
-    const a: ViewPath = [{ kind: "module", name: "A" }];
-    const b: ViewPath = [{ kind: "module", name: "B" }];
+    const a: ViewPath = [{ kind: "subdomain", name: "A" }];
+    const b: ViewPath = [{ kind: "subdomain", name: "B" }];
     savePersisted(a, { n1: { x: 1, y: 1 } });
     savePersisted(b, { n1: { x: 9, y: 9 } });
     expect(loadPersisted(a)).toEqual({ n1: { x: 1, y: 1 } });

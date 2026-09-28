@@ -70,127 +70,93 @@
     "realtime-toast": [
       {
         "from": "./loom-toast.service",
-        "named": [
-          "LoomToastService"
-        ]
+        "named": ["LoomToastService"]
       }
     ],
     "primitive-button": [
       {
         "from": "@angular/material/button",
-        "named": [
-          "MatButtonModule"
-        ]
+        "named": ["MatButtonModule"]
       }
     ],
     "primitive-card": [
       {
         "from": "@angular/material/card",
-        "named": [
-          "MatCardModule"
-        ]
+        "named": ["MatCardModule"]
       }
     ],
     "primitive-divider": [
       {
         "from": "@angular/material/divider",
-        "named": [
-          "MatDividerModule"
-        ]
+        "named": ["MatDividerModule"]
       }
     ],
     "primitive-loader": [
       {
         "from": "@angular/material/progress-spinner",
-        "named": [
-          "MatProgressSpinnerModule"
-        ]
+        "named": ["MatProgressSpinnerModule"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "@angular/material/tabs",
-        "named": [
-          "MatTabsModule"
-        ]
+        "named": ["MatTabsModule"]
       }
     ],
     "primitive-field": [
       {
         "from": "@angular/material/form-field",
-        "named": [
-          "MatFormFieldModule"
-        ]
+        "named": ["MatFormFieldModule"]
       },
       {
         "from": "@angular/material/input",
-        "named": [
-          "MatInputModule"
-        ]
+        "named": ["MatInputModule"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "@angular/material/form-field",
-        "named": [
-          "MatFormFieldModule"
-        ]
+        "named": ["MatFormFieldModule"]
       },
       {
         "from": "@angular/material/input",
-        "named": [
-          "MatInputModule"
-        ]
+        "named": ["MatInputModule"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "@angular/material/form-field",
-        "named": [
-          "MatFormFieldModule"
-        ]
+        "named": ["MatFormFieldModule"]
       },
       {
         "from": "@angular/material/input",
-        "named": [
-          "MatInputModule"
-        ]
+        "named": ["MatInputModule"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "@angular/material/form-field",
-        "named": [
-          "MatFormFieldModule"
-        ]
+        "named": ["MatFormFieldModule"]
       },
       {
         "from": "@angular/material/input",
-        "named": [
-          "MatInputModule"
-        ]
+        "named": ["MatInputModule"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "@angular/material/slide-toggle",
-        "named": [
-          "MatSlideToggleModule"
-        ]
+        "named": ["MatSlideToggleModule"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "@angular/material/form-field",
-        "named": [
-          "MatFormFieldModule"
-        ]
+        "named": ["MatFormFieldModule"]
       },
       {
         "from": "@angular/material/select",
-        "named": [
-          "MatSelectModule"
-        ]
+        "named": ["MatSelectModule"]
       }
     ]
   }

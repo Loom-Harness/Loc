@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { dedupeByName } from "../../util/dedupe.js";
-import type { EnrichedBoundedContextIR, EnrichedValueObjectIR } from "../types/loom-ir.js";
+import type { EnrichedBoundedContextIR, EnrichedValueObjectIR, EnumIR } from "../types/loom-ir.js";
 
 /** Union enriched bounded contexts into one synthetic merged context (ambient
  *  enums / VOs deduped by name, every other member a plain union). */
@@ -81,6 +81,10 @@ export function mergeContexts(contexts: EnrichedBoundedContextIR[]): EnrichedBou
     // OUTSIDE this deployable.  Undefined when nothing is left, so a
     // single-deployable-spans-everything model's merged context is unchanged.
     siblingValueObjects: mergeSiblingValueObjects(contexts),
+    // The enum twin, with the same rule: an enum that was a "sibling" to one
+    // member but is declared by another member is now local, so it must not
+    // appear twice.
+    siblingEnums: mergeSiblingEnums(contexts),
   };
 }
 
@@ -98,6 +102,22 @@ function mergeSiblingValueObjects(
       if (local.has(v.name) || seen.has(v.name)) continue;
       seen.add(v.name);
       out.push(v);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/** The still-external half of the merged contexts' sibling ENUM pools — the
+ *  twin of `mergeSiblingValueObjects`, same first-wins de-dup. */
+function mergeSiblingEnums(contexts: EnrichedBoundedContextIR[]): EnumIR[] | undefined {
+  const local = new Set(contexts.flatMap((c) => c.enums).map((e) => e.name));
+  const out: EnumIR[] = [];
+  const seen = new Set<string>();
+  for (const c of contexts) {
+    for (const e of c.siblingEnums ?? []) {
+      if (local.has(e.name) || seen.has(e.name)) continue;
+      seen.add(e.name);
+      out.push(e);
     }
   }
   return out.length > 0 ? out : undefined;

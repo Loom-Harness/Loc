@@ -98,7 +98,8 @@ describe("java generator — domain layer (S3)", () => {
     expect(vo).toContain("public record Address(String city, String zip) {");
     // Compact-constructor scope: bare params, not `this.` (unassignable there).
     expect(vo).toContain(
-      'if (!(((int) zip.codePoints().count()) > 0)) throw new DomainException("Invariant violated: zip.length > 0");',
+      // M-T5.1 — a DomainException subclass the advice answers with an errors[] entry.
+      'if (!(((int) zip.codePoints().count()) > 0)) throw new ValueObjectInvariantException("Address", "Invariant violated: zip.length > 0");',
     );
   });
 

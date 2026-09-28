@@ -29,6 +29,7 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
+import { diagText } from "../_helpers/diagnostics.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** `of:` subject of the page's `QueryView`, with the api-handle root — when
@@ -70,7 +71,7 @@ system S {
 async function errorsFor(source: string): Promise<string[]> {
   const services = createDddServices(NodeFileSystem);
   const doc = await parseHelper(services.Ddd)(source, { validation: true });
-  return (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+  return (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
 }
 
 /** The generated Detail page component — the observable end of "lowers to the

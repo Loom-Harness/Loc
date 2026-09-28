@@ -92,8 +92,10 @@ describe("python aggregate emission", () => {
     const files = await build();
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain("    def total(self) -> Money:");
+    // A `decimal` fold is exact (RS-37): Decimal(str(…)) elements from a
+    // Decimal(0) seed, narrowed back to the float domain type once.
     expect(order).toContain(
-      'Money(sum((lambda l: l.subtotal.amount)(__x) for __x in self._lines), "USD")',
+      'Money(float(sum((Decimal(str((lambda l: l.subtotal.amount)(__x))) for __x in self._lines), Decimal(0))), "USD")',
     );
   });
 

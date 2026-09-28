@@ -113,7 +113,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
     // The broadcast line appears AFTER `with ... do` and BEFORE the
     // success `{:ok, _}` return — so a failed with-clause skips it.
     expect(wf).toMatch(
-      /with \{:ok, t\} <- Context\.get_task\(task_id\) do\n\s+Phoenix\.PubSub\.broadcast[\s\S]+\n\s+\{:ok, t\}\n\s+end/,
+      /with \{:ok, t\} <- \(case Context\.get_task\(task_id\) do[\s\S]*?end\) do\n\s+Phoenix\.PubSub\.broadcast[\s\S]+\n\s+\{:ok, t\}\n\s+end/,
     );
   });
 

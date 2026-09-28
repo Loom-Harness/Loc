@@ -38,7 +38,9 @@ import {
 // ---------------------------------------------------------------------------
 
 /** A workflow carrying only the fields these predicates read. */
-const wf = (creates: { name: string | null; triggerKind: "event" | "command" }[]): WorkflowIR =>
+type WorkflowCreate = { name: string | null; triggerKind: "event" | "command" };
+
+const wf = (creates: WorkflowCreate[]): WorkflowIR =>
   ({ name: "W", creates }) as unknown as WorkflowIR;
 
 const cmd = (name: string | null = null) => ({ name, triggerKind: "command" as const });
@@ -105,7 +107,7 @@ describe("the two copies of the facade rule agree", () => {
   // Every shape the rule can see, crossed.  If either copy is edited alone this
   // fails and names the shape — which is the drift the util module's own header
   // says it exists to prevent, and which its incomplete rollout left possible.
-  const SHAPES: { label: string; creates: ReturnType<typeof cmd>[] }[] = [
+  const SHAPES: { label: string; creates: WorkflowCreate[] }[] = [
     { label: "no creates", creates: [] },
     { label: "unnamed command", creates: [cmd()] },
     { label: "unnamed event", creates: [evt()] },
