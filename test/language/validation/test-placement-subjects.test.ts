@@ -1,5 +1,5 @@
-import type { Diagnostic } from "langium";
 import { describe, expect, it } from "vitest";
+import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------

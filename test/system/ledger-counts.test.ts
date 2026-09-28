@@ -21,7 +21,16 @@ import fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { computeCounts, loadLedger, regenerateMd } from "../../scripts/ledger-counts.mjs";
+import {
+  computeCounts,
+  loadLedger,
+  regenerateMd,
+  // @ts-expect-error — plain-JS module with no declaration file, so its
+  // bindings are `any`.  The runtime shape is pinned by the assertions below;
+  // the real fix is a `scripts/ledger-counts.d.mts`, which lives outside this
+  // packet's fence (handed off in wave-c4-4b).  If one lands, this directive
+  // goes unused and TS2578 says so.
+} from "../../scripts/ledger-counts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");

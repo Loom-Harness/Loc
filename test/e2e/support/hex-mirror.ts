@@ -155,7 +155,7 @@ function generateCerts(dir: string, caCert: string, fullchain: string, srvKey: s
     "v3",
   ]);
 
-  fs.writeFileSync(fullchain, fs.readFileSync(srvCert) + fs.readFileSync(caCert));
+  fs.writeFileSync(fullchain, Buffer.concat([fs.readFileSync(srvCert), fs.readFileSync(caCert)]));
 }
 
 function waitForListen(child: ChildProcess): Promise<void> {

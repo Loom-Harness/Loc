@@ -21,6 +21,7 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model, Page, Ui } from "../../../src/language/generated/ast.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 async function parseFresh(src: string): Promise<{
   model: Model;
@@ -34,7 +35,7 @@ async function parseFresh(src: string): Promise<{
   const doc = await helper(src, { validation: true });
   return {
     model: doc.parseResult.value as Model,
-    errors: (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message),
+    errors: (doc.diagnostics ?? []).filter((d) => d.severity === 1).map(diagText),
   };
 }
 

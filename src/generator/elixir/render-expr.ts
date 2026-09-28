@@ -379,6 +379,10 @@ function renderElixirConvert(
   const decimalStruct = (name: string | undefined) => !inFilter && isDecimalStruct(name);
   if (target === "string") {
     if (decimalStruct(from)) return `Decimal.to_string(${v})`;
+    // ISO-8601, not `String.Chars`: `to_string(~U[2026-01-01 00:00:00Z])` is
+    // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
+    // not the value .NET / java / python / node emit for this conversion.
+    if (from === "datetime") return `DateTime.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {
@@ -1160,7 +1164,26 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
       const fn = contextFindFnFor(read.method, read.aggregate);
-      return `(case ${fn}(${args.join(", ")}) do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
+      const call = `${fn}(${args.join(", ")})`;
+      // `getById` is contractually NON-NULL — it throws rather than returning
+      // absent ("Use getById (throws → 404)", the remedy
+      // `loom.handler-load-nullable-unsupported#domain-service` prescribes), and
+      // `repoReadResultType` (#2968) types it as a bare entity, not `T?`.  The
+      // context facade fn it routes to is `find_by_id`, which DOES signal
+      // absence (`{:error, :not_found}`), so flattening that to `nil` here
+      // contradicted the contract and handed the caller a nil to dereference —
+      // `one.label` on nil is a KeyError at RUNTIME, with nothing catching it at
+      // compile time (the shape .NET at least fails on as CS8602).  Raise
+      // instead: `Ecto.NoResultsError` is what the sibling load-or-raise seams
+      // in `vanilla/context-emit.ts` (`get_<agg>!`, `destroy_<agg>!`) already
+      // raise, and the generated shell maps a `Plug.Exception` 4xx straight
+      // through (`Ecto.NoResultsError` -> 404, `vanilla/shell-emit.ts`), so
+      // "throws → 404" holds here too.  A declared find keeps the
+      // value-or-nil unwrap and stays byte-identical.
+      if (read.method === "getById") {
+        return `(case ${call} do\n      {:ok, value} -> value\n      _ -> raise Ecto.NoResultsError, queryable: ${ctx.contextModule}.${upperFirst(read.aggregate)}\n    end)`;
+      }
+      return `(case ${call} do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
     }
     case "action":
     // Sibling action call (Proposal A Stage 1) — frontend-only; never lowered

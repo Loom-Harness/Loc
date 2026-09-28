@@ -3,6 +3,7 @@ import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // D-REALIZATION-AXES — the `platform: <name> { … }` block carries three
@@ -20,7 +21,7 @@ async function parse(source: string) {
   const doc = await parseHelper(services.Ddd)(source, { validation: true });
   const diags = doc.diagnostics ?? [];
   return {
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
     model: doc.parseResult.value as Model,
   };
 }

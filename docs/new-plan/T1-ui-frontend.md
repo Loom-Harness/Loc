@@ -242,6 +242,8 @@ Sources: [accessibility](../old/proposals/accessibility.md), `generated-a11y.yml
 
 ## M-T1.13 — Scaffolded navigation (menu reform) — `open` · **M** · P3
 Remove implicit sidebar derivation + per-page `menu {}` bag; every entry traces to a real, unfold-able `menu {}` block (scaffold-materialized codemod so no UI silently loses its sidebar). Resolve the `menu` keyword overload. (= old global-plan S3.)
+
+**Measured and NOT taken by wave C4 packet 4f (2026-09-22) — fence, not size.** The mission's core move is to delete the implicit-derivation path, and that path is EMISSION: `src/generator/_frontend/menu-emitter.ts` derives the sidebar from the caller's default sections merged with every custom page's `menu { … }` metadata whenever no `ui`-level `menu { … }` block exists (its §MERGE rule, M-FT.6 / finding C1). Packet 4f's fence excludes `src/generator/**` emission changes outright — every 4f refactor had to be byte-identical — and this one is deliberately NOT byte-identical: it changes what sidebar a source with no explicit `menu` block produces. The full shape for whoever takes it: (1) the macro half — `scaffold` materialises a real `menu { … }` block into the `ui` so the scaffolded sidebar survives the deletion; (2) the emitter half — `menu-emitter.ts` loses its default-derivation branch; (3) the grammar half — retire the per-page `menu { … }` bag (`PageMenuMeta`, `ddd.langium:753–762`) against the `ui`-level block at `:830`, with the matching `print-structural` arm; (4) a `scripts/` codemod that lifts every existing per-page `menu {}` into its `ui`'s block, with a test. Every `.ddd` in the corpus carrying a scaffolded ui is a regression case.
 Sources: [scaffolded-navigation](../old/proposals/scaffolded-navigation.md).
 
 ## M-T1.15 — Richer list filter inputs — `partial` · **S** · P3
@@ -272,7 +274,7 @@ The Flutter target ships the display path, forms (9 field kinds), workflows, `ma
 **Phase state (2026-08-24):** Phase 1's silent-drop goal is met (M-A markers emit, M-B's standalone primitives all render, M-C's auth gate ships #2619); Phase 2 is closed (M-D reads both marker families, M-E's freeze test exists); Phase 3's M-F shipped with the same PR as M-C; Phase 4's M-H/M-I shipped. **What is left of the whole mission is the four `KNOWN_FLUTTER_GAPS` WIDGETS behind M-A's markers** (nested-VO / mixed-VO-array / bool- and enum-element arrays inside a CreateForm — loud today, still unrendered) plus M-G, which is still verify-first and may be a no-op. The runtime half is M-T9.14's, and its named remainder — a `frontend-fullstack-e2e` cell — **merged 2026-08-24** as [#2663](https://github.com/Loom-Harness/Loc/pull/2663) (`test/behavioral/run-ui-flutter.mjs`, a BLOCKING nightly cell); what M-T9.14 still lacks is per-kind `ExprIR` pinning and a runtime auth-UI leg.
 Sources: [flutter-parity-and-native-gates](../old/proposals/flutter-parity-and-native-gates.md), [flutter-mobile-implementation](../old/plans/flutter-mobile-implementation.md).
 
-## M-T1.20 — Frontend surface gaps: the five rejections outside the pack matrix — `open`; the `first`/`firstOrNull` arm is `blocked(D-FIRST-ON-EMPTY)` · **M** · P2
+## M-T1.20 — Frontend surface gaps: the five rejections outside the pack matrix — `open`; the `first`/`firstOrNull` arm is `open` (D-FIRST-ON-EMPTY applied by Wave C2 packet 2n) · **M** · P2
 Five frontend features are accepted in `.ddd` and refused per-target at generate time: `loom.auth-ui-unsupported-framework` (`auth: ui`), `loom.feliz-async-effect-unsupported` (**narrowed** in wave C2 packet 2i to the one genuinely Feliz-specific case — a `match await` in a COMPONENT action, whose trigger id would have to come from the host page's route `:id`), `loom.flutter-primitive-unsupported` (walker primitives with no Flutter renderer), `loom.frontend-collection-op-unsupported` (collection ops in a page expression the frontend walker cannot render — **narrowed to a remainder**: the nine RESHAPING ops `count`/`where`/`any`/`all`/`map`/`sortBy`/`take`/`skip`/`join` now render on all six frontends and on the HEEx parallel walker, via `WalkerTarget.renderCollectionOp` + `exprLambda`; the eight still refused are the ones the frontends disagree about on REPRESENTATION — the arithmetic folds `sum`/`min`/`max`/`avg` over a `money` that is a `Decimal` object on JS/HEEx and a native scalar on F#/Dart, `first`/`firstOrNull` on partiality and the optional type, `distinct`/`contains` on value equality Flutter's models don't define), `loom.ui-realtime-unsupported` (`on <channel>.<Event>` live-event handlers). A sixth joined them since: `loom.flutter-async-effect-unsupported` (a `match await` in a COMPONENT action — the Flutter twin of the Feliz row above; the Flutter component emitter filtered such a component out entirely, emitting no widget and rendering every call site as `SizedBox.shrink()`, so the gap was silent rather than refused until it was gated). A **seventh** was minted by wave C2 packet 2i out of the Feliz row's own second half (audit F66): **`loom.async-effect-subject-unsupported`** — a `match await` whose awaited SUBJECT is not an aggregate instance operation. That half was never Feliz-specific. Every frontend resolves the subject the same way, and each failed differently and none of them honestly: the four JS walkers emitted `await Promise.reject(new Error("no remote op for variant-match"))` from a `.ddd` reporting `0 error(s), 0 warning(s)`, `heex-walker-core`'s `renderVariantMatchStmt` THREW at codegen, and only feliz/flutter refused — behind `if (dep.platform !== "feliz") continue`, which is exactly what made the identical model legal on React and illegal on Feliz. The gate is the SAME pure classifier (`ir/util/feliz-async-effect.ts`), now invoked for every ui-mounting deployable; it is shape-based, which is why it works where `loom.match-non-union-subject` cannot (a `StmtIR.variant-match`'s `subjectType` comes from `inferExprType`, catch-all `string`). **The real work behind the new row is awaiting a WORKFLOW** — a different route shape (`POST /workflows/<wf>`) with its own result projection on each of the seven frontend emitters; every other refused subject is nonsense the statement form previously could not name.
 
 **Flutter's four are drained.** `auth: ui` now ships there (`generator/flutter/auth-gate.ts` — session probe, `AuthGate` on `MaterialApp.builder`, page `requires` → `ForbiddenView`, action-button gating), realtime SSE ships (`generator/flutter/realtime.ts` — a conditional-import transport: the browser's `EventSource` on the web, a streamed-`package:http` line parser natively — so `flutter` joined `SSE_REALTIME_FRONTENDS`), the `persist: local|session|url` store ladder ships (`store-persist.ts`; the platform arm of `loom.store-lifetime-target-unsupported` is deleted, leaving a narrower field-scoped variant for types with no total Dart codec), and `ProvenanceInfo` renders a real `ExpansionTile` disclosure instead of a comment. What is left on `loom.auth-ui-unsupported-framework` and `loom.ui-realtime-unsupported` is the SEAM a future frontend gates on — not a Flutter gap. The **backend-serves-no-SSE half is gone entirely** (wave C2 packet 2f): with elixir serving the wire, every shipping backend does, and the only two ways to point a ui at something that does not are already phase-④ errors (`validators/deployable.ts`: a frontend deployable with no `targets:`, and one targeting another frontend), so the arm could not fire from valid source. `loom.ui-realtime-unsupported` is therefore a `seam` row in the register now rather than a `gap`.
@@ -516,3 +518,38 @@ Its `@Component({ selector })` belongs to the author, so Loom has no tag to spel
 **Verification when it lands.** The `extern` call site renders `<app-panel [label]='…'>…children…</app-panel>`; the degradation comment and the diagnostic both disappear for the annotated form and stay for the unannotated one (which must keep working — the clause is optional); the register row is deleted and `MAX_OPEN_GAPS` lowered in the same PR. The negative probe is `test/generator/angular/component-children-gate.test.ts`, which must flip from "refused" to "emitted" together with the gate arm it names.
 
 Sources: Wave C2 packet 2h hand-off (`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`), `docs/decisions.md` § D-ANGULAR-EXTERN-CHILDREN. Relates to M-T1.20 (the frontend per-target refusal register) and `docs/extern.md`.
+
+## M-T1.35 — a `ui` may bind several backends; the frontend is generated against one — `open` · **M** · P2
+
+Minted 2026-09-27 by the "Assure" dev-experience evaluation, as the successor named by `loom.ui-multi-backend-unsupported` (registered `gap`).
+
+A `ui` may declare several api parameters and bind each to a different backend. The model layer accepts it fully — the handles resolve, `serves:` is checked, the page bodies typecheck against each contract:
+
+```ddd
+ui U {
+  api O: OneApi
+  api T: TwoApi
+  page Home {
+    route: "/"
+    body: Stack {
+      QueryView { of: O.Alpha.all, … },
+      QueryView { of: T.Beta.all,  … }
+    }
+  }
+}
+deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, … }
+```
+
+The **frontend** is generated against the one backend in `targets:`, and the two halves disagreed silently:
+
+* `enrichDeployables` (`src/ir/enrich/enrichments.ts`) copies `targets:`'s `contextNames` onto the frontend, so only that backend's aggregates reach the page emitter. `src/api/beta.ts` was never written while `home.tsx` imported it — `TS2307: Cannot find module '../api/beta'` after `0 error(s), 0 warning(s)` and 101 files.
+* the emitted client reads a single `API_BASE_URL`, and `composeService` bakes one `VITE_API_BASE_URL` pointing at `targets:`. Every request from the second handle would have gone to a backend that does not serve its contract.
+
+The combination is **refused** today (`loom.ui-multi-backend-unsupported`) rather than emitted half-wired; refusing costs nothing, since the shape does not compile and no working model can depend on it.
+
+Closing it has two halves, and the second is the reason this is a mission rather than a patch:
+
+1. **Context union** — widen the inherited set to `targets:` ∪ each `uiBindings` source deployable's contexts. Two lines in `enrichDeployables`, and it was measured: with it, the two-backend fixture emits `beta.ts` and the frontend typechecks clean, both call sites agreeing on the current signature.
+2. **Per-handle routing** — one api client base per handle, not one per bundle. `VITE_API_BASE_URL_<HANDLE>` defaulting to the same-origin `/api` the single-backend case uses, each aggregate's api module resolving the base of the handle whose deployable hosts its context. This touches the shared `api/*.hbs` client + config templates (every design pack renders them), the api-module builder in each of the four JSX frontends, and `composeService`. It must stay **byte-identical for a single bound backend**, which is the constraint that makes it a design job rather than a find-and-replace.
+
+Landing 1 without 2 is strictly worse than the refusal: the tree would compile and route every call to the wrong backend.

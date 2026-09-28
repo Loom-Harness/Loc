@@ -1995,7 +1995,12 @@ function controlledInput(
   const labelAttr = labelValue
     ? ` label=${labelValue}`
     : label
-      ? ` label="${label.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`
+      ? // `escapeHeexAttr` is the ONE attribute-escape funnel this target
+        // shares (heex-walker-core.ts).  This site used to carry its own
+        // two-replacement copy (`&`, `"` — missing `<` and `>`): the same
+        // second-implementation-of-the-funnel shape the Wave 1 elixir
+        // hand-off named for `exStr`, and the same way it drifts.
+        ` label="${escapeHeexAttr(label)}"`
       : "";
   const testidAttr = testIdAttr(expr, ctx);
   // `bind:` carries the state field's `.ddd` spelling (camelCase); `stateNames`

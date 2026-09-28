@@ -48,13 +48,13 @@ import type {
   InvariantIR,
   OperationIR,
   OperationKind,
-  ParamIR,
   StmtIR,
   TypeIR,
   UniqueKeyIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
+import { lowerCallableParams } from "./callable-params.js";
 import { lowerExpr, lowerExprInContext } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env, inPart, lowerType, withLocal } from "./lower-types.js";
@@ -256,13 +256,9 @@ export function lowerPropertyChecks(props: Property[], env: Env): InvariantIR[] 
 }
 
 export function lowerFunction(f: FunctionDecl, env: Env): FunctionIR {
-  let inner = env;
-  const params: ParamIR[] = [];
-  for (const p of f.params) {
-    const t = lowerType(p.type, env);
-    params.push({ name: p.name, type: t });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  // A `function` parameter carries no default today (the pure-helper surface
+  // never grew one), so the shared binder is asked not to lower one.
+  const { params, env: inner } = lowerCallableParams(f.params, env, { defaults: false });
   // Body variant — expression form (`= Expression`) stays exactly as it was
   // (inlinable); block form (`{ Statement* }`) lowers via lowerStatement,
   // threading the let-binding env exactly like an operation body.
@@ -394,19 +390,11 @@ interface ActionSpec {
 }
 
 function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
-  let inner = env;
-  const params: ParamIR[] = [];
-  for (const p of spec.params) {
-    const t = lowerType(p.type, env);
-    // A param default (`param: T = <expr>`) lowers in the surrounding env —
-    // which for an operation/create/destroy carries `this` — so a default may
-    // reference the target instance (`to: date = this.eta`).  Sibling params
-    // are intentionally NOT in scope (defaults resolve against `env`, not the
-    // param-accumulating `inner`), keeping the resolution order-independent.
-    const def = p.default ? lowerExprInContext(p.default, t, env) : undefined;
-    params.push({ name: p.name, type: t, ...(def ? { default: def } : {}) });
-    inner = withLocal(inner, p.name, "param", t);
-  }
+  // Operation / create / destroy: defaults ARE lowered, against the
+  // surrounding `this`-carrying env — see `lowerCallableParams`.
+  const bound = lowerCallableParams(spec.params, env, { defaults: true });
+  const params = bound.params;
+  let inner = bound.env;
   // A union-returning operation threads its variants into the env so each
   // `return <expr>` can tag its value with the matching variant (producer).
   if (spec.returnType?.kind === "union") {

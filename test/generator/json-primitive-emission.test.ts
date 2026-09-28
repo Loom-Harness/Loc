@@ -14,11 +14,11 @@ import { describe, expect, it } from "vitest";
 import { renderCsType } from "../../src/generator/dotnet/render-expr.js";
 import { mapTypeToEcto } from "../../src/generator/elixir/vanilla/schema-emit.js";
 import { renderTsType } from "../../src/generator/typescript/render-expr.js";
-import type { BoundedContextIR } from "../../src/ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR } from "../../src/ir/types/loom-ir.js";
 import { jsonPropertyForType } from "../../src/system/wire-spec.js";
 import { buildLoomModel } from "../_helpers/index.js";
 
-async function webhooksCtx(): Promise<BoundedContextIR> {
+async function webhooksCtx(): Promise<EnrichedBoundedContextIR> {
   const src = fs.readFileSync(
     path.resolve(__dirname, "..", "..", "examples/json-primitive.ddd"),
     "utf8",

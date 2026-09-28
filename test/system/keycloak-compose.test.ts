@@ -254,21 +254,32 @@ system FieldOps {
     // rows, which is the half of F-022 that made multi-tenancy undemonstrable.
     expect(attrs.tenantId).toEqual(["demo-tenant-id"]);
 
-    // AUTHORITY claims are NOT seeded with the widest value the realm knows.
-    // My first version of this fix seeded `permissions` with every declared
-    // permission and `role` with `admin`, on the reasoning that a demo user
-    // denied everything demonstrates nothing.  That made the shipped dev
-    // principal a SUPERUSER, and the cross-backend runtime-authorization gate
+    // AUTHORITY SPLITS IN TWO, and conflating the halves cost a red nightly
+    // either way round.
+    //
+    // The PERMISSION array is not seeded.  Seeding it made the shipped dev
+    // principal a SUPERUSER and the cross-backend runtime-authorization gate
     // caught it: showcase's `registerProject` guards on
     // `permissions.contains(manageProjects)`, the demo user held it, and
-    // node/.NET/python answered 204 where that gate exists to prove 403.
-    //
-    // A seed that grants every permission cannot demonstrate DENIAL — the
-    // property an authorization model exists to provide.  The demo user's
-    // authority is now exactly what its realm roles give it.
+    // node/.NET/python answered 204 where that gate exists to prove 403.  A
+    // seed that grants every permission cannot demonstrate DENIAL — the
+    // property an authorization model exists to provide.  So: no permission
+    // attribute, and `admin` never joins the realm-roles array the permission
+    // claim is minted from.  These two assertions are the denial contract.
     expect(attrs.permissions, "the demo user must not be seeded a permission").toBeUndefined();
-    expect(attrs.role, "`admin` is not a role the demo user holds").toEqual(["user"]);
     expect(realm.users[0]!.realmRoles).not.toContain("admin");
+
+    // The SCALAR `role` is seeded `admin`, and that is not the same mistake
+    // rounded differently.  Nothing but a `currentUser.role` comparison reads
+    // it — it is a custom attribute claim, not a realm role — so seeding it
+    // cannot widen a permission gate, and the two assertions above still hold
+    // with it in place.  Demoting it to `user` (F-022 fallout, 98d2a9aaf) bought
+    // no denial and made showcase's role-gated ALLOW paths unsatisfiable:
+    // `Build.promote` and `Project.rename` both require `role == "admin"`, so
+    // `conformance-full` went red on all five backends for four nights with 10
+    // identical 403s, while the permission-gated denial it was protecting was
+    // never at risk.
+    expect(attrs.role, "the scalar role claim opens the role-gated ALLOW paths").toEqual(["admin"]);
 
     // …and the MAPPER is still emitted for the unseeded claim: an absent
     // mapper is the original F-022 defect (the claim never appears at all, so

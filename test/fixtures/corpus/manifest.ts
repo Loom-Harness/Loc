@@ -251,11 +251,31 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "read-gates", title: "read-side requires gates — gated list read + folded and query-time projections", doc: "auth", backends: ALL },
   { id: "outbox", title: "durable channel / transactional outbox + relay", doc: "workflow", backends: ALL },
   {
+    id: "channels-broker-workflow",
+    title: "durable broker channel + a workflow + NO reactor — the producer-only saga service",
+    doc: "channels",
+    backends: ALL,
+    note: "the axis pair `channels-broker` misses: it is the same producer WITHOUT a workflow, so it takes the workflow-less emission path and emits the outbox machinery fine.  Owning one workflow leaves that path, and the with-workflows path emitted the machinery only from inside the subscription block — which a producer-only context never enters.  Neither ran, while index.ts/http/index.ts referenced all three factories unconditionally: TS2304 + three TS2305 on a model that validated 0 error(s).  Only the compile tier can see it.",
+  },
+  {
+    id: "projection-split-deployables",
+    title: "a query-time projection on a deployable that does not host every context",
+    // `language`, like its `projection-aggregation` / `projection-groupby`
+    // siblings: there is no `docs/projection.md`, and the query-time surface
+    // is documented in the language reference.
+    doc: "language",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable when the
+    // projection's deployable does NOT host the sibling context.
+    deployables: ["billing", "reports"],
+    note: "the projection routes file imported `valueObjectPool(ctx)` (own UNION sibling-context) while `domain/value-objects.ts` emits only the hosted contexts' — so on a split system it named a type the module never exports (TS2306 'not a module').  Every projection fixture before this was single-deployable, which is why the pool and the emitted file agreed by accident.",
+  },
+  {
     id: "workflow-primitive-params",
     title: "a command workflow's PRIMITIVE params at the wire boundary (RS-26) — every param kind in one create",
     doc: "workflow",
     backends: ALL,
-    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required",
+    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required.  Since F-113 this fixture is the corpus' only source of `loom.workflow-param-unused` — five warnings (`serial`/`ratio`/`at`/`amount`/`memo`), all TRUE positives: the body reads four of its nine params on purpose, because the subject is how each param kind crosses the WIRE, not what the body does with it.  Leave them unread; reading them would change the emitted body on all five compile legs for no gain.",
   },
   {
     id: "channels-broker",

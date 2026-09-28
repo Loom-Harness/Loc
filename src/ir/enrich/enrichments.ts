@@ -221,9 +221,19 @@ function enrichSystem(
   const systemValueObjects = dedupeValueObjectsByName(
     subdomains.flatMap((m) => m.contexts.flatMap((c) => c.valueObjects)),
   );
+  // The enum twin.  An enum declared in one context and referenced from
+  // another is legal exactly as a VO is, but only the VO half had a pool — so
+  // a cross-context enum resolved to nothing and the emitters that MATERIALISE
+  // one (the node route file's `const <E>Schema = z.enum([...])`, the migration
+  // `CHECK (<col> IN (...))`) silently emitted neither.
+  const systemEnums = dedupeEnumsByName(
+    subdomains.flatMap((m) => m.contexts.flatMap((c) => c.enums)),
+  );
   const subdomainsWithSiblings: EnrichedSubdomainIR[] = subdomains.map((m) => ({
     ...m,
-    contexts: m.contexts.map((c) => withSiblingValueObjects(c, systemValueObjects)),
+    contexts: m.contexts.map((c) =>
+      withSiblingEnums(withSiblingValueObjects(c, systemValueObjects), systemEnums),
+    ),
   }));
   // Derive the registry's self-scope filter from the `tenancy by`
   // declaration.  See `applyRegistrySelfScope` below.
@@ -761,7 +771,8 @@ function attachSiblingValueObjects(
   contexts: EnrichedBoundedContextIR[],
 ): EnrichedBoundedContextIR[] {
   const pool = dedupeValueObjectsByName(contexts.flatMap((c) => c.valueObjects));
-  return contexts.map((c) => withSiblingValueObjects(c, pool));
+  const enumPoolAll = dedupeEnumsByName(contexts.flatMap((c) => c.enums));
+  return contexts.map((c) => withSiblingEnums(withSiblingValueObjects(c, pool), enumPoolAll));
 }
 
 /** First-declaration-wins de-dup of a VO list by name — the same rule the
@@ -791,6 +802,34 @@ function withSiblingValueObjects(
   const siblings = systemValueObjects.filter((v) => !own.has(v.name));
   const { siblingValueObjects: _previous, ...rest } = ctx;
   return siblings.length > 0 ? { ...rest, siblingValueObjects: siblings } : rest;
+}
+
+/** First-declaration-wins de-dup of an enum list by name — the enum twin of
+ *  `dedupeValueObjectsByName`, and the same rule the lowering-time ambient
+ *  decl index uses for a cross-context name collision. */
+function dedupeEnumsByName(enums: EnumIR[]): EnumIR[] {
+  const seen = new Set<string>();
+  const out: EnumIR[] = [];
+  for (const e of enums) {
+    if (seen.has(e.name)) continue;
+    seen.add(e.name);
+    out.push(e);
+  }
+  return out;
+}
+
+/** Attach the pool of enums declared in the OTHER contexts of the same system —
+ *  the enum twin of `withSiblingValueObjects`, with the same shadowing rule and
+ *  the same `undefined`-when-empty discipline so a single-context model's IR is
+ *  unchanged and `enrich(enrich(m))` still deep-equals `enrich(m)`. */
+function withSiblingEnums(
+  ctx: EnrichedBoundedContextIR,
+  systemEnums: EnumIR[],
+): EnrichedBoundedContextIR {
+  const own = new Set(ctx.enums.map((e) => e.name));
+  const siblings = systemEnums.filter((e) => !own.has(e.name));
+  const { siblingEnums: _previous, ...rest } = ctx;
+  return siblings.length > 0 ? { ...rest, siblingEnums: siblings } : rest;
 }
 
 export function enrichContext(
@@ -1210,7 +1249,22 @@ function enrichProjection(proj: ProjectionIR, aggregates: EnrichedAggregateIR[])
     // gated (`loom.projection-shorthand-nonaggregate`); fall through to the
     // empty-shape default, which never reaches emission.
   }
-  const fields = proj.stateFields;
+  // A query-time projection may declare its columns ONLY in its `select` —
+  // `projection P { from X group by X.s  select s = X.s, n = count() }` is
+  // legal, validates clean, and its READ path derives the columns from
+  // `query.selects`.  Its WIRE path read `stateFields`, which is filled from
+  // declared PROPERTY MEMBERS (`lower-projection.ts`) and is therefore empty
+  // for that spelling — so the row schema came out with no columns at all:
+  // node emitted `z.object({})` (and a `Record<string, never>[]` cast that
+  // fails `tsc`), java emitted `record PRow()` and then constructed it with N
+  // arguments, which does not compile.  The two paths had two sources of truth;
+  // this makes the wire path fall back to the same one the read path uses.
+  //
+  // Only a FALLBACK: a projection that declares property members keeps them as
+  // authoritative (a `select` then FILLS those declared fields), so no model
+  // that works today changes shape.
+  const fields: readonly FieldIR[] =
+    proj.stateFields.length > 0 ? proj.stateFields : selectDerivedFields(proj);
   const corr = proj.correlationField;
   const corrField = fields.find((f) => f.name === corr);
   const wireShape: WireField[] = [];
@@ -1234,6 +1288,22 @@ function enrichProjection(proj: ProjectionIR, aggregates: EnrichedAggregateIR[])
     });
   }
   return { ...proj, wireShape };
+}
+
+/** The row columns a query-time projection declares in its `select` alone,
+ *  shaped as the `FieldIR`s `enrichProjection` would have read off
+ *  `stateFields`.  The lowered select already carries the resolved `type` per
+ *  column, so nothing is re-derived here.
+ *
+ *  An aggregating column (`count()`, `sum(...)`) is NOT optional on the wire:
+ *  every backend coalesces the empty-group case at the read site (`?? 0`), so
+ *  the column is always present in the response. */
+function selectDerivedFields(proj: ProjectionIR): readonly FieldIR[] {
+  return (proj.query?.selects ?? []).map((s) => ({
+    name: s.field,
+    type: s.type,
+    optional: false,
+  })) as readonly FieldIR[];
 }
 
 /** The wire shape of a persisted workflow instance: the correlation field as

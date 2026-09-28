@@ -219,7 +219,15 @@ defmodule ${moduleName} do
   @moduledoc "Document-shaped aggregate — the whole tree persists as one jsonb \`data\` blob."
   use Ecto.Schema
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  # UUIDv7 (time-ordered), NOT :binary_id.  A :binary_id autogenerate mints
+  # through Ecto.UUID.autogenerate/0, whose @default_version is 4 -- purely
+  # random bytes.  The whole-table read orders by id, and the other four backends
+  # mint v7, so a random id made elixir the one backend where "ordered by id" was
+  # not insertion order: the same read answered a different order on every boot.
+  # The relational schemas have used this type from the start; the document schema
+  # was simply never switched over.  uuidv7 ~> 1.0 is already a dependency of
+  # every generated project.
+  @primary_key {:id, UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
 ${prefixLine}
   schema "${tableName}" do

@@ -298,6 +298,21 @@ function moneyFieldRead(
   scope: RowScope,
 ): { path: string; aggregate: string } | undefined {
   if (e.kind !== "member" || e.receiver.kind !== "ref") return undefined;
+  // FAST PATH — ask the IR.  Since M-T5.33 a page-body row binding carries a
+  // real element type, so the member access already says it is money and says
+  // what it is money ON.  This is the IR's central promise (consumers never
+  // re-resolve), and it is what extends the gate to a row shape the scope
+  // machinery below cannot express: a `QueryView` over a PROJECTION, whose
+  // row is not an aggregate at all and so has no `wireFieldsForAggregate`.
+  // For an aggregate row it answers identically to the scope path — same
+  // path, same owner name — so nothing that fired before changes.
+  if (
+    e.receiverType?.kind === "entity" &&
+    e.memberType?.kind === "primitive" &&
+    e.memberType.name === "money"
+  ) {
+    return { path: `${e.receiver.name}.${e.member}`, aggregate: e.receiverType.name };
+  }
   const agg = scope.get(e.receiver.name);
   if (!agg) return undefined;
   // Derived on demand (`wireFieldsForAggregate`) rather than read off a

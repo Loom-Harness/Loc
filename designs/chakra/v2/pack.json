@@ -107,9 +107,7 @@
     "primitive-chart": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box"
-        ]
+        "named": ["Box"]
       },
       {
         "from": "recharts",
@@ -126,407 +124,275 @@
         ]
       }
     ],
-    "primitive-data-grid": [{"from": "@chakra-ui/react", "named": ["Button", "Checkbox", "HStack", "Input", "Stack", "Table", "TableContainer", "Tbody", "Td", "Text", "Th", "Thead", "Tr"]}],
-    "primitive-heading": [
+    "primitive-data-grid": [
       {
         "from": "@chakra-ui/react",
         "named": [
-          "Heading"
+          "Button",
+          "Checkbox",
+          "HStack",
+          "Input",
+          "Stack",
+          "Table",
+          "TableContainer",
+          "Tbody",
+          "Td",
+          "Text",
+          "Th",
+          "Thead",
+          "Tr"
         ]
+      }
+    ],
+    "primitive-heading": [
+      {
+        "from": "@chakra-ui/react",
+        "named": ["Heading"]
       }
     ],
     "primitive-text": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Text"
-        ]
+        "named": ["Text"]
       }
     ],
     "primitive-divider": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Divider",
-          "HStack",
-          "Text"
-        ]
+        "named": ["Divider", "HStack", "Text"]
       }
     ],
     "primitive-stack": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "VStack"
-        ]
+        "named": ["VStack"]
       }
     ],
     "primitive-group": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "HStack"
-        ]
+        "named": ["HStack"]
       }
     ],
     "primitive-toolbar": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "HStack"
-        ]
+        "named": ["HStack"]
       }
     ],
     "primitive-grid": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box",
-          "SimpleGrid"
-        ]
+        "named": ["Box", "SimpleGrid"]
       }
     ],
     "primitive-container": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Container"
-        ]
+        "named": ["Container"]
       }
     ],
     "primitive-empty": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box",
-          "Text"
-        ]
+        "named": ["Box", "Text"]
       }
     ],
     "primitive-button": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "primitive-card": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Card",
-          "CardHeader",
-          "CardBody",
-          "Heading"
-        ]
+        "named": ["Card", "CardHeader", "CardBody", "Heading"]
       }
     ],
     "primitive-stat": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Stat",
-          "StatLabel",
-          "StatNumber"
-        ]
+        "named": ["Stat", "StatLabel", "StatNumber"]
       }
     ],
     "primitive-badge": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-field": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Input",
-          "FormLabel",
-          "FormControl",
-          "FormErrorMessage"
-        ]
+        "named": ["Input", "FormLabel", "FormControl", "FormErrorMessage"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Switch",
-          "FormLabel",
-          "FormControl"
-        ]
+        "named": ["Switch", "FormLabel", "FormControl"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "NumberInput",
-          "NumberInputField",
-          "FormLabel",
-          "FormControl",
-          "FormErrorMessage"
-        ]
+        "named": ["NumberInput", "NumberInputField", "FormLabel", "FormControl", "FormErrorMessage"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Input",
-          "FormLabel",
-          "FormControl",
-          "FormErrorMessage"
-        ]
+        "named": ["Input", "FormLabel", "FormControl", "FormErrorMessage"]
       }
     ],
     "primitive-loader": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Spinner"
-        ]
+        "named": ["Spinner"]
       }
     ],
     "primitive-anchor": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Link",
-          "Text"
-        ]
+        "named": ["Link", "Text"]
       }
     ],
     "primitive-image": [],
     "primitive-avatar": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Avatar"
-        ]
+        "named": ["Avatar"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Tabs",
-          "TabList",
-          "Tab",
-          "TabPanels",
-          "TabPanel"
-        ]
+        "named": ["Tabs", "TabList", "Tab", "TabPanels", "TabPanel"]
       }
     ],
     "primitive-table": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Table",
-          "Thead",
-          "Tbody",
-          "Tr",
-          "Th",
-          "Td",
-          "TableContainer"
-        ]
+        "named": ["Table", "Thead", "Tbody", "Tr", "Th", "Td", "TableContainer"]
       }
     ],
     "primitive-money": [
       {
         "from": "../lib/format",
-        "named": [
-          "MoneyValue"
-        ]
+        "named": ["MoneyValue"]
       }
     ],
     "primitive-date-display": [
       {
         "from": "../lib/format",
-        "named": [
-          "DateTimeValue"
-        ]
+        "named": ["DateTimeValue"]
       }
     ],
     "primitive-enum-badge": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-id-link": [
       {
         "from": "../lib/format",
-        "named": [
-          "IdValue"
-        ]
+        "named": ["IdValue"]
       }
     ],
     "primitive-breadcrumbs": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Breadcrumb",
-          "BreadcrumbItem",
-          "BreadcrumbLink"
-        ]
+        "named": ["Breadcrumb", "BreadcrumbItem", "BreadcrumbLink"]
       }
     ],
     "primitive-paper": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box"
-        ]
+        "named": ["Box"]
       }
     ],
     "primitive-skeleton": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Skeleton",
-          "VStack"
-        ]
+        "named": ["Skeleton", "VStack"]
       }
     ],
     "primitive-alert": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Alert",
-          "AlertIcon",
-          "AlertDescription"
-        ]
+        "named": ["Alert", "AlertIcon", "AlertDescription"]
       }
     ],
     "primitive-key-value-row": [
       {
         "from": "../lib/format",
-        "named": [
-          "KeyValueRow"
-        ]
+        "named": ["KeyValueRow"]
       }
     ],
     "primitive-form-of": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "VStack",
-          "HStack",
-          "Button"
-        ]
+        "named": ["VStack", "HStack", "Button"]
       }
     ],
     "field-input-string": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Input"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Input"]
       }
     ],
     "field-input-int": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "NumberInput",
-          "NumberInputField"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "NumberInput", "NumberInputField"]
       }
     ],
     "field-input-decimal": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "NumberInput",
-          "NumberInputField"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "NumberInput", "NumberInputField"]
       }
     ],
     "field-input-money": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Input"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Input"]
       },
       {
         "from": "decimal.js",
-        "named": [
-          "Decimal"
-        ]
+        "named": ["Decimal"]
       }
     ],
     "field-input-bool": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormLabel",
-          "Switch"
-        ]
+        "named": ["FormControl", "FormLabel", "Switch"]
       }
     ],
     "field-input-datetime": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Input"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Input"]
       }
     ],
     "field-input-id-text": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Input"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Input"]
       }
     ],
     "field-input-id-select": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Select"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Select"]
       }
     ],
     "field-input-enum-select": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Select"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Select"]
       }
     ],
     "field-input-array": [
@@ -547,10 +413,7 @@
     "field-input-valueobject": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box",
-          "VStack"
-        ]
+        "named": ["Box", "VStack"]
       }
     ],
     "primitive-modal": [
@@ -573,115 +436,73 @@
       },
       {
         "from": "../lib/apply-server-errors",
-        "named": [
-          "applyServerErrors"
-        ]
+        "named": ["applyServerErrors"]
       }
     ],
     "form-default-onsubmit": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "useToast"
-        ]
+        "named": ["useToast"]
       },
       {
         "from": "../lib/apply-server-errors",
-        "named": [
-          "applyServerErrors"
-        ]
+        "named": ["applyServerErrors"]
       }
     ],
     "primitive-code-block": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box"
-        ]
+        "named": ["Box"]
       }
     ],
     "primitive-icon": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Box"
-        ]
+        "named": ["Box"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormLabel",
-          "Textarea",
-          "FormErrorMessage"
-        ]
+        "named": ["FormControl", "FormLabel", "Textarea", "FormErrorMessage"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormLabel",
-          "Select",
-          "FormErrorMessage"
-        ]
+        "named": ["FormControl", "FormLabel", "Select", "FormErrorMessage"]
       }
     ],
     "realtime-toast": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "useToast"
-        ]
+        "named": ["useToast"]
       }
     ],
     "primitive-modal-controlled": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "Modal",
-          "ModalOverlay",
-          "ModalContent",
-          "ModalHeader",
-          "ModalBody"
-        ]
+        "named": ["Modal", "ModalOverlay", "ModalContent", "ModalHeader", "ModalBody"]
       }
     ],
     "field-input-file": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Input"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Input"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "@chakra-ui/react",
-        "named": [
-          "FormControl",
-          "FormErrorMessage",
-          "FormLabel",
-          "Input"
-        ]
+        "named": ["FormControl", "FormErrorMessage", "FormLabel", "Input"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ]
   },

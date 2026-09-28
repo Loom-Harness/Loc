@@ -106,7 +106,8 @@ const diagsOf = async (src: string) => {
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
 };
-const codesOf = async (src: string): Promise<string[]> => (await diagsOf(src)).map((d) => d.code);
+const codesOf = async (src: string): Promise<string[]> =>
+  (await diagsOf(src)).map((d) => d.code ?? "");
 
 describe("loom.flutter-async-effect-unsupported", () => {
   it("fires for a `match await` in a COMPONENT action on a Flutter deployable", async () => {

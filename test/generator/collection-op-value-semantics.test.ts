@@ -48,7 +48,7 @@ const projection = (
       param: "e",
       body: {
         kind: "member",
-        receiver: { kind: "ref", name: "e", refKind: "lambda-param" },
+        receiver: { kind: "ref", name: "e", refKind: "lambda" },
         member: prop,
         receiverType: ENTRY,
         memberType: propType,

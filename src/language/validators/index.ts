@@ -14,6 +14,7 @@ export {
   checkLegacyConstructorCalls,
 } from "./builder-call.js";
 export { checkBypassPlacement } from "./bypass-placement.js";
+export { checkCallableSites } from "./callable-sites.js";
 export { checkChannels } from "./channel.js";
 export { checkProjectSingletons, checkTopLevelDomainComposition } from "./composition.js";
 export { checkCriteria } from "./criterion.js";

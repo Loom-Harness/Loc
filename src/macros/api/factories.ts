@@ -324,7 +324,18 @@ export function create(
 ): Create {
   const origin = currentOrigin();
   const node: Create = tag(
-    mkCreate({ $type: "Create", name: opts.name, params, body, audited: opts.audited ?? false }),
+    mkCreate({
+      $type: "Create",
+      name: opts.name,
+      params,
+      body,
+      // The callable modifier surface is uniform since M-T5.21 (one
+      // `CallableSigModifiers` fragment at every site), so a macro-built node
+      // states the whole set explicitly, at the defaults it already had.
+      private: false,
+      extern: false,
+      audited: opts.audited ?? false,
+    }),
     origin,
   );
   params.forEach((p, i) => {
@@ -348,7 +359,15 @@ export function destroy(
   const origin = currentOrigin();
   const params = opts.params ?? [];
   const node: Destroy = tag(
-    mkDestroy({ $type: "Destroy", name: opts.name, params, body, audited: opts.audited ?? false }),
+    mkDestroy({
+      $type: "Destroy",
+      name: opts.name,
+      params,
+      body,
+      private: false,
+      extern: false,
+      audited: opts.audited ?? false,
+    }),
     origin,
   );
   params.forEach((p, i) => {
@@ -564,7 +583,9 @@ export function commandHandler(
     mkCommandHandler({
       $type: "CommandHandler",
       name,
+      private: false,
       extern: false,
+      audited: false,
       params,
       body,
       ...(opts.returnType ? { returnType: opts.returnType } : {}),
@@ -594,7 +615,16 @@ export function queryHandler(
 ): QueryHandler & ContextMember {
   const origin = currentOrigin();
   const node: QueryHandler = tag(
-    mkQueryHandler({ $type: "QueryHandler", name, extern: false, params, returnType, body }),
+    mkQueryHandler({
+      $type: "QueryHandler",
+      name,
+      private: false,
+      extern: false,
+      audited: false,
+      params,
+      returnType,
+      body,
+    }),
     origin,
   );
   params.forEach((p, i) => {

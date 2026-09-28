@@ -1,0 +1,223 @@
+{
+  "case": "projection-document-aggregation",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "GET",
+      "path": "/api/projections/article_volume",
+      "status": 200,
+      "body": {
+        "articles": 0
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/projections/article_titles",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/articles",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/articles",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/articles",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/projections/article_volume",
+      "status": 200,
+      "body": {
+        "articles": 3
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/projections/article_titles",
+      "status": 200,
+      "body": [
+        {
+          "heading": "First",
+          "seen": 3
+        },
+        {
+          "heading": "Second",
+          "seen": 7
+        },
+        {
+          "heading": "Third",
+          "seen": 11
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/articles/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/projections/article_volume",
+      "status": 200,
+      "body": {
+        "articles": 3
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/projections/article_titles",
+      "status": 200,
+      "body": [
+        {
+          "heading": "First Revised",
+          "seen": 4
+        },
+        {
+          "heading": "Second",
+          "seen": 7
+        },
+        {
+          "heading": "Third",
+          "seen": 11
+        }
+      ]
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/articles/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "title": "First Revised",
+        "version": 2,
+        "viewCount": 4
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/articles",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "title": "First Revised",
+          "version": 2,
+          "viewCount": 4
+        },
+        {
+          "id": "<volatile:key>",
+          "title": "Second",
+          "version": 1,
+          "viewCount": 7
+        },
+        {
+          "id": "<volatile:key>",
+          "title": "Third",
+          "version": 1,
+          "viewCount": 11
+        }
+      ]
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/articles/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/projections/article_volume",
+      "status": 200,
+      "body": {
+        "articles": 2
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/projections/article_titles",
+      "status": 200,
+      "body": [
+        {
+          "heading": "Second",
+          "seen": 7
+        },
+        {
+          "heading": "Third",
+          "seen": 11
+        }
+      ]
+    },
+    {
+      "seq": 15,
+      "method": "PATCH",
+      "path": "/api/articles",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/articles",
+        "instance": "/api/articles",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/articles",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/articles",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
