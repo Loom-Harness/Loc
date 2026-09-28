@@ -66,7 +66,12 @@ const GET_BY_ID = `repository Tasks for Task { }
 describe("vanilla — workflow body lowering (repo-let / getById)", () => {
   it("lowers `Tasks.getById(taskId)` to a Context.get_task with-clause", async () => {
     const wf = await workflowFor(GET_BY_ID, "complete_existing");
-    expect(wf).toContain("{:ok, t} <- Context.get_task(task_id)");
+    // M-T5.1 A4 — the load tags its miss with the detail the other four
+    // backends' AggregateNotFound carries, so the 404 names the row.
+    expect(wf).toContain("{:ok, t} <- (case Context.get_task(task_id) do");
+    expect(wf).toContain(
+      '{:error, :not_found} -> {:error, {:not_found, "Task #{task_id} not found"}}',
+    );
   });
 
   it("surfaces the id arg as a destructured create-param", async () => {
@@ -78,7 +83,7 @@ describe("vanilla — workflow body lowering (repo-let / getById)", () => {
     const wf = await workflowFor(GET_BY_ID, "complete_existing");
     // get_task binds `t`; the op-call targets it.
     expect(wf).toMatch(
-      /\{:ok, t\} <- Context\.get_task\(task_id\),\s*\n\s*\{:ok, _\} <- Context\.mark_done_task\(t, %\{\}\)/,
+      /\{:ok, t\} <- \(case Context\.get_task\(task_id\) do[\s\S]*?end\),\s*\n\s*\{:ok, _\} <- Context\.mark_done_task\(t, %\{\}\)/,
     );
   });
 
@@ -91,8 +96,10 @@ describe("vanilla — workflow body lowering (repo-let / getById)", () => {
     const ctrl = ctrlFiles.get(
       [...ctrlFiles.keys()].find((k) => k.endsWith("/controllers/workflows_controller.ex"))!,
     )!;
-    expect(wf).toContain("{:ok, t} <- Context.get_task(task_id)");
+    expect(wf).toContain("{:ok, t} <- (case Context.get_task(task_id) do");
     expect(ctrl).toMatch(/def respond\(conn, \{:error, :not_found\}\)/);
+    // …and the tagged miss has its own arm, answering the 404 with the detail.
+    expect(ctrl).toMatch(/def respond\(conn, \{:error, \{:not_found, detail\}\}\)/);
   });
 });
 

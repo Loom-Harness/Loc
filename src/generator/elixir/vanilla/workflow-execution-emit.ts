@@ -466,9 +466,12 @@ function lowerStatement(
       // context facade answers a bare `{:error, :not_found}`, which the
       // workflows dispatcher could only render as "Resource not found", so the
       // miss is tagged with its detail here (`respondErrorTail`'s
-      // `{:not_found, detail}` arm).
+      // `{:not_found, detail}` arm).  Only in a workflow `run/1` body
+      // (`renderCtx.tagGetByIdMiss`): the explicit-handler and mutating
+      // domain-service paths share this lowering, and their dispatchers know
+      // only the bare term.
       const call =
-        st.method === "getById"
+        st.method === "getById" && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
            {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
            found -> found
@@ -1515,6 +1518,9 @@ function renderWorkflowModule(
   const renderCtx: RenderCtx = {
     thisName: bindsState ? "state" : "record",
     contextModule: contextModuleFq,
+    // M-T5.1 A4 — only this body's miss reaches the workflows dispatcher's
+    // `{:not_found, detail}` arm (`workflowLoadsById`).
+    tagGetByIdMiss: true,
     resourceModules,
     // Domain-service call wiring (domain-services.md rev. 4, Elixir
     // decision B).  A workflow that calls a `reading`-tier service (e.g.
