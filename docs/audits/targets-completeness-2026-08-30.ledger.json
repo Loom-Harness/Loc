@@ -1,123 +1,6 @@
 {
   "open": [
     {
-      "id": "F2-W-06",
-      "title": "elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/main/resources/db/migration/V20260101000000.1__Cat_Initial.sql"
-      ],
-      "evidence": [
-        {
-          "fleet": 2,
-          "id": "F2-W-06",
-          "bucket": "probe-wire-openapi",
-          "text": "out-elixir/d/priv/repo/migrations/20260101000000_create_widgets.exs `add :released_at, :utc_datetime, null: false` + out-elixir/d/lib/d/cat/widget.ex `field :released_at, :utc_datetime` (Ecto's `:utc_datetime` requires microsecond == 0 and truncates on cast). Every other backend: `\"released_at\" TIMESTAMP WITH TIME ZONE NOT NULL` — out-node/d/db/migrations/20260101000000_cat_initial.sql:12, out-java/d/src/main/resources/db/migration/V20260101000000.1__Cat_Initial.sql:15, out-python/d/migrations/20260101000000_cat_initial.sql (same), out-dotnet/d/Migrations/20260101000000_Cat_Initial.cs."
-        }
-      ],
-      "repro": "Same fixture; POST a sub-second instant and read it back on each backend.",
-      "impact": "`POST {\"releasedAt\":\"2026-01-01T00:00:00.123456Z\"}` reads back `2026-01-01T00:00:00Z` on Phoenix, `.123456Z` on .NET/java/python and `.123Z` on node — three different stored values for one wire input. Masked by the same `<timestamp>` normalization as W-05.",
-      "fix": "Emit `:utc_datetime_usec` (and the matching `timestamptz` migration column) so the elixir column matches the shared MigrationsIR's `TIMESTAMP WITH TIME ZONE`.",
-      "size": "S",
-      "sources": [
-        "fleet2:probe-wire-openapi"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 2,
-      "w1bElixir": "OPEN, BUT MIS-SIZED — verified reproducing on a current build (W1b elixir, PR #2704): `field :released_at, :utc_datetime` + `add :released_at, :utc_datetime` against the shared MigrationsIR's `TIMESTAMP WITH TIME ZONE`, so a write silently truncates to second precision. NOT an \"S\": moving declared datetime columns to `:utc_datetime_usec` also requires deleting the truncation machinery that exists ONLY because of the old type (`__truncate_dt/1` in context-emit.ts, `stampFieldIsDatetime` in stamp-emit.ts, the operation-returns `force_change` wrap) — leaving it would truncate on the wider column and half-fix the row — and it moves the SERIALIZED precision too (`DateTime.to_iso8601` gains fractional seconds where node emits milliseconds), which is a five-backend wire decision, not an elixir-local one. Its correct home is a dedicated slice gated by generated-stack-verifier (migrations apply + a real datetime round-trip) and the wire-golden differential. Deferred deliberately, not dropped.",
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "open",
-        "note": "still `:utc_datetime`. Deliberately deferred in #2734: flipping the column while `__truncate_dt/1`, `stampFieldIsDatetime` and the operation-returns `force_change` wrap all still truncate to `:second` would silently zero a STAMPED datetime into a column claiming microseconds — worse than the honest second-precision it replaces",
-        "remainingTargets": [
-          "elixir"
-        ]
-      },
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-DERIVED: `src/generator/elixir/vanilla/schema-emit.ts:194` still emits `timestamps(type: :utc_datetime)` and `:299-306` the `:utc_datetime` audit columns — SECOND precision where the other four use TIMESTAMPTZ(µs).  The #2734 deferral rationale (the `__truncate_dt/1` / `stampFieldIsDatetime` / `force_change` truncations must move in the same change) is unchanged.",
-        "remainingTargets": [
-          "elixir"
-        ]
-      }
-    },
-    {
-      "id": "M-T1.11-domain-floor-message-code",
-      "title": "M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "node",
-        "dotnet",
-        "java",
-        "python"
-      ],
-      "fileTrees": [
-        "src/generator/typescript/",
-        "src/generator/python/",
-        "src/generator/dotnet/",
-        "src/generator/java/",
-        "src/generator/elixir/vanilla/",
-        "src/generator/_i18n/validation-catalog.ts",
-        "src/platform/hono/"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "M-T1.11-domain-floor-message-code",
-          "text": "Every `messageCode()` call site is the WIRE-validation rung (src/generator/zod-refine.ts:289, dotnet/validator-emit.ts:172, java/emit/validator.ts:370, python/emit/wire-constraints.ts:162, elixir/vanilla/changeset-invariant-emit.ts:140). The domain-floor throws take the raw text only: src/generator/typescript/emit/value-objects.ts:71 `throw new DomainError(JSON.stringify(inv.message ? inv.message.text : …))`, src/generator/python/emit/value-objects.ts:126 and emit/aggregate.ts:678,688,693, src/generator/python/render-stmt.ts:133, src/generator/typescript/render-stmt.ts:249, src/platform/hono/v4/workflow-builder.ts:1844 — none pass a code. The catalogs shipped in item 9 (src/generator/_i18n/validation-catalog.ts:87) are therefore \"scoped to match so it holds no entry the runtime cannot resolve\" — i.e. a `message:`-bearing invariant that only the domain enforces renders its authored English at every locale, silently. This is the ONE M-T1.11 item the tracker itself says has no code (T1-ui-frontend.md:174). Documented-only by register PR #2667 — unclaimed."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Widen the `DomainError` constructor on each backend to `(message, code?)`, pass `messageCode(inv.message.text)` at every throw site listed above (elixir already does this in `denial.ts:299` — use it as the shape), then resolve `message` through the existing per-backend catalog at the 422 serializer for the ambient `RequestContext.locale`, exactly as the wire rung does. Extend `validation-catalog.ts` membership to the domain-floor rules in the same PR (its scoping comment is the current excuse for the hole). Gate with the existing `validation-messages.ddd` corpus fixture + a new wire golden asserting `errors[].code` on a domain-only rule.",
-      "size": "L",
-      "sources": [
-        "fleet1:t1-frontend"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 2,
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "partial",
-        "note": "elixir now emits `code:` on preconditions and `loom_code:` on invariants; its value-object floor still carries raw text only. The other four keep a `(message)`-only DomainError/DomainException",
-        "remainingTargets": [
-          "node",
-          "dotnet",
-          "java",
-          "python"
-        ]
-      },
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-DERIVED from emitted output on all four: node `d/domain/errors.ts:2-4 class DomainError extends Error { constructor(message: string) … }`, dotnet `DomainException.cs:14 public DomainException(string message) : base(message) { }`, java `DomainException.java:5 DomainException(String message)`, python `errors.py:4 class DomainError(Exception)` with no fields.  No `code` carrier on any of the four; elixir's partial fix (`code:` on preconditions, `loom_code:` on invariants) is unchanged and its value-object floor still carries raw text.",
-        "remainingTargets": [
-          "node",
-          "dotnet",
-          "java",
-          "python"
-        ]
-      }
-    },
-    {
       "id": "F2-CFE-11",
       "title": "`testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz)",
       "kind": "honest",
@@ -1667,41 +1550,6 @@
       "repro": null,
       "impact": null,
       "fix": "Add `('requires' gate=Expression)?` to both productions (the workflow header at ddd.langium:1442 is the template), lower into the handler's statements via `op-gates.ts`, and emit at each backend's handler chokepoint reusing the existing gate emitter.",
-      "size": "S",
-      "sources": [
-        "fleet1:t3-t5-auth-lang"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 4
-    },
-    {
-      "id": "M-T3.16-C2-elixir-403-vs-422",
-      "title": "C2 — a guarded create with an invalid body answers 403 on Elixir vs 422 elsewhere, ungoldened",
-      "kind": "breadth",
-      "class": null,
-      "confidence": "proven",
-      "targets": [
-        "elixir",
-        "node",
-        "dotnet",
-        "java",
-        "python"
-      ],
-      "fileTrees": [
-        "test/behavioral/",
-        "src/generator/elixir/"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "M-T3.16-C2-elixir-403-vs-422",
-          "text": "Recorded in docs/new-plan/missions/M-T3.16-lifecycle-gate-and-wire-defaults-plan.md:109 as the surviving item of step 6 and in T3-security-governance.md:27; the lifecycle gate itself is emitted and byte-pinned (test/generator/lifecycle-guard-render.test.ts), but no wire golden covers the gate-vs-validation ORDER, so the divergence is unobserved by any tier."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Add a behavioral wire-golden case posting an invalid body to a guarded create as a denied principal; whichever status the four agree on becomes the answer key and elixir's controller moves its gate relative to the changeset cast.",
       "size": "S",
       "sources": [
         "fleet1:t3-t5-auth-lang"
@@ -6248,6 +6096,161 @@
       "id": "schemathesis-F11-int32-range",
       "title": "Elixir publishes the declared int32 bound and enforces it on BOTH ingress paths (wave C2 packet 2m): the OpenApiSpex schema for an int is now {type: :integer, format: :int32, minimum: -2147483648, maximum: 2147483647}, the op-param guard is __loom_int32_param (a long keeps the type-only one, whose ceiling is the D-LONG-AVG-DEFAULTS ruling), and a create/update casts through validate_number on every int column — so a contract-conforming value can no longer reach the int4 column and 500.  W11/W12 were already gone from the waiver file",
       "source": "fleet1:fresh-gate-probe"
+    },
+    {
+      "id": "F2-W-06",
+      "title": "CLOSED (wave C5, moment 5b) — RS-38: a `datetime` crosses the wire in milliseconds on all five backends (three digits when a fraction is present, none on a whole second, sub-millisecond input truncated at ingress); elixir's declared columns are `timestamptz` through the `Loom.Datetime` Ecto type, and the wire normaliser collapses only the two canonical spellings. Witness corpus/datetime-wire.ddd + wire-golden/datetime-wire.json, green on all seven legs.",
+      "kind": "silent",
+      "class": null,
+      "confidence": "likely",
+      "targets": [
+        "elixir"
+      ],
+      "fileTrees": [
+        "src/main/resources/db/migration/V20260101000000.1__Cat_Initial.sql"
+      ],
+      "evidence": [
+        {
+          "fleet": 2,
+          "id": "F2-W-06",
+          "bucket": "probe-wire-openapi",
+          "text": "out-elixir/d/priv/repo/migrations/20260101000000_create_widgets.exs `add :released_at, :utc_datetime, null: false` + out-elixir/d/lib/d/cat/widget.ex `field :released_at, :utc_datetime` (Ecto's `:utc_datetime` requires microsecond == 0 and truncates on cast). Every other backend: `\"released_at\" TIMESTAMP WITH TIME ZONE NOT NULL` — out-node/d/db/migrations/20260101000000_cat_initial.sql:12, out-java/d/src/main/resources/db/migration/V20260101000000.1__Cat_Initial.sql:15, out-python/d/migrations/20260101000000_cat_initial.sql (same), out-dotnet/d/Migrations/20260101000000_Cat_Initial.cs."
+        }
+      ],
+      "repro": "Same fixture; POST a sub-second instant and read it back on each backend.",
+      "impact": "`POST {\"releasedAt\":\"2026-01-01T00:00:00.123456Z\"}` reads back `2026-01-01T00:00:00Z` on Phoenix, `.123456Z` on .NET/java/python and `.123Z` on node — three different stored values for one wire input. Masked by the same `<timestamp>` normalization as W-05.",
+      "fix": "Emit `:utc_datetime_usec` (and the matching `timestamptz` migration column) so the elixir column matches the shared MigrationsIR's `TIMESTAMP WITH TIME ZONE`.",
+      "size": "S",
+      "sources": [
+        "fleet2:probe-wire-openapi"
+      ],
+      "related_to": [],
+      "securityClass": false,
+      "P": 2,
+      "w1bElixir": "OPEN, BUT MIS-SIZED — verified reproducing on a current build (W1b elixir, PR #2704): `field :released_at, :utc_datetime` + `add :released_at, :utc_datetime` against the shared MigrationsIR's `TIMESTAMP WITH TIME ZONE`, so a write silently truncates to second precision. NOT an \"S\": moving declared datetime columns to `:utc_datetime_usec` also requires deleting the truncation machinery that exists ONLY because of the old type (`__truncate_dt/1` in context-emit.ts, `stampFieldIsDatetime` in stamp-emit.ts, the operation-returns `force_change` wrap) — leaving it would truncate on the wider column and half-fix the row — and it moves the SERIALIZED precision too (`DateTime.to_iso8601` gains fractional seconds where node emits milliseconds), which is a five-backend wire decision, not an elixir-local one. Its correct home is a dedicated slice gated by generated-stack-verifier (migrations apply + a real datetime round-trip) and the wire-golden differential. Deferred deliberately, not dropped.",
+      "verified": {
+        "date": "2026-09-03",
+        "against": "bd7aaeedc",
+        "method": "each row's own repro re-run; emitted output read",
+        "verdict": "open",
+        "note": "still `:utc_datetime`. Deliberately deferred in #2734: flipping the column while `__truncate_dt/1`, `stampFieldIsDatetime` and the operation-returns `force_change` wrap all still truncate to `:second` would silently zero a STAMPED datetime into a column claiming microseconds — worse than the honest second-precision it replaces",
+        "remainingTargets": [
+          "elixir"
+        ]
+      },
+      "reverified": {
+        "date": "2026-09-10",
+        "against": "bc7ed8f8",
+        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+        "verdict": "reproduces",
+        "note": "RE-DERIVED: `src/generator/elixir/vanilla/schema-emit.ts:194` still emits `timestamps(type: :utc_datetime)` and `:299-306` the `:utc_datetime` audit columns — SECOND precision where the other four use TIMESTAMPTZ(µs).  The #2734 deferral rationale (the `__truncate_dt/1` / `stampFieldIsDatetime` / `force_change` truncations must move in the same change) is unchanged.",
+        "remainingTargets": [
+          "elixir"
+        ]
+      },
+      "closedBy": "wave C5 moment 5b (claude/c5-golden2)"
+    },
+    {
+      "id": "M-T1.11-domain-floor-message-code",
+      "title": "CLOSED (wave C5, moment 5b) — M-T1.11 (c): a MESSAGED invariant / field check / operation precondition tripped at the domain floor answers the domain-floor 422 plus one errors[] entry {pointer, message, code} on all five backends (the 5c value-object shape, the same serializer seam; code = the wire rung's msg.<hash>, pointer `/<field>` for a single-field rule else \"\"). Elixir's invariant now answers the domain-floor rung (it answered the wire rung's shape) and its ensure/2 precondition carries the code. Witness corpus/domain-floor-messages.ddd + its golden, green on all seven legs.",
+      "kind": "silent",
+      "class": null,
+      "confidence": "likely",
+      "targets": [
+        "node",
+        "dotnet",
+        "java",
+        "python"
+      ],
+      "fileTrees": [
+        "src/generator/typescript/",
+        "src/generator/python/",
+        "src/generator/dotnet/",
+        "src/generator/java/",
+        "src/generator/elixir/vanilla/",
+        "src/generator/_i18n/validation-catalog.ts",
+        "src/platform/hono/"
+      ],
+      "evidence": [
+        {
+          "fleet": 1,
+          "id": "M-T1.11-domain-floor-message-code",
+          "text": "Every `messageCode()` call site is the WIRE-validation rung (src/generator/zod-refine.ts:289, dotnet/validator-emit.ts:172, java/emit/validator.ts:370, python/emit/wire-constraints.ts:162, elixir/vanilla/changeset-invariant-emit.ts:140). The domain-floor throws take the raw text only: src/generator/typescript/emit/value-objects.ts:71 `throw new DomainError(JSON.stringify(inv.message ? inv.message.text : …))`, src/generator/python/emit/value-objects.ts:126 and emit/aggregate.ts:678,688,693, src/generator/python/render-stmt.ts:133, src/generator/typescript/render-stmt.ts:249, src/platform/hono/v4/workflow-builder.ts:1844 — none pass a code. The catalogs shipped in item 9 (src/generator/_i18n/validation-catalog.ts:87) are therefore \"scoped to match so it holds no entry the runtime cannot resolve\" — i.e. a `message:`-bearing invariant that only the domain enforces renders its authored English at every locale, silently. This is the ONE M-T1.11 item the tracker itself says has no code (T1-ui-frontend.md:174). Documented-only by register PR #2667 — unclaimed."
+        }
+      ],
+      "repro": null,
+      "impact": null,
+      "fix": "Widen the `DomainError` constructor on each backend to `(message, code?)`, pass `messageCode(inv.message.text)` at every throw site listed above (elixir already does this in `denial.ts:299` — use it as the shape), then resolve `message` through the existing per-backend catalog at the 422 serializer for the ambient `RequestContext.locale`, exactly as the wire rung does. Extend `validation-catalog.ts` membership to the domain-floor rules in the same PR (its scoping comment is the current excuse for the hole). Gate with the existing `validation-messages.ddd` corpus fixture + a new wire golden asserting `errors[].code` on a domain-only rule.",
+      "size": "L",
+      "sources": [
+        "fleet1:t1-frontend"
+      ],
+      "related_to": [],
+      "securityClass": false,
+      "P": 2,
+      "verified": {
+        "date": "2026-09-03",
+        "against": "bd7aaeedc",
+        "method": "each row's own repro re-run; emitted output read",
+        "verdict": "partial",
+        "note": "elixir now emits `code:` on preconditions and `loom_code:` on invariants; its value-object floor still carries raw text only. The other four keep a `(message)`-only DomainError/DomainException",
+        "remainingTargets": [
+          "node",
+          "dotnet",
+          "java",
+          "python"
+        ]
+      },
+      "reverified": {
+        "date": "2026-09-10",
+        "against": "bc7ed8f8",
+        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+        "verdict": "reproduces",
+        "note": "RE-DERIVED from emitted output on all four: node `d/domain/errors.ts:2-4 class DomainError extends Error { constructor(message: string) … }`, dotnet `DomainException.cs:14 public DomainException(string message) : base(message) { }`, java `DomainException.java:5 DomainException(String message)`, python `errors.py:4 class DomainError(Exception)` with no fields.  No `code` carrier on any of the four; elixir's partial fix (`code:` on preconditions, `loom_code:` on invariants) is unchanged and its value-object floor still carries raw text.",
+        "remainingTargets": [
+          "node",
+          "dotnet",
+          "java",
+          "python"
+        ]
+      },
+      "closedBy": "wave C5 moment 5b (claude/c5-golden2)"
+    },
+    {
+      "id": "M-T3.16-C2-elixir-403-vs-422",
+      "title": "CLOSED (wave C5, moment 5b) — the wire-validation rung precedes the canonical `create` gate on all five: elixir's gated `create_<agg>/2` validates the changeset before `ensure/2` (the four already validated at the route boundary). Goldened as lifecycle-guard's authz-ladder surface \"guarded create, INVALID body\" (unauthorized → 422, authorized → 422), green on all seven legs.",
+      "kind": "breadth",
+      "class": null,
+      "confidence": "proven",
+      "targets": [
+        "elixir",
+        "node",
+        "dotnet",
+        "java",
+        "python"
+      ],
+      "fileTrees": [
+        "test/behavioral/",
+        "src/generator/elixir/"
+      ],
+      "evidence": [
+        {
+          "fleet": 1,
+          "id": "M-T3.16-C2-elixir-403-vs-422",
+          "text": "Recorded in docs/new-plan/missions/M-T3.16-lifecycle-gate-and-wire-defaults-plan.md:109 as the surviving item of step 6 and in T3-security-governance.md:27; the lifecycle gate itself is emitted and byte-pinned (test/generator/lifecycle-guard-render.test.ts), but no wire golden covers the gate-vs-validation ORDER, so the divergence is unobserved by any tier."
+        }
+      ],
+      "repro": null,
+      "impact": null,
+      "fix": "Add a behavioral wire-golden case posting an invalid body to a guarded create as a denied principal; whichever status the four agree on becomes the answer key and elixir's controller moves its gate relative to the changeset cast.",
+      "size": "S",
+      "sources": [
+        "fleet1:t3-t5-auth-lang"
+      ],
+      "related_to": [],
+      "securityClass": false,
+      "P": 4,
+      "closedBy": "wave C5 moment 5b (claude/c5-golden2)"
     }
   ],
   "declined": [
