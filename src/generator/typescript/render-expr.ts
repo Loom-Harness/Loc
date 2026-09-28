@@ -381,7 +381,7 @@ function renderMethodCall(
     e.receiverType.kind === "primitive" &&
     e.receiverType.name === "decimal"
   ) {
-    const recvDec = decimalChainOperand(recv, e.receiver) ?? `new Decimal(${recv})`;
+    const recvDec = decimalChainOperand(recv, e.receiver) ?? toDecimal(recv);
     return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, Decimal.ROUND_HALF_UP)${DECIMAL_NARROW}`;
   }
   if (e.receiverType.kind === "primitive") {
@@ -437,8 +437,8 @@ function renderCollectionOp(
   if (name === "sum" && sumBodyIsDecimal(e)) {
     const fold =
       args.length === 1
-        ? `${recv}.reduce((acc, x) => acc.plus((${args[0]})(x)), new Decimal(0))`
-        : `${recv}.reduce((acc, x) => acc.plus(x), new Decimal(0))`;
+        ? `${recv}.reduce((acc, x) => acc.plus((${args[0]})(x)), ${toDecimal("0")})`
+        : `${recv}.reduce((acc, x) => acc.plus(x), ${toDecimal("0")})`;
     return `${fold}${DECIMAL_NARROW}`;
   }
   const render = TS_COLLECTION_RENDERERS[name];
@@ -561,7 +561,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // and storage representation stay a `number` (RS-24) — only the computation
   // moves.
   if (isDecimalArithmetic(e)) {
-    const recv = decimalChainOperand(left, e.left) ?? `new Decimal(${left})`;
+    const recv = decimalChainOperand(left, e.left) ?? toDecimal(left);
     const arg = decimalChainOperand(right, e.right) ?? right;
     return `${recv}.${DECIMAL_METHOD[e.op]}(${arg})${DECIMAL_NARROW}`;
   }
@@ -586,11 +586,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     e.leftType?.kind === "primitive" &&
     (e.leftType.name === "int" || e.leftType.name === "long" || e.leftType.name === "decimal")
   ) {
-    return renderMoneyBinary(
-      e.op,
-      decimalChainOperand(left, e.left) ?? `new Decimal(${left})`,
-      right,
-    );
+    return renderMoneyBinary(e.op, decimalChainOperand(left, e.left) ?? toDecimal(left), right);
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  duration ± duration and duration * int stay native number
@@ -638,6 +634,14 @@ function renderTemporalBinary(
 /** The narrowing suffix every `decimal` arithmetic chain ends with — decimal.js
  *  `toNumber()` is the correctly-rounded nearest double (RS-24's wire width). */
 const DECIMAL_NARROW = ".toNumber()";
+
+/** Lift a `number`-valued operand into decimal.js for expression arithmetic —
+ *  the one construction site the decimal and money arithmetic arms share (an
+ *  ExprTarget operand widening, not a read boundary: see the numeric-codec
+ *  census waiver). */
+function toDecimal(v: string): string {
+  return `new Decimal(${v})`;
+}
 
 /** decimal.js method per `decimal` arithmetic operator.  decimal.js `mod`
  *  truncates (the result takes the dividend's sign), the same `%` every other

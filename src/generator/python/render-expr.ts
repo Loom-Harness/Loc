@@ -794,8 +794,14 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // route, and a no-op-by-value when the operand happens to already BE a
   // `Decimal` (the column case), so both provenances land on one type.
   const coerce = moneyScalarCoercionSide(e);
-  if (coerce === "right") return `${left} ${pyBinOp(e.op)} Decimal(str(${right}))`;
-  if (coerce === "left") return `Decimal(str(${left})) ${pyBinOp(e.op)} ${right}`;
+  // An exact decimal chain on the scalar side hands over its un-narrowed
+  // `Decimal` (RS-37) rather than round-tripping through `float`.
+  if (coerce === "right") {
+    return `${left} ${pyBinOp(e.op)} ${decimalChainOperand(right, e.right) ?? `Decimal(str(${right}))`}`;
+  }
+  if (coerce === "left") {
+    return `${decimalChainOperand(left, e.left) ?? `Decimal(str(${left}))`} ${pyBinOp(e.op)} ${right}`;
+  }
   // Same bargain as the money lift above, for the other operand pair Python
   // refuses to combine: `str + datetime`.
   //
