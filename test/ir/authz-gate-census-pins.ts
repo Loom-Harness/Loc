@@ -141,6 +141,16 @@
 //     rebaselined goldens match: 17 passed, 0 failed, 7 skipped, 3 cases
 //     compared, 0 divergences.
 
+/** The three un-refusable classes below (`principalFreeGate`,
+ *  `sharedTenancyIdentity`, `maskIsNotAStatus`) waive the RUNTIME refusal only.
+ *  Whether each such gate is APPLIED is proved on emitted code, per backend, by
+ *  the emitted-source census (M-T9.41): its "pin redirect" block requires every
+ *  corpus pin of these classes to name an aggregate whose scope conjuncts (or
+ *  mask closure) that census finds applied on every backend the fixture
+ *  declares — so a pin here can no longer hide an emission defect. */
+export const REDIRECTED_TO_EMITTED_CENSUS =
+  " — its APPLICATION is proved per backend on emitted code by `authz-emitted-census.test.ts` (M-T9.41)";
+
 /**
  * Reason classes.  Shared constants rather than 84 hand-written sentences: the
  * gaps fall into a handful of classes and the CLASS is the honest explanation.
@@ -164,7 +174,8 @@ export const R = {
   principalFreeGate:
     "principal-FREE gate (`policy deny` renders an always-false filter for every caller), so a " +
     "second principal cannot be discriminated; the refusal is asserted by the fixture's own " +
-    "`test e2e` (`toThrow(404)`) — see the note at the site in the .ddd",
+    "`test e2e` (`toThrow(404)`) — see the note at the site in the .ddd" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (harness identity).  A tenant floor, a registry self-scope or
    *  an `allow deep`/`global` subtree scope keys on `tenantId`, and
    *  `DEV_CLAIMS_UNAUTHORIZED` shares it with `DEV_CLAIMS` by design — that is
@@ -177,13 +188,15 @@ export const R = {
     "a second tenancy identity (`DEV_CLAIMS_OTHER_TENANT`, wave-3 row 3.3) — but a tenancy " +
     "statement is not an authorization refusal, and counting one as the other would let a gated " +
     "surface look covered while its `requires` went unexercised, so the cross-tenant rung is " +
-    "deliberately not a refusal arm here",
+    "deliberately not a refusal arm here" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (shape).  A read mask redacts a FIELD inside a 200; there is no
    *  refusal status to assert.  Nor are the two identities distinguishable here
    *  — neither carries the unmasking claim. */
   maskIsNotAStatus:
     "`mask unless` refuses a FIELD inside a 200, not a request — no refusal status exists to " +
-    "assert, and neither harness principal carries the unmasking claim",
+    "assert, and neither harness principal carries the unmasking claim" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (population).  Nothing boots this source, so no ladder can name
    *  a caller for it at all; its gates are watched at the COMPILE tier only. */
   notABehaviouralCase:

@@ -106,8 +106,6 @@ import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";
 import { snake } from "../../src/util/naming.js";
 import { buildLoomModel } from "../_helpers/ir.js";
-import { corpusSource } from "../fixtures/corpus/harness.js";
-import { CORPUS } from "../fixtures/corpus/manifest.js";
 import { E2E_LESS_CORPUS_FIXTURES } from "./api-caller-census-pins.js";
 import {
   AUTHZ_GATE_PINS,
@@ -115,6 +113,7 @@ import {
   PIN_CLASS_CENSUS,
   R,
 } from "./authz-gate-census-pins.js";
+import { type CensusCase, loadPopulation } from "./authz-gate-census-population.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -195,103 +194,6 @@ interface LadderSpec {
  *  404 (denied by hiding existence — what a `deny` carve-out and a tenancy
  *  filter answer, since a filtered read cannot 403 a row it cannot see). */
 const isRefusal = (s: number | null | undefined): boolean => s === 401 || s === 403 || s === 404;
-
-// ---------------------------------------------------------------------------
-// Population — the corpus, the shared behavioural systems, and the examples.
-// ---------------------------------------------------------------------------
-
-interface CensusCase {
-  /** Stable key, also the `AUTHZ_GATE_PINS` key. */
-  readonly key: string;
-  /** Repo-relative `.ddd` path, quoted in the failure remedy. */
-  readonly file: string;
-  readonly source: string;
-  /** Case name the behavioural runners key `AUTHZ_LADDERS` by — `null` when no
-   *  runner boots this source, so no ladder is expressible. */
-  readonly ladderKey: string | null;
-  /** An HONEST EXEMPTION: a corpus fixture already on
-   *  `E2E_LESS_CORPUS_FIXTURES`.  It carries no `test e2e` block at all, so it
-   *  has no runtime caller of ANY kind and cannot have a refused one — that
-   *  whole-fixture gap is recorded ONCE in that register (M-T9.13 / W3.3 own
-   *  the drain) instead of being restated as one pin per gated surface here,
-   *  which is what "reuse the honest-exemption list" means.  Its surfaces are
-   *  still counted, so the census total stays honest. */
-  readonly exempt: boolean;
-}
-
-const asNode = (src: string): string => src.replaceAll("__PLATFORM__", "node");
-
-function loadPopulation(): CensusCase[] {
-  const cases: CensusCase[] = [];
-
-  for (const feature of CORPUS) {
-    cases.push({
-      key: `corpus/${feature.id}`,
-      file: `test/fixtures/corpus/${feature.id}.ddd`,
-      source: asNode(corpusSource(feature.id)),
-      ladderKey: E2E_LESS_CORPUS_FIXTURES.includes(feature.id) ? null : feature.id,
-      exempt: E2E_LESS_CORPUS_FIXTURES.includes(feature.id),
-    });
-  }
-
-  const systemsDir = path.join(REPO, "test/behavioral/systems");
-  for (const f of fs
-    .readdirSync(systemsDir)
-    .filter((n) => n.endsWith(".ddd"))
-    .sort()) {
-    const name = f.replace(/\.ddd$/, "");
-    cases.push({
-      key: `systems/${name}`,
-      file: `test/behavioral/systems/${f}`,
-      source: asNode(fs.readFileSync(path.join(systemsDir, f), "utf8")),
-      ladderKey: name,
-      exempt: false,
-    });
-  }
-
-  // `examples/` — the packet's "and `examples/`" half.  Nothing boots these, so
-  // every gate they carry is an `R.notABehaviouralCase` pin rather than a hole;
-  // they are censused anyway because an ungated authorization surface in the
-  // repo's own showcase is exactly what a reader copies.
-  for (const f of fs
-    .readdirSync(path.join(REPO, "examples"))
-    .filter((n) => n.endsWith(".ddd"))
-    .sort()) {
-    cases.push({
-      key: `examples/${f.replace(/\.ddd$/, "")}`,
-      file: `examples/${f}`,
-      source: asNode(fs.readFileSync(path.join(REPO, "examples", f), "utf8")),
-      ladderKey: null,
-      exempt: false,
-    });
-  }
-
-  // The `broad/` tier — the corpus.json entries the behavioural runners BOOT,
-  // which live under `web/src/examples/`.  Only these, not the whole directory:
-  // it also holds multi-file FRAGMENTS (`multifile-main`, `multifile-landing`,
-  // `fulfillment-newest`) that resolve only as a set and cannot be lowered
-  // one file at a time, so censusing the directory wholesale would report a
-  // parse failure that is not a defect.  (One real authorization surface sits
-  // outside the census because of that: `web/src/examples/auth-capabilities.ddd`
-  // carries two `requires` gates and no runner boots it — handed off, see the
-  // pins file.)
-  for (const c of (
-    JSON.parse(fs.readFileSync(path.join(REPO, "test/behavioral/corpus.json"), "utf8")) as {
-      cases: { name: string; ddd: string; api?: boolean; unit?: boolean }[];
-    }
-  ).cases) {
-    if (!c.api && !c.unit) continue;
-    cases.push({
-      key: `broad/${c.name}`,
-      file: c.ddd,
-      source: asNode(fs.readFileSync(path.join(REPO, c.ddd), "utf8")),
-      ladderKey: c.name,
-      exempt: false,
-    });
-  }
-
-  return cases;
-}
 
 const POPULATION = loadPopulation().filter((c) => !NON_PARSING_SOURCES.includes(c.key));
 
