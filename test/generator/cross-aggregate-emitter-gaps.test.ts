@@ -60,39 +60,62 @@ const CROSS_CONTEXT = `system Ports {
   }
 }`;
 
+/** One context, two aggregates, and a value object holding a reference from one
+ *  to the other — the smallest model whose unit test MUST name a sibling.
+ *  Deliberately inline rather than the `vo-id-reference` corpus fixture: giving
+ *  that fixture a `test` block needed a chain of per-backend concessions (a C#
+ *  non-constant default, an elixir list literal, an elixir aggregate with no
+ *  emitted factory), none of them this defect.  The import question is answered
+ *  here; the fixture keeps its own subject. */
+const SIBLING = (platform: string) => `system Ports {
+  subdomain Harbour { context Docking {
+    aggregate Ship with crudish { name: string }
+    valueobject Berth { ship: Ship id  position: int }
+    aggregate Dock with crudish {
+      name: string
+      berth: Berth
+      test "an id carried by a value object survives construction" {
+        let s = Ship.create({ name: "Aurora" })
+        let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+        expect(d.berth.position).toBe(3)
+      }
+    }
+    repository Ships for Ship { }
+    repository Docks for Dock { }
+  } }
+  api DockingApi from Harbour
+  storage primary { type: postgres }
+  resource dState { for: Docking, kind: state, use: primary }
+  deployable d {
+    platform: ${platform}
+    contexts: [Docking]
+    dataSources: [dState]
+    serves: DockingApi
+    port: 4000
+  }
+}`;
+
 describe("A — a unit-test body may name a second aggregate", () => {
   it("node imports the sibling aggregate from its own module", async () => {
-    const src = fileEndingWith(
-      await generateCorpusCase("vo-id-reference", "node"),
-      "domain/dock.test.ts",
-    );
+    const src = fileEndingWith(await generateSystemFiles(SIBLING("node")), "domain/dock.test.ts");
     expect(src).toContain('import { Ship } from "./ship";');
     expect(src).toContain("Ship.create(");
   });
 
   it("python imports the sibling aggregate from its own module", async () => {
-    const src = fileEndingWith(
-      await generateCorpusCase("vo-id-reference", "python"),
-      "tests/test_dock.py",
-    );
+    const src = fileEndingWith(await generateSystemFiles(SIBLING("python")), "tests/test_dock.py");
     expect(src).toContain("from app.domain.ship import Ship");
     expect(src).toContain("Ship.create(");
   });
 
   it(".NET `using`s the sibling aggregate's own namespace", async () => {
-    const src = fileEndingWith(
-      await generateCorpusCase("vo-id-reference", "dotnet"),
-      "DockTests.cs",
-    );
+    const src = fileEndingWith(await generateSystemFiles(SIBLING("dotnet")), "DockTests.cs");
     expect(src).toMatch(/using \w+\.Domain\.Ships;/);
     expect(src).toContain("Ship.Create(");
   });
 
   it("java imports the sibling aggregate's root class", async () => {
-    const src = fileEndingWith(
-      await generateCorpusCase("vo-id-reference", "java"),
-      "DockTests.java",
-    );
+    const src = fileEndingWith(await generateSystemFiles(SIBLING("java")), "DockTests.java");
     expect(src).toMatch(/import [\w.]+\.Ship;/);
     expect(src).toContain("Ship.create(");
   });
@@ -136,22 +159,16 @@ describe("A — a unit-test body may name a second aggregate", () => {
     expect(src).toMatch(/[A-Z]\w*\.Docking\.Ship\.create\(/);
   });
 
-  it("elixir lowers the corpus block for real — no skip, no sentinel", async () => {
-    // The fixture's block is deliberately list-free.  An empty `berths: []` in
-    // the create call put elixir's test lowering over its documented limit
-    // ("unsupported expression kind 'list' in vanilla test position") and it
-    // emitted a `@tag :skip` body carrying the word `unsupported` — which
-    // `generated-output-sentinels` rejects outright.  Giving the collection a
-    // `= []` DEFAULT instead lets the call omit it, so all five backends emit a
-    // test that actually runs.  Pinned because the fix is one word in the
-    // fixture and nothing else would notice it regressing.
+  it("elixir needs no import — it spells the sibling fully qualified", async () => {
+    // Why this fix is four backends and not five.  A refactor that switched
+    // elixir to bare module names would need its own import arm, so the
+    // qualified spelling is asserted rather than left implicit.
     const src = fileEndingWith(
-      await generateCorpusCase("vo-id-reference", "vanilla"),
+      await generateSystemFiles(SIBLING("elixir")),
       "test/docking/dock_test.exs",
     );
-    expect(src).not.toContain("@tag :skip");
-    expect(src).not.toContain("unsupported");
     expect(src).toMatch(/[A-Z]\w*\.Docking\.Ship\.create\(/);
+    expect(src).not.toContain("@tag :skip");
   });
 
   it("a test body that names NO sibling keeps an import-clean header", async () => {

@@ -504,14 +504,94 @@ const REGISTERED: Ratchet[] = [
     // five COMPILE legs, which this fixture does carry, see each backend's
     // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
     // a per-backend projection read, move the block in and lower this by one.
+    // 22 -> 23 (M-T6.64, freight audit D3 — `vo-id-reference`).  Another NEW
+    // fixture, and the same shape of reason as `auth-id-claim`: its subject is
+    // a STATIC contract (node named `Ids.ShipId` in a file with zero imports;
+    // python branded `ShipId(...)` with none, on all three persistence shapes),
+    // so a type-checker is the only oracle and the compile legs already are it.
+    // Both wire shapes a `test e2e` block would boot — a required embedded
+    // value object and a `<VO>[]` collection — are already booted by
+    // `embedded` and `value-collections`.
     //
-    // 23 -> 22: `vo-id-reference` DRAINED.  Its entry existed because a
-    // pure-domain `test` block could not be written — a test body naming a
-    // SECOND aggregate emitted an unimported reference on four backends, and a
-    // value object holding a CROSS-aggregate reference cannot be exercised from
-    // one aggregate alone.  That is fixed, the fixture carries its unit block,
-    // and the register drains itself exactly as designed.
-    max: 25,
+    // Unlike `auth-id-claim` this one DOES have a cheaper drain in principle —
+    // a pure-domain `test` block, which rides every backend's unit tier and
+    // mints no golden, the way `numeric-operands` does — and it is BLOCKED by a
+    // further instance of the same defect class: a unit-test body that names a
+    // SECOND aggregate emits `Ship.create(...)` with no import of `Ship`,
+    // because every backend's test emitter scopes its subject import to the
+    // aggregate the test lives in, and a value object holding a CROSS-aggregate
+    // reference cannot be exercised from one aggregate alone.  Reproduced on
+    // node (TS2304), python (F821), dotnet (no `using …Domain.Ships`) and java
+    // (no import for `Ship`); elixir skips test lowering outright.  That is a
+    // five-emitter slice of its own, reported on #2864 rather than smuggled in
+    // here.  When it lands, this fixture gains its unit block and this entry
+    // drains one.
+    // 23 -> 22 on main (wave-3 row 3.3 DRAINED `projection-agg-filters`), then
+    // 22 -> 24 here (audit F-013 + F-014, the two elixir S1 compile defects).
+    // The arithmetic is against main's CURRENT value, exactly as main's own note
+    // on the drain insists: restoring a remembered literal (this branch had 25,
+    // computed off the pre-drain 23) is how a ratchet silently loses somebody
+    // else's lowering.  Both movements are real and both survive.
+    //
+    // The two RAISES are the same shape as the four above rather than new
+    // M-T9.13 debt: each new fixture's subject is a STATIC contract whose defect
+    // made `mix compile` FAIL on the emitted project, which is exactly what the
+    // corpus compile legs read.
+    //   * `enum-collection` — the enum × array crossing.  `field :skills,
+    //     {:array, Ecto.Enum, values: [...]}` →  `** (ArgumentError) invalid
+    //     type … for field :skills`.  Booting it would re-record a generic CRUD
+    //     round-trip and mint a golden over an enum-array JSON encoding no
+    //     cross-backend ruling has been asked for.
+    //   * `principal-read-filter` — an author-written `currentUser` predicate
+    //     in a `find`/`retrieval` `where`.  `** (Ecto.Query.CompileError)
+    //     unbound variable current_user in query`, then `error: undefined
+    //     variable "current_user"` once pinned.  This one IS a drain candidate,
+    //     but not yet: the row-level filter's runtime oracle needs the
+    //     principal's id to MATCH a seeded row's `technicianUserId`, and
+    //     `devClaimKind` carries `string` / `string[]` claims only — so a
+    //     booted leg would assert over the empty fail-closed result and prove
+    //     nothing about the filter.  Drain it (and lower this by one) when the
+    //     harness can seed a row owned by the authenticated principal.
+    // 24 -> 23: wave-3 row 3.3 drained `projection-document-aggregation`.  Its
+    // reason said asserting the number "needs seeded rows the behavioural
+    // runners set up per-fixture" — it does not: `Article` carries `crudish`,
+    // so the api mints its own rows and the block counts what it just created.
+    // The generation gate proved the read EMITS; nothing proved the number was
+    // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
+    // to have, since every backend reaches it differently and a wrong one
+    // still compiles.
+    //
+    // ARITHMETIC AGAINST `main`'s CURRENT VALUE, never a literal this branch
+    // remembers.  Re-derived at each merge rather than carried: restoring a
+    // remembered number is how a ratchet silently loses somebody else's raise.
+    // This branch was cut when `main` read 24 and raised it to 26; wave-3 row
+    // 3.3 then drained `projection-document-aggregation` on `main`, taking it
+    // to 23.  So the raise is re-applied to 23, not re-asserted as 26: 23 + 2
+    // = 25.
+    //
+    // 23 -> 25 (2026-09-27, the "Assure" dev-experience evaluation): two new
+    // corpus fixtures, `channels-broker-workflow` and
+    // `projection-split-deployables`, both compile-tier-only.  A RAISE, and
+    // the justification is that each was minted to catch a defect that IS a
+    // hard compile error in the emitted project (four TS2304/TS2305 for the
+    // dropped outbox dispatcher; TS2306 "not a module" for the cross-context
+    // value-object import), so the compile leg they already ride is their
+    // oracle — a behavioural block would boot a round-trip a sibling fixture
+    // already boots and assert nothing either defect could fail.  Both cite
+    // **M-T9.13**, which owns the behavioural-tier drain; the broker one
+    // additionally needs a broker container, exactly as `channels-broker`
+    // beside it does.
+    //
+    // 25 -> 26 (2026-09-28, wave C5 moment 5e, M-T3.6 items 3+5):
+    // `org-context`.  A RAISE whose runtime home already exists: the subject is
+    // the `x-org-context` REQUEST HEADER each backend's auth middleware
+    // validates before routing, which the `test e2e` vocabulary cannot set, so a
+    // behavioural block could only drive the no-switch default (indistinguishable
+    // from `tenancy-hierarchy`).  The switch itself is proven on a booted app per
+    // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
+    // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
+    // once #2976's registry-row principal lands).
+    max: 26,
   },
 ];
 
