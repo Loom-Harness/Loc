@@ -446,12 +446,12 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   // claim, and the harness principal's claim is not a row id.  See
   // `R.tenantRegistryRow` — draining them needs a harness change, not a test.
   "corpus/tenancy-owned": {
-    // `Organization` is this system's TENANT REGISTRY.
-    createOrganization: R.tenantRegistryRow,
-    getOrganizationById: R.tenantRegistryRow,
+    // `Organization` is this system's TENANT REGISTRY.  `create`, `getById`
+    // and `all` ARE called there (M-T9.42, the registry self-scope promotion):
+    // the by-id read is asserted 404 and the list empty — the pin's own reason,
+    // asserted.  Only the two writes that need a VISIBLE row stay pinned.
     destroyOrganization: R.tenantRegistryRow,
     updateOrganization: R.tenantRegistryRow,
-    allOrganization: R.tenantRegistryRow,
   },
   // Same registry class again, in the fixture wave-3 row 3.3 drained.  Only the
   // THREE id-taking routes are pinned: `create` and `all` ARE called there, and
@@ -534,7 +534,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // (`GET /api/projections/order_board/{key}`), which `deriveContextOperations`
   // lists under `apiSurfaceCoverage.notLifted`.  Lifting projection queries into
   // the derivation would make this attributable — and this entry stale.
-  "corpus/projection": ["api.orderBoard.byKey (no such aggregate)"],
+  "corpus/projection": [
+    "api.orderBoard.byKey (no such aggregate)",
+    "api.orderBoard.list (no such aggregate)",
+  ],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
@@ -543,7 +546,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
   // attributable — and this entry stale.
-  "corpus/audit-history": ["api.orders.history (no derived operation)"],
+  // `api.memos.history(...)` and `api.invoices.history(...)` joined it in
+  // M-T9.42's promotion: the soft-deleted `Memo` is the reachability witness
+  // (a hidden row's trail 404s), the lifecycle-only `Invoice` the audited-create
+  // witness.
+  "corpus/audit-history": [
+    "api.invoices.history (no derived operation)",
+    "api.memos.history (no derived operation)",
+    "api.orders.history (no derived operation)",
+  ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:
   // a singleton whole-table aggregation and the grouped read models.  The
@@ -627,6 +638,16 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C3 packet 3a: the same WORKFLOW-accessor class, on the command
   // workflow whose primitive params the drained block sends.
   "corpus/workflow-primitive-params": ["api.topUp.run (no such aggregate)"],
+  // M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream,
+  // by-key folds one), the same not-lifted workflow-route class as above.
+  // …and the plain (state-table) saga's by-key read (M-T9.42 own-state).
+  "corpus/saga": ["api.orderFulfillment.instance (no such aggregate)"],
+  "corpus/eventsourced-workflow": [
+    "api.archiveTracker.instance (no such aggregate)",
+    "api.archiveTracker.instances (no such aggregate)",
+    "api.orderFulfillment.instance (no such aggregate)",
+    "api.orderFulfillment.instances (no such aggregate)",
+  ],
 };
 
 /**
@@ -1246,7 +1267,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
  * recurs — see `autoFindAll` and `crudishUpdate`).
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  tenantRegistryRow: 23,
+  tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
   gateProbe: 1,
   clockDependentFind: 1,
