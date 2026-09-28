@@ -38,8 +38,8 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { messageCode } from "../../../src/util/message-code.js";
+import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 // --- the fixture -------------------------------------------------------------
