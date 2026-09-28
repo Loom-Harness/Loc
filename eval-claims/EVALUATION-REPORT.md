@@ -178,3 +178,39 @@ reactor (F-101); one system with a projection **and** more than one deployable
 (F-102); one operation gate reached from a reactor on all five backends
 (F-103); one hand-written page over a **projection** carrying a `money` field
 (F-106, F-107). Four fixtures would have caught six S1s.
+
+---
+
+## Postscript — 2026-09-28, after the fix batch
+
+Five PRs landed against this register: [#3026](https://github.com/Loom-Harness/Loc/pull/3026),
+[#3029](https://github.com/Loom-Harness/Loc/pull/3029),
+[#3031](https://github.com/Loom-Harness/Loc/pull/3031),
+[#3044](https://github.com/Loom-Harness/Loc/pull/3044),
+[#3050](https://github.com/Loom-Harness/Loc/pull/3050). Per-finding disposition is
+the table at the top of [`FINDINGS.md`](FINDINGS.md) — **15 of 17 closed**, with
+F-103 owned by #2966 and F-105 open and unclaimed.
+
+Three things in the ranked list above did **not** survive contact, and they are
+worth more than the fifteen that did:
+
+1. **F-117 was wrong.** I filed `examples/sales-ui.ddd`'s unparseability as
+   polish. It is a deliberate decision, pinned in five places and documented in
+   the README example table. An evaluator's "this looks broken" is not evidence
+   until the pins are read.
+2. **F-108's fix was not the fix I proposed.** I recommended per-handle api
+   clients and base URLs. What shipped is a **refusal** — the half-wired
+   emission is now a diagnostic — and the emission half moved to **M-T1.35**,
+   which owns that surface. Refusing a model the toolchain cannot honour is
+   cheaper and more honest than half-honouring it, and the ranked list above
+   undervalued that.
+3. **F-114 shipped as an advisory, not a warning.** The check I proposed had
+   already been rejected here in its general form at 233/496 aggregates. With
+   carve-outs it fires on 61/318 — still too many to be a gate, few enough to be
+   a suggestion. A finding's *severity* and its *diagnostic severity* are not the
+   same number, and this register conflated them.
+
+The cheapest structural defence named in "A note on the corpus" held up: F-101's
+regression fixture is `channels-broker-workflow`, whose sibling `channels-broker`
+is the same producer *without* a workflow — the missing axis pairing, exactly as
+predicted.

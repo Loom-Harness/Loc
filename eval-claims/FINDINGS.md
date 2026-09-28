@@ -22,6 +22,48 @@ SILENT: 9 · HONEST-but-wrong-target: 3 · gap/friction: 5
 
 ---
 
+# Disposition — added 2026-09-28, after the fix batch landed
+
+The register below is the evaluation as written. This table is what happened to
+each finding afterwards. **15 of 17 are closed**; the two that are not are named,
+with who owns them.
+
+| | disposition | where |
+|---|---|---|
+| F-101 | **fixed** — the durable-events check hoisted out of the `workflows.length === 0` early return | [#3029](https://github.com/Loom-Harness/Loc/pull/3029) |
+| F-102 | **fixed** — the VO import intersected with the hosted pool, python's `.filter(refersTo)` pattern | [#3029](https://github.com/Loom-Harness/Loc/pull/3029) |
+| F-103 | **claimed elsewhere** — [#2966](https://github.com/Loom-Harness/Loc/pull/2966) (draft) owns it. My note widens theirs: it was filed there as Java-only and is live on node and .NET too, with python dropping the gate and elixir passing `nil`. Not touched by this batch. | #2966 |
+| F-104 | **fixed** — a `create({…})` argument whose expected and actual are both `kind: "id"` with *different* targets is no longer a wire coercion | [#3031](https://github.com/Loom-Harness/Loc/pull/3031) |
+| F-105 | **OPEN, unclaimed** — split out of #3031 deliberately rather than absorbed. Nothing inside a unit `test` body is validated at all. [#2958](https://github.com/Loom-Harness/Loc/pull/2958) (merged) did the analogous job for `test e2e` payloads; this is its unit-`test` sibling. | — |
+| F-106 | **fixed** — root-caused to `ofReadResultType` recognising only `<handle>.<Aggregate>.<verb>`, so the fifth documented `of:` form typed every row field as `string` | [#3050](https://github.com/Loom-Harness/Loc/pull/3050) |
+| F-107 | **fixed** — same root cause; `loom.money-in-text-slot` now reaches a projection row via an IR fast path, not only `wireFieldsForAggregate` | [#3050](https://github.com/Loom-Harness/Loc/pull/3050) |
+| F-108 | **half fixed** — a ui bound to two backends is now **refused** with a diagnostic instead of emitted half-wired. Per-handle api clients + base URLs (the emission fix), and a better message for the scaffold/`targets:` mismatch, are **M-T1.35**, which owns the ui↔backend surface. | [#3029](https://github.com/Loom-Harness/Loc/pull/3029) + M-T1.35 |
+| F-109 | **fixed** — a `PropertyName` rule mirroring what `Property` admits, used only by the migration `ColumnStep`; 81 names admitted | [#3026](https://github.com/Loom-Harness/Loc/pull/3026) |
+| F-110 | **filed as a mission, not fixed** — `M-T5.39`, sized **L**. A new scalar walks the whole pipeline and needs its semantics decided first (comparison against `datetime`, `today()`, wire format, what `date` means under a tenant in another timezone). | mission M-T5.39, filed with [#3044](https://github.com/Loom-Harness/Loc/pull/3044) |
+| F-111 | **fixed** — the false "any primitive" wording corrected, and `string(guid)` / `string(datetime)` re-admitted (both have unambiguous canonical forms), which also un-blocks the circular interpolation advice | [#3026](https://github.com/Loom-Harness/Loc/pull/3026) |
+| F-112 | **fixed** — `exchanges`/`queues`/`bindings` added to the generated broker definitions. Proved at a live RabbitMQ 4 in both directions: with the topology a message published to no consumer is sitting in `loom.Ord.Lifecycle.consumer`; without it, lost. | [#3029](https://github.com/Loom-Harness/Loc/pull/3029) |
+| F-113 | **fixed** — `loom.workflow-param-unused`, with carve-outs for an empty body, an event binding, and the correlation parameter | [#3044](https://github.com/Loom-Harness/Loc/pull/3044) |
+| F-114 | **fixed as an ADVISORY, deliberately** — `loom.aggregate-not-constructible` on the advisory channel, not as a warning. The repo had already rejected the general form of this check at 233/496 aggregates; with carve-outs for `abstract`, inheritance bases, `appliers`, and seeded tables it fires on 61/318, which is a suggestion and not a gate. | [#3044](https://github.com/Loom-Harness/Loc/pull/3044) |
+| F-115 | **fixed** — the hint set restricted to declared *types* instead of `streamAllContents(root)` | [#3026](https://github.com/Loom-Harness/Loc/pull/3026) |
+| F-116 | **fixed** — the stale "until `crudish(requires:)` lands" comment deleted from the `ddd new` scaffold | [#3026](https://github.com/Loom-Harness/Loc/pull/3026) |
+| F-117 | **dropped, not fixed — I was wrong to file it.** `examples/sales-ui.ddd`'s unparseability is an existing deliberate decision, pinned in five places and documented in the README example table. Changing it would churn five pinned references to restate a call already made and written down. | [#3026](https://github.com/Loom-Harness/Loc/pull/3026) |
+
+**One finding from the batch is not in this register**, because it was found while
+fixing rather than while building: the `docs/new-plan/README.md` mission-counts
+region is a committed derivation of every mission heading, so two
+mission-touching PRs collide by construction — three times across these five
+PRs, and once as a merge-queue `CI_FAILURE` on a batch whose every entry was
+green on its own head. Filed as **M-T9.66**.
+
+**What the fix batch confirmed about the register's own headline claim.** Every
+S1 here was predicted to be "an emitter condition that doesn't match the
+condition at the reference site, in an axis *combination* the corpus doesn't
+contain", and the fixes bear that out: F-101's regression fixture is
+`channels-broker-workflow`, whose sibling `channels-broker` is the same producer
+*without* a workflow — which is precisely why the corpus never caught it.
+
+---
+
 # S1 — the generated tree does not compile, or is silently wrong
 
 ## F-101 · SILENT — a context with a workflow but no reactor drops the outbox dispatcher
