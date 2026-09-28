@@ -591,7 +591,17 @@ const REGISTERED: Ratchet[] = [
     // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
     // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
     // once #2976's registry-row principal lands).
-    max: 26,
+    //
+    // 26 -> 23 (2026-09-28, wave C3 packet 3a, M-T9.13): `principal-read-filter`,
+    // `extern` and `workflow-primitive-params` each gained a `test e2e` block
+    // and a node-minted golden, green on all seven behavioural legs and
+    // mutation-proved.  (`numeric-operands` drained from the E2E-less register
+    // in the same packet but was never here — its domain `test` block already
+    // scored it behavioural.)  Six more blocks were written and booted and are
+    // HELD here on the runtime defects they found — the hand-off note
+    // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
+    // and its repro, and each row's reason above now names its defect.
+    max: 23,
   },
 ];
 
