@@ -2,6 +2,7 @@ import type { BoundedContextIR, TypeIR, WorkflowIR } from "../../ir/types/loom-i
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { allWorkflows } from "../_frontend/workflows-module.js";
 import { exportedResponseTypes } from "./api-module.js";
 
@@ -120,6 +121,10 @@ function instanceEnumDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContext
  *  served contexts. */
 export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): string {
   const workflows = allWorkflows(contexts);
+  // Identifier bases for the command surface, minted against the deployable's
+  // whole universe so a workflow's request interface cannot alias an
+  // aggregate's create/operation one (`_frontend/request-names.ts`).
+  const names = requestNamesForContexts(contexts);
   const anyInstances = workflows.some(({ wf }) => wf.instanceWireShape);
   const out: string[] = [
     "// Auto-generated.  Do not edit by hand.",
@@ -140,8 +145,8 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
 
   // Request + instance-row interfaces.
   for (const { wf } of workflows) {
-    const T = upperFirst(wf.name);
-    out.push(`export interface ${T}Request {`);
+    const R = names.workflow(wf.name);
+    out.push(`export interface ${R}Request {`);
     for (const p of wf.params) out.push(`  ${p.name}: ${wireTsType(p.type)};`);
     out.push("}");
     out.push("");
@@ -157,7 +162,7 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
     const m = lowerFirst(wf.name);
     const slug = snake(wf.name);
     out.push("");
-    out.push(`  ${m}(input: ${T}Request) {`);
+    out.push(`  ${m}(input: ${names.workflow(wf.name)}Request) {`);
     out.push(`    return this.http.post<void>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`);
     out.push("  }");
     if (wf.instanceWireShape) {
@@ -185,10 +190,10 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
     out.push(
       `/** \`${wf.name}\` workflow command (TanStack \`injectMutation\`) — \`mutateAsync(input)\``,
       " *  POSTs the command params. */",
-      `export function use${T}Workflow() {`,
+      `export function use${names.workflow(wf.name)}Workflow() {`,
       "  const service = inject(WorkflowsService);",
       "  return injectMutation(() => ({",
-      `    mutationFn: (input: ${T}Request) => firstValueFrom(service.${m}(input)),`,
+      `    mutationFn: (input: ${names.workflow(wf.name)}Request) => firstValueFrom(service.${m}(input)),`,
       "  }));",
       "}",
       "",

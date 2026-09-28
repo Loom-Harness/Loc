@@ -191,12 +191,47 @@ function exprCases(): Record<ExprIR["kind"], () => ExprCase> {
         stmtChildren: [],
       };
     },
+    // The `scope` decision, not `deny`: `deny` is a childless leaf, so only
+    // this branch has child slots the walker can drop.
+    "authz-filter": () => {
+      const anchorClaim = sent();
+      const tenantClaim = sent();
+      return {
+        node: {
+          kind: "authz-filter",
+          filter: { kind: "scope", anchorClaim, tenantClaim },
+          aggregate: "X",
+        },
+        exprChildren: [anchorClaim, tenantClaim],
+        stmtChildren: [],
+      };
+    },
+    duration: () => {
+      const amount = sent();
+      return {
+        node: { kind: "duration", unit: "days", amount },
+        exprChildren: [amount],
+        stmtChildren: [],
+      };
+    },
+    i18nFormat: () => {
+      const inner = sent();
+      return {
+        node: { kind: "i18nFormat", inner, format: ", number" },
+        exprChildren: [inner],
+        stmtChildren: [],
+      };
+    },
   };
 }
 
 interface StmtCase {
   node: StmtIR;
   exprChildren: ExprIR[];
+  /** Nested STATEMENT children, delivered through `walkStmtChildren`'s third
+   *  argument.  Only the two nesting kinds (`variant-match`, `if`) have any;
+   *  absent means "none", and the assertion checks that too. */
+  stmtChildren?: StmtIR[];
 }
 
 function stmtCases(): Record<StmtIR["kind"], () => StmtCase> {
@@ -268,6 +303,31 @@ function stmtCases(): Record<StmtIR["kind"], () => StmtCase> {
     return: () => {
       const v = sent();
       return { node: { kind: "return", value: v }, exprChildren: [v] };
+    },
+    "variant-match": () => {
+      const subject = sent();
+      const armBody = sentStmt();
+      const elseBody = sentStmt();
+      return {
+        node: {
+          kind: "variant-match",
+          subject,
+          arms: [{ varType: ENTITY, body: [armBody] }],
+          elseBody: [elseBody],
+        },
+        exprChildren: [subject],
+        stmtChildren: [armBody, elseBody],
+      };
+    },
+    if: () => {
+      const cond = sent();
+      const thenStmt = sentStmt();
+      const elseStmt = sentStmt();
+      return {
+        node: { kind: "if", cond, thenBody: [thenStmt], elseBody: [elseStmt] },
+        exprChildren: [cond],
+        stmtChildren: [thenStmt, elseStmt],
+      };
     },
   };
 }
@@ -419,6 +479,14 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
         wfChildren: [],
       };
     },
+    "repo-delete": () => {
+      const entity = sent();
+      return {
+        node: { kind: "repo-delete", repoName: "Xs", aggName: "X", entity },
+        exprChildren: [entity],
+        wfChildren: [],
+      };
+    },
   };
 }
 
@@ -438,10 +506,16 @@ describe("walkExprChildren — every ExprIR kind's children are visited once", (
 describe("walkStmtChildren — every StmtIR kind's expression children are visited once", () => {
   for (const [kind, make] of Object.entries(stmtCases())) {
     it(`visits the children of \`${kind}\``, () => {
-      const { node, exprChildren } = make();
+      const { node, exprChildren, stmtChildren } = make();
       const got: ExprIR[] = [];
-      walkStmtChildren(node, (c) => got.push(c));
+      const gotStmt: StmtIR[] = [];
+      walkStmtChildren(
+        node,
+        (c) => got.push(c),
+        (s) => gotStmt.push(s),
+      );
       sameRefs(got, exprChildren);
+      sameRefs(gotStmt, stmtChildren ?? []);
     });
   }
 });

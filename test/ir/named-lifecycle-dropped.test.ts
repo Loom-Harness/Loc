@@ -43,7 +43,7 @@ async function errorsFor(agg: string) {
 }
 
 async function codesFor(agg: string): Promise<string[]> {
-  return (await errorsFor(agg)).map((d) => d.code);
+  return (await errorsFor(agg)).map((d) => d.code ?? "");
 }
 
 describe("validator — the named lifecycle action no backend renders", () => {

@@ -172,14 +172,22 @@ describe("feliz `persist:` — datetime / guid / enum / decimal arrays", () => {
       action setMode(m: Status) { mode := m }
     }`;
 
-  it("loads datetime / guid through a TOTAL TryParse, defaulting to the type zero", async () => {
+  it("loads a datetime through a TOTAL TryParse, defaulting to the type zero", async () => {
     const fs = await app(WIDE_STORE);
     expect(fs).toContain(
       "if isNull raw then System.DateTime.MinValue else (match System.DateTime.TryParse raw",
     );
-    expect(fs).toContain(
-      "if isNull raw then System.Guid.Empty else (match System.Guid.TryParse raw",
-    );
+  });
+
+  // A guid does NOT get a TryParse: on this frontend a Loom `guid` IS an F#
+  // `string` (`type-fs.ts` has no `guid` arm, `decoderExprFor` decodes one with
+  // `Decode.string`, the query encoder passes it verbatim).  `System.Guid.TryParse`
+  // bound a `System.Guid` into a `string`-typed cell — `FS0001`, the mirror image
+  // of the mismatch the missing `fsPrimitive` arm exists to prevent.  The written
+  // form is already the canonical guid string, so the identity load round-trips it.
+  it("loads a guid as the string it is, with no Guid parse", async () => {
+    const fs = await app(WIDE_STORE);
+    expect(fs).not.toContain("System.Guid");
   });
 
   it("writes datetime back as ISO-8601 and a guid as its canonical string", async () => {
@@ -220,6 +228,102 @@ describe("feliz `persist:` — datetime / guid / enum / decimal arrays", () => {
     );
     expect(fs).toContain("(sinceArg: string) (whoArg: string)");
     expect(fs).toContain("p.set('since',$0);p.set('who',$1);");
+  });
+});
+
+// Wave C2 packet 2l — the OPTIONAL cell, the last type-level divergence
+// against the Dart table (ledger `feliz-flutter-persist-codec-asymmetry`).  The
+// Model cell is `'T option`, so every conversion is option-typed; an absent key
+// or query param restores the field's declared default (`None`), which for a
+// nullable cell is the RIGHT value rather than a lost one.
+describe("feliz `persist:` — an OPTIONAL cell", () => {
+  const OPT_STORE = `
+    store Prefs persist: local {
+      state {
+        nickname: string?
+        retries:  int?
+        flag:     bool?
+        seen:     datetime?
+        token:    guid?
+        mode:     Status?
+      }
+      action setNick(n: string) { nickname := n }
+    }`;
+
+  it("types the Model cell `'T option` and seeds it `None`", async () => {
+    const fs = await app(OPT_STORE);
+    expect(fs).toContain("PrefsNickname: string option");
+    expect(fs).toContain("PrefsRetries: int option");
+    expect(fs).toContain("PrefsSeen: System.DateTime option");
+  });
+
+  it("loads an absent key as the declared default, and a present one as `Some`", async () => {
+    const fs = await app(OPT_STORE);
+    // A string cell needs no parse — being PRESENT is what makes it `Some`.
+    expect(fs).toContain("if isNull raw then None else Some raw");
+    // A parsed cell keeps the TOTAL shape: junk falls back to the default,
+    // which is already option-typed, so the arm never mixes `'T` with `'T option`.
+    expect(fs).toContain(
+      "if isNull raw then None else (match System.Int32.TryParse raw with | true, v -> Some v | _ -> None)",
+    );
+    expect(fs).toContain(
+      "if isNull raw then None else (match System.DateTime.TryParse raw with | true, v -> Some v | _ -> None)",
+    );
+    expect(fs).toContain(
+      "if isNull raw then None else (match System.Guid.TryParse raw with | true, v -> Some v | _ -> None)",
+    );
+    expect(fs).toContain('if isNull raw then None else Some (raw = "true")');
+  });
+
+  it("writes JSON `null` for a `None` cell and the cell's own shape for a `Some`", async () => {
+    const fs = await app(OPT_STORE);
+    expect(fs).toContain(
+      '"\\"nickname\\":" + (match model.PrefsNickname with | Some v -> jsonString v | None -> "null")',
+    );
+    expect(fs).toContain(
+      '"\\"retries\\":" + (match model.PrefsRetries with | Some v -> string v | None -> "null")',
+    );
+    // The `Some` arm reuses the non-optional cell's spelling exactly — an
+    // ISO-8601 datetime, a canonical guid — so the blob still round-trips
+    // against the JS store builders.
+    expect(fs).toContain(
+      '"\\"seen\\":" + (match model.PrefsSeen with | Some v -> jsonString (v.ToString("o")) | None -> "null")',
+    );
+    expect(fs).toContain(
+      '"\\"token\\":" + (match model.PrefsToken with | Some v -> jsonString (string v) | None -> "null")',
+    );
+  });
+
+  it("LIFTS an assignment to an optional cell into `Some` (silent-codegen fix)", async () => {
+    // `nickname := n` on a `string?` emitted `{ model with PrefsNickname = n }`
+    // — FS0001, from a `.ddd` reporting `0 error(s), 0 warning(s)`.  The lift is
+    // independent of `persist:`: a `memory` store reproduces the same defect.
+    const fs = await app(OPT_STORE);
+    expect(fs).toContain("{ model with PrefsNickname = (Some n) }");
+  });
+
+  it("a url store's nullable cell crosses the boundary stringified, `null` when None", async () => {
+    // ONE writer arm covers every scalar, because `urlArg` stringifies in F#
+    // first — and `null` is the value the JS arm tests for.  Feliz supports the
+    // `url` tier for a nullable cell where Flutter refuses it: the
+    // `StoreUrlChanged` re-seed rebuilds the record field from the loader, so
+    // an absent param restores `None` instead of keeping the old value.
+    const fs = await app(`
+    store Q persist: url {
+      state { term: string?  page: int?  since: datetime?  only: bool? }
+    }`);
+    expect(fs).toContain(
+      "(termArg: string) (pageArg: string) (sinceArg: string) (onlyArg: string)",
+    );
+    expect(fs).toContain("(match model.QTerm with | Some v -> v | None -> null)");
+    expect(fs).toContain("(match model.QPage with | Some v -> string v | None -> null)");
+    expect(fs).toContain('(match model.QSince with | Some v -> v.ToString("o") | None -> null)');
+    // A tri-state `bool?` writes `false` where a plain `bool` deletes the param:
+    // on an optional cell "absent" already means `None`.
+    expect(fs).toContain('(match model.QOnly with | Some v -> (if v then "true" else "false")');
+    // `($n)` is PARENTHESISED — Fable's Emit scanner swallows a `!` right after
+    // a placeholder, which would turn `$0!=null` into the assignment `$0=null`.
+    expect(fs).toContain("if(($0)!=null){p.set('term',$0);}else{p.delete('term');}");
   });
 });
 

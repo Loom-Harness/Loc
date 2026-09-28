@@ -70,6 +70,10 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the AST `Model` root whose aggregates it indexes.",
   },
+  "src/ir/lower/lower-expr.ts:projectionsByDocument": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the AST `Model` root whose projections it indexes.",
+  },
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
@@ -89,6 +93,12 @@ const PINNED: Record<string, Pin> = {
   "src/ir/lower/lower-types.ts:ambientDeclIndex": {
     discipline: "per-run-reset",
     reason: "Reassigned wholesale before any type is lowered.",
+  },
+  "src/language/validators/types.ts:unaddressableIndexCache": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakMap keyed by the AST ROOT node the index was built from; a re-parse " +
+      "produces a fresh root, so the entry dies with the document version it describes.",
   },
   "src/language/print/print-expr.ts:printStatement": {
     discipline: "wiring-injection",

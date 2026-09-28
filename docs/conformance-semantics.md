@@ -203,6 +203,22 @@ the conforming backends, and the fix that established it.
 - **Observable.** Same status + same problem-body shape (`type: about:blank`,
   `application/problem+json`) on every backend, whichever layer refused.
 - **Conforms.** node, dotnet, java, python, elixir.
+- **A value object refused INSIDE a body is the domain floor, with one
+  `errors[]` entry (M-T5.1).** A value object a body builds (`qty := Qty { value:
+  n }` in an operation or a workflow step) refuses at its constructor rather
+  than at the request schema, so there is no request member to point at.  It
+  answers the domain-floor status and title, the rule's message as `detail`,
+  and ONE `errors[]` entry `{pointer: "", message, code?}` — `code` only for a
+  messaged rule.  Before this node/.NET/java/python answered the bare domain
+  floor (no `errors[]`, no `code`) and elixir did not check the value at all
+  (the op persists through `force_change`, which runs no validator — `resize(0)`
+  answered 204 and stored `{"value": 0}`).  Pinned by the `vo-invariant-in-body`
+  wire golden; runtime-proven on node and python (booted, golden-matched; each
+  mutation-proved by disabling that backend's answer, which the golden then
+  reports as `$.errors` absent), compile-checked on .NET / java / elixir.  A
+  message-LESS rule is compiled but not in the golden: its text is each
+  backend's derived default, and elixir's value-object carrier is Ecto's native
+  chain — the same split the wire layer has for a message-less rule.
 - **A wrong verb is `405` everywhere, with `Allow`.** This was briefly recorded
   here as a known divergence — node and elixir answering `404` because "hono and
   phoenix route on (method, path) as one key, with no method-not-allowed concept
@@ -1004,7 +1020,7 @@ the conforming backends, and the fix that established it.
   > answered locally instead of reaching the producer.
   >
   > **And a fifth discovery, at the two read sites nobody had counted
-  > (2026-08-11, M-T6.31 / [#2520](https://github.com/lemmit/Loc/pull/2520)).**
+  > (2026-08-11, M-T6.31 / [#2520](https://github.com/Loom-Harness/Loc/pull/2520)).**
   > The four corrections above all concern the aggregate's own routes. Two more
   > by-KEY reads exist — the **projection show**
   > (`GET /api/projections/<p>/{key}`) and the **workflow-instance show**
@@ -1024,7 +1040,7 @@ the conforming backends, and the fix that established it.
   > the URLs each tier already requested.
   >
   > **And a sixth, at the last by-key read of all (2026-08-23, M-T6.39 /
-  > [#2645](https://github.com/lemmit/Loc/pull/2645)).** `GET /files/{key}` —
+  > [#2645](https://github.com/Loom-Harness/Loc/pull/2645)).** `GET /files/{key}` —
   > the root file-download route over a bound `objectStore` — was the one
   > absent-read site outside all five discoveries above, and it was wrong on
   > **all five backends at once**: node/python/elixir answered
@@ -1044,6 +1060,29 @@ the conforming backends, and the fix that established it.
   > through all of the above — **no golden reached the route**, and none could:
   > the routes are emitted only for a system with BOTH a `File` field and an
   > `objectStore`, and no corpus fixture had one until `file-download.ddd`.
+  >
+  > **And a seventh — this time on the OTHER side of the scope line
+  > (2026-09-21).** Everything above concerns a read addressed BY KEY, which is
+  > what this rule governs. The sibling class it scopes out — the DECLARED-FIND
+  > miss, whose `detail` is the bare `"not_found"` token because a predicate has
+  > no id to name — turned out to be split too, and the scope note above
+  > understated it by naming only the `option` carrier. A single-row `find` has
+  > FOUR carriers (`: T`, `: T?`, `: T option`, `: T envelope`), and **node
+  > spelled the token `"not found"` — with a space — on two of them**: `: T` and
+  > `: T envelope` refuse the miss in the REPOSITORY
+  > (`typescript/repository-find-builder.ts`), where the space-spelling lived,
+  > while `: T?` and `: T option` refuse it in the ROUTE (`routes-builder.ts`),
+  > which already answered the token. So it was a 4-vs-1 cross-backend split AND
+  > an intra-backend one — the same "one service, two answers" shape as node's
+  > by-id bypass above, one carrier axis further out. Fixed on node (the other
+  > four already answered the token); gated per SITE across all five backends x
+  > all four carriers by `test/conformance/find-miss-detail-parity.test.ts`,
+  > whose last assertion pins the by-id SENTENCE alongside, so the two classes
+  > cannot be collapsed into one answer by a later "tidy-up". It survived
+  > because no fixture declares a non-optional single-row find AND drives it to
+  > a miss: `envelope.ddd` was authored with a `test e2e` block and the block
+  > was withdrawn precisely because the golden would have frozen node's
+  > spelling as the answer key and reddened the other four legs.
 - **The real rule: don't hand-roll a 404.** This was not five backends inventing
   five strings. **Two agreed out of the box**, because on each the message comes
   from one shared producer — the repository's `getById`
@@ -1481,14 +1520,23 @@ nothing and the test passes vacuously.
   the absent row.
 - **Conforms.** node, dotnet, python, elixir, java (all five arms landed:
   dotnet/python/elixir/node in wave 1, java in the wave-2 residue).
-- **Open.** The `.NET` value-typed joined-field gap named above (a joined
-  `int`/`decimal`/`bool`/`datetime` reads `default(T)`, not wire `null`) is
-  UNVERIFIED and UNFIXED — no fixture in the corpus or the pinned test suite
-  exercises a joined field of those kinds today. Flipping .NET's absent-branch
-  from `default!` to an explicitly-nullable wire type (and widening the
-  Response schema's field to nullable for a joined member) is a one-line
-  change in `src/generator/dotnet/query-projection-emit.ts`'s `joinAliasRead`
-  branch per the wave-1 dotnet hand-off, but is not done here.
+- **The value-typed arm — closed (wave C5 moment 5b, D-ABSENT-JOIN-DATETIME-WIRE).**
+  The `.NET` gap named above (a joined `int`/`decimal`/`bool` read
+  `default(T)` — `0`/`false` — not wire `null`; a joined `datetime` is a string
+  on the .NET wire, so its `default!` already was `null`) is fixed: every member
+  a `select` reads through a join alias is NULLABLE in the row record, and the
+  absent branch is `null` (`joinReadFieldNames`,
+  `src/generator/_projection/join-read.ts`, shared by .NET / java / python).
+  The runtime witness that closed it —
+  [`corpus/datetime-wire.ddd`](../test/fixtures/corpus/datetime-wire.ddd),
+  which soft-deletes a join target and asserts its joined `datetime` and `int`
+  read `null` — found the same class on three backends listed as conforming:
+  python's row model declared the joined member non-nullable, so FastAPI's
+  response validation answered **500**; java's primitive `int` component
+  unboxed the guard's `null` (**500**, `NullPointerException`); and elixir's
+  join load did not apply the JOINED aggregate's capability filter, so a
+  soft-deleted target still joined (its fields leaked onto the row). All four
+  are fixed, and the Response schema widens each joined member to nullable.
 - **Provenance.** Raised as ledger row `G2667-D3-projection-join-unguarded-index`.
   Landed dotnet (`b75ce2c`) and node (`40202d9`) in wave 1 packets 1b/1c;
   python in wave 1 packet 1e; elixir in wave 1 packet 1d. Java landed in the
@@ -1499,9 +1547,287 @@ nothing and the test passes vacuously.
   block. **Mutation-proven**: reverting `renderSelectWire` to the pre-fix
   unguarded `<mapVar>.get(<key>).<member>()` (file-copy revert, never
   `git checkout --`) fails 4 named assertions across those two files. Tier:
-  **generator** (string-pinned per backend); no wire golden yet carries a
-  join-target-absent row on all five backends — the corpus fixtures never
-  declare a query-time projection `join` at all (grepped empty across
-  `examples/**` and `web/src/examples/**`), so this rule's coverage is
-  entirely the dedicated fixture tests named above, not the corpus/behavioral
-  legs.
+  **behavioral** since wave C5 moment 5b —
+  `test/behavioral/wire-golden/datetime-wire.json` carries a join-target-absent
+  row diffed by all seven wire-gated legs. Before it the rule was string-pinned
+  per backend only, which is exactly how three of the five value-typed arms
+  stayed broken while the registry listed them as conforming.
+
+### RS-35 · An absent optional is `null` on the wire, never an omitted key
+- **Guarantee.** An optional scalar (`estimate: int?`) that a create body
+  **omitted** reads back as the key CARRYING an explicit null —
+  `{"estimate": null}` — on every backend and every persistence adapter. The
+  key is never dropped from the payload, so a client can tell "declared but
+  unset" from "not a field of this resource" without consulting the schema.
+- **Trigger.** `absent-optional.ddd`: an aggregate with an optional scalar and
+  a null-guard invariant over it (`estimate == null || estimate >= 0`), created
+  by a body that omits the field entirely, then read back by id and by list.
+- **Why the structural gate can't see it.** Both spellings satisfy the same
+  emitted schema — an `estimate?: number` member is happy with a null and
+  equally happy with nothing. Loom has **one** absence value; JSON has **two**
+  spellings of it; nothing in the OpenAPI diff chooses between them.
+- **Why this is documented rather than established.** Unlike most rules here,
+  RS-35 records a contract the tier **already enforced** — the M-T5.36 packet
+  that added the `toBeNull()` / `toBeAbsent()` matchers verified the gate
+  rather than building one. Three things have to hold, and all three were
+  checked at the code face:
+
+  1. **Normalization keeps the evidence.** `normalizeBody`
+     (`test/_helpers/response-diff.ts`) collapses volatile *values* to tokens
+     but never drops *keys*, and returns `null` unchanged. Absent and null stay
+     distinguishable through it — as its own comment puts it, "absence is
+     contract, so it must remain visible to `diffBodies`".
+  2. **The differ raises on it.** `diffBodies` unions both sides' key sets and
+     raises a **`key-set`** divergence when a key is on one side only;
+     `null-vs-empty` is a separate kind, covering `[]`/`{}` against null.
+  3. **The subject is actually compared.** `wire-golden/absent-optional.json`
+     records `"estimate": null` on both read bodies — the golden CARRIES the
+     optional key, rather than only the fields a non-conforming backend would
+     also have sent. (This is the "make the fixture able to falsify the rule"
+     test above: a golden that omitted `estimate` could not fail on it.)
+- **Reach, confirmed by derivation rather than assumed.** The recurring failure
+  shape in this repo is a check that never reaches the thing it names, so the
+  case-to-leg mapping was *derived*, not read: `requiredGoldenCases()` lists
+  **all seven wire-gated legs** — `run.mjs` (node), `run-mikroorm.mjs`,
+  `run-dotnet.mjs`, `run-dapper.mjs`, `run-java.mjs`, `run-python.mjs`,
+  `run-elixir.mjs` — as recorders of `absent-optional`, and none of the three
+  escape hatches covers it: `WIRE_WAIVERS` is empty, `GOLDEN_OPT_OUT` is empty,
+  and `BEHAVIOURAL_SKIP` is drained for every platform clause. Four sibling
+  optional-carrying cases (`embedded-optional`, `optional-reference`,
+  `optional-valueobject`, `union-find-absence`) derive the same seven legs.
+- **The shape of the guarantee, stated plainly.** Each leg is diffed against
+  the committed **node-oracle** golden, so what is enforced is "all five agree
+  with the reviewed recording", not "all five were compared to each other".
+  Moving the contract means rebaselining a checked-in file
+  (`LOOM_WIRE_UPDATE=1`), which lands as a visible diff a human approves —
+  deliberate, not silent.
+- **The DSL surface.** The absence **pair** (`docs/language.md`):
+  `expect(<read>.<field>).toBeNull()` asserts the spelling above;
+  `expect(<read>.<field>).toBeAbsent()` asserts the other one and therefore has
+  **no passing subject on any backend today**. That is intentional — it is not
+  special-cased into passing, so a backend that starts omitting a key turns a
+  test red instead of drifting silently. `toBeAbsent()` is e2e-only
+  (`loom.unit-absent-invalid`): in-process a declared field always exists.
+- **Conforms.** node, dotnet, java, python, elixir (all adapters).
+- **Provenance.** Contract enforced since #2577 / M-T9.11 (the per-PR wire
+  differential); named and written down by M-T5.36/P11b. Tier: **behavioral**.
+- **⚠ Registry entry pending — and why (a finding, not an oversight).** Step 1
+  of *Adding a rule* above says the `RS-N` entry goes in
+  `test/conformance/semantics-rules.ts`, and `semantics-rules.test.ts` is meant
+  to make a prose-only rule impossible. **It currently cannot be followed.**
+  That registry holds `RS-1 … RS-31` and its `ids are unique and gap-free`
+  assertion requires the numbers to be *contiguous* — but **RS-32, RS-33 and
+  RS-34 were merged into this document with no registry entries** (RS-32/RS-33
+  in #2704, RS-34 in the wave-2 packet 2.7). So the registry is three rules
+  behind the prose, and **any** new rule is now unlandable there: taking `RS-35`
+  fails the contiguity assertion, and taking `RS-32` would collide with a number
+  this document already uses, which the `id` contract ("never renumbered")
+  forbids.
+
+  The gate that was supposed to prevent prose-only rules only checks the
+  registry's *internal* consistency, never prose-vs-registry parity — which is
+  exactly how three rules slipped past it.
+
+  **Remedy, for whoever picks this up:** backfill registry entries for RS-32,
+  RS-33 and RS-34 from their prose above, then add RS-35, then regenerate the
+  mirror (`UPDATE_SEMANTICS_SPEC=1 npx vitest run
+  test/conformance/semantics-spec-sync.test.ts`). Authoring three other
+  packets' entries is a mission of its own — misstating another rule's
+  `conforms`/`targets` is worse than the gap — so P11b records the blocker here
+  rather than guessing at them. A prose-vs-registry parity assertion belongs in
+  the same change, or this recurs.
+### RS-36 · `.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form
+- **Guarantee.** `first` is declared `T` — **non-optional** — in
+  `src/util/collection-ops.ts`, so reading it from an empty receiver FAILS on
+  every target rather than yielding a value that lies about its own type.
+  `firstOrNull` is declared `T?` and is the TOTAL form: null/nil on empty,
+  never raising. The failure surfaces as the sanitized **500** RS-28 already
+  governs, not a domain-floor 422 — the request was valid and the MODEL's
+  assumption ("this collection has a first element") was not.
+- **Trigger.** Any `.first` whose receiver can be empty: `lines.first.sku`
+  after a `where` that matched nothing, a `find` result bound and read
+  positionally, a `derived` over an empty containment.
+- **The split when raised (`F2-EXPR-7`).** Three targets already failed at the
+  point of the mistake and two degraded silently: dotnet `.First()`
+  (`InvalidOperationException`), java `.get(0)` (`IndexOutOfBoundsException`)
+  and python `[0]` (`IndexError`) — against node `${recv}[0]` (`undefined`) and
+  elixir `List.first(${recv})` (`nil`). Elixir's `first` and `firstOrNull` were
+  **literally the same snippet**, so the non-optional form had no distinct
+  meaning at all, and on node a `string`-typed getter returned `undefined`,
+  which then shipped on the wire or died later somewhere that never mentions
+  the collection.
+- **Rejected: making `first` total (`T?`).** That contradicts the declared
+  signature and would break every `lines.first.sku` in the language for a case
+  authors can already express with `firstOrNull`. A failure AT the read is
+  diagnosable; a null that ships is not. (This is RS-34's argument reaching the
+  opposite conclusion, and for the stated reason: there the absent value has a
+  MEANING — no joined row — and here it does not.)
+- **Per-backend shape.** node emits an arrow IIFE guard rather than a bare
+  `[0]`, so the receiver is evaluated once and the message names the total
+  form: `((__c) => { if (__c.length === 0) throw new Error("'.first' on an
+  empty collection — use '.firstOrNull' for the total form"); return __c[0]; })(<recv>)`
+  (`src/generator/_expr/js-collection-ops.ts`, shared with the JS frontend
+  walkers — where a stdlib collection op in a page body is refused outright by
+  `loom.frontend-collection-op-unsupported`, so the guard is backend-reachable
+  only). elixir moves `first` to `hd/1` (`ArgumentError` on `[]`) and keeps
+  `List.first/1` for `firstOrNull` (`src/generator/elixir/render-expr.ts`).
+  dotnet / java / python are unchanged: their natural renderings already raise.
+- **Provenance.** Ruled as **D-FIRST-ON-EMPTY** (`docs/decisions.md`); raised as
+  ledger row `F2-EXPR-7`; built in wave C2 packet 2n. Tier: **generator**
+  (per-backend arm test,
+  `test/generator/collection-op-first-partial.test.ts`) — the edge itself is
+  pinned as prose in `src/util/collection-ops.ts` the way
+  `src/util/intrinsics.ts` pins scalar edge behaviour. The FRONTEND half is
+  vacuous by construction today (the page-body gate above); should that gate
+  ever widen, the frontends follow this same rule rather than degrading to
+  `undefined`.
+
+### RS-37 · `decimal` arithmetic is **EXACT** — `0.1 + 0.2` is `0.3` on the wire and in storage
+- **Guarantee.** Every backend computes `decimal` arithmetic in DECIMAL, not in
+  binary floating point: `+`, `-`, `*`, `/`, `%` whose result types as `decimal`
+  (including the `int / int` division the type system widens to `decimal`), a
+  `decimal` `sum` fold, and `decimal.round(n)` (half away from zero on the
+  exact value). `0.1 + 0.2` answers `0.3`, and so does the value an operation
+  writes to a stored column and a later read returns. RS-24 is unchanged — the result still *serializes* as a float64 JSON number; only
+  the *computation* moved.
+- **Trigger.** `test/fixtures/corpus/decimal-exact.ddd`:
+
+  | expression | double | exact |
+  |---|---|---|
+  | `a + b` (0.1 + 0.2) | `0.30000000000000004` | `0.3` |
+  | `c * c * c` (1.1³ — a chain) | `1.3310000000000004` | `1.331` |
+  | `d / a` (0.3 / 0.1) | `2.9999999999999996` | `3` |
+  | `(a + b) * 3 - d` | `0.6000000000000001` | `0.6` |
+  | `tie.round(2)` (1.005) | `1` | `1.01` |
+  | `parts.sum(p => p.weight)` over 0.1, 0.2 | `0.30000000000000004` | `0.3` |
+  | `total := total + x` (0.1 + 0.2, stored, read back) | `0.30000000000000004` | `0.3` |
+
+  Every literal is binary-INEXACT on purpose, and each pair differs AFTER the
+  RS-24 narrowing — a value that differed only in the 20th digit would pass
+  with the fix reverted. One more row witnesses the *chain*, not the double:
+  `a / 3 * 3` (0.1) is `0.0999…9` exactly and narrows to `0.1` on the wire,
+  while a backend that computed each step exactly but narrowed to a double
+  between steps answers `0.09999999999999999` — so a chain stays decimal until
+  its root. It is asserted on the wire only: in-process, the decimal-typed
+  backends hold the un-narrowed `0.0999…9`.
+- **Why it hid.** RS-24 pinned how a `decimal` serializes and nothing pinned
+  how it computes. .NET (`System.Decimal`), Java (`BigDecimal`) and Elixir
+  (`Decimal`) computed exactly; node (a JS `number`) and python (a `float`)
+  computed in doubles — and persisted the result into the shared unbounded
+  `DECIMAL` column. Single divisions of binary-exact operands agree by
+  coincidence (double division is correctly rounded), which is why `7 / 3`
+  never exposed it, and the corpus carried no float-error-visible decimal
+  arithmetic at all: the witness could not be added first, because against the
+  node oracle it alone would have turned the three CORRECT backends red.
+- **The ruling.** **D-DECIMAL-EXACT-MOMENT**, given by the owner 2026-09-07:
+  `decimal` exists precisely to avoid binary-float error, so a decimal that
+  answers `0.30000000000000004` is broken by its own definition. It superseded
+  the numeric-types audit's proposed float64/node-oracle default. `money` was
+  never at stake (a fixed-scale-4 string, already exact on all five — RS-12).
+- **Per-backend shape.** node lifts the operation into decimal.js and narrows
+  with `.toNumber()` **once, at the root of the chain** — a nested decimal
+  operand hands over its `Decimal` un-narrowed, so `c * c * c` is one exact
+  product, not two re-rounded doubles (`src/generator/typescript/render-expr.ts`:
+  `new Decimal(this._c).times(this._c).times(this._c).toNumber()`). python lifts
+  each operand through `Decimal(str(x))` — the shortest-repr route, a no-op by
+  value for an operand that already is a `Decimal` — and narrows with
+  `float(...)` once (`src/generator/python/render-expr.ts`:
+  `float(Decimal(str(self._a)) + Decimal(str(self._b)))`); a `decimal` `%` stops
+  detouring through `trunc_mod`, because `Decimal`'s remainder already truncates.
+  Both keep the domain and wire type a double, so no repository, DTO or codec
+  changed. .NET / Java / Elixir are unchanged.
+- **Historical rows.** Values node and python persisted before this rule are
+  NOT rewritten — see [`migrations.md`](migrations.md).
+- **Not part of the guarantee (named, handed off).** node computes at decimal.js's
+  default 20 significant digits (python/.NET/Elixir 28; Java exact for `+ - *`,
+  34 digits for `/`) — every value above agrees after the narrowing, and a
+  result that differs only in its 18th–28th digit is the precision-alignment
+  follow-up, not a conformance claim here. The wire-boundary zod `.refine` node
+  emits for a cross-field invariant (`src/generator/zod-refine.ts`, shared with
+  the JS frontends) still evaluates in doubles; the domain's own invariant
+  check behind it is exact.
+- **Numbering.** D-DECIMAL-EXACT-MOMENT's text says "take RS-38" because
+  D-ABSENT-JOIN-DATETIME-WIRE reserved RS-37 for the datetime wire form. This
+  rule landed first, and the registry's gap-free gate refuses an RS-38 with no
+  RS-37, so it is RS-37; the datetime rule takes the next free number when it
+  lands.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** Raised by the numeric-types audit
+  ([F11](audits/numeric-types-audit-2026-08-23.md)); ruled as
+  D-DECIMAL-EXACT-MOMENT; built as M-T5.22 (wave C5 moment 5a). Tier:
+  **behavioral** — the witness's unit `test` block runs on all five unit tiers
+  and its `test e2e` block records `test/behavioral/wire-golden/decimal-exact.json`,
+  diffed by all seven wire-gated legs.
+
+### RS-38 · A `datetime` crosses the wire in **milliseconds** — three digits when a fraction is present, none on a whole second
+- **Guarantee.** Every `datetime` a backend serializes is ISO-8601 UTC with a
+  `Z` suffix and **at most three** fractional digits: **exactly three** when the
+  instant has a sub-second part (`2024-03-01T10:20:30.120Z` — the trailing zero
+  is kept), **none at all** on a whole second (`2024-03-01T10:20:30Z`, RS-4's
+  canonical form). Sub-millisecond input is **truncated at ingress, never
+  rounded** — `…30.9996Z` is stored and read back as `…30.999Z` — so the stored
+  value and the wire value agree and a read-back equals the write (RS-4).
+  Rounding would carry `.9996` into the next second.
+- **Trigger.** `test/fixtures/corpus/datetime-wire.ddd`, every value asserted as
+  a STRING in its `test e2e` block (the spelling is the contract, so
+  `datetime(...)`, which compares instants, would be the wrong assertion):
+
+  | written | wire | what it separates |
+  |---|---|---|
+  | `…10:20:30Z` | `…10:20:30Z` | an unconditional three digits (`.000Z`) |
+  | `…08:00:00.500Z` | `…08:00:00.500Z` | a minimal trim (`.5Z`) |
+  | `…10:20:30.120Z` | `…10:20:30.120Z` | minimal trim (`.12Z`), microseconds (`.120000Z`), second precision (`…30Z`) |
+  | `…10:20:30.9996Z` | `…10:20:30.999Z` | truncation vs rounding (`…31Z`) |
+  | `…09:00:00.050Z` via an operation param | `…09:00:00.050Z` | the second ingress path (and elixir's `force_change` seam) |
+
+  plus a query-time projection joining a `datetime` and an `int` off a
+  soft-deleted venue — the RS-34 absent branch, wire `null` for both.
+- **The split when raised (ledger `F2-W-06`).** One stored instant, four
+  spellings, one mechanism each: node `toISOString().replace(/\.?0+Z$/, "Z")`
+  stripped EVERY trailing zero (`.12Z`); java `Instant.toString()` printed
+  groups of three (`.120Z`) but a microsecond column value in six; python
+  `isoformat()` printed six (`.120000Z`); .NET trimmed its seven-digit `"o"` form
+  the node way; and elixir's column was `:utc_datetime` — SECOND precision — so
+  the fraction a client wrote was lost on the way into the database.
+- **Why it hid.** The wire-golden normaliser collapsed every ISO-8601 spelling
+  (`.12Z`, `.120000Z`, `+00:00`, a space separator, no fraction) to one
+  `<timestamp>` token by design, so a differential tier comparing five backends
+  could not see a form divergence at all — "normalisation is what hid F2-W-05
+  and F2-W-06" (D-ABSENT-JOIN-DATETIME-WIRE). It is **narrowed** with this rule
+  (`test/_helpers/response-diff.ts`): only the two canonical spellings collapse,
+  anything else stays verbatim and diverges from the golden's `<timestamp>`.
+- **Per-backend shape.** node `canonicalIsoExpr` →
+  `.toISOString().replace(/\.000Z$/, "Z")` (a JS `Date` is millisecond-exact,
+  so only the all-zero group moves); .NET `csCanonicalInstantWire` /
+  `CanonicalInstant.Format` → the custom `yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'`
+  format (`fff` truncates) with `.000Z` dropped, and ingress truncates the parsed
+  ticks to the millisecond; java `javaInstantWire` →
+  `.truncatedTo(ChronoUnit.MILLIS).toString()`, and `WireFormatException.instant`
+  truncates at ingress; python `iso()` → `isoformat(timespec="milliseconds")`
+  (truncating) or no fraction below one millisecond, and `pyWireToDomain`
+  truncates the parsed microseconds; elixir types every declared `datetime`
+  field as `Loom.Datetime` — an Ecto type over `:utc_datetime_usec` on a
+  `timestamptz` column that casts, loads and normalises to microsecond
+  precision `{ms * 1000, 3}` (or `{0, 0}` on a whole second), which is exactly
+  what `DateTime.to_iso8601/1` — and so Jason — prints as the canonical form;
+  the second-truncation seams (`__truncate_dt/1`, the stamp writers, the
+  projection fold, the grouped key) normalise through `Loom.Datetime.normalize/1`
+  instead.
+- **Correction carried from the ruling.** "Three digits on every backend" as
+  first proposed contradicts RS-4 (PINNED): a whole-second instant keeps the
+  `…00Z` form, and "exactly three digits" applies only when a fraction is
+  present.
+- **Not part of the guarantee (named).** The rule covers the HTTP wire. The
+  channel / realtime envelope encodings still spell a datetime their own way on
+  python (`isoformat()`) and elixir (`to_iso8601` of a `utc_now()`), and node's
+  channel envelope uses a bare `toISOString()` (`.000Z` on a whole second); none
+  is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
+  `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
+  elixir database created before this rule keeps its `timestamp(0)` columns until
+  an operator alters them — see [`migrations.md`](migrations.md).
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** Ledger `F2-W-06`; ruled as D-ABSENT-JOIN-DATETIME-WIRE (which
+  reserved RS-37 for it; RS-37 went to decimal-exact first, so this is RS-38);
+  measured in wave C2 packets 2a / 2f / 2m, built as wave C5 moment 5b. Tier:
+  **behavioral** — `test/behavioral/wire-golden/datetime-wire.json`, diffed by all
+  seven wire-gated legs, plus the witness's string assertions on every leg.

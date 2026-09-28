@@ -43,6 +43,7 @@ import {
 import { snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
+import { effectiveGate } from "./gate.js";
 
 /** Path of the shared shape module inside the generated project. */
 export function vanillaHistoryModulePath(appName: string): string {
@@ -321,12 +322,13 @@ export function renderVanillaHistoryAction(
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
     end`;
-  if (!find.requires) {
+  const requiresGate = effectiveGate(find.requires);
+  if (!requiresGate) {
     return `  def history(conn, %{"id" => id}) do
 ${cuBind}${inner}
   end`;
   }
-  const gate = renderExpr(find.requires, predicateCtx(appModule, ctx, agg));
+  const gate = renderExpr(requiresGate, predicateCtx(appModule, ctx, agg));
   // (1) — the gate short-circuits before the entity read, so a denied caller
   // cannot even probe for the row's existence.
   return `  def history(conn, %{"id" => id}) do

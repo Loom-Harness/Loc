@@ -141,8 +141,15 @@ describe("Provenanced<T> — the value+lineage carrier is one shape on all five 
     // …and the published OpenAPI schema agrees (it named a bare `T` and never
     // mentioned the lineage before the carrier — the Phoenix document
     // disagreed with the JSON the controller actually served).
+    // The carried `T` is an `int`, and since Schemathesis F11 (wave C2 packet
+    // 2m) an elixir `int` publishes its declared int32 range — inside the
+    // carrier exactly as outside it, which is the point of the carrier being
+    // one shape.
+    const INT32 =
+      "%OpenApiSpex.Schema{type: :integer, format: :int32, " +
+      "minimum: -2147483648, maximum: 2147483647}";
     expect(out).toContain(
-      `total: %OpenApiSpex.Schema{type: :object, properties: %{${VALUE}: %OpenApiSpex.Schema{type: :integer}, ${LINEAGE}: %OpenApiSpex.Schema{type: :object}}, required: [:${VALUE}]}`,
+      `total: %OpenApiSpex.Schema{type: :object, properties: %{${VALUE}: ${INT32}, ${LINEAGE}: %OpenApiSpex.Schema{type: :object}}, required: [:${VALUE}]}`,
     );
     expect(out).not.toContain('"total_provenance" => record');
   });

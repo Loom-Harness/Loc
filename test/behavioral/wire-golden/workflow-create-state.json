@@ -1,0 +1,237 @@
+{
+  "case": "workflow-create-state",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/fulfillment",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/workflows/fulfillment/instances",
+      "status": 200,
+      "body": [
+        {
+          "attempts": 0,
+          "orderId": "<volatile:key>",
+          "status": "Pending"
+        }
+      ]
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/workflows/fulfillment/instances/{id}",
+      "status": 200,
+      "body": {
+        "attempts": 0,
+        "orderId": "<volatile:key>",
+        "status": "Pending"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/workflows/fulfillment/instances/{id}",
+      "status": 200,
+      "body": {
+        "attempts": 1,
+        "orderId": "<volatile:key>",
+        "status": "Shipped"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "sku": "SKU-1",
+        "status": "Shipped",
+        "version": 2
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/workflows/fulfillment/instances/{id}",
+      "status": 200,
+      "body": {
+        "attempts": 1,
+        "orderId": "<volatile:key>",
+        "status": "Shipped"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/workflows/escalation",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/workflows/escalation/instances",
+      "status": 200,
+      "body": [
+        {
+          "escalatedOrder": "<uuid>",
+          "level": 1
+        }
+      ]
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/workflows/escalation/instances/{id}",
+      "status": 200,
+      "body": {
+        "escalatedOrder": "<uuid>",
+        "level": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "sku": "SKU-1",
+            "status": "Shipped",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/workflows/fulfillment/instances",
+      "status": 200,
+      "body": [
+        {
+          "attempts": 1,
+          "orderId": "<volatile:key>",
+          "status": "Shipped"
+        }
+      ]
+    },
+    {
+      "seq": 16,
+      "method": "PATCH",
+      "path": "/api/orders",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/orders",
+        "instance": "/api/orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/orders",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/workflows/fulfillment/instances/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Fulfillment {id} not found",
+        "instance": "/api/workflows/fulfillment/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/workflows/escalation/instances/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Escalation {id} not found",
+        "instance": "/api/workflows/escalation/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

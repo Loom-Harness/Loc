@@ -11,6 +11,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { ectoIdType, projectionRowModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
+import { effectiveGate } from "./gate.js";
 import { mapTypeToEcto } from "./schema-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -180,14 +181,15 @@ function renderProjectionActions(
   // projection action in `query-projections-emit.ts`.  A folded projection is a
   // table of rows a client can GET; being written by folds rather than queried
   // live says nothing about who may read it.  Ungated ⇒ byte-identical.
-  const gateExpr = proj.query?.requires
-    ? renderExpr(proj.query.requires, {
+  const projGate = effectiveGate(proj.query?.requires);
+  const gateExpr = projGate
+    ? renderExpr(projGate, {
         thisName: "record",
         contextModule,
       })
     : null;
   const cuBind =
-    proj.query?.requires && exprUsesCurrentUser(proj.query.requires)
+    projGate && exprUsesCurrentUser(projGate)
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"
       : "";
   const denial = denialResponse(

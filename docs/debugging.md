@@ -226,6 +226,16 @@ regions, so the raw fan-out answered `label := note` with the real
 targets are listed only for a line that has no finer mapping (an
 `aggregate Order {` header, a plain property), where they are the answer.
 
+**A MEMBER's declaration line is not one of those coarse lines.** Every
+operation body records a region of its own carrying the member's origin
+(`declarationSubRegion`, `src/generator/_trace/sourcemap.ts`), so
+`operation complete(note: string) when status == InProgress {` resolves to the
+method's real generated line — `domain/workOrder.ts:155`, not
+`domain/workOrder.ts:1`, which is what an engineer asking for a breakpoint on
+that line meant (finding F-021). Statement lines inside the member are
+unaffected: their own regions are narrower in origin terms and still win,
+column and all.
+
 ## 4. The `ddd-dap` debug adapter
 
 `packages/ddd-dap` is a standalone [Debug Adapter

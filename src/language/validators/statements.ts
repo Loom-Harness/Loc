@@ -95,11 +95,11 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
   // `audited` instruments the operation's HTTP route handler; a private
   // operation has no route, so the modifier produces no audit record.
   if (op.audited && op.private) {
-    accept(
-      "warning",
-      `'audited' has no effect on private operation '${op.name}' — it has no HTTP entry point, so no audit record is produced.`,
-      { node: op, property: "audited" },
-    );
+    accept("warning", diagMessage("loom.audited-private-operation", { name: op.name }), {
+      node: op,
+      property: "audited",
+      code: "loom.audited-private-operation",
+    });
   }
 
   // `when Expr` (canCommand state gate, criterion.md use site 2): a pure
@@ -121,9 +121,10 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
     }
     const t = typeOf(op.when, envForAggregate(agg));
     if (t.kind !== "primitive" || t.name !== "bool") {
-      accept("error", `'when' must be of type 'bool', got '${typeToString(t)}'.`, {
+      accept("error", diagMessage("loom.when-not-bool", { actual: typeToString(t) }), {
         node: op,
         property: "when",
+        code: "loom.when-not-bool",
       });
     }
     if (op.private) {
@@ -133,11 +134,11 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
       // method) is refused.  What a private operation loses is the HTTP
       // surface: no route to gate, and no `can-<op>` companion for a UI to
       // read.  The warning says exactly that, and no more.
-      accept(
-        "warning",
-        `'when' on private operation '${op.name}' gates the domain method but exposes nothing — a private operation has no HTTP entry point, so no can-${op.name} query is emitted for a UI to read the gate.`,
-        { node: op, property: "when" },
-      );
+      accept("warning", diagMessage("loom.when-private-operation", { name: op.name }), {
+        node: op,
+        property: "when",
+        code: "loom.when-private-operation",
+      });
     }
   }
 
@@ -154,17 +155,18 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
   if (op.gate) {
     const gt = typeOf(op.gate, env);
     if (gt.kind !== "primitive" || gt.name !== "bool") {
-      accept("error", `'requires' must be of type 'bool', got '${typeToString(gt)}'.`, {
+      accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(gt) }), {
         node: op,
         property: "gate",
+        code: "loom.requires-not-bool",
       });
     }
     if (op.private) {
-      accept(
-        "warning",
-        `'requires' has no effect on private operation '${op.name}' — it has no HTTP entry point, so no authorization gate is emitted.`,
-        { node: op, property: "gate" },
-      );
+      accept("warning", diagMessage("loom.requires-private-operation", { name: op.name }), {
+        node: op,
+        property: "gate",
+        code: "loom.requires-private-operation",
+      });
     }
   }
 
@@ -223,11 +225,11 @@ export function checkRetrievalLiteral(model: Model, accept: ValidationAcceptor):
         w.suffixes.length === 1 &&
         isCallSuffix(w.suffixes[0]));
     if (!isCriterionRef) {
-      accept(
-        "error",
-        "an anonymous retrieval's 'where:' must be a criterion reference (e.g. 'ActiveOrder' or 'InRegion(r)') in this release.",
-        { node, property: "where" },
-      );
+      accept("error", diagMessage("loom.retrieval-where-not-criterion"), {
+        node,
+        property: "where",
+        code: "loom.retrieval-where-not-criterion",
+      });
     }
   }
 }
@@ -251,9 +253,10 @@ export function checkStatement(
     checkBlankMessage(stmt, stmt.message, accept);
     const t = typeOf(stmt.expr, env);
     if (t.kind !== "primitive" || t.name !== "bool") {
-      accept("error", `'precondition' must be of type 'bool', got '${typeToString(t)}'.`, {
+      accept("error", diagMessage("loom.precondition-not-bool", { actual: typeToString(t) }), {
         node: stmt,
         property: "expr",
+        code: "loom.precondition-not-bool",
       });
     }
     return env;
@@ -261,9 +264,10 @@ export function checkStatement(
   if (isRequiresStmt(stmt)) {
     const t = typeOf(stmt.expr, env);
     if (t.kind !== "primitive" || t.name !== "bool") {
-      accept("error", `'requires' must be of type 'bool', got '${typeToString(t)}'.`, {
+      accept("error", diagMessage("loom.requires-not-bool", { actual: typeToString(t) }), {
         node: stmt,
         property: "expr",
+        code: "loom.requires-not-bool",
       });
     }
     return env;
@@ -301,9 +305,10 @@ export function checkAssignOrCall(
   // Reject assignment to a derived property — derived members are
   // computed from other state and writing to them would silently no-op.
   if (lvalueIsDerived(stmt.target, agg)) {
-    accept("error", `Cannot assign to derived property '${pathString(stmt.target)}'.`, {
+    accept("error", diagMessage("loom.assign-to-derived", { path: pathString(stmt.target) }), {
       node: stmt,
       property: "target",
+      code: "loom.assign-to-derived",
     });
     return;
   }
@@ -317,8 +322,11 @@ export function checkAssignOrCall(
     ) {
       accept(
         "error",
-        `Cannot assign '${typeToString(valueType)}' to '${typeToString(targetType)}'.`,
-        { node: stmt, property: "value" },
+        diagMessage("loom.assign-type-mismatch", {
+          actual: typeToString(valueType),
+          expected: typeToString(targetType),
+        }),
+        { node: stmt, property: "value", code: "loom.assign-type-mismatch" },
       );
     }
     warnSensitivityDrop(valueType, targetType, accept, { node: stmt, property: "value" });
@@ -327,8 +335,11 @@ export function checkAssignOrCall(
     if (targetType.kind !== "array") {
       accept(
         "error",
-        `'${stmt.op}' requires a collection on the left-hand side, got '${typeToString(targetType)}'.`,
-        { node: stmt, property: "target" },
+        diagMessage("loom.collection-mutation-non-collection", {
+          op: stmt.op,
+          actual: typeToString(targetType),
+        }),
+        { node: stmt, property: "target", code: "loom.collection-mutation-non-collection" },
       );
       return;
     }
@@ -340,8 +351,12 @@ export function checkAssignOrCall(
     ) {
       accept(
         "error",
-        `Cannot ${stmt.op === "+=" ? "add" : "remove"} element of type '${typeToString(valueType)}' to/from collection of '${typeToString(targetType.element)}'.`,
-        { node: stmt, property: "value" },
+        diagMessage("loom.collection-mutation-element-type", {
+          verb: stmt.op === "+=" ? "add" : "remove",
+          actual: typeToString(valueType),
+          element: typeToString(targetType.element),
+        }),
+        { node: stmt, property: "value", code: "loom.collection-mutation-element-type" },
       );
     }
     warnSensitivityDrop(valueType, targetType.element, accept, {
@@ -826,17 +841,22 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
     ) {
       accept(
         "error",
-        `Field '${f.name}' expects '${typeToString(expected)}' but got '${typeToString(actual)}'.`,
-        { node: f, property: "value" },
+        diagMessage("loom.emit-field-type", {
+          name: f.name,
+          expected: typeToString(expected),
+          actual: typeToString(actual),
+        }),
+        { node: f, property: "value", code: "loom.emit-field-type" },
       );
     }
     warnSensitivityDrop(actual, expected, accept, { node: f, property: "value" });
   }
   for (const [name] of declared) {
     if (!seen.has(name)) {
-      accept("warning", `Event field '${name}' not provided.`, {
+      accept("warning", diagMessage("loom.emit-field-missing", { name }), {
         node: stmt,
         property: "event",
+        code: "loom.emit-field-missing",
       });
     }
   }
@@ -929,13 +949,17 @@ export function checkCallStmt(
     const target = findOperation(agg, name);
     if (target) {
       if (target === op) {
-        accept("warning", `Operation '${name}' calls itself.`, { node: stmt });
+        accept("warning", diagMessage("loom.operation-self-call", { name }), {
+          node: stmt,
+          code: "loom.operation-self-call",
+        });
       }
       checkCallArgs(target.params, lv.args, env, `Operation '${name}'`, stmt, accept);
       return;
     }
-    accept("error", `Cannot resolve call to '${name}' from aggregate '${agg.name}'.`, {
+    accept("error", diagMessage("loom.unresolved-call", { name, agg: agg.name }), {
       node: stmt,
+      code: "loom.unresolved-call",
     });
     return;
   }
@@ -956,24 +980,31 @@ export function checkCallStmt(
     for (let i = 0; i < lv.tail.length - 1; i++) {
       recv = stepInto(recv, lv.tail[i]!);
       if (recv.kind === "unknown") {
-        accept("error", `Cannot resolve member '${lv.tail[i]}'.`, { node: lv });
+        accept("error", diagMessage("loom.unresolved-member", { member: lv.tail[i] }), {
+          node: lv,
+          code: "loom.unresolved-member",
+        });
         return;
       }
     }
     const methodName = lv.tail[lv.tail.length - 1]!;
     const memberNode = stepIntoNode(recv, methodName);
     if (!memberNode) {
-      accept("error", `Cannot resolve member '${methodName}' on type '${typeToString(recv)}'.`, {
-        node: lv,
-      });
+      accept(
+        "error",
+        diagMessage("loom.unresolved-member#on-type", {
+          member: methodName,
+          recv: typeToString(recv),
+        }),
+        { node: lv, code: "loom.unresolved-member" },
+      );
       return;
     }
     if (!isOperation(memberNode) && !isFunctionDecl(memberNode)) {
-      accept(
-        "error",
-        `Member '${methodName}' is not callable — only operations and functions can be called.`,
-        { node: lv },
-      );
+      accept("error", diagMessage("loom.member-not-callable", { member: methodName }), {
+        node: lv,
+        code: "loom.member-not-callable",
+      });
       return;
     }
     checkCallArgs(
@@ -986,11 +1017,10 @@ export function checkCallStmt(
     );
     return;
   }
-  accept(
-    "error",
-    `Bare statement must be an assignment, collection mutation, or function/operation call.`,
-    { node: stmt },
-  );
+  accept("error", diagMessage("loom.bare-statement-invalid"), {
+    node: stmt,
+    code: "loom.bare-statement-invalid",
+  });
 }
 
 export function lvalueType(
@@ -1015,14 +1045,21 @@ export function lvalueType(
     // Check aggregate root members
     cur = lookupRootMember(agg, lv.head);
     if (cur.kind === "unknown") {
-      accept("error", `Cannot resolve '${lv.head}'.`, { node: lv, property: "head" });
+      accept("error", diagMessage("loom.unresolved-lvalue-head", { head: lv.head }), {
+        node: lv,
+        property: "head",
+        code: "loom.unresolved-lvalue-head",
+      });
       return T.unknown;
     }
   }
   for (const seg of lv.tail) {
     cur = stepInto(cur, seg);
     if (cur.kind === "unknown") {
-      accept("error", `Cannot resolve member '${seg}'.`, { node: lv });
+      accept("error", diagMessage("loom.unresolved-member", { member: seg }), {
+        node: lv,
+        code: "loom.unresolved-member",
+      });
       return T.unknown;
     }
   }

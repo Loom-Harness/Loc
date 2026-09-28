@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from "vitest";
 import { collectLeaves } from "../../../src/generator/_stmt/leaves.js";
-import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** Render a leaf the way a backend would — enough to tell the leaves apart. */
@@ -32,6 +32,11 @@ const render = (e: ExprIR): string =>
   e.kind === "ref" ? e.name : e.kind === "member" ? `${render(e.receiver)}.${e.member}` : "?";
 
 const prop = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+
+/** Element / member types for the collection fixtures below — the IR carries
+ *  both on every member read, so the fixtures do too. */
+const LINE: TypeIR = { kind: "entity", name: "Line" };
+const MONEY_T: TypeIR = { kind: "primitive", name: "money" };
 const paths = (e: ExprIR) => collectLeaves(e, render).map((l) => l.path);
 
 describe("collectLeaves — arms the hand-written switch dropped", () => {
@@ -79,20 +84,23 @@ describe("collectLeaves — binding-introducing slots stay undescended", () => {
     const rhs: ExprIR = {
       kind: "method-call",
       receiver: prop("lines"),
-      method: "sum",
+      member: "sum",
       args: [
         {
           kind: "lambda",
-          params: [{ name: "l" }],
+          param: "l",
           body: {
             kind: "member",
-            receiver: { kind: "ref", name: "l", refKind: "param" },
+            receiver: { kind: "ref", name: "l", refKind: "lambda" },
             member: "price",
+            receiverType: LINE,
+            memberType: MONEY_T,
           },
         },
       ],
-      callKind: "collection-op",
-    } as ExprIR;
+      receiverType: { kind: "array", element: LINE },
+      isCollectionOp: true,
+    };
     expect(paths(rhs)).toEqual(["lines"]);
   });
 
@@ -103,16 +111,18 @@ describe("collectLeaves — binding-introducing slots stay undescended", () => {
       arms: [],
       variantArms: [
         {
-          varType: { kind: "primitive", name: "string" },
+          varType: LINE,
           binding: "ok",
           value: {
             kind: "member",
-            receiver: { kind: "ref", name: "ok", refKind: "param" },
+            receiver: { kind: "ref", name: "ok", refKind: "match-binding" },
             member: "total",
+            receiverType: LINE,
+            memberType: MONEY_T,
           },
         },
       ],
-    } as ExprIR;
+    };
     expect(paths(rhs)).toEqual(["result"]);
   });
 });

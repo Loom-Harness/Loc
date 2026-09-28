@@ -7,6 +7,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   DeployableIR,
   ExprIR,
@@ -14,7 +15,18 @@ import type {
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  TypeIR,
 } from "../../types/loom-ir.js";
+import {
+  E2E_WORKFLOW_VERBS,
+  findWorkflowBySlug,
+  workflowSlugHints,
+} from "../../util/e2e-workflow-accessor.js";
+import {
+  apisServedBy,
+  resolveRoutedHandler,
+  routedHandlerCallHints,
+} from "../../util/routed-handler.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
@@ -42,6 +54,7 @@ import { walkExpr } from "./shared.js";
 export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const agg of ctx.aggregates) {
     for (const test of agg.tests) {
+      checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
         checkThrowKindReadable(stmt, agg, ctx, test.name, diags);
         const reason = invalidTestStmt(stmt);
@@ -191,6 +204,7 @@ export function validateContextIntegrationTests(
     );
   };
   for (const test of ctx.tests) {
+    checkMatcherSubjects(test.statements, `${ctx.name}.test:${test.name}`, diags);
     for (const stmt of test.statements) {
       if (stmt.kind !== "expect" && stmt.kind !== "expect-throws") continue;
       // `toThrow(<kind>)` is UNIT-TIER ONLY, and the context-integration rung is
@@ -269,6 +283,9 @@ export function validateE2ETest(
     return;
   }
   const contexts = collectContexts(target, modulesByName);
+  // The apis the target deployable `serves:` — the only place an explicit
+  // `route … -> <Ctx>.<Handler>` binding this body may address can come from.
+  const apis = apisServedBy(target, sys.apis);
   const source = `${sys.name}/${test.name}`;
   const magicId = test.kind === "ui" ? "ui" : "api";
 
@@ -290,6 +307,8 @@ export function validateE2ETest(
     walkStmt(stmt, (e) => checkUnresolvedRef(e, bound, test.name, source, diags));
   }
 
+  checkMatcherSubjects(test.statements, source, diags);
+
   for (const stmt of test.statements) {
     const badKind = unsupportedE2EStmtKind(stmt);
     if (badKind) {
@@ -310,7 +329,7 @@ export function validateE2ETest(
       });
       continue;
     }
-    walkStmt(stmt, (e) => checkMagicCall(e, magicId, contexts, source, diags));
+    walkStmt(stmt, (e) => checkMagicCall(e, magicId, contexts, apis, source, diags));
   }
 }
 
@@ -394,10 +413,136 @@ function walkStmt(s: TestStmtIR, visit: (e: ExprIR) => void): void {
   }
 }
 
+/** Strip `optional` wrappers — `string?` is still a string for containment,
+ *  and `tags: string[]?` is still a collection. */
+function unwrapOptional(t: TypeIR): TypeIR {
+  return t.kind === "optional" ? unwrapOptional(t.inner) : t;
+}
+
+/** A short, author-facing spelling of a resolved type, for the refusal text. */
+function typeLabel(t: TypeIR): string {
+  switch (t.kind) {
+    case "primitive":
+      return t.name;
+    case "array":
+      return `${typeLabel(t.element)}[]`;
+    case "optional":
+      return `${typeLabel(t.inner)}?`;
+    case "id":
+      return `${t.targetName} id`;
+    default:
+      return t.kind === "enum" || t.kind === "valueobject" || t.kind === "entity" ? t.name : t.kind;
+  }
+}
+
+/** The SUBJECT of a matcher call, with `.not.` peeled — and its resolved type.
+ *
+ *  `expr.receiverType` is the type of `expr.receiver`, which for a negated
+ *  assertion is the synthetic `.not` member rather than the asserted value.
+ *  Peel it the same way every emitter does, and take the type from the `.not`
+ *  node's OWN receiverType so the subject's real type reaches the check. */
+function matcherSubject(expr: ExprIR & { kind: "method-call" }): {
+  subject: ExprIR;
+  type: TypeIR;
+} {
+  let receiver = expr.receiver;
+  let type = expr.receiverType;
+  if (receiver.kind === "member" && receiver.member === "not") {
+    type = receiver.receiverType;
+    receiver = receiver.receiver;
+  }
+  const subject = receiver.kind === "paren" ? receiver.inner : receiver;
+  return { subject, type };
+}
+
+/** `toContain` is ONE matcher with TWO lowerings, picked by the subject's
+ *  type: membership for a collection, substring for a string.  There is no
+ *  third lowering, so any other subject has to be refused — and the IR is the
+ *  first phase where the resolved type is available to refuse it.
+ *
+ *  Left unchecked, each backend's emitter would pick its own answer for, say,
+ *  an `int` subject: python would emit `assert 3 in 7` (a TypeError at run
+ *  time), java a `.contains` that does not compile, vitest a matcher that
+ *  fails with a confusing message.  One refusal here, at the author's span,
+ *  replaces five different downstream failures. */
+function checkContainReceiver(
+  e: ExprIR,
+  source: string,
+  diags: LoomDiagnostic[],
+  seen: Set<ExprIR>,
+): void {
+  if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toContain") return;
+  if (seen.has(e)) return;
+  seen.add(e);
+  const { subject, type } = matcherSubject(e);
+  const t = unwrapOptional(type);
+  if (t.kind === "array") return;
+  if (t.kind === "primitive" && t.name === "string") return;
+  diags.push({
+    severity: "error",
+    code: "loom.contain-receiver-invalid",
+    message: diagMessage("loom.contain-receiver-invalid", {
+      actual: exprLabel(subject),
+      type: typeLabel(t),
+    }),
+    source,
+  });
+}
+
+/** `toBeAbsent()` rewrites its assertion onto the RECEIVER — the generated
+ *  `expect("estimate" in read).toBe(false)` needs an object and a key, which
+ *  only a field read supplies.  Anything else would reach `renderExpectStmt`'s
+ *  compiler-invariant throw and kill `generate system` with a stack trace, so
+ *  name it here instead (the shape audit 2026-09-03 F6 found for locator
+ *  matchers: validates clean, then crashes the compiler). */
+function checkAbsentReceiver(
+  e: ExprIR,
+  source: string,
+  diags: LoomDiagnostic[],
+  seen: Set<ExprIR>,
+): void {
+  if (e.kind !== "method-call" || !e.isIntrinsicMatcher || e.member !== "toBeAbsent") return;
+  if (seen.has(e)) return;
+  seen.add(e);
+  const { subject } = matcherSubject(e);
+  if (subject.kind === "member") return;
+  diags.push({
+    severity: "error",
+    code: "loom.absent-receiver-invalid",
+    message: diagMessage("loom.absent-receiver-invalid", { actual: exprLabel(subject) }),
+    source,
+  });
+}
+
+/** Best-effort author-facing rendering of an expression, for a message. */
+function exprLabel(e: ExprIR): string {
+  if (e.kind === "member") return `${exprLabel(e.receiver)}.${e.member}`;
+  if (e.kind === "ref") return e.name;
+  if (e.kind === "paren") return exprLabel(e.inner);
+  if (e.kind === "literal") return String(e.value);
+  return `the asserted expression`;
+}
+
+/** Both matcher-subject checks, over every expression in one test body. */
+export function checkMatcherSubjects(
+  statements: readonly TestStmtIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<ExprIR>();
+  for (const stmt of statements) {
+    walkStmt(stmt, (e) => {
+      checkContainReceiver(e, source, diags, seen);
+      checkAbsentReceiver(e, source, diags, seen);
+    });
+  }
+}
+
 function checkMagicCall(
   e: ExprIR,
   magicId: "api" | "ui",
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
   source: string,
   diags: LoomDiagnostic[],
 ): void {
@@ -433,12 +578,25 @@ function checkMagicCall(
   if (r.receiver.kind !== "ref" || r.receiver.name !== magicId) return;
   const aggregateSlug = r.member;
   const method = e.member;
-  // The reserved `workflows` slug routes to system-level orchestration:
-  // `<magicId>.workflows.<name>(...)` resolves to a workflow.
-  // The React UI generator wires `ui` invocations; the reserved slug
-  // validates against `api` for symmetry so backend-side dispatchers see a
-  // consistent IR shape.
-  if (aggregateSlug === "workflows") {
+  // The reserved `workflows` slug — `ui.workflows.<name>({…})` drives the
+  // workflow FORM page object (`renderWorkflowCall`, `ui-e2e-render.ts`).
+  //
+  // SCOPED TO `ui` DELIBERATELY.  This arm used to accept `api` too, "for
+  // symmetry so backend-side dispatchers see a consistent IR shape" — but no
+  // backend-side dispatcher was ever written: `renderApiCall` has no
+  // `workflows` case, so `api.workflows.<name>(…)` validated clean and then
+  // killed `generate system` with an unhandled `Error: e2e: unknown aggregate
+  // 'api.workflows'` and a Node stack trace, on a source `ddd parse` had just
+  // reported as `0 error(s), 0 warning(s)`.  A validator arm with no renderer
+  // arm is not a feature, it is a crash with a certificate.
+  //
+  // The api side reaches the orchestration tier through the WORKFLOW'S OWN
+  // NAME instead (M-T5.36 F5): `api.<wf>.run(…)` / `.instances()` /
+  // `.instance(key)`, resolved a few lines below by `findWorkflowBySlug`.  So
+  // `api.workflows.<name>` now falls through to the unresolved-slug arm and
+  // gets `loom.e2e-unknown-aggregate`, whose message lists the deployable's
+  // workflows under exactly that shipped spelling — the refusal names the fix.
+  if (magicId === "ui" && aggregateSlug === "workflows") {
     const wf = contexts
       .flatMap((c) => c.workflows)
       .find((w) => lowerFirst(w.name) === method || snake(w.name) === method);
@@ -485,10 +643,59 @@ function checkMagicCall(
   }
   const agg = findAggregateBySlug(aggregateSlug, contexts);
   if (!agg) {
+    // The WORKFLOW accessor (M-T5.36 F5): `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`, with the workflow's own name in the slug position.
+    //
+    // Resolved only once the aggregate lookup has FAILED, deliberately.  A
+    // workflow and an aggregate cannot share a name inside one context
+    // (`loom.workflow-name-collision`), but that guard compares names, not
+    // SLUGS — an aggregate is addressed by its plural (`snake(plural(Order))`
+    // = `orders`), so a `workflow Orders` beside an `aggregate Order` slugs
+    // identically and passes it, as does any collision across the several
+    // contexts one deployable hosts.  Aggregate-first therefore cannot change
+    // the meaning of a call that resolves today; workflow-first could.
+    if (magicId === "api") {
+      const wf = findWorkflowBySlug(aggregateSlug, contexts);
+      if (wf) {
+        // Whether the three ROUTES exist is a different question, asked by
+        // `e2e-route-checks.ts` against the same predicates the backends gate
+        // their emission on — exactly the split the aggregate verbs already
+        // use (this file accepts `create` by name; that one asks whether a
+        // `POST /api/<aggs>` was mounted).
+        if (!E2E_WORKFLOW_VERBS.includes(method)) {
+          diags.push({
+            severity: "error",
+            code: "loom.e2e-unknown-method",
+            message: diagMessage("loom.e2e-unknown-method#workflow", {
+              magicId,
+              aggregateSlug,
+              method,
+              knownVerbs: E2E_WORKFLOW_VERBS.join(", "),
+            }),
+            source,
+          });
+        }
+        return;
+      }
+    }
+    // An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` binding, addressed
+    // as `api.<contextSlug>.<handlerName>(…)` — the same two-level shape, with
+    // the context in the slug position.  Tried only after the aggregate AND
+    // workflow lookups fail, mirroring `renderApiCall`'s own precedence
+    // (`e2e-render.ts`), so a context whose name slugs like an aggregate or a
+    // workflow changes nothing.
+    if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
     const known = contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    const routed = magicId === "api" ? routedHandlerCallHints(contexts, apis) : [];
+    // …and the workflows too.  This message used to name only aggregates, so a
+    // body reaching for the orchestration tier was told its workflow was an
+    // unknown AGGREGATE — which reads as a typo and sent the testability audit
+    // looking for one, rather than as "that tier is unreachable from here".
+    // Now the slug that resolves to nothing is told what it could have named.
+    const knownWorkflows = workflowSlugHints(contexts).join(", ");
     diags.push({
       severity: "error",
       code: "loom.e2e-unknown-aggregate",
@@ -496,6 +703,8 @@ function checkMagicCall(
         magicId,
         aggregateSlug,
         known: known || "(none)",
+        knownWorkflows: knownWorkflows || "(none)",
+        routed: routed.length > 0 ? ` Routed handlers: ${routed.join(", ")}.` : "",
       }),
       source,
     });
@@ -524,6 +733,10 @@ function checkMagicCall(
   // so an aggregate that is not `audited` has no history to call and the
   // unknown-method error below is the right answer.
   if (method === "history" && repo?.historyFind) return;
+  // Same fallback as the unresolved-slug arm above, one level along: the slug
+  // named an aggregate but the verb is none of its own, and a routed handler
+  // whose CONTEXT slugs the same way may still answer it.
+  if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
 
   // ONE MISTAKE, ONE DIAGNOSTIC.  This arm and `e2e-route-checks.ts` ask two
   // different questions of the same call — does the verb NAME resolve, and does
@@ -543,7 +756,8 @@ function checkMagicCall(
   // The predicate is a call INTO that check's own decision, never a second copy
   // of the routing rule: a copy would drift and leave a call with two
   // diagnostics again — or, worse, with none.
-  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts)) return;
+  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts, apis))
+    return;
 
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (repo?.finds ?? []).map((f) => f.name);

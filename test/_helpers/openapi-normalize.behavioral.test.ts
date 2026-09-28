@@ -11,6 +11,7 @@ import {
   queryParamSignatures,
   responseBodySchemas,
   schemaNames,
+  successStatuses,
 } from "./openapi-normalize.js";
 
 // Coverage for the behavioural-equivalence dimensions added when the
@@ -154,6 +155,60 @@ describe("openapi-normalize — behavioural equivalence", () => {
       ).toBe(1);
       expect(
         diffSpecs({ name: "hono", spec: both }, { name: "dotnet", spec: both }).errorResponseDiffs,
+      ).toEqual([]);
+    });
+  });
+
+  // Success statuses (sweep F-030, Hole C).  The exact shape that slipped
+  // through every OTHER dimension: Phoenix declared 200 with an inline
+  // `{type: object}` body, Hono declared 204 with no body at all.  The error
+  // dimension filters 4xx/5xx; both body dimensions read `responses["200"] ??
+  // responses["201"]` and compare the NAMED COMPONENT — an inline schema has
+  // none and an absent 200 has none, so both sides normalised to "" and the
+  // ops compared equal.
+  describe("success statuses", () => {
+    const wf = (responses: Record<string, unknown>): OpenApiSpec => ({
+      paths: { "/workflows/place_order": { post: { responses } } },
+    });
+    const phoenix = wf({
+      "200": { content: { "application/json": { schema: { type: "object" } } } },
+      "400": {
+        content: {
+          "application/problem+json": { schema: { $ref: "#/components/schemas/ProblemDetails" } },
+        },
+      },
+    });
+    const hono = wf({
+      "204": { description: "No content" },
+      "400": {
+        content: {
+          "application/problem+json": { schema: { $ref: "#/components/schemas/ProblemDetails" } },
+        },
+      },
+    });
+
+    it("extracts only the 2xx/3xx codes, sorted", () => {
+      expect(successStatuses(hono).get("POST /workflows/place_order")).toBe("204");
+      expect(successStatuses(phoenix).get("POST /workflows/place_order")).toBe("200");
+    });
+
+    it("200-with-inline-body vs 204-no-body drifts — and is invisible to every other dimension", () => {
+      const diff = diffSpecs({ name: "hono", spec: hono }, { name: "phoenix", spec: phoenix });
+      expect(diff.successStatusDiffs).toEqual([
+        "POST /workflows/place_order: hono=[204], phoenix=[200]",
+      ]);
+      expect(isCleanDiff(diff)).toBe(false);
+      // The regression this closes: with the dimension removed, the diff below
+      // is EMPTY.  Named here so a future edit that "simplifies" the collector
+      // away has to delete an assertion that says what it costs.
+      expect(diff.responseBodyDiffs, "response-body dimension saw nothing").toEqual([]);
+      expect(diff.cardMismatches, "cardinality dimension saw nothing").toEqual([]);
+      expect(diff.errorResponseDiffs, "error dimension saw nothing").toEqual([]);
+    });
+
+    it("identical success sets are clean", () => {
+      expect(
+        diffSpecs({ name: "hono", spec: hono }, { name: "dotnet", spec: hono }).successStatusDiffs,
       ).toEqual([]);
     });
   });

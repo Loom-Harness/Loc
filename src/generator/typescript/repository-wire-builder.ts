@@ -125,19 +125,19 @@ function wireProjectionEntity(
   return `{ ${parts.join(", ")} }`;
 }
 
-/** A `Date` expression → the CANONICAL `datetime` wire string (RS-4,
- *  docs/conformance-semantics.md): ISO-8601 UTC with trailing zero fractional
- *  seconds trimmed, so a whole-second instant spells `…T00:00:00Z`.
+/** A `Date` expression → the CANONICAL `datetime` wire string (RS-4 + RS-38,
+ *  docs/conformance-semantics.md): ISO-8601 UTC in MILLISECONDS — exactly three
+ *  fractional digits when the instant has a sub-second part (`…T10:20:30.120Z`),
+ *  and no fraction at all on a whole second (`…T10:20:30Z`, RS-4's form).
  *
- *  `Date.toISOString()` alone always pads the fraction to exactly three digits
- *  (`…T00:00:00.000Z`), which made node the ONLY backend to put a fraction on a
- *  whole-second instant — .NET trims with this same regex, java's
- *  `Instant.toString()` omits a zero fraction, python's `isoformat()` omits it,
- *  and elixir's `:utc_datetime` has no fractional part at all (F2-W-05).  The
- *  trim is safe because the input always carries the `.mmm` group: the regex
- *  can only bite the fraction, never the seconds field. */
+ *  `Date.toISOString()` already emits exactly three digits, and a JS `Date` is
+ *  millisecond-resolution by construction, so the only rewrite left is the
+ *  all-zero fraction.  The trim used to be `/\.?0+Z$/`, which stripped EVERY
+ *  trailing zero — `.120` spelled `.12Z`, the same instant as java's `.120Z` and
+ *  python's `.120000Z` in a third spelling (ledger `F2-W-06`,
+ *  D-ABSENT-JOIN-DATETIME-WIRE).  Only the whole `.000` group is dropped now. */
 export function canonicalIsoExpr(dateExpr: string): string {
-  return `${dateExpr}.toISOString().replace(/\\.?0+Z$/, "Z")`;
+  return `${dateExpr}.toISOString().replace(/\\.000Z$/, "Z")`;
 }
 
 /** Render one DOMAIN value to its wire form.  Exported because the query-time

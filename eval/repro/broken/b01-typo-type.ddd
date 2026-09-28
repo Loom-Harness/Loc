@@ -1,0 +1,12 @@
+// 1. typo'd type name
+system X {
+  subdomain S {
+    context C {
+      aggregate Order with crudish { total: dceimal  derived display: string = "x" }
+      repository Orders for Order { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

@@ -22,12 +22,14 @@
 // persisted, so a backend that binds the receiver but skips the save still
 // compiles and still drops the event.
 //
-// No `test e2e` block.  Driving the full command → event → reactor cascade over
-// the wire needs the saga row read back through the workflow-instance route,
-// and minting a five-way wire golden for that cascade is a behavioural-tier
-// change of its own (the same reason `collection-op-shapes` and
-// `numeric-operands` stay unit-only).  The domain `test` block below runs on
-// every backend's unit tier.
+// THE BEHAVIOURAL HALF, added by M-T5.36 P9 (finding F5).  It used to say here
+// that driving the full command → event → reactor cascade over the wire "needs
+// the saga row read back through the workflow-instance route", which the
+// `test e2e` DSL had no verb for — a `test e2e` body could reach aggregates and
+// folded projections and nothing else, so the orchestration tier had no runtime
+// test path at all and `api.fulfillment.run(…)` was refused as an unknown
+// AGGREGATE.  `api.<wf>.run(…)` / `.instances()` / `.instance(key)` are that
+// verb set, and the block at the foot of this file is the cascade.
 system WorkflowCreateState {
   subdomain Fulfil {
     context Fulfil {
@@ -110,5 +112,77 @@ system WorkflowCreateState {
     dataSources: [fulfilState]
     serves: FulfilApi
     port: 4000
+  }
+
+  // ── THE ORCHESTRATION TIER, over the wire ────────────────────────────
+  //
+  // The cascade this fixture exists for, driven end to end: POST the COMMAND
+  // create, read the saga row it must have persisted, emit the event from the
+  // aggregate, and read the SAME row again to see the reactor's fold.
+  //
+  // Asserting the folded scalars is the whole point. A `.run()` that only
+  // checked the POST answered 204 would go green against a backend that binds
+  // the receiver but never SAVES the row — the exact half of F58 the compile
+  // tier cannot see, and the reason M-T9.12's follow-up asked for a
+  // workflow-instance read verb rather than just a command verb.
+  test e2e "the command create persists a saga row and the reactor folds it" against d {
+    let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+
+    // ① The COMMAND create. `create(orderId: Order id)` names the correlation
+    // field, so the single argument is the facade's params by name.
+    api.fulfillment.run({ orderId: ord.id })
+
+    // ② The row it allocated. `instances()` is the list read; one row, because
+    // one order has been enrolled.
+    let running = api.fulfillment.instances()
+    expect(running.length).toBe(1)
+
+    // ③ The same row by its CORRELATION key — the order's id, which is what
+    // `by`-less name-matching routes on. A `let` bound to a create gets `.id`
+    // appended, exactly like every other e2e accessor.
+    let started = api.fulfillment.instance(ord)
+    expect(started.orderId).toBe(ord.id)
+    expect(started.status).toBe("Pending")
+    expect(started.attempts).toBe(0)
+
+    // ④ The event. `ship()` flips the aggregate and emits OrderShipped, which
+    // the in-process dispatcher routes to `on(e: OrderShipped)` — the reactor
+    // that folds `status` and increments `attempts` on the row read above.
+    api.orders.ship(ord)
+    let shipped = api.fulfillment.instance(ord)
+    expect(shipped.status).toBe("Shipped")
+    expect(shipped.attempts).toBe(1)
+    let order = api.orders.getById(ord)
+    expect(order.status).toBe("Shipped")
+
+    // ⑤ The canonical `update` beside the event-emitting `ship()`: it writes
+    // the same `status` column WITHOUT emitting. A backend that hung dispatch
+    // off "any write" rather than off `emit` would fold a SECOND time here, so
+    // the re-read pins the absence of a re-trigger as well as the value.
+    api.orders.update(ord, { sku: "SKU-1", status: "Shipped" })
+    let afterUpdate = api.fulfillment.instance(ord)
+    expect(afterUpdate.attempts).toBe(1)
+
+    // ⑥ SPELLING 2 — `create raise(order: Order id)` takes a differently-named
+    // param and ASSIGNS the correlation field from it. Same wire shape, a
+    // NAMED create, and its row is keyed by the value the body assigned, not
+    // by a param of the matching name.
+    api.escalation.run({ order: ord.id })
+    let escalations = api.escalation.instances()
+    expect(escalations.length).toBe(1)
+    let esc = api.escalation.instance(ord)
+    expect(esc.escalatedOrder).toBe(ord.id)
+    expect(esc.level).toBe(1)
+
+    // ⑦ The remaining CRUD routes, on a SECOND order the saga never enrolled —
+    // so the delete cannot collide with a workflow row that references it.
+    let spare = api.orders.create({ sku: "SKU-2", status: "Draft" })
+    api.orders.destroy(spare)
+    let orders = api.orders.all()
+    expect(orders.items.length).toBe(1)
+    expect(orders.total).toBe(1)
+    // The enrolled order survived, and so did its saga row.
+    let stillRunning = api.fulfillment.instances()
+    expect(stillRunning.length).toBe(1)
   }
 }

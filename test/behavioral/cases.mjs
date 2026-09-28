@@ -370,6 +370,25 @@ export const AUTHZ_LADDERS = {
         method: "DELETE",
         path: "/api/crates/{id}",
       },
+      // M-T3.16 C2 — the ORDER of the wire-validation rung and the create
+      // gate.  The same guarded create, with a body the wire validator refuses
+      // (`reference` shorter than the fixture's messaged invariant allows):
+      // BOTH principals answer 422, i.e. the request is validated before the
+      // gate is evaluated.  Node / .NET / java / python validate at the route
+      // boundary, ahead of the handler that runs the gate; Phoenix gated in
+      // the context BEFORE casting the changeset and answered 403 to the
+      // unauthorized caller — ungoldened until this surface.  Deny-first was
+      // weighed and declined (the M-T3.16 decision in the wave C5 5b note):
+      // the wire rung is a function of the body and the PUBLISHED schema
+      // alone, so answering it first discloses nothing about protected data.
+      // LAST in the list so the surfaces above keep their recorded ordinals.
+      {
+        label: "guarded create, INVALID body — the wire rung precedes the gate",
+        method: "POST",
+        path: "/api/shipments",
+        body: { reference: "AB" },
+        arms: { anonymous: null, unauthorized: 422, authorized: 422 },
+      },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 204 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",

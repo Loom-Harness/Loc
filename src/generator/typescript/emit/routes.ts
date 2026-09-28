@@ -253,18 +253,28 @@ export function renderHttpIndex(
   const withProjections = hasProjections ? `projectionTee(db, ${inProcessExpr})` : inProcessExpr;
   const innerExpr = wireRealtime ? `realtimeTee(${withProjections})` : withProjections;
   const defaultEventsExpr = wireOutbox ? `createOutboxDispatcher(db, ${innerExpr})` : innerExpr;
-  const workflowImport = hasWorkflows
-    ? wireDispatcher
-      ? wireOutbox
-        ? `import { createInProcessDispatcher, createOutboxDispatcher, workflowsRoutes } from "./workflows";`
-        : `import { createInProcessDispatcher, workflowsRoutes } from "./workflows";`
-      : `import { workflowsRoutes } from "./workflows";`
-    : null;
-  // Pure-producer outbox wire (M-T4.4): createOutboxDispatcher lives
-  // in ./workflows (emitted for durable-broker producers even without
-  // workflows); the workflow import above only covers the hasWorkflows case.
-  const outboxImport =
-    wireOutbox && !hasWorkflows ? `import { createOutboxDispatcher } from "./workflows";` : null;
+  // Derived from what the emitted body actually SPELLS, not from a nest of
+  // arms.  The nested form disagreed with the usage in one cell: with a
+  // workflow present but NO reactor (`wireDispatcher === false`) and a durable
+  // channel, it imported `workflowsRoutes` alone while `defaultEventsExpr`
+  // above still spells `createOutboxDispatcher(db, …)` — and the pure-producer
+  // fallback below it is gated `!hasWorkflows`, so neither arm covered the
+  // cell.  `tsc`: "Cannot find name 'createOutboxDispatcher'".  Each symbol is
+  // now keyed off the same predicate that decides whether the body uses it, so
+  // the two cannot disagree again; a project that needs none imports none, and
+  // every previously-covered cell emits the same line it did before.
+  const workflowSymbols = [
+    wireDispatcher ? "createInProcessDispatcher" : null,
+    wireOutbox ? "createOutboxDispatcher" : null,
+    hasWorkflows ? "workflowsRoutes" : null,
+  ].filter((n): n is string => n !== null);
+  const workflowImport =
+    workflowSymbols.length > 0
+      ? `import { ${workflowSymbols.join(", ")} } from "./workflows";`
+      : null;
+  // (The pure-producer case (`wireOutbox && !hasWorkflows`, M-T4.4) needs no
+  // separate import line any more: it is just the cell where
+  // `workflowSymbols` is `["createOutboxDispatcher"]`.)
   const workflowMount = hasWorkflows
     ? `  app.route("${API_BASE_PATH}/workflows", workflowsRoutes(db, events));`
     : null;
@@ -483,7 +493,6 @@ export function renderHttpIndex(
       authImport,
       ...aggregateImports,
       workflowImport,
-      outboxImport,
       realtimeImport,
       projectionImport,
       queryProjectionImport,

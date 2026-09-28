@@ -574,6 +574,33 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
       if (expFam !== "num" && expFam !== "bool" && expFam !== "text") continue;
       const actual = typeOf(entry.value, env);
       if (actual.kind === "unknown") continue; // typo'd bare value — reported at its source
+      // TWO ids that name DIFFERENT aggregates are never a wire coercion.
+      // The permissiveness above is for JSON-shaped input — a `string` literal
+      // standing in for a `datetime` / `guid` / `X id`, which is how the
+      // shipped examples write a create call.  A typed `B id` EXPRESSION is
+      // not that: it is a resolved reference to the wrong aggregate, and both
+      // sit in the `text` wire family, so the family comparison waved it
+      // through.  `create` is the one place where the wrong id becomes a
+      // persisted row, and a production workflow could write one with
+      // `0 error(s)` — while the SAME confusion in an assignment or a
+      // comparison is caught precisely ("Cannot assign 'B id' to 'A id'").
+      if (
+        expected.kind === "id" &&
+        actual.kind === "id" &&
+        expected.target.name !== actual.target.name
+      ) {
+        accept(
+          "error",
+          diagMessage("loom.create-field-id-target", {
+            name: agg.name,
+            name2: name,
+            expected: typeToString(expected),
+            actual: typeToString(actual),
+          }),
+          { node: entry, property: "value", code: "loom.create-field-id-target" },
+        );
+        continue;
+      }
       const actFam = wireFamily(actual);
       // Same family (incl. every wire coercion — string→datetime, string→id) or a
       // loose/object actual → accept.  A numeric-literal promotion (`qty: 5` into

@@ -11,6 +11,7 @@ system Helpdesk {
   }
 
   auth {
+    enforcement: opt
     provider: keycloak
     oidc {
       issuer: env("OIDC_ISSUER")

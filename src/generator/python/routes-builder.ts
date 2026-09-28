@@ -808,6 +808,14 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
       // Money arrives as its canonical decimal string (`requestPyType` →
       // `str`, wire parity with Hono/.NET); the domain works in Decimal.
       if (t.name === "money") return `Decimal(${expr})`;
+      // Sub-millisecond input is TRUNCATED at ingress (RS-38): pydantic keeps
+      // the microseconds a request carried, so without this the stored value
+      // (µs) and the wire value (ms, `iso`) disagree and a read-back no longer
+      // equals the write.  Truncation, never rounding — rounding `.9996` would
+      // carry the instant into the next second.  Inline (no helper import) so
+      // every module that rides this conversion stays self-contained.
+      if (t.name === "datetime")
+        return `${expr}.replace(microsecond=${expr}.microsecond // 1000 * 1000)`;
       return expr;
     case "entity": {
       // A declared record PAYLOAD — the workflow explicit-command param

@@ -14,6 +14,30 @@
 // ride the wire as strings, count zero-defaults), plus the new key-column
 // mapping (an enum key serialises as its wire string, an id key as a string).
 //
+// THE ORDER CLAIM USED TO BE AN OVERCLAIM, and `OrdersByStatus` below is what
+// repairs it.  This header has always listed "the deterministic ORDER BY over
+// the grouping columns" among the things it exercises, and for the enum key it
+// did not: the only single-enum-column grouping here was `SalesByStatus`, which
+// is `where Confirmed`-filtered, so every read of it returned at most ONE group
+// — and with one row an ordering is unobservable.  The golden was green on all
+// five backends for that reason, not because the backends agreed.
+//
+// They did not agree.  The node leg — the ORACLE every wire golden is captured
+// on — read an enum key in enum DECLARATION order while the other four read it
+// LEXICOGRAPHICALLY, because the node behavioural harness builds its PGlite
+// database from the drizzle schema OBJECT (`synthDDL`, `web/src/runtime/ddl.ts`)
+// and that object declared the column `pgEnum(...)`, i.e. a real
+// `CREATE TYPE … AS ENUM`, while the `db/migrations/*.sql` the shipped node app
+// actually applies at boot says `"status" TEXT NOT NULL`.  A pg enum orders by
+// declaration position; TEXT orders by collation.  So the oracle was answering
+// on a schema no deployed node app has, and disagreeing with the other four in
+// the one direction nothing could see.
+//
+// Fixed by making the node schema object say what node's own migration says
+// (`text(col, { enum: [...] })` — type-identical in TS, TEXT in SQL), which
+// leaves all five backends ordering an enum key the same way: by the stored
+// member NAME.  That is now what `ddd.langium` promises, in those words.
+//
 // Also covers the COMPUTED grouping key — `o.placedAt.startOfDay()`, the daily
 // series bucket.  It is the one key whose SELECT expression is not a bare
 // column, so each backend has to render the SAME truncation in the SELECT, the
@@ -58,6 +82,29 @@ system ProjectionGroupBySys {
                orders = count(),
                revenue = sum(o.total),
                avgLines = avg(o.lineCount)
+      }
+
+      // UNFILTERED, single enum grouping column — the ORDER witness.
+      //
+      // `SalesByStatus` above is the canonical grouped read, and it can never
+      // observe the ORDER the `group by` clause promises: `where Confirmed`
+      // leaves exactly ONE group, and with one row an ordering is unobservable.
+      // That is why this fixture's golden was green on all five backends while
+      // the contract line in `ddd.langium` — "rows come back ordered by the
+      // grouping columns so the read is deterministic across backends" — had
+      // never once been checked on an ENUM key.
+      //
+      // `OrderStatus { Draft Confirmed Cancelled }` is chosen so the two
+      // candidate orders DISAGREE: `Draft` comes first by DECLARATION, and
+      // `Confirmed` comes first LEXICOGRAPHICALLY (`C` < `D`).  A read that
+      // returns both buckets therefore names which one the toolchain means.
+      projection OrdersByStatus {
+        status: OrderStatus
+        orders: int
+        from Order as o
+        group by o.status
+        select status = o.status,
+               orders = count()
       }
 
       // COMPUTED grouping key — the daily revenue series.  `startOfDay()` is a
@@ -148,6 +195,24 @@ system ProjectionGroupBySys {
     expect(decimal(confirmed.revenue)).toBe(40)
     expect(decimal(confirmed.avgLines)).toBe(3)
 
+    // ── the ORDER of the groups, over an ENUM key ───────────────────────────
+    // The assertion the filtered projection above cannot make.  Two buckets,
+    // and the ORDER between them is the whole point: `Draft` first would mean
+    // enum DECLARATION order, `Confirmed` first means the stored column value
+    // ordered LEXICOGRAPHICALLY.  Asserted as one joined string rather than a
+    // pair of index reads, so the whole sequence is pinned in one expectation
+    // and a backend that returns the buckets reversed fails on the ORDER and
+    // not on some incidental field.
+    //
+    // This runs on EVERY behavioural leg, not only the one that owns the wire
+    // golden — so it is the cross-backend half of the contract, and the golden
+    // pins the same order a second time from the raw response.
+    let byStatusAll = api.ordersByStatus.list()
+    expect(byStatusAll.count()).toBe(2)
+    expect(byStatusAll.map(r => r.status).join("|")).toBe("Confirmed|Draft")
+    expect(byStatusAll.where(r => r.status == "Confirmed").first().orders).toBe(2)
+    expect(byStatusAll.where(r => r.status == "Draft").first().orders).toBe(1)
+
     // ── the COMPUTED key: `startOfDay()` in SELECT, GROUP BY and ORDER BY ────
     // Two days, ascending.  The two 2026-08-01 orders must land in ONE bucket
     // (the truncation has to happen in SQL — a backend that grouped by the raw
@@ -199,6 +264,12 @@ system ProjectionGroupBySys {
     expect(afterPromote.count()).toBe(1)
     expect(afterPromote.first().orders).toBe(3)
     expect(decimal(afterPromote.first().revenue)).toBe(45)
+    // …and the two enum buckets COLLAPSE into one, which is the other half of
+    // the ordering witness: the read is a live query, not a frozen row set.
+    let afterAll = api.ordersByStatus.list()
+    expect(afterAll.count()).toBe(1)
+    expect(afterAll.first().status).toBe("Confirmed")
+    expect(afterAll.first().orders).toBe(3)
     let afterVolume = api.volumeByCustomerAndStatus.list()
     expect(afterVolume.where(r => r.customerId == globex.id).first().status).toBe("Confirmed")
 

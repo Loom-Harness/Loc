@@ -1151,6 +1151,14 @@ export interface BoundedContextIR {
    *  Populated by `enrichLoomModel`; undefined when the model has a single
    *  context. */
   siblingValueObjects?: ValueObjectIR[];
+  /** Enums declared in the OTHER contexts of the same system — the enum twin
+   *  of `siblingValueObjects`, and populated the same way.  An emitter that
+   *  must MATERIALISE a referenced enum (a route file's
+   *  `const <E>Schema = z.enum([...])`, a migration's `CHECK (<col> IN (...))`)
+   *  resolves the name through `enumPool(ctx)`; without this it saw only
+   *  `ctx.enums` and a cross-context enum silently resolved to nothing.  Own
+   *  names shadow.  Undefined when the model has a single context. */
+  siblingEnums?: EnumIR[];
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -1590,8 +1598,11 @@ export interface ProjectionQueryIR {
    *  `select` (so `o.status` arrives as a `this`-rooted member access), and
    *  validation pins it COLUMNAR — a single-hop member on the source row
    *  (`loom.projection-groupby-key-not-columnar`) — so every backend can render
-   *  it as a bare SQL column.  Emitters ORDER BY these columns too, so the
-   *  grouped read is deterministic across backends.  Absent ⇒ not grouped. */
+   *  it as a bare SQL column.  Emitters ORDER BY these columns too, ASCENDING
+   *  and by the STORED COLUMN VALUE, so the grouped read is deterministic
+   *  across backends — an enum key therefore orders by the lexicographic order
+   *  of its member NAME (the column is TEXT everywhere, per `mapTypeToColumn`),
+   *  not by declaration position.  Absent ⇒ not grouped. */
   groupBy?: ExprIR[];
   /** Bulk-load plan derived from the `join` clauses — the `auxiliaries` shape
    *  built for by-id follows, populated by reading the
@@ -2595,9 +2606,10 @@ export interface AuthIR {
   sessions: "cookie" | "jwt";
   /** IdP-claim → user-field projections. */
   claims: ClaimMappingIR[];
-  /** Default-deny posture.  `opt` (default) preserves today's
-   *  per-`requires` opt-in; `denyByDefault` forces every reachable
-   *  command on an `auth: required` deployable to declare a gate. */
+  /** Default-deny posture.  `denyByDefault` (the language default since
+   *  M-T3.1) forces every client-reachable command and read on an
+   *  `auth: required` deployable to declare a gate; `opt` (written
+   *  explicitly) keeps the per-`requires` opt-in. */
   enforcement: "denyByDefault" | "opt";
 }
 
@@ -4476,5 +4488,19 @@ export function uiUsesMoney(ui: UiIR): boolean {
     state.some((f) => typeUsesMoney(f.type));
   if (ui.pages.some((p) => stateHasMoney(p.state))) return true;
   if (ui.components.some((c) => stateHasMoney(c.state))) return true;
+  // A DECLARED money param is the other producer of a `Decimal` binding in a
+  // generated frontend file, and it only became one in wave C2: before the
+  // shared prop layer learned to spell `money`, `component PriceTag(amount:
+  // money)` was refused outright by phase (7).  Now it emits `amount: Decimal`
+  // — so the same detect-once conditional-dep gate has to see it, or the file
+  // imports decimal.js and package.json never declares it.  Extern-function
+  // signatures produce the identical binding for the identical reason.
+  const paramsHaveMoney = (params: readonly ParamIR[]) => params.some((p) => typeUsesMoney(p.type));
+  if (ui.components.some((c) => paramsHaveMoney(c.params))) return true;
+  if (
+    (ui.functions ?? []).some((fn) => paramsHaveMoney(fn.params) || typeUsesMoney(fn.returnType))
+  ) {
+    return true;
+  }
   return false;
 }

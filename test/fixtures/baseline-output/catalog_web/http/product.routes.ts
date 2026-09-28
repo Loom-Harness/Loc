@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { ProblemDetails, UuidString, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
+import { ProblemDetails, UuidString, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag, domainFloorProblem } from "./problem-details";
 import { HTTPException } from "hono/http-exception";
 import { recordDomainFault, recordDomainOperation } from "../obs/metrics";
 import { Product } from "../domain/product";
@@ -245,7 +245,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Product", message: err.message, status: 422 });
       recordDomainFault("domain_error");
-      return problem(422, "Unprocessable Entity", err.message);
+      return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
     }
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Product", status: 404 });

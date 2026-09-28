@@ -12,6 +12,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -29,6 +30,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -49,6 +51,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -59,6 +62,7 @@
   "await": [
     "fieldName",
     "fieldNameAfterField",
+    "migrationField",
     "paramName"
   ],
   "bigquery": [],
@@ -71,6 +75,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -82,6 +87,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -95,6 +101,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -109,6 +116,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -123,6 +131,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -137,6 +146,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -146,6 +156,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -178,6 +189,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -188,6 +200,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -199,6 +212,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -209,6 +223,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -221,6 +236,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -230,6 +246,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -264,6 +281,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -273,6 +291,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -283,6 +302,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -293,6 +313,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -303,6 +324,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -318,6 +340,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -328,6 +351,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -352,6 +376,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -361,6 +386,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -371,6 +397,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -386,7 +413,10 @@
   ],
   "if": [],
   "ignoring": [
+    "fieldName",
+    "fieldNameAfterField",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName"
   ],
@@ -395,6 +425,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -404,6 +435,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -412,13 +444,23 @@
   "import": [],
   "in": [],
   "inMemory": [],
-  "index": [],
+  "index": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "inheritanceUsing": [],
   "instance": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -429,6 +471,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -439,6 +482,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -450,6 +494,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -462,6 +507,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -471,6 +517,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -481,6 +528,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -488,14 +536,21 @@
   "layout": [],
   "let": [],
   "link": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "literal": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -505,6 +560,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -514,6 +570,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -526,6 +583,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -536,6 +594,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -553,6 +612,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -562,6 +622,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -577,6 +638,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -594,6 +656,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -603,6 +666,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -612,6 +676,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -627,6 +692,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -636,6 +702,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -647,6 +714,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -656,6 +724,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -665,6 +734,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -674,6 +744,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -691,6 +762,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -702,6 +774,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -720,6 +793,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -730,6 +804,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -744,6 +819,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -756,6 +832,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -769,6 +846,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -778,6 +856,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -788,6 +867,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -798,14 +878,21 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
   ],
   "return": [],
   "route": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "s3": [],
   "schema": [
@@ -813,6 +900,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -823,6 +911,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -837,6 +926,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -850,6 +940,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -867,6 +958,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -877,6 +969,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -887,6 +980,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -897,6 +991,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -907,6 +1002,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -916,6 +1012,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -930,6 +1027,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -943,6 +1041,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -956,6 +1055,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -972,6 +1072,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -981,6 +1082,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -996,11 +1098,21 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
   ],
-  "type": [],
+  "type": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "ui": [
     "lValue",
     "memberAccess",
@@ -1018,11 +1130,21 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
   ],
-  "user": [],
+  "user": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "valueobject": [],
   "verifies": [],
   "views": [
@@ -1051,6 +1173,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"

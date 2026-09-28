@@ -1,0 +1,13 @@
+// `ddd new --template crud` scaffolds `with crudish` and its header comment says
+// "prefer deny-by-default". Do the two compose?
+system X {
+  user { id: string  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S { context C {
+    aggregate Project with crudish { name: string  derived display: string = name }
+    repository Projects for Project { find all(): Project[] requires true }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], auth: required, port: 3000 }
+}

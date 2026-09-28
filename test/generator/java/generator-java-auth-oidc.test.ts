@@ -21,6 +21,7 @@ system Helpdesk {
     email: string
   }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc {
       issuer: env("OIDC_ISSUER")

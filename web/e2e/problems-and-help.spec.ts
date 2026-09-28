@@ -187,7 +187,7 @@ test("? opens the shortcut sheet, and so does the ? header menu", async ({ page 
   await expect(sheet).toBeHidden();
 
   await page.getByTestId("help-menu").click();
-  await expect(page.getByTestId("help-docs")).toHaveAttribute("href", /lemmit\.github\.io\/Loc\/$/);
+  await expect(page.getByTestId("help-docs")).toHaveAttribute("href", /loom-harness\.github\.io\/Loc\/$/);
   await page.getByTestId("help-shortcuts").click();
   await expect(sheet).toBeVisible();
 });

@@ -1,0 +1,16 @@
+%% Loom ER diagram — generated from the IR, do not edit by hand.
+%% System: FieldopsStarter
+erDiagram
+  Project {
+    guid id PK
+    string name
+    int version
+  }
+  Task {
+    guid id PK
+    string title
+    bool done
+    Id_Project project FK
+    int version
+  }
+  Task }o--|| Project : "project"

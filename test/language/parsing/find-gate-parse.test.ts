@@ -4,17 +4,18 @@
 
 import { describe, expect, it } from "vitest";
 import type { FindDecl, Model } from "../../../src/language/generated/ast.js";
-import { isRepository, isSubdomain } from "../../../src/language/generated/ast.js";
+import { isRepository, isSubdomain, isSystem } from "../../../src/language/generated/ast.js";
 import { parseString } from "../../_helpers/index.js";
 
 /** The first repository find declared anywhere in the parsed model. */
 function firstFind(model: Model): FindDecl {
   for (const sys of model.members) {
+    if (!isSystem(sys)) continue;
     for (const sm of sys.members) {
       if (!isSubdomain(sm)) continue;
       for (const c of sm.contexts) {
         for (const member of c.members) {
-          if (isRepository(member) && member.finds.length > 0) return member.finds[0];
+          if (isRepository(member) && member.finds.length > 0) return member.finds[0]!;
         }
       }
     }

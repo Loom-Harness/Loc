@@ -1,0 +1,306 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import type { MigrationsIR, SchemaSnapshot } from "../ir/types/migrations-ir.js";
+import { serializeSnapshot } from "./snapshot.js";
+
+// ---------------------------------------------------------------------------
+// Source-side migration-history ledger (F-029).
+//
+// The migration BASELINE (`.loom/snapshots/<module>.snapshot.json`) and the
+// migration FILES both live in the output tree, which is the only place they
+// can live: the baseline describes the schema those files build up, and a
+// delta is only meaningful next to the files it follows.  That works as long
+// as `-o` points at the tree that carries them.
+//
+// It stops working the moment it doesn't.  A CLEAN output directory has no
+// snapshot AND no migration files, which is indistinguishable — from inside
+// the output tree — from a genuine first run: `buildMigrations` emits a fresh
+// "Initial" carrying the CURRENT schema under the SAME base version, and the
+// `migration-artifacts.ts` guards see nothing to object to.  Deploy that tree
+// against a database the earlier tree already migrated and the migrator
+// matches the tag, considers it applied, and skips the changed content: the
+// new column never lands, the container reports healthy, and every query that
+// names it fails.  `ddd generate system … -o ../build` in CI, a fresh clone
+// that never committed the output tree, or a second environment all take this
+// path.
+//
+// The missing fact is not in the output tree, so it is recorded next to the
+// SOURCE: for every module, the migration versions this model has ever
+// emitted.  Committed with the `.ddd` it describes, it travels with the model
+// into any checkout, and makes "this module already has history" knowable in
+// a tree that carries none of it.
+//
+// This file is deliberately NOT a second baseline: it records versions and a
+// FINGERPRINT of the schema, never the schema itself, and nothing diffs
+// against it.  Re-emitting an earlier migration's FILE is impossible from it
+// (the SQL is not here), so the ledger's only job is to let
+// `checkMigrationBaseline` REFUSE — with `--allow-rebaseline` as the
+// deliberate override — instead of silently re-baselining.  The fingerprint
+// earns its place by making that refusal CONTENT-aware: regenerating an
+// UNCHANGED model into a fresh directory reproduces the recorded tree exactly
+// and must stay silent, or `-o` becomes a one-directory lock and every
+// reproducible build that does not carry its output tree starts failing.
+//
+// Only `readMigrationLedger` / `writeMigrationLedger` touch `node:fs`, and
+// only the CLI calls them: the browser playground has no source directory and
+// simply omits the ledger, keeping its prior behaviour.
+// ---------------------------------------------------------------------------
+
+/** What the ledger records for one module. */
+export interface ModuleHistoryRecord {
+  /** Every migration version ever emitted for the module, ascending. */
+  versions: string[];
+  /** Fingerprint of the module's SCHEMA as of the recorded run — see
+   *  {@link schemaFingerprint}.  It is what lets the guard tell a harmless
+   *  clean-directory generate (same model, reproducing the same tree, which
+   *  is what CI and a determinism check do) from the dangerous one (the model
+   *  moved, so the re-issued "Initial" carries different SQL under a version
+   *  a database has already applied).  Optional only for forward/backward
+   *  tolerance: a record without one cannot prove reproduction, so the guard
+   *  reads its absence conservatively and refuses. */
+  schemaHash?: string;
+}
+
+/** Stable fingerprint of a module's SCHEMA — and only the schema.
+ *
+ *  Canonicalised through {@link serializeSnapshot} over a snapshot carrying
+ *  nothing but `tables`, so the digest is exactly the persisted schema: the
+ *  table order is normalised, the derivation-only column stamps are stripped,
+ *  and `lastVersion` / `migrationHistory` / `versionBlock` /
+ *  `appliedDataMigrations` are excluded BY CONSTRUCTION.  Those four move on
+ *  every regen and differ between a fresh tree and an incremental one for the
+ *  same model — including them would make the fingerprint useless for the one
+ *  comparison it exists for.
+ *
+ *  Deliberately NOT a crypto hash: this module is reachable from the browser
+ *  playground through `system/index.ts`, so it stays dependency-free.  A
+ *  53-bit cyrb-style digest; it only ever compares a schema against a previous
+ *  form of ITSELF, so the collision budget is ample. */
+export function schemaFingerprint(snapshot: Pick<SchemaSnapshot, "tables">): string {
+  const json = serializeSnapshot({ schemaVersion: 1, tables: snapshot.tables });
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < json.length; i++) {
+    const ch = json.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+}
+
+export interface MigrationHistoryLedger {
+  /** Bumped only for a shape change readers must branch on.  A reader that
+   *  meets a HIGHER version than it knows ignores the file rather than
+   *  mis-reading it (and says so). */
+  schemaVersion: 1;
+  /** Module name → its recorded history.  A module absent here has never
+   *  emitted a migration from this model — which is what lets a brand-new
+   *  module be told apart from a lost baseline. */
+  modules: Record<string, ModuleHistoryRecord>;
+}
+
+/** Raised when the ledger file exists but cannot be read or parsed.  Like
+ *  {@link SnapshotReadError}, deliberately NOT collapsed to "no ledger": a
+ *  missing ledger disables the F-029 guard, so a corrupt one must fail
+ *  loudly rather than quietly widening the window it closes. */
+export class MigrationLedgerReadError extends Error {
+  constructor(
+    readonly filePath: string,
+    reason: unknown,
+  ) {
+    const detail = reason instanceof Error ? reason.message : String(reason);
+    super(
+      `migration history ledger at ${filePath} exists but could not be read (${detail}). ` +
+        "It is likely corrupted or truncated (e.g. an interrupted write or an unresolved " +
+        "merge conflict). Restore it from version control, or delete it deliberately — " +
+        "the next generate re-creates it from the migrations it emits.",
+    );
+    this.name = "MigrationLedgerReadError";
+  }
+}
+
+/** Directory of the ledgers, relative to the directory holding the `.ddd`
+ *  source.  Stable so the guard messages and the docs can both name it. */
+export const LEDGER_REL_DIR = ".loom";
+
+/** The ledger's file name for the entry `.ddd` that produced it.
+ *
+ *  PER SOURCE FILE, not per directory.  Several `.ddd` files commonly sit in
+ *  one folder — the shipped `test/e2e/fixtures/*` corpora and `examples/` both
+ *  do — and they routinely declare modules of the SAME NAME while describing
+ *  entirely different systems.  A single directory-wide ledger keyed by module
+ *  name makes those collide: the first `.ddd` generated records `Sales`, and
+ *  every sibling that also has a `Sales` is then refused as a re-baseline of a
+ *  history it never emitted.  That is not a corner case — it took out five
+ *  corpus build gates the first time this ran in CI.
+ *
+ *  Keyed by the entry file's BASE NAME, so the ledger sits beside its `.ddd`
+ *  and moves with the folder; renaming the `.ddd` starts a new history, which
+ *  is the honest reading (the old name's migrations are still recorded under
+ *  the old ledger until someone deletes it). */
+export function ledgerFileName(sourceFile: string): string {
+  return `${path.basename(sourceFile, path.extname(sourceFile))}.migration-history.json`;
+}
+
+/** Path of a source file's ledger relative to the directory holding it. */
+export function ledgerRelPath(sourceFile: string): string {
+  return `${LEDGER_REL_DIR}/${ledgerFileName(sourceFile)}`;
+}
+
+/** Short prose carried INSIDE the file — it is a committed artifact whose
+ *  first reader is usually someone who just hit the refusal that names it. */
+const LEDGER_NOTE =
+  "Migration history recorded by `ddd generate system`, kept beside the .ddd source and " +
+  "meant to be committed with it. It records WHICH migration versions each module has " +
+  "emitted — not the schema (that is .loom/snapshots/<module>.snapshot.json in the output " +
+  "tree). Its only job is to stop a generate into an output tree with no migration history " +
+  "from silently re-issuing an already-applied version. See docs/migrations.md.";
+
+/** Build the ledger this run should record.  Pure.
+ *
+ *  A module built by this run is REPLACED by the history the run itself
+ *  emitted (`next.migrationHistory` — already the merge of the baseline's
+ *  history with anything appended), never unioned with what the ledger said
+ *  before.  The ledger's claim is "this is the history of the tree this
+ *  model last generated", and a deliberate `--allow-rebaseline` legitimately
+ *  SHORTENS that history: unioning would leave the discarded versions
+ *  recorded, and guard (e) would then refuse the very next delta in the
+ *  freshly re-baselined tree (migration versions are derived from the
+ *  baseline, so the new tree re-issues the same numbers).
+ *
+ *  Modules recorded by `previous` but absent from `migrations` are KEPT — a
+ *  module dropped from the model (or hosted by a system this run didn't
+ *  build) still has its tables in whatever database ran it, so forgetting
+ *  its history would re-open exactly the window this file closes. */
+export function buildMigrationLedger(
+  migrations: readonly MigrationsIR[],
+  previous: MigrationHistoryLedger | null = null,
+): MigrationHistoryLedger {
+  const modules: Record<string, ModuleHistoryRecord> = {};
+  for (const [name, record] of Object.entries(previous?.modules ?? {})) {
+    modules[name] = { versions: [...record.versions], schemaHash: record.schemaHash };
+  }
+  for (const m of migrations) {
+    // `next.migrationHistory` is the merged list (prior history + any entry
+    // this run appended), so it is already the complete record.  A run that
+    // emits nothing still re-records what was there.
+    const versions = [...new Set((m.next.migrationHistory ?? []).map((e) => e.version))].sort();
+    // A module that emitted nothing records nothing — and never ERASES an
+    // existing record: "no history in this run" is not evidence that the
+    // history the ledger remembers has gone away.  (Guard (d) refuses that
+    // combination long before we get here, unless it was overridden.)
+    if (versions.length === 0) continue;
+    modules[m.module] = { versions, schemaHash: schemaFingerprint(m.next) };
+  }
+  return { schemaVersion: 1, modules };
+}
+
+/** Stable JSON — modules sorted by name, versions ascending, two-space
+ *  indent.  Deterministic: the file is committed, so a regen that changes
+ *  nothing must produce a byte-identical file. */
+export function serializeMigrationLedger(ledger: MigrationHistoryLedger): string {
+  const modules: Record<string, ModuleHistoryRecord> = {};
+  for (const name of Object.keys(ledger.modules).sort()) {
+    const record = ledger.modules[name]!;
+    modules[name] = { versions: [...record.versions].sort(), schemaHash: record.schemaHash };
+  }
+  return `${JSON.stringify({ schemaVersion: 1, _note: LEDGER_NOTE, modules }, null, 2)}\n`;
+}
+
+/** Parse ledger JSON, tolerating unknown keys (the `_note` above) and
+ *  rejecting anything whose shape isn't the one we wrote.  `null` for a
+ *  ledger written by a FUTURE schemaVersion — an unknown shape is not read
+ *  as "no history", so the caller reports it rather than guessing. */
+export function parseMigrationLedger(
+  raw: string,
+): { ledger: MigrationHistoryLedger } | { unsupportedVersion: number } {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) throw new Error("not a JSON object");
+  const obj = parsed as { schemaVersion?: unknown; modules?: unknown };
+  if (typeof obj.schemaVersion !== "number") throw new Error("missing `schemaVersion`");
+  if (obj.schemaVersion > 1) return { unsupportedVersion: obj.schemaVersion };
+  if (typeof obj.modules !== "object" || obj.modules === null) throw new Error("missing `modules`");
+  const modules: Record<string, ModuleHistoryRecord> = {};
+  for (const [name, value] of Object.entries(obj.modules as Record<string, unknown>)) {
+    const versions = (value as { versions?: unknown })?.versions;
+    if (!Array.isArray(versions) || versions.some((v) => typeof v !== "string")) {
+      throw new Error(`module '${name}' has no string \`versions\` array`);
+    }
+    const schemaHash = (value as { schemaHash?: unknown })?.schemaHash;
+    if (schemaHash !== undefined && typeof schemaHash !== "string") {
+      throw new Error(`module '${name}' has a non-string \`schemaHash\``);
+    }
+    modules[name] = { versions: versions as string[], schemaHash };
+  }
+  return { ledger: { schemaVersion: 1, modules } };
+}
+
+/** Read the ledger beside `sourceDir`.  `null` when there is none (a project
+ *  that has never generated with this toolchain — the guard then falls back
+ *  to the output-tree heuristic).  Throws {@link MigrationLedgerReadError}
+ *  when a file IS present but unreadable. */
+export function readMigrationLedger(
+  sourceDir: string,
+  sourceFile: string,
+): MigrationHistoryLedger | null {
+  const filePath = migrationLedgerPath(sourceDir, sourceFile);
+  if (!fs.existsSync(filePath)) return null;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch (err) {
+    throw new MigrationLedgerReadError(filePath, err);
+  }
+  let result: ReturnType<typeof parseMigrationLedger>;
+  try {
+    result = parseMigrationLedger(raw);
+  } catch (err) {
+    throw new MigrationLedgerReadError(filePath, err);
+  }
+  if ("unsupportedVersion" in result) {
+    throw new MigrationLedgerReadError(
+      filePath,
+      new Error(
+        `it declares schemaVersion ${result.unsupportedVersion}, which this toolchain does not ` +
+          "understand (it was written by a newer Loom). Upgrade the toolchain rather than " +
+          "deleting the file — it records which migrations have already been emitted",
+      ),
+    );
+  }
+  return result.ledger;
+}
+
+/** Write the ledger beside `sourceDir`, creating `.loom/` if needed.  No-op
+ *  when the content is unchanged, so a repeat generate leaves the file's
+ *  mtime (and any VCS status) alone.  Returns whether anything was written.
+ *
+ *  Failure is reported to the caller rather than thrown: losing the detector
+ *  must not fail a generate that otherwise succeeded (a read-only source
+ *  checkout is a real setup), but it must not be silent either — the CLI
+ *  prints a warning. */
+export function writeMigrationLedger(
+  sourceDir: string,
+  sourceFile: string,
+  ledger: MigrationHistoryLedger,
+): { written: boolean; error?: Error } {
+  const filePath = migrationLedgerPath(sourceDir, sourceFile);
+  const content = serializeMigrationLedger(ledger);
+  try {
+    if (fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8") === content) {
+      return { written: false };
+    }
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, "utf8");
+    return { written: true };
+  } catch (err) {
+    return { written: false, error: err instanceof Error ? err : new Error(String(err)) };
+  }
+}
+
+/** Absolute path of the ledger for one entry `.ddd` file. */
+export function migrationLedgerPath(sourceDir: string, sourceFile: string): string {
+  return path.join(sourceDir, LEDGER_REL_DIR, ledgerFileName(sourceFile));
+}

@@ -116,7 +116,7 @@ system DocAudit {
 const MASKED = `
 system MaskedAudit {
   user { id: string role: string }
-  auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
+  auth { enforcement: opt, provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
   subdomain Sales {
     context Orders {
       aggregate Order {

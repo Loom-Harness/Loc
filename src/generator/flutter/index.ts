@@ -93,6 +93,7 @@ import {
   usesSharedPreferences,
   usesUrlStores,
 } from "./store-persist.js";
+import { FLUTTER_TOAST_MARKER, renderFlutterToastRuntime } from "./toast-runtime.js";
 
 export interface GenerateFlutterOptions {
   apiBaseUrl?: string;
@@ -402,6 +403,10 @@ export function generateFlutterForContexts(
     navigatorKey:
       rendered.some((r) => r.source.includes(FLUTTER_NAV_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_NAV_MARKER)),
+    // Same scan, same reason, for the toast bridge's key (M-T1.32).
+    scaffoldMessengerKey:
+      rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
+      [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
@@ -483,6 +488,13 @@ export function generateFlutterForContexts(
   // action), so the scan has to run after every one of those is written.
   if ([...out.values()].some((content) => content.includes(FLUTTER_NAV_MARKER))) {
     out.set("lib/nav.dart", renderFlutterNavRuntime());
+  }
+
+  // The out-of-tree toast bridge (M-T1.32) — the nav bridge's twin, emitted
+  // under the same last-position scan and for the same reason: `showToast(`
+  // lands in a page's Notifier, in `stores.dart` and in `components.dart`.
+  if ([...out.values()].some((content) => content.includes(FLUTTER_TOAST_MARKER))) {
+    out.set("lib/toast.dart", renderFlutterToastRuntime());
   }
 
   return out;
@@ -1221,6 +1233,10 @@ function renderConsumerPage(
   // so it pushes through the `lib/nav.dart` bridge (F2-CFE-1).  The view-body
   // form stays `Navigator.pushNamed(context, …)` and needs no import.
   if (scan.includes(FLUTTER_NAV_MARKER)) imports.push("import '../nav.dart';");
+  // `toast(<expr>)` in an ACTION body — same story, same bridge shape
+  // (`lib/toast.dart`).  A realtime handler's toast is IN the tree
+  // (`LoomRealtime`) and keeps `ScaffoldMessenger.maybeOf(context)`.
+  if (scan.includes(FLUTTER_TOAST_MARKER)) imports.push("import '../toast.dart';");
   // A FileUpload primitive picks a file via file_picker (the http / config /
   // models / dart:convert imports it also needs are added by the content scans
   // above — the widget emits `apiUri(` / `FileRef.fromJson` / `jsonDecode`).
@@ -1266,6 +1282,10 @@ interface AppBoot {
    *  component action — `navigate(<Page>)`, `lib/nav.dart`), so `MaterialApp`
    *  has to carry the `navigatorKey` that bridge pushes through. */
   navigatorKey: boolean;
+  /** Some emitted Dart toasts from OUTSIDE the widget tree (a page/store/
+   *  component action — `toast(…)`, `lib/toast.dart`), so `MaterialApp` has to
+   *  carry the `scaffoldMessengerKey` that bridge shows through. */
+  scaffoldMessengerKey: boolean;
 }
 
 const NO_BOOT: AppBoot = {
@@ -1274,6 +1294,7 @@ const NO_BOOT: AppBoot = {
   authGate: false,
   realtime: false,
   navigatorKey: false,
+  scaffoldMessengerKey: false,
 };
 
 /** M-T1.8 — global error boundary + failure sink, the flutter arm.  Built on
@@ -1415,6 +1436,7 @@ function renderMainWithRoutes(
     "",
     pages.map((p) => `import 'pages/${p.fileBase}.dart';`),
     boot.navigatorKey ? ["import 'nav.dart';"] : [],
+    boot.scaffoldMessengerKey ? ["import 'toast.dart';"] : [],
     persistMainImports(boot),
     "",
     mainFn(boot),
@@ -1434,6 +1456,10 @@ function renderMainWithRoutes(
     // The out-of-tree navigator (`lib/nav.dart`) — only for an app whose Dart
     // actually calls `navigateTo(`, so a non-navigating app is byte-identical.
     ...(boot.navigatorKey ? ["      navigatorKey: appNavigatorKey,"] : []),
+    // The out-of-tree scaffold messenger (`lib/toast.dart`) — only for an app
+    // whose Dart actually calls `showToast(`, so a non-toasting app is
+    // byte-identical.
+    ...(boot.scaffoldMessengerKey ? ["      scaffoldMessengerKey: appScaffoldMessengerKey,"] : []),
     `      initialRoute: '${home.routePath}',`,
     ...(paramRoutePages(pages).length > 0 ? ["      onGenerateRoute: _generateRoute,"] : []),
     "      routes: {",

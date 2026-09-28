@@ -1,0 +1,15 @@
+%% Loom workflow diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+flowchart TD
+  subgraph wf_0["Field · scheduleWorkOrder(workOrder, technician, at) «tx»"]
+    direction TB
+    w0s0{{"requires: currentUser.permissions.contains(permissions.manageWorkOrders)"}}
+    w0s1["wo = WorkOrders.getById()"]
+    w0s2["tech = Technicians.getById()"]
+    w0s3["wo.schedule()"]
+    w0s4(["emit WorkOrderScheduled"])
+    w0s0 --> w0s1
+    w0s1 --> w0s2
+    w0s2 --> w0s3
+    w0s3 --> w0s4
+  end

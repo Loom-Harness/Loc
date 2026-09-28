@@ -1,0 +1,26 @@
+// A workflow calling an aggregate `function` generates a call to a PRIVATE
+// method → the generated TypeScript does not type-check.
+system X {
+  subdomain S { context C {
+    aggregate Tech with crudish {
+      skills: string[]
+      derived display: string = "t"
+      function hasSkill(s: string): bool = skills.contains(s)
+    }
+    aggregate Job with crudish { needed: string  derived display: string = needed
+      operation assign() { needed := needed } }
+    repository Techs for Tech { }
+    repository Jobs for Job { }
+    workflow give transactional {
+      create(job: Job id, tech: Tech id, skill: string) {
+        let t = Techs.getById(tech)
+        let j = Jobs.getById(job)
+        precondition t.hasSkill(skill)
+        j.assign()
+      }
+    }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

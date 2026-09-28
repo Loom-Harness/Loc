@@ -170,9 +170,9 @@ describe("IR validator — domainService no-infra contract", () => {
         }
       }
     `);
-    expect(d.filter((x) => x.code.startsWith("loom.domain-service-")).map((x) => x.code)).toEqual(
-      [],
-    );
+    expect(
+      d.filter((x) => (x.code ?? "").startsWith("loom.domain-service-")).map((x) => x.code),
+    ).toEqual([]);
   });
 
   it("rejects a mutating-tier service called from an aggregate operation body", async () => {
@@ -227,7 +227,7 @@ describe("IR validator — domainService no-infra contract", () => {
         }
       }
     `);
-    expect(d.filter((x) => x.code.startsWith("loom.domain-service-"))).toEqual([]);
+    expect(d.filter((x) => (x.code ?? "").startsWith("loom.domain-service-"))).toEqual([]);
   });
 });
 

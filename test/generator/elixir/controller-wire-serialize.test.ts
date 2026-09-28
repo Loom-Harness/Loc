@@ -97,37 +97,27 @@ async function fileEndingWith(src: string, suffix: string): Promise<string> {
   return hit![1];
 }
 
-describe("vanilla WorkflowsController serialize", () => {
-  it("dispatches an aggregate result through its wireShape serializer", async () => {
+// The WorkflowsController half of this concern is GONE, and deliberately so
+// (sweep F-030).  It used to answer `202` with `%{status: "accepted", result:
+// serialize(result)}` — an envelope no other backend sent and this deployable's
+// own OpenAPI never declared.  The workflow POST now answers `204` with an
+// empty body on all five backends, so there is no result to project and no
+// serializer to get wrong.  The two tests that pinned the projection are
+// replaced by the one below, which pins the ABSENCE: a serializer creeping back
+// into this controller means a body did too.
+describe("vanilla WorkflowsController", () => {
+  it("projects nothing — the 204 success contract carries no body", async () => {
     const c = await fileEndingWith(WORKFLOW_SRC, "controllers/workflows_controller.ex");
-    // The struct-typed dispatch clause, ahead of the raw-struct catch-all.
-    expect(c).toContain(
-      "defp serialize(%Api.Ordering.Order{} = record), do: serialize_ordering_order(record)",
-    );
-    // camelCase wire keys, exactly as `wireShape` names them — NOT the
-    // snake_case Ecto columns the raw dump shipped.
-    expect(c).toContain('"commitSha" => record.commit_sha');
-    expect(c).toContain('"buildState" => record.build_state');
-    // Ecto's auto-timestamps are not wire fields on any backend.
-    expect(c).not.toContain("inserted_at");
-    expect(c).not.toContain("updated_at");
-    // Clause ORDER is load-bearing: `%_{}` matches ANY struct, so it must sit
-    // behind every aggregate head; the pass-through tail stays.
-    const dispatchAt = c.indexOf("defp serialize(%Api.Ordering.Order{}");
-    const catchAllAt = c.indexOf("defp serialize(%_{} = struct)");
-    expect(dispatchAt).toBeGreaterThan(-1);
-    expect(catchAllAt).toBeGreaterThan(dispatchAt);
-    expect(c).toContain("defp serialize(other), do: other");
+    expect(c).toContain('def respond(conn, {:ok, _result}), do: send_resp(conn, 204, "")');
+    expect(c, "a result body is being projected again").not.toContain("defp serialize");
+    expect(c).not.toContain("put_status(202)");
   });
 
-  it("roots a `shape: document` aggregate at its `:data` embed", async () => {
+  it("still dispatches every ERROR variant through ProblemDetails", async () => {
     const c = await fileEndingWith(DOCUMENT_SRC, "controllers/workflows_controller.ex");
-    expect(c).toContain("defp serialize_ordering_order(row) do");
-    expect(c).toContain("record = row.data");
-    // `id` / `version` live on the ROOT row, the rest on the embed.
-    expect(c).toContain('"id" => row.id');
-    expect(c).toContain('"version" => row.version');
-    expect(c).toContain('"commitSha" => record.commit_sha');
+    expect(c).toContain("ProblemDetails.validation_error_response(conn, changeset)");
+    expect(c).toContain('ProblemDetails.problem_response(conn, 404, "Not Found"');
+    expect(c).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden"');
   });
 });
 

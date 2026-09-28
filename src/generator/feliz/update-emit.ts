@@ -3,7 +3,7 @@
 // NOT a synthesis: one `Model` field per state cell, one `Msg` case per
 // action, one `update` arm per action body.  No gensym.
 
-import type { ActionIR, StateFieldIR, StoreIR } from "../../ir/types/loom-ir.js";
+import type { ActionIR, ExprIR, StateFieldIR, StoreIR } from "../../ir/types/loom-ir.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { felizRouteSegments } from "./feliz-target.js";
@@ -572,11 +572,42 @@ function nestedFsWith(segments: readonly string[], value: string, ctx: FsExprCtx
   return expr;
 }
 
+/** True when the F# this expression renders to is ALREADY an `option`, so an
+ *  assignment to an optional cell must NOT wrap it again.
+ *
+ *  Only three ExprIR shapes carry the type that answers this: the `null`
+ *  literal (`FS_LEAVES.literal` spells it `None`), a member access
+ *  (`memberType` — `typeToFs` spells an optional wire field `'T option`), and a
+ *  ref that carries its declared `type` (a store field, a param).  Everything
+ *  else — a call, a binary, a plain literal — renders a BARE value.
+ *
+ *  Where the answer is unknown the predicate says "not an option", which is the
+ *  safe direction: an over-wrap is `string option option`, an FS0001 that
+ *  `dotnet fable` refuses loudly, while an under-wrap is the defect this whole
+ *  helper exists to fix — also FS0001, and previously the shipped behaviour. */
+function fsYieldsOption(e: ExprIR): boolean {
+  if (e.kind === "literal") return e.lit === "null";
+  if (e.kind === "member") return e.memberType.kind === "optional";
+  if (e.kind === "ref") return e.type?.kind === "optional";
+  return false;
+}
+
 function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): UpdateArmPart {
   switch (stmt.kind) {
     case "assign": {
+      // An OPTIONAL cell is `'T option` on the Model (`type-fs.ts`), so a bare
+      // value has to be lifted: `nickname := n` on a `string?` emitted
+      // `{ model with PrefsNickname = n }` — FS0001, from a `.ddd` that
+      // reported `0 error(s), 0 warning(s)`.  The same silent-codegen shape
+      // wave C2 packet 2i found for an `enum` cell, and it is independent of
+      // `persist:` (a `memory` store reproduces it).
+      const value = renderFsExpr(stmt.value, ctx);
+      const lifted =
+        stmt.targetType.kind === "optional" && !fsYieldsOption(stmt.value)
+          ? `(Some ${value})`
+          : value;
       return {
-        line: `      let model = ${nestedFsWith(stmt.target.segments, renderFsExpr(stmt.value, ctx), ctx)}`,
+        line: `      let model = ${nestedFsWith(stmt.target.segments, lifted, ctx)}`,
       };
     }
     case "add":

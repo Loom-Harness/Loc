@@ -1,0 +1,37 @@
+// Loom architecture model (LikeC4) — generated from the IR, do not edit by hand.
+// System: FieldOps
+
+specification {
+  element system
+  element container
+  element component
+  element database
+}
+
+model {
+  FieldOps = system 'FieldOps' {
+    description 'Loom-generated system'
+    api = container 'api' {
+      technology 'node'
+      Field = component 'Field'
+    }
+    webApp = container 'webApp' {
+      technology 'react'
+    }
+    db = database 'PostgreSQL'
+
+    api -> db 'reads / writes'
+    webApp -> api 'calls'
+  }
+}
+
+views {
+  view index {
+    title 'FieldOps — landscape'
+    include *
+  }
+  view of FieldOps {
+    title 'FieldOps — containers'
+    include *
+  }
+}

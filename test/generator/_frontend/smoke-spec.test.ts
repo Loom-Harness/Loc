@@ -127,8 +127,26 @@ describe("smokeSpec — one navigation assertion per param-less route", () => {
       'test("OrderList loads", async ({ page }) => {\n' +
         '  await page.goto("/orders");\n' +
         '  await expect(page).toHaveURL(new RegExp("/orders$"));\n' +
+        "  // The app mounted rather than crashing into its root error boundary.\n" +
+        '  await expect(page.getByTestId("app-error")).toHaveCount(0);\n' +
         "});",
     );
+  });
+
+  // The URL assertion above restates `page.goto`'s own argument, so on its own
+  // it cannot fail on anything the app does.  That is not a nitpick: a pack
+  // whose shell threw on mount (mui@v5 handing React a CJS module object)
+  // rendered nothing but its error boundary and passed this gate, `tsc
+  // --noEmit` and `vite build`.  Every case must therefore also assert the app
+  // did not crash into that boundary.
+  it("asserts the app did not crash into its root error boundary — on EVERY case", async () => {
+    const ui = await loadUi();
+    const spec = smokeSpec(ui, CTX);
+    const cases = titles(spec).length;
+    expect(cases).toBeGreaterThan(0);
+    expect(
+      spec.match(/await expect\(page\.getByTestId\("app-error"\)\)\.toHaveCount\(0\);/g),
+    ).toHaveLength(cases);
   });
 
   it("emits the fixtures import once, at the top", async () => {
@@ -152,6 +170,9 @@ describe("smokeSpec — the degenerate uis", () => {
     expect(titles(spec)).toEqual(["app root loads"]);
     expect(spec).toContain('await page.goto("/")');
     expect(spec).toContain('await expect(page.locator("body")).toBeVisible();');
+    // The fallback is the one case where `<body>` visibility is the only
+    // structural claim available — so it needs the crash check most.
+    expect(spec).toContain('await expect(page.getByTestId("app-error")).toHaveCount(0);');
   });
 
   it("falls back for a ui with no pages at all", () => {

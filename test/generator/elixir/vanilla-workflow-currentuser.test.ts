@@ -89,7 +89,14 @@ async function loadWorkflows() {
 describe("vanilla — workflow-level currentUser threading (§11a)", () => {
   it("threads `current_user \\\\ nil` into run/1 of a currentUser-guarded workflow", async () => {
     const { approve } = await loadWorkflows();
-    expect(approve).toContain("def run(params, current_user \\\\ nil) when is_map(params) do");
+    // The default is declared exactly once, on a BODILESS HEADER — Elixir
+    // rejects several clauses that each declare one, and `run` has a second
+    // clause for the missing-param refusal.
+    expect(approve).toContain("def run(params, current_user \\\\ nil)\n");
+    expect(approve.match(/current_user \\\\ nil/g)).toHaveLength(1);
+    expect(approve).toContain(
+      'def run(params, current_user) when is_map(params) and is_map_key(params, "orderId") do',
+    );
   });
 
   it("threads current_user into run_inner and passes it through the transaction fn", async () => {
@@ -113,7 +120,11 @@ describe("vanilla — workflow-level currentUser threading (§11a)", () => {
   it("threads current_user even when only a gated op (not the body) uses it", async () => {
     const { auto } = await loadWorkflows();
     // autoConfirm never names currentUser, but calls the gated `confirm` op.
-    expect(auto).toContain("def run(params, current_user \\\\ nil) when is_map(params) do");
+    expect(auto).toContain("def run(params, current_user \\\\ nil)\n");
+    expect(auto.match(/current_user \\\\ nil/g)).toHaveLength(1);
+    expect(auto).toContain(
+      'def run(params, current_user) when is_map(params) and is_map_key(params, "orderId") do',
+    );
     expect(auto).toContain("Context.confirm_order(o, %{}, current_user)");
   });
 

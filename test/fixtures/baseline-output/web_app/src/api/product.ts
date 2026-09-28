@@ -1,7 +1,7 @@
 // Auto-generated.  Do not edit by hand.
 import { z } from "zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, seg } from "./client";
+import { api, ifMatch, seg } from "./client";
 
 export const MoneySchema = z.object({
   amount: z.number().min(0, { message: "Amount must be at least 0" }),
@@ -94,7 +94,8 @@ export function useUpdateProduct(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: UpdateProductRequest) => {
-      await api.post(`/products/${seg(id)}/update`, input);
+      const loaded = qc.getQueryData<ProductResponse>(["products", id]);
+      await api.post(`/products/${seg(id)}/update`, input, ifMatch(loaded?.version));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products", id] });

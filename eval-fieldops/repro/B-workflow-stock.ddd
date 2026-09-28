@@ -1,0 +1,34 @@
+system P {
+  subdomain S { context C {
+    enum St { Open, Done }
+    aggregate Part {
+      sku: string
+      onHand: int
+      invariant onHand >= 0
+      derived display: string = sku
+      operation consume(qty: int) { precondition qty > 0  precondition onHand >= qty  onHand := onHand - qty }
+    }
+    aggregate WorkOrder {
+      status: St
+      partId: Part id
+      qty: int
+      derived display: string = "w"
+      operation complete() when status == Open { status := Done }
+    }
+    repository Parts for Part {}
+    repository WorkOrders for WorkOrder {}
+    // "completing a work order must decrement stock transactionally and fail the
+    //  whole operation if stock is insufficient"
+    workflow completeWorkOrder transactional {
+      create(workOrder: WorkOrder id) {
+        let wo = WorkOrders.getById(workOrder)
+        let part = Parts.getById(wo.partId)
+        part.consume(wo.qty)
+        wo.complete()
+      }
+    }
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

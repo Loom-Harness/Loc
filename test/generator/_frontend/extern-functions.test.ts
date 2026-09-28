@@ -95,25 +95,70 @@ describe("buildExternFunctionSignature — the type table", () => {
     expect(signatureBody(sig)).toBe("() => string");
   });
 
+  it("SPELLS `money` and a DECLARED value object — both were the floor until wave C2 packet 2k", () => {
+    // The spellings must match `component-prop-type.ts` exactly: an extern
+    // signature is checked against the author's own module, so a `money` typed
+    // `Decimal` in one place and `number` in the other would make the hatch
+    // reject correct code.
+    const moneySig = buildExternFunctionSignature(
+      fn({ name: "f", params: [{ name: "m", type: prim("money") }] }),
+    );
+    expect(signatureBody(moneySig)).toBe("(m: Decimal) => string");
+    // This file owns its whole import block and binds no other `Decimal`, so it
+    // emits the default import itself rather than deferring to a shell.
+    expect(moneySig).toContain('import type Decimal from "decimal.js";');
+
+    const vos = new Map([
+      [
+        "Address",
+        {
+          name: "Address",
+          fields: [
+            { name: "street", type: prim("string") },
+            { name: "total", type: prim("money") },
+          ],
+          derived: [],
+          invariants: [],
+          functions: [],
+          tests: [],
+        },
+      ],
+    ]) as unknown as ReadonlyMap<string, never>;
+    const voSig = buildExternFunctionSignature(
+      fn({ name: "f", params: [{ name: "v", type: { kind: "valueobject", name: "Address" } }] }),
+      undefined,
+      vos,
+    );
+    expect(signatureBody(voSig)).toBe("(v: { street: string; total: Decimal }) => string");
+  });
+
   it("THROWS on a type with no wire spelling rather than emitting `any`", () => {
     // Still a throw — emitting `any` would void the contract the signature file
     // exists to enforce — but the wording moved into the catalog (Wave C1
-    // packet 1d-ii) and now names the phase-⑦ gate that makes it unreachable
-    // through `ddd generate`: `loom.frontend-prop-type-unsupported`.  Measured
-    // before that gate existed: `function fmt(m: money): string extern from
-    // "./fmt"` reported `0 error(s), 0 warning(s)` and then died here.
+    // packet 1d-ii) and names the phase-⑦ gate that makes it unreachable
+    // through `ddd generate`: `loom.frontend-prop-type-unsupported`.
+    //
+    // The CASES moved in wave C2 packet 2k, because `money` and a declared
+    // value object are spelled now.  What is left below the floor: a primitive
+    // with no wire form at all (`duration`), a param marker in a data position
+    // (`slot`), and an UNDECLARED value object — the last being the case where
+    // answering `unknown` would silently void the contract.
     const FLOOR = /internal: the frontend prop layer has no TypeScript spelling for/;
     expect(() =>
-      buildExternFunctionSignature(fn({ name: "f", params: [{ name: "m", type: prim("money") }] })),
+      buildExternFunctionSignature(
+        fn({ name: "f", params: [{ name: "d", type: prim("duration") }] }),
+      ),
     ).toThrow(FLOOR);
     expect(() =>
-      buildExternFunctionSignature(fn({ name: "f", params: [{ name: "m", type: prim("money") }] })),
-    ).toThrow(/primitive 'money'/);
+      buildExternFunctionSignature(
+        fn({ name: "f", params: [{ name: "d", type: prim("duration") }] }),
+      ),
+    ).toThrow(/primitive 'duration'/);
     expect(() =>
       buildExternFunctionSignature(
-        fn({ name: "f", params: [{ name: "v", type: { kind: "valueobject", name: "Address" } }] }),
+        fn({ name: "f", params: [{ name: "v", type: { kind: "valueobject", name: "Nowhere" } }] }),
       ),
-    ).toThrow(/type kind 'valueobject'/);
+    ).toThrow(/value object 'Nowhere'/);
     expect(() =>
       buildExternFunctionSignature(fn({ name: "f", returnType: { kind: "slot" } })),
     ).toThrow(/type kind 'slot'/);

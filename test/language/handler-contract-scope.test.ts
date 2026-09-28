@@ -140,9 +140,12 @@ describe("handler contract scope — the neighbouring positions still refuse", (
       const { errors } = await parseString(ctx(`${HANDLERS}\n${member}`));
       // Named, so the assertion cannot be satisfied by SOME OTHER unresolved
       // reference the fixture happens to carry.
-      const unresolved = `Could not resolve reference to NamedDecl named '${name}'.`;
+      // An unresolved TYPE position reports as "Unknown type '<name>'" (the
+      // Langium-internal `NamedDecl` wording it replaced named a grammar type
+      // and offered nothing to try — see `ddd-linker.ts`).
+      const unresolved = `Unknown type '${name}'.`;
       expect(
-        errors.some((e) => e.endsWith(unresolved)),
+        errors.some((e) => e.includes(unresolved)),
         `expected "${unresolved}" from ${where}, got: ${JSON.stringify(errors)}`,
       ).toBe(true);
       // …and the handlers in the same context still link (the refusal is
@@ -158,10 +161,6 @@ describe("handler contract scope — the neighbouring positions still refuse", (
 
   it("still refuses in those positions when the handlers are absent too", async () => {
     const { errors } = await parseString(ctx(`aggregate Bad { stray: OrderResponse }`));
-    expect(
-      errors.some((e) =>
-        e.endsWith("Could not resolve reference to NamedDecl named 'OrderResponse'."),
-      ),
-    ).toBe(true);
+    expect(errors.some((e) => e.includes("Unknown type 'OrderResponse'."))).toBe(true);
   });
 });

@@ -8,6 +8,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
+import { requestNamesForContexts } from "./request-names.js";
 import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,10 @@ export function buildWorkflowsApiModule(
 ): string {
   const queryPackage = options.queryPackage ?? "@tanstack/react-query";
   const workflows = allWorkflows(contexts);
+  // Identifier bases, minted against the deployable's WHOLE universe so a
+  // workflow's request schema cannot alias an aggregate's create/operation one
+  // (`request-names.ts`).  Collision-free model ⇒ `base === upperFirst(name)`.
+  const names = requestNamesForContexts(contexts);
   // Observable workflows (a persisted correlation-state row) get read-only
   // instance query hooks (workflow-instance-visibility.md) — `useQuery` is
   // only imported when at least one exists, so a saga-less project's module
@@ -78,30 +83,28 @@ export function buildWorkflowsApiModule(
   }
 
   for (const { wf, ctx } of workflows) {
-    lines.push(`export const ${upperFirst(wf.name)}Request = z.object({`);
+    const base = names.workflow(wf.name);
+    lines.push(`export const ${base}Request = z.object({`);
     for (const p of wf.params) {
       lines.push(`  ${p.name}: ${zodForRequest(p.type)},`);
     }
     lines.push(`});`);
-    lines.push(
-      `export type ${upperFirst(wf.name)}Request = z.infer<typeof ${upperFirst(wf.name)}Request>;`,
-    );
+    lines.push(`export type ${base}Request = z.infer<typeof ${base}Request>;`);
     // Dual FormState/Payload aliases — same gate and same reason as the
     // aggregate create/operation schemas in `api-module.ts`: money is the one
     // wire type whose schema TRANSFORMS on parse, so only a money-bearing
     // request has `z.input ≠ z.output`.  A `WorkflowForm` over one needs the
     // `FormState` name for RHF's three-generic `useForm`.
     if (wf.params.some((p) => typeReachesMoney(p.type, ctx))) {
-      const name = upperFirst(wf.name);
       lines.push(`/** Pre-parse form shape (z.input) — money fields are decimal strings. */`);
-      lines.push(`export type ${name}FormState = z.input<typeof ${name}Request>;`);
+      lines.push(`export type ${base}FormState = z.input<typeof ${base}Request>;`);
       lines.push(`/** Post-parse payload shape (z.output) — money fields are Decimal. */`);
-      lines.push(`export type ${name}Payload = z.output<typeof ${name}Request>;`);
+      lines.push(`export type ${base}Payload = z.output<typeof ${base}Request>;`);
     }
     lines.push("");
-    lines.push(`export function use${upperFirst(wf.name)}Workflow() {`);
+    lines.push(`export function use${base}Workflow() {`);
     lines.push(`  return useMutation({`);
-    lines.push(`    mutationFn: async (input: ${upperFirst(wf.name)}Request) => {`);
+    lines.push(`    mutationFn: async (input: ${base}Request) => {`);
     lines.push(`      await api.post(\`/workflows/${snake(wf.name)}\`, input);`);
     lines.push(`    },`);
     lines.push(`  });`);

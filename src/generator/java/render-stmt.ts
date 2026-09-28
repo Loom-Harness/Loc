@@ -1,6 +1,7 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
+import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { jid } from "./java-ident.js";
@@ -27,6 +28,9 @@ export interface JavaTraceCtx {
    *  records the event AND folds it via `_apply(ev)` so in-memory state
    *  reflects the transition before the command returns. */
   eventSourced?: boolean;
+  /** True when rendering an aggregate OPERATION body: a messaged
+   *  `precondition` then throws its wire code and pointer too (M-T1.11 (c)). */
+  domainFloorCodes?: boolean;
 }
 
 const NO_TRACE: JavaTraceCtx = { emitTrace: false, aggregate: "", op: "" };
@@ -58,7 +62,7 @@ export function renderJavaStatementChunks(
 // origin-generic (works for any statement IR carrying `origin?`), so every
 // backend's chunk-producing renderer shares the one cursor walk. Re-exported
 // here so call sites can import it alongside the chunk renderer.
-export { statementSubRegions } from "../_trace/sourcemap.js";
+export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.js";
 
 /** Imports a statement body needs — the union of
  *  `collectJavaExprImports` over every rendered expression.
@@ -208,7 +212,14 @@ function precondition(
   ctx: JavaRenderContext,
   traceCtx: JavaTraceCtx,
 ): string {
-  const thrown = `throw new DomainException(${JSON.stringify(message ?? `Precondition failed: ${source}`)})`;
+  // A MESSAGED precondition in an aggregate operation carries its wire code and
+  // pointer THROUGH the throw (M-T1.11 (c)).
+  const code = traceCtx.domainFloorCodes
+    ? domainFloorCode(message !== undefined ? { text: message } : undefined)
+    : undefined;
+  const thrown = code
+    ? `throw new DomainException(${JSON.stringify(message)}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    : `throw new DomainException(${JSON.stringify(message ?? `Precondition failed: ${source}`)})`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderJavaExpr(expr, ctx)})) ${thrown};`;
   }

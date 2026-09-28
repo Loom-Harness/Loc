@@ -55,7 +55,11 @@ describe("Hono ERP-bundle generator regressions", () => {
     const plus = vo.match(/plus\(other: Money\)[^\n]*/)?.[0] ?? "";
     expect(plus, "plus body located").not.toEqual("");
     expect(plus, "constructs with new").toContain("new Money(");
-    expect(plus, "numeric add, not string concat").toContain("this.amount + other.amount");
+    // Numeric — and, `amount` being a `decimal`, EXACT (RS-37): decimal.js,
+    // narrowed once.  Either way not a string concat.
+    expect(plus, "exact numeric add, not string concat").toContain(
+      "new Decimal(this.amount).plus(other.amount).toNumber()",
+    );
     expect(plus, "no String() wrapping of the numeric operand").not.toContain(
       "String(this.amount)",
     );

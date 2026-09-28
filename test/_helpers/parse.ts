@@ -1,8 +1,9 @@
-import { type Diagnostic, EmptyFileSystem, type LangiumDocument, type URI } from "langium";
+import { EmptyFileSystem, type LangiumDocument, type URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { type LspDiagnostic as Diagnostic, diagText } from "./diagnostics.js";
 
 export type ParseResult = {
   model: Model;
@@ -17,7 +18,7 @@ const isError = (d: Diagnostic): boolean => d.severity === 1;
 const isWarning = (d: Diagnostic): boolean => d.severity === 2;
 
 const fmt = (d: Diagnostic): string =>
-  `${d.range.start.line + 1}:${d.range.start.character + 1} ${d.message}`;
+  `${d.range.start.line + 1}:${d.range.start.character + 1} ${diagText(d)}`;
 
 export const extractErrors = (diagnostics: readonly Diagnostic[] = []): string[] =>
   diagnostics.filter(isError).map(fmt);
@@ -145,3 +146,17 @@ export const parseRawOk = (text: string): boolean =>
 
 /** Full link-free parse result (carries `.value` and `.parserErrors`). */
 export const parseRawResult = (text: string) => rawParser().parse(text);
+
+/** Parser (syntax) errors for `text`, as messages.
+ *
+ * This is the check `parseString(src, { validate: false })` CANNOT make.
+ * `parseString` reports `errors` out of `doc.diagnostics`, and Langium only
+ * populates that during VALIDATION — so with `validate: false` the field is
+ * unconditionally `[]` and `expect(errors).toEqual([])` passes vacuously, no
+ * matter how broken the source is.  That is the recurring failure shape in
+ * `experience_gathered.md` §59/§63: a check that never reaches the thing it
+ * names.  A test whose name says "parses" wants THIS. */
+export const parseErrorsOf = (text: string): string[] =>
+  rawParser()
+    .parse(text)
+    .parserErrors.map((e) => e.message);

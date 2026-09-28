@@ -6,7 +6,7 @@
 > implementing; this repo's statuses rot. Items marked *(judgement)* are my
 > ordering opinion, not a measurement.
 >
-> Grew out of the `requires`-placement work ([#2443](https://github.com/lemmit/Loc/pull/2443),
+> Grew out of the `requires`-placement work ([#2443](https://github.com/Loom-Harness/Loc/pull/2443),
 > M-T3.2 item 3): once the gate stopped living in the domain entity, the question
 > "so what secures the READS?" had no coherent answer.
 >
@@ -103,7 +103,7 @@ command entries has no single gate to inherit).
 
 **Follow-on, done:** the SCAFFOLD did not inherit that gate — it emitted an
 ungated page over the now-guarded route, so the client fired the read and ate
-the 403. Closed by [#2581](https://github.com/lemmit/Loc/pull/2581) (a
+the 403. Closed by [#2581](https://github.com/Loom-Harness/Loc/pull/2581) (a
 `requires` option on the `page()` macro factory — the grammar had `RequiresProp`
 all along). The nav-link half is **not** closed: see **C3**.
 
@@ -214,7 +214,7 @@ instead of securing one. Also makes E2 moot. **Size: M, breaking.**
 
 ### C3 — the generated nav shows links to routes the backend refuses
 The scaffolded PAGES now inherit the gate their route is guarded by
-([#2581](https://github.com/lemmit/Loc/pull/2581)) — the workflow header gate
+([#2581](https://github.com/Loom-Harness/Loc/pull/2581)) — the workflow header gate
 onto both instance pages, the `find all` gate onto the aggregate List page — so
 the client renders `Forbidden` instead of firing a read that 403s. The **nav
 link is still ungated**, and it is a *different* defect from the one #2581
@@ -253,7 +253,7 @@ List one.
 
 ## 4. Root cause D — gate placement and the find teardown
 
-### D1 — `requires` out of the domain entity — **DONE** ([#2443](https://github.com/lemmit/Loc/pull/2443))
+### D1 — `requires` out of the domain entity — **DONE** ([#2443](https://github.com/Loom-Harness/Loc/pull/2443))
 
 ### D2 — repoint the audit-history gate BEFORE deleting find `requires`
 **Hard prerequisite, not a nicety.** `ensureHistoryFind` copies `find all`'s

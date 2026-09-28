@@ -58,7 +58,7 @@ describe("feliz modal", () => {
     // + the id-carrying submit — the same `renderOperationForm` markup).
     expect(app).toContain('prop.placeholder "newName"');
     expect(app).toContain(
-      'prop.onClick (fun _ -> dispatch (SubmitRenameProductForm id)); prop.text "Rename Product"',
+      'prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text "Rename Product"',
     );
     // No dead trigger-only button leaks (the pre-disclosure inert placeholder).
     expect(app).not.toContain('prop.className "loom-modal-trigger"');

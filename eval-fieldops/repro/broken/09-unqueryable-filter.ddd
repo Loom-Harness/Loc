@@ -1,0 +1,7 @@
+system B { subdomain S { context C {
+  aggregate A { n: string  contains xs: X[]  derived display: string = n
+    entity X { v: int }
+  }
+  repository As for A { find busy(): A[] where this.xs.count > 3 }
+} } storage db { type: postgres } resource r { for: C, kind: state, use: db }
+deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }

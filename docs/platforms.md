@@ -131,9 +131,15 @@ available. The matured axis today is **`persistence:`**:
   shape reject — an abstract inheritance base owning its own `contains` — turned
   out to be impossible on every target and became the target-neutral
   `loom.abstract-aggregate-contains` (see [`inheritance.md`](inheritance.md)).
-  The remaining adapter-specific narrowing is on the FIND-PREDICATE axis
-  (`loom.find-predicate-unsupported`): MikroORM lowers no reference-collection
-  membership subquery. The alternates share the generated **domain layer**
+  There is **no adapter-specific find-predicate narrowing left either**: the
+  last one was measured in wave C2 packet 2n and turned out to be the same
+  mistake — `firstNonQueryableNode` was position-blind, so a predicate with no
+  COLUMN in it (`where true`, a bool parameter, a `currentUser` claim standing
+  alone) was admitted and then crashed drizzle codegen, was refused on MikroORM,
+  and emitted a host-language boolean into a `WHERE` on the other three. It is
+  now the target-neutral `firstNonQueryablePredicate`, and
+  `loom.find-predicate-unsupported` and its per-adapter descriptor table are
+  deleted. The alternates share the generated **domain layer**
   with the default and only swap the persistence layer (Dapper SQL
   repositories / MikroORM `EntitySchema` + `EntityManager`), so a project
   can switch persistence without touching its domain code.

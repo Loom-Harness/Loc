@@ -36,8 +36,9 @@ export function checkMatchExpressions(model: Model, accept: ValidationAcceptor):
     // `varArms`; the boolean form counts `arms`.
     const armCount = isVariant ? m.varArms.length : m.arms.length;
     if (armCount === 0 && !m.elseExpr) {
-      accept("error", `Empty 'match { }' — must declare at least one arm or an 'else' branch.`, {
+      accept("error", diagMessage("loom.match-empty"), {
         node: m,
+        code: "loom.match-empty",
       });
       continue;
     }
@@ -65,11 +66,7 @@ export function checkMatchExpressions(model: Model, accept: ValidationAcceptor):
     // from error to warning to keep the surface friendly while
     // the user iterates.
     if (!m.elseExpr) {
-      accept(
-        "warning",
-        `'match' expression has no 'else' arm — when no arm matches, the expression is undefined.  Add 'else => …' for exhaustive coverage.`,
-        { node: m },
-      );
+      accept("warning", diagMessage("loom.match-no-else"), { node: m, code: "loom.match-no-else" });
     }
   }
 }
@@ -107,8 +104,12 @@ export function checkMatcherArity(model: Model, accept: ValidationAcceptor): voi
     if (ms.args.length !== sig.arity) {
       accept(
         "error",
-        `matcher '${ms.member}' takes ${sig.arity} argument(s), got ${ms.args.length}.`,
-        { node: ms, property: "args" },
+        diagMessage("loom.matcher-arity", {
+          matcher: ms.member,
+          arity: sig.arity,
+          got: ms.args.length,
+        }),
+        { node: ms, property: "args", code: "loom.matcher-arity" },
       );
     }
   }
@@ -136,11 +137,11 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
     const stmt = node as ExpectStmt;
     const matcher = trailingMatcher(stmt.expr);
     if (!matcher) {
-      accept(
-        "error",
-        `'expect' requires a matcher — write 'expect(<actual>).toBe(<expected>)' (or .toThrow(), .toHaveText(…), …), not a bare expression.`,
-        { node: stmt, property: "expr" },
-      );
+      accept("error", diagMessage("loom.expect-requires-matcher"), {
+        node: stmt,
+        property: "expr",
+        code: "loom.expect-requires-matcher",
+      });
       continue;
     }
     // A LOCATOR matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) asserts
@@ -171,11 +172,52 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
     // (in-memory values) there is nothing to forgive, so restrict it to e2e.
     if (matcher.member === "toBeSameInstant") {
       if (!isTestE2E(stmt.$container)) {
-        accept(
-          "error",
-          `'toBeSameInstant' compares wire timestamps and is only valid in a 'test e2e' block; compare in-memory values with 'toBe' in an in-process test.`,
-          { node: matcher, property: "member" },
-        );
+        accept("error", diagMessage("loom.matcher-e2e-only#same-instant"), {
+          node: matcher,
+          property: "member",
+          code: "loom.matcher-e2e-only",
+        });
+      }
+      continue;
+    }
+    // `toBeAbsent()` — E2E ONLY, the same tier split `toBeSameInstant` above
+    // takes and for the same underlying reason: it is a claim about a
+    // SERIALIZED PAYLOAD.  "The key is not in the body" needs a body; a unit
+    // `test` asserts against an in-memory aggregate whose declared fields
+    // always exist, and on three of the five backends (C# `int?`, Java
+    // `Integer`, an Elixir struct's `nil` default) in-process absence is not
+    // observable even in principle.  Lowering it there could only degrade it
+    // to a null check — making it a silent synonym for `toBeNull()`, one name
+    // carrying two strengths of claim, which is the #2959 defect — or emit an
+    // assertion that can never pass.  Refuse at the author's own span.
+    //
+    // `toBeNull()` and `toContain()` are legal in BOTH tiers; only the
+    // wire-spelling half of the absence pair is split.
+    if (matcher.member === "toBeAbsent" || matcher.member === "toBeNull") {
+      const absenceContainer = stmt.$container;
+      if (matcher.member === "toBeAbsent" && !isTestE2E(absenceContainer)) {
+        accept("error", diagMessage("loom.unit-absent-invalid", {}), {
+          node: matcher,
+          property: "member",
+          code: "loom.unit-absent-invalid",
+        });
+        continue;
+      }
+      // A `test e2e` block that lowers to the UI renderer asserts against
+      // RENDERED TEXT, not a payload — `ui-e2e-render.ts` puts a value matcher
+      // on `(await <handle>.field("x").innerText())`, which is always a string.
+      // `toBeNull()` there can never hold and `toBeAbsent()` is not a runtime
+      // matcher at all, so the emitted spec would fail to run.  Refuse both at
+      // the source span rather than shipping an assertion that cannot pass —
+      // the same ruling `loom.e2e-ui-throw-invalid` makes for `toThrow`
+      // (audit 2026-09-13 F7).  `toContain` is NOT refused here: a substring of
+      // the rendered text is a real, useful claim.
+      if (isTestE2E(absenceContainer) && lowersToUiSpec(absenceContainer)) {
+        accept("error", diagMessage("loom.e2e-ui-absence-invalid", { matcher: matcher.member }), {
+          node: matcher,
+          property: "member",
+          code: "loom.e2e-ui-absence-invalid",
+        });
       }
       continue;
     }
@@ -200,11 +242,11 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       continue;
     }
     if (matcher.args.length > 1) {
-      accept(
-        "error",
-        `'toThrow' takes at most one argument (an HTTP status), got ${matcher.args.length}.`,
-        { node: matcher, property: "args" },
-      );
+      accept("error", diagMessage("loom.tothrow-arity", { got: matcher.args.length }), {
+        node: matcher,
+        property: "args",
+        code: "loom.tothrow-arity",
+      });
       continue;
     }
     // A `test e2e` block that lowers to the UI renderer has no HTTP response
@@ -229,17 +271,17 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
     }
     if (matcher.args.length === 1) {
       if (!isTestE2E(container)) {
-        accept(
-          "error",
-          `'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.`,
-          { node: matcher, property: "args" },
-        );
+        accept("error", diagMessage("loom.matcher-e2e-only#throw-status"), {
+          node: matcher,
+          property: "args",
+          code: "loom.matcher-e2e-only",
+        });
       } else if (!isIntLit(matcher.args[0]!.value)) {
-        accept(
-          "error",
-          `'toThrow(<status>)' requires an integer HTTP status literal, e.g. toThrow(404).`,
-          { node: matcher, property: "args" },
-        );
+        accept("error", diagMessage("loom.tothrow-status-not-int"), {
+          node: matcher,
+          property: "args",
+          code: "loom.tothrow-status-not-int",
+        });
       }
     }
   }
@@ -366,28 +408,29 @@ export function checkMatchesCalls(model: Model, accept: ValidationAcceptor): voi
     if (ms.member !== "matches" || !ms.call) continue;
     // `matches` always takes exactly one string-literal argument.
     if (ms.args.length !== 1) {
-      accept("error", `'matches' takes exactly one argument (a string-literal regex pattern).`, {
+      accept("error", diagMessage("loom.matches-arity"), {
         node: ms,
         property: "args",
+        code: "loom.matches-arity",
       });
       continue;
     }
     const argWrap = ms.args[0]!;
     const arg = argWrap.value;
     if (argWrap.name) {
-      accept(
-        "error",
-        `'matches' takes a single positional argument; named arguments are not supported.`,
-        { node: argWrap, property: "name" },
-      );
+      accept("error", diagMessage("loom.matches-named-arg"), {
+        node: argWrap,
+        property: "name",
+        code: "loom.matches-named-arg",
+      });
       continue;
     }
     if (arg.$type !== "StringLit") {
-      accept(
-        "error",
-        `'matches' argument must be a string literal — patterns must be known at codegen time.`,
-        { node: ms, property: "args" },
-      );
+      accept("error", diagMessage("loom.matches-not-literal"), {
+        node: ms,
+        property: "args",
+        code: "loom.matches-not-literal",
+      });
       continue;
     }
     // Langium's STRING terminal strips the surrounding quotes, so `raw` IS
@@ -400,10 +443,10 @@ export function checkMatchesCalls(model: Model, accept: ValidationAcceptor): voi
     } catch (err) {
       accept(
         "error",
-        `'matches' pattern is not a valid regular expression: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        { node: ms, property: "args" },
+        diagMessage("loom.matches-invalid-regex", {
+          reason: err instanceof Error ? err.message : String(err),
+        }),
+        { node: ms, property: "args", code: "loom.matches-invalid-regex" },
       );
     }
   }

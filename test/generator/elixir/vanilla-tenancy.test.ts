@@ -21,6 +21,7 @@ const SOURCE = `
 system TenancyShop {
   user { id: string  tenantId: string }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID") }
     claims: { tenantId: "tenant_id" }
@@ -138,6 +139,7 @@ const EMBEDDED_SOURCE = `
 system EmbTenancy {
   user { id: string  tenantId: string }
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID") }
     claims: { tenantId: "tenant_id" }
