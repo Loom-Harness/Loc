@@ -87,6 +87,29 @@ function ectoIndexOpts(i: IndexShape, prefix: string): string {
   return `${unique}${where}${name}${prefix}`;
 }
 
+/** The indexes this backend can actually create on `table`.
+ *
+ *  `collapseVoGroups` stores a value object as ONE `:map` column, so its
+ *  flattened leaf columns (`berth_ship`, `berth_position`) never reach the
+ *  emitted `create table`.  The canonical `MigrationsIR` indexes those leaves —
+ *  correctly, for the relational backends — and an index naming a column this
+ *  table does not have is a migration that FAILS TO APPLY
+ *  (`column "berth_ship" does not exist`), not merely a useless one.
+ *
+ *  A value object holding a reference (`valueobject Berth { ship: Ship id }`)
+ *  is what makes the IR mint such an index at all, which is why the corpus
+ *  never tripped it until `vo-id-reference` landed: the elixir compile tier
+ *  COMPILES migrations, it does not apply them, so this stayed green.
+ *
+ *  This is the exact reasoning `enumCheckLines` already applies to the
+ *  `voNullConsistent` constraints — the same collapse, the same dropped leaf
+ *  columns — extended to the index list it was never applied to. */
+function ectoIndexes(table: TableShape): readonly IndexShape[] {
+  const collapsed = new Set(table.columns.filter((c) => c.voGroup).map((c) => c.name));
+  if (collapsed.size === 0) return table.indexes;
+  return table.indexes.filter((i) => !i.columns.some((n) => collapsed.has(n)));
+}
+
 /** The bracketed column list for a `create index(...)` call.  A column with a
  *  per-column opclass (materialized-path prefix index) uses Ecto's raw
  *  fragment string form (`"data_key text_pattern_ops"`) so the opclass reaches
@@ -783,19 +806,6 @@ function renderCreateTableInline(table: TableShape): string[] {
     lines.push(`create index(:${table.name}, [${cols}]${ectoIndexOpts(idx, prefix)})`);
   }
   return lines;
-}
-
-/** The indexes a Phoenix migration can create on `table`.  The canonical
- *  MigrationsIR indexes a value object's `X id` LEAF column (`berth_ship`, the
- *  FK-lookup index every relational backend gets), but Phoenix stores the value
- *  object as ONE `:map` column (`collapseVoGroups`), so that leaf column does
- *  not exist here and `ecto.migrate` failed with `column "berth_ship" does not
- *  exist` (wave C3 D4).  Such an index is dropped on every initial-file path —
- *  the same disposition the VO null-consistency CHECK already gets. */
-function ectoIndexes(table: TableShape): IndexShape[] {
-  const voLeaves = new Set(table.columns.filter((c) => c.voGroup).map((c) => c.name));
-  if (voLeaves.size === 0) return table.indexes;
-  return table.indexes.filter((i) => !i.columns.some((n) => voLeaves.has(n)));
 }
 
 /** Regroup the flattened leaf columns of a value-object field
