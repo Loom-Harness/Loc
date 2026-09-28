@@ -31,7 +31,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AstUtils } from "langium";
+import { AstUtils, GrammarAST } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -47,8 +47,8 @@ const SNAPSHOT = path.join(here, "keyword-identifier-coverage.snapshot.json");
 function grammarKeywords(): string[] {
   const kws = new Set<string>();
   for (const node of AstUtils.streamAllContents(DddGrammar())) {
-    if (node.$type === "Keyword") {
-      const v = (node as { value: string }).value;
+    if (GrammarAST.isKeyword(node)) {
+      const v = node.value;
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)) kws.add(v);
     }
   }

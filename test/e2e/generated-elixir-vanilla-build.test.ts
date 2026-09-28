@@ -4,8 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type HexMirror, startHexMirror } from "./support/hex-mirror";
-import { mixDepsGet, mixLocalInstall } from "./support/mix-retry";
+import { type HexMirror, startHexMirror } from "./support/hex-mirror.js";
+import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------

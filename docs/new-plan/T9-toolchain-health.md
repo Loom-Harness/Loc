@@ -11,12 +11,21 @@ Compile-only per-PR gates let runtime regressions ship green and fail nightly. P
 Sources: [a6.2-behavioral-tier-second-backend](../old/plans/a6.2-behavioral-tier-second-backend.md), [global-test-coverage-plan](../old/plans/global-test-coverage-plan.md), [runtime-conformance-harness](../old/plans/runtime-conformance-harness.md).
 - **Timers runtime leg (moved here from M-T4.1 on its 2026-09-02 close):** every timer runtime proof to date was a per-PR hand-run (#1963, #2009, #2525's watermark-advance boot); fire / single-fire / coalesce-once catch-up have no standing gate on any backend. A `timers-e2e` leg in the same shape as `channels-e2e` is the gap — a test gate, not a feature.
 
-## M-T9.4 — Full-review remediation residue — `partial` · **M** · P2
-A5 retire the deprecated `WorkflowIR` primary-create facade; A7.4 fullstack-embed seam on `PlatformSurface` (pairs with M-T6.1/M-T6.5); B23 heex-parity behavioral output test; C-mediums C1–C7, C11, C12, C15; #22 macro-expansion-under-LSP-rebuild (also in M-T5.16).
+## M-T9.4 — Full-review remediation residue — `partial` (re-verified on fresh `main` by wave C4 packet 4f, 2026-09-22: **every item but A5 is closed**) · **S** · P2
+**The residue is now ONE item: A5.** Re-verified item by item on the folded C4 tree; the old list was five items stale.
+- **A5 — retire the deprecated `WorkflowIR` primary-create facade — STILL OPEN, and it is not S.** `params` / `statements` / `savesAtExit` are `@deprecated` facades over `creates` (`src/ir/types/loom-ir.ts:1279–1299`). Measured: **54 reader sites across 16 files**, including all five backends (`platform/hono/v4/workflow-builder.ts`, `generator/{dotnet,java,python}/workflow-*`, `generator/elixir/vanilla/explicit-handlers-emit.ts`), the shared `_workflow/stmt-target.ts`, both lowerers and two IR check leaves. That is an **L** under the byte-identical bar, not the S the row implied.
+- **A7.4 fullstack-embed seam on `PlatformSurface` — CLOSED.** The seam exists as `STATIC_BUNDLE_FRAMEWORKS` + `EMBEDDABLE_FRAMEWORKS` (`src/platform/surface.ts:39–58`), with backend hosts advertising the wider set and the frontend static hosts the narrower one.
+- **B23 heex-parity behavioral OUTPUT test — CLOSED** by [#2662](https://github.com/Loom-Harness/Loc/pull/2662): `test/behavioral/run-heex-ui.mjs` runs the emitted `*.ui.spec.ts` plus a create → list → detail round-trip against a booted Phoenix stack and asserts on RENDERED TEXT, so a 200 with an empty page fails.
+- **C-mediums C1–C7, C11, C12, C15 — CLOSED.** Every one carries its fix marker in `src/` (`(C1)` … `(C15)` across `validators/{structural,statements,builder-call,deployable,composition,types}.ts`, `print-structural.ts`, `lower-expr.ts`, `platform/metadata.ts`). Spot-checked: C2's `Create`/`Destroy` owner arm (`structural.ts:158`), C11's `BARE_REJECTED_COLLECTION_ACCESSORS` (`types.ts:168`), C6's `print-keyword-mirrors.test.ts` deriving both keyword sets from the parsed grammar.
+- **#22 / C5 macro expansion under LSP incremental rebuild — CLOSED by packet 4f.** C5's named deliverable was "the currently-missing expander idempotency/incremental test"; it is `test/macro/expansion-rebuild-idempotence.test.ts`. See M-T5.16 (c) for what it measured.
 Sources: [full-review-remediation](../old/plans/full-review-remediation.md), [full-code-review-2026-07](../audits/full-code-review-2026-07.md).
 
-## M-T9.5 — Version-axis consolidation — `partial` · **M** · P2
-Stop forking: React `stacks/` → `src/platform/react/v{N}/` consolidation (mechanical, live); backend-packages B3+ decisions (render-expr sharing granularity, frontend single-versioning, CI version sharding); pack-versioning Phase 2 tail (Phoenix dep bump, .NET stack scaffold, shadcn@v4 bareword promote).
+## M-T9.5 — Version-axis consolidation — `partial` · **M** · P2 ⚠ the `stacks/` move is BLOCKED on an owner fork (measured 2026-09-22, wave C4 packet 4f)
+**The `stacks/` → `src/platform/react/v{N}/` move was measured and NOT taken.** Two reasons, both in the way:
+1. **The target path names React; the directory does not hold only React.** `stacks/` holds five FRAMEWORK families — `v1`/`v3` (React/TSX), `vue1`, `sv1` (Svelte), `ng1` (Angular). Moving only `v1`/`v3` splits one directory across two homes, which is worse than either end state. Moving all five means per-framework platform dirs, but `src/platform/{vue,svelte,angular}.ts` are thin surface files with no package directory — so this is really "do the frontends adopt the hono v4/v5 PACKAGE pattern?", a bigger question than a move.
+2. **The blast radius is not mechanical.** `stacks/` is resolved by path in THREE places, one of which is a build-time glob: `src/generator/_packs/loader-fs.ts:187` (`<repo>/stacks/<id>/`), `web/src/build/template-bundled.ts:65,74,102–109,160,166` (three glob literals + a path regex that reconstructs `/stacks/<id>/<file>` into the browser VFS) and `web/src/build/loader-vfs.ts:167`. Plus 7 `.github/workflows/generated-*` files, 4 tests (`stack-router-seam`, `package-json-shape`, `money-form-generics`, `playground/loader-vfs`), `docs/design-packs.md`, and the publish `files:` list. Under the byte-identical bar that is an **M**, and it must land with the web VFS half in the same PR or the playground silently stops finding its stacks.
+**Owner decision wanted:** (a) move all five into per-framework platform package dirs (adopt the backend-packages pattern on the frontends), (b) move React's two only and accept a split `stacks/`, or (c) close this sub-item — `stacks/<id>/` IS already a version axis with one directory per version, and the consolidation buys naming symmetry rather than behaviour.
+Other sub-items unchanged: backend-packages B3+ decisions (render-expr sharing granularity, frontend single-versioning, CI version sharding); pack-versioning Phase 2 tail (Phoenix dep bump, .NET stack scaffold, shadcn@v4 bareword promote).
 Sources: [platform-directory-layout](../old/proposals/platform-directory-layout.md), [backend-packages](../old/plans/backend-packages.md), [pack-versioning-plan](../old/plans/pack-versioning-plan.md), D-BACKEND-PKG.
 
 ## M-T9.6 — Doc & status hygiene — `recurring` · **S** · P2
@@ -60,8 +69,12 @@ Sources: `journey/FINDINGS.md`, `experience_gathered.md` (silent-codegen retros)
 Generators rot toward bloat silently — no gate notices when a template change adds 40% to every emitted frontend bundle or doubles backend cold-boot. Add a **nightly regression budget**: per-pack generated frontend bundle size (post-`vite build`) and per-backend cold-boot-to-`/ready` time, each with a pinned baseline + ratchet (fails on growth past a tolerance, forces the baseline *down* on genuine improvement — same anti-slack shape as the M-T9.8 allowlist ratchet). Cheap to stand up on the existing build/boot workflows; catches a class no correctness gate ever will.
 Sources: weak-spots §generated-code-quality; ratchet pattern from M-T9.8 (`test/platform/allowlist-ratchet.test.ts`).
 
-## M-T9.26 — `RouteTarget`: seal the HTTP-emission surface behind a contract — `open` (design landed #2396 `173473c`, docs-only; **unblocked** — the #2340 prerequisite merged 08-09 as `c21dca0`) · **L** · P2
-*(Two duplicate headings for this ID were collapsed into this one on 2026-08-10/12; both prior statuses — `design (awaiting sign-off)` and `in-flight` — were stale.)* ⚠ Re-verify the design's divergence measurements before slicing: the route-builder unification series (#2453–#2462, merged 08-06/08-07) rebuilt every backend's route surface from `deriveContextOperations` AFTER the design was written, so its 183-site census and file list are pre-unification numbers.
+## M-T9.26 — `RouteTarget`: seal the HTTP-emission surface behind a contract — `open` (design landed #2396 `173473c`, docs-only; **re-measured post-#2462 on 2026-09-22, wave C4 packet 4d — the seam is CONFIRMED, slice 1 is blocked on §2.6**) · **L** · P2
+*(Two duplicate headings for this ID were collapsed into this one on 2026-08-10/12; both prior statuses — `design (awaiting sign-off)` and `in-flight` — were stale.)*
+
+**Re-measurement, 2026-09-22 (the ⚠ below is now DISCHARGED).** On the merged C4 tree the node HTTP shell is **217 coupling sites across 22 emitter files** (`src/platform/hono/v4/` + `src/generator/typescript/`) — it **grew** from the design's pre-unification 183 / 18, it did not shrink; `hono/v5` delegates to v4's emitters and adds none. The mission's own accept/reject test (§2.6b: *"a method used exactly once is dead contract surface"*) was measured rather than estimated, per contract method against the real call sites: **14 of the 16 contract methods are multi-use** (`respondJson` 30, `requestPath` 24, `route` 22, `openRouter` 16, `ctxGet` 12, `errorHandler` 11, `sseStream` 10, `closeRouter` 10, `mountChild` 8, `readParam` 6, `readBody` 4, `ctxSet` 4, `respondEmpty` 2, `imports` 32); only `readQuery` (1) and `rawRequest` (1) are single-use, and §1.3 already records `rawRequest` as the deliberate adapter exception. **The anti-criterion does not fire — the seam is justified on the numbers, not on judgement.** What blocks it is the design's OWN sequencing prerequisite (§2.6, "byte-identical gating needs a quiet baseline"): **#2918 adds 24 lines to `routes-builder.ts`** — the whole of slice 1's blast radius — and changes emitted create-input output, so the byte-identical gate would be a diff against a moving reference; #2980 likewise moves `auth-emit.ts` (slice 4). Same shape as the original #2340 block, one baseline later. **Next action: re-check §2.6 after #2918 lands, then build slice 1 unchanged** — the contract shape needs no revision. Recipe + the full per-method census: [`waves/handoffs/wave-c4-4d-callable.md`](waves/handoffs/wave-c4-4d-callable.md).
+
+⚠ *(discharged above, kept for the record)* Re-verify the design's divergence measurements before slicing: the route-builder unification series (#2453–#2462, merged 08-06/08-07) rebuilt every backend's route surface from `deriveContextOperations` AFTER the design was written, so its 183-site census and file list are pre-unification numbers.
 The node backend's HTTP shell is the **largest un-sealed emitter in the toolchain** — measured at **56% of a feature-rich generated project** (2337 of 4163 LOC on `showcase.ddd` → `hono_api`, vs 34% for the persistence layer), across **183 coupling sites in 18 emitter files**. It is un-contracted: the `style` axis (`adapter-metadata.ts:63`) already models "one HTTP emission per backend" as a *value*, but nothing pins what that value must provide, so the surface is hand-threaded branches rather than a checked interface.
 
 Unlike the persistence surface [M-T9.2](archive/missions/M-T9.2-persistence-seam-design.md) declined, this divergence is **leaf-shaped, not compositional** — every route is a `(spec object, handler body)` pair whose interior is already framework-neutral IR-rendered TypeScript, so the framework touches only four edges (router construction, input binding, response emission, error mapping). That is the condition `ExprTarget`/`WalkerTarget` succeeded under. Two seams are honestly non-leaf and recorded as such: raw-request access (`c.req.raw`, a Web-Standards-vs-Node adapter) and SSE (`streamSSE`, ~57 emitted LOC, its own lifecycle).
@@ -204,7 +217,9 @@ Sources: [quality-audit-2026-08](../audits/quality-audit-2026-08.md) R5. Related
 
 Sources: [quality-audit-2026-08](../audits/quality-audit-2026-08.md) R11 §6.
 
-## M-T9.32 — Duplicate-claim hygiene — `partial` (detection ships; the ID half is open) · **S** · P2
+## M-T9.32 — Duplicate-claim hygiene — `done` (detection shipped #2495; the ID half shipped in wave C4 packet 4f, 2026-09-22) · **S** · P2
+
+**The ID half is built: `scripts/next-mission-id.mjs`.** It reads BOTH sides of the question `main` cannot answer — the `## M-T<n>.<m>` headings in `docs/new-plan/` (live + archive) AND every open PR's added headings (the `pulls/:n/files` patch, filtered to `docs/new-plan/**.md`) plus any id its title or body names, because a claim announced in a body before the heading lands is exactly the collision window. Per track it prints max-on-main / max-claimed / next-free, names two collision shapes (one id claimed by two open PRs; an open PR minting an id that already exists) and `--check` exits 1 on either. The mint rule is the HEADING (`+## M-Tx.y`), never the id regex — a `Relates to M-T9.8` line in an added paragraph must not move the number; mutation-proved by widening the rule and watching the fixture go from 1 mint to 4. Without `GITHUB_TOKEN` it prints the main-only table and says the answer is INCOMPLETE rather than answering, since a main-only answer that LOOKED complete is the failure mode being fixed. Typed by `scripts/next-mission-id.d.mts`; pinned by `test/system/next-mission-id.test.ts`; `RUNBOOK.md` §2 now tells an agent to run it instead of computing an id by eye. **Not exercised against the live API in the packet's sandbox (no token); the recipe is in [`waves/handoffs/wave-c4-4f-hygiene.md`](waves/handoffs/wave-c4-4f-hygiene.md).**
 Parallel agents collide on claims. Two shapes are on record: #2349/#2351 were **the same branch open twice** (draft + ready), and M-T6.37 was claimed by two PRs in the same hour because **neither could see the other's ID** — it lives on an open branch, not on `main`, so a next-free-ID check that reads `main` cannot find it (the collision note is in [T6](T6-backend-parity.md)).
 
 **Detection ships** inside the weekly report (`duplicateHeads` / `staleDrafts` in `scripts/quality-delta.mjs`, pinned by its test): open PRs sharing a head branch, and drafts on a head that has not moved in 10 days. Deliberately FLAG-ONLY — nothing closes anyone's PR.
@@ -466,7 +481,7 @@ Minted 2026-09-03 by Wave G2 packet 2.1 of [verification-waves-2026-09](verifica
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.1, [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §4 C2. Relates to M-T9.40 (the verifier this puts on a second entry point), M-T9.35 (the direct-orchestrator ratchet this one is modelled on), M-T9.34 (the phase-⑦ flip on `generateSystemFiles`).
 
-## M-T9.50 — Nothing typechecks `test/`, and a bare `--noEmit` step cannot land — `partial` (the config, the baseline and the ratchet landed; the 768-error drain is open) · **L** · P1 ⭐
+## M-T9.50 — Nothing typechecks `test/`, and a bare `--noEmit` step cannot land — `done` · **L** · P1 ⭐
 
 Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md) **§7.1**, which was handed to that wave as "a small follow-up" and turned out to be mission-sized on measurement.
 
@@ -482,7 +497,15 @@ Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.m
 
 **Slice 1 landed 2026-09-07.** `tsconfig.test.json` is checked in and pinned — which was this row's stated first task, because the count is a function of the config and means nothing until one is fixed. Measured under it on that head: **768 errors over 219 files, and `src/` clean**. `test-typecheck-baseline.json` records the per-file count and `scripts/test-typecheck.mjs` (`npm run test:typecheck`, ~36s, wired into the `lint + web-tsc` job) gates it in both directions: a file not in the baseline must be at zero, a file in it may not exceed its pin, and a file that IMPROVED fails until the baseline is updated — so a fix and its baseline edit land together and the ratchet records progress rather than merely permitting it. `src/` is checked separately, because the test project pulls it in under different options and a regression there would otherwise be blamed on a test file. Five seeded defects, five distinct failures, each reverted by file copy.
 
-**What is left is the drain itself** — 768 errors, of which 391 × TS2345 + 113 × TS2322 is 66% and one shape: partial fixture objects handed to full IR types through loose casts. Mostly one refactor (typed fixture builders) repeated, not 219 puzzles. The four worst files are `test/ir/migrations-builder.test.ts` (89), `test/language/validation/validation.test.ts` (59), `test/playground/playground-dom-page.test.ts` (26) and `test/generator/typescript/render-expr-kinds.test.ts` (15) — 189 between them, a quarter of the total in four files.
+**Slice 2 — the drain — landed 2026-09-22** (wave C4, packet 4b). **469 errors over 181 files → 0**, `test-typecheck-baseline.json` deleted, and `scripts/test-typecheck.mjs` promoted from shrink-only ratchet to a plain GATE: any error under `test/` or `src/` fails. Drained by directory, largest first, one commit each — `test/ir` (106), `test/language` (81), `test/generator` (89), `test/playground` (51), the mid-tier (84), `test/system` (43).
+
+**The 66 % was one shape, and it took three shared helpers, not 181 rewrites.** `test/_helpers/ir-builders.ts` supplies `ExprOf<K>` / `StmtOf<K>` / `TypeOf<K>` / `WorkflowStmtOf<K>` — naming the VARIANT instead of the union is the whole fix, because a builder annotated `ExprIR` cannot be spread-and-extended (`{ ...thisProp("total"), type: MONEY }` is a union of every arm plus that field, which excess-property checking rejects) — plus `primType` / `litExpr` / `paramRef` / `memberExpr` / `matchExpr` and the structural `deployableIR()` / `systemIR()`. `ast.ts` supplies `contextMembersOf` and `nodeName`; `diagnostics.ts` supplies `LspDiagnostic`, `diagText`, `diagCodes` and `lspCodes`. Seventeen suites carried a byte-identical private `codesOf` typed over `{ code?: string }[]` — a parameter no real `Diagnostic` satisfies.
+
+**What the drain FOUND is the argument for the gate.** Eleven fixtures were not merely mistyped, they were not testing what they claimed: `walk.test.ts`'s exhaustiveness tables were missing six IR kinds (`authz-filter`, `duration`, `i18nFormat`, `variant-match`, `if`, `repo-delete`); `projection-fold-statements`' `satisfies Record<StmtIR["kind"], …>` — whose own comment calls it "the ratchet that was missing when `expression` joined the union" — was missing `if`; `unsupported-platforms` was missing `angular`; two React walker suites parsed with `{ valslugation: true }`, a typo for `validation`, so neither ever validated its source; two Feliz suites passed `sys.contexts ?? []` — a field `SystemIR` does not have — and had been emitting from zero contexts; `operation-workflow-gate-parse`'s back-compat case searched the wrong AST level and asserted nothing; and `adapters/contract-shape.test.ts`, a file whose entire purpose is "this fails to compile if the contract drifted", still inhabited `supports()` / `supportedStrategies`, removed by M-T9.2.
+
+**Scope, recorded so it is not re-litigated.** `tsconfig.test.json` now excludes `test/__snapshots__` and the Playwright specs (`**/*.pw.ts`, `test/e2e/support/*.spec.ts`) for the same reason `test/fixtures` was already excluded: they are text the suite copies into a GENERATED project, compiled there against `@mantine/core` / `@playwright/test`, which the toolchain does not depend on. `web/**` stays out of the gate's scope (its own `tsc -b` runs in the same CI job). Three CI scripts (`pr-gate.mjs`, `quality-delta.mjs`, `ledger-counts.mjs`) are still imported with `@ts-expect-error`; a `scripts/*.d.mts` for each removes it, and the directive is self-ratcheting (TS2578 fires the moment one lands).
+
+**Mutation-proved on the promoted gate**, three seeds, each reverted by file copy: an extra key in `walk.test.ts`'s `Record<ExprIR["kind"], …>` → `TS2353 … 'XXmutation' does not exist in type 'Record<…>'`; a boolean-form `match` fixture with its required `variantArms` removed → `TS2345 … is not assignable to parameter of type 'ExprIR'`; and `e.amount` → `e.amountXX` in `src/ir/util/walk.ts` → `1 error(s) under src/`. Each exited 1; the restored tree exits 0.
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) §7.1. Relates to M-T9.8 (the hollow-work class this belongs to — an assertion the compiler never reads is the purest form of it) and M-T9.35 / M-T9.48 / M-T9.49 (the same "the instrument was never wired to anything" shape, on the generator entry points).
 
@@ -514,7 +537,9 @@ Minted 2026-09-07 as the explicit residue of [M-T9.49](#m-t949--the-net-half-of-
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.2 residue. Relates to M-T9.49 (the wrapper this sits below), M-T9.42 (the promotion that shrinks it), M-T9.40 (the verifier).
 
-## M-T9.53 — Three `src/` files carry a raw NUL byte, so the tools treat them as binary — `open` · **XS** · P3
+## M-T9.53 — Three `src/` files carry a raw NUL byte, so the tools treat them as binary — `done` (wave C4 packet 4f, 2026-09-22) · **XS** · P3
+
+**CLOSED — and the count was FOUR, not three.** All four raw NULs are now the two-character escape `\0` (runtime string identical, so every key/hash/snapshot is unchanged): `src/system/migrations-builder.ts:581`, `src/ir/util/policy-decision-id.ts:43`, `src/ir/validate/checks/structural-checks.ts:1426` — and `scripts/quality-delta.mjs:457`, which the mission never named and the new repo-wide scan found on its first run. That is the argument for scanning over listing, in one data point. The gate is `test/system/nul-byte-census.test.ts`: no tracked file under `src/`, `test/`, `docs/` or `scripts/` may carry a NUL byte, exact at zero with NO waiver list (those roots are text-only by construction). Three assertions — a vacuum guard pinning the four named files into the scanned set, a probe proving both halves (the scan fires AND `grep -lI` reaches a clean twin while silently skipping the NUL-bearing one), and the live census. Mutation-proved by file copy: re-seeding the NUL into `policy-decision-id.ts` fails with `src/ir/util/policy-decision-id.ts:43 — 1 NUL byte(s), first at offset 2176`. Byte-identical emission confirmed on the 395-cell corpus snapshot.
 
 Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md)'s hand-off list. Pre-existing on `main`, not introduced by that wave.
 
@@ -628,7 +653,7 @@ the generated comment, not on `ddd generate`'s stderr — lifting them into real
 ([`waves/handoffs/wave-c1-1d-giveup-drain.md`](waves/handoffs/wave-c1-1d-giveup-drain.md)) along with
 the HEEx named-icon parity gap the drain deliberately did not smuggle in.
 
-## M-T9.56 — 128 validator conditions reach the user as one non-catalog code (the gate half landed with Wave C1 packet 1g; the drain is Wave C4's) — `open` · ~**70-78 h** for the drain · P1
+## M-T9.56 — 129 validator conditions reached the user as one non-catalog code; zero do now — `done` (gate half Wave C1 packet 1g, drain Wave C4 packet 4c) · P1
 
 Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
 `src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
@@ -660,7 +685,8 @@ entry points hold no row — they are already clean. Three gates landed, all shr
 
 - **invariant 5** in `diagnostic-catalog.test.ts`, over the per-file baseline
   `test/system/diagnostic-uncoded-baseline.ts`. Grow a row → it fails naming the site; drain one without
-  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0.
+  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0. (Wave C4 drained the
+  last row, so the baseline file is gone and the invariant is an absolute gate — see the drain half.)
 - **`diagnostic-firing-census.test.ts`** — no `FIRING_FIXTURES` fixture may raise `loom.unknown`. On its
   first run it found exactly one (`loom.workflow-emit-unknown-field`'s fixture, hitting
   `statements.ts`'s `checkEmit`); that site was drained here, so its waiver table
@@ -675,10 +701,34 @@ raises **`loom.emit-unknown-field`** (wording in `messages.ts`, anchor
 `06-behavior-and-statements.md#let--emit` in `code-docs.ts`, an aggregate-emit firing fixture — the half
 the workflow-only IR check never sees). **128 left.**
 
-### Drain half — `open` (Wave C4, ~10 slices)
+### Drain half — `done` (Wave C4 packet 4c, seven slices)
 
-The triage, per-site cost and ordering are in the fleet plan. Each slice lowers its row in
-`diagnostic-uncoded-baseline.ts` in the same change; the whole file is deleted when the last row goes.
+All **128** remaining sites drained, largest validator file first, one commit per file (or per coherent
+group of conditions). **109 codes for 128 sites** — 108 minted, and `loom.duplicate-theme-block` reused
+with a `#system-scope` slug because `ddd-validator.ts` re-states a rule `composition.ts` already owns
+one scope up. Seven more codes carry several `#slug`s for the same reason (one rule, several sentences):
+`loom.resource-knob-kind-mismatch` and `loom.resource-knob-storage-mismatch` (4 knobs each),
+`loom.ui-binding-missing`, `loom.unresolved-member`, `loom.matcher-e2e-only`,
+`loom.layout-slot-duplicate`, `loom.requirement-property-missing`.
+
+Two CONDITION FAMILIES were drained across files rather than by file, per the C1 hand-off's warning that
+draining one of a family leaves an incoherent surface: `loom.requires-not-bool` (5 sites —
+`statements.ts` ×2, `structural.ts`, `repository.ts`, `types.ts`) and
+`loom.function-return-type-mismatch` (3 sites — `toplevel-function.ts`, `types.ts` ×2).
+
+Every code carries a live `code-docs.ts` anchor — **`UNDOCUMENTED_CODES` never grew**, so its pinned
+length stands at 365 — and a `FIRING_FIXTURES` entry. Two of the 128 turned out to be UNREACHABLE, found
+by trying to write their fixtures, and are pinned in `UNREACHABLE_PINS` with the reason:
+`loom.valueobject-contains-entity` (the grammar admits no `Containment` in a `valueobject`) and
+`loom.containment-foreign-part` (the scope provider hides other aggregates' parts, so the ref never
+links and the check's own `!part` guard returns first).
+
+**Both gates are now absolute.** `diagnostic-uncoded-baseline.ts` is deleted; invariant 5 fails on the
+first `accept(...)` shipped without a `code:`, naming its file, line and source text, and the
+`loom.unknown` assertion dropped its `FIXTURES_RAISING_UNKNOWN` waiver table (it shipped empty — a
+waiver kept past the debt it waived is slack). Invariant 5's vacuous-pass guard stopped counting live
+offenders and now drives the scanner with a fixture holding one of each shape, so it holds at any debt
+level including none. Both halves mutation-proved: [`waves/handoffs/wave-c4-4c-uncoded.md`](waves/handoffs/wave-c4-4c-uncoded.md).
 
 ## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 

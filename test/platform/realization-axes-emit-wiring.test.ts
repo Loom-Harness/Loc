@@ -68,7 +68,6 @@ const SENTINEL_BODY = "// sentinel-style-output";
 function sentinelStyle(): StyleAdapter {
   return {
     name: "sentinel",
-    supportedStrategies: ["state"],
     supportedLayouts: ["byLayer", "byFeature"],
     emitEndpoint: () => [],
     emitHandlerOrService: () => [],

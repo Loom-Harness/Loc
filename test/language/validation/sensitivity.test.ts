@@ -52,7 +52,7 @@ context Hospital {
 
 function find<T extends { name?: string }>(model: Model, type: string, name: string): T {
   for (const n of AstUtils.streamAst(model)) {
-    if (n.$type === type && (n as { name?: string }).name === name) return n as T;
+    if (n.$type === type && (n as { name?: string }).name === name) return n as unknown as T;
   }
   throw new Error(`no ${type} named ${name}`);
 }

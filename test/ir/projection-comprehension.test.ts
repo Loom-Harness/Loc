@@ -52,7 +52,7 @@ async function projectionErrors(body: string) {
 }
 
 async function projectionErrorCodes(body: string): Promise<string[]> {
-  return (await projectionErrors(body)).map((d) => d.code);
+  return (await projectionErrors(body)).map((d) => d.code ?? "");
 }
 
 const QUERY_TIME = `

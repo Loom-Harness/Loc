@@ -184,12 +184,7 @@ describe("columnlessProjectionSource — the universal (not per-adapter) column 
     expect(
       columnlessProjectionSource(
         singletonOver("Order"),
-        ctxWith(
-          agg({
-            isAbstract: true,
-            inheritanceUsing: "singleTable",
-          } as Partial<EnrichedAggregateIR>),
-        ),
+        ctxWith(agg({ isAbstract: true, inheritanceUsing: "sharedTable" })),
         undefined,
       ),
     ).toBeNull();

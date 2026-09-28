@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // `auth { … }` block (D-AUTH-OIDC) — grammar + provider-preset lowering +
@@ -20,7 +21,7 @@ async function parseModel(src: string): Promise<{ model: Model; errors: string[]
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
   };
 }
 

@@ -11,13 +11,11 @@
 // domain position, and page bodies are untouched.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const MISSING = "loom.construction-missing-field";
 const UNKNOWN = "loom.unknown-construction-field";
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 /** A system whose context declares a record named `name` and an aggregate that
  *  constructs it in an `operation` — DOMAIN position, not a page body. */
@@ -39,7 +37,7 @@ system Demo {
 
 async function domainCodes(name: string, ctor: string): Promise<string[]> {
   const { diagnostics } = await parseString(domainSrc(name, ctor), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 /** The same record name, but constructed inside a PAGE body, where it is the
@@ -66,7 +64,7 @@ system Demo {
 
 async function pageCodes(body: string): Promise<string[]> {
   const { diagnostics } = await parseString(pageSrc(body), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 describe("F-014 — a record named after a walker primitive is still a record outside page bodies", () => {

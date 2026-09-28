@@ -10,10 +10,8 @@
 // fails open there rather than false-positiving.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 const sys = (body: string) => `
 system Demo {
@@ -53,7 +51,7 @@ system Demo {
 
 async function codes(body: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(body), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 const COUNT = "loom.call-arg-count";
@@ -104,7 +102,7 @@ describe("workflow-body operation-call statement args (M-T6.18 gap #3 follow-on)
     // A declared `find mine(): Order` yields its return type (single Order).
     const src = sysWith("find mine(): Order", 'let o = Orders.mine()  o.bump("x")');
     const { diagnostics } = await parseString(src, { validate: true });
-    expect(codesOf(diagnostics)).toContain(TYPE);
+    expect(lspCodes(diagnostics)).toContain(TYPE);
   });
 
   it("fails open on a WRITE repository method (untyped receiver)", async () => {
