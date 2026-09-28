@@ -70,6 +70,24 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   still apply to the by-id route: the tenancy filter (a foreign tenant's row
   reads 404) and `mask unless` field redaction.  What does not: role
   separation within a tenant.
+- **an event-sourced `create` is the third exception — on the four backends that
+  cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
+  into the domain `_init`, which has no principal in scope, so a `requires` there
+  is refused (`loom.lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
+  `python` / `java`.  **`elixir` is not affected** — Phoenix hoists the gate to
+  its context function and binds a principal, so there the gate is accepted and
+  the missing-gate case stays a hard error.  Demanding one
+  under `denyByDefault` was therefore an instruction with no satisfying answer —
+  gate present, one error; gate absent, one error — which made
+  `enforcement: denyByDefault` and `persistedAs: eventLog` **mutually exclusive**
+  for any event-sourced aggregate with a creation endpoint.  It now raises
+  `loom.default-deny-es-create-ungateable` (a **warning**, for the same reason
+  the by-id arm is one: there is nothing the author can write to satisfy it), and
+  the model builds.  To close the hole today, issue the create from a gated
+  `operation` / `workflow` and keep the canonical `create` off the client, or
+  host the aggregate on a deployable whose whole api is restricted.  Gating the
+  event-sourced create route *in place* means hoisting the gate out of `_init`
+  to each backend's own chokepoint — mission M-T3.16.
 - **`projection`s — both kinds** — the same optional `requires` gate, declared
   on the projection HEADER (`projection X keyed by k requires <expr> { … }`,
   after `keyed by`, like every other gate in the language), evaluated against
@@ -609,11 +627,30 @@ underneath it would make Phoenix enforce a rule the other four do not, and would
 fail closed for every principal-less internal caller (a timer, a seed, a saga).
 `delete_<agg>` splits the same way for a workflow `destroy` step.
 
-**Not supported: an event-sourced lifecycle guard.**  An `eventLog` aggregate's
-create body renders into the domain `_init`, which has no principal in scope, so
-the guard could not be evaluated there at all — `loom.lifecycle-guard-event-sourced`
-refuses it and points at the caller (the named `operation` / `workflow` that
-issues the create) instead.  The rest of a canonical lifecycle body is still not
+**An event-sourced lifecycle guard: supported on `elixir`, refused on the other
+four.**  Placement decides it, so this is a per-backend fact rather than a
+property of event sourcing.  Phoenix hoists a lifecycle gate to the **context
+function** — `create_<agg>(attrs, current_user \\ nil)`, with the controller
+passing the real principal — so an `eventLog` aggregate's `create ... { requires
+... }` binds and enforces there like any other gate.  The other four render the
+ES create body into the domain `_init`, which has no principal in scope:
+`currentUser` is a free identifier, so the guard does not deny, it does not
+compile.  `loom.lifecycle-guard-event-sourced` refuses it **naming the hosting
+backends that cannot enforce it**, and points at the caller (the named
+`operation` / `workflow` that issues the create) instead.
+
+Two details worth knowing:
+
+- The refusal covers **every** create on an event-sourced aggregate, not just
+  the canonical one.  The create the backends render is `creates[0]` *by index*,
+  so a named `create open(...)` on an event stream is the emitted one — and while
+  the refusal read `canonicalCreate` alone, its guard reached `_init` untouched:
+  `ddd parse` said `0 error(s)` and the generated project then failed to compile
+  on a free `currentUser`.
+- Under `denyByDefault` the absence of a gate is an **error on `elixir`** (the
+  gate is both required and accepted there) and a **warning** on a host that
+  cannot enforce one (`loom.default-deny-es-create-ungateable` — see the
+  exception list above).  The rule is recourse, not persistence shape.  The rest of a canonical lifecycle body is still not
 rendered on a state-based aggregate: a `precondition`, an `emit`, or a computed
 `assign` there is a `loom.lifecycle-body-dropped` error, not a silent drop.
 
