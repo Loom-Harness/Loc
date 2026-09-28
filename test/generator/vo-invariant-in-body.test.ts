@@ -46,11 +46,12 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
       "export class ValueObjectInvariantError extends DomainError",
     );
     const pd = find(fs, "http/problem-details.ts");
-    expect(pd).toContain("export function valueObjectProblem(");
+    // Renamed `domainFloorProblem` by M-T1.11 (c): ONE answer for both refusals.
+    expect(pd).toContain("export function domainFloorProblem(");
     expect(pd).toContain(
       'const entry = { pointer: "", message: localizeMessage(err.code, err.message)',
     );
-    const answer = 'valueObjectProblem(c, err, 422, "Unprocessable Entity") ?? problem(422';
+    const answer = 'domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422';
     expect(find(fs, "http/order.routes.ts")).toContain(answer);
     expect(find(fs, "http/workflows.ts")).toContain(answer);
   });
@@ -81,7 +82,9 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     );
     const advice = find(fs, "ApiExceptionAdvice.java");
     expect(advice).toContain("@ExceptionHandler(ValueObjectInvariantException.class)");
-    expect(advice).toContain('entry.put("pointer", "");');
+    // One entry serializer since M-T1.11 (c) — the handler hands it the "" pointer.
+    expect(advice).toContain('entry.put("pointer", pointer);');
+    expect(advice).toContain('return domainFloorWithEntry(e, e.getRuleCode(), "", request);');
   });
 
   it("python: a DomainError subclass with its own handler", async () => {
@@ -138,7 +141,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
       const fs = await generateSystemFiles(src.replace("platform: node", `platform: ${backend}`));
       const all = [...fs.values()].join("\n");
       expect(all, backend).not.toMatch(
-        /ValueObjectInvariant|valueObjectProblem|validate_body_value_objects|body_value_object_error/,
+        /ValueObjectInvariant|domainFloorProblem|validate_body_value_objects|body_value_object_error/,
       );
     }
   });

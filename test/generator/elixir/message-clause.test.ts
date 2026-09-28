@@ -44,10 +44,10 @@ describe("elixir/vanilla — messaged single-field rule → residual carrier + w
     // CODE-POINT count (RS-31 — `String.length/1` counts graphemes); add_error
     // carries the author text + the content-hash wire code.
     expect(cs).toContain(
-      'if length(String.to_charlist(data.name)) >= 2 and length(String.to_charlist(data.name)) <= 120, do: changeset, else: add_error(changeset, :name, "Name must be 2-120 characters", loom_code: "msg.j985f2")',
+      'if length(String.to_charlist(data.name)) >= 2 and length(String.to_charlist(data.name)) <= 120, do: changeset, else: add_error(changeset, :name, "Name must be 2-120 characters", loom_code: "msg.j985f2", loom_pointer: "/name")',
     );
     expect(cs).toContain(
-      'if length(String.to_charlist(data.sku)) > 0, do: changeset, else: add_error(changeset, :sku, "SKU is required", loom_code: "msg.u3w71r")',
+      'if length(String.to_charlist(data.sku)) > 0, do: changeset, else: add_error(changeset, :sku, "SKU is required", loom_code: "msg.u3w71r", loom_pointer: "/sku")',
     );
     // A messaged rule no longer emits a native validate_* line with `message:`.
     expect(cs).not.toContain('message: "Name must be 2-120 characters"');
@@ -96,7 +96,7 @@ describe("elixir/vanilla — messaged cross-field rule → wire code", () => {
     const all = await generateSystemFiles(CROSS);
     const cs = all.get([...all.keys()].find((k) => k.endsWith("cat/account_changeset.ex"))!)!;
     expect(cs).toContain(
-      'add_error(changeset, :handle, "Handle and email must differ", loom_code: "msg.ggmd6x")',
+      'add_error(changeset, :handle, "Handle and email must differ", loom_code: "msg.ggmd6x", loom_pointer: "")',
     );
   });
 

@@ -123,5 +123,19 @@ system DatetimeWire {
     // The venue list no longer carries the soft-deleted row.
     let venues = api.venues.all()
     expect(venues.total).toBe(1)
+
+    // The rest of the route surface, so every derived route has a caller —
+    // and the UPDATE ingress path truncates like create and the op param do.
+    // `restore()` cannot reach the soft-deleted row it is for — the SAME RS-27
+    // shape `projection-agg-filters` records — so it answers 404 here.
+    expect(api.venues.restore(annex)).toThrow(404)
+    api.venues.update(hall, { name: "Hall", openedAt: "2024-03-01T08:00:00.2509Z", capacity: 40 })
+    expect(api.venues.getById(hall).openedAt).toBe("2024-03-01T08:00:00.250Z")
+    api.slots.update(b, { label: "B", startsAt: "2024-03-01T10:20:31Z", venueId: hall.id })
+    expect(api.slots.getById(b).startsAt).toBe("2024-03-01T10:20:31Z")
+    api.slots.destroy(b)
+    api.slots.destroy(a)
+    api.venues.destroy(hall)
+    expect(api.venues.getById(hall)).toThrow(404)
   }
 }

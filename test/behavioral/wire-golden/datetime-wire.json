@@ -193,6 +193,94 @@
     },
     {
       "seq": 14,
+      "method": "POST",
+      "path": "/api/venues/{id}/restore",
+      "status": 404,
+      "body": {
+        "detail": "Venue {id} not found",
+        "instance": "/api/venues/{id}/restore",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/venues/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/venues/{id}",
+      "status": 200,
+      "body": {
+        "capacity": 40,
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "name": "Hall",
+        "openedAt": "<timestamp>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/slots/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/slots/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "B",
+        "startsAt": "<timestamp>",
+        "venueId": "<volatile:key>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 19,
+      "method": "DELETE",
+      "path": "/api/slots/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/slots/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "DELETE",
+      "path": "/api/venues/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/venues/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Venue {id} not found",
+        "instance": "/api/venues/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
       "method": "PATCH",
       "path": "/api/venues",
       "status": 405,
@@ -205,7 +293,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 24,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -218,7 +306,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 25,
       "method": "POST",
       "path": "/api/venues",
       "status": 400,

@@ -5,14 +5,16 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { ValueObjectInvariantError } from "../domain/errors";
 
-/** A value object's invariant refused a value a domain BODY built (an
- *  operation, a workflow, a handler — not the request body, whose value objects
- *  the request schema already checked).  Answers the domain-floor status with
- *  one RFC 7807 errors[] entry: the rule's message and, for a messaged rule, its
- *  content-hash code.  The pointer is "" — the whole request — because the
- *  value was computed by the body and names no member of it.  Anything else
- *  answers undefined and the caller's own arm runs. */
-export function valueObjectProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
+/** The domain-floor answer with ONE RFC 7807 errors[] entry — the shape the
+ *  wire rung gives a request member, for a refusal the wire could not see:
+ *  a value object a domain BODY built (an operation, a workflow, a handler —
+ *  not the request body, whose value objects the request schema already
+ *  checked).  The entry carries the rule's message and, for a
+ *  messaged rule, the same content-hash code the wire rung carries.  The
+ *  pointer is the rule's ("/<field>" for a single-field rule) or "" — the
+ *  whole request.  Anything else answers undefined and the caller's own arm
+ *  runs. */
+export function domainFloorProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
   if (!(err instanceof ValueObjectInvariantError)) return undefined;
   const trace_id = c.get("requestId") ?? "";
   const entry = { pointer: "", message: err.message, ...(err.code ? { code: err.code } : {}) };
