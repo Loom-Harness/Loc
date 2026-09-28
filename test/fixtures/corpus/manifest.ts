@@ -539,6 +539,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "M-T9.42 promotion of the `*-stamping.test.ts` string copies: each pinned how its emitter spells the principal read; this asserts the value that lands in the row, on every leg.",
   },
+  {
+    id: "intrinsics",
+    title:
+      "scalar intrinsics in memory (derived trim / trim().toLower() / money round / int abs, an invariant over trim().length) and in SQL (column-side and value-side trim, toLower both sides, floor, abs, a reified criterion)",
+    doc: "stdlib",
+    backends: ALL,
+    note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
+  },
 ] as const;
 
 /** Lookup by id. */
