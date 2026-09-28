@@ -121,7 +121,12 @@ export function emitEvents(
 export function emitCommon(
   ns: string,
   out: Map<string, string>,
-  opts: { concurrencyException?: boolean; file?: boolean; valueObjectInvariant?: boolean } = {},
+  opts: {
+    concurrencyException?: boolean;
+    file?: boolean;
+    valueObjectInvariant?: boolean;
+    domainFloorCodes?: boolean;
+  } = {},
 ): void {
   out.set(
     "Domain/Common/DomainException.cs",
@@ -129,6 +134,7 @@ export function emitCommon(
       concurrencyException: opts.concurrencyException,
       file: opts.file,
       valueObjectInvariant: opts.valueObjectInvariant,
+      domainFloorCodes: opts.domainFloorCodes,
     }),
   );
   // Canonical ISO-8601 UTC instant JSON converters (RS-4 temporal round-trip

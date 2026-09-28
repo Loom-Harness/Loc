@@ -14,15 +14,18 @@
 // The constructor now raises `ValueObjectInvariantError` (a `DomainError`, so
 // every existing catch still classifies it), carrying the value object's name
 // and — for a messaged rule — the same content-hash `code` the wire rung
-// carries.  The routers answer it through `valueObjectProblem`, which keeps the
+// carries.  The routers answer it through `domainFloorProblem`, which keeps the
 // domain-floor body and adds ONE `errors[]` entry.  Its pointer is `""` (the
 // whole request, RFC 6901): the value was computed by the body, so there is no
 // request member it names — pointing at the value object's own field would bind
 // the denial to a form control the request never carried.
 //
-// Gated on a hosted value object declaring an invariant
-// (`hasValueObjectInvariants`): without one nothing can raise the error, and the
-// router / errors / problem-details files stay byte-identical.
+// Gated on a hosted value object declaring an invariant OR a messaged aggregate
+// rule (`hasDomainFloorAnswer`, src/generator/_i18n/domain-floor.ts): the same
+// answer serves a MESSAGED invariant / check / precondition tripped at the
+// domain floor (M-T1.11 (c)), whose `DomainError` now carries the rule's code and
+// pointer.  Without either, nothing can reach the answer and the router / errors
+// / problem-details files stay byte-identical.
 // ---------------------------------------------------------------------------
 
 /** The expression a router's `DomainError` arm answers with: the value-object
@@ -35,5 +38,5 @@ export function domainFloorAnswer(
   fallback: string,
 ): string {
   if (!gate) return fallback;
-  return `valueObjectProblem(c, err, ${status}, ${JSON.stringify(title)}) ?? ${fallback}`;
+  return `domainFloorProblem(c, err, ${status}, ${JSON.stringify(title)}) ?? ${fallback}`;
 }

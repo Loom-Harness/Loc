@@ -40,6 +40,7 @@ import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
+import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { unionJsonSchema } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -542,7 +543,10 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // append-time `(stream_id, version)` 23505 collision — a concurrency-free app
   // omits both and stays byte-identical.
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  out.set("app/domain/errors.py", errorsPy(hasConcurrency, hasValueObjectInvariants(merged)));
+  out.set(
+    "app/domain/errors.py",
+    errorsPy(hasConcurrency, hasValueObjectInvariants(merged), hasDomainFloorMessages(merged)),
+  );
   out.set("app/domain/value_objects.py", renderPyEnumsAndValueObjects(merged));
   out.set("app/domain/events.py", renderPyEvents(merged));
 
@@ -667,6 +671,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       hasValueObjectInvariants(merged),
+      // M-T1.11 (c): the domain-floor code answer rides on a messaged
+      // aggregate rule the same way.
+      hasDomainFloorMessages(merged),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1682,6 +1689,7 @@ function renderProblemPy(
   /** True when a hosted value object declares an invariant — the module then
    *  carries the `ValueObjectInvariantError` handler (M-T5.1). */
   valueObjectInvariants = false,
+  domainFloorCodes = false,
 ): string {
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
@@ -1794,8 +1802,28 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
   const voLocalize = localizeMessages
     ? '\n            entry["message"] = localize_message(err.code, str(err))'
     : "";
+  // M-T1.11 (c) — the SAME errors[]-entry answer for a MESSAGED invariant /
+  // check / precondition tripped at the domain floor: one helper both handlers
+  // call, so the two refusals cannot drift into different bodies.
+  const domainFloorEntryFn = domainFloorCodes
+    ? `    def _domain_floor_with_entry(request: Request, err: DomainError, pointer: str) -> JSONResponse:
+        log("warn", "domain_error", message=str(err), status=${domainStatus})
+        record_domain_fault("domain_error")
+        entry: dict[str, str] = {"pointer": pointer, "message": str(err)}
+        if err.code is not None:
+            entry["code"] = err.code${voLocalize}
+        return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err), [entry])
+
+`
+    : "";
   const voHandler = valueObjectInvariants
-    ? `    @app.exception_handler(ValueObjectInvariantError)
+    ? domainFloorCodes
+      ? `    @app.exception_handler(ValueObjectInvariantError)
+    async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
+        return _domain_floor_with_entry(request, err, "")
+
+`
+      : `    @app.exception_handler(ValueObjectInvariantError)
     async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
         log("warn", "domain_error", message=str(err), status=${domainStatus})
         record_domain_fault("domain_error")
@@ -1955,8 +1983,14 @@ def install_error_handlers(app: FastAPI) -> None:
         record_domain_fault("disallowed")
         return problem(request, ${disallowedStatus}, "Disallowed", str(err))
 
-    @app.exception_handler(DomainError)
-    async def _domain(request: Request, err: DomainError) -> JSONResponse:
+${domainFloorEntryFn}    @app.exception_handler(DomainError)
+    async def _domain(request: Request, err: DomainError) -> JSONResponse:${
+      domainFloorCodes
+        ? `
+        if err.code is not None:
+            return _domain_floor_with_entry(request, err, err.pointer if err.pointer is not None else "")`
+        : ""
+    }
         log("warn", "domain_error", message=str(err), status=${domainStatus})
         record_domain_fault("domain_error")
         return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err))

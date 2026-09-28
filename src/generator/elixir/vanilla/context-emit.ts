@@ -50,7 +50,10 @@ import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
-import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
+import {
+  aggregateHasDomainFloorCodes,
+  aggregateHasResidualInvariants,
+} from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialTerm } from "./denial.js";
@@ -1193,8 +1196,10 @@ function renderExternOpFunction(
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
   // before the write (D3c) — byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
+  // M-T1.11 (c): the domain-floor twin when a messaged invariant is present.
+  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
   const invPipe = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.validate_invariants()`
+    ? `\n      |> ${changesetMod}.${invFn}()`
     : "";
   // Persist EVERY scalar column off the returned struct, not an empty
   // `change(%{})`: `force_change`, because the changeset data already carries
@@ -1431,11 +1436,14 @@ function renderNamedOpFunction(
   // unmet invariant returns `{:error, changeset}` (422) instead of committing.
   // Gated on residual invariants → byte-identical when the aggregate has none.
   const changesetMod = `${aggModule}Changeset`;
-  const invPipe = aggregateHasResidualInvariants(agg)
-    ? `\n    |> ${changesetMod}.validate_invariants()`
-    : "";
+  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a messaged
+  // invariant present it runs the `validate_domain_floor/1` twin, so a messaged
+  // violation answers the domain-floor 422 with its errors[] entry (not the
+  // request changeset's "Validation failed").
+  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
+  const invPipe = aggregateHasResidualInvariants(agg) ? `\n    |> ${changesetMod}.${invFn}()` : "";
   const invPipe6 = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.validate_invariants()`
+    ? `\n      |> ${changesetMod}.${invFn}()`
     : "";
   // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
   // is persisted through `force_change`, which runs no validator; re-run its
