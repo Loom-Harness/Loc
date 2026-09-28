@@ -251,38 +251,12 @@ export function renderStarter(opts: {
 
 system ${sys} {
 
-  // Authorization is opt-in in a fresh model.  When you wire real auth, prefer
-  // deny-by-default: every client-reachable command (operations, creates,
-  // destroys, workflow starters + handlers) and every DECLARED read (repository
-  // finds, projections) must then carry a \`requires <expr>\` gate —
-  // \`requires true\` is the explicit "intentionally public" escape.  Mark the
-  // deployable \`auth: required\` to enforce it.
-  //
-  // Two limits to know before you turn it on.  The synthesised LIST read is
-  // coverable — declare \`find all(): <T>[] requires <expr>\` on the repository
-  // and the gate lands on \`GET /<plural>\`.  The synthesised BY-ID read is not:
-  // \`GET /api/<plural>/{id}\` has no author surface to attach a gate to, so
-  // under denyByDefault it still serves to any authenticated caller — the
-  // build now WARNS about each one (\`loom.default-deny-by-id-ungated\`) rather
-  // than passing silently, until the gate surface lands (mission M-T3.19).
-  // A tenancy filter still covers that route (a foreign tenant reads 404); what
-  // it does not cover is role separation within a tenant.
-  // \`with crudish\` generates its create/update/destroy, and those DO take a
-  // gate: name it as a \`policy\` and hand it to the macro —
-  // \`aggregate X with crudish(requires: <Policy>)\` splices
-  // \`requires <Policy>()\` first in each emitted member.  In both cases the
-  // gate is named at the declaration — an INHERITED aggregate-level default was
-  // rejected, because a deny rule invisible at the member it guards is the
-  // wrong trade.
-  //   user {
-  //     id: string
-  //     role: string
-  //     permissions: string[]
-  //   }
-  //   auth {
-  //     enforcement: denyByDefault
-  //     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
-  //   }
+  // Authentication is not wired yet.  Adding an \`auth { … }\` block (with a
+  // \`user { … }\` claim shape) turns on deny-by-default, the language default
+  // for an \`auth\` block: every client-reachable command and declared read on
+  // an \`auth: required\` deployable must then carry a \`requires <expr>\` gate.
+  // README.md § "Authentication and authorization" has the block to paste,
+  // the gates it asks for, and the \`enforcement: opt\` escape.
 
 ${domain.source}
 
@@ -362,6 +336,54 @@ the next regenerate to produce a correct delta rather than a fresh baseline:
 Without the second, generating into a directory that carries no migrations —
 a CI job, a fresh clone — re-issues the first migration under a version your
 database has already applied, and the change silently never lands.
+
+## Authentication and authorization
+
+The model starts without auth.  To wire OIDC, add a claim shape and an
+\`auth\` block inside \`system { … }\`, and mark the backend deployable
+\`auth: required\`:
+
+\`\`\`ddd
+user {
+  id: string
+  role: string
+  permissions: string[]
+}
+auth {
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+}
+\`\`\`
+
+An \`auth\` block is **deny-by-default** unless it says otherwise: every
+client-reachable command (operations, creates, destroys, workflow starters and
+handlers) and every *declared* read (repository finds, projections) must carry
+a \`requires <expr>\` gate, or the build fails with
+\`loom.default-deny-ungated\`.  \`requires true\` is the explicit
+"intentionally public" escape.  Two things to know:
+
+- The synthesised **list** read is coverable — declare
+  \`find all(): <T>[] requires <expr>\` on the repository and the gate lands on
+  \`GET /api/<plural>\`.  The synthesised **by-id** read
+  (\`GET /api/<plural>/{id}\`) has no gate surface yet, so the build *warns*
+  about each one (\`loom.default-deny-by-id-ungated\`); a tenancy filter still
+  covers it, role separation within a tenant does not.
+- \`with crudish\` generates create/update/destroy — gate them by naming a
+  \`policy\` and handing it to the macro:
+  \`aggregate X with crudish(requires: <Policy>)\`.
+
+To keep the older opt-in posture — only the members that declare a
+\`requires\` are gated, everything else serves any authenticated caller —
+say so explicitly:
+
+\`\`\`ddd
+auth {
+  enforcement: opt
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+}
+\`\`\`
+
+See https://github.com/Loom-Harness/loc/blob/main/docs/auth.md for the full
+authorization layer (\`permissions\`, \`policy\`, \`mask unless\`).
 
 ## Learn more
 
