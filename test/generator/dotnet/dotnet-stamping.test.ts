@@ -61,36 +61,6 @@ system PS {
 `;
 
 describe(".NET lifecycle stamping (AuditableInterceptor)", () => {
-  it("renders timestamp stamps as DateTime.UtcNow and principal stamps from RequestContext via EF metadata", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
-    const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
-    // Columns are written through EF's property accessor (CurrentValue) via the
-    // compile-checked lambda, not the CLR setter — so the entity property can
-    // stay `private set` while the write stays bound to a real property.
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.CreatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
-    );
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.UpdatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
-    );
-    // currentUser resolves to the principal id from the ambient carrier.
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.CreatedBy\)\.CurrentValue = RequestContext\.Current!\.CurrentUser!\.Id;/,
-    );
-    // Per-aggregate switch with a concrete pattern — compile-bound writes, no
-    // marker interface, no string-keyed property lookup.
-    expect(src).toMatch(/switch \(entry\.Entity\)/);
-    expect(src).toMatch(/case Order e:/);
-    expect(src).not.toMatch(/IAuditable/);
-    // Aggregate namespace pulled in so the pattern names the type unqualified;
-    // Domain.Common + Auth only because a stamp uses the principal.
-    expect(src).toMatch(/using Api\.Domain\.Orders;/);
-    expect(src).toMatch(/using Api\.Domain\.Common;/);
-    expect(src).toMatch(/using Api\.Auth;/);
-    // No leftover undefined identifier from the old (uncompilable) emit.
-    expect(src).not.toMatch(/= currentUser;/);
-  });
-
   it("keeps stamped entity fields `private set` (no marker, no `internal set` leak)", async () => {
     const files = generateSystems(await build(SOURCE)).files;
     // No marker interface is emitted — the concrete switch needs none.
@@ -104,89 +74,6 @@ describe(".NET lifecycle stamping (AuditableInterceptor)", () => {
     expect(entity).not.toMatch(/CreatedAt \{ get; internal set; \}/);
     // A non-stamped field keeps its private setter too.
     expect(entity).toMatch(/public string Code \{ get; private set; \}/);
-  });
-
-  it("a CLAIM-valued principal stamp renders the claim off the ambient accessor", async () => {
-    // `tenantId := currentUser.tenantId` — the interceptor has no
-    // request-scoped `currentUser` local, so the member access must resolve
-    // through the SAME ambient accessor the read-side query filter uses
-    // (`RequestContext.Current!.CurrentUser!`), never an unbound identifier.
-    const claim = `
-system TS {
-  user { id: guid  tenantId: string }
-  subdomain D {
-    context Ledger {
-      stamp onCreate { tenantId := currentUser.tenantId }
-      aggregate Account {
-        tenantId: string internal
-        balance: int
-        filter this.tenantId == currentUser.tenantId
-      }
-      repository Accounts for Account { }
-    }
-  }
-  api A from D
-  storage primary { type: postgres }
-  resource st { for: Ledger, kind: state, use: primary }
-  deployable api { platform: dotnet, contexts: [Ledger], dataSources: [st], serves: A, port: 8081, auth: required }
-}
-`;
-    const files = generateSystems(await build(claim)).files;
-    const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.TenantId\)\.CurrentValue = RequestContext\.Current!\.CurrentUser!\.TenantId;/,
-    );
-    // The ambient-accessor usings ride a claim-only stamp too.
-    expect(src).toMatch(/using Api\.Domain\.Common;/);
-    expect(src).toMatch(/using Api\.Auth;/);
-    // No unbound `currentUser` identifier (the pre-fix, uncompilable emit).
-    expect(src).not.toMatch(/= currentUser\./);
-  });
-
-  it("collects EVERY create rule when two capabilities each contribute one", async () => {
-    // `contextStamps` composes ADDITIVELY: `with tenantOwned, auditable` puts
-    // TWO `create` rules on the aggregate.  The interceptor used to read them
-    // with `.find()`, keeping whichever capability lowered first and silently
-    // dropping the rest — so `createdAt`/`createdBy` were never stamped and
-    // every create violated the NOT NULL columns this same backend emits.
-    //
-    // Every existing case in this file declares ONE `stamp onCreate` block, so
-    // the first-vs-all distinction was invisible to all of them.
-    const twoCaps = `
-system PS {
-  user { id: string  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain D {
-    context Orgs {
-      aggregate Org with crudish { name: string  derived display: string = name }
-      repository Orgs for Org { }
-    }
-    context Shop {
-      aggregate Thing with tenantOwned, auditable, crudish {
-        name: string
-        derived display: string = name
-      }
-      repository Things for Thing { }
-    }
-  }
-  storage primary { type: postgres }
-  resource so { for: Orgs, kind: state, use: primary }
-  resource st { for: Shop, kind: state, use: primary }
-  deployable api { platform: dotnet, contexts: [Orgs, Shop], dataSources: [so, st], auth: required, port: 8081 }
-}
-`;
-    const files = generateSystems(await build(twoCaps)).files;
-    const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
-    const addedBlock =
-      /case Thing e:\s*\n\s*if \(entry\.State == EntityState\.Added\)\s*\n\s*\{([\s\S]*?)\n\s*\}/.exec(
-        src,
-      );
-    expect(addedBlock, "no EntityState.Added block emitted for Thing").not.toBeNull();
-    const added = addedBlock![1]!;
-    // tenantOwned's two stamps AND auditable's two — not just whichever came first.
-    for (const prop of ["TenantId", "DataKey", "CreatedAt", "CreatedBy"]) {
-      expect(added, `create stamp for ${prop} was dropped`).toContain(`x => x.${prop}`);
-    }
   });
 
   it("gates a currentUser stamp on a dotnet deployable WITHOUT auth fail-fast", async () => {

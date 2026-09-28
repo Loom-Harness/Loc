@@ -531,6 +531,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
   },
+  {
+    id: "stamps-principal",
+    title:
+      "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",
+    doc: "capabilities",
+    backends: ALL,
+    note: "M-T9.42 promotion of the `*-stamping.test.ts` string copies: each pinned how its emitter spells the principal read; this asserts the value that lands in the row, on every leg.",
+  },
 ] as const;
 
 /** Lookup by id. */
