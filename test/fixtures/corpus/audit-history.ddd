@@ -95,6 +95,20 @@ system AuditHistorySystem {
         create(text: string) { text := text }
       }
       repository Memos for Memo { }
+      // LIFECYCLE-ONLY audit (PROMOTED from the `lifecycle-audit.test.ts`
+      // string copies, M-T9.42): nothing is audited aggregate-wide — only the
+      // `create` and the `destroy` — so this aggregate is the one whose
+      // `audit_records` table and history route exist for its lifecycle alone.
+      // The create entry carries every field as null → value; `pay` is NOT
+      // audited, so it moves the row and leaves the trail alone.
+      aggregate Invoice {
+        total: int
+        paid: bool = false
+        create(total: int) audited { total := total }
+        destroy audited { }
+        operation pay() { paid := true }
+      }
+      repository Invoices for Invoice { }
     }
   }
   api OrderingApi from Ordering
@@ -194,5 +208,20 @@ system AuditHistorySystem {
     // `restore` resolves the row through the same filtered read (RS-27), so it
     // is refused alike — the trail's 404 is the entity read's, not a new rule.
     expect(api.memos.restore(m)).toThrow(404)
+
+    // ── lifecycle-only audit: the audited create is in the trail, the
+    //    un-audited operation is not ─────────────────────────────────────────
+    let inv = api.invoices.create({ total: 40 })
+    api.invoices.pay(inv)
+    expect(api.invoices.getById(inv).paid).toBe(true)
+    let invTrail = api.invoices.history(inv)
+    expect(invTrail.count).toBe(1)
+    expect(invTrail.first().action).toBe("create")
+    expect(invTrail.first().changes.where(c => c.field == "total").first().before).toBe(null)
+    expect(invTrail.first().changes.where(c => c.field == "total").first().after).toBe(40)
+    let invoices = api.invoices.all()
+    expect(invoices.total).toBe(1)
+    api.invoices.destroy(inv)
+    expect(api.invoices.getById(inv)).toThrow(404)
   }
 }

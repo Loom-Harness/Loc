@@ -543,9 +543,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
   // attributable — and this entry stale.
-  // `api.memos.history(...)` joined it in M-T9.42's promotion: the soft-deleted
-  // `Memo` is the reachability witness (a hidden row's trail 404s).
+  // `api.memos.history(...)` and `api.invoices.history(...)` joined it in
+  // M-T9.42's promotion: the soft-deleted `Memo` is the reachability witness
+  // (a hidden row's trail 404s), the lifecycle-only `Invoice` the audited-create
+  // witness.
   "corpus/audit-history": [
+    "api.invoices.history (no derived operation)",
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
   ],
