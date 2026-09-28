@@ -116,6 +116,7 @@ import {
   validateContextIntegrationTests,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
+import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
@@ -202,6 +203,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);
     validateCurrentUserNeedsAuthUi(sys, diags);
+    // UI ↔ backend wiring: a frontend is generated against the ONE backend in
+    // `targets:`, so a ui whose api handles fan out across several is refused
+    // rather than emitted half-wired.
+    validateUiBackendBindings(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);

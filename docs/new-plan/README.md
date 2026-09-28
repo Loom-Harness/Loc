@@ -65,7 +65,7 @@ The unsupported-diagnostic register (`src/diagnostics/unsupported-register.ts`) 
 
 | Track | Live | Archived |
 |---|---:|---:|
-| T1 | 21 | 13 |
+| T1 | 22 | 13 |
 | T2 | 10 | 6 |
 | T3 | 13 | 5 |
 | T4 | 8 | 4 |

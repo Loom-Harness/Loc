@@ -666,6 +666,11 @@ export function buildRoutesFile(
   // action (validator-enforced); without one it exposes no POST route (rather
   // than calling the suppressed field-based factory).
   const emitCreate = emitsRestCreate(agg);
+  // Resolved ONCE per file: the request-component namespace is a per-document
+  // property, so the collision set has to be decided over the whole context
+  // rather than per call site.  Hoisted above the create block because the
+  // canonical create request is one of the owners (F-026).
+  const reqNameFor = requestComponentNamer(ctx);
   // THE UNIFICATION SEAM (api-surface.ts): which routes exist, at which path,
   // declaring which error statuses — from the shared derivation the other four
   // backends already render.  Hono unified LAST on purpose: it is the
@@ -703,10 +708,13 @@ export function buildRoutesFile(
         default: wireCreateDefault(f),
       }));
   if (emitCreate) {
+    // Collision-aware: `Create<Agg>Request` is minted by its own rule, and a
+    // workflow named `create<Agg>` spells the same string (F-026).
+    const createReqName = reqNameFor({ kind: "create", aggregate: agg.name });
     lines.push(
       ...emitWireSchema(
-        `const Create${agg.name}Request`,
-        `Create${agg.name}Request`,
+        `const ${createReqName}`,
+        createReqName,
         requiredFields.map((f) => {
           // An explicit `= default` field is optional input: omitted → the
           // default is applied at the wire (`.default(...)`), so it drops
@@ -772,10 +780,6 @@ export function buildRoutesFile(
     lines.push("");
   }
 
-  // Resolved ONCE per file: the request-component namespace is a per-document
-  // property, so the collision set has to be decided over the whole context
-  // rather than per call site.
-  const reqNameFor = requestComponentNamer(ctx);
   for (const op of agg.operations.filter((o) => o.visibility === "public")) {
     // Collision-aware: two independent rules mint request-component names (this
     // one, and the workflow builder's `<Workflow>Request`), and `schedule` on
@@ -968,7 +972,7 @@ export function buildRoutesFile(
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
-      `        body: { content: { "application/json": { schema: Create${agg.name}Request } } },`,
+      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } } },`,
     );
     lines.push(`      },`);
     lines.push(`      responses: {`);
