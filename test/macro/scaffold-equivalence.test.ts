@@ -6,7 +6,7 @@
 // surfaces immediately.
 
 import { describe, expect, it } from "vitest";
-import type { Model, Ui } from "../../src/language/generated/ast.js";
+import type { Model, Ui, UiMember } from "../../src/language/generated/ast.js";
 import { isPage } from "../../src/language/generated/ast.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -252,7 +252,9 @@ describe("scaffold macro: composition rules", () => {
     const ordersArea = (ui.members ?? []).find(
       (m: any) => m.$type === "Area" && m.name === "Orders",
     );
-    const areaPages = (ordersArea?.members ?? []).filter(isPage);
+    const areaPages = ((ordersArea as { members?: UiMember[] } | undefined)?.members ?? []).filter(
+      isPage,
+    );
     const listPages = areaPages.filter((p: any) => p.name === "List");
     expect(listPages.length).toBe(1);
     const route = (listPages[0]!.props ?? []).find((p: any) => p.$type === "RouteProp") as any;
@@ -279,7 +281,7 @@ describe("scaffold macro: composition rules", () => {
       (m: any) => m.$type === "Area" && m.name === "Orders",
     );
     expect(ordersArea, "scaffold should emit an `area Orders` block").toBeTruthy();
-    const names = (ordersArea.members ?? [])
+    const names = ((ordersArea as { members?: UiMember[] }).members ?? [])
       .filter(isPage)
       .map((p: any) => p.name)
       .sort();

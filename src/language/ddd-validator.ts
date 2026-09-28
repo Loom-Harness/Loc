@@ -35,6 +35,7 @@ import {
   checkBindableInputArgs,
   checkBuilderCallType,
   checkBypassPlacement,
+  checkCallableSites,
   checkChannels,
   checkComponent,
   checkComponentPropTypes,
@@ -63,6 +64,7 @@ import {
   checkMatcherArity,
   checkMatchesCalls,
   checkMigrations,
+  checkOrgContextSurface,
   checkOrgPathReferences,
   checkPayloads,
   checkPermissionImplies,
@@ -385,7 +387,10 @@ export class DddValidator {
     guard("unknown-name-refs", model, () => checkUnknownNameRefs(model, accept, this.services));
     // `currentUser.orgPath` (the derived tenant materialized path) is
     // only meaningful under a `tenancy by` declaration — fail-closed otherwise.
-    guard("orgpath-tenancy", model, () => checkOrgPathReferences(model, accept));
+    guard("orgpath-tenancy", model, () => checkOrgPathReferences(model, accept, this.services));
+    // `organizationContext` — the operating-scope accessor admits `.orgPath`
+    // only, and never on a `ui` (no switch gate there).
+    guard("org-context-surface", model, () => checkOrgContextSurface(model, accept));
     // Primitive conversion expressions (`string(x)`, `money(d)`):
     // restrict to the infallible (source, target) pairs.  Fallible
     // parses (`int("42")`) and narrowing (`int(longValue)`) are
@@ -409,6 +414,11 @@ export class DddValidator {
     // expression (`group by o.status ignoring softDeletable`) and is then
     // silently dropped.  See `validators/bypass-placement.ts`.
     guard("bypass-placement", model, () => checkBypassPlacement(model, accept));
+    // The callable legality table (M-T5.21): the grammar's callable fragments
+    // accept the whole modifier/clause surface at every site, so an excluded
+    // modifier reports WHY (`CALLABLE_SITES`) instead of failing as an
+    // unexplained parse error.  See `validators/callable-sites.ts`.
+    guard("callable-sites", model, () => checkCallableSites(model, accept));
     // Implicit composition (finding 23): when the project has exactly one
     // `system { }`, the deployment-shape members written at file top level
     // fold into it (implicit-system-composition.md).  They must run through
@@ -446,8 +456,8 @@ export class DddValidator {
           for (const tb of themeBlocks.slice(1)) {
             accept(
               "error",
-              `system '${m.name}' declares more than one 'theme { ... }' block; keep just the first.`,
-              { node: tb },
+              diagMessage("loom.duplicate-theme-block#system-scope", { name: m.name }),
+              { node: tb, code: "loom.duplicate-theme-block" },
             );
           }
         }
@@ -479,11 +489,11 @@ export class DddValidator {
           if (prior) {
             // Rule 1: UI name uniqueness within a system.  Flag the
             // duplicates (not the first declaration).
-            accept(
-              "error",
-              `Duplicate ui block '${ui.name}'; ui names must be unique within a system.`,
-              { node: ui, property: "name" },
-            );
+            accept("error", diagMessage("loom.duplicate-ui", { name: ui.name }), {
+              node: ui,
+              property: "name",
+              code: "loom.duplicate-ui",
+            });
           } else {
             uiNamesSeen.set(ui.name, ui);
           }
@@ -497,11 +507,11 @@ export class DddValidator {
         for (const api of apis) {
           const prior = apiNamesSeen.get(api.name);
           if (prior) {
-            accept(
-              "error",
-              `Duplicate api '${api.name}'; api names must be unique within a system.`,
-              { node: api, property: "name" },
-            );
+            accept("error", diagMessage("loom.duplicate-api", { name: api.name }), {
+              node: api,
+              property: "name",
+              code: "loom.duplicate-api",
+            });
           } else {
             apiNamesSeen.set(api.name, api);
           }
@@ -512,8 +522,11 @@ export class DddValidator {
           if (api.source && !api.source.ref) {
             accept(
               "error",
-              `api '${api.name}' references undeclared subdomain '${api.source.$refText}'.  Declare a 'subdomain ${api.source.$refText} { … }' at system scope first.`,
-              { node: api, property: "source" },
+              diagMessage("loom.api-unknown-subdomain", {
+                name: api.name,
+                sub: api.source.$refText,
+              }),
+              { node: api, property: "source", code: "loom.api-unknown-subdomain" },
             );
           }
         }
@@ -554,11 +567,11 @@ export class DddValidator {
         for (const s of storages) {
           const prior = storageNamesSeen.get(s.name);
           if (prior) {
-            accept(
-              "error",
-              `Duplicate storage '${s.name}'; storage names must be unique within a system.`,
-              { node: s, property: "name" },
-            );
+            accept("error", diagMessage("loom.duplicate-storage", { name: s.name }), {
+              node: s,
+              property: "name",
+              code: "loom.duplicate-storage",
+            });
           } else {
             storageNamesSeen.set(s.name, s);
           }
@@ -578,11 +591,11 @@ export class DddValidator {
         for (const ds of dataSources) {
           const prior = dataSourceNamesSeen.get(ds.name);
           if (prior) {
-            accept(
-              "error",
-              `Duplicate resource '${ds.name}'; resource names must be unique within a system.`,
-              { node: ds, property: "name" },
-            );
+            accept("error", diagMessage("loom.duplicate-resource", { name: ds.name }), {
+              node: ds,
+              property: "name",
+              code: "loom.duplicate-resource",
+            });
           } else {
             dataSourceNamesSeen.set(ds.name, ds);
           }

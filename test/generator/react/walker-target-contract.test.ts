@@ -33,6 +33,8 @@ import { heexTarget } from "../../../src/generator/elixir/heex-target.js";
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../../src/generator/vue/walker/vue-target.js";
+import type { TypeIR } from "../../../src/ir/types/loom-ir.js";
+import { primType } from "../../_helpers/ir-builders.js";
 
 const SAMPLE_STATE_REF: StateRef = {
   field: { name: "step", type: { kind: "primitive", name: "int" } },
@@ -136,7 +138,7 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(vueTarget.renderNestedStateWrite(seg, "v")).toBe("order.shipping.zip = v");
     expect(svelteTarget.renderNestedStateWrite(seg, "v")).toBe("order.shipping.zip = v");
     // HEEx renders state through its own engine and never reaches the seam.
-    expect(() => heexTarget.renderNestedStateWrite()).toThrow(/own engine/);
+    expect(() => heexTarget.renderNestedStateWrite([], "")).toThrow(/own engine/);
   });
 
   it("svelteTarget diverges from TSX where runes differ, matches where shared", () => {
@@ -255,7 +257,7 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(tsx).toContain("<Card />");
     expect(tsx).not.toMatch(/^\{/); // depth 0 — no JSX-child brace wrap
     // HEEx renders For through its own `renderFor` block, not this seam.
-    expect(() => heexTarget.renderForEach()).toThrow(/renderFor/);
+    expect(() => heexTarget.renderForEach("", "", "", "", "", 0)).toThrow(/renderFor/);
   });
 
   it("renderForEach: nested depth returns a self-contained `<>{…}</>` (child AND expression position)", () => {
@@ -440,7 +442,7 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
   });
 
   it("defaultInitFor diverges on optional: TSX `undefined`, HEEx `nil`", () => {
-    const ty = { kind: "optional" as const, inner: { kind: "primitive" as const, name: "string" } };
+    const ty: TypeIR = { kind: "optional", inner: primType("string") };
     expect(tsxTarget.defaultInitFor(ty)).toBe("undefined");
     expect(heexTarget.defaultInitFor(ty)).toBe("nil");
   });

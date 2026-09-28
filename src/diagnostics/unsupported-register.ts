@@ -87,6 +87,25 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------
   {
+    code: "loom.ui-multi-backend-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-backend-binding-checks.ts:48",
+    what:
+      "a `ui` may declare several api parameters and bind each to a DIFFERENT backend " +
+      "(`ui: U { O: apiOne, T: apiTwo }`), and the model layer accepts it — but a frontend is " +
+      "generated against the ONE backend in `targets:`: enrichment copies only that backend's " +
+      "`contextNames` onto the frontend, and the emitted client reads a single `API_BASE_URL`.  " +
+      "So the second handle's api module was never written while its page still imported one " +
+      "(`TS2307`), and every request that did go out went to the `targets:` backend, which does " +
+      "not serve that contract.  Refused rather than emitted half-wired.  The drain is per-handle " +
+      "api clients + a base URL per handle (`VITE_API_BASE_URL_<HANDLE>`), which touches the " +
+      "shared `api/*.hbs` client/config templates, the four JSX frontends' api-module builders and " +
+      "`composeService`; the frontend context set must also union each bound source deployable's " +
+      "contexts (`enrichDeployables`), which is a two-line change already proven to make the " +
+      "two-backend fixture typecheck",
+    mission: "M-T1.35",
+  },
+  {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/workflow-checks.ts:388",

@@ -7,12 +7,12 @@
 import { describe, expect, it } from "vitest";
 import { type RenderCtx, renderExpr } from "../../../src/generator/elixir/render-expr.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
+import type { ExprOf } from "../../_helpers/ir-builders.js";
 
 const ctx: RenderCtx = {
   thisName: "record",
   contextModule: "Acme.Sales",
   filterArgs: true,
-  foundation: "vanilla",
 };
 
 const enumVal: ExprIR = { kind: "ref", name: "Confirmed", refKind: "enum-value" };
@@ -44,7 +44,6 @@ describe("render-expr vanilla leaves", () => {
     const memCtx: RenderCtx = {
       thisName: "record",
       contextModule: "Acme.Sales",
-      foundation: "vanilla",
     };
     expect(renderExpr(enumVal, memCtx)).toBe(":Confirmed");
     expect(renderExpr(filter, memCtx)).toBe("record.status == :Confirmed");
@@ -54,7 +53,6 @@ describe("render-expr vanilla leaves", () => {
     const docCtx: RenderCtx = {
       thisName: "record",
       contextModule: "Acme.Sales",
-      foundation: "vanilla",
       docStruct: true,
     };
     expect(renderExpr(enumVal, docCtx)).toBe('"Confirmed"');
@@ -83,7 +81,6 @@ describe("render-expr vanilla leaves", () => {
     const memCtx: RenderCtx = {
       thisName: "record",
       contextModule: "Acme.Sales",
-      foundation: "vanilla",
     };
     expect(renderExpr(trimmed, memCtx)).toBe("String.trim(record.name)");
   });
@@ -103,7 +100,6 @@ describe("render-expr vanilla leaves", () => {
     const memCtx: RenderCtx = {
       thisName: "record",
       contextModule: "Acme.Sales",
-      foundation: "vanilla",
     };
     expect(renderExpr(upper, memCtx)).toBe("String.upcase(record.name)");
     expect(renderExpr(lower, memCtx)).toBe("String.downcase(record.name)");
@@ -113,9 +109,8 @@ describe("render-expr vanilla leaves", () => {
     const memCtx: RenderCtx = {
       thisName: "record",
       contextModule: "Acme.Sales",
-      foundation: "vanilla",
     };
-    const call = (member: string, args: ExprIR[]): ExprIR => ({
+    const call = (member: string, args: ExprIR[]): ExprOf<"method-call"> => ({
       kind: "method-call",
       receiver: { kind: "ref", name: "name", refKind: "this-prop" },
       member,
@@ -123,8 +118,8 @@ describe("render-expr vanilla leaves", () => {
       receiverType: { kind: "primitive", name: "string" },
       isCollectionOp: false,
     });
-    const int = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
-    const str = (v: string): ExprIR => ({ kind: "literal", lit: "string", value: v });
+    const int = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
+    const str = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
     // substring(start, len) → String.slice/3 (start + LENGTH, clamping = the
     // catalogue's JS-slice contract); substring(start) → run-to-end range.
     expect(renderExpr(call("substring", [int("0"), int("4")]), memCtx)).toBe(
@@ -151,7 +146,6 @@ describe("render-expr vanilla leaves", () => {
   const opCtx: RenderCtx = {
     thisName: "record",
     contextModule: "Acme.Sales",
-    foundation: "vanilla",
     // biome-ignore lint/suspicious/noExplicitAny: only `.name` is read by the call seam
     agg: { name: "Item" } as any,
   };
@@ -195,12 +189,12 @@ describe("render-expr — money/decimal on the RIGHT of a binary (M-T6.44)", () 
   const INT = { kind: "primitive", name: "int" } as const;
   const MONEY = { kind: "primitive", name: "money" } as const;
   const DECIMAL = { kind: "primitive", name: "decimal" } as const;
-  const prop = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" });
+  const prop = (name: string): ExprOf<"ref"> => ({ kind: "ref", name, refKind: "this-prop" });
   const bin = (
     op: "*" | "+" | "<" | "==",
     lt: typeof INT | typeof DECIMAL,
     rt: typeof MONEY | typeof DECIMAL,
-  ): ExprIR => ({
+  ): ExprOf<"binary"> => ({
     kind: "binary",
     op,
     left: { ...prop("count"), type: lt },

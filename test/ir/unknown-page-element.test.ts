@@ -45,7 +45,7 @@ system Demo {
 async function codes(uiBody: string): Promise<string[]> {
   const { model, errors } = await parseString(wrap(uiBody));
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 describe("loom.unknown-page-element — the gate", () => {
@@ -160,7 +160,7 @@ component SectionHeading(title: string) { body: Text { title } }
 ${wrap(`page X { route: "/x"  body: Stack { SectionHeading { title: "hi" } } }`)}`;
     const { model, errors } = await parseString(src);
     expect(errors).toEqual([]);
-    const found = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+    const found = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
     expect(found).not.toContain(CODE);
   });
 });

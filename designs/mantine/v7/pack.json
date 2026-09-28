@@ -91,492 +91,369 @@
     "primitive-chart": [
       {
         "from": "@mantine/charts",
-        "named": [
-          "BarChart",
-          "LineChart"
-        ]
+        "named": ["BarChart", "LineChart"]
       }
     ],
-    "primitive-data-grid": [{"from": "@mantine/core", "named": ["Button", "Checkbox", "Group", "Stack", "Table", "Text", "TextInput", "UnstyledButton"]}],
-    "primitive-heading": [
+    "primitive-data-grid": [
       {
         "from": "@mantine/core",
         "named": [
-          "Title"
+          "Button",
+          "Checkbox",
+          "Group",
+          "Stack",
+          "Table",
+          "Text",
+          "TextInput",
+          "UnstyledButton"
         ]
+      }
+    ],
+    "primitive-heading": [
+      {
+        "from": "@mantine/core",
+        "named": ["Title"]
       }
     ],
     "primitive-text": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Text"
-        ]
+        "named": ["Text"]
       }
     ],
     "primitive-divider": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Divider"
-        ]
+        "named": ["Divider"]
       }
     ],
     "primitive-stack": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Stack"
-        ]
+        "named": ["Stack"]
       }
     ],
     "primitive-group": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Group"
-        ]
+        "named": ["Group"]
       }
     ],
     "primitive-toolbar": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Group"
-        ]
+        "named": ["Group"]
       }
     ],
     "primitive-grid": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Grid"
-        ]
+        "named": ["Grid"]
       }
     ],
     "primitive-section": [],
     "primitive-sticky": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Box"
-        ]
+        "named": ["Box"]
       }
     ],
     "primitive-container": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Container"
-        ]
+        "named": ["Container"]
       }
     ],
     "primitive-empty": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Center",
-          "Text"
-        ]
+        "named": ["Center", "Text"]
       }
     ],
     "primitive-button": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Button"
-        ]
+        "named": ["Button"]
       }
     ],
     "primitive-card": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Card",
-          "Title"
-        ]
+        "named": ["Card", "Title"]
       }
     ],
     "primitive-stat": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Stack",
-          "Text"
-        ]
+        "named": ["Stack", "Text"]
       }
     ],
     "primitive-badge": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-field": [
       {
         "from": "@mantine/core",
-        "named": [
-          "TextInput"
-        ]
+        "named": ["TextInput"]
       }
     ],
     "primitive-toggle": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Switch"
-        ]
+        "named": ["Switch"]
       }
     ],
     "primitive-number-field": [
       {
         "from": "@mantine/core",
-        "named": [
-          "NumberInput"
-        ]
+        "named": ["NumberInput"]
       }
     ],
     "primitive-password-field": [
       {
         "from": "@mantine/core",
-        "named": [
-          "PasswordInput"
-        ]
+        "named": ["PasswordInput"]
       }
     ],
     "primitive-loader": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Loader"
-        ]
+        "named": ["Loader"]
       }
     ],
     "primitive-anchor": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Anchor"
-        ]
+        "named": ["Anchor"]
       }
     ],
     "primitive-image": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Image"
-        ]
+        "named": ["Image"]
       }
     ],
     "primitive-avatar": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Avatar"
-        ]
+        "named": ["Avatar"]
       }
     ],
     "primitive-tabs": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Tabs"
-        ]
+        "named": ["Tabs"]
       }
     ],
     "primitive-table": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Table"
-        ]
+        "named": ["Table"]
       }
     ],
     "primitive-money": [
       {
         "from": "../lib/format",
-        "named": [
-          "MoneyValue"
-        ]
+        "named": ["MoneyValue"]
       }
     ],
     "primitive-date-display": [
       {
         "from": "../lib/format",
-        "named": [
-          "DateTimeValue"
-        ]
+        "named": ["DateTimeValue"]
       }
     ],
     "primitive-enum-badge": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Badge"
-        ]
+        "named": ["Badge"]
       }
     ],
     "primitive-id-link": [
       {
         "from": "../lib/format",
-        "named": [
-          "IdValue"
-        ]
+        "named": ["IdValue"]
       }
     ],
     "primitive-breadcrumbs": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Breadcrumbs"
-        ]
+        "named": ["Breadcrumbs"]
       }
     ],
     "primitive-paper": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Paper"
-        ]
+        "named": ["Paper"]
       }
     ],
     "primitive-skeleton": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Skeleton",
-          "Stack"
-        ]
+        "named": ["Skeleton", "Stack"]
       }
     ],
     "primitive-alert": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Alert"
-        ]
+        "named": ["Alert"]
       }
     ],
     "primitive-key-value-row": [
       {
         "from": "../lib/format",
-        "named": [
-          "KeyValueRow"
-        ]
+        "named": ["KeyValueRow"]
       }
     ],
     "primitive-form-of": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Stack",
-          "Group",
-          "Button"
-        ]
+        "named": ["Stack", "Group", "Button"]
       }
     ],
     "field-input-string": [
       {
         "from": "@mantine/core",
-        "named": [
-          "TextInput"
-        ]
+        "named": ["TextInput"]
       }
     ],
     "field-input-int": [
       {
         "from": "@mantine/core",
-        "named": [
-          "NumberInput"
-        ]
+        "named": ["NumberInput"]
       }
     ],
     "field-input-decimal": [
       {
         "from": "@mantine/core",
-        "named": [
-          "NumberInput"
-        ]
+        "named": ["NumberInput"]
       }
     ],
     "field-input-money": [
       {
         "from": "@mantine/core",
-        "named": [
-          "TextInput"
-        ]
+        "named": ["TextInput"]
       },
       {
         "from": "decimal.js",
-        "named": [
-          "Decimal"
-        ]
+        "named": ["Decimal"]
       }
     ],
     "field-input-bool": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Switch"
-        ]
+        "named": ["Switch"]
       }
     ],
     "field-input-datetime": [
       {
         "from": "@mantine/core",
-        "named": [
-          "TextInput"
-        ]
+        "named": ["TextInput"]
       }
     ],
     "field-input-id-text": [
       {
         "from": "@mantine/core",
-        "named": [
-          "TextInput"
-        ]
+        "named": ["TextInput"]
       }
     ],
     "field-input-id-select": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Select"
-        ]
+        "named": ["Select"]
       }
     ],
     "field-input-enum-select": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Select"
-        ]
+        "named": ["Select"]
       }
     ],
     "field-input-array": [
       {
         "from": "@mantine/core",
-        "named": [
-          "TextInput",
-          "Stack",
-          "Group",
-          "Button",
-          "Text"
-        ]
+        "named": ["TextInput", "Stack", "Group", "Button", "Text"]
       }
     ],
     "field-input-valueobject": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Fieldset",
-          "Stack"
-        ]
+        "named": ["Fieldset", "Stack"]
       }
     ],
     "primitive-modal": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Button",
-          "Stack",
-          "Group",
-          "Text"
-        ]
+        "named": ["Button", "Stack", "Group", "Text"]
       },
       {
         "from": "@mantine/notifications",
-        "named": [
-          "notifications"
-        ]
+        "named": ["notifications"]
       },
       {
         "from": "@mantine/modals",
-        "named": [
-          "modals"
-        ]
+        "named": ["modals"]
       },
       {
         "from": "../lib/apply-server-errors",
-        "named": [
-          "applyServerErrors"
-        ]
+        "named": ["applyServerErrors"]
       }
     ],
     "form-default-onsubmit": [
       {
         "from": "@mantine/notifications",
-        "named": [
-          "notifications"
-        ]
+        "named": ["notifications"]
       },
       {
         "from": "../lib/apply-server-errors",
-        "named": [
-          "applyServerErrors"
-        ]
+        "named": ["applyServerErrors"]
       }
     ],
     "primitive-multiline-field": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Textarea"
-        ]
+        "named": ["Textarea"]
       }
     ],
     "primitive-select-field": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Select"
-        ]
+        "named": ["Select"]
       }
     ],
     "realtime-toast": [
       {
         "from": "@mantine/notifications",
-        "named": [
-          "notifications"
-        ]
+        "named": ["notifications"]
       }
     ],
     "primitive-modal-controlled": [
       {
         "from": "@mantine/core",
-        "named": [
-          "Modal"
-        ]
+        "named": ["Modal"]
       }
     ],
     "field-input-file": [
       {
         "from": "@mantine/core",
-        "named": [
-          "FileInput"
-        ]
+        "named": ["FileInput"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ],
     "primitive-file-upload": [
       {
         "from": "@mantine/core",
-        "named": [
-          "FileInput"
-        ]
+        "named": ["FileInput"]
       },
       {
         "from": "../api/client",
-        "named": [
-          "api"
-        ]
+        "named": ["api"]
       }
     ]
   },

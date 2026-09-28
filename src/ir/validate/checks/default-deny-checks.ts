@@ -20,11 +20,14 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // inline-recomputes the expr at each use.  No framework gate is needed.
 
 // Default-deny enforcement (auth.md / quickstart §4.3).  When the system's
-// `auth { enforcement: denyByDefault }` is set, every reachable *command* on
-// an `auth: required` backend must declare a `requires` gate — otherwise it
-// serves ungated.  `enforcement: opt` (the default) preserves the existing
-// per-`requires` opt-in.  Escape hatch: `requires true` marks a command
-// intentionally public.
+// `auth { … }` block is in `enforcement: denyByDefault` — the LANGUAGE DEFAULT
+// since M-T3.1, so an `auth` block that writes no `enforcement:` is in it too
+// (`DEFAULT_ENFORCEMENT`, `src/ir/lower/lower-auth.ts`) — every reachable
+// *command* on an `auth: required` backend must declare a `requires` gate —
+// otherwise it serves ungated.  An explicit `enforcement: opt` keeps the
+// pre-flip per-`requires` opt-in.  A system with no `auth` block has no
+// posture (`sys.auth` is undefined) and is not checked.  Escape hatch:
+// `requires true` marks a command intentionally public.
 //
 // Scope: every client-reachable command (mutation) endpoint —
 //   - public aggregate actions: operations, **creates**, destroys (each

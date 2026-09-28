@@ -38,6 +38,7 @@ import { classifyForWire, pickErrorPath } from "../../../ir/validate/invariant-c
 import { errorTitle, resolveErrorStatus } from "../../../util/error-defaults.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
+import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 
 type GuardStmt = Extract<StmtIR | WorkflowStmtIR, { kind: "requires" | "precondition" }>;
 
@@ -243,6 +244,17 @@ end
  *  `if …, do: :ok, else: {:error, <term>}` workflow form alike. */
 export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): string {
   if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s);
+  // M-T1.11 (c) — a MESSAGED precondition in an aggregate OPERATION (the only
+  // call site that passes `wireAvailable`) that the wire cannot see answers the
+  // domain floor WITH its `errors[]` entry: the detail travels as a map carrying
+  // the rule's `msg.<hash>` code and pointer, and `ProblemDetails.problem_response/4`
+  // answers that map through the same domain-floor entry sender the body-built
+  // value object uses.  Every other denial keeps the plain string detail.
+  if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
+    return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
+      messageCode(s.message.text),
+    )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+  }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
 }
@@ -422,6 +434,13 @@ export function respondErrorTail(
    *  produce this term, and an arm nothing reaches is a clause a reader has to
    *  disprove. */
   invalidParams = false,
+  /** True when a workflow body here loads through `getById` (M-T5.1 A4).  The
+   *  load tags its miss `{:not_found, "<Agg> <id> not found"}` — the detail the
+   *  other four backends' `AggregateNotFound` carries and the GET-by-id route
+   *  here already answers — so the workflow 404 names the row rather than the
+   *  generic "Resource not found".  Gated so a dispatcher that cannot produce
+   *  the term keeps the exact tail it had. */
+  notFoundDetail = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -430,6 +449,14 @@ export function respondErrorTail(
       `def ${fnName}(conn, {:error, :not_found})`,
       denialResponse("notFound", '"Resource not found"', overrides),
     ),
+    ...(notFoundDetail
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, {:not_found, detail}})`,
+            denialResponse("notFound", "detail", overrides),
+          ),
+        ]
+      : []),
     ...(invalidParams
       ? [
           clause(

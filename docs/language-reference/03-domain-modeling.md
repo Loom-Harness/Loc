@@ -31,6 +31,8 @@ context Orders {
 
 The implicit `id` is a branded/strongly-typed key (`guid` → UUID), the root gets a private constructor + a public `create(...)` factory + a `_create(state)` rehydrator, and a table is emitted with `id` as the primary key.
 
+**A public `create(...)` factory is not a public `POST` route.** Declaring an aggregate gets you a table and read routes; it does not get you a way to put a row in one. Unless something in the model actually constructs it — a declared `create`, `with crudish`, an `Agg.create({ … })` in a workflow or `commandHandler`, a `seed` row, or an `apply` fold — `POST /api/<plural>` answers `405` and the table can only ever be empty. That is legal (a table fed by a migration or an out-of-band importer is a real design), so it is reported as advice rather than a warning: `loom.aggregate-not-constructible`, under the `Suggestions:` heading, never affecting the exit code. Creating a SUBTYPE writes its base's row, so a base with a constructible subtype is not flagged.
+
 ::: tabs backend
 == node
 ```ts

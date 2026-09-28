@@ -2,7 +2,9 @@
 // `auth { enforcement: denyByDefault }`, every public aggregate action
 // reachable on an `auth: required` backend must declare a `requires` gate;
 // `requires true` is the explicit "intentionally public" escape.
-// `enforcement: opt` (the default) preserves the per-`requires` opt-in.
+// An explicit `enforcement: opt` preserves the per-`requires` opt-in.  (The
+// language default is `denyByDefault` since M-T3.1 — pinned by
+// `default-deny-language-default.test.ts`.)
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -81,7 +83,7 @@ describe("default-deny enforcement", () => {
     expect(errs).toEqual([]);
   });
 
-  it("does not enforce under the default `enforcement: opt`", async () => {
+  it("does not enforce under an explicit `enforcement: opt`", async () => {
     const errs = await denyErrors(sys({ enforcement: "opt", authRequired: true, gate: "" }));
     expect(errs).toEqual([]);
   });

@@ -33,11 +33,7 @@ import {
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import {
-  collectReachableTypes,
-  findValueObjectInScope,
-  valueObjectPool,
-} from "../../ir/util/reachable-types.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
@@ -51,7 +47,12 @@ import {
 } from "../zod-refine.js";
 import { sendsIfMatchPrecondition } from "./occ.js";
 import { serverSourcedDefaultFields } from "./server-default.js";
-import { AUDIT_ENTRY_LIST_TYPE, emitAuditEntrySchemas, provenancedZod } from "./zod-schemas.js";
+import {
+  AUDIT_ENTRY_LIST_TYPE,
+  collectUsedTypes,
+  emitAuditEntrySchemas,
+  provenancedZod,
+} from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------
 // Per-aggregate API module: Zod schemas + TanStack Query hooks.
@@ -897,44 +898,6 @@ function zodForResponseInner(t: TypeIR): string {
     case "provenanced":
       return provenancedZod(zodForResponseInner(info.carried!));
   }
-}
-
-// Collect every value object and enum whose schema this aggregate's api
-// module must declare.  Traversal is TRANSITIVE through value-object
-// fields: an emitted `<VO>Schema = z.object({...})` references the schema
-// of each field's type (`country: CountrySchema`), so a VO reached only
-// through another VO — e.g. `Address.country` pulling in the `Country`
-// enum — must be emitted too.  Without the closure those references
-// resolve to undeclared variables at bundle time ("Can't find variable:
-// CountrySchema").
-function collectUsedTypes(
-  agg: AggregateIR,
-  repo: RepositoryIR | undefined,
-  ctx: BoundedContextIR,
-): { valueObjects: ValueObjectIR[]; enums: EnumIR[] } {
-  const seeds = function* (): Generator<TypeIR> {
-    for (const f of agg.fields) yield f.type;
-    for (const d of agg.derived) yield d.type;
-    for (const op of agg.operations) for (const p of op.params) yield p.type;
-    for (const f of repo?.finds ?? []) for (const p of f.params) yield p.type;
-    for (const part of agg.parts) {
-      for (const f of part.fields) yield f.type;
-      for (const d of part.derived) yield d.type;
-    }
-  };
-  // POOL, not emission list: a `valueobject` declared in a SIBLING context and
-  // referenced from this one (`aggregate Payment { paid: Money }` against
-  // `valueobject Money` in another context) is legal, and this per-aggregate
-  // api module is self-contained — it imports no schema from a sibling
-  // aggregate's module, so a VO it references must be DECLARED here or the
-  // bundle fails on an undefined `MoneySchema`.  The reachability filter keeps
-  // only what this aggregate's surface names, so nothing extra is emitted.
-  const pool = valueObjectPool(ctx);
-  const { valueObjects, enums } = collectReachableTypes(seeds(), pool);
-  return {
-    valueObjects: pool.filter((v) => valueObjects.has(v.name)),
-    enums: ctx.enums.filter((e) => enums.has(e.name)),
-  };
 }
 
 /** Drop the `seg` specifier when the module emitted no path interpolation —

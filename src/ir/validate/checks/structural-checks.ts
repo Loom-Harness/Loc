@@ -1424,7 +1424,7 @@ export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDi
     walkExprDeep(expr, (e) => {
       if (e.kind !== "call" || e.callKind !== "resource-op" || !e.resourceOp) return;
       const { resourceName, verb } = e.resourceOp;
-      const key = `${location} ${resourceName}.${verb}`;
+      const key = `${location}\0${resourceName}.${verb}`;
       if (seen.has(key)) return;
       seen.add(key);
       diags.push({

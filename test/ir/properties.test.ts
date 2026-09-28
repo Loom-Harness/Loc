@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
-import type { EntityPartIR, LoomModel, ValueObjectIR } from "../../src/ir/types/loom-ir.js";
+import type {
+  EnrichedLoomModel,
+  EntityPartIR,
+  LoomModel,
+  ValueObjectIR,
+} from "../../src/ir/types/loom-ir.js";
 import { allAggregates, allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { buildWireSpec } from "../../src/system/wire-spec.js";
-import { loadExampleModel, toLoomModel } from "../_helpers/index.js";
+import { loadExampleModel, reEnrich, toLoomModel } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // IR-transformation properties.  Every assertion here is an *invariant*
@@ -21,7 +25,7 @@ const EXAMPLES = [
   "examples/acme.ddd",
 ];
 
-async function buildEnriched(file: string): Promise<LoomModel> {
+async function buildEnriched(file: string): Promise<EnrichedLoomModel> {
   return toLoomModel(await loadExampleModel(file));
 }
 
@@ -85,7 +89,7 @@ describe("IR invariants — every example", () => {
 
       it("enrichLoomModel is idempotent", async () => {
         const once = await buildEnriched(example);
-        const twice = enrichLoomModel(once);
+        const twice = reEnrich(once);
         expect(twice).toEqual(once);
       });
 

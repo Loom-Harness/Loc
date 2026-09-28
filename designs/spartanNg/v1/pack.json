@@ -70,9 +70,7 @@
     "realtime-toast": [
       {
         "from": "./loom-toast.service",
-        "named": [
-          "LoomToastService"
-        ]
+        "named": ["LoomToastService"]
       }
     ]
   }

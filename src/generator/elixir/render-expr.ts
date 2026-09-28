@@ -63,6 +63,12 @@ export interface RenderCtx {
   thisName: string;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
+  /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
+   *  its miss `{:not_found, "<Agg> <id> not found"}` so the workflows
+   *  dispatcher answers the 404 naming the row.  Unset on every other path
+   *  (explicit handlers, mutating domain services), whose dispatchers only know
+   *  the bare `{:error, :not_found}` term. */
+  tagGetByIdMiss?: boolean;
   /** Variant-`match` binding side-channel (variant-match.md) — maps a bound
    *  name to its `case`-clause pattern variable while rendering an arm value. */
   matchBindings?: ReadonlyMap<string, string>;
@@ -379,6 +385,10 @@ function renderElixirConvert(
   const decimalStruct = (name: string | undefined) => !inFilter && isDecimalStruct(name);
   if (target === "string") {
     if (decimalStruct(from)) return `Decimal.to_string(${v})`;
+    // ISO-8601, not `String.Chars`: `to_string(~U[2026-01-01 00:00:00Z])` is
+    // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
+    // not the value .NET / java / python / node emit for this conversion.
+    if (from === "datetime") return `DateTime.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {

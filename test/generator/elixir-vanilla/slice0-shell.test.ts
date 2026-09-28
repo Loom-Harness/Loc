@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { loadPack, resolvePackDir } from "../../../src/generator/_packs/loader-fs.js";
 import { generateVanillaElixirProject } from "../../../src/generator/elixir/vanilla/index.js";
 import type { DeployableIR, SystemIR } from "../../../src/ir/types/loom-ir.js";
+import { deployableIR, systemIR } from "../../_helpers/ir-builders.js";
 
 // ---------------------------------------------------------------------------
 // Slice 0 of docs/old/plans/vanilla-foundation-tdd-plan.md — orchestrator
@@ -13,25 +15,20 @@ import type { DeployableIR, SystemIR } from "../../../src/ir/types/loom-ir.js";
 // ---------------------------------------------------------------------------
 
 function vanillaDeployable(): DeployableIR {
-  return {
+  return deployableIR({
     name: "api",
     platform: "elixir",
     platformRef: "elixir@v1",
-    contextNames: [],
-    foundation: "vanilla",
     port: 4000,
-  } as DeployableIR;
+  });
 }
 
 function emptySystem(): SystemIR {
-  return {
-    name: "Tasks",
-    subdomains: [],
-    deployables: [vanillaDeployable()],
-    storages: [],
-    resources: [],
-  } as SystemIR;
+  return systemIR({ name: "Tasks", deployables: [vanillaDeployable()] });
 }
+
+/** The baseline HEEx pack, resolved the way `generateElixirProject` does. */
+const heexPack = () => loadPack(resolvePackDir("coreComponents@v3"));
 
 describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
   it("emits a non-empty file map (lifts the empty-Map stub from P1)", () => {
@@ -39,6 +36,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     expect(out.size).toBeGreaterThan(0);
   });
@@ -48,6 +46,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const paths = [...out.keys()];
     expect(paths).toContain("mix.exs");
@@ -77,6 +76,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const dev = out.get("config/dev.exs")!;
     // Endpoint port must come from PORT (not a hardcoded 4000) — the obs
@@ -93,6 +93,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const mix = out.get("mix.exs")!;
     expect(mix).not.toContain(":ash");
@@ -111,6 +112,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const repo = out.get("lib/api/repo.ex")!;
     expect(repo).toContain("use Ecto.Repo");
@@ -124,6 +126,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const app = out.get("lib/api/application.ex")!;
     expect(app).toContain("Api.Repo");
@@ -139,6 +142,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const router = out.get("lib/api_web/router.ex")!;
     expect(router).toContain('scope "/health"');
@@ -151,6 +155,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     // Router wires liveness → /health and readiness → /ready (the k8s chart
     // probes /health for liveness, /ready for readiness — without /ready the
@@ -174,6 +179,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     // Container image + release packaging (mirrors the Ash foundation).
     expect(out.has("Dockerfile")).toBe(true);
@@ -200,6 +206,7 @@ describe("vanilla orchestrator — Slice 0 shell skeleton", () => {
       contexts: [],
       deployable: vanillaDeployable(),
       sys: emptySystem(),
+      pack: heexPack(),
     });
     const release = out.get("lib/api/release.ex")!;
     expect(release).toContain("require Logger");

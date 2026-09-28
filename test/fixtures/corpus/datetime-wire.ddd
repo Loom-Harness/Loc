@@ -1,0 +1,141 @@
+// RS-38 — the `datetime` wire form is MILLISECONDS (ledger `F2-W-06`,
+// D-ABSENT-JOIN-DATETIME-WIRE).
+//
+// Before this rule the same stored instant crossed the wire in four spellings:
+// node trimmed EVERY trailing zero (`…30.12Z`), java printed groups of three
+// (`…30.120Z`), python printed six (`…30.120000Z`), and elixir printed none at
+// all — its column was `:utc_datetime`, SECOND precision, so the fraction a
+// client wrote was lost on the way into the database.  The differential tier
+// could not see any of it: every ISO timestamp collapsed to one `<timestamp>`
+// token whatever its spelling.
+//
+// The rule: at most three fractional digits, exactly three when a fraction is
+// present, none on a whole second (RS-4's `…00Z` survives); sub-millisecond
+// input is TRUNCATED at ingress, never rounded.  Every value below is chosen
+// to separate one of those clauses, and every one is asserted as a STRING —
+// the spelling is the contract, so `datetime(...)` (which compares instants)
+// would be the wrong assertion here:
+//
+//   * `.120Z`   — a fraction ending in a zero: `.12Z` (minimal trim), `.120000Z`
+//                 (microseconds) and `…30Z` (second precision) all fail it.
+//   * `…30Z`    — a whole second: `.000Z` (unconditional three digits) fails it.
+//   * `.9996Z`  — four digits in: truncation reads `.999Z`; rounding carries the
+//                 instant into the NEXT SECOND (`…31Z`), which is why the ruling
+//                 says truncate.
+//   * `.050Z`   — through an OPERATION parameter, the other ingress path (and
+//                 on elixir the `force_change` persist seam, which skips cast).
+//
+// And the joined half (RS-34's open .NET arm): a query-time projection joining
+// a `datetime` off a SOFT-DELETED venue — the join target is absent from its
+// own bulk-load, so the joined value is wire `null` on every backend, never a
+// type's zero value.  `venueCapacity` is the value-typed member .NET's
+// `default!` read as `0` (a `datetime` is a string on the .NET wire, so its
+// `default!` was already `null`; an `int` is not).
+system DatetimeWire {
+  subdomain Scheduling {
+    context Booking {
+      aggregate Venue with softDeletable, softDelete, crudish {
+        name: string
+        openedAt: datetime
+        capacity: int
+      }
+
+      aggregate Slot with crudish {
+        label: string
+        startsAt: datetime
+        venueId: Venue id
+
+        operation reschedule(at: datetime) {
+          startsAt := at
+        }
+      }
+
+      repository Venues for Venue { }
+      repository Slots for Slot { }
+
+      projection SlotBoard {
+        slotId: Slot id
+        label: string
+        startsAt: datetime
+        venueOpenedAt: datetime
+        venueCapacity: int
+        from Slot as s
+        join Venue as v on s.venueId
+        select slotId = s.id,
+               label = s.label,
+               startsAt = s.startsAt,
+               venueOpenedAt = v.openedAt,
+               venueCapacity = v.capacity
+      }
+    }
+  }
+
+  api BookingApi from Scheduling
+
+  storage primary { type: postgres }
+  resource bookingState { for: Booking, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Booking]
+    dataSources: [bookingState]
+    serves: BookingApi
+    port: 4000
+  }
+
+  test e2e "a datetime crosses the wire in milliseconds, and an absent join is null" against d {
+    let hall = api.venues.create({ name: "Hall", openedAt: "2024-03-01T10:20:30Z", capacity: 40 })
+    let annex = api.venues.create({ name: "Annex", openedAt: "2024-03-01T08:00:00.500Z", capacity: 12 })
+
+    // A whole second keeps RS-4's form — no `.000`.
+    expect(api.venues.getById(hall).openedAt).toBe("2024-03-01T10:20:30Z")
+    expect(api.venues.getById(annex).openedAt).toBe("2024-03-01T08:00:00.500Z")
+
+    let a = api.slots.create({ label: "A", startsAt: "2024-03-01T10:20:30.120Z", venueId: hall.id })
+    let b = api.slots.create({ label: "B", startsAt: "2024-03-01T10:20:30.9996Z", venueId: annex.id })
+
+    // Exactly three digits when a fraction is present, trailing zero kept.
+    expect(api.slots.getById(a).startsAt).toBe("2024-03-01T10:20:30.120Z")
+    // Truncated at ingress, not rounded into the next second.
+    expect(api.slots.getById(b).startsAt).toBe("2024-03-01T10:20:30.999Z")
+
+    // The operation-parameter ingress path.
+    api.slots.reschedule(a, { at: "2024-03-02T09:00:00.050Z" })
+    expect(api.slots.getById(a).startsAt).toBe("2024-03-02T09:00:00.050Z")
+
+    let listed = api.slots.all({ sort: "label", dir: "asc" })
+    expect(listed.total).toBe(2)
+
+    // The join target goes ABSENT: `softDelete` hides the annex from its own
+    // repository, so slot B's joined `venueOpenedAt` has no row to read.
+    api.venues.softDelete(annex)
+    let board = api.slotBoard.list()
+    expect(board.count()).toBe(2)
+    let rowA = board.where(r => r.label == "A").first()
+    expect(rowA.startsAt).toBe("2024-03-02T09:00:00.050Z")
+    expect(rowA.venueOpenedAt).toBe("2024-03-01T10:20:30Z")
+    expect(rowA.venueCapacity).toBe(40)
+    let rowB = board.where(r => r.label == "B").first()
+    expect(rowB.startsAt).toBe("2024-03-01T10:20:30.999Z")
+    expect(rowB.venueOpenedAt).toBe(null)
+    // The VALUE-TYPED joined member — .NET's `default!` read `0` here.
+    expect(rowB.venueCapacity).toBe(null)
+
+    // The venue list no longer carries the soft-deleted row.
+    let venues = api.venues.all()
+    expect(venues.total).toBe(1)
+
+    // The rest of the route surface, so every derived route has a caller —
+    // and the UPDATE ingress path truncates like create and the op param do.
+    // `restore()` cannot reach the soft-deleted row it is for — the SAME RS-27
+    // shape `projection-agg-filters` records — so it answers 404 here.
+    expect(api.venues.restore(annex)).toThrow(404)
+    api.venues.update(hall, { name: "Hall", openedAt: "2024-03-01T08:00:00.2509Z", capacity: 40 })
+    expect(api.venues.getById(hall).openedAt).toBe("2024-03-01T08:00:00.250Z")
+    api.slots.update(b, { label: "B", startsAt: "2024-03-01T10:20:31Z", venueId: hall.id })
+    expect(api.slots.getById(b).startsAt).toBe("2024-03-01T10:20:31Z")
+    api.slots.destroy(b)
+    api.slots.destroy(a)
+    api.venues.destroy(hall)
+    expect(api.venues.getById(hall)).toThrow(404)
+  }
+}

@@ -13,8 +13,69 @@ import {
 
 export function renderCommon(
   ns: string,
-  opts: { concurrencyException?: boolean; file?: boolean } = {},
+  opts: {
+    concurrencyException?: boolean;
+    file?: boolean;
+    valueObjectInvariant?: boolean;
+    /** A messaged aggregate rule can trip at the domain floor (M-T1.11 (c)) —
+     *  `DomainException` then carries the rule's wire code and pointer. */
+    domainFloorCodes?: boolean;
+  } = {},
 ): string {
+  // M-T1.11 (c): a MESSAGED invariant / field check / precondition throws its
+  // `msg.<hash>` code and RFC 6901 pointer along with the text, so
+  // DomainExceptionFilter answers the same `errors[]` entry the wire rung
+  // carries.  Byte-identical without a messaged aggregate rule.
+  const domainException = opts.domainFloorCodes
+    ? `public sealed class DomainException : Exception
+{
+    /// <summary>A messaged rule's <c>msg.&lt;hash&gt;</c> code (the same one the
+    /// wire rung carries) and the RFC 6901 pointer its domain-floor
+    /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
+    /// rule.</summary>
+    public string? RuleCode { get; }
+    /// Named RulePointer, not Pointer: CA1720 ("identifier contains type
+    /// name") is an ERROR under the csproj's latest-recommended analysis level
+    /// with /warnaserror — the same trap WireFormatException.FieldPointer
+    /// sidesteps below.
+    public string? RulePointer { get; }
+    public DomainException(string message, string? ruleCode = null, string? rulePointer = null) : base(message)
+    {
+        RuleCode = ruleCode;
+        RulePointer = rulePointer;
+    }
+}
+`
+    : `public sealed class DomainException : Exception
+{
+    public DomainException(string message) : base(message) { }
+}
+`;
+  // A value object's invariant refused a value a domain BODY built (M-T5.1).
+  // Its own exception, not a DomainException subclass (that class is sealed and
+  // every project emits it), so the filter can answer it with an errors[] entry
+  // ahead of the plain domain-floor arm.  Emitted only when a hosted value
+  // object declares an invariant — nothing else can raise it.
+  const valueObjectInvariant = opts.valueObjectInvariant
+    ? `/// <summary>A value object's invariant refused a value (M-T5.1).
+/// DomainExceptionFilter answers the domain-floor status with one RFC 7807
+/// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
+/// computed by a body, so it names no request member), the rule's message
+/// and, for a messaged rule, its content-hash code.</summary>
+public sealed class ValueObjectInvariantException : Exception
+{
+    public string ValueObject { get; }
+    public string? RuleCode { get; }
+    public ValueObjectInvariantException(string valueObject, string message, string? ruleCode = null)
+        : base(message)
+    {
+        ValueObject = valueObject;
+        RuleCode = ruleCode;
+    }
+}
+
+`
+    : "";
   // FileRef — the wire + jsonb shape a `File` field round-trips
   // ({url, key, contentType, size}); the object-store reference an upload
   // returns (M-T1.2).  PascalCase properties serialize camelCase via the
@@ -62,12 +123,8 @@ using ${ns}.Domain.Events;
 
 namespace ${ns}.Domain.Common;
 
-public sealed class DomainException : Exception
-{
-    public DomainException(string message) : base(message) { }
-}
-
-${concurrencyException}/// <summary>State-gate failure — an operation's 'when' predicate (the
+${domainException}
+${concurrencyException}${valueObjectInvariant}/// <summary>State-gate failure — an operation's 'when' predicate (the
 /// canCommand gate) evaluated false against the loaded aggregate.
 /// DomainExceptionFilter maps this to HTTP 409.</summary>
 public sealed class DisallowedException : Exception

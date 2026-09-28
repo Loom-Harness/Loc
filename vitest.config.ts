@@ -20,7 +20,7 @@ import { defineConfig } from "vitest/config";
 //                 worker (vitest documents `vi.mock` + `isolate: false` as
 //                 unsafe).  Add a file here when it uses `vi.mock`/`vi.doMock`.
 //   • `corpus`  — the whole-corpus censuses (each iterates every tracked
-//                 `.ddd`), the four files that take >30 s each.  Isolation is
+//                 `.ddd`), the files that take >30 s each.  Isolation is
 //                 not their problem; they are separated so CI can run them as
 //                 their own job instead of letting one of them pin a shard's
 //                 wall-clock (see .github/workflows/test.yml).
@@ -50,6 +50,7 @@ const CORPUS = [
   "test/conformance/corpus-mutation.test.ts",
   "test/language/print/print-roundtrip.test.ts",
   "test/system/emitted-unbound-identifiers.test.ts",
+  "test/system/openapi-component-uniqueness-census.test.ts",
   "test/cli/new.test.ts",
 ];
 

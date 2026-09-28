@@ -1,4 +1,5 @@
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission
 // (unfoldable-api-derivation.md, Layers 3-4; A2 slice — the Hono sibling of the
@@ -47,9 +48,11 @@ import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 // body cast is deliberately loose and a typed schema would reject it.
 // ---------------------------------------------------------------------------
 
+import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
+import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -724,7 +727,7 @@ export function buildExplicitRoutesFile(
     `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, "Disallowed", err.message);`,
   );
   body.push(
-    `    if (err instanceof DomainError) return problem(${exDomainStatus}, ${JSON.stringify(problemTitle(exDomainStatus))}, err.message);`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, problemTitle(exDomainStatus), `problem(${exDomainStatus}, ${JSON.stringify(problemTitle(exDomainStatus))}, err.message)`)};`,
   );
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(problemTitle(exNotFoundStatus))}, err.message);`,
@@ -807,6 +810,7 @@ export function buildExplicitRoutesFile(
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
+    /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))

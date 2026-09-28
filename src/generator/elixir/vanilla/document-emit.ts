@@ -75,6 +75,7 @@ import {
   vanillaDocWriteScopeFilter,
 } from "./capability-filter.js";
 import { ectoValidator } from "./changeset-validators.js";
+import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
 import {
@@ -169,7 +170,7 @@ function castType(t: TypeIR): string {
         case "bool":
           return ":boolean";
         case "datetime":
-          return ":utc_datetime";
+          return LOOM_DATETIME_MODULE;
         case "guid":
           return "Ecto.UUID";
         case "json":

@@ -9,6 +9,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformOwnsBackend } from "../../../language/validators/data/platform-rules.js";
 import { snake } from "../../../util/naming.js";
 import type { BoundedContextIR, DeployableIR, SubdomainIR, SystemIR } from "../../types/loom-ir.js";
+import { consumedEventNames } from "../../util/channel-consumption.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { validateE2ERouteContract } from "./e2e-route-checks.js";
 import { validateE2ETest } from "./test-checks.js";
@@ -119,22 +120,9 @@ export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): v
   // The event names a deployable's hosted contexts consume (reactor `on`,
   // event-triggered `create … by`, projection folds) — the same trigger set
   // `deriveEventSubscriptions` wires for in-process dispatch.
-  const consumedEventsOf = (dep: DeployableIR): Set<string> => {
-    const consumed = new Set<string>();
-    for (const ctxName of dep.contextNames) {
-      const ctx = ctxByName.get(ctxName);
-      if (!ctx) continue;
-      for (const wf of ctx.workflows ?? []) {
-        for (const on of wf.subscriptions ?? []) consumed.add(on.event);
-        for (const create of wf.creates ?? []) {
-          if (create.triggerKind === "event" && create.eventRef) consumed.add(create.eventRef);
-        }
-      }
-      for (const proj of ctx.projections ?? [])
-        for (const on of proj.handlers) consumed.add(on.event);
-    }
-    return consumed;
-  };
+  // Shared with the broker-topology renderer (`_channels/auth.ts`), which
+  // must pre-declare a queue for exactly the deployables that DRAIN one.
+  const consumedEventsOf = (dep: DeployableIR): Set<string> => consumedEventNames(dep, ctxByName);
 
   // 1. Unbound channelSource.
   if (sys.deployables.length > 0) {

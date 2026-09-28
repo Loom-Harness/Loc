@@ -67,6 +67,9 @@ npm run test:tenancy-hierarchy{,-python,-java,-dotnet,-elixir}
 # …plus the two SECOND-persistence-adapter legs, whose subtree predicate is a raw SQL
 # fragment rather than an ORM filter (LOOM_TENANCY_E2E_MIKROORM / _DAPPER=1):
 npm run test:tenancy-hierarchy-{mikroorm,dapper}
+# organizationContext switch-gate siblings (M-T3.6 (3)+(5): the `x-org-context` header must be the caller's
+# orgPath or a strict subtree → stamps the child dataKey; anything else → 403 before the handler, no write):
+npm run test:tenancy-org-context{,-python,-java,-dotnet,-elixir}
 
 # Migration-evolution runtime e2e — proves migrations EVOLVE on data, not just emit/first-boot: per SQL
 # backend, (1) migrate-chain schema ≡ fresh-create schema, and (2) seed v1 → evolve .ddd → forward-migrate

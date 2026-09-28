@@ -59,7 +59,7 @@ async function diagnostics(ctxBody: string) {
 }
 
 const codes = async (ctxBody: string): Promise<string[]> =>
-  (await diagnostics(ctxBody)).map((d) => d.code);
+  (await diagnostics(ctxBody)).map((d) => d.code ?? "");
 
 describe("loom.resource-op-outside-workflow — the gate", () => {
   it("flags a BARE resource-op statement in an aggregate operation", async () => {

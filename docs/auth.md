@@ -22,12 +22,23 @@ Shipped over four slices:
   authorization gate that maps to HTTP 403, distinct from
   `precondition` (which maps to 422 — RS-15).
 
-**Default-deny enforcement** is opt-in via
-`auth { enforcement: denyByDefault }` (the language default stays `opt`,
-which preserves the per-`requires` behaviour — the default-flip to
-`denyByDefault` is deferred to a major version).  **Deny-by-default is the
-recommended posture** for anything security-sensitive, and `ddd new`'s
-scaffold points at it.  Under `denyByDefault`, every **client-reachable
+**Default-deny enforcement is the language default** (M-T3.1): an
+`auth { … }` block that writes no `enforcement:` is in
+`enforcement: denyByDefault`.  The pre-flip posture, `enforcement: opt`
+(only the members that declare a `requires` are gated; everything else serves
+any authenticated caller), is still available — write it explicitly.  A
+project that relied on the old default keeps its behaviour by running the
+codemod, which writes `enforcement: opt` into every `auth` block that names
+none:
+
+```bash
+node scripts/codemod-enforcement-opt.mjs <dir-or-file>...   # --check / --list write nothing
+```
+
+See [`migrations.md` § The `enforcement:` default flip](migrations.md#the-enforcement-default-flip-m-t31).
+A system with **no** `auth { … }` block (a `user { … }` claim shape served by
+the stub verifier) has no enforcement posture before or after the flip —
+nothing is checked there.  Under `denyByDefault`, every **client-reachable
 command AND read** on an `auth: required` deployable must declare a
 `requires` gate — `requires true` is the explicit "intentionally public"
 escape — else `loom.default-deny-ungated` fires.  Covered:
@@ -507,11 +518,11 @@ No surrounding `== …` / `&& …` is needed to satisfy the `bool` requirement:
 `currentUser.permissions` types as the claim's declared `string[]`, so the
 `.contains(…)` membership types as `bool`.
 
-Default-deny is opt-in via `auth { enforcement: denyByDefault }`
-(see the note at the top).  Without it (`enforcement: opt`, the
-default) a deployable on `auth: required` still serves any
-operation that doesn't declare a `requires` gate — Slice 2's
-original behaviour.
+Default-deny is the language default for an `auth { … }` block
+(see the note at the top).  Under an explicit `enforcement: opt` a
+deployable on `auth: required` still serves any operation that
+doesn't declare a `requires` gate — Slice 2's original behaviour, and
+the language default until M-T3.1.
 
 #### The canonical `create` / `destroy` gate
 

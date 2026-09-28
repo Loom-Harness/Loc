@@ -121,7 +121,7 @@ describe("query-projection join lookup is total — java", () => {
       "customerById.get(a.customerId().value()) == null ? null : customerById.get(a.customerId().value()).name()",
     );
     expect(src).toContain(
-      "customerById.get(a.customerId().value()) == null ? null : customerById.get(a.customerId().value()).signedUpAt().toString()",
+      "customerById.get(a.customerId().value()) == null ? null : customerById.get(a.customerId().value()).signedUpAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()",
     );
     expect(src).toContain(
       "customerById.get(a.customerId().value()) == null ? null : customerById.get(a.customerId().value()).discount().doubleValue()",
@@ -131,5 +131,19 @@ describe("query-projection join lookup is total — java", () => {
   it("still projects source-row fields off the row variable", async () => {
     const src = await handler();
     expect(src).toContain("a.code()");
+  });
+
+  it("boxes every join-read row component, so the guard's null never unboxes (RS-34)", async () => {
+    // A primitive `double` component took the guarded ternary's `null` and
+    // unboxed it: a NullPointerException — a 500 on exactly the absent row the
+    // guard exists for.  (The runtime witness is `corpus/datetime-wire`'s joined
+    // `int`, which answered 500 on java until this landed.)
+    const files = await generateSystemFiles(SRC);
+    const key = [...files.keys()].find((k) => k.endsWith("OrderWithCustomerRow.java"));
+    expect(key, "OrderWithCustomerRow.java not emitted").toBeDefined();
+    const row = files.get(key!)!;
+    expect(row).toContain("Double customerDiscount");
+    expect(row).not.toMatch(/\bdouble customerDiscount/);
+    expect(row).toContain("String code");
   });
 });

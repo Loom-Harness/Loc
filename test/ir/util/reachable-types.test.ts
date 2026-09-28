@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TypeIR, ValueObjectIR } from "../../../src/ir/types/loom-ir.js";
 import { collectReachableTypes } from "../../../src/ir/util/reachable-types.js";
+import { primType } from "../../_helpers/ir-builders.js";
 
 // `collectReachableTypes` computes the transitive VO/enum closure every
 // schema/DTO emitter relies on: a reached value object's emitted `<Vo>Schema`
@@ -19,7 +20,7 @@ const voDef = (name: string, fields: { name: string; type: TypeIR }[]): ValueObj
 
 describe("collectReachableTypes", () => {
   it("collects value objects and enums named directly on the seeds", () => {
-    const r = collectReachableTypes([vo("Address"), en("Status"), { kind: "int" } as TypeIR], []);
+    const r = collectReachableTypes([vo("Address"), en("Status"), primType("int")], []);
     expect([...r.valueObjects]).toEqual(["Address"]);
     expect([...r.enums]).toEqual(["Status"]);
   });
@@ -73,7 +74,7 @@ describe("collectReachableTypes", () => {
   });
 
   it("returns empty sets for scalar-only seeds", () => {
-    const r = collectReachableTypes([{ kind: "int" } as TypeIR, { kind: "string" } as TypeIR], []);
+    const r = collectReachableTypes([primType("int"), primType("string")], []);
     expect(r.valueObjects.size).toBe(0);
     expect(r.enums.size).toBe(0);
   });

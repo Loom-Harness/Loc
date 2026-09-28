@@ -1,6 +1,7 @@
 import type { BoundedContextIR, EnumIR, StmtIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
+import { messageCode } from "../../../util/message-code.js";
 import { snake } from "../../../util/naming.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
 import {
@@ -86,8 +87,15 @@ export function renderPyEnumsAndValueObjects(ctx: BoundedContextIR): string {
       : null,
     usesDecimal ? "from decimal import Decimal" : null,
     ctx.enums.length > 0 ? "from enum import StrEnum" : null,
-    hasInvariants ? "" : null,
-    hasInvariants ? "from app.domain.errors import DomainError" : null,
+    hasInvariants || /\bDomainError\(/.test(scan) ? "" : null,
+    // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1); a
+    // plain `DomainError` import survives only where a body still spells one.
+    hasInvariants || /\bDomainError\(/.test(scan)
+      ? `from app.domain.errors import ${[
+          ...(/\bDomainError\(/.test(scan) ? ["DomainError"] : []),
+          ...(hasInvariants ? ["ValueObjectInvariantError"] : []),
+        ].join(", ")}`
+      : null,
     idNames.length > 0
       ? `from app.domain.ids import ${idNames.map((n) => `${n}Id`).join(", ")}`
       : null,
@@ -113,9 +121,13 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
     const cond = inv.guard
       ? `(${renderPyExpr(inv.guard, VO_CTX)}) and ${renderPyNegatedGuard(inv.expr, VO_CTX)}`
       : renderPyNegatedGuard(inv.expr, VO_CTX);
+    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    // M-T5.1 — a DomainError subclass the handlers answer with an errors[]
+    // entry; a messaged rule carries the wire rung's content-hash code.
+    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
     return [
       `        if ${cond}:`,
-      `            raise DomainError(${JSON.stringify(inv.message ? inv.message.text : `Invariant violated: ${inv.source}`)})`,
+      `            raise ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code})`,
     ];
   });
   const derived = v.derived.flatMap((d) => [

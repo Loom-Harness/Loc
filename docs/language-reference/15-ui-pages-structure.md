@@ -93,7 +93,7 @@ export default function Home() {
 ```
 ::: end
 
-(User-visible strings route through the `t()` catalog — see the i18n layer in [`../new-plan/T1-ui-frontend.md`](../new-plan/T1-ui-frontend.md) § M-T1.11.)
+(User-visible strings route through the `t()` catalog — see the i18n layer in [`../new-plan/archive/T1-done.md`](../new-plan/archive/T1-done.md) § M-T1.11.)
 
 Other `PageProp`s: `title:` (an expression, so it may interpolate), `requires <expr>` (auth gate — renders a client-side `<Forbidden/>` guard on `auth: ui` frontends; see [`../auth.md`](../auth.md)), `state { … }` / `derived` / `action` (below), `menu { … }` (per-page sidebar metadata — keys `section`, `label`, `order`, `hidden`), `layout: <Name|default|none>`, and the SEO props `description:` / `ogImage:` / `canonical:` (plain string literals, projected into `index.html`).
 

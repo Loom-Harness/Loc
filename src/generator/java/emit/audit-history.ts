@@ -43,6 +43,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
+import { javaInstantWire } from "./wire.js";
 
 /** The derived history read for this aggregate, or undefined when it serves
  *  none.  Read off the enrichment-derived `historyFind` (which sits BESIDE
@@ -219,7 +220,7 @@ export function renderJavaHistoryMapper(agg: EnrichedAggregateIR): string[] {
     );
   }
   out.push(
-    `        return new AuditEntry(row.auditId(), row.at().toInstant().toString(), row.action(),`,
+    `        return new AuditEntry(row.auditId(), ${javaInstantWire("row.at().toInstant()")}, row.action(),`,
     `            row.operationId(), row.actor(), row.correlationId(), changes);`,
     `    }`,
     ``,

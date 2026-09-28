@@ -48,7 +48,7 @@ system Demo {
 async function codes(pages: string): Promise<string[]> {
   const { model, errors } = await parseString(wrap(pages));
   if (errors.length) throw new Error(`unexpected parse errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
 describe("loom.op-form-needs-route-id — the gate", () => {

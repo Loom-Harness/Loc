@@ -2606,9 +2606,10 @@ export interface AuthIR {
   sessions: "cookie" | "jwt";
   /** IdP-claim → user-field projections. */
   claims: ClaimMappingIR[];
-  /** Default-deny posture.  `opt` (default) preserves today's
-   *  per-`requires` opt-in; `denyByDefault` forces every reachable
-   *  command on an `auth: required` deployable to declare a gate. */
+  /** Default-deny posture.  `denyByDefault` (the language default since
+   *  M-T3.1) forces every client-reachable command and read on an
+   *  `auth: required` deployable to declare a gate; `opt` (written
+   *  explicitly) keeps the per-`requires` opt-in. */
   enforcement: "denyByDefault" | "opt";
 }
 

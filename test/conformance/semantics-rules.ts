@@ -1101,21 +1101,30 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // asserted against it defensively, not proven. The doc's `Conforms` line
     // lists dotnet and then names this gap under `Open`; this entry resolves
     // that contradiction in the safe direction.
-    conforms: ["node", "java", "python", "elixir"],
-    targets: ["dotnet"],
+    //
+    // CLOSED (wave C5 moment 5b, D-ABSENT-JOIN-DATETIME-WIRE): the .NET row
+    // record widens every join-read member to nullable and the absent branch is
+    // `null` (`joinReadFieldNames`, src/generator/_projection/join-read.ts) — and
+    // the runtime witness that closed it found the SAME value-typed gap on two
+    // backends listed as conforming: python's row model declared the joined
+    // member non-nullable, so FastAPI's response validation turned the absent
+    // branch into a 500, and java's primitive `int` component unboxed the
+    // guard's `null` (NullPointerException, 500).  Elixir's follow load also
+    // ignored the joined aggregate's capability filter, so a soft-deleted target
+    // still joined.  All four are fixed and goldened.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
       "raised as ledger row `G2667-D3-projection-join-unguarded-index`",
       "landed dotnet (`b75ce2c`) and node (`40202d9`) in wave 1 packets 1b/1c; python in wave 1 packet 1e; elixir in wave 1 packet 1d",
       "java landed in the wave-2 residue (`renderSelectWire`, src/generator/java/emit/query-projection-reads.ts), pinned by test/generator/java/query-projection-join-missing.test.ts and the java arm of test/ir/projection-comprehension.test.ts",
       "MUTATION-PROVEN (java): reverting `renderSelectWire` to the pre-fix unguarded `<mapVar>.get(<key>).<member>()` (file-copy revert, never `git checkout --`) fails 4 named assertions across those two files",
-      "OPEN (dotnet): the value-typed joined-field gap — the guarded arm's `: default!` in src/generator/dotnet/query-projection-emit.ts reads `0`/`false`/`DateTime.MinValue` for a joined `int`/`decimal`/`bool`/`datetime`, not wire `null`. Unverified and unfixed; flipping it to an explicitly-nullable wire type (and widening the Response schema's field to nullable for a joined member) is the wave-1 dotnet hand-off",
+      "the value-typed arm closed in wave C5 moment 5b (D-ABSENT-JOIN-DATETIME-WIRE): .NET `: default!` → a nullable row member + `: null`; python and java row models widened the same way (both 500'd on the absent row); elixir's join load now applies the joined aggregate's capability filter",
+      "BEHAVIORAL witness: test/fixtures/corpus/datetime-wire.ddd soft-deletes a join target and asserts its joined `datetime` AND `int` read `null`; golden test/behavioral/wire-golden/datetime-wire.json, green on all seven wire-gated legs",
     ],
-    // STATIC: string-pinned per backend. No wire golden carries a
-    // join-target-absent row — the corpus fixtures never declare a query-time
-    // projection `join` at all (grepped empty across `examples/**` and
-    // `web/src/examples/**`), so this rule's coverage is entirely the dedicated
-    // fixture tests above, not the corpus/behavioral legs.
-    tier: "static",
+    // BEHAVIORAL since wave C5 5b: `datetime-wire.json` carries a
+    // join-target-absent row on every leg (it was string-pinned per backend
+    // only, which is how three of the five value-typed arms stayed broken).
+    tier: "behavioral",
   },
   {
     id: "RS-35",
@@ -1218,6 +1227,100 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // STATIC: the per-backend arm test reads the renderer leaf tables directly
     // — no boot. The doc calls this tier "generator".
     tier: "static",
+  },
+  {
+    id: "RS-37",
+    title: "`decimal` arithmetic is EXACT — `0.1 + 0.2` is `0.3` on the wire and in storage",
+    trigger:
+      "`decimal-exact.ddd`: `derived sum = a + b` (0.1 + 0.2), a chained multiply `c * c * c` (1.1³), a division over binary-inexact operands `d / a` (0.3 / 0.1), a mixed chain `(a + b) * 3 - d`, a chain whose intermediate is non-terminating `a / 3 * 3` (wire only), `tie.round(2)` on the binary-inexact tie 1.005, a `sum` fold over a containment, and an operation writing `total + x` to a stored column",
+    observable:
+      "every backend computes a `decimal` +, -, *, /, % (any arithmetic whose result types as `decimal`, including the widened `int / int`), a `decimal` `sum` fold and `decimal.round(n)` in DECIMAL, not binary floating point: `0.3`, `1.331`, `3`, `0.6`, `1.01`, `0.3`, and a stored `0.3` read back; a chain stays decimal until its root, so `0.1 / 3 * 3` narrows to `0.1`, never the per-step `0.09999999999999999` — where a double answers `0.30000000000000004`, `1.3310000000000004`, `2.9999999999999996`, `0.6000000000000001`, `1`. RS-24 is unchanged: the result still SERIALIZES as a float64 JSON number; only the computation moved.",
+    // THE RULING (D-DECIMAL-EXACT-MOMENT, given by the owner 2026-09-07):
+    // `decimal` exists to avoid binary-float error, so a decimal that answers
+    // 0.30000000000000004 is broken by its own definition. It superseded the
+    // numeric-types audit's proposed float64/node-oracle default.
+    //
+    // The split when raised (audit F11): .NET (System.Decimal), Java
+    // (BigDecimal, DECIMAL128 division) and Elixir (Decimal, context 28)
+    // already conformed; node (JS number) and python (float) computed in
+    // doubles and PERSISTED the result into the shared unbounded DECIMAL
+    // column. No wire golden could see it — the corpus carried no
+    // float-error-visible decimal arithmetic, because the witness alone would
+    // have turned three backends red against the node oracle before the ruling.
+    //
+    // Per-backend shape after the fix: node lifts into decimal.js and narrows
+    // with `.toNumber()` ONCE at the root of the chain — a nested chain hands
+    // its `Decimal` over un-narrowed (src/generator/typescript/render-expr.ts,
+    // `isDecimalArithmetic` / `decimalChainOperand`); python lifts through
+    // `Decimal(str(x))` and narrows with `float(...)` once
+    // (src/generator/python/render-expr.ts, `renderDecimalArithmetic`). Both
+    // keep the domain/wire type a double, so no repository, DTO or codec
+    // changed. Historical rows persisted before the change are NOT rewritten
+    // (docs/migrations.md).
+    //
+    // Precision residue, NOT part of this rule's guarantee: node computes at
+    // decimal.js's default 20 significant digits (python/.NET/Elixir 28, Java
+    // exact for + - * and 34 for /). Every value above agrees after the RS-24
+    // narrowing to a double; a result whose 18th–28th digits differ is the
+    // precision-alignment hand-off, not a conformance claim here. The
+    // wire-boundary zod `.refine` node emits for a cross-field invariant
+    // (src/generator/zod-refine.ts, shared with the frontends) still evaluates
+    // in doubles — also handed off.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
+      "the witness is test/fixtures/corpus/decimal-exact.ddd — a unit `test` block (all five unit tiers) and a `test e2e` block whose golden is test/behavioral/wire-golden/decimal-exact.json; proven RED on node and python before the fix (`expected 0.30000000000000004 to be 0.3`, api and unit tiers) and green on every leg after",
+      "numbered RS-37 rather than the RS-38 D-DECIMAL-EXACT-MOMENT's text names: this moment landed before the datetime wire rule D-ABSENT-JOIN-DATETIME-WIRE had reserved RS-37 for, and the registry's gap-free gate refuses RS-38 without an RS-37 — the datetime rule takes the next free number when it lands",
+    ],
+    // BEHAVIORAL: the value is only observable by running the arithmetic; the
+    // seven wire-gated legs diff the witness golden and every backend's unit
+    // tier runs the `test` block.
+    tier: "behavioral",
+  },
+  {
+    id: "RS-38",
+    title:
+      "A `datetime` crosses the wire in milliseconds — three digits when a fraction is present, none on a whole second",
+    trigger:
+      "`datetime-wire.ddd`: a venue created at `…10:20:30Z` (whole second) and `…08:00:00.500Z`; slots at `…10:20:30.120Z` (a fraction ending in a zero) and `…10:20:30.9996Z` (sub-millisecond); an operation rescheduling to `…09:00:00.050Z` through an op parameter; a query-time projection joining a `datetime` and an `int` off a soft-deleted venue",
+    observable:
+      "every value reads back byte-exact as the canonical string: `…10:20:30Z`, `…08:00:00.500Z`, `…10:20:30.120Z`, `…10:20:30.999Z` (truncated, not rounded into `…31Z`), `…09:00:00.050Z`; the absent join is wire `null`. Never `.12Z` (a minimal trim), `.120000Z` (microseconds), `.000Z` (an unconditional fraction) or `…30Z` for a written fraction (second precision).",
+    // THE RULING (D-ABSENT-JOIN-DATETIME-WIRE, applied 2026-09-13): milliseconds
+    // is the only precision every target carries end to end (a JS `Date` is
+    // millisecond-resolution); exactly three digits rather than node's minimal
+    // trim, because `.12Z` and `.120Z` are the same instant in two spellings and
+    // a string-comparing differential then has to normalise — which is what hid
+    // this; RS-4's whole-second `…00Z` is PINNED, so "three digits" applies only
+    // when a fraction is present.
+    //
+    // The split when raised (ledger F2-W-06): node `.replace(/\.?0+Z$/, "Z")`
+    // → `.12Z`; java `Instant.toString()` → `.120Z` (six digits off a µs column);
+    // python `isoformat()` → `.120000Z`; .NET's `"o"` trimmed the node way;
+    // elixir `:utc_datetime` → SECOND precision, the written fraction LOST.
+    // Invisible to every tier: the wire normaliser collapsed every ISO spelling
+    // to `<timestamp>`. It is narrowed with this rule to the two canonical
+    // spellings (test/_helpers/response-diff.ts), so a non-canonical one diverges.
+    //
+    // Per-backend shape: node `canonicalIsoExpr` (`/\.000Z$/`); .NET the `fff`
+    // custom format (truncating) with `.000Z` dropped + ingress tick truncation;
+    // java `javaInstantWire` (`truncatedTo(MILLIS)`) + `WireFormatException.instant`
+    // truncation; python `iso()` (`timespec="milliseconds"`) + `pyWireToDomain`
+    // truncation; elixir the `Loom.Datetime` Ecto type (µs `timestamptz`, values
+    // normalised to `{ms * 1000, 3}` / `{0, 0}`, which `to_iso8601` prints as the
+    // canonical form).
+    //
+    // NOT part of the guarantee: the channel / realtime envelope encodings
+    // (python `isoformat()`, elixir `to_iso8601`, node's bare `toISOString()`),
+    // none goldened; elixir's framework columns (`inserted_at`, audit `at`) stay
+    // second-precision (canonically spelled).
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "ledger row `F2-W-06`; ruled as D-ABSENT-JOIN-DATETIME-WIRE (docs/decisions.md), which reserved RS-37 — RS-37 went to decimal-exact at the wave C5 5a fold, so this rule is RS-38",
+      "measured in wave C2 packets 2a (the elixir site list), 2f and 2m (the re-capture is not elixir-only); built as wave C5 moment 5b",
+      "the witness is test/fixtures/corpus/datetime-wire.ddd, whose golden is test/behavioral/wire-golden/datetime-wire.json; every assertion is an exact string, green on all seven wire-gated legs (node, python, dotnet, dapper, mikroorm, java, elixir)",
+    ],
+    // BEHAVIORAL: the spelling is only observable on a booted backend's wire.
+    tier: "behavioral",
   },
 ];
 

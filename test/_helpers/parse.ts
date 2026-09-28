@@ -1,8 +1,9 @@
-import { type Diagnostic, EmptyFileSystem, type LangiumDocument, type URI } from "langium";
+import { EmptyFileSystem, type LangiumDocument, type URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
+import { type LspDiagnostic as Diagnostic, diagText } from "./diagnostics.js";
 
 export type ParseResult = {
   model: Model;
@@ -17,7 +18,7 @@ const isError = (d: Diagnostic): boolean => d.severity === 1;
 const isWarning = (d: Diagnostic): boolean => d.severity === 2;
 
 const fmt = (d: Diagnostic): string =>
-  `${d.range.start.line + 1}:${d.range.start.character + 1} ${d.message}`;
+  `${d.range.start.line + 1}:${d.range.start.character + 1} ${diagText(d)}`;
 
 export const extractErrors = (diagnostics: readonly Diagnostic[] = []): string[] =>
   diagnostics.filter(isError).map(fmt);
