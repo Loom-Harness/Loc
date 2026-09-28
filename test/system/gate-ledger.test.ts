@@ -54,19 +54,42 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "an `X id?` user claim is a STATIC contract, and all four of its symptoms are compile-visible on the tier that already gates it: TS2503 (tsc), `cannot find symbol` (gradle), a `CustomerId??` that does not parse (dotnet build), and — the one that reads as a runtime bug — python's missing import, which `corpus-python-build` catches as ruff F821 + mypy `name-defined` before anything boots.  A behavioural block would boot a CRUD round-trip wearing an OIDC hat, which `auth-oidc` already records, and mint a wire golden with no oracle of its own.  NOT a drain candidate for M-T9.13 (docs/audits/2026-09-10-eshop-dev-experience.md §D6/P2, #2869): unlike every sibling here it is not a tier gap, so the honest move if it ever stops paying for itself is to delete the fixture, not to boot it",
   "auth-id-claim-stub":
     "the NON-optional twin of `auth-id-claim`, and compile-visible for the same reason: four of the five dev-stub principal VALUE tables wrote a raw scalar where the emitted id is a nominal type, and two of those are hard compile errors on the tier that already gates the cell — `TS2322: Type 'string' is not assignable to type 'CustomerId'` (tsc, against the `__brand`) and CS0029 (dotnet build, against `readonly record struct CustomerId(Guid)`).  java's arm compiled but carried a NULL strong id; that one IS a runtime shape — and the oracle for it is the emitted value, which the compile tier reads directly, not a booted round-trip.  A behavioural block would boot the same CRUD round-trip `auth-simple` already boots and mint a wire golden whose only new content is the /auth/me projection of a claim the harness's `x-loom-dev-claims` cannot even set (the shared `devClaimKind` classifier carries `string` and `string[]` only, so the id claim keeps its built-in stub value on every backend).  Same disposition as its sibling: NOT a drain candidate for M-T9.13",
-  "projection-agg-filters":
-    "aggregation × capability filters — the cross-tenant COUNT/SUM leak audit A1 minted this fixture for is a RUNTIME value; the compile tier cannot see a wrong number",
-  "projection-document-aggregation":
-    "count(*) over a document source — same shape as projection-agg-filters, same blindness",
+  "enum-collection":
+    "the enum × array crossing is a STATIC type question and its defect is a hard compile error in the emitted project (`** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field :skills` — `mix compile` fails), so the corpus compile legs ARE the oracle.  A behavioural block would boot a generic CRUD round-trip and mint a wire golden over an enum-array JSON encoding no cross-backend ruling has been asked for",
+  "org-context":
+    "the subject is a REQUEST HEADER (`x-org-context`) the auth middleware validates before routing, and the `test e2e` vocabulary cannot set one — a behavioural block could only drive the no-switch default, which is indistinguishable from `tenancy-hierarchy`.  The runtime half (in-scope switch stamps the sub-scope `dataKey` and the row is deep-visible from the parent and hidden from a sibling; an out-of-subtree switch and a forged one on an orgPath-less token are 403 with NO write) is the booted `tenancy-org-context*` leg of tenancy-e2e on all five backends; the compile legs prove every backend builds the gate",
+  "principal-read-filter":
+    "both halves of the defect (an UNPINNED `current_user` in the Ecto `where:`, and an actor never threaded into the find/retrieval head) are hard `mix compile` failures, so the compile legs are the oracle.  The runtime half is not assertable from the harness either: a row-level `this.technicianUserId == currentUser.id` needs the principal's id to MATCH a seeded row's, and `devClaimKind` carries `string` / `string[]` claims only — so every assertion would read the empty fail-closed result and prove nothing about the filter.  A drain candidate for M-T9.13 once the harness can seed a row owned by the authenticated principal",
+  // `projection-agg-filters` LEFT this list in wave-3 row 3.3.  Its signature
+  // said the leak "is a RUNTIME value; the compile tier cannot see a wrong
+  // number" — true, and it argued for a behavioural block rather than against
+  // one.  What actually blocked it was narrower and undocumented: `softDeletable`
+  // is a pure mixin with no operation, so nothing could set `isDeleted` through
+  // the api and the conjunct was unobservable whatever the tier.  Composing the
+  // `softDelete` macro made it assertable with ONE principal, and the fixture
+  // now runs `OrderVolume` vs `AllTimeVolume` at the behavioural tier.  The
+  // TENANT conjunct still needs two principals and stays with the generator
+  // tests — a narrower claim than the one this entry used to make.
   outbox: "relay delivery is asynchronous; needs a booted leg that drains the outbox",
   "channels-broker":
     "needs a broker container (the channels-e2e legs boot one; the corpus case does not)",
+  "channels-broker-workflow":
+    "same broker-container reason as `channels-broker`, and the defect it was minted for is a " +
+    "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
+    "TS2305 for the missing exports), so the compile tier IS its oracle — a booted leg would " +
+    "re-run `channels-broker`'s delivery with a workflow in the tree and assert nothing new",
+  "projection-split-deployables":
+    "the defect is a hard compile error in the emitted project (`TS2306: File " +
+    "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +
+    "behavioural block would also need TWO booted services to mean anything, and what it would " +
+    "assert — a projection count — `projection-agg-filters` already boots on one",
   "tenancy-hierarchy":
     "the deep/global/local read ladder is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier",
   extern: "the user handler is scaffold-once; a booted leg needs a supplied implementation",
   "extern-handlers": "same scaffold-once shape as `extern`",
   "handler-resource-ops": "outbound I/O inside a handler body; needs the resource's container",
-  "handler-triad": "three handler-body shapes; #2652 measured them at generate/compile only",
+  "handler-triad":
+    "every route is an explicit `route … -> <Ctx>.<Handler>`; the e2e surface can address one since #2984, but FOUR of the five backends do not serve it at the path node does — see the register entry in api-caller-census-pins.ts",
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",

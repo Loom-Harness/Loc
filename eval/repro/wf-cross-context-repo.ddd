@@ -1,0 +1,12 @@
+system X {
+  subdomain S {
+    context A { aggregate Foo { n: int  operation bump() { n := n + 1 } }  repository Foos for Foo { } }
+    context B { aggregate Bar { m: int }
+      repository Bars for Bar { }
+      workflow touchFoo { create(f: Foo id) { let x = Foos.getById(f)  x.bump() } }
+    }
+  }
+  storage p { type: postgres }
+  resource ra { for: A, kind: state, use: p }  resource rb { for: B, kind: state, use: p }
+  deployable api { platform: node, contexts: [A, B], dataSources: [ra, rb], port: 3000 }
+}

@@ -90,10 +90,16 @@ async function file(suffix: string): Promise<string> {
 describe("elixir — query-time projection over a `shape: document` source", () => {
   it("loads the rows and narrows IN-APP over the rehydrated embed", async () => {
     const mod = await file("query_projections/article_titles.ex");
+    // `|> Ecto.Query.order_by([r], r.id)` joined this read once the whole-table
+    // document read became ordered everywhere: a per-row projection answers one
+    // row per source row, so an unordered read here means Postgres heap order,
+    // which moves a row as soon as an `update` rewrites its tuple.  The in-app
+    // narrowing below it is unchanged — that is still the point of the test.
     expect(mod).toContain(
       [
         "    rows =",
         "      D.C.Article",
+        "      |> Ecto.Query.order_by([r], r.id)",
         "      |> Repo.all()",
         "      |> Enum.filter(fn row ->",
         "        record = row.data",
@@ -132,6 +138,13 @@ describe("elixir — query-time projection over a `shape: document` source", () 
     // `mix compile --warnings-as-errors`.
     expect(mod).not.toContain("import Ecto.Query");
     expect(mod).toContain("  alias D.Repo");
+    // …but the ordered read calls `order_by` FULLY QUALIFIED, and that is a
+    // MACRO: without the `require`, Elixir parses it as a remote function call,
+    // the `[r]` never becomes a query binding, and the module fails to compile
+    // with `undefined variable "r"`.  `import` would also satisfy the macro, but
+    // this read builds no `from(...)`, so importing would reinstate exactly the
+    // unused-import warning the assertion above exists to prevent.
+    expect(mod).toContain("  require Ecto.Query");
   });
 
   it("roots the SHORTHAND serializer at the embed, with id/version on the row", async () => {

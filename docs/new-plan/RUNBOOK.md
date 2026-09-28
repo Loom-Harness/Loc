@@ -15,6 +15,15 @@ You were given a mission ID (`M-Tx.y`). Everything else you need is discoverable
 ## 2. Claim
 Open a **draft PR** whose title starts with the mission ID (e.g. `M-T2.1: renamed-from field intent`) and whose body states scope + files touched, per CLAUDE.md's claiming protocol. This is the first action after verification, not a wrap-up step.
 
+**Minting a NEW mission ID?** Never compute it by eye from the track file. `main` cannot answer "what is the next free id", because a freshly minted id lives on an open branch for hours before it merges — that is how M-T6.37 got claimed by two PRs in the same hour, and how M-T5.37/M-T5.38 collided in wave C4. Run:
+
+```bash
+GITHUB_TOKEN=… node scripts/next-mission-id.mjs T5     # one track, or omit for all
+GITHUB_TOKEN=… node scripts/next-mission-id.mjs --check # exit 1 on a live collision
+```
+
+It reads the headings in `docs/new-plan/` **and** every open PR's added headings + title/body claims, and names the two collision shapes outright. Without a token it prints the `main`-only answer and says the answer is **incomplete** — do not mint from that; get a token or ask. (M-T9.32.)
+
 ## 3. Design before code (when the mission says so)
 Missions marked *design-first* or touching grammar require the design pass first: read the linked `docs/old/` proposal(s) fully, honor their pinned decisions, and follow the matching repo skill if one exists (`language-feature-developer` for DSL features, `dependency-upgrade` for version bumps, `generated-stack-verifier` before pushing anything in the migrate/boot blast radius, `parity-auditor` for cross-target audits). Resolve the mission's named open questions in the PR description — don't leave them implicit.
 

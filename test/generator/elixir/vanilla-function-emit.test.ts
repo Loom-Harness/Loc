@@ -59,7 +59,7 @@ system FnDemo {
         // CORE copy of these functions (schema-emit gates it on agg.tests), and
         // that copy had its own receiver-underscore bug.
         test "passed is true above the threshold" {
-          let o = Order.create({ total: 150 })
+          let o = Order.create({ total: 150, status: "new" })
           expect(o.passed()).toBe(true)
         }
       }

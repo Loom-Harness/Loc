@@ -43,6 +43,7 @@ import type { LangiumCoreServices, ParseResult } from "langium";
 import { LangiumParserErrorMessageProvider } from "langium";
 import { diagMessage } from "../diagnostics/messages.js";
 import { nearestName } from "../util/edit-distance.js";
+import { isDeclareOnlySoftKeyword } from "./soft-keywords.js";
 
 /** How many of the expected tokens a message names before it stops.  Five is
  *  enough to show the SHAPE of the closed set (`node`, `dotnet`, `react`, …)
@@ -112,9 +113,18 @@ function renderCandidates(
 }
 
 /** The shared body of both alternation failures: what was found, the nearest
- *  legal spelling of it, and a capped sample of what was legal here. */
+ *  legal spelling of it, and a capped sample of what was legal here.
+ *
+ *  A KEYWORD found where a name was legal gets a different message first —
+ *  see {@link reservedInExpressionMessage}.  The candidate dump is the right
+ *  reply when the author was choosing from a closed set; it is the wrong one
+ *  when they wrote a name of their own and Loom has spoken for the word, and
+ *  the alternation case had no equivalent of the mismatched-token path's
+ *  reserved-name arm. */
 export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): string {
   const { keywords, terminals } = firstTokenLabels(paths);
+  const reserved = reservedInExpressionMessage(actual, terminals);
+  if (reserved) return reserved;
   const suggestion = isWordLike(actual.image)
     ? nearestName(actual.image, keywords.filter(isWordLike))
     : undefined;
@@ -123,6 +133,40 @@ export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): st
     suggestion: suggestion ? ` Did you mean '${suggestion}'?` : "",
     candidates: renderCandidates(keywords, terminals, suggestion),
   });
+}
+
+/** A Loom keyword sitting where a NAME was one of the legal continuations.
+ *
+ *  Two shapes, and the difference is the whole point.  A keyword the grammar
+ *  refuses in BOTH name positions is simply reserved — rename and move on.  A
+ *  `declareOnly` one (`from`, `await`, `id`, `transactional`,
+ *  `directoryLayout`) was ACCEPTED as the declaration name and is refused only
+ *  here, at the read:
+ *
+ *      criterion InWindow(from: datetime) of A = startAt >= from
+ *
+ *  parses its parameter and then cannot name it.  Reporting that as "unexpected
+ *  'from', expected one of '!', '-', … (+120 more)" sends the author to look
+ *  for a syntax error in an expression that is, as written, exactly what they
+ *  meant.  The set is read off the grammar (`soft-keywords.ts`), so the message
+ *  stays true as either soft-keyword list moves.
+ *
+ *  Returns `undefined` when this is not that case, so the ordinary candidate
+ *  dump is unchanged for every alternation the author really was choosing
+ *  from. */
+function reservedInExpressionMessage(actual: IToken, terminals: string[]): string | undefined {
+  if (!isKeywordToken(actual.tokenType)) return undefined;
+  // PUNCTUATION is a keyword token too — `?`, `{`, `=>` all carry a string
+  // PATTERN — and "'?' is a Loom keyword … rename it to '?Ref'" is nonsense.
+  // Only a word-shaped image can be a name the author was reaching for.
+  if (!isWordLike(actual.image)) return undefined;
+  // A name has to have been legal here, or "reserved" is not the diagnosis:
+  // `platform: mantinee` wants a closed set, not an identifier.
+  if (!terminals.some((t) => t in NAME_TERMINALS)) return undefined;
+  const word = actual.image;
+  return isDeclareOnlySoftKeyword(word)
+    ? diagMessage("loom.parse-error#reserved-in-expression", { found: word })
+    : diagMessage("loom.parse-error#reserved-name", { found: word, expected: "name" });
 }
 
 /** The name-shaped terminals.  A keyword found where one of these was expected

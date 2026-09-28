@@ -489,6 +489,44 @@ export function errorResponses(spec: OpenApiSpec): Map<string, string> {
 }
 
 /**
+ * Per-operation SUCCESS-status signature — the ascending set of declared
+ * 2xx/3xx codes, e.g. `200` or `204`.
+ *
+ * WHY THIS DIMENSION EXISTS (sweep F-030, Hole C).  The Phoenix workflow POST
+ * served `202` with a `{status, result}` envelope while its own spec declared
+ * `200` and the other four backends declared and served `204` — three
+ * contracts for one `.ddd`, and not one dimension here saw it:
+ *
+ *   - `errorResponses` filters `^[45]\d\d$`, so success codes were out of
+ *     scope by construction.
+ *   - `responseBodySchemas` and `collectResponseShapes` both read
+ *     `responses["200"] ?? responses["201"]` and then compare the NAMED
+ *     COMPONENT the body `$ref`s.  Phoenix's 200 carried an inline
+ *     `{type: object}` (no ref) and Hono had no 200 at all, so BOTH sides
+ *     normalised to the empty string and the ops compared EQUAL.
+ *
+ * So the one thing a client binds to first — "what status means success here"
+ * — was the one thing nothing compared.  A missing dimension is not a passing
+ * dimension; this closes it.
+ */
+export function successStatuses(spec: OpenApiSpec): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [p, item] of Object.entries(spec.paths ?? {})) {
+    if (isInfraPath(p)) continue;
+    for (const [m, raw] of Object.entries(item)) {
+      const method = m.toUpperCase();
+      if (!HTTP_METHODS.includes(method)) continue;
+      const op = raw as { responses?: Record<string, unknown> };
+      const codes = Object.keys(op.responses ?? {})
+        .filter((c) => /^[23]\d\d$/.test(c))
+        .sort();
+      out.set(`${method} ${normalisePath(p)}`, codes.join(","));
+    }
+  }
+  return out;
+}
+
+/**
  * Per-operation path-parameter type signature.  Captures what
  * `normalisePath` deliberately discards (the actual parameter type +
  * format) so the parity diff can catch drift like:
@@ -656,6 +694,11 @@ export interface ParityDiff {
    * `application/problem+json`.  The error contract is part of drop-in
    * replacement: a client's error handling binds to these. */
   errorResponseDiffs: string[];
+  /** Per-op SUCCESS-status drift on the intersection — one backend
+   * answering `204` where another answers `200`/`202` for the same
+   * operation.  See `successStatuses` for why this is its own dimension
+   * rather than a by-product of the response-body comparison. */
+  successStatusDiffs: string[];
 }
 
 /**
@@ -860,6 +903,21 @@ export function diffSpecs(
     }
   }
 
+  // Per-op success-status drift on the op intersection.  Deliberately EXACT
+  // set equality: a backend that also declares, say, `201` alongside `200` is
+  // publishing a different success contract, not a superset of the same one.
+  const refSuccess = successStatuses(ref.spec);
+  const otherSuccess = successStatuses(other.spec);
+  const successStatusDiffs: string[] = [];
+  for (const op of refSuccess.keys()) {
+    if (!otherSuccess.has(op)) continue;
+    const r = refSuccess.get(op) ?? "";
+    const o = otherSuccess.get(op) ?? "";
+    if (r !== o) {
+      successStatusDiffs.push(`${op}: ${ref.name}=[${r}], ${other.name}=[${o}]`);
+    }
+  }
+
   return {
     refName: ref.name,
     otherName: other.name,
@@ -879,6 +937,7 @@ export function diffSpecs(
     operationIdDiffs,
     enumValueDiffs,
     errorResponseDiffs,
+    successStatusDiffs,
   };
 }
 
@@ -900,6 +959,7 @@ export function isCleanDiff(diff: ParityDiff): boolean {
     diff.responseBodyDiffs.length === 0 &&
     diff.operationIdDiffs.length === 0 &&
     diff.enumValueDiffs.length === 0 &&
-    diff.errorResponseDiffs.length === 0
+    diff.errorResponseDiffs.length === 0 &&
+    diff.successStatusDiffs.length === 0
   );
 }

@@ -11,6 +11,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 const TWO_SYSTEMS = /declares \d+ 'system/;
 
@@ -43,8 +44,8 @@ describe("C12 — composition count is scoped to the import closure", () => {
     };
     const errorsFor = (rel: string, match: RegExp): string[] =>
       (shared.workspace.LangiumDocuments.getDocument(uri(rel))?.diagnostics ?? [])
-        .filter((d) => (d.severity ?? 4) === 1 && match.test(d.message))
-        .map((d) => d.message);
+        .filter((d) => (d.severity ?? 4) === 1 && match.test(diagText(d)))
+        .map(diagText);
     return { open, errorsFor };
   }
 

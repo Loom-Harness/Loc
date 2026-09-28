@@ -2,9 +2,11 @@ import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/type
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
-import { claimIdTargets } from "../_auth/claim-types.js";
+import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { LogEvents } from "../_obs/log-events.js";
 import { renderPyType } from "./render-expr.js";
 
 /** The branded id NewTypes an auth module must import from `app.domain.ids`
@@ -35,7 +37,7 @@ function pyIdClaimImports(user: UserIR): string[] {
 // Without an `auth { oidc }` block the user calls `register_user_verifier(fn)`
 // by hand (main.py ships a permissive dev stub).  With one, the generated
 // OIDC verifier is auto-registered and the handshake router mounted.  The
-// middleware bypass list matches the Hono/.NET sides: /health, /ready,
+// middleware bypass list matches the Hono/.NET sides: /health, /ready, /metrics,
 // /openapi.json, /swagger (plus /auth/login|callback|logout under OIDC).
 // ---------------------------------------------------------------------------
 
@@ -45,6 +47,9 @@ export function emitPyAuthFiles(
   auth?: AuthIR,
   orgPathClaim?: string,
   orgPathRegistryTable?: string,
+  /** Something in the system reads `organizationContext.orgPath` — emit the
+   *  operating-scope switch gate (`systemReadsOrgContext`). */
+  readsOrgContext = false,
 ): void {
   // Hierarchy (multi-tenancy): `orgPathRegistryTable` is the tenant
   // registry's schema-qualified table when it opts into `tenantRegistry` (a
@@ -53,12 +58,19 @@ export function emitPyAuthFiles(
   // (fail-safe fallback to the claim); absent (flat tenancy) → the
   // claim-copy `@property` stands.
   const orgPathReadsRegistry = !!orgPathRegistryTable;
+  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
+  // — only where something reads the operating scope; the phase-⑦
+  // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
+  const orgContext = orgPathReadsRegistry && !!orgPathClaim && readsOrgContext;
   out.set("app/auth/__init__.py", "");
-  out.set("app/auth/user.py", renderUserModule(user, orgPathClaim, orgPathReadsRegistry));
+  out.set(
+    "app/auth/user.py",
+    renderUserModule(user, orgPathClaim, orgPathReadsRegistry, orgContext),
+  );
   out.set("app/auth/verifier.py", VERIFIER_PY);
   out.set(
     "app/auth/middleware.py",
-    renderAuthMiddleware(user, !!auth, orgPathClaim, orgPathRegistryTable),
+    renderAuthMiddleware(user, !!auth, orgPathClaim, orgPathRegistryTable, orgContext),
   );
   // /auth/me is emitted whenever a backend has auth — the frontend `auth: ui`
   // guard probes it, and it works for both the OIDC verifier and the dev stub.
@@ -79,12 +91,6 @@ function pyAuthValue(v: AuthValueIR | undefined, fallback = '""'): string {
 /** The IdP claim path projected onto a user field — explicit `claims:` wins;
  *  else `id` → `sub`, every other field reads its own snake name.  Mirrors the
  *  Hono / .NET / Phoenix `claimPathFor`. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : snake(field);
-}
-
 /** Python kwargs for the dev-stub User — same defaults as Hono's
  *  `renderStubUserLiteral` (string claims "admin", arrays EMPTY — so
  *  permission-guarded surfaces deny by default — optionals None). */
@@ -135,6 +141,7 @@ function renderUserModule(
   user: UserIR,
   orgPathClaim?: string,
   orgPathReadsRegistry = false,
+  orgContext = false,
 ): string {
   const fields = user.fields.map((f) => {
     const t = renderPyType(f.optional ? { kind: "optional", inner: f.type } : f.type);
@@ -166,6 +173,17 @@ function renderUserModule(
           "    # attribute — NOT a dataclass field — so asdict()/the /auth/me wire",
           "    # never serializes it (multi-tenancy).",
           '    org_path = ""',
+          ...(orgContext
+            ? [
+                "",
+                "    # The request's OPERATING scope (`organizationContext.orgPath`): the",
+                `    # validated \`${ORG_CONTEXT_HEADER}\` path when the request switches into a`,
+                "    # descendant org, else `org_path`.  Set once per request by the auth",
+                "    # middleware's fail-closed switch gate (never read off the token); a",
+                "    # bare class attribute, so asdict()/the /auth/me wire never carries it.",
+                '    org_context_path = ""',
+              ]
+            : []),
         ]
       : [
           "",
@@ -338,6 +356,7 @@ function renderAuthMiddleware(
   oidc: boolean,
   orgPathClaim?: string,
   orgPathRegistryTable?: string,
+  orgContext = false,
 ): string {
   const idAttr = actorIdAttr(user);
   // Hierarchy (multi-tenancy): resolve `currentUser.orgPath` from the
@@ -356,8 +375,8 @@ function renderAuthMiddleware(
   // just to empty a table.  It costs nothing — the route is not DEFINED unless
   // the switch is on, so there is no handler behind the bypassed path.
   const bypass = oidc
-    ? `("/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
-    : `("/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
+    ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
+    : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
   // The per-request registry `data_key` resolver (hierarchy only).  A fresh
   // session per lookup; `SELECT data_key … WHERE id = :claim LIMIT 1`; a
   // missing row / NULL `data_key` / any error (e.g. a non-matching dev-stub
@@ -404,7 +423,9 @@ function renderAuthMiddleware(
     "from app.auth.user import current_user_var",
     "from app.auth.verifier import verify_user_or_throw",
     hierarchy ? "from app.db.engine import session_factory" : null,
-    "from app.obs.log import set_actor_id",
+    orgContext
+      ? "from app.obs.log import log, set_actor_id"
+      : "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,
     ...resolver,
@@ -443,6 +464,44 @@ function renderAuthMiddleware(
       ? [
           `        _claim = "" if user.${claimAttr} is None else str(user.${claimAttr})`,
           '        object.__setattr__(user, "org_path", await _resolve_org_path(_claim))',
+        ]
+      : []),
+    // The operating-scope switch gate (`organizationContext`): after the
+    // principal's `org_path` is resolved, before the principal is attached.  A
+    // request whose `x-org-context` names an org outside the caller's
+    // `org_path` subtree (equal, or anchored under `org_path + "."`), or any
+    // org at all when the caller has no `org_path`, is a 403 — no handler runs,
+    // nothing is written.  Absent / empty ⇒ the principal's own scope.
+    ...(orgContext
+      ? [
+          `        requested_org_context = request.headers.get("${ORG_CONTEXT_HEADER}", "")`,
+          "        if requested_org_context:",
+          "            scope = user.org_path",
+          "            if not scope or not (",
+          "                requested_org_context == scope",
+          '                or requested_org_context.startswith(scope + ".")',
+          "            ):",
+          "                log(",
+          `                    "${LogEvents.orgContextDenied.level}",`,
+          `                    "${LogEvents.orgContextDenied.event}",`,
+          "                    org_context=requested_org_context,",
+          '                    reason="no_principal_scope" if not scope else "outside_scope",',
+          "                    status=403,",
+          "                )",
+          "                return JSONResponse(",
+          "                    {",
+          '                        "type": "about:blank",',
+          '                        "title": "Forbidden",',
+          '                        "status": 403,',
+          '                        "detail": "the requested organization context is outside the caller\'s organization scope",',
+          '                        "instance": request.url.path,',
+          "                    },",
+          "                    status_code=403,",
+          '                    media_type="application/problem+json",',
+          "                )",
+          '            object.__setattr__(user, "org_context_path", requested_org_context)',
+          "        else:",
+          '            object.__setattr__(user, "org_context_path", user.org_path)',
         ]
       : []),
     "        request.state.current_user = user",

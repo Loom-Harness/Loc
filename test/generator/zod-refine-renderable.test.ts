@@ -33,12 +33,17 @@ import {
 import type { ExprIR, InvariantIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { classifyForWire } from "../../src/ir/validate/invariant-classify.js";
 import { COLLECTION_OP_SIGNATURES } from "../../src/util/collection-ops.js";
+import type { ExprOf } from "../_helpers/ir-builders.js";
 
 const IntT: TypeIR = { kind: "primitive", name: "int" };
 const BoolT: TypeIR = { kind: "primitive", name: "bool" };
 const IntArrT: TypeIR = { kind: "array", element: IntT };
 
-const litInt = (n: number): ExprIR => ({ kind: "literal", lit: "int", value: String(n) });
+const litInt = (n: number): ExprOf<"literal"> => ({
+  kind: "literal",
+  lit: "int",
+  value: String(n),
+});
 
 /** `lines` — an int-collection request-body field. */
 const linesRef: ExprIR = { kind: "ref", name: "lines", refKind: "this-prop", type: IntArrT };
@@ -52,7 +57,6 @@ function argsFor(op: string): ExprIR[] {
         kind: "lambda",
         param: "x",
         body: { kind: "ref", name: "x", refKind: "lambda", type: IntT },
-        type: IntT,
       },
     ];
   }
@@ -71,7 +75,6 @@ function collectionOpCall(op: string): ExprIR {
     member: op,
     args: argsFor(op),
     receiverType: IntArrT,
-    memberType: IntT,
     isCollectionOp: true,
   };
 }
@@ -144,13 +147,12 @@ describe("zod-refine — non-collection method calls follow the same rule", () =
   const strT: TypeIR = { kind: "primitive", name: "string" };
   const codeRef: ExprIR = { kind: "ref", name: "code", refKind: "this-prop", type: strT };
 
-  const call = (member: string, args: ExprIR[] = []): ExprIR => ({
+  const call = (member: string, args: ExprIR[] = []): ExprOf<"method-call"> => ({
     kind: "method-call",
     receiver: codeRef,
     member,
     args,
     receiverType: strT,
-    memberType: strT,
     isCollectionOp: false,
   });
 
@@ -198,7 +200,6 @@ describe("zod-refine — regex hardening is shared (C4)", () => {
       member: "matches",
       args: [{ kind: "literal", lit: "string", value: "" }],
       receiverType: strT,
-      memberType: { kind: "primitive", name: "bool" },
       isCollectionOp: false,
     };
     expect(renderRefineExpr(e)).toBe('new RegExp("").test(data.code)');

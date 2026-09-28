@@ -9,13 +9,23 @@
 // (`src/language/money-literal.ts`).
 //
 // The validator admits only infallible (source, target) pairs:
-//   string  ← {int, long, decimal, money, bool}
+//   string  ← {int, long, decimal, money, bool, guid, datetime}
 //   long    ← int
 //   decimal ← {int, long, money}
 //   money   ← {int, long, decimal}
 // Fallible parses (string → numeric / datetime / bool) and
 // narrowing (long → int, decimal → long) are deferred pending a
 // `T?`-vs-throw failure-model decision.
+//
+// `guid` and `datetime` were refused while the diagnostic that refused them
+// announced "string ← any primitive" — it stated the rule and broke it in the
+// same breath, and the sibling `loom.interp-hole-type` advice ("convert it
+// first") named a conversion that did not exist.  Both have ONE canonical text
+// form (UUID text, ISO-8601) so the conversion is infallible, and three of the
+// five backends already carried the `from === "datetime"` arm behind the gate.
+// `json` and `File` stay refused — no canonical scalar form, which is the real
+// reason the "any primitive" wording was wrong.  The MATRIX below is the thing
+// that keeps the message and the behaviour from drifting apart again.
 
 import { describe, expect, it } from "vitest";
 import { allAggregates } from "../../../src/ir/types/loom-ir.js";
@@ -239,5 +249,68 @@ describe('conversion vocabulary — disambiguation from `money("…")` literal',
     const foo = allAggregates(loom).find((a) => a.name === "Foo")!;
     const asMoney = foo.derived.find((d) => d.name === "asMoney")!;
     expect(asMoney.expr.kind).toBe("convert");
+  });
+});
+
+describe("conversion vocabulary — the string() matrix the diagnostic advertises", () => {
+  // One probe per primitive, asserted against the set the `loom.*` message
+  // names.  This pair (behaviour + wording) is the regression: the message
+  // said "any primitive" while four of nine were refused, so a reader who
+  // trusted it wrote code the compiler rejected.  Add a primitive to the
+  // language and this table forces the question "is it stringifiable?" to be
+  // answered deliberately rather than by fallthrough.
+  const STRINGIFIABLE: Record<string, boolean> = {
+    int: true,
+    long: true,
+    decimal: true,
+    money: true,
+    bool: true,
+    guid: true,
+    datetime: true,
+    // No canonical scalar form — an arbitrary JSON document / an upload handle.
+    json: false,
+    File: false,
+  };
+
+  for (const [prim, admitted] of Object.entries(STRINGIFIABLE)) {
+    it(`string(${prim}) is ${admitted ? "admitted" : "refused"}`, async () => {
+      const { errors } = await parseString(`
+        context X {
+          aggregate Probe {
+            v: ${prim}
+            code: string
+            derived asText: string = string(v)
+            derived display: string = code
+          }
+          repository Probes for Probe { }
+        }
+      `);
+      if (admitted) {
+        expect(errors).toEqual([]);
+      } else {
+        expect(errors.join("\n")).toContain(`Cannot convert '${prim}' to 'string'`);
+      }
+    });
+  }
+
+  it("the refusal message names exactly the admitted set, not 'any primitive'", async () => {
+    const { errors } = await parseString(`
+      context X {
+        aggregate Probe {
+          v: json
+          code: string
+          derived asText: string = string(v)
+          derived display: string = code
+        }
+        repository Probes for Probe { }
+      }
+    `);
+    const msg = errors.join("\n");
+    // The wording that was false.  A reader following it wrote `string(guid)`
+    // (once refused) or `string(json)` (still refused) on the same authority.
+    expect(msg).not.toContain("any primitive");
+    for (const prim of Object.keys(STRINGIFIABLE).filter((p) => STRINGIFIABLE[p])) {
+      expect(msg, `admitted primitive '${prim}' missing from the message`).toContain(prim);
+    }
   });
 });

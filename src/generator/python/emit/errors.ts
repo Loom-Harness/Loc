@@ -8,7 +8,42 @@
 /** The domain error taxonomy module.  A `ConcurrencyError` (mapped to
  *  HTTP 409) is added only when some in-scope aggregate carries the
  *  `versioned` capability, so a concurrency-free app stays byte-identical. */
-export function errorsPy(hasVersioned: boolean): string {
+export function errorsPy(
+  hasVersioned: boolean,
+  hasValueObjectInvariant = false,
+  hasDomainFloorCodes = false,
+): string {
+  // M-T5.1 — a value object's invariant refused a value.  A DomainError, so
+  // every existing handler still classifies it; `app/http/problem.py`
+  // answers it with the domain-floor status plus one RFC 7807 errors[] entry.
+  const valueObjectInvariantError = hasValueObjectInvariant
+    ? `
+
+
+class ValueObjectInvariantError(DomainError):
+    """A value object's invariant refused a value (surfaces as HTTP 422 with
+    one errors[] entry: the whole-request pointer "", the rule's message and,
+    for a messaged rule, its content-hash code)."""
+
+    def __init__(self, value_object: str, message: str, code: str | None = None) -> None:
+        ${hasDomainFloorCodes ? 'super().__init__(message, code, "")' : "super().__init__(message)"}
+        self.value_object = value_object${hasDomainFloorCodes ? "" : "\n        self.code = code"}`
+    : "";
+  // M-T1.11 (c) — a MESSAGED invariant / field check / precondition raises its
+  // wire \`msg.<hash>\` code and RFC 6901 pointer along with the text, so the
+  // DomainError handler answers the same errors[] entry the wire rung carries.
+  const domainErrorBody = hasDomainFloorCodes
+    ? `
+    """Precondition or invariant violation (surfaces as HTTP 422).  A messaged
+    rule carries its wire code and the pointer its errors[] entry names
+    (M-T1.11 (c)); both are None for a message-less rule."""
+
+    def __init__(self, message: str, code: str | None = None, pointer: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.pointer = pointer`
+    : `
+    """Precondition or invariant violation (surfaces as HTTP 422)."""`;
   const concurrencyError = hasVersioned
     ? `
 
@@ -20,8 +55,7 @@ class ConcurrencyError(Exception):
   return `"""Domain error types.  Auto-generated."""
 
 
-class DomainError(Exception):
-    """Precondition or invariant violation (surfaces as HTTP 422)."""
+class DomainError(Exception):${domainErrorBody}${valueObjectInvariantError}
 
 
 class AggregateNotFoundError(Exception):

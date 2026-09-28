@@ -39,6 +39,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { ORG_CONTEXT_ACCESSOR } from "../../util/principal.js";
 import { DURATION_UNITS } from "../../util/temporal.js";
 import type { DddServices } from "../ddd-module.js";
 import {
@@ -54,10 +55,17 @@ import { stdFunctions } from "../stdlib.js";
 // `currentUser` is backed by the system `user { … }` block; `permissions`
 // is the module-permissions namespace head (`permissions.<name>`); the A5
 // duration constructors (`days`/`hours`/`minutes`) are free-call
-// builtins.  All admitted unconditionally — a superset is safe (only ever
+// builtins; `organizationContext` is the operating-scope peer of
+// `currentUser` (its surface — `.orgPath` only, never on a `ui` — is
+// `loom.org-context-surface`, validators/tenancy.ts).  All admitted unconditionally — a superset is safe (only ever
 // masks a report, never invents one; the temporal validator owns the
 // duration arity checks).
-const MAGIC_NAMES: ReadonlySet<string> = new Set(["currentUser", "permissions", ...DURATION_UNITS]);
+const MAGIC_NAMES: ReadonlySet<string> = new Set([
+  "currentUser",
+  ORG_CONTEXT_ACCESSOR,
+  "permissions",
+  ...DURATION_UNITS,
+]);
 
 // Executable domain expression containers we validate inside.  These only
 // ever nest under a domain declaration (aggregate / value object / entity

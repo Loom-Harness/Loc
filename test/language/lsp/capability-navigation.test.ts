@@ -69,7 +69,7 @@ describe("capability LSP navigation (typed-capabilities.md Phase 5)", () => {
     const { document } = await validationHelper(Ddd)(SRC);
     const uri = document.textDocument.uri;
     const pos = posAt(SRC, "tenantRegistry"); // first occurrence = the declaration
-    const refs = await Ddd.lsp.ReferencesProvider.findReferences(document, {
+    const refs = await Ddd.lsp.ReferencesProvider!.findReferences(document, {
       textDocument: { uri },
       position: pos,
       context: { includeDeclaration: false },

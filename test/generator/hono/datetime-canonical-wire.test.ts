@@ -40,10 +40,12 @@ system W {
   }
 }`;
 
-// The exact suffix the emitted expression carries — trailing zero fractional
-// seconds trimmed.  Written out here so a change to the trim is a change to
-// this literal, not a silent re-spelling of every timestamp on the wire.
-const TRIM = '.toISOString().replace(/\\.?0+Z$/, "Z")';
+// The exact suffix the emitted expression carries — the all-zero `.000` group
+// dropped (RS-4), every other fraction kept at exactly three digits (RS-38).
+// Written out here so a change to the trim is a change to this literal, not a
+// silent re-spelling of every timestamp on the wire.  It used to be
+// `/\.?0+Z$/`, which also ate the trailing zero of `.120` (F2-W-06).
+const TRIM = '.toISOString().replace(/\\.000Z$/, "Z")';
 
 describe("node datetime wire form", () => {
   it("trims the zero fraction on required and optional datetime fields", async () => {
@@ -62,10 +64,16 @@ describe("node datetime wire form", () => {
     // (the RS-4 observable), a real sub-second one keeps its digits, and the
     // SECONDS field is never eaten — `toISOString()` always supplies the `.mmm`
     // group the regex anchors on.
-    const canonical = (iso: string): string => new Date(iso).toISOString().replace(/\.?0+Z$/, "Z");
+    const canonical = (iso: string): string => new Date(iso).toISOString().replace(/\.000Z$/, "Z");
     expect(canonical("2026-01-01T00:00:00Z")).toBe("2026-01-01T00:00:00Z");
     expect(canonical("2026-01-01T00:00:20Z")).toBe("2026-01-01T00:00:20Z");
     expect(canonical("2026-01-01T10:20:30Z")).toBe("2026-01-01T10:20:30Z");
     expect(canonical("2026-01-01T00:00:10.123Z")).toBe("2026-01-01T00:00:10.123Z");
+    // RS-38: a fraction keeps exactly three digits — the trailing zero of
+    // `.120` is contract, not noise (the old trim spelled it `.12Z`) …
+    expect(canonical("2026-01-01T00:00:10.120Z")).toBe("2026-01-01T00:00:10.120Z");
+    expect(canonical("2026-01-01T00:00:10.100Z")).toBe("2026-01-01T00:00:10.100Z");
+    // … and sub-millisecond input truncates (a JS `Date` is ms-resolution).
+    expect(canonical("2026-01-01T00:00:10.9996Z")).toBe("2026-01-01T00:00:10.999Z");
   });
 });

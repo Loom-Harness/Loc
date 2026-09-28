@@ -121,9 +121,8 @@ describe("LSP adapters", () => {
       expect(edits.length).toBe(1);
       const applied = applyTextEdits(CHOOSE, edits);
       expect(applied).toContain(`ui: ${name}`);
-      expect(applied).toBe(
+      expect(applied, "editor edit must match the patch applier for the same option").toBe(
         (await applyPatches(CHOOSE, [hint!.options![i]!.patch!])).text,
-        "editor edit must match the patch applier for the same option",
       );
     }
   });

@@ -58,7 +58,7 @@ describe("feliz param-less workflow forms", () => {
     expect(app).toContain('prop.custom("data-testid", "workflow-close_books-submit")');
     // No validity guard (no required fields to guard) — just the dispatch.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "workflow-close_books-submit"); prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch SubmitCloseBooksForm); prop.text "Run CloseBooks" ]',
+      'Html.button [ prop.custom("data-testid", "workflow-close_books-submit"); prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch SubmitCloseBooksWorkflowForm); prop.text "Run CloseBooks" ]',
     );
   });
 
@@ -70,16 +70,16 @@ describe("feliz param-less workflow forms", () => {
 
   it("wires a paramless Submit + Done Msg but NO form record / setters", async () => {
     const app = await appFs();
-    expect(app).toContain("| SubmitCloseBooksForm\n"); // paramless (no `of`)
-    expect(app).toContain("| CloseBooksDone of Result<unit, string>");
-    expect(app).not.toContain("type CloseBooksForm =");
-    expect(app).not.toContain("CloseBooksForm: CloseBooksForm");
-    expect(app).not.toContain("SetCloseBooksForm");
+    expect(app).toContain("| SubmitCloseBooksWorkflowForm\n"); // paramless (no `of`)
+    expect(app).toContain("| CloseBooksWorkflowDone of Result<unit, string>");
+    expect(app).not.toContain("type CloseBooksWorkflowForm =");
+    expect(app).not.toContain("CloseBooksWorkflowForm: CloseBooksWorkflowForm");
+    expect(app).not.toContain("SetCloseBooksWorkflowForm");
   });
 
   it("emits an Api fn that POSTs an empty `{}` body to /api/workflows/<wf>", async () => {
     const app = await appFs();
-    expect(app).toContain("let runCloseBooks () : Async<Result<unit, string>> =");
+    expect(app).toContain("let runCloseBooksWorkflow () : Async<Result<unit, string>> =");
     expect(app).toContain('let body = "{}"');
     expect(app).toContain('Http.request "/api/workflows/close_books"');
   });
@@ -87,10 +87,10 @@ describe("feliz param-less workflow forms", () => {
   it("wires the update arm — submit posts `()`, done navigates (no form reset)", async () => {
     const app = await appFs();
     expect(app).toContain(
-      "  | SubmitCloseBooksForm -> model, Cmd.OfAsync.perform Api.runCloseBooks () CloseBooksDone",
+      "  | SubmitCloseBooksWorkflowForm -> model, Cmd.OfAsync.perform Api.runCloseBooksWorkflow () CloseBooksWorkflowDone",
     );
-    expect(app).toContain('  | CloseBooksDone (Ok ()) -> model, Cmd.navigatePath("")');
-    expect(app).toContain("  | CloseBooksDone (Error _) -> model, Cmd.none");
+    expect(app).toContain('  | CloseBooksWorkflowDone (Ok ()) -> model, Cmd.navigatePath("")');
+    expect(app).toContain("  | CloseBooksWorkflowDone (Error _) -> model, Cmd.none");
   });
 
   // The submit posts through `Api` and navigates on success, so both opens must

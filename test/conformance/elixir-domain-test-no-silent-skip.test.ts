@@ -92,13 +92,13 @@ describe("vanilla Elixir domain-test emitter — no silent skips", () => {
         total: money
         priority: int = 1
         active: bool = true
-        tags: string[]
+        tags: string[] = []
         status: string = "open"
         invariant customer.length > 0
         operation confirm() { precondition status == "open"  status := "confirmed" }
         operation bump() { priority := priority + 1 }
         test "blank customer rejected" {
-          expect(Order.create({ customer: "" })).toThrow()
+          expect(Order.create({ customer: "", total: 10.0 })).toThrow()
         }
         test "money invariant rejects negative" {
           expect(Money { amount: -1.0, currency: "USD" }).toThrow()
@@ -113,7 +113,7 @@ describe("vanilla Elixir domain-test emitter — no silent skips", () => {
           expect(o.active).toBe(true)
         }
         test "state threading through ops" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create({ customer: "acme", total: 10.0 })
           o.confirm()
           o.bump()
           expect(o.status).toBe("confirmed")

@@ -17,14 +17,34 @@ describe("response-diff", () => {
     it("collapses uuids and ISO timestamps to tokens (per-run variance silenced)", () => {
       const body: Json = {
         id: "a1b2c3d4-0000-4000-8000-000000000000",
-        placedAt: "2026-07-21T10:00:00.000Z",
+        placedAt: "2026-07-21T10:00:00.123Z",
       };
       expect(normalizeBody(body)).toEqual({ id: "<volatile:key>", placedAt: "<timestamp>" });
     });
-    it("normalizes divergent timestamp PRECISION to the same token → no false divergence", () => {
-      const hono: Json = { at: "2026-07-21T10:00:00.000Z" };
-      const java: Json = { at: "2026-07-21T10:00:00Z" };
-      expect(nd(hono, java)).toEqual([]);
+    it("collapses both CANONICAL spellings (RS-38) — a whole second and exactly three digits", () => {
+      // The per-run VALUE is silenced: a `now()` stamp lands on a whole second
+      // one time in a thousand, and that is not a divergence.
+      expect(nd({ at: "2026-07-21T10:00:00.123Z" }, { at: "2026-07-21T10:00:00Z" })).toEqual([]);
+      expect(nd({ at: "2026-07-21T10:00:00.120Z" }, { at: "2026-07-21T11:59:59.999Z" })).toEqual(
+        [],
+      );
+    });
+    it("keeps a NON-canonical spelling verbatim, so the FORM divergence surfaces (F2-W-06)", () => {
+      // Every one of these is the same instant a canonical `.120Z` names, and
+      // every one shipped from some backend through a green gate while the
+      // regex tolerated them all.
+      for (const spelling of [
+        "2026-07-21T10:00:00.12Z", // node's old minimal trim
+        "2026-07-21T10:00:00.120000Z", // python isoformat, elixir :utc_datetime_usec
+        "2026-07-21T10:00:00.1200000Z", // .NET "o"
+        "2026-07-21T10:00:00.000Z", // an unconditional three digits on a whole second
+        "2026-07-21T10:00:00+00:00", // an offset instead of Z
+        "2026-07-21 10:00:00", // a space separator, no zone
+      ]) {
+        expect(normalizeBody({ at: spelling })).toEqual({ at: spelling });
+        const [d] = nd({ at: "2026-07-21T10:00:00.120Z" }, { at: spelling });
+        expect(d).toMatchObject({ kind: "value", path: "$.at" });
+      }
     });
     it("keeps keys — a MISSING volatile key still surfaces (absence is contract)", () => {
       const withKey: Json = { id: "a1b2c3d4-0000-4000-8000-000000000000", name: "x" };
@@ -62,7 +82,7 @@ describe("response-diff", () => {
         total: 9.99,
         status: "pending",
         lines: [],
-        placedAt: "2026-07-21T10:00:00.000Z",
+        placedAt: "2026-07-21T10:00:00.250Z",
       };
       const java: Json = {
         id: "bbbbbbbb-0000-4000-8000-000000000000",

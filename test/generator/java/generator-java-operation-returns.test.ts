@@ -81,7 +81,7 @@ describe("java generator — exception-less operation returns", () => {
   it("controller switches the union: error → ProblemDetail at status, success → 200 wire DTO", async () => {
     const c = (await files()).get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(c).toContain(
-      'public ResponseEntity<?> rejectOrder(@PathVariable UUID id, @RequestHeader(value = "If-Match", required = false) Integer ifMatch) {',
+      'public ResponseEntity<?> rejectOrder(@PathVariable UUID id, @RequestHeader(value = "If-Match", required = false) String ifMatch) {',
     );
     expect(c).toContain("return switch (result) {");
     expect(c).toContain(

@@ -299,7 +299,7 @@ system Shop {
     // parse, a required numeric contributes both.  `rank` is OPTIONAL and still
     // guarded: its encoder's `int` conversion throws on unparseable text too.
     expect(fs).toContain(
-      "  let productFormValid (form: ProductForm) : bool =\n" +
+      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n" +
         "    not (System.String.IsNullOrWhiteSpace form.name)" +
         " && not (System.String.IsNullOrWhiteSpace form.price) && isNumberText form.price" +
         " && isWholeText form.rank",
@@ -326,7 +326,7 @@ system Shop {
     const fs = await appOf(FORM_SYS);
     // `rank` is not required, but it is message-bearing now — the view must
     // dispatch its blur so the "Must be a whole number" message can show.
-    expect(fs).toContain('prop.onBlur (fun _ -> dispatch (TouchProductForm "rank"))');
+    expect(fs).toContain('prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "rank"))');
   });
 
   it("emits no numeric helpers for a form with no numeric field", async () => {
@@ -431,7 +431,7 @@ system Shop {
   it("folds a List.forall parse term per numeric row cell into the Valid predicate", async () => {
     const fs = await appOf(ROW_SYS);
     expect(fs).toContain(
-      "  let orderFormValid (form: OrderForm) : bool =\n" +
+      "  let orderCreateFormValid (form: OrderCreateForm) : bool =\n" +
         "    not (System.String.IsNullOrWhiteSpace form.reference)" +
         " && List.forall (fun row -> isWholeText row.qty && isNumberText row.price) form.items",
     );

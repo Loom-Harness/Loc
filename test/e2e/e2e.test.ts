@@ -415,6 +415,8 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
         if (diff.enumValueDiffs.length) console.warn("  enum value-sets:", diff.enumValueDiffs);
         if (diff.errorResponseDiffs.length)
           console.warn("  error responses:", diff.errorResponseDiffs);
+        if (diff.successStatusDiffs.length)
+          console.warn("  success statuses:", diff.successStatusDiffs);
       }
 
       const pair = `${refName} ↔ ${otherName}`;
@@ -435,6 +437,7 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
         expect(diff.operationIdDiffs, `operationId drift (${pair})`).toEqual([]);
         expect(diff.enumValueDiffs, `enum value-set drift (${pair})`).toEqual([]);
         expect(diff.errorResponseDiffs, `error-response drift (${pair})`).toEqual([]);
+        expect(diff.successStatusDiffs, `success-status drift (${pair})`).toEqual([]);
       }
     }
 

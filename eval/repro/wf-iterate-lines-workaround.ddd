@@ -1,0 +1,30 @@
+// Workaround for loom.workflow-foreach-source: promote the contained entity
+// to its own aggregate so a criterion-backed Repo.run(...) can drive `for`.
+system X {
+  subdomain S {
+    context C {
+      aggregate Part { sku: string  stockOnHand: int
+        operation consume(qty: int) { precondition stockOnHand >= qty  stockOnHand := stockOnHand - qty }
+      }
+      aggregate Order { note: string }
+      aggregate Line { orderId: Order id  partId: Part id  qty: int }
+      criterion LinesOf(o: Order id) of Line = this.orderId == o
+      repository Parts for Part { }
+      repository Orders for Order { }
+      repository Lines for Line { }
+      workflow finish transactional {
+        create(orderId: Order id) {
+          let o = Orders.getById(orderId)
+          let ls = Lines.run(LinesOf(orderId))
+          for l in ls {
+            let p = Parts.getById(l.partId)
+            p.consume(l.qty)
+          }
+        }
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

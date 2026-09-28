@@ -363,20 +363,22 @@ function filterValue(e: ExprIR, acc: string): string {
   }
 }
 
-/** `this.<field>` where field is a boolean column → the column name, else
- *  null.  MikroORM lowers a bare boolean column to `{ col: true }` (and
- *  `!this.col` to `{ col: false }`), the FilterQuery analogue of drizzle's
- *  `col = true`. */
+/** `this.<field>` (or `this.<vo>.<sub>`) where the field is a boolean column
+ *  → the column name, else null.  MikroORM lowers a bare boolean column to
+ *  `{ col: true }` (and `!this.col` to `{ col: false }`), the FilterQuery
+ *  analogue of drizzle's `col = true`.  The value-object sub-property spelling
+ *  is `thisFieldColumn`'s (`<field>_<subField>`) — the same flattened column a
+ *  COMPARISON against it already targets, so the bare and compared forms of
+ *  `this.flags.active` now reach the same column. */
 
 function booleanColumnName(e: ExprIR): string | null {
   const inner = e.kind === "paren" ? e.inner : e;
   if (
     inner.kind === "member" &&
-    inner.receiver.kind === "this" &&
     inner.memberType.kind === "primitive" &&
     inner.memberType.name === "bool"
   )
-    return inner.member;
+    return thisFieldColumn(inner);
   if (
     inner.kind === "ref" &&
     inner.refKind === "this-prop" &&
@@ -421,7 +423,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // `this.<refColl>.contains(x)` — membership over an `X id[]` reference
   // collection, which persists as a join TABLE rather than a column, so it is
   // the one queryable shape with no FilterQuery spelling at all.  It was the
-  // last `MIKROORM_SUBSET` narrowing (`loom.find-predicate-unsupported`), and
+  // last `MIKROORM_SUBSET` narrowing (a per-adapter code, since deleted), and
   // the reason recorded for it — "needs a correlated join the adapter emits
   // nowhere" — held only for the EXISTS spelling.  An UNCORRELATED `id in
   // (select …)` says the same thing and needs no outer alias: MikroORM names
@@ -628,7 +630,7 @@ function orBranches(e: Extract<ExprIR, { kind: "binary" }>): ExprIR[] {
 // MikroORM has no global query filter (EF Core's `HasQueryFilter`), so — like
 // drizzle — the repository ANDs each capability predicate into every root read.
 // A NON-principal predicate lowers to a FilterQuery via `whereToMikroFilter`
-// (guaranteed in-subset by `validateFindPredicateAdapterSupport`).  A
+// (guaranteed in-subset by `firstNonQueryablePredicate`).  A
 // PRINCIPAL-referencing filter (tenancy: `this.tenantId == currentUser.tenantId`)
 // is applied too: `currentUser.<claim>` lowers against the ambient
 // `requireCurrentUser()` accessor (exactly as the drizzle repository), so the
@@ -659,7 +661,7 @@ export function mikroContextFilters(agg: EnrichedAggregateIR, bypass?: FilterByp
     //
     // Deliberately NOT wrapped in a `try { … } catch { /* drop */ }`.  A
     // principal filter is not gated for FilterQuery-lowerability
-    // (`validateFindPredicateAdapterSupport` skips it), so a shape that cannot
+    // (the phase-⑦ predicate gate skips it), so a shape that cannot
     // lower reaches here — and DROPPING a tenancy predicate is not a degraded
     // read, it is NO tenant predicate, i.e. every tenant's rows on every read.
     // A crash at generation is the strictly safer failure.  With

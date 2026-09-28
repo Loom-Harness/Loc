@@ -29,6 +29,7 @@ import type {
   PageIR,
   PageLayoutIR,
   PageMetadataIR,
+  PermissionDeclIR,
   RefetchTargetIR,
   StateFieldIR,
   StmtIR,
@@ -203,7 +204,14 @@ export function lowerLayout(layout: Layout): LayoutIR {
   return { name: layout.name, header, sidebar, footer };
 }
 
-export function lowerUi(ui: Ui, user?: UserIR): UiIR {
+export function lowerUi(
+  ui: Ui,
+  user?: UserIR,
+  /** System-wide permissions catalogue (see `dedupePermissionsForUi`) — lets a
+   *  page `requires` gate resolve `permissions.<name>` to its runtime string,
+   *  the same rewrite a context-scoped expression gets. */
+  modulePermissions?: PermissionDeclIR[],
+): UiIR {
   const pages: PageIR[] = [];
   const components: ComponentIR[] = [];
   const stores: StoreIR[] = [];
@@ -226,7 +234,7 @@ export function lowerUi(ui: Ui, user?: UserIR): UiIR {
     const path = [...parent, snake(area.name)];
     for (const member of area.members) {
       if (member.$type === "Page") {
-        const p = lowerPage(member, user, storeIndex);
+        const p = lowerPage(member, user, storeIndex, modulePermissions);
         p.area = path;
         p.emitPath = `src/pages/${path.join("/")}/${snake(p.name)}.tsx`;
         pages.push(p);
@@ -236,7 +244,7 @@ export function lowerUi(ui: Ui, user?: UserIR): UiIR {
     }
   };
   for (const m of ui.members) {
-    if (m.$type === "Page") pages.push(lowerPage(m, user, storeIndex));
+    if (m.$type === "Page") pages.push(lowerPage(m, user, storeIndex, modulePermissions));
     else if (m.$type === "Area") collectArea(m, []);
     else if (m.$type === "Component") components.push(lowerComponent(m, user, storeIndex));
     else if (m.$type === "Store") {
@@ -315,7 +323,12 @@ export function lowerUi(ui: Ui, user?: UserIR): UiIR {
   };
 }
 
-function lowerPage(p: Page, user?: UserIR, stores?: Env["stores"]): PageIR {
+function lowerPage(
+  p: Page,
+  user?: UserIR,
+  stores?: Env["stores"],
+  modulePermissions?: PermissionDeclIR[],
+): PageIR {
   const params = (p.params ?? []).map((param) => ({
     name: param.name,
     type: lowerType(param.type),
@@ -343,7 +356,7 @@ function lowerPage(p: Page, user?: UserIR, stores?: Env["stores"]): PageIR {
   // string-concat convert injection) don't mis-fire on page bodies.
   // `user` is threaded so a page `requires` gate (and any page-scope
   // `currentUser` ref) resolves to a `current-user` ref rather than `unknown`.
-  let env: Env = { locals: new Map(), user, stores, ui: true };
+  let env: Env = { locals: new Map(), user, stores, modulePermissions, ui: true };
   for (const param of p.params ?? []) {
     env = withLocal(env, param.name, "param", lowerType(param.type));
   }

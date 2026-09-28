@@ -47,6 +47,7 @@ const FOLD_STATEMENT_DISPOSITION = {
   expression: "reject",
   return: "reject",
   "variant-match": "reject",
+  if: "reject",
 } satisfies Record<StmtIR["kind"], "emit" | "reject">;
 
 /** A system whose fold body carries `body`, plus a channel.  The channel is no
@@ -106,7 +107,7 @@ async function errorCodes(source: string): Promise<string[]> {
   });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "");
 }
 
 describe("node/Hono folded-projection body — every statement kind is emitted or rejected", () => {

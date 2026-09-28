@@ -37,6 +37,8 @@ const DOMAIN = `
       repository Items for Item { }
       aggregate Note { text: string }
       repository Notes for Note { }
+      workflow makeItem { create(name: string) { let i = Item.create({ name: name }) } }
+      workflow otherItem { create(name: string) { let i = Item.create({ name: name }) } }
     }
   }
   api Api from S
@@ -68,6 +70,14 @@ const CREATE_PLUS_OP = `Stack { CreateForm { of: Item }, OperationForm { of: Ite
 const TWO_OPS_DIFF = `Stack { OperationForm { of: Item, op: rename }, OperationForm { of: Item, op: touch } }`;
 const TWO_OPS_SAME = `Stack { OperationForm { of: Item, op: rename }, OperationForm { of: Item, op: rename } }`;
 const ONE_FORM = `Stack { CreateForm { of: Item } }`;
+// The shapes the gate walked past for its first life (sweep F-007): a workflow
+// form was not modelled at all, and the rule keyed on the MUTATION name alone
+// — `create` vs `run` genuinely do not collide, and then both templates emit
+// `const form = useForm(…)` into the same scope.
+const CREATE_PLUS_WORKFLOW = `Stack { CreateForm { of: Item }, WorkflowForm { runs: makeItem } }`;
+const TWO_WORKFLOWS_DIFF = `Stack { WorkflowForm { runs: makeItem }, WorkflowForm { runs: otherItem } }`;
+const WORKFLOW_PLUS_OP = `Stack { WorkflowForm { runs: makeItem }, OperationForm { of: Item, op: rename } }`;
+const ONE_WORKFLOW_FORM = `Stack { WorkflowForm { runs: makeItem } }`;
 
 describe("loom.page-form-locals-unsupported", () => {
   // --- fires -------------------------------------------------------------
@@ -80,6 +90,25 @@ describe("loom.page-form-locals-unsupported", () => {
       expect(d).toHaveLength(1);
       expect(d[0]).toContain("page 'Probe'");
       expect(d[0]).toContain("CreateForm { of: Item }");
+    });
+
+    it(`${fw}: CreateForm + WorkflowForm collide on the shared \`form\` handle`, async () => {
+      // Their MUTATIONS are `create` and `run` and do not collide — the
+      // binding they share is the form handle itself, which is why a rule
+      // keyed on the mutation alone let this through.
+      const d = await formDiags(fw, CREATE_PLUS_WORKFLOW);
+      expect(d).toHaveLength(1);
+      expect(d[0]).toContain("CreateForm { of: Item }");
+      expect(d[0]).toContain("WorkflowForm { runs: makeItem }");
+    });
+
+    it(`${fw}: two WorkflowForms collide even over DIFFERENT workflows`, async () => {
+      // `const run = use<Wf>Workflow()` is spelled flat, so the workflow name
+      // never reaches the binding.
+      const d = await formDiags(fw, TWO_WORKFLOWS_DIFF);
+      expect(d).toHaveLength(1);
+      expect(d[0]).toContain("runs: makeItem");
+      expect(d[0]).toContain("runs: otherItem");
     });
 
     it(`${fw}: two OperationForms over the SAME op collide`, async () => {
@@ -132,9 +161,27 @@ describe("loom.page-form-locals-unsupported", () => {
     expect(await formDiags("angular", TWO_OPS_SAME)).toEqual([]);
   });
 
+  it("angular: CreateForm + WorkflowForm are fine — verified, not assumed", async () => {
+    // `thingCreate`/`thingForm` vs `makeThingRun`/`makeThingForm` in the
+    // emitted component.  The diagnostic tells the reader angular handles this
+    // shape, so the claim is held to the emitter.
+    expect(await formDiags("angular", CREATE_PLUS_WORKFLOW)).toEqual([]);
+  });
+
   for (const fw of ["react", "vue", "svelte", "angular"]) {
     it(`${fw}: CreateForm + OperationForm do not collide`, async () => {
       expect(await formDiags(fw, CREATE_PLUS_OP)).toEqual([]);
+    });
+
+    it(`${fw}: WorkflowForm + OperationForm do not collide`, async () => {
+      // An operation form's declarations go through the pack's
+      // `form-op-module` template into their own scope, so it claims no
+      // `form` — the negative that keeps the widened rule from over-firing.
+      expect(await formDiags(fw, WORKFLOW_PLUS_OP)).toEqual([]);
+    });
+
+    it(`${fw}: a single WorkflowForm is fine`, async () => {
+      expect(await formDiags(fw, ONE_WORKFLOW_FORM)).toEqual([]);
     });
 
     it(`${fw}: two OperationForms over DIFFERENT ops do not collide`, async () => {

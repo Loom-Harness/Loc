@@ -1,0 +1,16 @@
+system X { subdomain S { context C {
+  aggregate Part { sku: string  stockOnHand: int
+    operation consume(qty: int) { precondition stockOnHand >= qty  stockOnHand := stockOnHand - qty } }
+  aggregate Order { note: string }
+  aggregate Line { orderId: Order id  partId: Part id  qty: int
+    operation touch() { qty := qty } }
+  criterion LinesOf(o: Order id) of Line = this.orderId == o
+  repository Parts for Part { }  repository Orders for Order { }  repository Lines for Line { }
+  workflow finishA transactional {
+    create(orderId: Order id) {
+      let ls = Lines.run(LinesOf(orderId))
+      for l in ls { l.touch() }          // no `let` inside the loop
+    }
+  }
+} } storage p { type: postgres } resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }

@@ -79,8 +79,24 @@ system P {
 `;
     const f = await generateSystemFiles(plain);
     const cs = f.get([...f.keys()].find((k) => k.endsWith("/tracker/task_changeset.ex"))!)!;
-    expect(cs).not.toContain("validate_number");
-    expect(cs).not.toContain("validate_change");
+    // No INVARIANT-derived validator: nothing on `title`, no `validate_change`,
+    // no `validate_format`.
     expect(cs).not.toContain("validate_format");
+    expect(cs).not.toContain("validate_change");
+    expect(cs).not.toContain("validate_number(:title");
+    // The one `validate_number` that IS here is type-derived, not
+    // invariant-derived: the default-on `version` token is an `int`, so it is a
+    // Postgres `integer` column, and since Schemathesis F11 (wave C2 packet 2m)
+    // every `int` column carries its declared int32 bound — otherwise a
+    // client-supplied version past 2147483647 reaches the column and the
+    // DATABASE answers 500 for what is a client fault.  Asserted exactly, so
+    // an invariant leaking in here would still fail this test.
+    const VERSION_BOUND =
+      "|> validate_number(:version, greater_than_or_equal_to: -2147483648, " +
+      'less_than_or_equal_to: 2147483647, message: "Integer out of range")';
+    const numberLines = cs.split("\n").filter((l) => l.includes("validate_number"));
+    // Once per changeset that casts the column — this aggregate emits the base
+    // one and the versioned update one, and both take client attrs.
+    expect(numberLines.map((l) => l.trim())).toEqual([VERSION_BOUND, VERSION_BOUND]);
   });
 });

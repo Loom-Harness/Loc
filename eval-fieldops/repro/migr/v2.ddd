@@ -1,0 +1,17 @@
+migration "add-supplier-ref" {
+  Part.supplierRef = "NO-SUPPLIER"
+}
+
+system M {
+  subdomain S { context C {
+    aggregate Part with crudish {
+      sku: string
+      supplierRef: string
+      derived display: string = sku
+    }
+    repository Parts for Part {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

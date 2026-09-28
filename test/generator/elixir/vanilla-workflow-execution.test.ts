@@ -24,7 +24,11 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //   3. WORKFLOWS CONTROLLER — `<App>Web.WorkflowsController` with one
 //      action per command-triggered workflow, dispatching the typed
 //      result via the shared vanilla `ProblemDetails` helper from
-//      slice 4 (202 / 422 / 404 / 403 / 400).
+//      slice 4 (204 / 422 / 404 / 403 / 400).  The success rung was `202`
+//      with a `{status, result}` envelope until sweep F-030: the other four
+//      backends answer `204` with an empty body, and Phoenix's own OpenAPI
+//      declared a third thing (`200`).  Pinned across all five by
+//      `test/system/workflow-success-status-parity.test.ts`.
 //   4. ROUTES — POST `/api/workflows/<snake>` spliced into the `/api`
 //      scope by `shell-emit.ts`.
 // ---------------------------------------------------------------------------
@@ -126,7 +130,9 @@ describe("vanilla — Slice 5c workflow execution", () => {
     expect(ctl).toContain("alias ApiWeb.ProblemDetails");
     expect(ctl).toContain("def mark_all_done(conn, params)");
     expect(ctl).toContain("Api.Tracker.Workflows.MarkAllDone.run(params)");
-    expect(ctl).toContain("put_status(202)");
+    // F-030 — 204 empty, the same success contract the other four serve.
+    expect(ctl).toContain('def respond(conn, {:ok, _result}), do: send_resp(conn, 204, "")');
+    expect(ctl, "the 202 Accepted envelope is back").not.toContain("put_status(202)");
     expect(ctl).toContain("ProblemDetails.validation_error_response(conn, changeset)");
     expect(ctl).toContain('ProblemDetails.problem_response(conn, 404, "Not Found"');
     expect(ctl).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden"');

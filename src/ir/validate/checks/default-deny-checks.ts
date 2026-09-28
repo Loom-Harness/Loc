@@ -5,9 +5,13 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { descriptorFor } from "../../../platform/metadata.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
+import { deriveContextOperations } from "../../util/api-surface.js";
+import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
+import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // Page/component `derived name: T = expr` bindings are supported on every
@@ -16,11 +20,14 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // inline-recomputes the expr at each use.  No framework gate is needed.
 
 // Default-deny enforcement (auth.md / quickstart §4.3).  When the system's
-// `auth { enforcement: denyByDefault }` is set, every reachable *command* on
-// an `auth: required` backend must declare a `requires` gate — otherwise it
-// serves ungated.  `enforcement: opt` (the default) preserves the existing
-// per-`requires` opt-in.  Escape hatch: `requires true` marks a command
-// intentionally public.
+// `auth { … }` block is in `enforcement: denyByDefault` — the LANGUAGE DEFAULT
+// since M-T3.1, so an `auth` block that writes no `enforcement:` is in it too
+// (`DEFAULT_ENFORCEMENT`, `src/ir/lower/lower-auth.ts`) — every reachable
+// *command* on an `auth: required` backend must declare a `requires` gate —
+// otherwise it serves ungated.  An explicit `enforcement: opt` keeps the
+// pre-flip per-`requires` opt-in.  A system with no `auth` block has no
+// posture (`sys.auth` is undefined) and is not checked.  Escape hatch:
+// `requires true` marks a command intentionally public.
 //
 // Scope: every client-reachable command (mutation) endpoint —
 //   - public aggregate actions: operations, **creates**, destroys (each
@@ -41,9 +48,21 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
   // Contexts hosted by any `auth: required` backend deployable.  A frontend
   // (auth: ui) has `auth.required === false`, so it's excluded here.
   const guarded = new Set<string>();
+  // …and the BACKEND platforms serving each of them.  The ES-create arm below
+  // needs to know whether a gate could be enforced on any host: it is a
+  // per-backend fact (Phoenix hoists the gate to its context function and binds
+  // a principal; the other four render it into a principal-less `_init`), so
+  // whether the author has recourse depends on who is serving the route.
+  const guardedPlatforms = new Map<string, Set<string>>();
   for (const d of sys.deployables) {
     if (!d.auth?.required) continue;
-    for (const cn of d.contextNames) guarded.add(cn);
+    for (const cn of d.contextNames) {
+      guarded.add(cn);
+      if (!descriptorFor(d.platform).needsDb) continue;
+      const set = guardedPlatforms.get(cn) ?? new Set<string>();
+      set.add(d.platform);
+      guardedPlatforms.set(cn, set);
+    }
   }
   if (guarded.size === 0) return;
   const isGated = (statements: { kind: string }[]): boolean =>
@@ -57,6 +76,50 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         for (const op of [...a.operations, ...(a.creates ?? []), ...(a.destroys ?? [])]) {
           if (op.visibility !== "public") continue;
           if (!isGated(op.statements)) {
+            // ── an EVENT-SOURCED create has no gate surface at all ──────────
+            //
+            // The generic arm below names a `requires` the author should write.
+            // On an event-sourced aggregate that instruction is UNSATISFIABLE:
+            // write the gate and `loom.lifecycle-guard-event-sourced` refuses it
+            // (the ES create body renders into the domain `_init`, which has no
+            // principal in scope), omit it and this check errors.  Two
+            // validators demanding contradictory things made
+            // `enforcement: denyByDefault` and `persistedAs: eventLog` mutually
+            // exclusive for any aggregate with a creation endpoint — measured,
+            // not theorised: gate present → 1 error, gate absent → 1 error.
+            //
+            // So this is the same RECOURSE test the by-id arm below is built on,
+            // and it resolves the same way: a WARNING with its own code, not an
+            // arm of `loom.default-deny-ungated`.  Every
+            // `loom.default-deny-ungated` arm names a `requires` the author CAN
+            // write; the arms with no such surface are exempted rather than
+            // reported.  An ES create is exactly such a site, so erroring here
+            // makes the model unbuildable with nothing the author could do —
+            // which is the one thing the by-id comment says an error must never
+            // be.  Making the ES create route genuinely gateable means hoisting
+            // the gate out of `_init` to each backend's own chokepoint: a
+            // five-backend change owned by mission M-T3.16, not a validator fix.
+            // …and only where NO host can enforce it.  On an elixir-only host the
+            // author DOES have recourse — a body `requires` is accepted and
+            // emitted there — so the hard error stays; exempting it would quietly
+            // drop the gate requirement on the one backend that honours it.
+            const esUngateableOn =
+              op.kind === "create" && aggregateIsEventSourced(a)
+                ? esCreateGateUnsupportedOn(guardedPlatforms.get(c.name) ?? [])
+                : [];
+            if (esUngateableOn.length > 0) {
+              diags.push({
+                severity: "warning",
+                code: "loom.default-deny-es-create-ungateable",
+                message: diagMessage("loom.default-deny-es-create-ungateable", {
+                  name: a.name,
+                  opName: op.name,
+                  path: `/api/${plural(snake(a.name))}`,
+                }),
+                source: `${a.name}/${op.name}`,
+              });
+              continue;
+            }
             // A macro-emitted member has no declaration header of its own —
             // an aggregate `create` / `destroy` carries its gate as a body
             // STATEMENT, and that body belongs to the macro.  Telling the
@@ -64,6 +127,38 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             // edit, so point at the `with <macro>(...)` call they own
             // instead (crudish / softDelete take `requires: <Policy>`).
             const macroName = macroNameOf(op.origin);
+            // ── a HAND-WRITTEN `create` / `destroy` ─────────────────────────
+            //
+            // Its gate is the first STATEMENT of the body, not a header clause.
+            // The generic arm below says "add a `requires <expr>`" without
+            // saying where, and every SIBLING declaration (`operation` / `find`
+            // / `projection` / `handle`) takes one in the header — so the author
+            // writes `create(...) requires P() { }`, gets `Expecting token of
+            // type '{'`, and concludes the posture is unsatisfiable.  That is
+            // how finding F-004 reached "denyByDefault and persistedAs: eventLog
+            // are mutually exclusive" — a claim that was false for the
+            // state-based case the whole time.  Name the position; the trap goes.
+            //
+            // Its OWN push rather than a third arm on the ternary below: the
+            // catalog gate resolves the key statically and admits exactly ONE
+            // ternary level between two catalogued calls, so a NESTED ternary
+            // reads to it as inline wording (`keysOf`,
+            // `test/system/diagnostic-catalog.test.ts`).  Same reason
+            // `loom.lifecycle-guard-unreadable` spells two pushes.
+            const lifecycleLabel =
+              op.kind === "create" ? "create" : op.kind === "destroy" ? "destroy" : null;
+            if (lifecycleLabel && !macroName) {
+              diags.push({
+                severity: "error",
+                code: "loom.default-deny-ungated",
+                message: diagMessage(
+                  "loom.default-deny-ungated#denybydefault-lifecycle-is-reachable",
+                  { name: a.name, opName: op.name, label: lifecycleLabel },
+                ),
+                source: `${a.name}/${op.name}`,
+              });
+              continue;
+            }
             diags.push({
               severity: "error",
               code: "loom.default-deny-ungated",
@@ -97,6 +192,40 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             });
           }
         }
+      }
+      // The SYNTHESISED single-record read, `GET /api/<aggs>/{id}` (F-009 /
+      // mission M-T3.19).  Every non-abstract aggregate serves one on all five
+      // backends, it carries NO gate on any of them, and until this diagnostic
+      // nothing said so: a model could gate `find all` admin-only and still
+      // hand the same rows out one id at a time to any authenticated caller.
+      // (The tenancy filter DOES cover the by-id read — a foreign tenant gets
+      // 404 — so what leaks is role separation WITHIN a tenant.)
+      //
+      // WARNING, not an error, and a code of its own rather than
+      // `loom.default-deny-ungated`.  The two differ in the one property that
+      // matters for an error: RECOURSE.  Every `loom.default-deny-ungated` arm
+      // names a `requires` the author can write — which is also precisely why
+      // the arms that have no such surface (the enrichment-injected `find all`,
+      // a macro-emitted projection) are EXEMPTED rather than reported.  The
+      // by-id read has no surface either (M-T3.19 designs one:
+      // `find byId(id: T id): T? requires <expr>`, recognised as *the* by-id
+      // read and honoured by all five route emitters — a five-backend feature,
+      // not a validator change), so raising an error here would make every
+      // `denyByDefault` model unbuildable with nothing the author could do
+      // about it.  A warning turns a SILENT hole into an honest, visible one
+      // today; when the surface lands, the check gains its `if (gated)
+      // continue;` and can be promoted to an error under the same code.
+      for (const op of deriveContextOperations(c)) {
+        if (op.kind !== "getById") continue;
+        diags.push({
+          severity: "warning",
+          code: "loom.default-deny-by-id-ungated",
+          message: diagMessage("loom.default-deny-by-id-ungated", {
+            name: op.aggregate,
+            path: op.path,
+          }),
+          source: `${c.name}/${op.aggregate}`,
+        });
       }
       // Repository finds: each author-declared named find is its own GET route
       // and carries the same optional `requires <expr>` gate.  The aggregate

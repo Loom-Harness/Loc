@@ -77,8 +77,10 @@ system Shop {
 /** A scaffolded list page whose author-declared `find all` is NOT paged — so
  *  the scaffold's `all` QueryView is CLIENT-paged (`serverPaged:` absent) and
  *  the repository exposes `list_orders/0`.  The JSX frontends slice and sort
- *  such a list in the browser; HEEx cannot, so the affordance must not be
- *  advertised at all (F2-MT640-SORT-DEAD). */
+ *  such a list in the browser; wave C2 packet 2m made HEEx do the same in the
+ *  template (F2-MT640-SORT-DEAD), so the affordances render — what must NOT
+ *  appear is the SERVER reload, which would refetch the identical rows.  The
+ *  rendering itself is pinned in `heex-table-client-controls.test.ts`. */
 const NON_PAGED_SRC = `
 system Sales {
   subdomain M {
@@ -224,17 +226,21 @@ describe("HEEx table controls — gated off", () => {
     expect(live).not.toContain("loom-page");
   });
 
-  it("a CLIENT-paged (non-`serverPaged`) list advertises no sort or pager", async () => {
+  it("a CLIENT-paged (non-`serverPaged`) list drives its controls WITHOUT a refetch", async () => {
     const live = await liveView(NON_PAGED_SRC, "order_list_live.ex");
     // The list itself still loads — through the argument-less delegate.
     expect(live).toContain("list_orders()");
     expect(live).toContain("<.table ");
-    // …but every control the server can't honour is gone.  Sortable headers
-    // over an argument-less refetch flip an arrow and change nothing.
-    expect(live).not.toContain("sort_key={");
-    expect(live).not.toContain("sort_field=");
-    expect(live).not.toContain("<.pager");
-    expect(live).not.toContain("loom-sort");
-    expect(live).not.toContain("loom-page");
+    // The controls render (F2-MT640-SORT-DEAD's fix) …
+    expect(live).toContain("sort_key={@sort_key}");
+    expect(live).toContain('sort_field="code"');
+    expect(live).toContain("<.pager");
+    // … but the clause bodies must NOT re-run the read: `list_orders/0` takes
+    // no page or sort argument, so a refetch answers the identical rows and
+    // the whole control surface goes back to being decorative.  ONE occurrence
+    // is the first load in `handle_params/3`.
+    expect(live.match(/list_orders\(\)/g)).toHaveLength(1);
+    const sortClause = live.slice(live.indexOf('"loom-sort"'), live.indexOf('"loom-page"'));
+    expect(sortClause).not.toContain("list_orders");
   });
 });

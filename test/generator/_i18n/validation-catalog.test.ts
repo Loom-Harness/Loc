@@ -124,7 +124,7 @@ describe("validation-message catalog — what it collects", () => {
     expect(hasWireValidationMessages(await contextsOf("aggregate P { n: int }"))).toBe(false);
   });
 
-  it("excludes a `private` (server-only) messaged rule — no wire validator sees it", async () => {
+  it("INCLUDES a `private` (server-only) messaged rule — the domain floor carries its code", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
         name: string
@@ -133,9 +133,12 @@ describe("validation-message catalog — what it collects", () => {
       }
       repository Products for Product { }
     `);
-    // The rule still enforces at the domain floor with its authored text; it just
-    // has no wire `code` for the 422 handler to resolve, so no catalog entry.
-    expect(catalog).toEqual({});
+    // No wire validator sees it, but it enforces at the DOMAIN FLOOR — and since
+    // M-T1.11 (c) the domain floor answers with the rule's `code` on its
+    // errors[] entry, which the 422 handler resolves through this catalog.  (It
+    // was excluded while only the wire rung carried a code: an entry the runtime
+    // could not resolve.)
+    expect(catalog).toEqual({ "msg.h2tz2y": "Name must be at least 2 characters" });
   });
 
   it("sorts by key, so the emitted catalog is byte-stable across runs", async () => {

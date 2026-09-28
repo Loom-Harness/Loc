@@ -5,7 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
 {{#if base}}  base: {{json base}},
-{{/if}}  plugins: [vue(), tailwindcss()],
+{{/if}}  // Loom's `Image { … }` src is a RUNTIME url (a public path or a remote
+  // one), never a bundled asset — there is no asset pipeline to resolve it
+  // against.  Vue's default rewrites a static `<img src>` into a build-time
+  // import, which turns a perfectly good url into
+  // `[UNRESOLVED_IMPORT] Could not resolve '/logo.png'` and fails the bundle.
+  // Off, so the src reaches the browser as written.
+  plugins: [vue({ template: { transformAssetUrls: false } }), tailwindcss()],
   resolve: {
     alias: {
       "@": "/src",

@@ -9,7 +9,14 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { isReturnStmt } from "../../src/language/generated/ast.js";
+import {
+  type Aggregate,
+  isAggregate,
+  isBoundedContext,
+  isOperation,
+  isReturnStmt,
+  type Operation,
+} from "../../src/language/generated/ast.js";
 import { parseRaw, parseString } from "../_helpers/parse.js";
 
 const SRC = `
@@ -27,13 +34,11 @@ const SRC = `
 describe("operation returns — surface (exception-less spike)", () => {
   it("parses an `or`-union return type + a `return` statement", () => {
     const model = parseRaw(SRC);
-    const ctx = model.members.find((m) => m.$type === "BoundedContext") as never;
-    const agg = (ctx as { members: { $type: string; name: string }[] }).members.find(
-      (m) => m.$type === "Aggregate" && m.name === "Order",
-    ) as { members: { $type: string; name?: string; returnType?: unknown; body?: unknown[] }[] };
-    const op = agg.members.find((m) => m.$type === "Operation" && m.name === "lookup")!;
+    const ctx = model.members.find(isBoundedContext)!;
+    const agg = ctx.members.find((m) => isAggregate(m) && m.name === "Order") as Aggregate;
+    const op = agg.members.find((m) => isOperation(m) && m.name === "lookup") as Operation;
     expect(op.returnType).toBeTruthy();
-    expect((op.body ?? []).some((s) => isReturnStmt(s as never))).toBe(true);
+    expect((op.body ?? []).some((s) => isReturnStmt(s))).toBe(true);
   });
 });
 

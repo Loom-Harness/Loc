@@ -56,11 +56,38 @@ interface Expectation {
   toBeGreaterThanOrEqual(expected: number): void;
   toBeLessThan(expected: number): void;
   toBeLessThanOrEqual(expected: number): void;
+  /** The language's one absence value, in its "present, explicitly null" wire
+   *  spelling (RS-35).  `undefined` counts: a key the payload omitted reads
+   *  back as `undefined` here, and this matcher is about the VALUE — the
+   *  sibling `toBeAbsent()` asks about the KEY and lowers to `"k" in obj`. */
+  toBeNull(): void;
+  /** Membership for a collection, substring for a string — one matcher, two
+   *  lowerings, dispatched on the subject at run time the way vitest's own
+   *  `toContain` does. */
+  toContain(expected: unknown): void;
   /** Synchronous throw assertion — `expect(() => …).toThrow()`, as the
    *  generated aggregate unit tests emit. */
   toThrow(matcher?: string | RegExp): void;
-  readonly not: { toBe(expected: unknown): void; toEqual(expected: unknown): void };
+  readonly not: {
+    toBe(expected: unknown): void;
+    toEqual(expected: unknown): void;
+    toBeNull(): void;
+    toContain(expected: unknown): void;
+  };
   readonly rejects: { toThrow(matcher?: string | RegExp): Promise<void> };
+}
+
+/** `toContain`'s two lowerings, dispatched on the SUBJECT — element membership
+ *  for an array, substring for a string.  The compiler has already refused
+ *  every other subject type (`loom.contain-receiver-invalid`), so anything else
+ *  reaching here is a mis-emission and fails loudly rather than silently
+ *  answering "no". */
+function containsValue(received: unknown, expected: unknown): boolean {
+  if (Array.isArray(received)) return received.some((e) => deepEqual(e, expected));
+  if (typeof received === "string") return received.includes(String(expected));
+  throw new AssertionError(
+    `toContain expects an array or a string subject, got ${stringify(received)}`,
+  );
 }
 
 function matchesError(err: unknown, matcher?: string | RegExp): boolean {
@@ -142,8 +169,38 @@ export function makeExpect(received: unknown): Expectation {
         );
       }
     },
+    toBeNull(): void {
+      // `== null` deliberately, not `=== null`: the generated e2e suite reads a
+      // JSON body, where a key the backend OMITTED surfaces as `undefined`.
+      // Treating that as a pass here is correct — `toBeNull()` asserts the
+      // VALUE is Loom's one absence value, and `toBeAbsent()` is the matcher
+      // that distinguishes the two WIRE SPELLINGS (it lowers to `"k" in obj`,
+      // which needs nothing from this harness).
+      if (received != null) {
+        throw new AssertionError(`expected ${stringify(received)} to be null`);
+      }
+    },
+    toContain(expected: unknown): void {
+      if (!containsValue(received, expected)) {
+        throw new AssertionError(
+          `expected ${stringify(received)} to contain ${stringify(expected)}`,
+        );
+      }
+    },
     get not() {
       return {
+        toBeNull(): void {
+          if (received == null) {
+            throw new AssertionError(`expected ${stringify(received)} not to be null`);
+          }
+        },
+        toContain(expected: unknown): void {
+          if (containsValue(received, expected)) {
+            throw new AssertionError(
+              `expected ${stringify(received)} not to contain ${stringify(expected)}`,
+            );
+          }
+        },
         toBe(expected: unknown): void {
           if (received === expected) {
             throw new AssertionError(

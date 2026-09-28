@@ -1,0 +1,189 @@
+// FieldOps — slice 2: domain + multi-tenancy + auth + permissions.
+
+system FieldOps {
+
+  user {
+    id: string
+    email: string
+    role: string
+    permissions: string[]
+    tenantId: string
+    technicianId: Technician id?
+  }
+
+  auth {
+    enforcement: denyByDefault
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Accounts {
+    context Orgs {
+      aggregate Organization {
+        name: string
+        implements tenantRegistry
+        derived display: string = name
+      }
+      repository Organizations for Organization { }
+    }
+  }
+
+  subdomain Ops {
+    permissions {
+      workOrderRead,
+      workOrderWrite implies workOrderRead,
+      workOrderDispatch implies workOrderWrite,
+      costRateUnmask,
+      opsAdmin implies [workOrderDispatch, costRateUnmask]
+    }
+
+    context Field {
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Emergency }
+      enum LineKind { Labour, Part }
+
+      aggregate Customer with tenantOwned, auditable {
+        name: string
+        billingEmail: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Site with tenantOwned, auditable {
+        customerId: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+
+      aggregate Asset with tenantOwned, auditable {
+        siteId: Site id
+        serial: string
+        model: string
+        warrantyExpiry: datetime?
+        requiredSkill: string
+        unique (tenantId, serial)
+        derived display: string = serial
+      }
+
+      aggregate Technician with tenantOwned, auditable {
+        fullName: string
+        skills: string[]
+        costRate: money mask unless currentUser.permissions.contains(permissions.costRateUnmask)
+        derived display: string = fullName
+      }
+
+      event WorkOrderCompleted { workOrder: WorkOrder id, at: datetime, customer: Customer id }
+      event WorkOrderScheduled { workOrder: WorkOrder id, technician: Technician id, at: datetime }
+
+      aggregate WorkOrder audited with tenantOwned, auditable {
+        customerId: Customer id
+        siteId: Site id
+        assetId: Asset id?
+        technicianId: Technician id?
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        resolutionNote: string?
+        contains lines: WorkOrderLine[]
+
+        invariant currency.length == 3
+        invariant lines.all(l => l.currency == currency)
+          message "all work-order lines must share the order currency"
+
+        derived total: money = lines.sum(l => l.subtotal)
+        derived display: string = `WO {id} ({status})`
+
+        function isDraft(): bool = status == Draft
+
+        operation schedule(technician: Technician id, at: datetime)
+          requires currentUser.permissions.contains(permissions.workOrderDispatch) {
+          precondition status == Draft
+          technicianId := technician
+          scheduledAt := at
+          status := Scheduled
+          emit WorkOrderScheduled { workOrder: id, technician: technician, at: at }
+        }
+
+        operation start()
+          requires currentUser.permissions.contains(permissions.workOrderWrite) {
+          precondition status == Scheduled
+          startedAt := now()
+          status := InProgress
+        }
+
+        operation complete(note: string)
+          requires currentUser.permissions.contains(permissions.workOrderWrite) {
+          precondition status == InProgress
+          completedAt := now()
+          resolutionNote := note
+          status := Completed
+          emit WorkOrderCompleted { workOrder: id, at: now(), customer: customerId }
+        }
+
+        operation cancel()
+          requires currentUser.permissions.contains(permissions.workOrderWrite) {
+          precondition status != Completed
+          status := Cancelled
+        }
+
+        operation addLine(kind: LineKind, description: string, quantity: decimal, unitPrice: money)
+          requires currentUser.permissions.contains(permissions.workOrderWrite) {
+          precondition isDraft()
+          precondition quantity > 0
+          lines += WorkOrderLine {
+            kind: kind,
+            description: description,
+            quantity: quantity,
+            unitPrice: unitPrice,
+            currency: currency
+          }
+        }
+
+        entity WorkOrderLine {
+          kind: LineKind
+          description: string
+          quantity: decimal
+          unitPrice: money
+          currency: string
+          derived subtotal: money = unitPrice * quantity
+          invariant quantity > 0
+        }
+      }
+
+      repository Customers for Customer {
+        find all(): Customer[] requires currentUser.permissions.contains(permissions.workOrderRead)
+      }
+      repository Sites for Site {
+        find all(): Site[] requires currentUser.permissions.contains(permissions.workOrderRead)
+      }
+      repository Assets for Asset {
+        find all(): Asset[] requires currentUser.permissions.contains(permissions.workOrderRead)
+      }
+      repository Technicians for Technician {
+        find all(): Technician[] requires currentUser.permissions.contains(permissions.workOrderRead)
+      }
+      repository WorkOrders for WorkOrder {
+        find all(): WorkOrder[] requires currentUser.permissions.contains(permissions.workOrderRead)
+        find mine(): WorkOrder[] requires true where this.technicianId == currentUser.technicianId
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource orgState   { for: Orgs,  kind: state, use: primary }
+  resource fieldState { for: Field, kind: state, use: primary }
+
+  deployable api {
+    platform: node
+    contexts: [Orgs, Field]
+    dataSources: [orgState, fieldState]
+    auth: required
+    port: 3000
+  }
+}

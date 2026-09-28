@@ -1,0 +1,101 @@
+// M-T1.11 item (c) — the DOMAIN-FLOOR half of the message ladder.
+//
+// A messaged rule the WIRE validator can see answers the wire rung (422
+// "Validation failed" + `errors[]` with the rule's `msg.<hash>` code) — that is
+// `validation-messages.ddd`.  This fixture is the other half: every rule below
+// reads the aggregate's own STATE, so no request validator can evaluate it,
+// and it trips at the domain floor — inside the operation, after the row is
+// loaded.  Before item (c) that 422 carried the authored text as `detail` and
+// nothing else: no `errors[]`, so no `code` a client could localise by and no
+// pointer a form could bind.  (Elixir's split was worse: its invariants
+// answered the WIRE rung's shape from the op-persist changeset, and its
+// preconditions the bare domain floor.)
+//
+// The rule, on all five backends: a tripped MESSAGED rule answers the
+// domain-floor 422 — title "Unprocessable Entity", the message as `detail` —
+// PLUS one `errors[]` entry `{pointer, message, code}`, the shape moment 5c gave
+// a value object refused inside a body.  `code` is the same `msg.<hash>` the
+// wire rung would carry.  The pointer is `/<field>` for a single-field rule and
+// `""` (the whole request) otherwise.  A message-LESS rule keeps the plain
+// domain floor — it has no code, and its text is each backend's own default.
+//
+// One case per shape:
+//   * `withdraw`  — a messaged precondition relating state to a parameter
+//                   (`balance >= amount`) → pointer "".
+//   * `overdraw`  — no precondition; the body breaks the messaged SINGLE-FIELD
+//                   invariant `balance >= 0` → pointer "/balance".
+//   * `deposit`   — the body breaks the messaged CROSS-FIELD invariant
+//                   `balance <= ceiling` → pointer "".
+//   * `drain`     — the MESSAGE-LESS precondition, the control: no `errors[]`.
+system DomainFloorMessages {
+  subdomain Banking {
+    context Accounts {
+      aggregate Account with crudish {
+        owner: string
+        balance: int
+        ceiling: int
+
+        invariant balance >= 0 message "Balance cannot be negative"
+        invariant balance <= ceiling message "Balance cannot exceed the ceiling"
+
+        operation withdraw(amount: int) {
+          precondition balance >= amount message "Insufficient funds"
+          balance := balance - amount
+        }
+
+        operation drain(amount: int) {
+          precondition balance >= amount
+          balance := balance - amount
+        }
+
+        operation overdraw(amount: int) {
+          balance := balance - amount
+        }
+
+        operation deposit(amount: int) {
+          balance := balance + amount
+        }
+      }
+
+      repository Accounts for Account { }
+    }
+  }
+
+  api BankingApi from Banking
+
+  storage primary { type: postgres }
+  resource accountsState { for: Accounts, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Accounts]
+    dataSources: [accountsState]
+    serves: BankingApi
+    port: 4000
+  }
+
+  test e2e "a rule tripped at the domain floor answers 422 with its code in errors[]" against d {
+    let acct = api.accounts.create({ owner: "Ada", balance: 10, ceiling: 100 })
+    api.accounts.withdraw(acct, { amount: 3 })
+    api.accounts.deposit(acct, { amount: 5 })
+    let read = api.accounts.getById(acct)
+    expect(read.balance).toBe(12)
+
+    // The four domain-floor refusals — each leaves the row untouched.
+    expect(api.accounts.withdraw(acct, { amount: 50 })).toThrow(422)
+    expect(api.accounts.overdraw(acct, { amount: 50 })).toThrow(422)
+    expect(api.accounts.deposit(acct, { amount: 500 })).toThrow(422)
+    expect(api.accounts.drain(acct, { amount: 50 })).toThrow(422)
+    let after = api.accounts.getById(acct)
+    expect(after.balance).toBe(12)
+
+    // The rest of the crudish surface, so every derived route has a caller.
+    api.accounts.drain(acct, { amount: 2 })
+    api.accounts.overdraw(acct, { amount: 1 })
+    let listed = api.accounts.all()
+    expect(listed.total).toBe(1)
+    api.accounts.update(acct, { owner: "Ada L.", balance: 9, ceiling: 100 })
+    expect(api.accounts.getById(acct).owner).toBe("Ada L.")
+    api.accounts.destroy(acct)
+    expect(api.accounts.getById(acct)).toThrow(404)
+  }
+}

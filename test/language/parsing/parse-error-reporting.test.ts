@@ -252,7 +252,10 @@ describe("F10 — no ComputedScopes warning on an unresolved reference", () => {
       const services = createDddServices(NodeFileSystem);
       const { entry } = await loadProject(URI.file(file), services.shared);
       const messages = (entry.diagnostics ?? []).map((d) => d.message).join("\n");
-      expect(messages).toMatch(/Could not resolve reference to .* named 'str'/);
+      // The linking error is still REPORTED (that is what this test is about —
+      // the stderr noise beside it is what was silenced); an unresolved TYPE
+      // position now reads as "Unknown type 'str'" (`ddd-linker.ts`).
+      expect(messages).toMatch(/Unknown type 'str'/);
       const noise = warn.mock.calls
         .map((c) => String(c[0]))
         .filter((m) => m.includes("ComputedScopes"));

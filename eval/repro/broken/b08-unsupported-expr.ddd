@@ -1,0 +1,16 @@
+// 8. unsupported expression in a queryable position
+system X {
+  subdomain S {
+    context C {
+      aggregate Order with crudish { total: int  derived display: string = "x"
+        contains lines: Line[]
+        entity Line { qty: int } }
+      repository Orders for Order {
+        find fat(): Order[] where this.lines.count > 3
+      }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

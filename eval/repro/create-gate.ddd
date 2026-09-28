@@ -1,0 +1,18 @@
+// Can a `create` be authorization-gated at all under enforcement: denyByDefault?
+system X {
+  user { id: string  role: string  permissions: string[] }
+  auth { enforcement: denyByDefault  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    permissions { make }
+    context C {
+      aggregate Thing {
+        name: string
+        create(n: string) { requires currentUser.permissions.contains(permissions.make) }
+      }
+      repository Things for Thing { find all(): Thing[] requires true }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], auth: required, port: 3000 }
+}

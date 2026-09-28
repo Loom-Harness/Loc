@@ -14,7 +14,7 @@ import {
   isSystem,
   type Model,
 } from "../../../src/language/generated/ast.js";
-import { parseString } from "../../_helpers/parse.js";
+import { parseErrorsOf, parseString } from "../../_helpers/parse.js";
 
 /** Every bounded context in a parsed Model. */
 function contexts(model: Model): BoundedContext[] {
@@ -53,13 +53,13 @@ async function findDecl(name: string, source: string): Promise<FindDecl> {
 
 describe("ignoring filter-bypass clause parses", () => {
   it("find: `ignoring <Cap>` populates bypass and parses cleanly", async () => {
-    const { errors } = await parseString(
-      wrap(`repository R for Order {
+    expect(
+      parseErrorsOf(
+        wrap(`repository R for Order {
         find recent(): Order[] where this.total > 0 ignoring softDeletable
       }`),
-      { validate: false },
-    );
-    expect(errors).toEqual([]);
+      ),
+    ).toEqual([]);
     const f = await findDecl(
       "recent",
       wrap(`repository R for Order {
@@ -99,8 +99,8 @@ describe("ignoring filter-bypass clause parses", () => {
           for o in xs { }
         }
       }`);
-    const { model, errors } = await parseString(source, { validate: false });
-    expect(errors).toEqual([]);
+    expect(parseErrorsOf(source)).toEqual([]);
+    const { model } = await parseString(source, { validate: false });
     // Locate the let-bound PostfixChain.
     let found = false;
     for (const c of contexts(model))
@@ -138,12 +138,10 @@ describe("ignoring filter-bypass clause parses", () => {
   });
 
   it("`ignoring` stays a soft keyword — a field named `ignoring` still parses", async () => {
-    const { errors } = await parseString(
-      `system S { subdomain D { context C {
+    expect(
+      parseErrorsOf(`system S { subdomain D { context C {
         aggregate Order { ignoring: bool }
-      }}}`,
-      { validate: false },
-    );
-    expect(errors).toEqual([]);
+      }}}`),
+    ).toEqual([]);
   });
 });

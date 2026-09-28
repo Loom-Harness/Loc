@@ -2,7 +2,7 @@
 
 Per-platform reference for every file the generators emit and the
 features they implement.  This document maps each DSL construct to its
-output across the five backends and five frontends so you can answer questions like:
+output across the five backends and six frontends so you can answer questions like:
 
 - "What does `aggregate Order` produce on .NET?"
 - "Where does my `derived total: Money = …` end up in the React app?"
@@ -102,7 +102,7 @@ gaps that remain are language-level rather than per-backend — see
 
 | Construct | TypeScript (Hono + Drizzle) | .NET (ASP.NET + EF + Mediator) | React (Vite + RQ + Mantine) |
 | --- | --- | --- | --- |
-| `enum` | `pgEnum`, exported union type | C# enum + EF `HasConversion<string>` | Zod `z.enum([...])` |
+| `enum` | `TEXT` column + exported union type (`text(col, { enum: … })`) | C# enum + EF `HasConversion<string>` | Zod `z.enum([...])` |
 | `valueobject` | Class with invariant ctor + accessors; flattened columns in Drizzle | `record` with invariant ctor; `OwnsOne` in EF | Zod object schema, nested `<Fieldset>` in forms |
 | `event` | TypeScript discriminated union; pushed via `_events.push` | `record` implementing `IDomainEvent`; pushed via `_events.Add` | (events are domain-internal; not surfaced to the SPA) |
 | `aggregate` | Class with private state, factory, ops, derived getters, `pullEvents()` | Sealed class with private state, factory, ops, derived getters, `PullEvents()` | List + Detail + New page; api hooks |
@@ -158,7 +158,7 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 │   ├── order.test.ts                # vitest from `test "name" { … }` blocks (when present)
 │   └── product.ts
 ├── db/
-│   ├── schema.ts                    # Drizzle pgTable / pgEnum
+│   ├── schema.ts                    # Drizzle pgTable / enum value tuples
 │   └── repositories/
 │       ├── order-repository.ts      # findById / getById / save / find* / all() / toWire
 │       └── product-repository.ts
@@ -309,7 +309,8 @@ and the React Select picker.
   handlers
 
 **`db/schema.ts`** — Drizzle `pgTable` per aggregate root and per
-contained part (parts get a `parent_id` FK), `pgEnum` per enum,
+contained part (parts get a `parent_id` FK), a value tuple per enum
+(the column is `TEXT`, matching the emitted migration),
 value-object fields flattened into prefix-named columns
 (`price_amount`, `price_currency`).
 
@@ -957,6 +958,8 @@ seam because Dart list literals are comma-separated.
 `Modal { trigger: Button(…), OperationForm(of:, op:) }` renders as a trigger `ElevatedButton` whose `onPressed` opens an `AlertDialog` wrapping the op-form widget (`showDialog`); the op-form pops its own route on success, dismissing the dialog.  `WorkflowForm(runs: <wf>)` renders as a `StatefulWidget` (like `CreateForm`) that POSTs the workflow params to the command route `/workflows/<wf>`.
 
 `match await <api>.<Agg>.<op>()` (async effect) projects an **async Riverpod Notifier method** (`Future<void> <action>(String id) async`): it POSTs the instance op to `/<coll>/$id/<op>`, reifies a non-2xx ProblemDetails back into the error variant (clobbering the wire `type` tag), then a Dart-3 `switch` over `result['type']` reifies each arm via `fromJson` and runs the arm body as a `state.copyWith` write.  The page-shell binds the action as an id-capturing closure (`final <a> = () => notifier.<a>(id);`) so the button's bare `<a>()` call is unchanged (`riverpod-emit.ts`).
+
+**View effects from an action body** (`navigate(<Page>)`, `toast(<expr>)`) ship through two generated OUT-OF-TREE bridges, because a ui `action` projects to a Riverpod `Notifier` method and a Notifier holds no `BuildContext`: `lib/nav.dart` installs a `GlobalKey<NavigatorState>` on `MaterialApp` and the statement renders `navigateTo('/route')`, and `lib/toast.dart` installs a `GlobalKey<ScaffoldMessengerState>` and the statement renders `showToast(<expr>)` (`Object?`, so a non-string argument coerces).  Both files and both `MaterialApp` arguments are emitted only when some emitted Dart actually calls into them, so an app that uses neither is byte-identical to one built before the bridges existed.  A REALTIME handler's `toast` is in the widget tree (`LoomRealtime` on `MaterialApp.builder`) and keeps `ScaffoldMessenger.maybeOf(context)` instead.
 
 A scalar array form field (`tags: string[]` / `scores: int[]`) renders as a repeatable add/remove row list (one `TextEditingController` per row, managed in state; numeric arrays parse each row on submit).
 

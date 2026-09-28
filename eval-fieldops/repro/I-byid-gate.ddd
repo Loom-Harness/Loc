@@ -1,0 +1,20 @@
+// The `ddd new` starter's own comment claims: under denyByDefault the synthesised
+// BY-ID read has no author surface for a gate, so it "still serves to any
+// authenticated caller, and nothing warns". Test it.
+system P {
+  user { id: guid  role: string  permissions: string[] }
+  auth { enforcement: denyByDefault  oidc { issuer: env("I")  clientId: env("C") } }
+  subdomain S { context C {
+    aggregate Secret {
+      body: string
+      derived display: string = body
+      create() { requires currentUser.role == "admin" }
+    }
+    repository Secrets for Secret {
+      find all(): Secret[] requires currentUser.role == "admin"
+    }
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], auth: required, port: 3000 }
+}

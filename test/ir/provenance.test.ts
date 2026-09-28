@@ -9,6 +9,7 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import { isProperty, type Model, type Property } from "../../src/language/generated/ast.js";
 import { generateSystems } from "../../src/system/index.js";
 import { captureSnapshots } from "../../src/system/loomsnap.js";
+import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // `provenanced` stored-field modifier — per-write-site rule snapshots
@@ -27,8 +28,8 @@ async function parseModel(
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
-    warnings: diags.filter((d) => d.severity === 2).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
+    warnings: diags.filter((d) => d.severity === 2).map(diagText),
   };
 }
 

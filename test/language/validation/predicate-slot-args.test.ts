@@ -6,10 +6,8 @@
 // is the per-argument TYPE those gates don't touch.
 
 import { describe, expect, it } from "vitest";
+import { lspCodes } from "../../_helpers/diagnostics.js";
 import { parseString } from "../../_helpers/parse.js";
-
-const codesOf = (diags: { code?: string }[]) =>
-  diags.map((d) => d.code).filter((c): c is string => c !== undefined);
 
 const sys = (members: string) => `
 system Demo {
@@ -53,11 +51,11 @@ system Demo {
 
 async function codes(members: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(members), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 async function repoCodes(finds: string): Promise<string[]> {
   const { diagnostics } = await parseString(sysRepo(finds), { validate: true });
-  return codesOf(diagnostics);
+  return lspCodes(diagnostics);
 }
 
 const TYPE = "loom.call-arg-type";
@@ -97,7 +95,7 @@ system Demo {
 }`,
       { validate: true },
     );
-    expect(codesOf(diagnostics)).toContain(TYPE);
+    expect(lspCodes(diagnostics)).toContain(TYPE);
   });
 
   it("is CLEAN for a correctly-typed nested criterion arg in a criterion body", async () => {
@@ -118,7 +116,7 @@ system Demo {
 }`,
       { validate: true },
     );
-    expect(codesOf(diagnostics)).not.toContain(TYPE);
+    expect(lspCodes(diagnostics)).not.toContain(TYPE);
   });
 
   // --- repository find `where` ---------------------------------------------
@@ -172,7 +170,7 @@ system Demo {
 }`,
       { validate: true },
     );
-    expect(codesOf(diagnostics)).toContain(TYPE);
+    expect(lspCodes(diagnostics)).toContain(TYPE);
   });
 
   // --- no double-report of arity as a type error ---------------------------

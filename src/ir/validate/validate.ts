@@ -1,8 +1,10 @@
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
+import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
 import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
+import { validateCreateCallSites } from "./checks/create-call-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -27,6 +29,7 @@ import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
+  validateContainmentCycles,
   validateCurrentUserScope,
   validateDuplicateTables,
   validateEventSourcedDiscipline,
@@ -42,6 +45,7 @@ import {
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
   validateResourceOpPlacement,
+  validateUiPermissionRefs,
   validateUnionFindShapes,
   validateUnionsUnimplemented,
   validateUniqueColumns,
@@ -76,7 +80,6 @@ import {
   validateFieldMask,
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
-  validateFindPredicateAdapterSupport,
   validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
@@ -99,6 +102,7 @@ import {
   validateSavingShapeSupport,
   validateStampSupport,
   validateSystem,
+  validateTenancyFilterBypass,
   validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
@@ -113,9 +117,13 @@ import {
   validateContextIntegrationTests,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
+import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
+import { validatePageGates } from "./checks/ui-gate-checks.js";
+import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
+import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
 // and firstNonQueryableNode (in checks/shared) are re-exported here so existing
@@ -165,6 +173,11 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
+    // Page gates and bodies name permissions too, and `validatePermissionRefs`
+    // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
+    // `ui` lowered to the sentinel and rendered as a literal no principal can
+    // hold, silently forbidding the page.  Same code, same sentinel, ui walk.
+    for (const ui of sys.uis) validateUiPermissionRefs(ui, diags);
     validateComposeUniqueness(sys, diags);
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
@@ -175,12 +188,14 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);
+    // F-005: dropping a TENANCY filter with `ignoring` is loud on its own
+    // merits, in every `auth { enforcement: }` mode.
+    validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
     validateTphFilterExpressibility(sys, diags);
-    validateFindPredicateAdapterSupport(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
@@ -190,6 +205,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);
     validateCurrentUserNeedsAuthUi(sys, diags);
+    // UI ↔ backend wiring: a frontend is generated against the ONE backend in
+    // `targets:`, so a ui whose api handles fan out across several is refused
+    // rather than emitted half-wired.
+    validateUiBackendBindings(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);
@@ -279,6 +298,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateServerInitialisedFields(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateProjections(c, diags);
+    validateAggregateConstructible(c, diags);
+    validateWorkflowUnusedParams(c, diags);
     validateWorkflows(
       c,
       diags,
@@ -292,6 +313,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateApplicationHandlers(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
+    validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
     validateGenericInstancesUnimplemented(
@@ -301,7 +323,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     );
     validateUnionsUnimplemented(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateUnionFindShapes(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateLifecycleBodyDropped(c, diags);
+    validateLifecycleBodyDropped(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateNamedLifecycleDropped(c, diags);
     validateWhenGateSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateOperationReturnsUnimplemented(
@@ -323,6 +345,11 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);
+  // `Agg.create({ … })` CALL SITES against the factory the emitters actually
+  // emit — `isConstructible` (no factory at all) + the required create-input
+  // set.  Whole-model: the call sites live in tests, workflow bodies, handlers
+  // and page actions alike, and `forEachModelExpr` reaches all of them.
+  validateCreateCallSites(loom, diags);
   // Migration-block data steps (M-T2.3): expression renderability / target /
   // type fit.
   validateMigrationDataSteps(loom, diags);
@@ -344,7 +371,14 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // system-level, their targets cross-context).
   validateRoutes(loom, diags);
   validateVariantMatch(loom, diags);
+  // A find's `X or NotFound` / `X option` (and an `or`-returning operation's
+  // result) must be discriminated by a variant `match` before it is read
+  // (M-T5.1 A4) — a straight read is an unguarded dereference on all five.
+  validateUnionReads(loom, diags);
   validateUiBodies(loom, diags);
+  // Page `requires` gates (audit D2) — the client-evaluable subset, refused
+  // here so the six frontend gate renderers' throws stay internal invariants.
+  validatePageGates(loom, diags);
   // Page EMIT IDENTITY — two pages resolving to one emit path / one scaffold
   // archetype slot.  IR-level so it covers every frontend at once.
   validateUiPageIdentity(loom, diags);
@@ -353,5 +387,33 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // elixir-hosted context and every ui body are refused here rather than
   // silently dropped by an emitter.
   validateIfStatementPlacement(loom, diags);
-  return diags;
+  return dropCascadedWarnings(diags);
+}
+
+/** `loom.workflow-param-unused` reads a BODY'S SHAPE, so an error that dropped
+ *  part of that body makes it lie.
+ *
+ *  `workflow-cross-context-repository.test.ts` is the witness: a cross-context
+ *  `let tech = Technicians.getById(assignTo)` is refused, the statement never
+ *  lowers, and the `assignTo` read vanishes with it — so `assignTo` reads as
+ *  an unused parameter when the author's only mistake was the boundary. That
+ *  test's own name is "the misleading cascade is gone", and adding a second
+ *  cascade under it would have been the same defect wearing a new code.
+ *
+ *  So: the diagnostic is suppressed when an ERROR names the same source. The
+ *  narrowing to same-`source` matters — a cross-context error on one workflow
+ *  must not silence the warning on the workflow beside it. Once the error is
+ *  fixed the warning reappears on the next run, which is the right order to
+ *  read them in anyway.
+ *
+ *  `loom.aggregate-not-constructible` is deliberately NOT in this set even
+ *  though it is the sibling gate: it reads DECLARATIONS (does a create exist,
+ *  does anything call one), not a body an error could have truncated, and
+ *  same-source suppression there silenced it under an unrelated
+ *  `loom.tph-backend-unsupported` on the very same aggregate. */
+function dropCascadedWarnings(diags: LoomDiagnostic[]): LoomDiagnostic[] {
+  const CASCADABLE = new Set(["loom.workflow-param-unused"]);
+  const errored = new Set(diags.filter((d) => d.severity === "error").map((d) => d.source));
+  if (errored.size === 0) return diags;
+  return diags.filter((d) => !CASCADABLE.has(d.code ?? "") || !errored.has(d.source));
 }

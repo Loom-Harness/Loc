@@ -450,20 +450,35 @@ function rootE2E(sys: SystemIR, ctx: SystemReadmeContext): string[] {
 /**
  * The state contract for the emitted e2e suite.
  *
- * Finding F3: the emitted project has no reset hooks of any kind, so it is
- * green on an empty database and can be red on a second run against the same
- * one. Documenting that plainly is the honest fallback D-1 settled on. If a
- * generated reset seam lands, THIS is the paragraph that has to change with
- * it — a README that describes isolation the suite does not have would be
- * worse than the silence it replaced.
+ * Finding F3: the emitted project used to have no reset hooks of any kind, so
+ * it was green on an empty database and could be red on a second run against
+ * the same one.  The generated reset seam (`src/util/test-reset.ts`) has since
+ * landed, so this is the paragraph that changed with it — the previous version
+ * flagged itself for exactly that, because a README describing isolation the
+ * suite does not have would be worse than the silence it replaced.
+ *
+ * The inverse holds now and matters just as much: this must not promise MORE
+ * isolation than the suite takes.  The reset is PER FILE by default, so blocks
+ * within one run still share a database — deliberately, because a `test e2e`
+ * block may build on rows an earlier one created.
  */
 function freshDatabase(): string[] {
   return [
-    "#### It expects a fresh database",
+    "#### State between tests",
     "",
-    "The emitted tests create rows and never delete them — there are no reset hooks in this project. They pass against an empty database; a second run against the same one can fail, because a test that creates a uniquely-keyed row now collides with the row its previous run left behind, and a test that lists or counts results sees those leftovers too.",
+    "The suite resets the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first. You do not need to recreate the database between runs.",
     "",
-    "So reset the database between runs — and **restart the backends with it**. Each backend applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.",
+    "Blocks within one run still share that database, so a later block sees rows an earlier one created. That is often deliberate. When it is not, `E2E_RESET=per-test` resets before every block instead, and each block then sees only the rows it creates. `E2E_RESET=off` disables the reset entirely.",
+    "",
+    "The reset only fires when the target is a **loopback** address, and each backend only allows it in a dev profile — so pointing the suite at a deployed environment (`E2E_API_BASE=https://…`) skips it and truncates nothing.",
+    "",
+    "If a backend does not allow it, the suite says so once and carries on with shared state:",
+    "",
+    "```",
+    "[e2e] No state reset at http://localhost:4000 (404) — these tests SHARE a database.",
+    "```",
+    "",
+    "Enable it by starting that backend with `LOOM_TEST_RESET=1` — the generated `docker-compose.yml` already sets it on every backend service. Otherwise use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.",
     "",
     "Under compose, one command does both:",
     "",
@@ -472,6 +487,7 @@ function freshDatabase(): string[] {
     "```",
     "",
     "Running natively, recreate the database container and restart each backend against it.",
+    "",
     "",
   ];
 }

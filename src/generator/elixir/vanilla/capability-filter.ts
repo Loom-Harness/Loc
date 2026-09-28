@@ -42,25 +42,35 @@ import {
 
 export { aggregateUsesPrincipalContextFilter } from "../../../ir/types/loom-ir.js";
 
-/** Rewrite a principal predicate's `current_user.<field>` accesses into the
- *  fail-closed pinned form for an Ecto `where:`.  No-op for non-principal
- *  predicates (they only touch `record.*`). */
-function pinPrincipal(rendered: string): string {
-  return rendered.replace(/\bcurrent_user\.([a-z0-9_]+)/g, "^(current_user && current_user.$1)");
+/** True when a repository `find`'s OWN (author-written) `where` predicate reads
+ *  the request principal — `find mine(): WorkOrder[] where this.ownerId ==
+ *  currentUser.id`.
+ *
+ *  Such a find needs the actor threaded exactly like one scoped by a principal
+ *  CAPABILITY filter does (`aggregateUsesPrincipalContextFilter`), and nothing
+ *  used to notice: the aggregate-level predicate only inspects
+ *  `contextFilters`, so the find's head bound no `current_user` while its body
+ *  rendered one — "undefined variable current_user" at `mix compile`. */
+export function findUsesPrincipal(f: { filter?: ExprIR }): boolean {
+  return !!f.filter && exprUsesCurrentUser(f.filter);
 }
 
 /** One capability/write-scope predicate as an Ecto `where:` fragment, with the
- *  principal side made fail-closed.  The `"guid-from-string"` registry
- *  self-scope needs more than `pinPrincipal`'s pin — the claim is raw token
- *  text bound against a `:binary_id` field, so Ecto casts it and a MALFORMED
- *  claim raised `Ecto.Query.CastError` (a 500 for an ordinary bad token).  That
- *  one shape routes to `renderGuidClaimSelfScopeEcto`, which casts in Elixir
- *  and pins nil on failure; everything else keeps today's rendering.  (The
- *  deep-scope sentinel is intercepted by the callers, which own actor gating.) */
+ *  principal side made fail-closed.  The fail-closed pin itself
+ *  (`^(current_user && current_user.<claim>)`) is now rendered by `renderExpr`
+ *  for EVERY `filterArgs` context — author-written `find`/`retrieval` `where`s
+ *  included, which a post-pass here could never reach — so this is a plain
+ *  render plus the ONE shape the pin alone can't carry: the `"guid-from-string"`
+ *  registry self-scope, where the claim is raw token text bound against a
+ *  `:binary_id` field, so Ecto casts it and a MALFORMED claim raised
+ *  `Ecto.Query.CastError` (a 500 for an ordinary bad token).  That one routes to
+ *  `renderGuidClaimSelfScopeEcto`, which casts in Elixir and pins nil on
+ *  failure.  (The deep-scope sentinel is intercepted by the callers, which own
+ *  actor gating.) */
 function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
   const selfScope = guidFromStringSelfScope(p);
   if (selfScope) return renderGuidClaimSelfScopeEcto(ctx.thisName, selfScope.claim);
-  return exprUsesCurrentUser(p) ? pinPrincipal(renderExpr(p, ctx)) : renderExpr(p, ctx);
+  return renderExpr(p, ctx);
 }
 
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),

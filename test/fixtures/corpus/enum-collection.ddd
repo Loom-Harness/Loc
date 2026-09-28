@@ -1,0 +1,68 @@
+// An enum COLLECTION field (`skills: Skill[]`) — an enum crossed with the array
+// type, which no corpus fixture instantiated before this one.  The corpus
+// carried scalar enums (core-domain, projection-*) and scalar arrays
+// (`string[]`, `int[]`, `Money[]`), but never the two together, so every
+// compile gate was blind to the crossing by construction.
+//
+// That is exactly where the ELIXIR backend broke (audit F-014, S1).  Its Ecto
+// type mapper returned the enum's `values:` FUSED into the type string, so the
+// array wrapper folded a field/3 OPTION into the type TUPLE:
+//
+//     field :skills, {:array, Ecto.Enum, values: [:Electrical, :Plumbing, :HVAC]}
+//
+//     ** (ArgumentError) invalid type {:array, Ecto.Enum, [values: [...]]}
+//        for field :skills
+//        (ecto 3.14.2) lib/ecto/schema.ex:2623: Ecto.Schema.check_field_type!/4
+//
+// `mix compile` fails on the emitted project — a defect the corpus elixir leg
+// catches the moment this fixture exists.  The valid form keeps the option
+// outside the tuple: `field :skills, {:array, Ecto.Enum}, values: [...]`.
+//
+// The aggregate keeps a SCALAR enum alongside the collection so the two
+// mappings are exercised in one schema — a "fix" that stopped emitting
+// `values:` for arrays would satisfy the array half while breaking the scalar
+// one, and both are on the same table here.
+//
+// COMPILE-TIER fixture on purpose: no `test e2e` block (signed in
+// E2E_LESS_CORPUS_FIXTURES).  The defect is a hard compile error in the emitted
+// project, so the five corpus compile legs ARE the oracle; a behavioural block
+// would add a generic CRUD round-trip and mint a wire golden over an enum-array
+// JSON encoding that no cross-backend ruling has been asked for.
+system Crew {
+  subdomain Field {
+    context Dispatch {
+      enum Skill { Electrical, Plumbing, HVAC }
+      enum Grade { Junior, Senior }
+      aggregate Tech with crudish {
+        name: string
+        // The SCALAR enum — the mapping that was always correct, pinned here so
+        // the collection fix cannot regress it.
+        grade: Grade
+        // The subject: an enum COLLECTION.
+        skills: Skill[]
+        // A scalar array beside it, so the array mapping is exercised on a
+        // non-enum element type in the same schema (that one never broke).
+        certifications: string[]
+        // A derived read over the enum collection, so the column's type reaches
+        // the expression/serialisation path too, not just the schema line.
+        derived skillCount: int = skills.count
+        // …and a WRITE of the whole collection, so the cast/changeset side of
+        // the enum-array type is exercised (the half a read-only field skips).
+        operation retrain(next: Skill[]) {
+          skills := next
+        }
+      }
+      repository Techs for Tech { }
+    }
+  }
+  api DispatchApi from Field
+  storage primary { type: postgres }
+  resource dispatchState { for: Dispatch, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Dispatch]
+    dataSources: [dispatchState]
+    serves: DispatchApi
+    port: 4000
+  }
+}

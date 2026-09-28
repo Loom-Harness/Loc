@@ -25,9 +25,11 @@ import type {
   StmtIR,
   TestIR,
   TypeIR,
+  UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
+import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import {
   walkExprDeep,
@@ -1422,7 +1424,7 @@ export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDi
     walkExprDeep(expr, (e) => {
       if (e.kind !== "call" || e.callKind !== "resource-op" || !e.resourceOp) return;
       const { resourceName, verb } = e.resourceOp;
-      const key = `${location} ${resourceName}.${verb}`;
+      const key = `${location}\0${resourceName}.${verb}`;
       if (seen.has(key)) return;
       seen.add(key);
       diags.push({
@@ -1925,7 +1927,11 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
   return [...new Set(bad)];
 }
 
-export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+export function validateLifecycleBodyDropped(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+  backendPlatforms: Set<string> = new Set(),
+): void {
   for (const agg of ctx.aggregates) {
     // Event-sourced CREATES are rendered — a different path (`agg.creates[0]`
     // → the domain `_init` / fold) that works today.  Their DESTROY is not: no
@@ -1943,15 +1949,44 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
     // whose handler is the fold, so hoisting the gate out of `_init` is a
     // different (and larger) change than the state-based emission.  Naming it is
     // honest and cheap; the state-based form is the supported one.
-    if (esCreateRendered) {
-      for (const s of agg.canonicalCreate?.statements ?? []) {
-        if (s.kind !== "requires") continue;
-        diags.push({
-          severity: "error",
-          code: "loom.lifecycle-guard-event-sourced",
-          message: diagMessage("loom.lifecycle-guard-event-sourced", { agg: agg.name }),
-          source: `${ctx.name}/aggregate ${agg.name}.create`,
-        });
+    // WHICH BACKENDS cannot enforce an ES create gate.  Phoenix hoists a
+    // lifecycle gate to the CONTEXT function and binds a principal there, so an
+    // event-sourced `create ... { requires ... }` works on elixir and is golden-
+    // pinned (pairwise F10, `es-command-principal.test.ts`).  The refusal is
+    // therefore per-backend, not a property of event sourcing — refusing it
+    // everywhere would reject a model one backend emits correctly.
+    const esGateUnsupportedOn = esCreateGateUnsupportedOn(backendPlatforms);
+    if (esCreateRendered && esGateUnsupportedOn.length > 0) {
+      // EVERY create, not just the canonical one.  An event-sourced create is
+      // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
+      // an event stream IS the emitted one — and reading only
+      // `agg.canonicalCreate` here let its guard through untouched: it rendered
+      // into the domain `_init` as a free `currentUser`, so `ddd parse` said
+      // `0 error(s)` and the generated project then failed to COMPILE (measured
+      // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
+      // `cannot find symbol` / CS0103 / F821 elsewhere).  A security gate that
+      // silently does not deny, in other words — the exact outcome this refusal
+      // exists to prevent.  Same blind spot `loom.named-lifecycle-dropped`
+      // (#2532) closed one check over, for the DROPPED body rather than the guard.
+      //
+      // Per-create rather than per-canonical-create because NO create body on an
+      // ES aggregate can host an enforceable guard: the rendered one has no
+      // principal in scope, and any other is dropped outright.  `canonicalCreate`
+      // is a convenience accessor over `creates`, so this strictly WIDENS the old
+      // arm — the canonical case keeps its wording and its `.create` source.
+      for (const create of agg.creates ?? []) {
+        for (const s of create.statements) {
+          if (s.kind !== "requires") continue;
+          diags.push({
+            severity: "error",
+            code: "loom.lifecycle-guard-event-sourced",
+            message: diagMessage("loom.lifecycle-guard-event-sourced", {
+              agg: agg.name,
+              platforms: esGateUnsupportedOn.join(", "),
+            }),
+            source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
+          });
+        }
       }
     }
 
@@ -1980,7 +2015,9 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
     //
     // A warning, not an error: the model is emittable and correct, the author's
     // MENTAL MODEL is what is wrong.  Listing every create-input field (what
-    // `with crudish` generates) or omitting the parens both keep it quiet.
+    // `with crudish` generates) or declaring the empty list `create()` both
+    // keep it quiet.  (Not "omitting the parens": a `create`'s parens are
+    // mandatory in the grammar — `create { }` does not parse.  F-010.)
     if (agg.canonicalCreate && agg.canonicalCreate.params.length > 0) {
       const declared = new Set(agg.canonicalCreate.params.map((p) => p.name));
       const input = agg.createInput ?? buildCreateInput(agg);
@@ -2042,7 +2079,11 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
       // contract check remains unconditional for every OTHER shape, which is
       // what keeps the hole the review found closed: the exemption is now scoped
       // to "a refusal already fired here", not to "this aggregate is ES".)
-      const esCreateRefused = esCreateRendered && label === "create";
+      // Stands down only where the ES refusal ACTUALLY fired — otherwise an
+      // elixir-only ES create would lose the contract check as well as the
+      // refusal, and nothing would police what its guard reads.
+      const esCreateRefused =
+        esCreateRendered && esGateUnsupportedOn.length > 0 && label === "create";
       for (const s of esCreateRefused ? [] : (action?.statements ?? [])) {
         if (s.kind !== "requires") continue;
         const illegal = lifecycleGuardIllegalReads(s.expr, label);
@@ -2166,5 +2207,105 @@ export function validateNamedLifecycleDropped(
         });
       }
     }
+  }
+}
+
+/** The `permissions.<name>` sentinel check, for a UI's page gates and bodies.
+ *
+ *  `validatePermissionRefs` walks CONTEXT bodies; a `ui` is a system member, so
+ *  nothing looked at a page.  That mattered once `lowerUi` started receiving a
+ *  catalogue (F-011): a name the catalogue cannot resolve — misspelled, or a
+ *  bare name TWO subdomains declare with different runtime strings — still
+ *  lowers to the `__unknown_permission__:` sentinel, which renders as a literal
+ *  no principal can ever hold.  The page is then permanently forbidden, with no
+ *  diagnostic anywhere: a silent authorization outcome, which is strictly worse
+ *  than the crash this replaced.  Same code, same message, same sentinel — only
+ *  the walk is new. */
+export function validateUiPermissionRefs(ui: UiIR, diags: LoomDiagnostic[]): void {
+  const flagOne = (location: string, e: ExprIR): void => {
+    if (
+      e.kind === "literal" &&
+      e.lit === "string" &&
+      e.value.startsWith(UNKNOWN_PERMISSION_SENTINEL)
+    ) {
+      diags.push({
+        severity: "error",
+        code: "loom.unknown-permission",
+        message: diagMessage("loom.unknown-permission#ui", {
+          name: e.value.slice(UNKNOWN_PERMISSION_SENTINEL.length),
+        }),
+        source: `${ui.name}/${location}`,
+      });
+    }
+  };
+  const flag = (location: string, expr: ExprIR | undefined): void => {
+    if (!expr) return;
+    walkExpr(expr, (e) => flagOne(location, e));
+  };
+  for (const page of ui.pages) {
+    flag(`page[${page.name}].requires`, page.requires);
+    flag(`page[${page.name}]`, page.body);
+    flag(`page[${page.name}].title`, page.title);
+  }
+  for (const c of ui.components) flag(`component[${c.name}]`, c.body);
+}
+
+/** A containment graph must be a TREE — no part may contain itself, directly or
+ *  through a chain.
+ *
+ *  A cyclic containment is not merely unsupported, it is unrepresentable: an
+ *  aggregate is loaded whole, so `entity Child { contains kids: Child[] }` names
+ *  a value with no finite serialisation.  Nothing said so.  `ddd parse` reported
+ *  `0 error(s), 0 warning(s)` and `ddd generate system` then died with a bare
+ *  `RangeError: Maximum call stack size exceeded` out of
+ *  `nestedContainLoads` — a stack trace, on a model the tool had just called
+ *  valid (F-040).
+ *
+ *  It is an easy shape to reach by accident, because the DOMAIN is ordinary: a
+ *  sub-task tree, a bill of materials, a threaded comment.  So the message names
+ *  the shape that does work — a self-referencing `X id?` on an aggregate, which
+ *  is a FK to the same table and loads a level at a time.
+ *
+ *  Reported once per cycle, at the part where the walk closes it, with the whole
+ *  chain spelled out: a "Child contains Child" error that does not show the path
+ *  is unhelpful the moment the cycle is three parts long. */
+export function validateContainmentCycles(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  for (const agg of ctx.aggregates) {
+    const byName = new Map(agg.parts.map((p) => [p.name, p]));
+    // Colour-marking DFS: `visiting` is the current path (a hit here is a back
+    // edge = a cycle), `done` is fully-explored (a hit here is a diamond, which
+    // is legal — two parts may both contain a third).
+    const done = new Set<string>();
+    const reported = new Set<string>();
+    const walk = (partName: string, path: string[]): void => {
+      if (done.has(partName)) return;
+      const at = path.indexOf(partName);
+      if (at >= 0) {
+        // Key the report on the cycle's MEMBER SET so the same cycle reached
+        // from two entry points is reported once, not once per entry.
+        const cycle = path.slice(at);
+        const key = [...cycle].sort().join(">");
+        if (reported.has(key)) return;
+        reported.add(key);
+        diags.push({
+          severity: "error",
+          code: "loom.containment-cycle",
+          message: diagMessage("loom.containment-cycle", {
+            agg: agg.name,
+            chain: [...cycle, partName].join(" contains "),
+            part: partName,
+          }),
+          source: `${ctx.name}/${agg.name}`,
+        });
+        return;
+      }
+      const part = byName.get(partName);
+      if (!part) return;
+      for (const c of part.contains) walk(c.partName, [...path, partName]);
+      done.add(partName);
+    };
+    // Start from the aggregate's own containments — a part unreachable from the
+    // root is already a different diagnostic's business.
+    for (const c of agg.contains) walk(c.partName, []);
   }
 }

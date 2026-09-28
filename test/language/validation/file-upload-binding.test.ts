@@ -2,6 +2,7 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
+import { diagText } from "../../_helpers/diagnostics.js";
 
 // `FileUpload` UI primitive (M-T1.2 slice 4a) — a standalone bindable input
 // that uploads a file and binds the returned `FileRef` into a `File`-typed
@@ -16,7 +17,7 @@ async function parse(source: string) {
   const doc = await parseHelper(services.Ddd)(source, { validation: true });
   const diags = doc.diagnostics ?? [];
   return {
-    errors: diags.filter((d) => d.severity === 1).map((d) => d.message),
+    errors: diags.filter((d) => d.severity === 1).map(diagText),
     codes: diags.filter((d) => d.severity === 1).map((d) => d.code),
   };
 }

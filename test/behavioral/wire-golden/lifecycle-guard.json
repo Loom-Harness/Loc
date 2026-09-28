@@ -275,6 +275,46 @@
       "path": "/api/crates/{id}",
       "status": 204,
       "body": ""
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.2ivz0p",
+            "message": "A shipment reference needs at least 3 characters",
+            "pointer": "/reference"
+          }
+        ],
+        "instance": "/api/shipments",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.2ivz0p",
+            "message": "A shipment reference needs at least 3 characters",
+            "pointer": "/reference"
+          }
+        ],
+        "instance": "/api/shipments",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

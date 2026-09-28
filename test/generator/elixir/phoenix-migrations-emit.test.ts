@@ -359,7 +359,9 @@ describe("phoenix migrations-emit — delta path", () => {
     expect(body).toContain("add :seq, :bigserial, null: false");
     // occurred_at's SQL default is fragment-wrapped for Ecto DSL.
     expect(body).toContain(
-      'add :occurred_at, :utc_datetime, null: false, default: fragment("now()")',
+      // `timestamptz` (RS-38): the schema field is `:utc_datetime_usec`, and the
+      // old `:utc_datetime` column was `timestamp(0)`, silently rounding it.
+      'add :occurred_at, :timestamptz, null: false, default: fragment("now()")',
     );
     // The unique seq index carries its deterministic name.
     expect(body).toContain(

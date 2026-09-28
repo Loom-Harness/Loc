@@ -22,12 +22,23 @@ Shipped over four slices:
   authorization gate that maps to HTTP 403, distinct from
   `precondition` (which maps to 422 — RS-15).
 
-**Default-deny enforcement** is opt-in via
-`auth { enforcement: denyByDefault }` (the language default stays `opt`,
-which preserves the per-`requires` behaviour — the default-flip to
-`denyByDefault` is deferred to a major version).  **Deny-by-default is the
-recommended posture** for anything security-sensitive, and `ddd new`'s
-scaffold points at it.  Under `denyByDefault`, every **client-reachable
+**Default-deny enforcement is the language default** (M-T3.1): an
+`auth { … }` block that writes no `enforcement:` is in
+`enforcement: denyByDefault`.  The pre-flip posture, `enforcement: opt`
+(only the members that declare a `requires` are gated; everything else serves
+any authenticated caller), is still available — write it explicitly.  A
+project that relied on the old default keeps its behaviour by running the
+codemod, which writes `enforcement: opt` into every `auth` block that names
+none:
+
+```bash
+node scripts/codemod-enforcement-opt.mjs <dir-or-file>...   # --check / --list write nothing
+```
+
+See [`migrations.md` § The `enforcement:` default flip](migrations.md#the-enforcement-default-flip-m-t31).
+A system with **no** `auth { … }` block (a `user { … }` claim shape served by
+the stub verifier) has no enforcement posture before or after the flip —
+nothing is checked there.  Under `denyByDefault`, every **client-reachable
 command AND read** on an `auth: required` deployable must declare a
 `requires` gate — `requires true` is the explicit "intentionally public"
 escape — else `loom.default-deny-ungated` fires.  Covered:
@@ -47,6 +58,36 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   of their named-find loop and used to emit the list route without reading its
   gate.  All five now resolve the list read through one shared derivation
   (`src/ir/util/read-gates.ts`).
+- **the synthesised by-id read is the second exception — and unlike the list
+  read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
+  on all five backends and carries no gate on any of them, so gating an
+  aggregate everywhere else (an admin-only `find all`, gated operations) still
+  leaves single records readable by any authenticated caller.  It is no longer
+  silent: under `denyByDefault` each such route raises
+  `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
+  the author can write to satisfy it — the by-id gate surface
+  (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
+  still apply to the by-id route: the tenancy filter (a foreign tenant's row
+  reads 404) and `mask unless` field redaction.  What does not: role
+  separation within a tenant.
+- **an event-sourced `create` is the third exception — on the four backends that
+  cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
+  into the domain `_init`, which has no principal in scope, so a `requires` there
+  is refused (`loom.lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
+  `python` / `java`.  **`elixir` is not affected** — Phoenix hoists the gate to
+  its context function and binds a principal, so there the gate is accepted and
+  the missing-gate case stays a hard error.  Demanding one
+  under `denyByDefault` was therefore an instruction with no satisfying answer —
+  gate present, one error; gate absent, one error — which made
+  `enforcement: denyByDefault` and `persistedAs: eventLog` **mutually exclusive**
+  for any event-sourced aggregate with a creation endpoint.  It now raises
+  `loom.default-deny-es-create-ungateable` (a **warning**, for the same reason
+  the by-id arm is one: there is nothing the author can write to satisfy it), and
+  the model builds.  To close the hole today, issue the create from a gated
+  `operation` / `workflow` and keep the canonical `create` off the client, or
+  host the aggregate on a deployable whose whole api is restricted.  Gating the
+  event-sourced create route *in place* means hoisting the gate out of `_init`
+  to each backend's own chokepoint — mission M-T3.16.
 - **`projection`s — both kinds** — the same optional `requires` gate, declared
   on the projection HEADER (`projection X keyed by k requires <expr> { … }`,
   after `keyed by`, like every other gate in the language), evaluated against
@@ -134,6 +175,8 @@ system Acme {
 
     context Orders {
       enum OrderStatus { Draft, Confirmed, Cancelled }
+
+      aggregate Customer { name: string }
 
       aggregate Order {
         customerId: Customer id
@@ -475,11 +518,11 @@ No surrounding `== …` / `&& …` is needed to satisfy the `bool` requirement:
 `currentUser.permissions` types as the claim's declared `string[]`, so the
 `.contains(…)` membership types as `bool`.
 
-Default-deny is opt-in via `auth { enforcement: denyByDefault }`
-(see the note at the top).  Without it (`enforcement: opt`, the
-default) a deployable on `auth: required` still serves any
-operation that doesn't declare a `requires` gate — Slice 2's
-original behaviour.
+Default-deny is the language default for an `auth { … }` block
+(see the note at the top).  Under an explicit `enforcement: opt` a
+deployable on `auth: required` still serves any operation that
+doesn't declare a `requires` gate — Slice 2's original behaviour, and
+the language default until M-T3.1.
 
 #### The canonical `create` / `destroy` gate
 
@@ -584,11 +627,30 @@ underneath it would make Phoenix enforce a rule the other four do not, and would
 fail closed for every principal-less internal caller (a timer, a seed, a saga).
 `delete_<agg>` splits the same way for a workflow `destroy` step.
 
-**Not supported: an event-sourced lifecycle guard.**  An `eventLog` aggregate's
-create body renders into the domain `_init`, which has no principal in scope, so
-the guard could not be evaluated there at all — `loom.lifecycle-guard-event-sourced`
-refuses it and points at the caller (the named `operation` / `workflow` that
-issues the create) instead.  The rest of a canonical lifecycle body is still not
+**An event-sourced lifecycle guard: supported on `elixir`, refused on the other
+four.**  Placement decides it, so this is a per-backend fact rather than a
+property of event sourcing.  Phoenix hoists a lifecycle gate to the **context
+function** — `create_<agg>(attrs, current_user \\ nil)`, with the controller
+passing the real principal — so an `eventLog` aggregate's `create ... { requires
+... }` binds and enforces there like any other gate.  The other four render the
+ES create body into the domain `_init`, which has no principal in scope:
+`currentUser` is a free identifier, so the guard does not deny, it does not
+compile.  `loom.lifecycle-guard-event-sourced` refuses it **naming the hosting
+backends that cannot enforce it**, and points at the caller (the named
+`operation` / `workflow` that issues the create) instead.
+
+Two details worth knowing:
+
+- The refusal covers **every** create on an event-sourced aggregate, not just
+  the canonical one.  The create the backends render is `creates[0]` *by index*,
+  so a named `create open(...)` on an event stream is the emitted one — and while
+  the refusal read `canonicalCreate` alone, its guard reached `_init` untouched:
+  `ddd parse` said `0 error(s)` and the generated project then failed to compile
+  on a free `currentUser`.
+- Under `denyByDefault` the absence of a gate is an **error on `elixir`** (the
+  gate is both required and accepted there) and a **warning** on a host that
+  cannot enforce one (`loom.default-deny-es-create-ungateable` — see the
+  exception list above).  The rule is recourse, not persistence shape.  The rest of a canonical lifecycle body is still not
 rendered on a state-based aggregate: a `precondition`, an `emit`, or a computed
 `assign` there is a `loom.lifecycle-body-dropped` error, not a silent drop.
 
@@ -609,21 +671,28 @@ has **no candidate row** — pass row fields in as arguments).  Parentheses are
 function form from the `policy {}` read-ladder block ([tenancy](tenancy.md)).
 
 ```ddd
-context Orders {
+subdomain Sales {
+  // `permissions { … }` is a SUBDOMAIN member — the catalogue is the
+  // permission namespace, and `sales.approve` below is its qualified name.
   permissions { approve, manage }
 
-  policy CanApprove(cap: money): bool =
-    currentUser.permissions.contains(permissions.approve) && cap <= 10000
-  policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+  context Orders {
+    enum OrderStatus { Draft, Approved }
 
-  aggregate Order {
-    amount: money
-    status: OrderStatus
-    operation approve() {
-      requires CanApprove(amount)   // ← argument bound to the parameter
-      requires IsManager()
-      status := OrderStatus.Approved
+    policy CanApprove(cap: money): bool =
+      currentUser.permissions.contains(permissions.approve) && cap <= 10000
+    policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+
+    aggregate Order {
+      amount: money
+      status: OrderStatus
+      operation approve() {
+        requires CanApprove(amount)   // ← argument bound to the parameter
+        requires IsManager()
+        status := OrderStatus.Approved
+      }
     }
+    repository Orders for Order { }
   }
 }
 ```
@@ -1021,14 +1090,19 @@ it as the trailing argument to the aggregate method.
 
 Until you register a real verifier, every backend ships an **accept-all dev
 stub** so the stack boots and the routes are reachable in local dev. The stub
-reads an optional **`x-loom-dev-claims`** request header — a JSON object of user
-claims — and projects it onto the `User` shape, so you can exercise
+reads an optional **`x-loom-dev-claims`** request header — **base64-encoded
+JSON** — and overlays it on the `User` shape, so you can exercise
 `currentUser`/`requires` gates without wiring an identity provider:
 
 ```bash
-curl -H 'x-loom-dev-claims: {"id":"u-1","role":"manager","tenantId":"t-1"}' \
+curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
+> falls back to the built-in identity, so a **raw-JSON** header does not fail —
+> it is silently ignored, and the request runs as the built-in `admin`. A gate
+> that then passes looks like your claims were applied when they never were.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid
@@ -1088,7 +1162,12 @@ Every backend mounts its auth routes under the shared API base, i.e.
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
   authorization-code redirect handshake, emitted only under an
-  `auth { oidc { … } }` block.
+  `auth { oidc { … } }` block.  The block's fields are documented in
+  [`language-reference/17-auth.md`](language-reference/17-auth.md#auth-----oidc-config);
+  the one worth reading before you ship is **`audience:`, which is optional and
+  whose absence turns the `aud` check off** — the verifier then accepts any
+  token from the configured issuer, including one minted for a different client
+  in the same realm.
 - `POST /api/auth/refresh` — silent renewal: exchanges the stored refresh
   token for a fresh access token (no IdP round-trip) and **rotates** it, so a
   SPA can extend a session on a 401 without bouncing the user back to login.

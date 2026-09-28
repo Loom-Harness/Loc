@@ -62,6 +62,7 @@ import type {
   SystemIR,
 } from "../types/loom-ir.js";
 import { groupedAggregates, wholeTableAggregates } from "./projection-aggregate.js";
+import { resolveProjectionColumn, sourceMemberChain } from "./projection-column.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "./resolve-datasource.js";
 import { walkExprDeep } from "./walk.js";
 
@@ -96,27 +97,45 @@ export function readsAggregateTableDirectly(arm: QueryProjectionArm): boolean {
   return arm === "grouped" || arm === "singleton";
 }
 
-/** Every single-hop member name the direct-table SQL will have to name as a
- *  COLUMN on the source row: the `where` predicate, the `group by` keys, the
+/** Every expression position whose names the direct-table SQL has to resolve to
+ *  COLUMNS on the source row: the `where` predicate, the `group by` keys, the
  *  aggregated columns (`sum(o.total)`), and — on the grouped arm — the per-row
- *  selects, which validation has already pinned to the grouping columns.
+ *  selects, which validation has already pinned to the grouping columns. */
+function directTablePositions(q: ProjectionQueryIR): (ExprIR | undefined)[] {
+  return [
+    q.filter,
+    ...(q.groupBy ?? []),
+    ...(q.selects ?? []).map((sel) => (sel.aggregate ? sel.aggregate.arg : sel.expr)),
+  ];
+}
+
+/** The MAXIMAL source-row member chains reachable from the direct-table
+ *  positions — `['amount', 'amount']` for `sum(b.amount.amount)`, once, not
+ *  also the `['amount']` prefix underneath it.
  *
- *  Deliberately name-only and receiver-blind.  Every backend's direct-table
- *  renderer treats a member access in these positions as a bare column
- *  (`<alias>."<snake(member)>"`), so the set of names it can emit is exactly
- *  the set of member names reachable here; narrowing by receiver would make the
- *  gate disagree with the emitter it is protecting. */
-function directTableColumnRefs(q: ProjectionQueryIR): string[] {
-  const names: string[] = [];
-  const collect = (e: ExprIR | undefined): void => {
-    walkExprDeep(e, (n) => {
-      if (n.kind === "member") names.push(n.member);
+ *  Maximal matters: the prefix of a value-object leaf IS the whole value
+ *  object, and refusing that prefix would refuse the very access this branch
+ *  exists to accept.  Rides `walkExprDeep` (never a hand-rolled child
+ *  enumeration — CLAUDE.md "No hand-rolled IR walks"), marking each member
+ *  node's RECEIVER as covered on the way past; what is left unmarked is exactly
+ *  the set of outermost chains. */
+function directTableChains(q: ProjectionQueryIR): ExprIR[] {
+  const covered = new Set<ExprIR>();
+  const seen: ExprIR[] = [];
+  for (const pos of directTablePositions(q)) {
+    walkExprDeep(pos, (n) => {
+      if (n.kind === "member") covered.add(n.receiver);
+      if (sourceMemberChain(n) !== null) seen.push(n);
     });
-  };
-  collect(q.filter);
-  for (const key of q.groupBy ?? []) collect(key);
-  for (const sel of q.selects ?? []) collect(sel.aggregate ? sel.aggregate.arg : sel.expr);
-  return names;
+  }
+  return seen.filter((n) => !covered.has(n));
+}
+
+/** The member NAMES a direct-table arm reaches, outermost hop of each chain —
+ *  the narrow reading the `shape: document` arm needs, where every declared
+ *  field lives inside one jsonb blob and only `id` survives as a column. */
+function directTableColumnRefs(q: ProjectionQueryIR): string[] {
+  return directTableChains(q).flatMap((n) => sourceMemberChain(n) ?? []);
 }
 
 /** Why NO backend can render this query-time projection's direct-table SQL over
@@ -165,6 +184,15 @@ export function columnlessProjectionSource(
         `fields live inside one jsonb blob rather than as columns a SQL aggregate can name`
       );
     }
+    return null;
+  }
+  // The source SHAPE has columns.  Now the narrower question every backend was
+  // blind to: does each NAME the arm's SQL emits resolve to one?  A `derived`
+  // field, a collection, and a whole value object all read fine on a hydrated
+  // domain object and have no column behind them — see projection-column.ts.
+  for (const chain of directTableChains(proj.query!)) {
+    const resolved = resolveProjectionColumn(chain, agg, ctx);
+    if (resolved && !resolved.ok) return resolved.reason;
   }
   return null;
 }

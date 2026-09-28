@@ -27,7 +27,8 @@ CREATE TABLE ""orders"".""orders"" (
   ""status"" TEXT NOT NULL,
   ""placed_at"" TIMESTAMP WITH TIME ZONE NOT NULL,
   ""version"" INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (""id"")
+  PRIMARY KEY (""id""),
+  CONSTRAINT ""orders_status_enum"" CHECK (""status"" IN ('Draft', 'Confirmed', 'Shipped', 'Cancelled'))
 );
 
 CREATE SCHEMA IF NOT EXISTS ""orders"";

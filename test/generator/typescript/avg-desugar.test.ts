@@ -41,18 +41,19 @@ describe("typescript generator — avg(λ) desugar", () => {
     expect(line).toContain(".div(");
   });
 
-  it("desugars a plain-numeric (int) `avg` to the native `+`/`/` mean", async () => {
+  it("desugars a plain-numeric (int) `avg` to a native int sum over an exact division", async () => {
     const model = await parseValid(SRC);
     const domain = generateHono(model).get("domain/order.ts")!;
     const line = domain.split("\n").find((l) => l.includes("get b("))!;
     expect(line).toBeDefined();
     expect(line).toContain("length === 0 ? null");
-    // int sum stays native `+`/`0`, divided by count with native `/`.
+    // int sum stays native `+`/`0` (integers are exact in a double)…
     expect(line).toContain("acc + ");
     expect(line).toContain(", 0)");
-    expect(line).toContain(" / ");
-    // no decimal.js on the numeric path
     expect(line).not.toContain(".plus(");
-    expect(line).not.toContain(".div(");
+    // …but the mean is `int / int` widened to `decimal`, and decimal
+    // arithmetic is exact (RS-37): a decimal.js division, narrowed once.
+    expect(line).toContain(".div(");
+    expect(line).toContain(".toNumber()");
   });
 });

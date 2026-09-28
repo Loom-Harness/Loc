@@ -99,15 +99,16 @@ describe("F-039 — a null test in a criterion", () => {
     expect(closed).toContain("where: not is_nil(record.answered_at)");
   });
 
-  it("python: SQLAlchemy's `== None` overload (which renders IS NULL)", async () => {
+  it("python: SQLAlchemy's `.is_(None)` / `.is_not(None)` (which render IS [NOT] NULL)", async () => {
     const files = await generateSystemFiles(SOURCE("python"));
     const repo = files.get("api/app/db/repositories/step_repository.py")!;
-    // `== None` is deliberate, not a lint slip: SQLAlchemy overloads `__eq__`
-    // on a column to build `IS NULL`.  `is None` would compare the COLUMN
-    // OBJECT and produce a constant `False`.  `pyproject.toml` ignores E711
-    // with that rationale.
-    expect(repo).toContain("StepRow.answered_at == None");
-    expect(repo).toContain("StepRow.answered_at != None");
+    // `.is_(None)`, not `== None`: both build `IS NULL` (SQLAlchemy overloads
+    // `__eq__` on a column), but the explicit method needs no E711 waiver and
+    // cannot be mistaken for the `is None` that would compare the COLUMN
+    // OBJECT and yield a constant `False`.  This assertion previously expected
+    // the `== None` spelling; `main` moved to the explicit one.
+    expect(repo).toContain("StepRow.answered_at.is_(None)");
+    expect(repo).toContain("StepRow.answered_at.is_not(None)");
   });
 
   it("dotnet: `== null` inside the EF expression tree (translated to IS NULL)", async () => {

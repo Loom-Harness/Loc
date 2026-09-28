@@ -63,7 +63,7 @@ const appFs = async (aggName: string): Promise<string> => {
 
 // The second site, found only by actually running `dotnet fable`: an OPERATION
 // PARAMETER named `to` becomes a form-record FIELD, so the same class hit
-// `type AssignIssueForm = { to: string }` → "Unexpected keyword 'to' in field
+// `type AssignIssueOpForm = { to: string }` → "Unexpected keyword 'to' in field
 // declaration".  `wireName` serves three roles (F# field, JSON key, and the
 // string keys of the touched-set / error ids), and only the F# one may carry
 // the escape — hence the separate `fsName`.

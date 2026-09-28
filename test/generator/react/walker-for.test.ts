@@ -138,6 +138,9 @@ describe("For directly inside a QueryView data lambda", () => {
       true,
       ts.default.ScriptKind.TSX,
     );
-    expect(sf.parseDiagnostics.map((d) => d.messageText)).toEqual([]);
+    // `parseDiagnostics` is on the SourceFile at runtime but not on the public
+    // `SourceFile` type, so name the shape rather than reaching through `any`.
+    const parsed = sf as unknown as { parseDiagnostics: readonly { messageText: unknown }[] };
+    expect(parsed.parseDiagnostics.map((d) => d.messageText)).toEqual([]);
   });
 });

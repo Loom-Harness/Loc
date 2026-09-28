@@ -4,7 +4,7 @@ The tokens and file-level structure beneath every other chapter: comments, ident
 
 > **Grammar:** `ID`, `STRING`, `INT`, `DECIMAL`, `DURATION`, `TRACE_ID`, `TEMPLATE_FULL`/`_START`/`_MIDDLE`/`_END`/`_FORMAT` (terminals), `WS`/`SL_COMMENT`/`ML_COMMENT` (hidden), `Model`, `ImportStmt`, `CommonSoftKeywords`, `Property.name`, `LooseName`, `NameRefIdent` · **Validators:** — · **Docs:** [`../language.md`](../language.md)
 
-Whitespace and comments are hidden terminals — ignored between tokens — so layout is free. Two number terminals are distinguished by the dot: `INT` is `/[0-9]+/`, `DECIMAL` is `/[0-9]+\.[0-9]+/`. A third, `DURATION` (`/[0-9]+(ms|s|m|h|d)/` — `15s`, `5m`), is declared before `INT` so `15s` lexes as one token; it is accepted only as a `timerSource`'s `every:` cadence — in expressions a span is spelled `days(n)` / `hours(n)` / `minutes(n)` (see [Expressions](05-expressions.md)).
+Whitespace and comments are hidden terminals — ignored between tokens — so layout is free.  In the member lists named below, a comma between members (and a trailing one after the last) is **optional and carries no meaning**, so `aggregate Order { qty: int, total: money }` and the newline-separated spelling parse identically. Those lists are: `user` fields; `valueobject`, `aggregate` and `entity`-part members; `event` fields; `payload` / `command` / `query` / `response` / `error` fields; `permissions` declarations; `menu` entries and links; `migration` steps; and `match` arms. **This is not a general rule about braces** — a block whose contents are named CLAUSES rather than a member list does not take them (a `retrieval`'s `where:` / `sort:` follow one another directly). There is no `;` statement separator anywhere in the language. Two number terminals are distinguished by the dot: `INT` is `/[0-9]+/`, `DECIMAL` is `/[0-9]+\.[0-9]+/`. A third, `DURATION` (`/[0-9]+(ms|s|m|h|d)/` — `15s`, `5m`), is declared before `INT` so `15s` lexes as one token; it is accepted only as a `timerSource`'s `every:` cadence — in expressions a span is spelled `days(n)` / `hours(n)` / `minutes(n)` (see [Expressions](05-expressions.md)).
 
 ## Comments
 
@@ -100,7 +100,7 @@ context Orders {
 == node
 ```ts
 // db/schema.ts — bare members re-quoted into a string array
-export const currencyEnum = pgEnum("currency", ["USD", "EUR", "GBP"]);
+export const currencyValues = ["USD", "EUR", "GBP"] as const;
 ```
 == dotnet
 ```csharp
@@ -156,7 +156,7 @@ ui Web {
 }
 ```
 
-The `CommonSoftKeywords` set today (soft in **every** value position, hard only in its own rule): `action`, `allow`, `asc`, `body`, `by`, `canonical`, `channels`, `command`, `config`, `connection`, `crossTenant`, `dataSources`, `deep`, `deny`, `desc`, `description`, `env`, `envelope`, `error`, `eventLog`, `every`, `favicon`, `filter`, `global`, `group`, `handle`, `immutable`, `implements`, `instance`, `internal`, `isolationLevel`, `join`, `key`, `keyPrefix`, `kind`, `literal`, `loads`, `local`, `mailer`, `managed`, `message`, `migration`, `money`, `objectStore`, `of`, `ogImage`, `option`, `or`, `paged`, `parent`, `payload`, `persistence`, `policy`, `query`, `queue`, `readonly`, `replica`, `resource`, `response`, `retain`, `retrieval`, `schema`, `secret`, `select`, `service`, `slot`, `snapshot`, `sort`, `sql`, `stamp`, `state`, `store`, `tablePrefix`, `tenancy`, `title`, `token`, `ttl`, `use`, `write`. That list is pinned against the grammar by `test/language/parsing/reserved-field-name-widening.test.ts` (it had already drifted — `key` was missing). The grammar rules are the source of truth — `CommonSoftKeywords` plus the per-rule extras on `Property`, `LooseName`, `NameRefIdent`, `LValueIdent` and `MemberName` in `src/language/ddd.langium`.
+The `CommonSoftKeywords` set today (soft in **every** value position, hard only in its own rule): `action`, `allow`, `asc`, `body`, `by`, `canonical`, `channels`, `command`, `config`, `connection`, `crossTenant`, `dataSources`, `deep`, `deny`, `desc`, `description`, `env`, `envelope`, `error`, `eventLog`, `every`, `favicon`, `filter`, `global`, `group`, `handle`, `immutable`, `implements`, `instance`, `internal`, `index`, `isolationLevel`, `join`, `key`, `keyPrefix`, `kind`, `link`, `literal`, `loads`, `local`, `mailer`, `managed`, `message`, `migration`, `money`, `objectStore`, `of`, `ogImage`, `option`, `or`, `paged`, `parent`, `payload`, `persistence`, `policy`, `query`, `queue`, `readonly`, `replica`, `resource`, `response`, `retain`, `retrieval`, `route`, `schema`, `secret`, `select`, `service`, `slot`, `snapshot`, `sort`, `sql`, `stamp`, `state`, `store`, `tablePrefix`, `tenancy`, `title`, `token`, `ttl`, `type`, `use`, `user`, `write`. That list is pinned against the grammar by `test/language/parsing/reserved-field-name-widening.test.ts` (it had already drifted — `key` was missing). The grammar rules are the source of truth — `CommonSoftKeywords` plus the per-rule extras on `Property`, `LooseName`, `NameRefIdent`, `LValueIdent` and `MemberName` in `src/language/ddd.langium`.
 
 No generated tab: soft-keyword admission is a parse-time concern; the resulting field/enum/declaration emits exactly as its non-keyword-named sibling would.
 

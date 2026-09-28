@@ -13,6 +13,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { diagText } from "../_helpers/diagnostics.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -43,7 +44,7 @@ async function retrievals(body: string) {
 
 async function langErrors(body: string): Promise<string[]> {
   const { diagnostics } = await parseString(SYS(body), { validate: true });
-  return (diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
+  return (diagnostics ?? []).filter((d) => d.severity === 1).map(diagText);
 }
 
 async function irCodes(body: string): Promise<string[]> {

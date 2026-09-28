@@ -4,7 +4,7 @@ Severity: **S1** blocker · **S2** major · **S3** friction · **S4** polish.
 Class: **SILENT** (valid input, exit 0, wrong/non-compiling output) · **HONEST**
 (refused with a clear diagnostic) · **DOCUMENTED** (named in the docs up front).
 
-**Tally — 23 entries: 21 defects + 2 recorded strengths.**
+**Tally — 24 entries: 22 defects + 2 recorded strengths.**
 
 | | S1 | S2 | S3 | S4 |
 |---|---|---|---|---|
@@ -15,6 +15,55 @@ Class: **SILENT** (valid input, exit 0, wrong/non-compiling output) · **HONEST*
 | **SILENT** | **14** |
 | HONEST | 4 |
 | DOCUMENTED / structural / contradicted claim | 3 |
+
+## Disposition — re-verified on `main` @ `62283b52` (2026-09-21)
+
+The split below supersedes the 2026-09-13 overlap map that follows it.  Every
+row was re-checked by RE-RUNNING the repro against that `main`, not read off the
+original register: nine days and ~400 commits later, three of the "claimed
+elsewhere" rows had been fixed, two of the "dropped" ones had become free to
+take, and one (F-009) had been fixed by someone else without a PR title that
+named it.  The 2026-09-13 section is kept below as the record of what was known
+when the work was planned — that is its value, and updating it in place would
+destroy it.
+
+**17 of 22 defects are closed outright**; F-006 is half closed (the crash, not
+the format-drop); the remaining four are F-008 and the three still claimed by
+open PRs (F-012, F-017, F-018).
+
+| Finding | State | Where |
+|---|---|---|
+| F-001 `--help` routes into `docs/old/**` | fixed | #2998 |
+| F-002 repo read in an `invariant` | fixed | #2913 |
+| F-003 unknown type is a dangling `NamedDecl` ref | fixed | #2998 |
+| F-004 `when <function>()` calls a `private` member | fixed | #2974 |
+| F-005 a soft keyword declarable but not readable | fixed | this PR |
+| F-006 ICU format dropped — *python crash half* | fixed | #2950 |
+| F-006 — *the format-drop itself* | **open, owned elsewhere** | recorded as DELIBERATE in `docs/new-plan/T1`; changing it is a language decision |
+| F-007 `create { }` — a remedy that does not parse | fixed | #2998 |
+| F-008 `retrieval` emits no HTTP route | **open, unowned** | the honest half (a deprecation naming its replacement's real cost) is available; auto-exposing a retrieval is a language decision |
+| F-009 `Repo.run(<Retrieval>)` emitter crash | fixed | on `main`; no longer reproduces |
+| F-010 `string` → `enum` emits no migration | fixed | #2998 |
+| F-012 hand-edits clobbered on regenerate | claimed, open | #2948 |
+| F-013 dotnet `state` collision | fixed | #2923 |
+| F-014 java missing `java.util.Objects` | fixed | #2925 |
+| F-015 elixir `__`-bound vars | fixed | #2911 |
+| F-016 a workflow calling a `function` across aggregates | fixed | #2974 |
+| F-017 `ddd i18n` locales never emitted | claimed, open | #2969 |
+| F-018 recursive containment `RangeError` | claimed, open | #2980 (a `loom.containment-cycle` validator, self-cycle included) |
+| F-019 an entity named `…Exception` fails the .NET build | fixed | #2950 |
+| F-020 `aud` off by default — *the generated comment* | fixed | #2950 |
+| F-020 — *the docs* | fixed | #2998 |
+| F-022 Angular `string[]` form | fixed | landed on `main` |
+| F-023 dead README site links | fixed | #2911 |
+| F-024 .NET `transactional` workflow event buffer | fixed | #2950 |
+
+Two findings remain genuinely open and neither is a bug to be quietly fixed:
+**F-006's format-drop** is a recorded design decision, and **F-008** asks whether
+a declared `retrieval` should auto-expose a route.  Both want an owner and a
+ruling, not a patch.
+
+---
 
 ## Overlap with in-flight work (checked 2026-09-13, against `main` @ `a25802d3` and all 26 open PRs)
 

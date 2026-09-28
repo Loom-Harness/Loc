@@ -75,7 +75,7 @@ export const TRUNCATION_NOTE = "_(truncated — full report on the clipboard)_";
 
 /** The issue form the URL prefills.  Issue FORMS ignore `?body=`; the prefill
  *  has to name the form's field id, which is `report`. */
-export const ISSUE_REPO = "lemmit/Loc";
+export const ISSUE_REPO = "Loom-Harness/Loc";
 export const ISSUE_TEMPLATE = "crash-report.yml";
 export const ISSUE_LABEL = "crash-report";
 

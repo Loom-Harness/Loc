@@ -314,6 +314,19 @@ export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): strin
       return `assert${negate ? "False" : "True"}(${cmp("<")});`;
     case "toBeLessThanOrEqual":
       return `assert${negate ? "False" : "True"}(${cmp("<=")});`;
+    // Absence.  An optional field is a boxed reference here (`Integer`, not
+    // `int`), so the language's one absence value is Java's `null`.
+    // (`toBeAbsent` never reaches this emitter — it is e2e-only, because a
+    // declared Java field has no "absent" form, only `null`.)
+    case "toBeNull":
+      return negate ? `assertNotNull(${actual});` : `assertNull(${actual});`;
+    // Containment.  Java spells BOTH lowerings `.contains(...)` — it is
+    // declared on `Collection<E>` (element membership) and on `String`
+    // (substring) — so the subject's static type picks the method, which is
+    // the same dispatch `checkContainReceiver` already validated.  One arm
+    // covers the two receiver kinds the DSL promises.
+    case "toContain":
+      return `assert${negate ? "False" : "True"}(${actual}.contains(${expected}));`;
     default:
       return null;
   }

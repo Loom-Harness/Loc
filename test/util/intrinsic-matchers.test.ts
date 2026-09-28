@@ -134,11 +134,44 @@ describe("intrinsic matchers — the documented special cases", () => {
     });
   });
 
-  it("every matcher other than the zero-arg `toBeVisible` / `toThrow` is unary", () => {
+  it("the absence pair are the zero-arg VALUE matchers", () => {
+    // Loom has ONE absence value, so neither takes an operand: `toBeNull()`
+    // asks about the value and `toBeAbsent()` about the KEY (it lowers onto the
+    // receiver, `"k" in obj`).  Both are negatable — `not.toBeAbsent()` is the
+    // useful claim "the key IS present".
+    expect(intrinsicMatcherSig("toBeNull")).toMatchObject({
+      arity: 0,
+      on: "value",
+      negatable: true,
+    });
+    expect(intrinsicMatcherSig("toBeAbsent")).toMatchObject({
+      arity: 0,
+      on: "value",
+      negatable: true,
+    });
+  });
+
+  it("`toContain` is a unary value matcher (one matcher, two lowerings)", () => {
+    // The subject's TYPE picks the lowering — membership for a collection,
+    // substring for a string — so the SIGNATURE is unary either way; the
+    // dispatch lives in the emitters, not the table.
+    expect(intrinsicMatcherSig("toContain")).toMatchObject({
+      arity: 1,
+      on: "value",
+      negatable: true,
+    });
+  });
+
+  it("every matcher is either zero-arg or unary, and the zero-arg ones are named", () => {
+    // Stated as a partition rather than "everything else is 1", so ADDING a
+    // zero-arg matcher fails here and gets a deliberate line above rather than
+    // quietly joining an `if (name === …) continue` skip list.
+    const zeroArg = NAMES.filter((n) => intrinsicMatcherSig(n)!.arity === 0).sort();
+    expect(zeroArg).toEqual(["toBeAbsent", "toBeNull", "toBeVisible", "toThrow"]);
     for (const name of NAMES) {
-      const sig = intrinsicMatcherSig(name)!;
-      if (name === "toBeVisible" || name === "toThrow") continue;
-      expect(sig.arity).toBe(1);
+      expect([0, 1], `${name}: matchers are zero-arg or unary`).toContain(
+        intrinsicMatcherSig(name)!.arity,
+      );
     }
   });
 });

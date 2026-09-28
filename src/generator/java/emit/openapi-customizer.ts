@@ -34,8 +34,10 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { requestComponentNamerFor } from "../../_openapi/request-component-names.js";
 import { findUnionSpec, unionJsonSchema } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
+import { javaRequestComponentOwners } from "../request-component-owners.js";
 import { isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
 
@@ -166,6 +168,13 @@ export function buildJavaOpenApiContract(
   contexts: readonly EnrichedBoundedContextIR[],
   routePrefix: string,
 ): Contract {
+  // The PUBLISHED names this table is keyed by.  Derived from the one shared
+  // owner list (`../request-component-owners.js`) that the record emitters also
+  // use, so the patch table and the records it patches cannot disagree -- which
+  // is the failure this whole finding is about (F-026).  Pre-fix, a collision
+  // made two `setRequired` calls target one key, and the survivor reinforced the
+  // WRONG shape for both endpoints.
+  const reqNameFor = requestComponentNamerFor(javaRequestComponentOwners(contexts));
   const routes: RouteContract[] = [];
   const wrappers = new Map<string, string>();
   // Operation-return union components — name → raw oneOf JSON (parsed by the
@@ -264,7 +273,7 @@ export function buildJavaOpenApiContract(
         const createInput = agg.createInput ?? [];
         for (const c of createInput) noteEnumRefs(c.field.type, c.field.name);
         setRequired(
-          `Create${agg.name}Request`,
+          reqNameFor({ kind: "create", aggregate: agg.name }),
           createInput.filter((c) => c.requiredInput).map((c) => c.field.name),
         );
         setRequired(`Create${agg.name}Response`, ["id"]);
@@ -276,7 +285,7 @@ export function buildJavaOpenApiContract(
       for (const op of agg.operations) {
         if (op.visibility !== "public") continue;
         for (const p of op.params) noteEnumRefs(p.type, p.name);
-        const reqName = `${upperFirst(op.name)}${agg.name}Request`;
+        const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
         const opEntry = opEntryOf(op);
         if (op.params.length === 0 && opEntry) {
           emptyRequests.push({ path: pathOf(opEntry), schema: reqName });
@@ -465,7 +474,7 @@ export function buildJavaOpenApiContract(
       });
       // <Wf>Request — required = command params (same op-param rule).
       for (const p of wf.params) noteEnumRefs(p.type, p.name);
-      setRequired(`${upperFirst(wf.name)}Request`, requiredParams(wf.params));
+      setRequired(reqNameFor({ kind: "workflow", workflow: wf.name }), requiredParams(wf.params));
     }
 
     // <Payload>Response — the wire record a payload-typed workflow param

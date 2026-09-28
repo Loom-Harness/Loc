@@ -106,7 +106,7 @@ per-runtime key (`SENDGRID_API_KEY`; SES uses the AWS credential chain +
 secret in your deployment to send through a real relay.
 
 The validator rejects a `kind` on an incompatible sourceType
-(`loom.kind-incompatible`). The persistence kinds (`state`/`snapshot`/`replica`)
+(an error from the resource kind ↔ sourceType check in `src/language/validators/datasource.ts`, which carries no `loom.*` code today). The persistence kinds (`state`/`snapshot`/`replica`)
 are modelled internally as capabilities under a `database` infra-kind; that
 reframe stays inside the registry — the surface keeps the fine-grained names.
 
@@ -217,7 +217,7 @@ The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
   contract, not a backend gap: load or write the blob in the orchestrator and
   pass the value in;
 - **capability-gated** — a verb whose capability the bound sourceType doesn't
-  offer is an error (`loom.resource-unknown-verb` / the need⊆sourceType check);
+  offer is an error (`loom.resource-verb-invalid` / the need⊆sourceType check);
 - **not inside a transactional span** — an external effect can't roll back with
   the DB transaction (`loom.resource-op-in-transaction`); move it out, or use an
   outbox;

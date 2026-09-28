@@ -27,32 +27,34 @@ const wrap = (component: string) => `
 describe("validator: extern component", () => {
   it("accepts an extern component with no body", async () => {
     const { errors } = await parseString(
-      wrap(`component Chart(order: Order, height: int) extern from "widgets/chart"`),
+      wrap(`component SalesChart(order: Order, height: int) extern from "widgets/chart"`),
     );
     expect(errors, errors.join("\n")).toEqual([]);
   });
 
   it("rejects an extern component that declares a body (loom.extern-component-has-body)", async () => {
     const { errors } = await parseString(
-      wrap(`component Chart(height: int) extern from "widgets/chart" { body: Heading { "x" } }`),
+      wrap(
+        `component SalesChart(height: int) extern from "widgets/chart" { body: Heading { "x" } }`,
+      ),
     );
     expect(
-      errors.some((e) => /Extern component 'Chart' must not declare a 'body:'/.test(e)),
+      errors.some((e) => /Extern component 'SalesChart' must not declare a 'body:'/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });
 
   it("rejects a non-extern component with no body (loom.component-missing-body)", async () => {
-    const { errors } = await parseString(wrap(`component Chart(height: int) { }`));
+    const { errors } = await parseString(wrap(`component SalesChart(height: int) { }`));
     expect(
-      errors.some((e) => /Component 'Chart' requires a 'body:'/.test(e)),
+      errors.some((e) => /Component 'SalesChart' requires a 'body:'/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });
 
   it("admits a slot param on an extern component", async () => {
     const { errors } = await parseString(
-      wrap(`component Chart(order: Order, aside: slot?) extern from "widgets/chart"`),
+      wrap(`component SalesChart(order: Order, aside: slot?) extern from "widgets/chart"`),
     );
     expect(errors, errors.join("\n")).toEqual([]);
   });
