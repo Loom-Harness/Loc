@@ -204,7 +204,11 @@ export function renderAggregate(
   return (
     lines(
       "// Auto-generated.",
-      usesMoney ? 'import Decimal from "decimal.js";' : null,
+      // A money-free aggregate still names `Decimal` when a body computes a
+      // `decimal` exactly (RS-38 — `new Decimal(a).plus(b).toNumber()`), so the
+      // import also follows a body scan, the same scan the value-object and
+      // domain-service emitters already use.
+      usesMoney || /(?<![.\w$])Decimal\b/.test(body) ? 'import Decimal from "decimal.js";' : null,
       'import * as Ids from "./ids";',
       voEnumImport,
       serviceImport,
