@@ -12,9 +12,39 @@
 // JS targets, the wire STRING on Flutter — so the default `a < b` comparator
 // orders them wrongly), which is why the predicate lives here rather than twice.
 
-import type { ExprIR } from "../../../ir/types/loom-ir.js";
+import type { ExprIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import type { WalkContext } from "../walker-core.js";
 import { extendLambdaParams } from "../walker-core.js";
+
+/** The declared fields of the record a row IS — an aggregate, or one of an
+ *  aggregate's contained ENTITY PARTS.
+ *
+ *  The part half is what a containment table needs.  A scaffolded detail page
+ *  renders its aggregate's `lines: WorkOrderLine[]` as a `Table(rows: wo.lines)`,
+ *  and a part's fields are declared with exactly the same `?` an aggregate's
+ *  are — but a part is not in `ctx.aggregatesByName`, so every lookup built on
+ *  that map answered "unknown" for every cell of every containment table, and
+ *  an unknown field type reads as a REQUIRED one.  That is how a
+ *  `part: Part id?` cell reached the Feliz pack's `IdLink` unguarded and
+ *  emitted `("/parts/" + <string option>)` — FS0001, on a model that validated
+ *  `0 error(s)`.
+ *
+ *  Aggregates are searched first, so a part that shares an aggregate's name
+ *  never shadows it; parts are then searched across every aggregate, since a
+ *  row binding carries only the part's own name. */
+export function rowRecordFields(
+  record: string | undefined,
+  ctx: WalkContext,
+): readonly FieldIR[] | undefined {
+  if (!record) return undefined;
+  const agg = ctx.aggregatesByName.get(record);
+  if (agg) return agg.fields;
+  for (const a of ctx.aggregatesByName.values()) {
+    const part = a.parts?.find((p) => p.name === record);
+    if (part) return part.fields;
+  }
+  return undefined;
+}
 
 /** The PRIMITIVE a row column reads, or undefined when it cannot be resolved
  *  (no recorded row aggregate, an unknown field, a non-primitive field).  The
@@ -25,8 +55,7 @@ export function rowFieldPrimitive(
   ctx: WalkContext,
 ): string | undefined {
   if (!field || !rowAggregate) return undefined;
-  const agg = ctx.aggregatesByName.get(rowAggregate);
-  const t = agg?.fields.find((x) => x.name === field)?.type;
+  const t = rowRecordFields(rowAggregate, ctx)?.find((x) => x.name === field)?.type;
   const base = t?.kind === "optional" ? t.inner : t;
   return base?.kind === "primitive" ? base.name : undefined;
 }
@@ -112,7 +141,40 @@ export function cellRowAggregate(
   if (!rowsArg) return undefined;
   if (rowsArg.kind === "ref") return ctx.listRowAggregates?.get(rowsArg.name);
   if (rowsArg.kind === "member" && rowsArg.receiver.kind === "ref") {
-    return ctx.listRowAggregates?.get(rowsArg.receiver.name);
+    const envelope = ctx.listRowAggregates?.get(rowsArg.receiver.name);
+    if (envelope) return envelope;
+    // …and the third shape: a CONTAINMENT collection read off a single-record
+    // binding (`Table(rows: wo.lines)`, every scaffolded detail page's child
+    // table).  The receiver is a `paramTypes` binding rather than a row set,
+    // and the rows are the contained ENTITY PART — resolvable, but by the
+    // declared field's element type rather than by either map.
+    return containedRowRecord(rowsArg.receiver.name, rowsArg.member, ctx);
   }
   return undefined;
+}
+
+/** The record name a `<single-record>.<field>` rows expression yields rows of,
+ *  when `<field>` is declared as a collection of an entity part or value
+ *  object (`lines: WorkOrderLine[]`).  Undefined for anything else, which
+ *  leaves the cell walk exactly as unresolved as it was. */
+function containedRowRecord(
+  receiver: string,
+  member: string,
+  ctx: WalkContext,
+): string | undefined {
+  const holder = ctx.paramTypes?.get(receiver);
+  if (!holder) return undefined;
+  // A CONTAINMENT is not a field: `lines: WorkOrderLine[]` lives on
+  // `contains`, and only the derived `wireShape` folds the two lists into
+  // one.  Look there first — this is the shape a scaffolded detail table
+  // actually reads — then fall back to a declared collection field whose
+  // element is an entity.
+  const agg = ctx.aggregatesByName.get(holder);
+  const contained = agg?.contains?.find((c) => c.name === member && c.collection);
+  if (contained) return contained.partName;
+  const t = rowRecordFields(holder, ctx)?.find((f) => f.name === member)?.type;
+  const base = t?.kind === "optional" ? t.inner : t;
+  if (base?.kind !== "array") return undefined;
+  const el = base.element.kind === "optional" ? base.element.inner : base.element;
+  return el.kind === "entity" ? el.name : undefined;
 }
