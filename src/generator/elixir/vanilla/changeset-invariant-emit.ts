@@ -39,6 +39,7 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake } from "../../../util/naming.js";
+import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 
 /** True when a rule leans on one of the shapes `structEvaluable` admits only
@@ -207,8 +208,11 @@ export function renderInvariantValidatorFn(
     // A messaged rule attaches the stable content-hash wire `code` (the i18n
     // key) as `add_error` metadata (`loom_code:`), surfaced by the 422 handler;
     // a message-less rule adds no metadata (byte-identical).
+    // …and the RFC 6901 pointer its DOMAIN-FLOOR entry names (M-T1.11 (c)):
+    // `/<field>` for a single-field rule, else "" — the wire rung keeps pointing
+    // at the error's field and never reads it.
     const codeOpt = inv.message
-      ? `, loom_code: ${JSON.stringify(messageCode(inv.message.text))}`
+      ? `, loom_code: ${JSON.stringify(messageCode(inv.message.text))}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
       : "";
     // The message goes through the shared escaping funnel: a raw `#{` in the
     // author's `message "…"` (or in the derived `must satisfy: <source>`) would
@@ -251,6 +255,30 @@ ${core.replace(/^/gm, "  ")}
   defp __loom_list(v), do: v`
     : "";
 
+  // M-T1.11 (c) — the operation-persist twin: the same checks, with every
+  // MESSAGED error they add tagged `loom_domain_floor`, so ProblemDetails
+  // answers it on the DOMAIN-FLOOR rung (title "Unprocessable Entity", the
+  // message as `detail`, one errors[] entry with the rule's code and pointer)
+  // the other four backends' operation throw answers — not the wire rung's
+  // "Validation failed" a request changeset gets.  `add_error` PREPENDS, so the
+  // errors this call added are the head of the list.
+  const domainFloorFn = residuals.some((inv) => inv.message)
+    ? `
+
+  @doc "Re-assert the invariants after an operation body (the DOMAIN FLOOR) — a messaged violation answers the domain-floor 422 with its errors[] entry."
+  def validate_domain_floor(changeset) do
+    before = length(changeset.errors)
+    checked = validate_invariants(changeset)
+    {added, kept} = Enum.split(checked.errors, length(checked.errors) - before)
+    %{checked | errors: Enum.map(added, &__at_domain_floor/1) ++ kept}
+  end
+
+  defp __at_domain_floor({field, {msg, opts}}) do
+    if Keyword.has_key?(opts, :loom_code),
+      do: {field, {msg, Keyword.put(opts, :loom_domain_floor, true)}},
+      else: {field, {msg, opts}}
+  end`
+    : "";
   return `  @doc "Assert the aggregate's cross-field invariants on the proposed struct — an unmet one surfaces as a changeset error (422), the domain floor the other backends enforce at construction."
   def validate_invariants(changeset) do
     data = apply_changes(changeset)
@@ -258,5 +286,12 @@ ${core.replace(/^/gm, "  ")}
 ${normBlock}${checks.join("\n\n")}
 
     changeset
-  end${helper}`;
+  end${domainFloorFn}${helper}`;
+}
+
+/** True when the aggregate's residual invariants include a MESSAGED one — the
+ *  changeset module then carries `validate_domain_floor/1` (M-T1.11 (c)) and the
+ *  operation-persist pipe runs it instead of `validate_invariants/1`. */
+export function aggregateHasDomainFloorCodes(agg: Pick<AggregateIR, "invariants">): boolean {
+  return residualInvariants(agg).some((inv) => inv.message);
 }

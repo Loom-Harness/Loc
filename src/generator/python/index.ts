@@ -24,12 +24,14 @@ import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreig
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
+import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -39,6 +41,7 @@ import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
+import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { unionJsonSchema } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -449,7 +452,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       })()
     : undefined;
   if (authRequired && args.sys.user)
-    emitPyAuthFiles(args.sys.user, out, oidc, args.sys.tenancy?.claimField, orgPathRegistryTable);
+    emitPyAuthFiles(
+      args.sys.user,
+      out,
+      oidc,
+      args.sys.tenancy?.claimField,
+      orgPathRegistryTable,
+      systemReadsOrgContext(args.sys),
+    );
   // First-boot seeding (database-seeding.md): emitted only when a
   // dataset survives filtering (rows on concrete aggregates); the
   // lifespan runs seeds right after migrations (Hono/.NET boot order).
@@ -541,7 +551,10 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // append-time `(stream_id, version)` 23505 collision — a concurrency-free app
   // omits both and stays byte-identical.
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  out.set("app/domain/errors.py", errorsPy(hasConcurrency));
+  out.set(
+    "app/domain/errors.py",
+    errorsPy(hasConcurrency, hasValueObjectInvariants(merged), hasDomainFloorMessages(merged)),
+  );
   out.set("app/domain/value_objects.py", renderPyEnumsAndValueObjects(merged));
   out.set("app/domain/events.py", renderPyEvents(merged));
 
@@ -663,6 +676,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // exception handlers have no per-context tag, so they read it here.
       (args.sys as EnrichedSystemIR).structuralErrorStatuses,
       validationMessages.length > 0,
+      // M-T5.1: the value-object-invariant handler rides on a hosted value
+      // object declaring an invariant; a project without one is byte-identical.
+      hasValueObjectInvariants(merged),
+      // M-T1.11 (c): the domain-floor code answer rides on a messaged
+      // aggregate rule the same way.
+      hasDomainFloorMessages(merged),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1588,8 +1607,15 @@ def required(value: _T | None) -> _T:
 
 
 def iso(dt: datetime) -> str:
-    """ISO-8601 UTC with a Z suffix — wire parity with the other backends."""
-    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    """ISO-8601 UTC in MILLISECONDS with a Z suffix (RS-4 + RS-38) — exactly
+    three fractional digits when the instant has a sub-second part, none on a
+    whole second, the form every backend ships.  \`isoformat\` alone printed
+    six digits (\`.120000Z\`); \`timespec="milliseconds"\` TRUNCATES, so
+    \`.9996\` cannot carry into the next second."""
+    utc = dt.astimezone(UTC)
+    if utc.microsecond < 1000:
+        return utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def money_str(amount: Decimal) -> str:
@@ -1668,6 +1694,10 @@ function renderProblemPy(
    *  each messaged rule's wire `code` against the catalog for the request
    *  locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
   localizeMessages = false,
+  /** True when a hosted value object declares an invariant — the module then
+   *  carries the `ValueObjectInvariantError` handler (M-T5.1). */
+  valueObjectInvariants = false,
+  domainFloorCodes = false,
 ): string {
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
@@ -1770,6 +1800,48 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
   const localizeLine = localizeMessages
     ? '\n                entry["message"] = localize_message(code, entry["message"])'
     : "";
+  // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
+  // status plus one RFC 7807 errors[] entry.  Pointer "" (the whole request —
+  // the body computed the value, so it names no request member), the rule's
+  // message, and for a messaged rule its content-hash code resolved through the
+  // same catalog the wire rung uses.  Starlette dispatches on the exception's
+  // MRO, so this subclass handler wins over `_domain`.
+  const voImport = valueObjectInvariants ? "    ValueObjectInvariantError,\n" : "";
+  const voLocalize = localizeMessages
+    ? '\n            entry["message"] = localize_message(err.code, str(err))'
+    : "";
+  // M-T1.11 (c) — the SAME errors[]-entry answer for a MESSAGED invariant /
+  // check / precondition tripped at the domain floor: one helper both handlers
+  // call, so the two refusals cannot drift into different bodies.
+  const domainFloorEntryFn = domainFloorCodes
+    ? `    def _domain_floor_with_entry(request: Request, err: DomainError, pointer: str) -> JSONResponse:
+        log("warn", "domain_error", message=str(err), status=${domainStatus})
+        record_domain_fault("domain_error")
+        entry: dict[str, str] = {"pointer": pointer, "message": str(err)}
+        if err.code is not None:
+            entry["code"] = err.code${voLocalize}
+        return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err), [entry])
+
+`
+    : "";
+  const voHandler = valueObjectInvariants
+    ? domainFloorCodes
+      ? `    @app.exception_handler(ValueObjectInvariantError)
+    async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
+        return _domain_floor_with_entry(request, err, "")
+
+`
+      : `    @app.exception_handler(ValueObjectInvariantError)
+    async def _value_object_invariant(request: Request, err: ValueObjectInvariantError) -> JSONResponse:
+        log("warn", "domain_error", message=str(err), status=${domainStatus})
+        record_domain_fault("domain_error")
+        entry: dict[str, str] = {"pointer": "", "message": str(err)}
+        if err.code is not None:
+            entry["code"] = err.code${voLocalize}
+        return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err), [entry])
+
+`
+    : "";
   return `"""RFC 7807 problem responses + exception handlers.  Auto-generated."""
 
 from http import HTTPStatus
@@ -1787,7 +1859,7 @@ from app.domain.errors import (
 ${versionedImport}    DisallowedError,
     DomainError,
     ForbiddenError,
-)
+${voImport})
 from app.obs.log import log
 from app.obs.metrics import record_domain_fault${i18nImport}
 
@@ -1919,13 +1991,19 @@ def install_error_handlers(app: FastAPI) -> None:
         record_domain_fault("disallowed")
         return problem(request, ${disallowedStatus}, "Disallowed", str(err))
 
-    @app.exception_handler(DomainError)
-    async def _domain(request: Request, err: DomainError) -> JSONResponse:
+${domainFloorEntryFn}    @app.exception_handler(DomainError)
+    async def _domain(request: Request, err: DomainError) -> JSONResponse:${
+      domainFloorCodes
+        ? `
+        if err.code is not None:
+            return _domain_floor_with_entry(request, err, err.pointer if err.pointer is not None else "")`
+        : ""
+    }
         log("warn", "domain_error", message=str(err), status=${domainStatus})
         record_domain_fault("domain_error")
         return problem(request, ${domainStatus}, "${problemTitle(domainStatus)}", str(err))
 
-${integrityHandler}${versionedHandler}    @app.exception_handler(AggregateNotFoundError)
+${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(AggregateNotFoundError)
     async def _not_found(request: Request, err: AggregateNotFoundError) -> JSONResponse:
         log("warn", "not_found", message=str(err), status=${notFoundStatus})
         record_domain_fault("not_found")

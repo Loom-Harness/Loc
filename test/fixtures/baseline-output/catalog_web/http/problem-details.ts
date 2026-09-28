@@ -3,6 +3,27 @@ import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { ValueObjectInvariantError } from "../domain/errors";
+
+/** The domain-floor answer with ONE RFC 7807 errors[] entry — the shape the
+ *  wire rung gives a request member, for a refusal the wire could not see:
+ *  a value object a domain BODY built (an operation, a workflow, a handler —
+ *  not the request body, whose value objects the request schema already
+ *  checked).  The entry carries the rule's message and, for a
+ *  messaged rule, the same content-hash code the wire rung carries.  The
+ *  pointer is the rule's ("/<field>" for a single-field rule) or "" — the
+ *  whole request.  Anything else answers undefined and the caller's own arm
+ *  runs. */
+export function domainFloorProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
+  if (!(err instanceof ValueObjectInvariantError)) return undefined;
+  const trace_id = c.get("requestId") ?? "";
+  const entry = { pointer: "", message: err.message, ...(err.code ? { code: err.code } : {}) };
+  return c.body(
+    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
+    status as 422,
+    { "content-type": "application/problem+json", "x-request-id": trace_id },
+  );
+}
 
 /** The wire schema for a `guid`-valued id — the canonical dashed-hex uuid
  *  form, and nothing more.

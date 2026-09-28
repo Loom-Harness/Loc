@@ -221,6 +221,7 @@ referenced by its name and so is unaffected.
 | `loom.union-variant-not-carrier` | A `slot` variant — every variant must be a carrier type. |
 | `loom.union-position` | An inline `or` union outside a find return / payload field / operation return. |
 | `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg option` (exactly the aggregate + one `none`/`error{resource}` variant). |
+| `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
 | `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged` / `envelope`. |
 | `loom.generic-position` | A generic carrier outside a transport position. |
 | `loom.generic-carrier-unsupported` / `loom.union-unsupported` | A carrier / union served by a backend that doesn't emit it yet — a platform-aware gate. All five backends now emit both, so these are dormant safety nets for a future backend. |
@@ -244,8 +245,12 @@ generated on every backend. The two surfaces differ in who selects the variant:
 
 ## What's deferred
 
-- **`match` over a union** with exhaustiveness checking + per-backend narrowing
-  (`switch(x.type)` / C# pattern match / Elixir `case`) — the consumer side.
+- **The effect-form `match` over a union in a domain / workflow body** (arms that
+  run statements, e.g. `match r { Order o => o.touch(), NotFound => … }`). The
+  VALUE form ships on all five backends (`let t = match r { Order o => o.code,
+  … }`, exhaustiveness-checked, narrowed per backend) and reading a union
+  without it is refused (`loom.union-read-undiscriminated`); the statement form
+  is frontend-only today (`loom.variant-match-placement`).
 - **`option` PATCH** semantics ([`partial-update`](old/proposals/partial-update.md)).
   (Exception-less **operation returns** of unions have shipped — see §5.)
 - **User-declared generic payloads** beyond the blessed `paged` / `envelope` /

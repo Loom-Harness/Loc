@@ -73,6 +73,15 @@ const BASELINE: Record<string, Divergence> = {
   "stamps.ddd Shop.Order": "missing-in-record",
   "policy-document.ddd Registry.Org": "missing-in-record",
   "tenancy-hierarchy.ddd Books.Org": "missing-in-record",
+  // The same A1 row, witnessed by a NEW fixture rather than a regression: the
+  // `org-context` registry `implements tenantRegistry` exactly as
+  // `tenancy-hierarchy`'s does, so its capability-injected `parent`/`dataKey`
+  // reach the wire and not the record.  Drains with the A1 class fix.
+  "org-context.ddd Books.Org": "missing-in-record",
+  // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
+  // carries the `softDeletable` mixin — one more instance of THIS class, not
+  // a new divergence.
+  "datetime-wire.ddd Booking.Venue": "missing-in-record",
   // A2. fields inherited from an `abstract aggregate` base.  Enrichment merges
   //     the extends chain into the concrete; the record's walk does not — the
   //     coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain
@@ -93,6 +102,9 @@ const BASELINE: Record<string, Divergence> = {
   //     `isResponsePayloadName`.  A re-derivation has to undo it.
   "collection-op-shapes.ddd Sales.Order": "containment-response-suffix",
   "core-domain.ddd Orders.Order": "containment-response-suffix",
+  // (added with the RS-37 witness — a fixture carrying a containment, so the
+  // same deliberate B1 shape; not a new divergence class.)
+  "decimal-exact.ddd Lab.Sample": "containment-response-suffix",
   "document-collection-read.ddd Shop.Order": "containment-response-suffix",
   "document.ddd Cms.Article": "containment-response-suffix",
   "embedded.ddd Shop.Order": "containment-response-suffix",

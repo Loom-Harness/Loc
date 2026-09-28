@@ -1391,6 +1391,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `variant 'match' subject is not a union — its type is ${
       p.subjectType
     }. A variant match discriminates an 'or'-union value by variant.`,
+  "loom.union-read-undiscriminated": (p: {
+    receiver: unknown;
+    member: unknown;
+    variants: unknown;
+    first: unknown;
+  }) =>
+    `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }' — or declare the find ': ${p.first}' to answer 404 when the row is absent.`,
+  "loom.union-read-undiscriminated#op-call": (p: {
+    receiver: unknown;
+    op: unknown;
+    variants: unknown;
+    first: unknown;
+  }) =>
+    `'${p.receiver}.${p.op}()' invokes an operation on an 'or'-union value (${p.variants}) — it holds ONE of those variants, so there is no aggregate to run it on until the value is discriminated. Load it with a find declared ': ${p.first}' (absent → 404) or 'getById', or branch on the variant with 'match'.`,
   "loom.match-unknown-variant": (p: { varType: unknown; variants: unknown }) =>
     `variant 'match' arm names '${p.varType}', which is not a variant of the subject union {${p.variants}}.`,
   "loom.match-duplicate-variant": (p: { varType: unknown }) =>
@@ -1457,6 +1471,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `'currentUser.${p.member}' requires a 'tenancy by user.<claim> of <Registry>' ` +
     `declaration — it is derived from the caller's tenant materialized path, resolved from ` +
     `the tenancy claim and registry.  Add the tenancy line, or drop the '${p.member}' reference.`,
+  "loom.org-context-surface#member": (p: { shape: unknown }) =>
+    `'${p.shape}' is not an operating-scope read — 'organizationContext' exposes exactly one ` +
+    `member, 'organizationContext.orgPath' (the materialized path of the org this request ` +
+    `operates in).  The principal's own claims stay on 'currentUser'.`,
+  "loom.org-context-surface#frontend":
+    `'organizationContext' is read inside a 'ui' — the operating scope exists only in backend ` +
+    `code, where each backend's auth middleware resolves it through the fail-closed ` +
+    `'x-org-context' switch gate.  A frontend has no switch gate; read 'currentUser' there, or ` +
+    `move the read into the operation / stamp that needs it.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/test-placement.ts
@@ -3012,7 +3035,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // tenant filter drops the isolation boundary itself.  A WARNING, not an
   // error — the deliberate platform-admin cross-tenant report is a real,
   // supported shape — but an unconditional one: it does not consult
-  // `auth { enforcement: }` (the default `opt` mode gates nothing, and
+  // `auth { enforcement: }` (an explicit `opt` mode gates nothing, and
   // `requires true` satisfies `denyByDefault` while leaking exactly as hard).
   "loom.tenancy-filter-bypass": (p: {
     site: unknown;
@@ -3846,6 +3869,18 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/tenancy-checks.ts
   // ----------------------------------------------------------------------
+  "loom.org-context-gate-unmet#no-hierarchy": (p: { ctx: unknown; name: unknown }) =>
+    `context '${p.ctx}' reads 'organizationContext.orgPath', but system '${p.name}' has no ` +
+    `tenant hierarchy to switch within — the operating-scope switch gate admits a requested org ` +
+    `only inside the caller's 'orgPath' subtree, which needs 'tenancy by user.<claim> of ` +
+    `<Registry>' AND the registry 'implements tenantRegistry'.  Add both, or read ` +
+    `'currentUser.orgPath' instead.`,
+  "loom.org-context-gate-unmet#no-auth": (p: { ctx: unknown; dep: unknown }) =>
+    `context '${p.ctx}' reads 'organizationContext.orgPath', but deployable '${p.dep}' hosts it ` +
+    `without 'auth: required' (and a 'user { … }' block) — the operating scope is resolved by ` +
+    `the auth middleware's fail-closed 'x-org-context' switch gate, and a deployable with no ` +
+    `auth has no gate: the read would be an unvalidated caller-submitted value.  Add ` +
+    `'auth: required' to '${p.dep}'.`,
   "loom.tenant-registry-without-tenancy": (p: { agg: unknown; name: unknown }) =>
     `aggregate '${p.agg}' implements 'tenantRegistry' but system '${p.name}' declares no ` +
     `'tenancy by user.<claim> of <Registry>' line.  The registry tree (parent + dataKey) is ` +
@@ -4458,7 +4493,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; v1 supports only single non-nullable aggregates.  Use getById (throws → 404) instead.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; v1 supports only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
   "loom.handler-load-nullable-unsupported": (p: {
     kind: unknown;
     name: unknown;

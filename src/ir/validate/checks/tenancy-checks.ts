@@ -1,5 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
+import { contextReadsOrgContext } from "../../util/org-context.js";
 import {
   classifyTenantStance,
   hasTenantOwned,
@@ -408,7 +410,73 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
+/** Backend families that host the operating-scope switch gate — every
+ *  domain-logic backend.  A frontend family never reaches here with a read:
+ *  `organizationContext` on a `ui` is refused at the AST
+ *  (`loom.org-context-surface#frontend`). */
+const ORG_CONTEXT_GATE_FAMILIES: ReadonlySet<string> = new Set([
+  "node",
+  "dotnet",
+  "java",
+  "python",
+  "elixir",
+]);
+
+/** `loom.org-context-gate-unmet` — the operating-scope accessor
+ *  (`organizationContext.orgPath`, organization-context.md; M-T3.6 items 3+5)
+ *  lands ONLY together with its fail-closed switch gate, so a model that reads
+ *  it where the gate's preconditions are not derivable is refused by name:
+ *
+ *   #no-hierarchy — the gate admits a requested org only inside the caller's
+ *     `orgPath` subtree, so a `tenancy by … of <Registry>` whose registry
+ *     `implements tenantRegistry` must exist (no hierarchy ⇒ nothing to switch
+ *     within, and no subtree to check against).
+ *   #no-auth — every BACKEND deployable hosting a reading context must carry
+ *     `auth: required` (with a `user { … }` block): the gate lives in the auth
+ *     middleware, so a deployable without one would serve a read of a value
+ *     nothing validated.
+ *
+ *  "Reads" is derived from the lowered expressions (`contextReadsOrgContext`),
+ *  the same walk every backend's auth emitter asks before emitting the gate. */
+function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const readers = sys.subdomains
+    .flatMap((mod) => mod.contexts)
+    .filter((ctx) => contextReadsOrgContext(ctx));
+  if (readers.length === 0) return;
+  const hierarchy = hierarchyRegistry(sys) !== undefined;
+  for (const ctx of readers) {
+    if (!hierarchy) {
+      diags.push({
+        severity: "error",
+        code: "loom.org-context-gate-unmet",
+        message: diagMessage("loom.org-context-gate-unmet#no-hierarchy", {
+          ctx: ctx.name,
+          name: sys.name,
+        }),
+        source: `${sys.name}/${ctx.name}`,
+      });
+      continue;
+    }
+    for (const dep of sys.deployables) {
+      if (!dep.contextNames.includes(ctx.name)) continue;
+      const family = platformFamily(dep.platform);
+      if (family === undefined || !ORG_CONTEXT_GATE_FAMILIES.has(family)) continue;
+      if (dep.auth?.required && sys.user) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.org-context-gate-unmet",
+        message: diagMessage("loom.org-context-gate-unmet#no-auth", {
+          ctx: ctx.name,
+          dep: dep.name,
+        }),
+        source: `${sys.name}/${dep.name}`,
+      });
+    }
+  }
+}
+
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  validateOrgContextGate(sys, diags);
   validateTenantRegistry(sys, diags);
   validateRegistryConstructible(sys, diags);
   validatePolicyReadLevels(sys, diags);

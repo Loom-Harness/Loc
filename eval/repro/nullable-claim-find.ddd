@@ -2,7 +2,7 @@
 // generates TypeScript that does not type-check.
 system X {
   user { id: string  technicianId: Technician id? }
-  auth { oidc { issuer: env("I") clientId: env("C") } }
+  auth { enforcement: opt, oidc { issuer: env("I") clientId: env("C") } }
   subdomain S { context C {
     aggregate Technician with crudish { fullName: string  derived display: string = fullName }
     aggregate WorkOrder with crudish { technicianId: Technician id?  derived display: string = "wo" }

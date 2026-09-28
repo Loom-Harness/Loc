@@ -120,6 +120,7 @@ import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
+import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
@@ -370,6 +371,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // system-level, their targets cross-context).
   validateRoutes(loom, diags);
   validateVariantMatch(loom, diags);
+  // A find's `X or NotFound` / `X option` (and an `or`-returning operation's
+  // result) must be discriminated by a variant `match` before it is read
+  // (M-T5.1 A4) — a straight read is an unguarded dereference on all five.
+  validateUnionReads(loom, diags);
   validateUiBodies(loom, diags);
   // Page `requires` gates (audit D2) — the client-evaluable subset, refused
   // here so the six frontend gate renderers' throws stay internal invariants.

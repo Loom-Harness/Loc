@@ -26,6 +26,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 const SRC = (audience: string) => `system S {
   user { id: string  role: string }
   auth {
+    enforcement: opt
     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID")${audience} }
   }
   subdomain M { context C {

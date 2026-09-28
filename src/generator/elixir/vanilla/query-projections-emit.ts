@@ -68,6 +68,7 @@ import {
   vanillaCapabilityFilter,
   vanillaDocCapabilityFilter,
 } from "./capability-filter.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { findParamRead } from "./find-controller.js";
@@ -348,10 +349,10 @@ ${
   # \`2026-08-01T00:00:00.000000\` instead of \`2026-08-01T00:00:00Z\`, diverging
   # from the other four backends.  Accepts either shape so a driver that
   # already hands back a \`%DateTime{}\` stays correct.
-  defp group_key_utc(%DateTime{} = dt), do: DateTime.truncate(dt, :second)
+  defp group_key_utc(%DateTime{} = dt), do: ${normalizeDatetime("dt")}
 
   defp group_key_utc(%NaiveDateTime{} = ndt),
-    do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.truncate(:second)
+    do: ndt |> DateTime.from_naive!("Etc/UTC") |> ${"Loom.Datetime.normalize()"}
 `
     : ""
 }${moneyWireHelper(grouped.aggregates, grouped.keys)}${intWireHelper(grouped.aggregates)}end
@@ -471,11 +472,27 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       : isDocSource
         ? liftDocRootId(`record.${snake(aux.path[0] ?? "id")}`, "row")
         : `record.${snake(aux.path[0] ?? "id")}`;
+    // The follow honours the JOINED aggregate's own capability filter (soft
+    // delete / tenancy), exactly as the other four backends' bulk-load does by
+    // going through that aggregate's repository (RS-34): a soft-deleted target
+    // is ABSENT from the map, so the LEFT JOIN answers `nil`.  Without it the
+    // map carried the soft-deleted row and the projection leaked its fields.
+    // (A document-shaped target keeps the unfiltered load — its capability
+    // columns live inside the jsonb embed, not on the row.)
+    const followAgg = aggsByName.get(aux.aggName);
+    const followCap =
+      followAgg && !isDocSource && !isVanillaDocAgg(followAgg, ctx, sys)
+        ? vanillaCapabilityFilter(followAgg, contextModule, {
+            actor: aggregateUsesPrincipalContextFilter(followAgg),
+          })
+        : null;
     lines.push(`    ${mapVar} =`);
     lines.push(
       isDocSource
         ? `      from(joined in ${followMod}, where: joined.id in ^Enum.map(rows, ${docRowLambda(idRow)}))`
-        : `      from(row in ${followMod}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
+        : followCap
+          ? `      from(record in ${followMod}, where: record.id in ^Enum.map(rows, fn record -> ${idRow} end) and (${followCap}))`
+          : `      from(row in ${followMod}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
     );
     lines.push(`      |> Repo.all()`);
     lines.push(`      |> Map.new(&{&1.id, &1})`);

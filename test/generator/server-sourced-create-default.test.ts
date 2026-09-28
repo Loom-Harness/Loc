@@ -167,7 +167,8 @@ describe("server-sourced create-path defaults — Python", () => {
     expect(routes).not.toMatch(/createdAt:\s*datetime = datetime\.now/);
     // Per-request coalesce in the handler.
     expect(routes).toMatch(
-      /created_at=body\.createdAt if body\.createdAt is not None else datetime\.now\(UTC\)/,
+      // RS-38: a supplied value is truncated to the millisecond at ingress.
+      /created_at=body\.createdAt\.replace\(microsecond=body\.createdAt\.microsecond \/\/ 1000 \* 1000\) if body\.createdAt is not None else datetime\.now\(UTC\)/,
     );
     // The route imports UTC for the coalesce.
     expect(routes).toMatch(/from datetime import UTC, datetime/);

@@ -76,9 +76,10 @@ describe("auth block — parsing & lowering", () => {
     expect(errors).toEqual([]);
     const auth = lowerModel(model).systems[0]!.auth!;
     expect(auth.oidc.issuer).toEqual({ kind: "literal", value: "https://accounts.google.com" });
-    // defaults: sessions=cookie, enforcement=opt
+    // defaults: sessions=cookie, enforcement=denyByDefault (the language
+    // default since M-T3.1; it was `opt`)
     expect(auth.sessions).toBe("cookie");
-    expect(auth.enforcement).toBe("opt");
+    expect(auth.enforcement).toBe("denyByDefault");
   });
 
   it("an explicit oidc.issuer overrides the preset", async () => {

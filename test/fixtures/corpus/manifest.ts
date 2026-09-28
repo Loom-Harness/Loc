@@ -294,6 +294,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "tenancy-owned", title: "first-class tenancy — `tenancy by` + tenantOwned + crossTenant", doc: "tenancy", backends: ALL },
   { id: "tenancy-hierarchy", title: "tenancy hierarchy — `implements tenantRegistry` + `policy` deep/global/local read ladder", doc: "tenancy", backends: ALL },
+  {
+    id: "org-context",
+    title:
+      "`organizationContext` — the operating-scope accessor re-rooting the tenantOwned write stamp, behind every backend's fail-closed `x-org-context` switch gate",
+    doc: "tenancy",
+    backends: ALL,
+    note: "M-T3.6 items 3+5.  The accessor lands only with its gate, so this fixture is what puts BOTH in front of all five compile tiers: the stamp (`dataKey := organizationContext.orgPath`) and an operation body read lower to the derived principal member `currentUser.orgContextPath`, and every backend's auth layer emits the gate that sets it.  No `test e2e` block and no wire golden: no wire shape is new (the accessor never reaches the wire), and the runtime proof — in-scope switch stamps + deep-read visibility, out-of-scope switch 403 with no write, forged header on an orgPath-less token 403, reads principal-anchored — is the booted `tenancy-org-context*` leg of tenancy-e2e.",
+  },
   { id: "tenancy-claim-name", title: "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter", doc: "tenancy", backends: ALL },
   { id: "policy-deny", title: "`policy { deny [write] on <Agg> }` — the deny-wins carve-out on both the read-filter and write-scope seams", doc: "auth", backends: ALL },
   { id: "policy-document", title: "`policy { allow deep / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
@@ -460,6 +468,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the 2026-08-17 generator code review (A5/A10–A14): every one of these rendered wrong on at least one backend — java's descending sortBy did not COMPILE, node/elixir/python's money fold was broken by a missing `binary` arm in `bodyTypeOf`, elixir's argless `any()` was always false — and none appeared anywhere in the corpus, examples or journey/, so no compile gate could see them.  Writing it also surfaced an UNFILED .NET sibling of A13 (scalar-array mutation routed through a `_codes` backing field that does not exist → CS0103), fixed in the same change.  No `test e2e` block: this is a compile-tier witness, and adding one would mint recorded wire cases whose goldens cannot be captured from the fixture PR",
   },
   {
+    id: "decimal-exact",
+    title:
+      "FLOAT-ERROR-VISIBLE `decimal` arithmetic — `0.1 + 0.2`, a chained multiply, a division over binary-inexact operands, a mixed chain, `round(2)` on a binary-inexact tie, a `sum` fold, and an operation writing a computed value to a stored column",
+    doc: "language",
+    backends: ALL,
+    note: "the M-T5.22 / D-DECIMAL-EXACT-MOMENT witness (RS-37).  node and python computed `decimal` in binary floating point while .NET/Java/Elixir computed it exactly, so `0.1 + 0.2` shipped — and PERSISTED — `0.30000000000000004` from two backends and `0.3` from three.  Every literal is binary-INEXACT on purpose (the inverse of `numeric-operands`, whose literals are binary-exact so they agree regardless): each derived value differs between double and exact arithmetic AFTER the RS-24 narrowing to a float64 wire number, so the fixture goes red on node and python with the fix reverted.  The `test` block is the unit-tier proof on all five; the `test e2e` block is the wire + storage proof and carries this fixture's golden",
+  },
+  {
     id: "numeric-operands",
     title:
       "RIGHT-HAND money/decimal operands — `int * money` (commutative product), `int + decimal`, `int < decimal`, `int == decimal`, plus a decimal-on-the-right repository filter",
@@ -490,6 +506,30 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "the FIRST corpus fixture with a `message` clause at all — before it, every backend's messaged-rule carrier AND the M-T1.11 catalog emission were uncompiled by the corpus tier (retro §78: a conditional emission needs a fixture that satisfies its condition)",
+  },
+  {
+    id: "vo-invariant-in-body",
+    title:
+      "a value object BUILT by a domain body whose invariant refuses the value — 422 with an RFC 7807 `errors[]` entry; plus the `getById` miss on every load path",
+    doc: "payloads",
+    backends: ALL,
+    note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a messaged and a message-less rule, and both body routers (aggregate operation, workflow step).",
+  },
+  {
+    id: "domain-floor-messages",
+    title:
+      "M-T1.11 (c) — a messaged invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `msg.<hash>` code",
+    doc: "language",
+    backends: ALL,
+    note: "the domain-floor half of the message ladder: every rule reads aggregate STATE, so no wire validator sees it.  Before item (c) node/.NET/java/python answered `detail` only (no `errors[]`, no code) and elixir answered the wire rung's shape for invariants and the bare floor for preconditions.  One case per pointer shape (state-vs-param precondition \"\", single-field invariant \"/balance\", cross-field invariant \"\") plus the message-less control.",
+  },
+  {
+    id: "datetime-wire",
+    title:
+      "RS-38 — the `datetime` wire form is milliseconds: three digits when a fraction is present, none on a whole second, sub-millisecond input truncated; an absent joined datetime is `null`",
+    doc: "language",
+    backends: ALL,
+    note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
   },
 ] as const;
 

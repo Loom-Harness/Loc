@@ -74,7 +74,7 @@ export {
 } from "./structural.js";
 export { checkTemplateHoles } from "./template.js";
 export { checkDurationConstructors } from "./temporal.js";
-export { checkOrgPathReferences, checkTenancyDecls } from "./tenancy.js";
+export { checkOrgContextSurface, checkOrgPathReferences, checkTenancyDecls } from "./tenancy.js";
 export { checkTestPlacement } from "./test-placement.js";
 export { checkTimers } from "./timer.js";
 export { checkTopLevelFunctions } from "./toplevel-function.js";

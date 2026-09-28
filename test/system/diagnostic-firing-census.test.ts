@@ -508,6 +508,52 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
+  // Any other shape is refused by name (the operating org's id is not
+  // derivable from a submitted path without a registry read).
+  "loom.org-context-surface": `
+system OrgCtx {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      aggregate Account with tenantOwned, crudish {
+        label: string
+        scope: string?
+        operation note() { scope := organizationContext.tenantId }
+      }
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Accounts for Account { }
+      repository Orgs for Org { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+}`,
+  // M-T3.6 items 3+5 — the operating scope read on a deployable with no auth:
+  // there is no auth middleware, so no switch gate, so the read would be an
+  // unvalidated caller-submitted value.
+  "loom.org-context-gate-unmet": `
+system OrgCtx {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      aggregate Note crossTenant {
+        label: string
+        scope: string?
+        operation stampScope() { scope := organizationContext.orgPath }
+      }
+      aggregate Org { name: string  implements tenantRegistry }
+      repository Notes for Note { }
+      repository Orgs for Org { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], port: 3000 }
+}`,
   // A part that contains itself.  The natural domain is ordinary (a sub-task
   // tree), and before the check this parsed clean and then killed `generate`
   // with a bare `RangeError: Maximum call stack size exceeded`.
@@ -836,6 +882,26 @@ system S {
     `outcome { Order o => o.code, Order p => p.code, NotFound => "" }`,
   ),
   "loom.match-non-exhaustive": unionMatch(`outcome { Order o => o.code }`),
+  // M-T5.1 A4 — reading straight through a union find's `Order or NotFound`
+  // without a variant `match` (an unguarded dereference on all five backends).
+  "loom.union-read-undiscriminated": `
+system S {
+  subdomain D { context Shop {
+    error NotFound { resource: string }
+    aggregate Order with crudish { code: string }
+    aggregate Note with crudish { text: string }
+    repository Orders for Order {
+      find byCode(code: string): Order or NotFound where this.code == code
+    }
+    repository Notes for Note { }
+    workflow label {
+      create(code: string) {
+        let outcome = Orders.byCode(code)
+        let n = Note.create({ text: outcome.code })
+      }
+    }
+  } }
+}`,
   "loom.match-subject-not-simple": unionMatch(
     `Orders.byCode(code) { Order o => o.code, NotFound => "" }`,
   ),
@@ -2912,7 +2978,7 @@ system S {
 }`,
 
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
-  // projection under the LANGUAGE-DEFAULT `enforcement: opt` — 0 errors /
+  // projection under `enforcement: opt` (the language default until M-T3.1) — 0 errors /
   // 0 warnings before the gate, while the emitted route served every
   // tenant's revenue to any authenticated caller.
   "loom.tenancy-filter-bypass": `

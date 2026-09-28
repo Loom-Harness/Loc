@@ -370,6 +370,20 @@ function renderMethodCall(
     }
     return `new RegExp(${args[0]}).test(${recv})`;
   }
+  // `decimal.round(n)` is decimal ARITHMETIC (RS-37).  The shared JS intrinsic
+  // scales in binary floating point, so a tie the double cannot represent
+  // (`1.005` is 1.00499… in binary) rounds DOWN — `1.005.round(2)` answered `1`
+  // where the four decimal-typed backends answer `1.01`.  Round the exact value
+  // half-away-from-zero (the catalogue contract; decimal.js ROUND_HALF_UP) and
+  // narrow once.  Node-only, like the `sum` fold above.
+  if (
+    e.member === "round" &&
+    e.receiverType.kind === "primitive" &&
+    e.receiverType.name === "decimal"
+  ) {
+    const recvDec = decimalChainOperand(recv, e.receiver) ?? toDecimal(recv);
+    return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, Decimal.ROUND_HALF_UP)${DECIMAL_NARROW}`;
+  }
   if (e.receiverType.kind === "primitive") {
     const intrinsic = TS_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
     if (intrinsic) return intrinsic(recv, args);
@@ -386,6 +400,21 @@ function renderMethodCall(
 export const TS_COLLECTION_RENDERERS = JS_COLLECTION_RENDERERS;
 export { isDescendingSort } from "../_expr/js-collection-ops.js";
 
+/** True iff a `sum` reduction's numeric type is `decimal` — the λ-body type
+ *  for `sum(λ)`, the receiver's element type for a no-arg `decimal[]` sum (the
+ *  `decimal` twin of the shared table's money probe). */
+function sumBodyIsDecimal(e: Extract<ExprIR, { kind: "method-call" }>): boolean {
+  const lam = e.args[0];
+  const bodyT =
+    lam?.kind === "lambda" && lam.body
+      ? bodyTypeOf(lam.body)
+      : (() => {
+          const rt = e.receiverType.kind === "optional" ? e.receiverType.inner : e.receiverType;
+          return rt.kind === "array" ? rt.element : undefined;
+        })();
+  return bodyT?.kind === "primitive" && bodyT.name === "decimal";
+}
+
 /** True iff a unary `-`'s operand types as `money` — a decimal.js `Decimal`,
  *  which has no native negation operator (`.neg()` instead). */
 function unaryOperandIsMoney(e: Extract<ExprIR, { kind: "unary" }>): boolean {
@@ -400,6 +429,18 @@ function renderCollectionOp(
   args: string[],
   e: Extract<ExprIR, { kind: "method-call" }>,
 ): string {
+  // A `decimal` fold is decimal ARITHMETIC (RS-37): the shared JS table's
+  // native `acc + x` sums in binary floating point (`[0.1, 0.2]` → 0.30000000000000004).
+  // Fold through decimal.js from a `new Decimal(0)` seed — the money fold's
+  // shape — and narrow once.  Node-only: the shared table also serves the
+  // frontend walkers, which compute no domain decimals.
+  if (name === "sum" && sumBodyIsDecimal(e)) {
+    const fold =
+      args.length === 1
+        ? `${recv}.reduce((acc, x) => acc.plus((${args[0]})(x)), ${toDecimal("0")})`
+        : `${recv}.reduce((acc, x) => acc.plus(x), ${toDecimal("0")})`;
+    return `${fold}${DECIMAL_NARROW}`;
+  }
   const render = TS_COLLECTION_RENDERERS[name];
   if (render) return render(recv, args, e);
   return `${recv}.${name}(${args.join(", ")})`;
@@ -509,11 +550,27 @@ function renderNew(
 }
 
 function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "binary" }>): string {
+  // `decimal` ARITHMETIC is EXACT (D-DECIMAL-EXACT-MOMENT, RS-37).  A Loom
+  // `decimal` is a plain JS `number` on this backend, and native `+`/`*`/`/`
+  // compute in binary floating point — `0.1 + 0.2` answered
+  // `0.30000000000000004` here (and was persisted) while .NET/Java/Elixir
+  // answered `0.3`.  Lift the operation into decimal.js and narrow back to a
+  // `number` ONCE, at the root of the arithmetic chain: a nested decimal
+  // operand hands over its `Decimal` un-narrowed (`decimalChainOperand`), so
+  // `c * c * c` is one exact product, not two re-rounded doubles.  The wire
+  // and storage representation stay a `number` (RS-24) — only the computation
+  // moves.
+  if (isDecimalArithmetic(e)) {
+    const recv = decimalChainOperand(left, e.left) ?? toDecimal(left);
+    const arg = decimalChainOperand(right, e.right) ?? right;
+    return `${recv}.${DECIMAL_METHOD[e.op]}(${arg})${DECIMAL_NARROW}`;
+  }
   // Money operands carry through as decimal.js `Decimal` instances —
   // their JS operators don't do precise math, so dispatch through the
-  // class's method API.  Other primitives use native operators.
+  // class's method API.  Other primitives use native operators.  A decimal
+  // chain on the other side hands over its un-narrowed `Decimal`.
   if (e.leftType?.kind === "primitive" && e.leftType.name === "money") {
-    return renderMoneyBinary(e.op, left, right);
+    return renderMoneyBinary(e.op, left, decimalChainOperand(right, e.right) ?? right);
   }
   // MIRROR arm (audit F7 / M-T6.44): `moneyArithmetic` admits `money × scalar`
   // COMMUTATIVELY, so money can arrive on the RIGHT with an integral/decimal
@@ -529,7 +586,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     e.leftType?.kind === "primitive" &&
     (e.leftType.name === "int" || e.leftType.name === "long" || e.leftType.name === "decimal")
   ) {
-    return renderMoneyBinary(e.op, `new Decimal(${left})`, right);
+    return renderMoneyBinary(e.op, decimalChainOperand(left, e.left) ?? toDecimal(left), right);
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  duration ± duration and duration * int stay native number
@@ -570,6 +627,54 @@ function renderTemporalBinary(
   // duration + datetime (commuted form; `duration - datetime` never types).
   if (lt === "duration" && e.op === "+" && rt === "datetime") {
     return `new Date((${right}).getTime() + (${left}))`;
+  }
+  return null;
+}
+
+/** The narrowing suffix every `decimal` arithmetic chain ends with — decimal.js
+ *  `toNumber()` is the correctly-rounded nearest double (RS-24's wire width). */
+const DECIMAL_NARROW = ".toNumber()";
+
+/** Lift a `number`-valued operand into decimal.js for expression arithmetic —
+ *  the one construction site the decimal and money arithmetic arms share (an
+ *  ExprTarget operand widening, not a read boundary: see the numeric-codec
+ *  census waiver). */
+function toDecimal(v: string): string {
+  return `new Decimal(${v})`;
+}
+
+/** decimal.js method per `decimal` arithmetic operator.  decimal.js `mod`
+ *  truncates (the result takes the dividend's sign), the same `%` every other
+ *  backend computes. */
+const DECIMAL_METHOD: Partial<Record<BinOp, string>> = {
+  "+": "plus",
+  "-": "minus",
+  "*": "times",
+  "/": "div",
+  "%": "mod",
+};
+
+/** True iff a binary is `decimal` ARITHMETIC: an arithmetic operator whose
+ *  result types as `decimal` — `decimal ∘ decimal`, the widened `int ∘ decimal`
+ *  mixes, and the `int / int` division the type system widens to `decimal`.
+ *  Rendered exactly through decimal.js (D-DECIMAL-EXACT-MOMENT, RS-37). */
+export function isDecimalArithmetic(e: ExprIR): boolean {
+  if (e.kind !== "binary" || DECIMAL_METHOD[e.op] === undefined) return false;
+  return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
+}
+
+/** A `decimal` arithmetic operand's UN-NARROWED `Decimal` text, or null when
+ *  the operand is not itself a decimal arithmetic chain.  `renderBinary`
+ *  renders every chain as `<Decimal expr>.toNumber()`, so a parent drops the
+ *  child's narrowing suffix (through any `paren` wrappers, which the shared
+ *  dispatcher renders as `(<inner>)`) and keeps computing in `Decimal`. */
+function decimalChainOperand(text: string, e: ExprIR): string | null {
+  if (e.kind === "paren") {
+    const inner = decimalChainOperand(text.slice(1, -1), e.inner);
+    return inner === null ? null : `(${inner})`;
+  }
+  if (isDecimalArithmetic(e) && text.endsWith(DECIMAL_NARROW)) {
+    return text.slice(0, -DECIMAL_NARROW.length);
   }
   return null;
 }
