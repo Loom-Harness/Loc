@@ -39,30 +39,9 @@ async function repo(): Promise<string> {
 }
 
 describe("node document capability filter (DEBT-02 slice 1)", () => {
-  it("gates findById by the in-app predicate (hidden → not-found)", async () => {
-    const r = await repo();
-    expect(r).toContain("const rec = cartFromDoc(row.data as CartDoc, row.version);");
-    expect(r).toContain("if (!((!rec.isDeleted))) return null;");
-    expect(r).toContain("return rec;");
-  });
-
   it("filters findManyByIds by the capability predicate", async () => {
     expect(await repo()).toContain(
       "rows.map((r) => cartFromDoc(r.data as CartDoc, r.version)).filter((x) => (!x.isDeleted));",
-    );
-  });
-
-  it("narrows findAll/list by the capability predicate", async () => {
-    // The synthesized `findAll` has no own predicate → just the capability filter.
-    expect(await repo()).toContain(
-      "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.version));",
-    );
-    expect(await repo()).toContain("all.filter((x) => (!x.isDeleted))");
-  });
-
-  it("applies the capability BEFORE a custom find's own predicate", async () => {
-    expect(await repo()).toContain(
-      "all.filter((x) => (!x.isDeleted)).filter((x) => x.label === l)",
     );
   });
 
@@ -130,20 +109,6 @@ describe("node document principal capability filter (DEBT-02 Slice B)", () => {
   it("binds the principal in findManyByIds and AND-s the in-app predicate", async () => {
     expect(await principalRepo()).toContain(
       "rows.map((r) => orderFromDoc(r.data as OrderDoc, r.version)).filter((x) => (x.tenantId === currentUser.tenantId));",
-    );
-  });
-
-  it("narrows the synthesized findAll by the principal predicate", async () => {
-    const r = await principalRepo();
-    expect(r).toContain(
-      "const all = rows.map((r) => orderFromDoc(r.data as OrderDoc, r.version));",
-    );
-    expect(r).toContain("all.filter((x) => (x.tenantId === currentUser.tenantId))");
-  });
-
-  it("applies the principal capability BEFORE a custom find's own predicate", async () => {
-    expect(await principalRepo()).toContain(
-      "all.filter((x) => (x.tenantId === currentUser.tenantId)).filter((x) => x.code === c)",
     );
   });
 });

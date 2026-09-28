@@ -13,6 +13,23 @@ system Tenancy {
       repository Accounts for Account {
         find byMinBalance(min: int): Account[] where this.balance >= min
       }
+      // The same two filter shapes on a `shape: document` aggregate (PROMOTED
+      // from the per-backend `*-document-capability-filter.test.ts` string
+      // copies, M-T9.42).  The whole tree is one jsonb column, so neither
+      // predicate can be a SQL `where`: each backend evaluates it IN-APP over
+      // the rehydrated instance — on the by-id read, the list, and BEFORE a
+      // custom find's own predicate.
+      aggregate Article shape: document, with crudish {
+        tenantId: string
+        title: string
+        archived: bool
+        filter !this.archived
+        filter this.tenantId == currentUser.tenantId
+        operation shelve() { archived := true }
+      }
+      repository Articles for Article {
+        find byTitle(t: string): Article[] where this.title == t
+      }
     }
   }
   api LedgerApi from Core
@@ -77,5 +94,30 @@ system Tenancy {
     let empty = api.accounts.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)
+
+    // ── the DOCUMENT aggregate: both filters, evaluated in-app ────────────
+    // Three documents share one title: an in-tenant live one, an out-of-tenant
+    // one (hidden by the principal filter) and an in-tenant one shelved after
+    // creation (hidden by the non-principal filter).  Every read must see
+    // exactly the first.
+    let mineDoc = api.articles.create({ tenantId: "acme", title: "Guide", archived: false })
+    let theirDoc = api.articles.create({ tenantId: "other", title: "Guide", archived: false })
+    let shelvedDoc = api.articles.create({ tenantId: "acme", title: "Guide", archived: false })
+    api.articles.shelve(shelvedDoc)
+    let readDoc = api.articles.getById(mineDoc)
+    expect(readDoc.title).toBe("Guide")
+    expect(api.articles.getById(theirDoc)).toThrow(404)
+    expect(api.articles.getById(shelvedDoc)).toThrow(404)
+    // The list (a bare array on `shape: document`) and the custom find, whose
+    // own predicate matches all three — the capability narrows first.
+    expect(api.articles.all().length).toBe(1)
+    let guides = api.articles.byTitle({ t: "Guide" })
+    expect(guides.length).toBe(1)
+    expect(guides.first().tenantId).toBe("acme")
+    // The write routes load through the same scope.
+    api.articles.update(mineDoc, { tenantId: "acme", title: "Guide v2", archived: false })
+    expect(api.articles.getById(mineDoc).title).toBe("Guide v2")
+    api.articles.destroy(mineDoc)
+    expect(api.articles.all().length).toBe(0)
   }
 }
