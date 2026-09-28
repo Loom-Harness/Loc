@@ -7,12 +7,15 @@ import type {
   TypeIR,
   UserIR,
 } from "../../ir/types/loom-ir.js";
+import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { claimPathFor } from "../_auth/claim-types.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix LiveView auth scaffolding — emitted per deployable when
@@ -109,6 +112,10 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
       sys.tenancy?.claimField,
       orgPathRegistry,
       args.hasFieldMask ?? false,
+      // The operating-scope switch gate (`organizationContext`, M-T3.6 items
+      // 3+5) — only where something reads the operating scope; the phase-⑦
+      // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
+      !!orgPathRegistry && systemReadsOrgContext(sys),
     ),
   );
   files.set(`lib/${appName}_web/live_auth.ex`, renderLiveAuth(webModule, auth));
@@ -191,6 +198,7 @@ function renderAuthPlug(
   orgPathClaim?: string,
   orgPathRegistry?: OrgPathRegistryRef,
   hasFieldMask = false,
+  orgContext = false,
 ): string {
   const buildUserBody = renderBuildUser(user, auth);
   const idKey = actorIdKey(user);
@@ -207,7 +215,15 @@ function renderAuthPlug(
   const orgPathKey = orgPathClaim ? snake(orgPathClaim) : undefined;
   // `put_root_org/1` runs AFTER `put_org_path/1` in the pipe, deriving
   // `current_user.root_org` from the just-set `:org_path`.
-  const orgPathPipe = orgPathKey ? " |> put_org_path() |> put_root_org()" : "";
+  // `put_org_context/1` seeds `:org_context_path` — the request's OPERATING
+  // scope (`organizationContext.orgPath`) — with the principal's own
+  // `:org_path` on EVERY principal the plug builds (the API path, the dev-stub
+  // LiveView identity, the OIDC session identity), so a stamp or operation
+  // reading it never meets a missing key.  Only the API `call/2` path can then
+  // SWITCH it, through the fail-closed `x-org-context` gate below.
+  const orgPathPipe = orgPathKey
+    ? ` |> put_org_path() |> put_root_org()${orgContext ? " |> put_org_context()" : ""}`
+    : "";
   const putOrgPathDef = !orgPathKey
     ? ""
     : orgPathRegistry
@@ -244,6 +260,60 @@ function renderAuthPlug(
   // `:org_path` (up to the first `.`).  Derived off the already-resolved
   // `:org_path` (pure, no extra read), correct under both flat and hierarchy
   // tenancy; anchors the `global` read level's root-subtree widening.
+  // The operating-scope switch gate (`organizationContext`).  A request whose
+  // `x-org-context` names an org outside the caller's `:org_path` subtree
+  // (equal, or anchored under `org_path <> "."`), or any org at all when the
+  // caller has no `:org_path`, is a 403 before the principal is assigned — no
+  // controller runs, nothing is written.  Absent / empty ⇒ the principal's
+  // own scope (already seeded by `put_org_context/1`), never a widening.
+  const orgContextDef =
+    orgPathKey && orgContext
+      ? `
+  # Seeds \`current_user.org_context_path\` — the request's OPERATING scope
+  # (\`organizationContext.orgPath\`) — with the principal's own \`org_path\`.
+  # The API plug may then switch it through \`org_context_gate/2\`.
+  defp put_org_context(user), do: Map.put(user, :org_context_path, user[:org_path])
+
+  # The fail-closed operating-scope switch gate: a requested \`${ORG_CONTEXT_HEADER}\`
+  # path is admitted only inside the caller's \`org_path\` subtree.
+  defp org_context_gate(user, [requested | _]) when is_binary(requested) and requested != "" do
+    scope = to_string(user[:org_path] || "")
+
+    cond do
+      scope == "" -> {:error, requested, "no_principal_scope"}
+      requested == scope -> {:ok, Map.put(user, :org_context_path, requested)}
+      String.starts_with?(requested, scope <> ".") -> {:ok, Map.put(user, :org_context_path, requested)}
+      true -> {:error, requested, "outside_scope"}
+    end
+  end
+
+  defp org_context_gate(user, _), do: {:ok, user}
+
+  # RFC 7807 403 for a refused operating-scope switch — sent + halted before
+  # the principal is assigned, so no controller runs and nothing is written.
+  defp send_org_context_forbidden(conn, requested, reason) do
+    ${renderPhoenixLogCall("orgContextDenied", [
+      { name: "org_context", valueExpr: "requested" },
+      { name: "reason", valueExpr: "reason" },
+      { name: "status", valueExpr: "403" },
+    ])}
+
+    body =
+      Jason.encode!(%{
+        type: "about:blank",
+        title: "Forbidden",
+        status: 403,
+        detail: "the requested organization context is outside the caller's organization scope",
+        instance: conn.request_path
+      })
+
+    conn
+    |> put_resp_content_type("application/problem+json")
+    |> send_resp(403, body)
+    |> halt()
+  end
+`
+      : "";
   const putRootOrgDef = !orgPathKey
     ? ""
     : `
@@ -319,6 +389,34 @@ ${
     : ""
 }`
     : "";
+  // The authenticated branch of `call/2`.  Under the operating-scope switch
+  // gate it moves inside `case org_context_gate(...)` (re-indented two
+  // levels); otherwise it is emitted exactly as before.
+  const authedTail = `          # Principal slice of the execution context: stamp ONLY the actor id
+          # into Logger.metadata (the request-context carrier) so audit and log
+          # lines can attribute the actor without leaking the rest of the
+          # principal (PII) onto every line.  The full principal stays on
+          # conn.assigns.current_user.
+          Logger.metadata(actor_id: user[:${idKey}])
+${
+  hasFieldMask
+    ? `          # A hosted aggregate has a \`mask unless\` field: stash the principal in
+          # the process dictionary too, so the REST \`serialize/1\` (no conn in
+          # scope) can read it to redact masked fields fail-closed.
+          Process.put(:loom_current_user, user)
+`
+    : ""
+}          assign(conn, :current_user, user)
+`;
+  const authedBody = orgContext
+    ? `          case org_context_gate(user, get_req_header(conn, "${ORG_CONTEXT_HEADER}")) do
+            {:ok, user} ->
+${indentElixir(authedTail, 4)}
+            {:error, requested, reason} ->
+              send_org_context_forbidden(conn, requested, reason)
+          end
+`
+    : authedTail;
   // OIDC verifier vs dev stub.  The OIDC path additionally needs the JWKS
   // discovery/verification helpers; the dev stub needs none.
   const verifierSection = auth ? renderOidcVerifier(auth, webModule) : renderDevStubVerifier(user);
@@ -440,22 +538,7 @@ ${tokenBlock}
       case verify_token(token) do
         {:ok, claims} ->
           user = ${buildUserCall}
-          # Principal slice of the execution context: stamp ONLY the actor id
-          # into Logger.metadata (the request-context carrier) so audit and log
-          # lines can attribute the actor without leaking the rest of the
-          # principal (PII) onto every line.  The full principal stays on
-          # conn.assigns.current_user.
-          Logger.metadata(actor_id: user[:${idKey}])
-${
-  hasFieldMask
-    ? `          # A hosted aggregate has a \`mask unless\` field: stash the principal in
-          # the process dictionary too, so the REST \`serialize/1\` (no conn in
-          # scope) can read it to redact masked fields fail-closed.
-          Process.put(:loom_current_user, user)
-`
-    : ""
-}          assign(conn, :current_user, user)
-
+${authedBody}
         _ ->
           send_unauthorized(conn)
       end
@@ -498,8 +581,17 @@ ${verifierSection}
 
   defp build_user(claims) do
 ${buildUserBody}  end
-${mergeDevClaimsDef}${putOrgPathDef}${putRootOrgDef}end
+${mergeDevClaimsDef}${putOrgPathDef}${putRootOrgDef}${orgContextDef}end
 `;
+}
+
+/** Re-indent every non-empty line of an Elixir block by `n` spaces. */
+function indentElixir(block: string, n: number): string {
+  const pad = " ".repeat(n);
+  return block
+    .split("\n")
+    .map((l) => (l.length > 0 ? pad + l : l))
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
+import { ORG_CONTEXT_ACCESSOR } from "../../util/principal.js";
 import type {
   Aggregate,
   BinaryChain,
@@ -181,6 +182,11 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
+    // `organizationContext.<m>` — the operating-scope accessor's surface is
+    // owned by `loom.org-context-surface` (validators/tenancy.ts), which
+    // admits `.orgPath` only; it types against the principal record, so
+    // without this an unknown member would ALSO read as an undeclared claim.
+    if (isNameRef(chain.head) && chain.head.name === ORG_CONTEXT_ACCESSOR) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
     for (const suffix of chain.suffixes) {

@@ -7,13 +7,16 @@ import type {
   TypeIR,
   UserIR,
 } from "../../ir/types/loom-ir.js";
+import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { dapperAggregateTable } from "./emit/dapper.js";
 import { renderCsType } from "./render-expr.js";
 
@@ -54,11 +57,15 @@ export function emitAuthFiles(
   const registry = orgPathClaim ? hierarchyRegistry(sys) : undefined;
   const orgPathClaimExpr =
     registry && orgPathClaim ? userClaimExpr(sys.user, orgPathClaim) : undefined;
-  out.set("Auth/User.cs", renderUserRecord(sys.user, ns, orgPathClaim, !!registry));
+  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
+  // — only where something reads the operating scope; the phase-⑦
+  // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
+  const orgContext = !!orgPathClaimExpr && systemReadsOrgContext(sys);
+  out.set("Auth/User.cs", renderUserRecord(sys.user, ns, orgPathClaim, !!registry, orgContext));
   out.set("Auth/IUserVerifier.cs", renderVerifierInterface(ns));
   out.set("Auth/ICurrentUserAccessor.cs", renderAccessorInterface(ns));
   out.set("Auth/HttpContextCurrentUserAccessor.cs", renderAccessorImpl(ns));
-  out.set("Auth/UserMiddleware.cs", renderMiddleware(ns, !!sys.auth, orgPathClaimExpr));
+  out.set("Auth/UserMiddleware.cs", renderMiddleware(ns, !!sys.auth, orgPathClaimExpr, orgContext));
   // The registry-lookup seam: the interface lives in Auth (where the
   // middleware calls it); the IMPLEMENTATION lives in Infrastructure/Persistence
   // (where the registry's storage is known).  Registered in Program.cs
@@ -709,6 +716,7 @@ function renderUserRecord(
   ns: string,
   orgPathClaim?: string,
   readsRegistry = false,
+  orgContext = false,
 ): string {
   const params = user.fields
     .map((f) => {
@@ -744,6 +752,23 @@ function renderUserRecord(
             return i < 0 ? OrgPath : OrgPath.Substring(0, i);
         }
     }`;
+  // `organizationContext.orgPath` — the request's OPERATING scope.  Defaults
+  // to `OrgPath` (no switch ⇒ the principal's own scope); UserMiddleware's
+  // fail-closed switch gate sets it once, to a validated `x-org-context` path.
+  const orgContextProp = `
+
+    private string? _orgContextPath;
+
+    /// <summary>The request's OPERATING scope
+    /// (<c>organizationContext.orgPath</c>) — the validated
+    /// <c>${ORG_CONTEXT_HEADER}</c> path when the request switches into a
+    /// descendant org, else <c>OrgPath</c>.  Set once by UserMiddleware's
+    /// fail-closed switch gate; never read off the token.</summary>
+    public string OrgContextPath
+    {
+        get => _orgContextPath ?? OrgPath;
+        set => _orgContextPath = value;
+    }`;
   const orgPathMember = !orgPathClaim
     ? ";"
     : readsRegistry
@@ -762,7 +787,7 @@ function renderUserRecord(
         get => _orgPath ?? $"{${upperFirst(orgPathClaim)}}";
         set => _orgPath = value;
     }
-${rootOrgProp}
+${rootOrgProp}${orgContext ? orgContextProp : ""}
 }`
       : `
 {
@@ -854,7 +879,12 @@ public sealed class HttpContextCurrentUserAccessor : ICurrentUserAccessor
 `;
 }
 
-function renderMiddleware(ns: string, oidc: boolean, orgPathClaimExpr?: string): string {
+function renderMiddleware(
+  ns: string,
+  oidc: boolean,
+  orgPathClaimExpr?: string,
+  orgContext = false,
+): string {
   // Bypass list — framework endpoints that should NEVER require auth.
   // Liveness / OpenAPI / Swagger UI all read freely.  Path-prefix
   // match keeps the list tiny and avoids regex overhead.  The OIDC
@@ -873,6 +903,59 @@ function renderMiddleware(ns: string, oidc: boolean, orgPathClaimExpr?: string):
   // `data_key` and memoize it on the request principal.  `null` (missing row /
   // dataKey / parse failure) leaves OrgPath at its claim fallback — fail-safe.
   const resolverParam = orgPathClaimExpr ? ", IOrgPathResolver orgPathResolver" : "";
+  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5),
+  // AFTER the principal's `OrgPath` is resolved and BEFORE `_next`: a request
+  // whose `x-org-context` names an org outside the caller's `OrgPath` subtree
+  // (equal, or anchored under `OrgPath + "."`), or any org at all when the
+  // caller has no `OrgPath`, is a 403 — no handler runs, nothing is written.
+  // Absent / empty ⇒ the principal's own scope, never a widening.
+  const orgContextGate = `
+        // Operating-scope switch gate (organizationContext): fail-closed.
+        var requestedOrgContext = ctx.Request.Headers["${ORG_CONTEXT_HEADER}"].ToString();
+        if (requestedOrgContext.Length > 0)
+        {
+            var scope = user.OrgPath;
+            var inScope = scope.Length > 0
+                && (requestedOrgContext == scope
+                    || requestedOrgContext.StartsWith(scope + ".", StringComparison.Ordinal));
+            if (!inScope)
+            {
+                var orgLog = ctx.RequestServices.GetRequiredService<ILogger<UserMiddleware>>();
+                var reason = scope.Length == 0 ? "no_principal_scope" : "outside_scope";
+                ${renderDotnetLogCall("orgContextDenied", [
+                  { name: "org_context", valueExpr: "requestedOrgContext" },
+                  { name: "reason", valueExpr: "reason" },
+                  { name: "status", valueExpr: "403" },
+                ]).replace(/^_log\./, "orgLog.")}
+                await OrgContextForbiddenAsync(ctx);
+                return;
+            }
+            user.OrgContextPath = requestedOrgContext;
+        }`;
+  const orgContextForbidden = orgContext
+    ? `
+
+    /// <summary>RFC 7807 403 for a refused operating-scope switch
+    /// (<c>${ORG_CONTEXT_HEADER}</c>) — written before <c>_next</c>, so no
+    /// handler runs and nothing is written.</summary>
+    private static async Task OrgContextForbiddenAsync(HttpContext ctx)
+    {
+        ctx.Response.StatusCode = 403;
+        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Forbidden",
+            Status = 403,
+            Detail = "the requested organization context is outside the caller's organization scope",
+            Instance = ctx.Request.Path,
+        }, (JsonSerializerOptions?)null, "application/problem+json");
+    }`
+    : "";
+  const orgContextUsings = orgContext
+    ? `
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;`
+    : "";
   const orgPathResolve = orgPathClaimExpr
     ? `
         // Hierarchy (multi-tenancy): resolve the caller org's materialized
@@ -883,13 +966,13 @@ function renderMiddleware(ns: string, oidc: boolean, orgPathClaimExpr?: string):
         if (orgPath is not null)
         {
             user.OrgPath = orgPath;
-        }`
+        }${orgContext ? orgContextGate : ""}`
     : "";
   return `// Auto-generated.
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;${orgContextUsings}
 using ${ns}.Domain.Common;
 
 namespace ${ns}.Auth;
@@ -968,7 +1051,7 @@ public sealed class UserMiddleware
             Detail = detail,
             Instance = ctx.Request.Path,
         }, (JsonSerializerOptions?)null, "application/problem+json");
-    }
+    }${orgContextForbidden}
 }
 `;
 }
