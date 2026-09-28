@@ -483,6 +483,37 @@ const __absentReadProbes = async (dispatch) => {
 // silently passed: under the dev stub there is no anonymous caller to express
 // (the emitted verifier accepts every request and falls back to its built-in
 // identity), so that rung is unavailable rather than green.
+// The refusal envelope a 401 / 403 must carry (M-T9.25).  Returns the list of
+// violations — empty when the response is a conforming problem document.
+// Header names arrive lower-cased (every runner builds the map with
+// Headers.forEach), so the lookups are too.
+const __refusalEnvelope = (res, status) => {
+  const out = [];
+  const headers = res?.headers ?? {};
+  const ct = String(headers["content-type"] ?? "");
+  if (!ct.toLowerCase().startsWith("application/problem+json")) {
+    out.push("content-type is " + JSON.stringify(ct) + ", not application/problem+json");
+  }
+  let body = null;
+  try { body = JSON.parse(res?.body ?? ""); } catch { out.push("body is not JSON: " + String(res?.body ?? "").slice(0, 120)); }
+  if (body !== null && typeof body === "object") {
+    const title = status === 401 ? "Unauthorized" : "Forbidden";
+    if (body.status !== status) out.push("status member " + JSON.stringify(body.status) + " != " + status);
+    if (body.title !== title) out.push("title " + JSON.stringify(body.title) + " != " + JSON.stringify(title));
+    if (typeof body.type !== "string" || body.type.length === 0) out.push("type member missing");
+    if (typeof body.detail !== "string" || body.detail.length === 0) out.push("detail member missing");
+  } else if (body !== null) {
+    out.push("body is not a JSON object");
+  }
+  if (status === 401) {
+    const challenge = String(headers["www-authenticate"] ?? "");
+    if (!challenge.trim().toLowerCase().startsWith("bearer")) {
+      out.push("WWW-Authenticate is " + JSON.stringify(challenge) + ", not a Bearer challenge");
+    }
+  }
+  return out;
+};
+
 const __authzLadder = async (spec, creds, dispatch) => {
   if (!spec || !dispatch) return [];
   const first = __urls.map((u) => { try { return new URL(u); } catch { return null; } }).find(Boolean);
@@ -567,6 +598,22 @@ const __authzLadder = async (spec, creds, dispatch) => {
       got === expected ? "pass" : "fail",
       got === expected ? undefined : \`expected \${expected}, got \${got}: \${String(r?.response?.body ?? "").slice(0, 200)}\`,
     );
+    // M-T9.25 — the refusal's WIRE CONTRACT, on the booted app.  The status arm
+    // above says the gate refused; this says HOW, against the two RFCs rather
+    // than against any emitter: RFC 7807 (an application/problem+json body
+    // whose status member equals the HTTP status and whose title is the
+    // RFC 9110 reason phrase) and, on a 401, RFC 9110 §15.5.2 + RFC 6750 §3
+    // (a WWW-Authenticate Bearer challenge — a MUST).  The recorded golden pins
+    // the BODY five ways already (#2541); it records no HEADERS, so the
+    // content type and the challenge had no runtime witness at all.
+    if (got === expected && (got === 401 || got === 403)) {
+      const problems = __refusalEnvelope(r?.response, got);
+      push(
+        \`authz ladder: \${where}\${rung} → \${got} is an RFC 7807 problem\${got === 401 ? " with a Bearer challenge" : ""}\`,
+        problems.length === 0 ? "pass" : "fail",
+        problems.length === 0 ? undefined : problems.join("; "),
+      );
+    }
   };
 
   // Order matters: the two DENIED arms run first, so the surface is still in its
