@@ -4457,7 +4457,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; v1 supports only single non-nullable aggregates.  Use getById (throws → 404) instead.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; v1 supports only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
   "loom.handler-load-nullable-unsupported": (p: {
     kind: unknown;
     name: unknown;

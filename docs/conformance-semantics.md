@@ -203,6 +203,22 @@ the conforming backends, and the fix that established it.
 - **Observable.** Same status + same problem-body shape (`type: about:blank`,
   `application/problem+json`) on every backend, whichever layer refused.
 - **Conforms.** node, dotnet, java, python, elixir.
+- **A value object refused INSIDE a body is the domain floor, with one
+  `errors[]` entry (M-T5.1).** A value object a body builds (`qty := Qty { value:
+  n }` in an operation or a workflow step) refuses at its constructor rather
+  than at the request schema, so there is no request member to point at.  It
+  answers the domain-floor status and title, the rule's message as `detail`,
+  and ONE `errors[]` entry `{pointer: "", message, code?}` — `code` only for a
+  messaged rule.  Before this node/.NET/java/python answered the bare domain
+  floor (no `errors[]`, no `code`) and elixir did not check the value at all
+  (the op persists through `force_change`, which runs no validator — `resize(0)`
+  answered 204 and stored `{"value": 0}`).  Pinned by the `vo-invariant-in-body`
+  wire golden; runtime-proven on node and python (booted, golden-matched; each
+  mutation-proved by disabling that backend's answer, which the golden then
+  reports as `$.errors` absent), compile-checked on .NET / java / elixir.  A
+  message-LESS rule is compiled but not in the golden: its text is each
+  backend's derived default, and elixir's value-object carrier is Ecto's native
+  chain — the same split the wire layer has for a message-less rule.
 - **A wrong verb is `405` everywhere, with `Allow`.** This was briefly recorded
   here as a known divergence — node and elixir answering `404` because "hono and
   phoenix route on (method, path) as one key, with no method-not-allowed concept

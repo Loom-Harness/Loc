@@ -44,6 +44,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -115,6 +116,7 @@ import {
   renderForbiddenException,
   renderPackageMarker,
   renderPagedRecord,
+  renderValueObjectInvariantException,
   renderWireFormatException,
   renderWireNumberStrictness,
 } from "./emit/common.js";
@@ -457,6 +459,15 @@ function emitProjectFromContexts(
   // Shared domain types + the package markers that keep the entity files'
   // wildcard imports valid even when a package would otherwise be empty.
   place("DomainException.java", "domain-common", renderDomainException(basePkg));
+  // M-T5.1 — only when a hosted value object declares an invariant (nothing
+  // else raises it); a project without one is byte-identical.
+  if (contexts.some(hasValueObjectInvariants)) {
+    place(
+      "ValueObjectInvariantException.java",
+      "domain-common",
+      renderValueObjectInvariantException(basePkg),
+    );
+  }
   // The wire-format tier (M-T6.48): a malformed money string is a 422 with a
   // pointer, not the 500 a bare `new BigDecimal` produced.
   place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
@@ -546,6 +557,9 @@ function emitProjectFromContexts(
       // M-T6.36: the mangled-identifier → wire-name inverse, unioned over every
       // context this deployable hosts (the advice is app-global).
       [...new Set(contexts.flatMap((c) => collectMangledNames(c)))].sort(),
+      // M-T5.1: the value-object-invariant handler rides on a hosted value
+      // object declaring an invariant; a project without one is byte-identical.
+      contexts.some(hasValueObjectInvariants),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

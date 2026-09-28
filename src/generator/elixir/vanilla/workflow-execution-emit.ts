@@ -87,7 +87,11 @@ import {
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
-import { walkExprDeep, walkWorkflowStmtChildren } from "../../../ir/util/walk.js";
+import {
+  walkExprDeep,
+  walkWorkflowStmtChildren,
+  walkWorkflowStmtsDeep,
+} from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -456,7 +460,20 @@ function lowerStatement(
         st.method === "getById"
           ? `get_${snake(st.aggName)}`
           : `${snake(st.method)}_${snake(st.aggName)}`;
-      const call = `${contextModule}.${action}(${argList})`;
+      // M-T5.1 A4 — a `getById` miss is the not-found-on-load policy: the
+      // declared 404, whose detail names the row ("Order <id> not found") on
+      // the other four backends and on this one's own GET-by-id route.  The
+      // context facade answers a bare `{:error, :not_found}`, which the
+      // workflows dispatcher could only render as "Resource not found", so the
+      // miss is tagged with its detail here (`respondErrorTail`'s
+      // `{:not_found, detail}` arm).
+      const call =
+        st.method === "getById"
+          ? `(case ${contextModule}.${action}(${argList}) do
+           {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
+           found -> found
+         end)`
+          : `${contextModule}.${action}(${argList})`;
       // M-T6.21 — a read whose row nothing downstream touches (an existence
       // probe, say) binds `{:ok, _wallet}` rather than tripping -Werror.
       const { pattern, bindName } = tupleBind(st.name, rest, reads);
@@ -1771,6 +1788,26 @@ end
   return { content, statementRegions };
 }
 
+/** Does any body of this workflow load through `getById` (at any depth)?  Gates
+ *  the dispatcher's `{:not_found, detail}` arm (M-T5.1 A4). */
+function workflowLoadsById(wf: WorkflowIR): boolean {
+  const lists: readonly (readonly WorkflowStmtIR[])[] = [
+    wf.statements,
+    ...wf.creates.map((c) => c.statements),
+    ...(wf.subscriptions ?? []).map((o) => o.statements),
+    ...(wf.handlers ?? []).map((h) => h.statements),
+  ];
+  let found = false;
+  for (const list of lists) {
+    for (const top of list) {
+      walkWorkflowStmtsDeep(top, (s) => {
+        if (s.kind === "repo-let" && s.method === "getById") found = true;
+      });
+    }
+  }
+  return found;
+}
+
 function renderWorkflowsController(appModule: string, groups: WorkflowControllerGroup[]): string {
   const webModule = `${appModule}Web`;
 
@@ -1838,7 +1875,14 @@ ${actions}
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),
     do: ProblemDetails.validation_error_response(conn, changeset)
 
-${respondErrorTail("respond", "  ", groups[0] ? denialOverrides(groups[0].ctx) : undefined, contextsHaveWireDenials(groups.map((g) => g.ctx)), true)}
+${respondErrorTail(
+  "respond",
+  "  ",
+  groups[0] ? denialOverrides(groups[0].ctx) : undefined,
+  contextsHaveWireDenials(groups.map((g) => g.ctx)),
+  true,
+  groups.some((g) => g.workflows.some(workflowLoadsById)),
+)}
 end
 `;
 }

@@ -148,6 +148,30 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
+        if (context.Exception is ValueObjectInvariantException voe)
+        {
+            _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", voe.Message, 422);
+            global::Api.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.HttpContext.Response.Headers["x-request-id"] = trace_id;
+            var voProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Unprocessable Entity",
+                Status = 422,
+                Detail = voe.Message,
+                Instance = context.HttpContext.Request.Path,
+            };
+            voProblem.Extensions["errors"] = voe.RuleCode != null
+                ? new object[] { new { pointer = "", message = voe.Message, code = voe.RuleCode } }
+                : new object[] { new { pointer = "", message = voe.Message } };
+            context.Result = new ObjectResult(voProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+            context.ExceptionHandled = true;
+            return;
+        }
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.
