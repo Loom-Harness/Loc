@@ -49,7 +49,10 @@
 //     the ladder now refuses the guarded create, and that arm is what the
 //     mutation proof (finding 8) fires.
 //
-//  2. `Shipment.destroy` (the principal-AND-row gate) still has no refusal arm,
+//  2. DRAINED (wave C3 packet 3c): a ladder surface may now carry its OWN
+//     `seed`, and `Shipment.destroy` is refused on its own seeded shipment —
+//     `R.oneSeededId` has no pins left.  The original finding, kept as the
+//     record: `Shipment.destroy` (the principal-AND-row gate) had no refusal arm,
 //     and the blocker is the HARNESS, not the fixture: a ladder spec carries
 //     exactly ONE seeded id (`__authzLadder`'s `{id}` is the first id any seed
 //     step returns) and `lifecycle-guard`'s is the crate's.  Addressing a second
@@ -141,6 +144,16 @@
 //     rebaselined goldens match: 17 passed, 0 failed, 7 skipped, 3 cases
 //     compared, 0 divergences.
 
+/** The three un-refusable classes below (`principalFreeGate`,
+ *  `sharedTenancyIdentity`, `maskIsNotAStatus`) waive the RUNTIME refusal only.
+ *  Whether each such gate is APPLIED is proved on emitted code, per backend, by
+ *  the emitted-source census (M-T9.41): its "pin redirect" block requires every
+ *  corpus pin of these classes to name an aggregate whose scope conjuncts (or
+ *  mask closure) that census finds applied on every backend the fixture
+ *  declares — so a pin here can no longer hide an emission defect. */
+export const REDIRECTED_TO_EMITTED_CENSUS =
+  " — its APPLICATION is proved per backend on emitted code by `authz-emitted-census.test.ts` (M-T9.41)";
+
 /**
  * Reason classes.  Shared constants rather than 84 hand-written sentences: the
  * gaps fall into a handful of classes and the CLASS is the honest explanation.
@@ -164,7 +177,8 @@ export const R = {
   principalFreeGate:
     "principal-FREE gate (`policy deny` renders an always-false filter for every caller), so a " +
     "second principal cannot be discriminated; the refusal is asserted by the fixture's own " +
-    "`test e2e` (`toThrow(404)`) — see the note at the site in the .ddd",
+    "`test e2e` (`toThrow(404)`) — see the note at the site in the .ddd" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (harness identity).  A tenant floor, a registry self-scope or
    *  an `allow deep`/`global` subtree scope keys on `tenantId`, and
    *  `DEV_CLAIMS_UNAUTHORIZED` shares it with `DEV_CLAIMS` by design — that is
@@ -177,13 +191,15 @@ export const R = {
     "a second tenancy identity (`DEV_CLAIMS_OTHER_TENANT`, wave-3 row 3.3) — but a tenancy " +
     "statement is not an authorization refusal, and counting one as the other would let a gated " +
     "surface look covered while its `requires` went unexercised, so the cross-tenant rung is " +
-    "deliberately not a refusal arm here",
+    "deliberately not a refusal arm here" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (shape).  A read mask redacts a FIELD inside a 200; there is no
    *  refusal status to assert.  Nor are the two identities distinguishable here
    *  — neither carries the unmasking claim. */
   maskIsNotAStatus:
     "`mask unless` refuses a FIELD inside a 200, not a request — no refusal status exists to " +
-    "assert, and neither harness principal carries the unmasking claim",
+    "assert, and neither harness principal carries the unmasking claim" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (population).  Nothing boots this source, so no ladder can name
    *  a caller for it at all; its gates are watched at the COMPILE tier only. */
   notABehaviouralCase:
@@ -199,6 +215,22 @@ export const R = {
     "false — it gates the guard's IMPORT (F2-CB-C7), not a caller; the emitted import is the " +
     "assertion, in `domain-service-gate-import-parity.test.ts`",
 } as const;
+
+// WAVE C3 PACKET 3c (M-T9.28 residue): the CROSS-TENANT rung now counts as
+// the refusal of a surface whose ONLY gate is the tenancy predicate
+// (`isSurfaceRefused` in the census) — the argument below against counting it
+// was about surfaces that ALSO carry a `requires` / policy stance / mask, and
+// it still holds for those.  Twelve `sharedTenancyIdentity` pins drained on
+// that rule (by-id read, update and destroy on `tenancy-owned`,
+// `tenancy-claim-name`, `tenancy-filter` and `policy-deny`'s `Ledger`), each
+// refused by a booted-app 404 on all seven behavioural legs.  What remains
+// in the class: every `create` (a foreign tenant creating stamps its OWN
+// tenant — nothing to refuse), every list `find` (a leak answers 200 — status
+// cannot see it; the rows are the `test e2e`'s to assert), and the
+// tenant-REGISTRY aggregates' surfaces, whose self-scope keys `id` on the
+// tenancy claim: the harness principals' `tenantId` is not a registry row id,
+// so no identity can read a registry row at all — the ~20 surfaces #2976's
+// registry-ROW principal exists for (not built here: that draft's claim).
 
 /**
  * `<case key> → { <surface key>: reason }`.
@@ -227,14 +259,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "history GET /api/employees/{id}/history": R.maskIsNotAStatus,
   },
 
-  // ── the one refusal arm the HARNESS blocks ───────────────────────────────
-  // The other two `requires` gates in this fixture ARE refused by the ladder
-  // (the guarded create's arm is new — finding 1).  This third needs a second
-  // addressable row: `R.oneSeededId`.
-  "corpus/lifecycle-guard": {
-    "destroy DELETE /api/shipments/{id}": R.oneSeededId,
-  },
-
   // ── `policy { deny … }` + the tenant floor around it ─────────────────────
   // `Secret` / `Note` are read-denied and `Account` is write-denied: all three
   // sentinels are principal-free, so the fixture's own `test e2e` is the
@@ -248,7 +272,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "create POST /api/notes": R.principalFreeGate,
     "create POST /api/orgs": R.sharedTenancyIdentity,
     "create POST /api/secrets": R.principalFreeGate,
-    "destroy DELETE /api/ledgers/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/notes/{id}": R.principalFreeGate,
     "destroy DELETE /api/orgs/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/secrets/{id}": R.principalFreeGate,
@@ -259,11 +282,9 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/secrets": R.principalFreeGate,
     "find GET /api/secrets/by_code": R.principalFreeGate,
     "getById GET /api/accounts/{id}": R.sharedTenancyIdentity,
-    "getById GET /api/ledgers/{id}": R.sharedTenancyIdentity,
     "getById GET /api/notes/{id}": R.principalFreeGate,
     "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
     "getById GET /api/secrets/{id}": R.principalFreeGate,
-    "operation POST /api/ledgers/{id}/update": R.sharedTenancyIdentity,
     "operation POST /api/notes/{id}/update": R.principalFreeGate,
     "operation POST /api/orgs/{id}/update": R.sharedTenancyIdentity,
     "operation POST /api/secrets/{id}/update": R.principalFreeGate,
@@ -302,23 +323,17 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
   "corpus/tenancy-claim-name": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
     "create POST /api/organizations": R.sharedTenancyIdentity,
-    "destroy DELETE /api/invoices/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
     "find GET /api/invoices": R.sharedTenancyIdentity,
     "find GET /api/invoices/by_number": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
-    "getById GET /api/invoices/{id}": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/invoices/{id}/update": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
   },
   "corpus/tenancy-filter": {
     "create POST /api/accounts": R.sharedTenancyIdentity,
-    "destroy DELETE /api/accounts/{id}": R.sharedTenancyIdentity,
     "find GET /api/accounts": R.sharedTenancyIdentity,
     "find GET /api/accounts/by_min_balance": R.sharedTenancyIdentity,
-    "getById GET /api/accounts/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/accounts/{id}/update": R.sharedTenancyIdentity,
   },
   // The fixture wave-3 row 3.3 drained.  Every gate on it is the TENANCY scope
   // filter and nothing else — there is no `requires` in the system — so the
@@ -345,14 +360,11 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
   "corpus/tenancy-owned": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
     "create POST /api/organizations": R.sharedTenancyIdentity,
-    "destroy DELETE /api/invoices/{id}": R.sharedTenancyIdentity,
     "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
     "find GET /api/invoices": R.sharedTenancyIdentity,
     "find GET /api/invoices/by_number": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
-    "getById GET /api/invoices/{id}": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
-    "operation POST /api/invoices/{id}/update": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
   },
 
@@ -411,8 +423,7 @@ export const NON_PARSING_SOURCES: readonly string[] = [
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   maskIsNotAStatus: 4,
   notABehaviouralCase: 11,
-  oneSeededId: 1,
   importGateOnly: 1,
   principalFreeGate: 17,
-  sharedTenancyIdentity: 63,
+  sharedTenancyIdentity: 51,
 };
