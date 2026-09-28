@@ -5,50 +5,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SRC = `
-  system S {
-    subdomain C {
-      context C {
-        aggregate Order {
-          status: string
-          operation place() { status := "Placed"  emit OrderPlaced { order: id, at: now() } }
-        }
-        repository Orders for Order {}
-        event OrderPlaced { order: Order id, at: datetime }
-        channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
-        workflow OrderFulfillment {
-          orderId: Order id
-          attempts: int
-          create(p: OrderPlaced) by p.order { attempts := 1 }
-        }
-      }
-    }
-    api A from C
-    storage pg { type: postgres }
-    resource sagaState { for: C, kind: state, use: pg }
-    deployable d { platform: dotnet  contexts: [C]  dataSources: [sagaState]  serves: A  port: 4000 }
-  }
-`;
-
-describe(".NET workflow own-state assignment", () => {
-  it("writes the own-state field onto the saga row in the start handler", async () => {
-    const files = await generateSystemFiles(SRC);
-    const handler = [...files.entries()].find(([k]) =>
-      k.endsWith("OrderFulfillmentStartOrderPlacedHandler.cs"),
-    )?.[1];
-    expect(handler, "start handler not emitted").toBeDefined();
-    expect(handler).toContain("state.Attempts = 1;");
-  });
-
-  it("emits a settable Attempts property on the saga state entity", async () => {
-    const files = await generateSystemFiles(SRC);
-    const entity = [...files.entries()].find(([k]) =>
-      k.endsWith("Workflows/OrderFulfillmentState.cs"),
-    )?.[1];
-    expect(entity).toContain("public int Attempts { get; set; }");
-  });
-});
-
 // Scalar COMPOUND own-state mutation (`field += value` / `field -= value`).  It
 // lowers to the same `assign` node with the value rewritten to a `binary` over
 // the current value, so the `state.<Field> = <expr>` emitter renders the
@@ -81,15 +37,6 @@ const COMPOUND_SRC = `
 `;
 
 describe(".NET workflow own-state compound assignment", () => {
-  it("emits a read-modify-write for an int `attempts += 1`", async () => {
-    const files = await generateSystemFiles(COMPOUND_SRC);
-    const handler = [...files.entries()].find(([k]) =>
-      k.endsWith("OrderFulfillmentStartOrderPlacedHandler.cs"),
-    )?.[1];
-    expect(handler, "start handler not emitted").toBeDefined();
-    expect(handler).toContain("state.Attempts = state.Attempts + 1;");
-  });
-
   it("emits decimal arithmetic for a money `total -= money(...)`", async () => {
     const files = await generateSystemFiles(COMPOUND_SRC);
     const handler = [...files.entries()].find(([k]) =>

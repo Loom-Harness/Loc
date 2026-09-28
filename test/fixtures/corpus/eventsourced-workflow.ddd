@@ -14,13 +14,16 @@ system FulfillmentSys {
           status := "Placed"
           emit OrderPlaced { order: id, at: now() }
         }
+        operation archive() { emit OrderArchived { order: id } }
       }
       repository Orders for Order { }
       event OrderPlaced { order: Order id, at: datetime }
       event PaymentRegistered { order: Order id, amount: int }
       event FulfillmentCancelled { order: Order id }
+      event OrderArchived { order: Order id }
+      event ArchiveRecorded { order: Order id, count: int }
       channel Lifecycle {
-        carries: OrderPlaced, PaymentRegistered, FulfillmentCancelled
+        carries: OrderPlaced, PaymentRegistered, FulfillmentCancelled, OrderArchived, ArchiveRecorded
         delivery: broadcast
         retention: ephemeral
       }
@@ -37,6 +40,24 @@ system FulfillmentSys {
         }
         apply(pr: PaymentRegistered) { paid := paid + pr.amount }
         apply(fc: FulfillmentCancelled) { cancelled := true }
+      }
+      // The STARTER GUARD (S5b; PROMOTED from the per-backend
+      // `*-saga-starter-guard.test.ts` string copies, M-T9.42): `create` AND
+      // `on` for the SAME event.  A new correlation must run the create only,
+      // an existing one the on only — so each archive() folds exactly ONE
+      // ArchiveRecorded.  An unguarded starter double-appends (2 after the
+      // first archive), and a starter that runs after the reactor on a fresh
+      // stream appends twice as well.
+      workflow ArchiveTracker eventSourced {
+        orderId: Order id
+        archivedCount: int
+        create(e: OrderArchived) by e.order {
+          emit ArchiveRecorded { order: e.order, count: 1 }
+        }
+        on(e: OrderArchived) by e.order {
+          emit ArchiveRecorded { order: e.order, count: 1 }
+        }
+        apply(r: ArchiveRecorded) { archivedCount := archivedCount + r.count }
       }
     }
   }
@@ -91,5 +112,13 @@ system FulfillmentSys {
     let inst = api.orderFulfillment.instance(o)
     expect(inst.paid).toBe(0)
     expect(inst.cancelled).toBe(true)
+
+    // The starter guard: the first archive() STARTS the tracker's stream, the
+    // second is routed to the reactor — one fold each, never two.
+    api.orders.archive(o)
+    expect(api.archiveTracker.instance(o).archivedCount).toBe(1)
+    api.orders.archive(o)
+    expect(api.archiveTracker.instance(o).archivedCount).toBe(2)
+    expect(api.archiveTracker.instances().count()).toBe(1)
   }
 }

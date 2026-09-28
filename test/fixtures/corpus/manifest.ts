@@ -547,6 +547,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
   },
+  {
+    id: "wire-ingress",
+    title:
+      "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+    doc: "language",
+    backends: ALL,
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
+  },
 ] as const;
 
 /** Lookup by id. */

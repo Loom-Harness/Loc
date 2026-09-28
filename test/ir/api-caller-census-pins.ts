@@ -446,12 +446,12 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   // claim, and the harness principal's claim is not a row id.  See
   // `R.tenantRegistryRow` — draining them needs a harness change, not a test.
   "corpus/tenancy-owned": {
-    // `Organization` is this system's TENANT REGISTRY.
-    createOrganization: R.tenantRegistryRow,
-    getOrganizationById: R.tenantRegistryRow,
+    // `Organization` is this system's TENANT REGISTRY.  `create`, `getById`
+    // and `all` ARE called there (M-T9.42, the registry self-scope promotion):
+    // the by-id read is asserted 404 and the list empty — the pin's own reason,
+    // asserted.  Only the two writes that need a VISIBLE row stay pinned.
     destroyOrganization: R.tenantRegistryRow,
     updateOrganization: R.tenantRegistryRow,
-    allOrganization: R.tenantRegistryRow,
   },
   // Same registry class again, in the fixture wave-3 row 3.3 drained.  Only the
   // THREE id-taking routes are pinned: `create` and `all` ARE called there, and
@@ -637,7 +637,11 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream,
   // by-key folds one), the same not-lifted workflow-route class as above.
+  // …and the plain (state-table) saga's by-key read (M-T9.42 own-state).
+  "corpus/saga": ["api.orderFulfillment.instance (no such aggregate)"],
   "corpus/eventsourced-workflow": [
+    "api.archiveTracker.instance (no such aggregate)",
+    "api.archiveTracker.instances (no such aggregate)",
     "api.orderFulfillment.instance (no such aggregate)",
     "api.orderFulfillment.instances (no such aggregate)",
   ],
@@ -1089,7 +1093,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
  * recurs — see `autoFindAll` and `crudishUpdate`).
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  tenantRegistryRow: 23,
+  tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
   gateProbe: 1,
   clockDependentFind: 1,
