@@ -449,6 +449,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -539,6 +540,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -887,6 +889,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -1105,6 +1108,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
@@ -1136,6 +1140,7 @@
     "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
     "paramName",
     "stateField"
