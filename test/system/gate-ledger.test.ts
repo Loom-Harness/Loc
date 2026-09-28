@@ -100,12 +100,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
-  "workflow-enum-state":
-    'an enum-typed workflow STATE field.  The old reason ("nothing an oracle can read — no `ClaimFiled` emitter") did not survive a booted block (wave C3 3a, defect D6): with an emitting operation added, ELIXIR inserts the saga row with `claim_state` NULL (`not_null_violation`) — the "fresh saga row seeded wrong" class this fixture was minted for on node.  The aggregate also needs renaming (`Claim` → `ClaimRecord`) because its e2e slug `claims` is a Loom keyword (D2).  Drains with the elixir fix; block in the note',
-  "workflow-command-payload":
-    "the e2e DSL CAN call a workflow now (`api.<wf>.run(…)`), and the booted block (wave C3 3a, defect D7) found ELIXIR reading the payload with ATOM keys off a STRING-keyed map (`KeyError: key :cargo not found`) — a 500 on every run.  The aggregate also needs renaming (`Claim` → `ClaimRecord`; slug `claims` is a keyword, D2).  Drains with the elixir fix; block in the note",
-  "projection-implicit-sub":
-    "**D-PROJECTION-IMPLICIT-SUB** — the old reason (its carried twin `projection.ddd` boots the same fold) was wrong: a dropped implicit subscription compiles on every backend, the twin has no workflow, and seeding the original defect back turns this fixture's booted block red while `projection` stays green.  The block (wave C3 3a, defect D8) found ELIXIR 500ing on the reactor: an optional `datetime` workflow-state field is typed `:string` in the Ecto schema (`Ecto.ChangeError … shipped_at … does not match type :string`).  Drains with the elixir fix; block in the note",
   "projection-fold-statements":
     "ledger row F2-XB-4 — the COMPILE tier is the gate that mattered here (a dropped `let` is CS0103 / 'cannot find symbol'), and `test/conformance/projection-fold-statement-parity.test.ts` sweeps every admitted statement kind on all five per-PR.  What a behavioural block would add is the ACCUMULATED VALUE: a dropped `+=` compiles and leaves the column null forever, which only a booted read can tell from a correct fold.  Blocked on a wire golden per backend, not on the fixture",
   "paged-nonrelational":

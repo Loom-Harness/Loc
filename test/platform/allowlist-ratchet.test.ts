@@ -606,7 +606,12 @@ const REGISTERED: Ratchet[] = [
     // blocks drained with the `src/` fixes for the defects they found —
     // `collection-op-shapes` (D1), `enum-collection` (D3), `vo-id-reference`
     // (D4) — each green on all seven legs against a node-minted golden.
-    max: 20,
+    //
+    // 20 -> 17 (same packet): the remaining three — `workflow-enum-state`
+    // (D2 + D6), `workflow-command-payload` (D2 + D7) and
+    // `projection-implicit-sub` (D8) — drained with the elixir workflow fixes
+    // and the plural-slug grammar fix, so all six blocks 3a held are home.
+    max: 17,
   },
 ];
 

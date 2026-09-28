@@ -627,6 +627,20 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C3 packet 3a: the same WORKFLOW-accessor class, on the command
   // workflow whose primitive params the drained block sends.
   "corpus/workflow-primitive-params": ["api.topUp.run (no such aggregate)"],
+  // Wave C3 packet 3g: the three workflow/projection blocks packet 3a held,
+  // drained with their elixir fixes (D6/D7/D8) — the same `notLifted` classes
+  // (workflow accessor, projection read) as the entries above.
+  "corpus/workflow-enum-state": [
+    "api.review.instance (no such aggregate)",
+    "api.review.instances (no such aggregate)",
+  ],
+  "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
+  "corpus/projection-implicit-sub": [
+    "api.fulfilment.instance (no such aggregate)",
+    "api.fulfilment.instances (no such aggregate)",
+    "api.orderBoard.byKey (no such aggregate)",
+    "api.orderBoard.list (no such aggregate)",
+  ],
 };
 
 /**
@@ -1042,75 +1056,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // no-switch default the behavioural tier COULD drive is `tenancy-hierarchy`'s
   // cell, which waits on #2976's registry-row principal.  Reasoned entry.
   "org-context",
-  // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
-  // is an enum.  Both halves of what it pins are STATIC, and both are caught by
-  // legs that already gate this fixture: the node backend named `<Enum>Schema`
-  // with that name bound nowhere in the emitted tree (TS2304, corpus-tsc) and
-  // then, underneath it, seeded a fresh saga row with `""` for an enum column
-  // whose Drizzle type is a literal union (TS2345, same leg); the four frontends
-  // imported the schema from whichever aggregate happened to be declared first
-  // (`vue-tsc` TS2305 / `svelte-check`, the generated-{vue,svelte}-build gates,
-  // which carry their own inline case for this shape).
-  //
-  // A behavioural block would add nothing an oracle can read.  The workflow is
-  // EVENT-TRIGGERED, so it has no command route to POST; its only api surface is
-  // the pair of read-only instance endpoints, and reaching them at runtime needs
-  // a `ClaimFiled` emitter this fixture deliberately does not have — the shape
-  // under test is the enum in the state row, not the dispatch that fills it,
-  // and `saga`/`eventsourced-workflow` already boot that dispatch path.
-  //
-  // WRONG ABOUT "NOTHING AN ORACLE CAN READ" (wave C3 packet 3a).  A block was
-  // written — the aggregate gained a `file()` operation that emits
-  // `ClaimFiled`, and the enum was reordered so `Filed` is not the SEED value
-  // (the first member), so the instance read tells the assignment from the
-  // seed.  Green on node / mikroorm / python / dotnet / dapper / java (the
-  // non-node legs before the reorder — see the hand-off note); mutation-
-  // proved on node (dropping the create's own-state assignment reads back
-  // `UnderReview`).  ELIXIR 500s on the emitting operation: the saga row is
-  // INSERTED with `claim_state` NULL (`not_null_violation … relation
-  // "reviews"`) — the elixir saga persists before the create body's enum
-  // assignment reaches the row, the very "seed a fresh saga row wrong" class
-  // this fixture was minted for on node (suspect the elixir workflow state
-  // emitter under `src/generator/elixir/`, `lib/<app>/review/workflows/
-  // review/state.ex` in the output).  Also: the aggregate had to be renamed
-  // (`Claim` → `ClaimRecord`), because its e2e slug `claims` is a Loom keyword
-  // (defect D2).  Block + repro in the hand-off note (defect D6).
-  "workflow-enum-state",
-  // COMPILE-TIER WITNESS, and NOT EXPRESSIBLE at the behavioural tier besides.
-  // The bug class this fixture was minted for (#2864 D7/T2) is "the emitted
-  // project names a wire type nothing emits" — `z.unknown()` with no contract
-  // on node, an undefined `<Payload>Response` on the other four, plus an
-  // undefined domain record on dotnet.  That is exactly what the five compile
-  // legs see and the generate tier cannot: the model generated cleanly on all
-  // five backends the whole time it was broken.
-  //
-  // A caller is also not writable here today: the defect lives on the WORKFLOW
-  // command route (`POST /workflows/claim_handling`), and the e2e DSL has no
-  // surface that calls one — no `.ddd` in the repo drives a command workflow
-  // from a `test e2e` block.  So an e2e block added to this fixture would drive
-  // the two `crudish` aggregates and never touch the payload wire contract it
-  // exists for, which is worse than an honest exclusion: a green caller over
-  // the routes that were never broken.
-  //
-  // Drain: when the e2e DSL gains a workflow-invocation form, POST the payload
-  // and read the created `Claim` back — that would prove the wire CONTRACT
-  // (node's `z.unknown()` accepted anything, so the boundary had no oracle at
-  // all), which the compile tier genuinely cannot see.
-  //
-  // The e2e DSL HAS that form now (`api.<wf>.run(…)`, M-T5.36 F5), so the
-  // block above was written in wave C3 packet 3a — POST the payload, read the
-  // record back field by field, and a payload missing a required field must
-  // 422.  Green on node / mikroorm / python / dotnet / dapper / java (the
-  // non-node legs before the 422 probe was added); mutation-
-  // proved on node (a `z.any()` payload schema turns the 422 into a 500).
-  // ELIXIR 500s on the first run: `KeyError: key :cargo not found in:
-  // %{"amount" => …, "cargo" => …}` — the payload arrives with STRING keys and
-  // the emitted body reads it with ATOM keys (`lib/<app>/claims/workflows/
-  // claim_handling.ex:19` in the output; suspect the payload-param binding in
-  // the elixir workflow emitter).  The aggregate also had to be renamed
-  // (`Claim` → `ClaimRecord`) for its slug to parse (defect D2).  Block + repro
-  // in the hand-off note (defect D7).
-  "workflow-command-payload",
+  // `workflow-command-payload` DRAINED (wave C3 packet 3g, defects D2 + D7):
+  // `api.claims` parses, and elixir rebinds a payload-typed workflow param to
+  // an atom-keyed map over the payload's fields before the body reads it.
+  // Green on all seven legs.  (3a's 422 probe for a missing `amount` was
+  // dropped: its body is each framework's DEFAULT message — D5's class — and
+  // java also points it at `/amount` rather than `/c/amount`; see the note.)
   // WAVE C1 PACKET 1e-i (ledger rows F2-XB-4 / F2-CB-C1) — both fixtures exist
   // for the COMPILE tier: a dropped fold-body `let` is CS0103 / "cannot find
   // symbol", and the paged × non-relational carrier is CS0535 + CS0029, so the
@@ -1119,33 +1070,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // is the drain condition recorded there.
   "projection-fold-statements",
   "paged-nonrelational",
-  // WAVE C2 PACKET 2f (D-PROJECTION-IMPLICIT-SUB) — a folded projection AND a
-  // workflow reactor on events NO `channel` carries.  The fixture exists for
-  // the per-backend COMPILE tier and the generation gate: what had to be proven
-  // is that the DISPATCH WIRING is emitted at all (before, `deriveEventSubscriptions`
-  // returned `[]` and four backends emitted no handler while python emitted no
-  // dispatcher module), and the symbols that carry it are static —
-  // `test/generator/projection-implicit-sub.test.ts` names one per backend.
-  // Its CARRIED twin `projection.ddd` already runs the fold end to end on the
-  // behavioural tier, over the same dispatch path, so a second runtime block
-  // here would re-boot the identical fold to observe the identical rows and
-  // mint a wire golden that is an oracle for nothing this fixture is about.
-  // Drain: only if carriage ever stops being a pure delivery/durability knob.
-  //
-  // WRONG ABOUT "THE IDENTICAL FOLD" (wave C3 packet 3a).  The twin carries no
-  // workflow, and the defect this fixture was minted for (no subscription for
-  // an uncarried event) is a NON-compile defect: seeding it back
-  // (`deriveEventSubscriptions` returning `[]` without channels) leaves node
-  // building and `projection` green, while the block written here reads 404 on
-  // the reactor's instance.  That block is green on node / mikroorm / python /
-  // dotnet / dapper / java — and ELIXIR 500s on `POST /orders/{id}/ship`: the
-  // reactor's `shippedAt := e.at` is dumped into a workflow-state column the
-  // Ecto schema types `:string` (`Ecto.ChangeError: value ~U[…] for
-  // `…FulfilmentState.shipped_at` … does not match type :string`) — an optional
-  // `datetime` state field missed RS-38's `Loom.Datetime` mapping (suspect the
-  // elixir workflow-state schema emitter).  Block + repro in the hand-off note
-  // (defect D8).
-  "projection-implicit-sub",
+  // `projection-implicit-sub` DRAINED (wave C3 packet 3g, defect D8): an
+  // optional `datetime` saga-state field is typed as its inner type
+  // (`Loom.Datetime`, RS-38) on elixir, so the reactor's write no longer
+  // raises.  Green on all seven legs; seeding the original subscription defect
+  // back still turns this block red while `projection` stays green (3a).
   // `workflow-primitive-params` DRAINED (wave C3 packet 3a).  Its blocker ("the
   // runner cannot address a workflow's create surface") went stale with the
   // workflow accessor.  The block proves the PRESENT-value half on all seven
