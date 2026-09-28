@@ -37,7 +37,7 @@ public sealed class OrdersController : ControllerBase
             request.CustomerId,
             request.Status,
             DateTime.TryParse(request.PlacedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var __wp_request_PlacedAt)
-                ? __wp_request_PlacedAt
+                ? __wp_request_PlacedAt.AddTicks(-(__wp_request_PlacedAt.Ticks % TimeSpan.TicksPerMillisecond))
                 : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt}\"")
         );
         var id = await _mediator.Send(cmd);
@@ -127,7 +127,7 @@ public sealed class OrdersController : ControllerBase
             request.CustomerId,
             request.Status,
             DateTime.TryParse(request.PlacedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var __wp_request_PlacedAt)
-                ? __wp_request_PlacedAt
+                ? __wp_request_PlacedAt.AddTicks(-(__wp_request_PlacedAt.Ticks % TimeSpan.TicksPerMillisecond))
                 : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt}\"")
         );
         await _mediator.Send(cmd);

@@ -5,6 +5,7 @@ import {
 } from "../../../ir/validate/invariant-classify.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
+import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 
 // ---------------------------------------------------------------------------
 // Shared Ecto-changeset validator rendering — the
@@ -171,7 +172,7 @@ export function voEctoType(t: TypeIR): string {
         case "bool":
           return ":boolean";
         case "datetime":
-          return ":utc_datetime";
+          return LOOM_DATETIME_MODULE;
         case "guid":
           return "Ecto.UUID";
         case "json":

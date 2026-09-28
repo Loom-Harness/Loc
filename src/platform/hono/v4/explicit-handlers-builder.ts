@@ -48,6 +48,7 @@ import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 // body cast is deliberately loose and a typed schema would reject it.
 // ---------------------------------------------------------------------------
 
+import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -78,7 +79,6 @@ import {
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
@@ -727,7 +727,7 @@ export function buildExplicitRoutesFile(
     `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, "Disallowed", err.message);`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasValueObjectInvariants), exDomainStatus, problemTitle(exDomainStatus), `problem(${exDomainStatus}, ${JSON.stringify(problemTitle(exDomainStatus))}, err.message)`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, problemTitle(exDomainStatus), `problem(${exDomainStatus}, ${JSON.stringify(problemTitle(exDomainStatus))}, err.message)`)};`,
   );
   body.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(problemTitle(exNotFoundStatus))}, err.message);`,
@@ -810,7 +810,7 @@ export function buildExplicitRoutesFile(
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
-    /\bvalueObjectProblem\(/.test(bodyStr) ? "valueObjectProblem" : null,
+    /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))

@@ -28,6 +28,7 @@ import { snake, upperFirst } from "../../../util/naming.js";
 import { brokerChannelBindings } from "../../_channels/bindings.js";
 import { embedSpaInto } from "../../_frontend/embedded-spa.js";
 import { prepareThemeVM } from "../../_frontend/theme-preparer.js";
+import { hasDomainFloorMessages } from "../../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../../_i18n/validation-catalog.js";
 import { generateAngularForContexts } from "../../angular/index.js";
 import { generateFelizForContexts } from "../../feliz/index.js";
@@ -194,12 +195,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       // every other rung of the ladder).
       contexts.some((c) =>
         c.aggregates.some((a) => aggregateBodyValueObjectFields(a, c.valueObjects).length > 0),
-      )
+      ) || contexts.some(hasDomainFloorMessages)
         ? {
             status: denialStatus("precondition", ladderStatuses),
             title: denialTitle("precondition", ladderStatuses),
           }
         : undefined,
+      // M-T1.11 (c) — a messaged rule can trip at the domain floor.
+      contexts.some(hasDomainFloorMessages),
     ),
   );
 

@@ -829,6 +829,35 @@ was computed from are gone — so it keeps its old spelling unless the
 deployment rounds it itself. Loom emits no backfill for either: it has no record
 of which stored values were computed rather than entered.
 
+## A column type that moved without a migration — elixir `datetime` (RS-38)
+
+[RS-38](conformance-semantics.md) (wave C5 moment 5b, ledger `F2-W-06`) moved
+the Phoenix backend's declared `datetime` columns from `:utc_datetime` — Ecto's
+`timestamp(0)`, SECOND precision — to `timestamptz`, the microsecond column the
+other four backends already used, read through the `Loom.Datetime` Ecto type
+(milliseconds on the wire). The MigrationsIR did not change: the column is still
+a `datetime`, and phase ⑨ derives **no** migration step for it. What changed is
+how the elixir migration emitter *renders* that column type, so:
+
+- **A fresh database** gets `timestamptz` from the initial migration, and a
+  written fraction round-trips.
+- **A database created before the change** keeps its `timestamp(0)` columns —
+  its initial migration already ran and Ecto does not re-run it. The regenerated
+  app still boots and still reads, but Postgres ROUNDS a sub-second value to the
+  second on write (`.999` becomes the next second), so the stored value can
+  disagree with what the request carried. Alter the columns once:
+
+  ```sql
+  ALTER TABLE <schema>.<table>
+    ALTER COLUMN <column> TYPE timestamptz USING <column> AT TIME ZONE 'UTC';
+  ```
+
+  for every declared `datetime` column (the stamped `created_at` / `updated_at`
+  of an `auditable` aggregate included) and the event-log `occurred_at`. Loom
+  emits no such step: a type change that does not move the IR is invisible to
+  the diff that would have to produce it — the same limit the RS-37 note above
+  records for values.
+
 ## Relationship to `.loom/` and `wire-spec.json`
 
 Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:

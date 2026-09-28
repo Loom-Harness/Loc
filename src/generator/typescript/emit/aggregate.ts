@@ -27,6 +27,7 @@ import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import {
@@ -570,6 +571,7 @@ function renderEntity(
         aggregate: e.name,
         op: op.name,
         eventSourced: e.eventSourced,
+        domainFloorCodes: true,
       });
       if (checkBody.length > 0) ops.push(checkBody);
       ops.push("  }");
@@ -621,6 +623,7 @@ function renderEntity(
       aggregate: e.name,
       op: op.name,
       eventSourced: e.eventSourced,
+      domainFloorCodes: true,
     });
     const body = chunks.join("\n");
     if (opFragments && chunks.length > 0) {
@@ -660,9 +663,16 @@ function renderEntity(
   const invariants = e.invariants.map((inv, i) => {
     // Author `message "..."` becomes the domain-floor detail; otherwise the
     // derived "Invariant violated: <src>" default.
-    const exprSrc = JSON.stringify(
+    const text = JSON.stringify(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
+    // A MESSAGED invariant / field check carries its wire code and pointer
+    // THROUGH the throw (M-T1.11 (c)) — the domain floor then answers the same
+    // `errors[]` entry the wire rung carries for the rule.
+    const code = domainFloorCode(inv.message);
+    const exprSrc = code
+      ? `${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      : text;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`

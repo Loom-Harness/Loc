@@ -25,6 +25,7 @@ import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
+import { joinReadFieldNames } from "../_projection/join-read.js";
 import { paramPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
 import {
   contextFilterPredicate,
@@ -284,9 +285,17 @@ export function buildPyQueryProjectionsFile(
 /** The projection's `<Proj>Row` / `<Proj>Response` DTOs — from its `wireShape`
  *  (the declared row shape), id-source columns as `str`. */
 function projectionRowModels(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): string {
+  const joined = joinReadFieldNames(proj);
   const fieldLines = (proj.wireShape ?? []).map((f: WireField) => {
     const t = f.source === "id" ? "str" : responsePyType(f.type, ctx);
     const optional = f.optional || f.type.kind === "optional";
+    // A field read THROUGH a join alias is `None` when the join target is
+    // absent (RS-34) — so its response type must admit it, or FastAPI's
+    // response validation turns the LEFT JOIN into a 500.  Still REQUIRED
+    // (no default): the key is always present, only its value may be null.
+    if (!optional && joined.has(f.name) && !t.endsWith("| None")) {
+      return `    ${f.name}: ${t} | None`;
+    }
     const suffix = optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
     return `    ${f.name}: ${t}${suffix}`;
   });

@@ -38,6 +38,7 @@ import { classifyForWire, pickErrorPath } from "../../../ir/validate/invariant-c
 import { errorTitle, resolveErrorStatus } from "../../../util/error-defaults.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
+import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 
 type GuardStmt = Extract<StmtIR | WorkflowStmtIR, { kind: "requires" | "precondition" }>;
 
@@ -243,6 +244,17 @@ end
  *  `if …, do: :ok, else: {:error, <term>}` workflow form alike. */
 export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): string {
   if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s);
+  // M-T1.11 (c) — a MESSAGED precondition in an aggregate OPERATION (the only
+  // call site that passes `wireAvailable`) that the wire cannot see answers the
+  // domain floor WITH its `errors[]` entry: the detail travels as a map carrying
+  // the rule's `msg.<hash>` code and pointer, and `ProblemDetails.problem_response/4`
+  // answers that map through the same domain-floor entry sender the body-built
+  // value object uses.  Every other denial keeps the plain string detail.
+  if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
+    return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
+      messageCode(s.message.text),
+    )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+  }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
 }

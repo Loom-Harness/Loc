@@ -116,7 +116,7 @@ aggregate Order with crudish {
 // domain/value-objects.ts
 if (!(this.value > 0)) throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx");
 // http/order.routes.ts — the DomainError arm
-return valueObjectProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
+return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
 ```
 == dotnet
 ```csharp
@@ -150,6 +150,80 @@ raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx"
 ::: end
 
 A message-less rule carries no `code`, and its text is each backend's derived default — on elixir the value object's Ecto validator chain (`should be at least 1 character(s)`), elsewhere `Invariant violated: <source>` — the same native-chain split the wire layer has for a message-less rule.  Before M-T5.1 elixir did not check a body-built value object at all (`resize(0)` persisted `{"value": 0}` and answered 204), and the other four answered the domain floor with no `errors[]`.
+
+### A messaged rule at the domain floor — the same `errors[]` entry, with its code
+
+A rule the **wire** layer can evaluate answers the wire rung (below): 422 "Validation failed", one `errors[]` entry per field, each messaged rule carrying its content-hash `code`.  A rule that reads the aggregate's own **state** — a `precondition` relating a field to a parameter, an `invariant` an operation body breaks — is invisible to any request validator and trips at the **domain floor**.  Since M-T1.11 (c) a MESSAGED rule there answers the domain-floor status with **one** `errors[]` entry of the value-object shape above: the rule's message, the **same** `msg.<hash>` code the wire rung carries (so one catalog entry localises both rungs), and the pointer `/<field>` when the rule is single-field-shaped, `""` otherwise.  A message-less rule keeps the plain domain floor — it has no code, and its text is each backend's own default.
+
+```ddd
+aggregate Account with crudish {
+  owner: string
+  balance: int
+  ceiling: int
+  invariant balance >= 0 message "Balance cannot be negative"
+  invariant balance <= ceiling message "Balance cannot exceed the ceiling"
+  operation withdraw(amount: int) {
+    precondition balance >= amount message "Insufficient funds"
+    balance := balance - amount
+  }
+  operation overdraw(amount: int) { balance := balance - amount }
+}
+```
+
+`POST /api/accounts/{id}/withdraw {"amount": 50}` on a balance of 12, and `overdraw` by the same amount, answer on all five backends (pinned by the `domain-floor-messages` wire golden):
+
+```json
+{ "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+  "detail": "Insufficient funds", "instance": "/api/accounts/{id}/withdraw",
+  "errors": [{ "pointer": "", "message": "Insufficient funds", "code": "msg.p55wf6" }] }
+
+{ "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+  "detail": "Balance cannot be negative", "instance": "/api/accounts/{id}/overdraw",
+  "errors": [{ "pointer": "/balance", "message": "Balance cannot be negative", "code": "msg.11ks9e" }] }
+```
+
+::: tabs backend
+== node
+```ts
+// domain/account.ts — the throw carries the rule's code and pointer
+if (!(this._balance >= amount)) throw new DomainError("Insufficient funds", "msg.p55wf6", "");
+if (!(this._balance >= 0)) throw new DomainError("Balance cannot be negative", "msg.11ks9e", "/balance");
+// http/account.routes.ts — the DomainError arm (one serializer for both refusals)
+return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
+```
+== dotnet
+```csharp
+// Domain/Accounts/Account.cs
+if (!(this.Balance >= amount)) throw new DomainException("Insufficient funds", "msg.p55wf6", "");
+// Api/DomainExceptionFilter.cs — the value-object arm's template, ahead of the plain DomainException arm
+if (context.Exception is DomainException dfe && dfe.RuleCode != null) { … Extensions["errors"] = … }
+```
+== java
+```java
+// features/accounts/Account.java
+if (!(this.balance >= amount)) throw new DomainException("Insufficient funds", "msg.p55wf6", "");
+// api/ApiExceptionAdvice.java — onDomain shares domainFloorWithEntry with onValueObjectInvariant
+if (e.getRuleCode() != null) return domainFloorWithEntry(e, e.getRuleCode(), e.getPointer() == null ? "" : e.getPointer(), request);
+```
+== python
+```python
+# app/domain/account.py
+raise DomainError("Insufficient funds", "msg.p55wf6", "")
+# app/http/problem.py — _domain shares _domain_floor_with_entry with the value-object handler
+if err.code is not None:
+    return _domain_floor_with_entry(request, err, err.pointer if err.pointer is not None else "")
+```
+== elixir
+```elixir
+# lib/d/accounts.ex — a messaged precondition's denial carries a coded detail map…
+:ok <- ensure(record.balance >= amount, {:precondition_failed, %{detail: "Insufficient funds", code: "msg.p55wf6", pointer: ""}})
+# …and the op persist re-asserts the invariants at the DOMAIN FLOOR, tagging a
+# messaged violation so ProblemDetails answers this rung, not "Validation failed"
+|> D.Accounts.AccountChangeset.validate_domain_floor()
+```
+::: end
+
+Before M-T1.11 (c) the four non-elixir backends answered the domain floor with `detail` only — no `errors[]`, so no code a client could localise by and no pointer a form could bind — and elixir answered a messaged invariant tripped by an operation with the WIRE rung's shape ("Validation failed") and a messaged precondition with the bare floor.
 
 ### `.length` counts code points
 

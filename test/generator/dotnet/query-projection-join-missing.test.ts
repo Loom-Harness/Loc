@@ -10,7 +10,10 @@
 // permits, on a route that is not even about the missing row.
 //
 // The rule this pins is LEFT JOIN: the source row survives and the joined field
-// carries the wire type's empty value.  Dropping the source row instead would
+// is wire `null` (RS-34) — including a VALUE-typed member: `default!` read `0`
+// for a joined `decimal` (a `double` on the wire), which is why the row record
+// widens every join-read member to nullable and the absent branch is `null`
+// (D-ABSENT-JOIN-DATETIME-WIRE closes RS-34's "Open" arm).  Dropping the source row instead would
 // let a FOREIGN aggregate's filters change this projection's row count while
 // the source aggregate's own list still shows the row — one silent failure
 // traded for another.
@@ -71,19 +74,20 @@ const SRC = (platform: string) => `
 `;
 
 const cache = new Map<string, string>();
-async function handler(platform: string): Promise<string> {
-  let src = cache.get(platform);
+async function projectionFile(platform: string, suffix: string): Promise<string> {
+  const cacheKey = `${platform}::${suffix}`;
+  let src = cache.get(cacheKey);
   if (!src) {
     const files = await generateSystemFiles(SRC(platform));
-    const key = [...files.keys()].find((k) =>
-      k.endsWith("Application/Projections/OrderWithCustomerQpHandler.cs"),
-    );
-    expect(key, "OrderWithCustomerQpHandler.cs not emitted").toBeDefined();
+    const key = [...files.keys()].find((k) => k.endsWith(`Application/Projections/${suffix}`));
+    expect(key, `${suffix} not emitted`).toBeDefined();
     src = files.get(key!)!;
-    cache.set(platform, src);
+    cache.set(cacheKey, src);
   }
   return src;
 }
+const handler = (platform: string): Promise<string> =>
+  projectionFile(platform, "OrderWithCustomerQpHandler.cs");
 
 for (const [adapter, platform] of [
   ["efcore", "dotnet"],
@@ -96,7 +100,7 @@ for (const [adapter, platform] of [
       expect(src).not.toMatch(/customerById\[/);
     });
 
-    it("reads every joined field through TryGetValue, defaulting when absent", async () => {
+    it("reads every joined field through TryGetValue, null when absent", async () => {
       const src = await handler(platform);
       expect(src).toContain("customerById.TryGetValue(d.CustomerId, out var __j0)");
       // Three joined selects → three distinct out-vars in ONE lambda scope
@@ -104,17 +108,27 @@ for (const [adapter, platform] of [
       const tmps = [...src.matchAll(/out var (__j\d+)\)/g)].map((m) => m[1]!);
       expect(tmps).toHaveLength(3);
       expect(new Set(tmps).size).toBe(3);
-      // The absent branch fills the row rather than dropping it.
-      expect(src).toContain(": default!)");
+      // The absent branch fills the row with `null` rather than dropping it —
+      // never `default!`, which is `0` for a value-typed member (RS-34).
+      expect(src).toContain(" : null)");
+      expect(src).not.toMatch(/out var __j\d+\) \? [^\n]*: default!\)/);
+    });
+
+    it("widens every join-read member of the row record to nullable (RS-34)", async () => {
+      const row = await projectionFile(platform, "OrderWithCustomerRow.cs");
+      // The value-typed one is the arm that read `0` before.
+      expect(row).toContain("double? CustomerDiscount");
+      expect(row).toContain("string? CustomerSignedUpAt");
+      expect(row).toContain("string? CustomerName");
+      // A source-row field keeps its required, non-nullable type.
+      expect(row).toMatch(/\[property: Required\(AllowEmptyStrings = true\)\] string Code/);
     });
 
     it("keeps the wire projection INSIDE the guarded branch", async () => {
       const src = await handler(platform);
       // datetime → the canonical instant wire call; decimal → the narrowing
       // call.  Both must read the guarded temp, never a bare dictionary hit.
-      const guarded = [
-        ...src.matchAll(/TryGetValue\([^)]*out var (__j\d+)\) \? (.*?) : default!\)/g),
-      ];
+      const guarded = [...src.matchAll(/TryGetValue\([^)]*out var (__j\d+)\) \? (.*?) : null\)/g)];
       expect(guarded).toHaveLength(3);
       for (const m of guarded) expect(m[2]!).toContain(m[1]!);
       const datetimeArm = guarded.find((m) => m[2]!.includes("SignedUpAt"))![2]!;

@@ -140,9 +140,11 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
       'ensure(amount >= 1, {:precondition_failed, "Precondition failed: amount >= 1"})',
     );
     // Messaged but reads `this.status` — no request body carries it, so it is
-    // not wire-translatable on ANY backend and keeps the domain-floor rung.
-    expect(ctx).toContain(
-      'ensure(record.status != "closed", {:precondition_failed, "Product is already closed"})',
+    // not wire-translatable on ANY backend and keeps the domain-floor rung —
+    // which, since M-T1.11 (c), carries the rule's code and pointer in a map
+    // detail so the 422 gains its errors[] entry.
+    expect(ctx).toMatch(
+      /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "msg\.[a-z0-9]+", pointer: ""\}\}\)/,
     );
   });
 
@@ -160,9 +162,9 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     expect(pd).toContain('title: "Validation failed"');
     expect(pd).toContain('detail: "One or more fields are invalid."');
     // The changeset path delegates to it rather than building its own body.
-    expect(pd).toContain(
-      "send_validation_problem(conn, collect_changeset_errors(changeset, []))\n  end",
-    );
+    // (Inside the domain-floor `case` since M-T1.11 (c) — the fixture carries a
+    // messaged domain-floor rule, so the tagged errors answer that rung first.)
+    expect(pd).toContain("send_validation_problem(conn, collect_changeset_errors(changeset, []))");
     // The wire path localises the code through the SAME catalog lookup.
     expect(pd).toContain("def validation_errors_response(conn, errors) when is_list(errors) do");
     expect(pd).toContain("message: localize(code, message)");

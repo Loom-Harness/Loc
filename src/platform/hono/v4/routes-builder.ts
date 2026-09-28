@@ -2,6 +2,7 @@ import {
   isServerSourcedDefault,
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
+import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
@@ -33,7 +34,10 @@ import {
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
-import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
+import {
+  aggHasFieldMask,
+  canonicalIsoExpr,
+} from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   chainSingleFieldNative,
@@ -125,7 +129,6 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExpr } from "../../../ir/validate/checks/shared.js";
 import type {
@@ -1107,7 +1110,7 @@ export function buildRoutesFile(
         .map((f) => {
           const value =
             f.default.kind === "literal" && f.default.lit === "now"
-              ? "new Date().toISOString()"
+              ? canonicalIsoExpr("new Date()")
               : renderTsExpr(f.default);
           return `${f.name}: ${value}`;
         })
@@ -1490,7 +1493,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return ${domainFloorAnswer(hasValueObjectInvariants(ctx), domainStatus, problemTitle(domainStatus), `problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message)`)};`,
+    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, problemTitle(domainStatus), `problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message)`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);
@@ -1629,7 +1632,7 @@ export function buildRoutesFile(
   if (/\brequireJsonContentType\(/.test(assembledSoFar))
     problemNamed.push("requireJsonContentType");
   if (/\bversionETag\(/.test(assembledSoFar)) problemNamed.push("versionETag");
-  if (/\bvalueObjectProblem\(/.test(assembledSoFar)) problemNamed.push("valueObjectProblem");
+  if (/\bdomainFloorProblem\(/.test(assembledSoFar)) problemNamed.push("domainFloorProblem");
   // Patch the deferred `decimal.js` import.  Read off the assembled text with
   // string literals blanked, so a message or an `.openapi("…")` label naming
   // the word cannot mint a dead import; `new Decimal(` is the only way this

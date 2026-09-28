@@ -1007,7 +1007,7 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   format is `loom.interp-format-unknown`; a format that doesn't fit the hole's
   type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
-  string catalog — see [`new-plan/T1-ui-frontend.md`](new-plan/T1-ui-frontend.md) § M-T1.11.
+  string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
 - **Escaping** — a literal brace or backtick in the text is `\{` / `\}` / `` \` ``;
   `\n` / `\t` / `\\` behave as in a string literal.
 - **Not queryable** — an interpolated string desugars to `+`/`convert`, so (like any

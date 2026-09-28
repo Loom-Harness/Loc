@@ -1,5 +1,6 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
+import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
@@ -41,6 +42,9 @@ export interface PyStmtCtx {
    *  routes it to the co-located `_<field>_provenance` backing field, and
    *  pushes it onto the per-request ContextVar buffer via `record(...)`. */
   emitProvenance?: boolean;
+  /** True when rendering an aggregate OPERATION body: a messaged
+   *  `precondition` then raises its wire code and pointer too (M-T1.11 (c)). */
+  domainFloorCodes?: boolean;
 }
 
 const METHOD_BODY_INDENT = "        ";
@@ -130,7 +134,13 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
     indexing: "per-kind",
 
     precondition: (s, ix) => {
-      const thrown = `raise DomainError(${JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`)})`;
+      // A MESSAGED precondition in an aggregate operation carries its wire code
+      // and pointer THROUGH the raise (M-T1.11 (c)).
+      const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
+      const text = JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`);
+      const thrown = code
+        ? `raise DomainError(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
+        : `raise DomainError(${text})`;
       if (!ctx.trace) {
         return [`${i}if ${renderPyNegatedGuard(s.expr)}:`, `${sub}${thrown}`].join("\n");
       }

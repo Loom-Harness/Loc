@@ -342,7 +342,7 @@ The diagnostic is honest (it prints the whole list, so nothing is hidden), and t
 
 **Until it lands,** `datetime` is the honest answer and the docs should say so: `docs/language-reference/04-type-system.md` gains one line naming `date` as a known omission with this mission id, which is the difference between a gap and a silence.
 
-Sources: dev-experience run 2026-09-27 (`F-110`); `src/language/ddd.langium:2048`; `src/util/intrinsics.ts`; `docs/new-plan/T1-ui-frontend.md` § M-T1.11 (the i18n `{at, date}` format spec that already exists).
+Sources: dev-experience run 2026-09-27 (`F-110`); `src/language/ddd.langium:2048`; `src/util/intrinsics.ts`; `docs/new-plan/archive/T1-done.md` § M-T1.11 (the i18n `{at, date}` format spec that already exists).
 
 ## M-T5.40 — the declared response record does not describe the wire it claims to — `open` · **L** · P1 ⚠ three live emission defects
 The inverse of what M-T5.10 spun off. M-T5.10's PR2–PR7 pointed every backend's response-DTO and schema emitter at the source-visible `<Agg>Response` contract record (override-by-name on `ctx.payloads`), on PR1's claim that the spliced record is "additive and fully INERT". The repository serializer / `.loom/wire-spec.json` / every frontend model still read the DERIVED shape (`forApiRead(wireFieldsFor*(node))`). Wave C4 packet 4e measured the two against each other and they do not agree, so the two halves of one HTTP response disagree.

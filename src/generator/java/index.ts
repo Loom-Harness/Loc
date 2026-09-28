@@ -52,6 +52,7 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
+import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import {
   type RequestComponentOwner,
@@ -458,7 +459,11 @@ function emitProjectFromContexts(
 
   // Shared domain types + the package markers that keep the entity files'
   // wildcard imports valid even when a package would otherwise be empty.
-  place("DomainException.java", "domain-common", renderDomainException(basePkg));
+  place(
+    "DomainException.java",
+    "domain-common",
+    renderDomainException(basePkg, contexts.some(hasDomainFloorMessages)),
+  );
   // M-T5.1 — only when a hosted value object declares an invariant (nothing
   // else raises it); a project without one is byte-identical.
   if (contexts.some(hasValueObjectInvariants)) {
@@ -560,6 +565,9 @@ function emitProjectFromContexts(
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       contexts.some(hasValueObjectInvariants),
+      // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
+      // rule the same way.
+      contexts.some(hasDomainFloorMessages),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

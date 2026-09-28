@@ -376,7 +376,9 @@ describe("projection comprehension — Hono emission", () => {
     // capability filters exclude is absent from that dictionary, and indexing it
     // directly was a `KeyNotFoundException` 500 on data the model permits.
     expect(handler).toContain(
-      "(customerById.TryGetValue(d.CustomerId, out var __j0) ? __j0.Name : default!)",
+      // … and the absent branch is wire `null`, the present one cast to the
+      // row's nullable member type (RS-34 — `default!` read `0` for a value type).
+      "(customerById.TryGetValue(d.CustomerId, out var __j0) ? (string?)(__j0.Name) : null)",
     );
     // The synthesised find lands on the Order repository impl with the inlined `where`.
     const repo = [...files.entries()].find(([p]) =>
