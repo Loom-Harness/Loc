@@ -917,7 +917,7 @@ export function renderExceptionFilter(
         "context.Exception is DomainException dfe && dfe.RuleCode != null",
         "dfe",
         "dfe.RuleCode",
-        'dfe.Pointer ?? ""',
+        'dfe.RulePointer ?? ""',
         "dfProblem",
       )
     : "";

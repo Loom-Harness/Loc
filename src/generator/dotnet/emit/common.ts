@@ -34,11 +34,15 @@ export function renderCommon(
     /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
     /// rule.</summary>
     public string? RuleCode { get; }
-    public string? Pointer { get; }
-    public DomainException(string message, string? ruleCode = null, string? pointer = null) : base(message)
+    /// Named RulePointer, not Pointer: CA1720 ("identifier contains type
+    /// name") is an ERROR under the csproj's latest-recommended analysis level
+    /// with /warnaserror — the same trap WireFormatException.FieldPointer
+    /// sidesteps below.
+    public string? RulePointer { get; }
+    public DomainException(string message, string? ruleCode = null, string? rulePointer = null) : base(message)
     {
         RuleCode = ruleCode;
-        Pointer = pointer;
+        RulePointer = rulePointer;
     }
 }
 `
