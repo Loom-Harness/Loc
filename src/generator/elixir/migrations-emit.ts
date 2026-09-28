@@ -389,7 +389,7 @@ function renderInitialEventLogFile(
     return "      " + renderEctoColumn(c, table);
   });
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -440,7 +440,7 @@ function renderInitialStateFile(
   // table with NO indexes while the same table added later
   // as a delta got both, so fresh-create and migrate-chain schemas disagreed.
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -475,7 +475,7 @@ function renderInitialFile(table: TableShape, migrationName: string, appModule: 
   if (ts) colLines.push(`      ${ts}`);
   const prefix = prefixOpt(table.schema);
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -525,7 +525,7 @@ function renderInitialValueCollectionFile(
     }
   }
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -572,7 +572,7 @@ function renderInitialJoinFile(
     }
   }
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -778,11 +778,24 @@ function renderCreateTableInline(table: TableShape): string[] {
   if (ts) lines.push(`  ${ts}`);
   lines.push("end");
   lines.push(...enumCheckLines(table, prefix, ""));
-  for (const idx of table.indexes) {
+  for (const idx of ectoIndexes(table)) {
     const cols = ectoIndexColumns(idx);
     lines.push(`create index(:${table.name}, [${cols}]${ectoIndexOpts(idx, prefix)})`);
   }
   return lines;
+}
+
+/** The indexes a Phoenix migration can create on `table`.  The canonical
+ *  MigrationsIR indexes a value object's `X id` LEAF column (`berth_ship`, the
+ *  FK-lookup index every relational backend gets), but Phoenix stores the value
+ *  object as ONE `:map` column (`collapseVoGroups`), so that leaf column does
+ *  not exist here and `ecto.migrate` failed with `column "berth_ship" does not
+ *  exist` (wave C3 D4).  Such an index is dropped on every initial-file path —
+ *  the same disposition the VO null-consistency CHECK already gets. */
+function ectoIndexes(table: TableShape): IndexShape[] {
+  const voLeaves = new Set(table.columns.filter((c) => c.voGroup).map((c) => c.name));
+  if (voLeaves.size === 0) return table.indexes;
+  return table.indexes.filter((i) => !i.columns.some((n) => voLeaves.has(n)));
 }
 
 /** Regroup the flattened leaf columns of a value-object field

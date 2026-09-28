@@ -731,85 +731,15 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // on the node leg would therefore redden the other four legs on main.  Author
   // the block once THAT is ruled.
   "envelope",
-  // COMPILE-TIER WITNESS (freight audit D3 / M-T6.64) — a `valueobject` whose
-  // field is a cross-aggregate reference (`ship: Ship id`).  The defect class
-  // it pins is entirely STATIC: node emitted `domain/value-objects.ts` naming
-  // `Ids.ShipId` in a file with zero imports (TS2503), and python's repository
-  // branded `Berth(ShipId(row.berth_ship), …)` without importing `ShipId`
-  // (ruff F821).  A type-checker is the only oracle for that, and the five
-  // compile legs are it.  The runtime shapes a behavioural block would boot —
-  // a required embedded VO and a `<VO>[]` collection — are already booted by
-  // `embedded` and `value-collections`; the new axis here is only what the
-  // VO's fields are TYPED as, which no booted leg can observe.
-  //
-  // THAT LAST CLAIM WAS WRONG, and booting it is how it was found (wave C3
-  // packet 3a).  A block was written (it reads the `Ship id` back through the
-  // flattened embedded VO and the `<VO>[]` child table) and it went green on
-  // node / mikroorm / python / dotnet / dapper — and JAVA 500s on the FIRST
-  // create: `POST /api/docks` → `column d1_0.value does not exist`.  The
-  // embedded override targets `ship` (`@AttributeOverride(name = "ship",
-  // column = @Column(name = "berth_ship"))`), but `ShipId` is itself an
-  // embeddable whose component is `value`, so Hibernate selects a `value`
-  // column that no migration created — the override path must be `ship.value`
-  // (suspect `src/generator/java/emit/jpa-annotations.ts:118`, `voOverrides`,
-  // and its collection twin `voElementOverrides`).  ELIXIR does not get as far
-  // as a request: `mix ecto.migrate` fails with `column "berth_ship" does not
-  // exist` — the elixir migration stores the embedded VO as ONE `:map` column
-  // (`add :berth, :map`) but still emits the shared MigrationsIR's index on the
-  // FLATTENED id column (`create index(:docks, [:berth_ship])`; suspect
-  // `src/generator/elixir/migrations-emit.ts`, the index arm).  The runtime
-  // shape the old comment called "already booted" is booted only for SCALAR VO
-  // fields.  The block is in the hand-off note (defect D4); it lands when java
-  // and elixir do.
-  "vo-id-reference",
-  // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
-  // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
-  // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
-  // an int[]).  The old reason here ("a behavioural block would add uncalled
-  // routes and unrecorded goldens for no additional oracle") did not survive
-  // booting one (wave C3 packet 3a): the block that reads every derived VALUE
-  // back is green on dapper and java only.  A DERIVED ENTITY ARRAY
-  // (`byPriceDesc: LineItem[]`) is serialized without the entity's wire
-  // projection on node (`byPriceDesc: root.byPriceDesc.map((a) => (a))` — the
-  // private-field domain instance, so `sku` reads undefined;
-  // `src/generator/typescript/repository-wire-builder.ts:193`, the `entity`
-  // arm returns `expr`) and python (`list(root.by_price_desc)`, then a
-  // `ResponseValidationError` 500 on the Decimal price;
-  // `src/generator/python/repository-builder.ts` `wireValue` has no `entity`
-  // arm), and EF Core refuses to BUILD the model on .NET (`Unable to determine
-  // the relationship represented by navigation 'Order.ByPriceDesc'` — no
-  // `builder.Ignore(...)` for a derived navigation-typed member,
-  // `src/generator/dotnet/emit/efcore.ts`); mikroorm 500s on the create (the
-  // `int[]` is bound as the JSON text `'[7,2,9]'` into an `integer[]` column —
-  // "invalid input syntax for type integer").  Node
-  // is the golden's oracle, so no golden can be minted until node is fixed.
-  // Block + repro in the hand-off note (defect D1).
-  "collection-op-shapes",
-  // COMPILE-TIER WITNESS (audit F-014, S1) — an enum COLLECTION field
-  // (`skills: Skill[]`).  The corpus carried scalar enums and scalar/VO arrays
-  // but never the CROSSING, so every compile gate was blind to it and elixir
-  // folded the enum's `values:` (a `field/3` OPTION) into the array TYPE tuple:
-  // `** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field
-  // :skills` — `mix compile` fails on the emitted project.
-  //
-  // The old second reason ("a behavioural block would boot a generic CRUD
-  // round-trip … over an enum-array JSON encoding no ruling has been asked
-  // for") did not survive booting one (wave C3 packet 3a).  The encoding
-  // question answers itself — node, python and dapper agree on an array of
-  // member NAMES, in order — and the crossing is broken at RUNTIME on four
-  // legs the compile tier passes: EF Core maps `List<Skill>` without the
-  // string converter the scalar enum gets, so it reads the `text[]` column as
-  // `Int32[]` and every read 500s (`src/generator/dotnet/emit/efcore.ts`, the
-  // `leaf.kind === "enum"` arm is scalar-only); java persists ORDINALS and
-  // cannot read them back (`No enum constant …Skill.2` — the
-  // `@Enumerated(EnumType.STRING)` arm of `src/generator/java/emit/
-  // jpa-annotations.ts` is scalar-only too); mikroorm hydrates the `text[]` as
-  // the raw Postgres array literal (`root.skills.map is not a function`); and
-  // elixir 500s on the operation that REPLACES the list (`POST /retrain` —
-  // `Ecto.ChangeError: value ["Plumbing", …] … does not match type {:array,
-  // #Ecto.Enum<…>}`: the operation param is written without the cast the
-  // create path gets).  Block + repro in the hand-off note (defect D3).
-  "enum-collection",
+  // `vo-id-reference` DRAINED (wave C3 packet 3g, defect D4): java overrides
+  // the VO's `X id` column at `ship.value`, elixir no longer indexes the
+  // flattened leaf of a VO it stores as one `:map`, and elixir's VO / VO-row
+  // changesets now carry a messaged rule's wire `code` (the golden's 422s
+  // found that one).  Green on all seven legs.
+  // `enum-collection` DRAINED (wave C3 packet 3g, defect D3): an enum array
+  // round-trips as member NAMES on all seven legs (EF element converter, java
+  // `@Enumerated(STRING)` on the array, mikroorm `ArrayType`, elixir's
+  // operation param mapped onto the enum's atoms).
   // `principal-read-filter` DRAINED (wave C3 packet 3a).  Its blocker read
   // "the harness cannot seed a row owned by the authenticated principal".  It
   // can: the claim is `user.id: guid`, and every backend's dev-stub principal

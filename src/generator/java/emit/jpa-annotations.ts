@@ -115,7 +115,9 @@ function voOverrides(
     if (base.kind === "valueobject") {
       return voOverrides(path, column, base.name, voLookup);
     }
-    return [`    @AttributeOverride(name = "${path}", column = @Column(name = "${column}"))`];
+    return [
+      `    @AttributeOverride(name = "${idLeafPath(path, base)}", column = @Column(name = "${column}"))`,
+    ];
   });
 }
 
@@ -129,9 +131,18 @@ function voElementOverrides(voName: string, voLookup: JpaOpts["voLookup"]): stri
       return voOverrides(jid(vf.name), snake(vf.name), base.name, voLookup);
     }
     return [
-      `    @AttributeOverride(name = "${jid(vf.name)}", column = @Column(name = "${hbIdent(snake(vf.name))}"))`,
+      `    @AttributeOverride(name = "${idLeafPath(jid(vf.name), base)}", column = @Column(name = "${hbIdent(snake(vf.name))}"))`,
     ];
   });
+}
+
+/** The override path of a VO sub-field's COLUMN.  An `X id` sub-field is itself
+ *  an `@Embeddable` record whose one component is `value`, so the column lives
+ *  one level down: overriding `ship` left Hibernate selecting the id record's
+ *  own default `value` column, which no migration created (`column d1_0.value
+ *  does not exist` on the first request, wave C3 D4). */
+function idLeafPath(path: string, t: TypeIR): string {
+  return t.kind === "id" ? `${path}.value` : path;
 }
 
 function unwrap(t: TypeIR): TypeIR {

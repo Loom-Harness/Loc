@@ -601,7 +601,12 @@ const REGISTERED: Ratchet[] = [
     // HELD here on the runtime defects they found — the hand-off note
     // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
     // and its repro, and each row's reason above now names its defect.
-    max: 23,
+    //
+    // 23 -> 20 (2026-09-28, wave C3 packet 3g): three of those six held
+    // blocks drained with the `src/` fixes for the defects they found —
+    // `collection-op-shapes` (D1), `enum-collection` (D3), `vo-id-reference`
+    // (D4) — each green on all seven legs against a node-minted golden.
+    max: 20,
   },
 ];
 
