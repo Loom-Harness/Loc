@@ -126,7 +126,8 @@
   "migrationHistory": [
     {
       "version": "20260102000000",
-      "name": "Initial"
+      "name": "Initial",
+      "seq": 2
     }
   ],
   "versionBlock": 1

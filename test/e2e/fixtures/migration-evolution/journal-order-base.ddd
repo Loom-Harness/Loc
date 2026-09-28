@@ -1,0 +1,61 @@
+// Journal-ordering gate (F-012) — the BASE model (v1).
+//
+// Paired with journal-order-evolved.ddd (v2).  This pair exists because the
+// sibling base/evolved pair is SINGLE-MODULE and non-provenanced, which is
+// exactly why `migration-evolution-e2e` was blind to F-012: with one module and
+// no late provenance migration, the old positional journal key happened to come
+// out monotonic and nothing was ever renumbered.
+//
+// Two things make this pair reach the defect:
+//
+//   • TWO subdomains, so `buildMigrations` allocates two disjoint per-module
+//     VERSION BLOCKS (Catalog → 20260101000000, Billing → 20260102000000).  The
+//     v2 delta lands in Catalog's block at `20260101500001` — BELOW Billing's
+//     initial.  Any journal key derived from the version therefore sorts the new
+//     migration behind one already applied, and Drizzle's watermark migrator
+//     (`lastApplied.created_at < entry.when`) skips it in silence.
+//
+//   • a `provenanced` field, which emits the LATE `29991231000000_provenance`
+//     migration.  Pinned to a year-2999 epoch it was permanently the highest
+//     `when` in the journal, so it poisoned the watermark for every later
+//     migration — and being always the LAST row, it was always the entry the
+//     positional key renumbered, so it re-ran on every boot and killed the
+//     process on `column "total_provenance" … already exists`.
+//
+// v1 → v2 is the most ordinary evolution there is: one nullable field added to
+// the FIRST module's aggregate.  `__PLATFORM__` is substituted by the harness,
+// but only node/Drizzle is wired to this gate — it is the one backend whose
+// migrator is a watermark rather than an applied-set (EF, Flyway, Alembic and
+// Ecto all track each migration by identity, so none of them can renumber).
+system ShopJournal {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        name: string
+        price: money
+      }
+      repository Products for Product { }
+    }
+  }
+  subdomain Billing {
+    context Billing {
+      aggregate Invoice with crudish {
+        ref: string
+        total: int provenanced
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  api CatalogApi from Catalog
+  api BillingApi from Billing
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog, Billing]
+    dataSources: [catalogState, billingState]
+    serves: CatalogApi, BillingApi
+    port: 4000
+  }
+}
