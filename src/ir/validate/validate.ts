@@ -1,5 +1,6 @@
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
+import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
 import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -120,6 +121,7 @@ import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js"
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
+import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
 // and firstNonQueryableNode (in checks/shared) are re-exported here so existing
@@ -293,6 +295,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateStampReadsBeforeFlush(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateProjections(c, diags);
+    validateAggregateConstructible(c, diags);
+    validateWorkflowUnusedParams(c, diags);
     validateWorkflows(
       c,
       diags,
@@ -376,5 +380,33 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // elixir-hosted context and every ui body are refused here rather than
   // silently dropped by an emitter.
   validateIfStatementPlacement(loom, diags);
-  return diags;
+  return dropCascadedWarnings(diags);
+}
+
+/** `loom.workflow-param-unused` reads a BODY'S SHAPE, so an error that dropped
+ *  part of that body makes it lie.
+ *
+ *  `workflow-cross-context-repository.test.ts` is the witness: a cross-context
+ *  `let tech = Technicians.getById(assignTo)` is refused, the statement never
+ *  lowers, and the `assignTo` read vanishes with it — so `assignTo` reads as
+ *  an unused parameter when the author's only mistake was the boundary. That
+ *  test's own name is "the misleading cascade is gone", and adding a second
+ *  cascade under it would have been the same defect wearing a new code.
+ *
+ *  So: the diagnostic is suppressed when an ERROR names the same source. The
+ *  narrowing to same-`source` matters — a cross-context error on one workflow
+ *  must not silence the warning on the workflow beside it. Once the error is
+ *  fixed the warning reappears on the next run, which is the right order to
+ *  read them in anyway.
+ *
+ *  `loom.aggregate-not-constructible` is deliberately NOT in this set even
+ *  though it is the sibling gate: it reads DECLARATIONS (does a create exist,
+ *  does anything call one), not a body an error could have truncated, and
+ *  same-source suppression there silenced it under an unrelated
+ *  `loom.tph-backend-unsupported` on the very same aggregate. */
+function dropCascadedWarnings(diags: LoomDiagnostic[]): LoomDiagnostic[] {
+  const CASCADABLE = new Set(["loom.workflow-param-unused"]);
+  const errored = new Set(diags.filter((d) => d.severity === "error").map((d) => d.source));
+  if (errored.size === 0) return diags;
+  return diags.filter((d) => !CASCADABLE.has(d.code ?? "") || !errored.has(d.source));
 }

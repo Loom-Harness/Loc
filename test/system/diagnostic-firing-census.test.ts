@@ -1115,6 +1115,27 @@ system P {
     repository Things for Thing { }
     workflow Dup { create(n: string) { precondition n.length > 0 } }
     workflow Dup { create(n: string) { precondition n.length > 0 } }`),
+  // F-114.  An aggregate with no `create`, no `with crudish`, nothing that
+  // builds one and no seed row: `POST /policies` is 405 and the table can only
+  // ever be empty.  The `Claim` beside it is the control — it carries
+  // `with crudish`, so exactly one of the two is flagged.
+  "loom.aggregate-not-constructible":
+    repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim { }
+    aggregate Policy { code: string }
+    repository Policies for Policy { }`),
+  // F-113.  A PARTIALLY-wired command body: `reference` is read (the control —
+  // it proves the gate is not a blanket "a create has params"), `notes` is
+  // not, so the emitted request schema publishes `notes` as required and the
+  // body throws it away.  A wholly empty body is deliberately NOT this shape;
+  // see the check's header.
+  "loom.workflow-param-unused": repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim { }
+    workflow file {
+      create(reference: string, notes: string) {
+        let c = Claim.create({ reference: reference })
+      }
+    }`),
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
