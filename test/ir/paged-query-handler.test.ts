@@ -97,3 +97,61 @@ describe("paged queryHandler — Hono emission", () => {
     expect(joined).toMatch(/items:\s*result\.items\.map\(/);
   });
 });
+
+// Item 7 (eval-closure review 2026-09-28): a paged queryHandler whose body runs
+// a named RETRIEVAL (`Repo.run(<Retrieval>(args))`) passed validation with 0
+// errors, then crashed `generate system` on all five backends with `internal:
+// paged queryHandler … does not match the supported … shape. Please file a
+// bug.`  Phase ⑦ now refuses every paged body that is not the criterion-run
+// shape (`loom.paged-query-handler-shape`), pointing at the retrieval's
+// criterion.
+const SYS_RETRIEVAL = (platform: string): string => `
+system S {
+  subdomain Sales {
+    context Orders {
+      aggregate Order { code: string  region: string }
+      repository Orders for Order { }
+      criterion InRegion(rgn: string) of Order = region == rgn
+      retrieval RegionByCode(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+      queryHandler ListViaRetrieval(rgn: string): Order paged {
+        let r = Orders.run(RegionByCode(rgn))
+        return r
+      }
+    }
+  }
+  api A from Sales { route GET "/orders/via-retrieval" -> Orders.ListViaRetrieval }
+  storage pg { type: postgres }
+  resource s { for: Orders, kind: state, use: pg }
+  deployable d { platform: ${platform}  contexts: [Orders]  dataSources: [s]  serves: A  port: 3000 }
+}`;
+
+describe("paged queryHandler — body shape refusal (loom.paged-query-handler-shape)", () => {
+  async function shapeDiags(src: string) {
+    const { model } = await parseString(src, { validate: false });
+    return validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
+      (d) => d.code === "loom.paged-query-handler-shape",
+    );
+  }
+
+  it("refuses a paged body over a retrieval on every backend, suggesting its criterion", async () => {
+    for (const platform of ["node", "python", "java", "dotnet", "elixir"]) {
+      const diags = await shapeDiags(SYS_RETRIEVAL(platform));
+      expect(
+        diags.map((d) => d.severity),
+        platform,
+      ).toEqual(["error"]);
+      expect(diags[0]!.source).toBe("Orders/ListViaRetrieval");
+      expect(diags[0]!.message).toContain("`let r = Orders.run(InRegion(…))`");
+    }
+  });
+
+  it("accepts the supported criterion-run shape", async () => {
+    expect(await shapeDiags(SYS("node"))).toEqual([]);
+  });
+
+  it("the refused model never reaches an emitter crash: generate reports the diagnostic", async () => {
+    await expect(generateSystemFiles(SYS_RETRIEVAL("python"))).rejects.toThrow(
+      /loom\.paged-query-handler-shape|paged envelope/,
+    );
+  });
+});

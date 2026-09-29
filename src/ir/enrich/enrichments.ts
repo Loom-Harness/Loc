@@ -60,6 +60,7 @@ import type {
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
   buildDenyFilter,
@@ -1158,15 +1159,12 @@ function synthesizePagedQueryHandlerFinds(
   const crits = criteria ?? [];
   const out = repositories.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const h of handlers) {
-    // The returned value must be a plain `let`-ref bound to a
+    // The returned value must be a plain `let`-ref bound to a top-level
     // `Repo.run(<Criterion>)` (synthCriterion) statement — the only paged-run
-    // body shape v1 emits.  Any other shape is left un-synthesized (the Hono
-    // emitter declines the paged branch and the non-Hono gate rejects it).
-    const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-    const run = flattenHandlerStmts(h.statements).find(
-      (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-        s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-    );
+    // body shape the five backends emit (`pagedRunStmt`).  Any other shape is
+    // left un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
+    // before any emitter runs.
+    const run = pagedRunStmt(h);
     if (!run?.synthCriterion) continue;
     const crit = crits.find((c) => c.name === run.synthCriterion!.name);
     if (!crit) continue;
