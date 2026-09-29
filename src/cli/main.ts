@@ -183,9 +183,25 @@ async function parseProject(entryFile: string): Promise<ProjectParseResult> {
   // lone `system { }` block plus top-level `subdomain` / `context`
   // declarations from any file fold into a single system (see
   // docs/old/proposals/implicit-system-composition.md).
-  const merged = lowerProject(all.map((doc) => doc.parseResult.value as Model));
-  const loom = enrichLoomModel(merged);
-  return { loom, diagnostics, errorCount, warningCount, sourceTexts };
+  //
+  // LAZY, and only ever forced after the caller has checked `errorCount`.  A
+  // document with a parse error carries a RECOVERED AST — a required cross-ref
+  // like `apply Opened {`'s `event` is simply absent — and lowering it threw a
+  // `TypeError` out of `lowerApply` before the command could print the parse
+  // error it had already collected.  Every caller aborts on `errorCount > 0`
+  // first, so an erroneous model is never lowered at all.
+  const models = all.map((doc) => doc.parseResult.value as Model);
+  let loom: EnrichedLoomModel | undefined;
+  return {
+    get loom() {
+      loom ??= enrichLoomModel(lowerProject(models));
+      return loom;
+    },
+    diagnostics,
+    errorCount,
+    warningCount,
+    sourceTexts,
+  };
 }
 
 /** The phase-⑦ WARNING footer, shared by every command that runs
