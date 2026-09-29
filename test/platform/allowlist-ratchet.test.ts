@@ -642,7 +642,37 @@ const REGISTERED: Ratchet[] = [
     // merged `BEHAVIOURAL_ABSENT` in `test/system/gate-ledger.test.ts` holds
     // exactly 24 rows by this file's own counter, so the bound is pinned to that
     // count and mutation-proved (23 fails naming 24).
-    max: 24,
+    // 27 -> 26 (2026-09-29, M-T6.73): `handler-triad` DRAINED, on the THIRD
+    // attempt.  #2984 made a routed handler addressable and drained this cell;
+    // booting it showed four of five backends did not serve an explicit route
+    // where the caller asks, so #2984 reverted its own drain and put the row
+    // back — correctly, since `gate-ledger` refuses a feature that boots on some
+    // declared backends and not others, with no allowlist, and
+    // `BEHAVIOURAL_SKIP` is at `max: 0`.  The emitter half of #3024 then fixed
+    // six defects and got FOUR legs to 0 wire divergences, but left the row in
+    // place rather than waive the fifth.
+    //
+    // What makes the drain legitimate now is that nothing is hidden: the last
+    // four divergences were the tier's malformed-body probe landing on a POST
+    // this create-less `Order` does not serve, where it cannot reach the parser
+    // it exists to test and measures whichever layer answers first instead.  The
+    // probe steps aside there now — the same step-aside its PATCH sibling
+    // already makes — so all five legs are green with NO per-backend waiver, no
+    // `BEHAVIOURAL_SKIP` entry, and no wire waiver.
+    //
+    // Re-derived against `main`'s CURRENT value at each merge, never carried:
+    // this branch was cut at 24 (-> 23), re-merged at 26 (-> 25), and is now
+    // re-merged at 27 (-> 26).  Each of those numbers was right on the tree it
+    // landed on and wrong one merge later — which is how this PR was ejected
+    // from the merge queue once already, on exactly this line.
+    //
+    // 24 / 26 -> 23, RE-DERIVED at the Wave C3 3-A branch's `main` merge of
+    // #3024 (2026-09-29): `main` carried 26 (27 minus the `handler-triad` drain
+    // above) and this branch 24 (27 minus packet 3a's three drains); the merged
+    // register holds exactly 23 rows by this file's own counter (27 - 3 - 1),
+    // so the bound is that count, mutation-proved both ways (22 fails naming
+    // 23; 999 fails as slack).
+    max: 23,
   },
 ];
 

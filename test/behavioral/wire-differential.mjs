@@ -332,7 +332,45 @@ const __frameworkProbes = async (dispatch, opts = {}) => {
     await dispatch({ method: "PATCH", url: origin + collection.pathname, headers: json, body: "{}" });
   }
   await dispatch({ method: "GET", url: origin + "/__loom_no_such_path", headers: { ...__authHeaders } });
-  await dispatch({ method: "POST", url: origin + collection.pathname, headers: json, body: "{not json" });
+  // The malformed-body probe fires only where POST is actually SERVED on this
+  // collection — evidenced by the tier's own successful POST to it.
+  //
+  // Its subject is the BODY PARSER.  On a collection that serves no POST it
+  // cannot reach the parser at all: it measures whichever layer answers first,
+  // and the backends legitimately differ there — node routes before reading the
+  // body and answers 405, elixir parses at the endpoint (BodyParser is plugged
+  // in endpoint.ex, ahead of the router) and answers 400.  Both are RFC-legal,
+  // so a probe that lands on an unserved POST is measuring a DIFFERENT THING on
+  // each backend, which is not a test of its subject.  Measured on
+  // \`corpus/handler-triad\`, whose create-less \`Order\` serves no POST: it was
+  // the only one of 63 cases where this fired, and it cost that case its whole
+  // behavioural tier (M-T6.73).
+  //
+  // This is the same step-aside \`usedPatch\` above already makes, for the same
+  // reason, so it restores a convention rather than adding an exemption.
+  //
+  // The condition is derived from the CASE, never from the response: the tier's
+  // request sequence is one emitted file replayed against every backend, so
+  // every leg reaches the same verdict and the recordings keep the same LENGTH.
+  // Deciding per-response (drop it when the answer is 405) would have node skip
+  // the entry and elixir keep it, shifting every later ordinal — the probes are
+  // appended precisely so they never do that.
+  //
+  // \`__wire\` and \`__urls\` are pushed together, so they are index-aligned; the
+  // recorded path is templated, which is why the RAW url is what gets compared.
+  // A 2xx is required: a POST the tier made that was itself refused is no
+  // evidence the method is served.
+  const tierPostedHere = __wire.some((e, i) => {
+    if (e.method !== "POST" || e.status < 200 || e.status >= 300) return false;
+    try {
+      return new URL(__urls[i]).pathname === collection.pathname;
+    } catch {
+      return false;
+    }
+  });
+  if (tierPostedHere) {
+    await dispatch({ method: "POST", url: origin + collection.pathname, headers: json, body: "{not json" });
+  }
   await __absentReadProbes(dispatch);
   // The AUTH arm, which no recording ever reached: an emitted suite always
   // authenticates successfully, which is how all five backends came to answer
