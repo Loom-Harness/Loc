@@ -99,5 +99,22 @@ system ProjectionVoRow {
     expect(row.audit.made.who).toBe("system")
     expect(row.audit.note).toBe("placed")
     expect(row.seen).toBe(null)
+
+    // The rest of the derived route surface, so every derived operation has a
+    // runtime caller (`api-caller-census`) rather than a waiver.  These are not
+    // decoration: `update` re-folds nothing (no event), so the read model must
+    // still answer the SAME nested object afterwards — a read route that rebuilt
+    // the nest from stale or half-written leaves would show here.
+    let listed = api.orders.all()
+    expect(listed.total).toBe(1)
+    expect(api.orders.getById(o).customer).toBe("Ada")
+    api.orders.update(o, { customer: "Grace" })
+    expect(api.orders.getById(o).customer).toBe("Grace")
+    let again = api.orderBoard.byKey(o.id)
+    expect(again.stamp.who).toBe("clerk")
+    expect(again.audit.made.who).toBe("system")
+    expect(again.seen).toBe(null)
+    api.orders.destroy(o)
+    expect(api.orders.all().total).toBe(0)
   }
 }
