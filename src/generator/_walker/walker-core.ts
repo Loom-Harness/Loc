@@ -2085,12 +2085,18 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // `/* unresolved: X */ undefined` sentinel gives up instead —
       // emitting `undefined.<method>(...)` would be runtime-broken code.
       //
-      // DEAD on valid `.ddd`: `loom.method-call-unresolved-receiver`
-      // (`ui-action-body-checks.ts` F2) rejects an unresolved method-call
-      // receiver at IR-validate time (phase ⑦), before codegen — proven by
+      // Unreachable on valid `.ddd` through TWO phase-⑦ gates, not one.
+      // `loom.method-call-unresolved-receiver` (`ui-action-body-checks.ts` F2)
+      // rejects a receiver that names nothing — proven by
       // `test/generator/_walker/unresolved-receiver-give-up.test.ts`, which
-      // drives every body position that reaches this arm and asserts the gate
-      // fires first.  So it is defence-in-depth for an UNVALIDATED IR (the api
+      // drives every body position that reaches this arm.  But F2 accepts any
+      // aggregate declared ANYWHERE in the model, while this walker only binds
+      // the aggregates of the frontend's `targets:` backend: a
+      // `scaffold(subdomains: [A, B])` whose target serves only A used to land
+      // here with 0 validate errors (eval-closure item #18).
+      // `loom.ui-aggregate-unserved` (`ui-backend-binding-checks.ts`) closes
+      // that second route (`test/ir/ui-aggregate-unserved.test.ts`).  So this
+      // arm is defence-in-depth for an UNVALIDATED IR (the api
       // toolkit and the playground can both hand the generator one), and it
       // says so by naming the gate rather than leaving a bare `TODO` with
       // nothing to look up.  It stays a give-up rather than a throw for the

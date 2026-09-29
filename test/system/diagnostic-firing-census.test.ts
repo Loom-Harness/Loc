@@ -1212,6 +1212,29 @@ system S {
   deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
 }
 `,
+  // A scaffold selecting a subdomain the frontend's `targets:` backend does not
+  // serve (eval-closure #18): parsed clean, then failed on generated pages.
+  "loom.ui-aggregate-unserved": `
+system S {
+  subdomain One { context A {
+    aggregate Alpha with crudish { code: string }
+    repository Alphas for Alpha { }
+  } }
+  subdomain Two { context B {
+    aggregate Beta with crudish { label: string }
+    repository Betas for Beta { }
+  } }
+  api OneApi from One
+  api TwoApi from Two
+  ui U with scaffold(subdomains: [One, Two]) { }
+  storage pg { type: postgres }
+  resource aState { for: A, kind: state, use: pg }
+  resource bState { for: B, kind: state, use: pg }
+  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
+  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
+  deployable web { platform: static, targets: apiOne, ui: U, port: 3002 }
+}
+`,
   "loom.current-user-needs-auth-ui": `
 system S {
   user { id: guid  role: string }

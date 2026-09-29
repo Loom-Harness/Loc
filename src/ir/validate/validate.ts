@@ -117,7 +117,10 @@ import {
   validateContextIntegrationTests,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
-import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
+import {
+  validateUiBackendBindings,
+  validateUiReadsServed,
+} from "./checks/ui-backend-binding-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
@@ -210,6 +213,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `targets:`, so a ui whose api handles fan out across several is refused
     // rather than emitted half-wired.
     validateUiBackendBindings(sys, diags);
+    // …and a page reading an aggregate the `targets:` backend does not serve
+    // (typically a `scaffold(subdomains: …)` selecting an unserved subdomain)
+    // is refused here rather than failing on a generated page.
+    validateUiReadsServed(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);

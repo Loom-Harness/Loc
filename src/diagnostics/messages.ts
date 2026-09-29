@@ -2675,6 +2675,25 @@ export const DIAGNOSTIC_MESSAGES = {
     `to typecheck), and every request it does make goes to '${p.targetName}', which does not ` +
     `serve that contract. Point every handle at one backend, or split the ui — one frontend ` +
     `deployable per backend — until per-handle clients land.`,
+  "loom.ui-aggregate-unserved": (p: {
+    uiName: unknown;
+    dName: unknown;
+    targetName: unknown;
+    subdomain: unknown;
+    ctx: unknown;
+    aggregates: unknown;
+    sites: unknown;
+    served: unknown;
+  }) =>
+    `ui '${p.uiName}' reads ${p.aggregates} from subdomain '${p.subdomain}' (context ` +
+    `'${p.ctx}') in ${p.sites}, but frontend deployable '${p.dName}' is generated against ` +
+    `'${p.targetName}' (its 'targets:'), which serves only [${p.served}]. Those pages have no api ` +
+    `client to read through: generate either fails on the generated page or emits an import of ` +
+    `an api module that is never written. Fix one of: add '${p.ctx}' to '${p.targetName}' ` +
+    `(its 'contexts:' and a served api); drop '${p.subdomain}' from the ui's ` +
+    `'scaffold(subdomains: …)' or remove the pages reading it; or host those pages in a ` +
+    `separate ui on a frontend deployable whose 'targets:' serves '${p.ctx}'. One frontend ` +
+    `reading several backends is not supported yet (M-T1.35).`,
   "loom.current-user-needs-auth-ui": (p: { what: unknown; uiName: unknown; dName: unknown }) =>
     `${p.what} on ui '${p.uiName}' reads 'currentUser', but deployable '${p.dName}' binds no verified session user, so the read emits a dangling reference (react 'undefined.<claim>', invalid Dart on flutter, an unbound match on feliz). Add the auth guard: 'auth: ui' on a frontend deployable, or 'auth: required' on a fullstack deployable that mounts the ui itself.`,
   "loom.auth-ui-unsupported-framework": (p: {
