@@ -3,4 +3,9 @@ import { bootstrapApplication } from "@angular/platform-browser";
 import { AppComponent } from "./app/app.component";
 import { appConfig } from "./app/app.config";
 
-bootstrapApplication(AppComponent, appConfig).catch((err) => console.error(err));
+{{#if usesCodeBlock}}// Vendored syntax highlighter for the `CodeBlock` primitive (highlight.js,
+// bundled - no CDN, works air-gapped).  Self-arms on import; the theme
+// stylesheet rides angular.json's `styles` (Angular rejects a CSS import here).
+import "./lib/highlight";
+
+{{/if}}bootstrapApplication(AppComponent, appConfig).catch((err) => console.error(err));

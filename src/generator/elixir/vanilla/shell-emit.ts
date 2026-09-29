@@ -401,7 +401,14 @@ defmodule ${appModule}.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:jason, "~> 1.4"},
       {:uuidv7, "~> 1.0"},
-      {:plug_cowboy, "~> 2.6"},
+      # Bandit, not Plug.Cowboy.  Phoenix 1.8's own default adapter, and the
+      # reason it is spelled out here: the cowboy chain (plug_cowboy ->
+      # cowboy -> cowlib) ends at cowlib, whose latest release IS the one
+      # carrying CVE-2026-43966 (HTTP response splitting) and CVE-2026-43969
+      # (cookie header injection).  There is nothing to bump to, so every
+      # generated Elixir project shipped a flagged transitive dependency it
+      # never actually needed.  Bandit is pure Elixir and pulls none of it.
+      {:bandit, "~> 1.12"},
       {:open_api_spex, "~> 3.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.1"},
@@ -1516,7 +1523,7 @@ ${swooshConfig}
 
 config :${appName}, ${appModule}Web.Endpoint,
   url: [host: "localhost"],
-  adapter: Phoenix.Endpoint.Cowboy2Adapter,
+  adapter: Bandit.PhoenixAdapter,
   render_errors: [
     formats: [json: ${appModule}Web.ErrorJSON${hasLiveView ? `, html: ${appModule}Web.ErrorHTML` : ""}],
     layout: false
