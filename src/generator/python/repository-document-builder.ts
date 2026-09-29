@@ -9,7 +9,7 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -30,6 +30,7 @@ import { renderPyExpr, renderPyType } from "./render-expr.js";
 import {
   type AggregateReadShape,
   aggHasFieldMask,
+  allFindOf,
   authUserImport,
   emittableFinds,
   findExecutedLine,
@@ -88,6 +89,25 @@ export function buildPyDocumentRepositoryFile(
   const capX = documentCapabilityBody(agg, "x");
   const usesPrincipal = aggUsesPrincipalContextFilter(agg);
   const principalBind = usesPrincipal ? ["        current_user = require_current_user()"] : [];
+  // A DECLARED `find all(): X[] where <pred>` (and/or its `ignoring` stance)
+  // shapes the dedicated `all()` read — excluded from `emittableFinds`, so its
+  // `where` is AND-ed in here, in-app over the rehydrated instance, as node's
+  // document `all()` does (B-A1, the document half of eval item 2).  The
+  // declared finds then read a RAW load (the capability-scoped `findMethod`
+  // path) rather than layering on the now-narrowed `all()`.
+  const allFind = allFindOf(repo);
+  const allBypass = !!allFind && (allFind.bypassAll || (allFind.bypassCaps?.length ?? 0) > 0);
+  const allCap = allBypass
+    ? documentCapabilityBody(agg, "x", {
+        bypassAll: allFind?.bypassAll,
+        bypassCaps: allFind?.bypassCaps,
+      })
+    : capX;
+  const allCond = allFind?.filter ? renderPyExpr(allFind.filter, { thisName: "x" }) : null;
+  const allShaped = allBypass || allCond != null;
+  const allUsesPrincipal =
+    (allShaped ? !!allCap?.usesPrincipal : usesPrincipal) || exprUsesCurrentUser(allFind?.filter);
+  const allConds = [allCap?.expr, allCond].filter((c): c is string => c != null);
   const fromDoc = `_${snake(agg.name)}_from_doc`;
   // A versioned root rehydrates its `version` from the authoritative column, so
   // every root load threads `<row>.version` alongside the jsonb blob.
@@ -128,12 +148,19 @@ export function buildPyDocumentRepositoryFile(
     "",
     `    async def all(self) -> list[${agg.name}]:`,
     `        rows = (await self._session.execute(select(${row}).order_by(${row}.id))).scalars().all()`,
-    ...(capX
-      ? [
-          ...principalBind,
-          `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
-        ]
-      : [`        return [${fromDocCall("r")} for r in rows]`]),
+    ...(!allShaped
+      ? capX
+        ? [
+            ...principalBind,
+            `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
+          ]
+        : [`        return [${fromDocCall("r")} for r in rows]`]
+      : allConds.length > 0
+        ? [
+            ...(allUsesPrincipal ? ["        current_user = require_current_user()"] : []),
+            `        return [x for x in (${fromDocCall("r")} for r in rows) if ${allConds.map((c) => `(${c})`).join(" and ")}]`,
+          ]
+        : [`        return [${fromDocCall("r")} for r in rows]`]),
     "",
     `    async def find_many_by_ids(self, ids: list[${agg.name}Id]) -> list[${agg.name}]:`,
     `        rows = (await self._session.execute(select(${row}).where(${row}.id.in_(list(ids))))).scalars().all()`,
@@ -143,7 +170,10 @@ export function buildPyDocumentRepositoryFile(
           `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
         ]
       : [`        return [${fromDocCall("r")} for r in rows]`]),
-    ...emittableFinds(repo).flatMap((f) => ["", findMethod(agg, f, ctx, capX != null)]),
+    ...emittableFinds(repo).flatMap((f) => [
+      "",
+      findMethod(agg, f, ctx, capX != null || allShaped),
+    ]),
     // Query-time projections sourced from this aggregate synthesise the same
     // parameterless `repo.<snake(projName)>()` read the RELATIONAL builder emits
     // (`queryProjectionViews` → `viewFindMethod`).  The projection route calls it
@@ -155,7 +185,7 @@ export function buildPyDocumentRepositoryFile(
     // `where` as the find filter and its `ignoring` clause as the bypass.
     ...queryProjectionViews(agg, ctx).flatMap((v) => [
       "",
-      findMethod(agg, projectionViewFind(agg, v), ctx, capX != null),
+      findMethod(agg, projectionViewFind(agg, v), ctx, capX != null || allShaped),
     ]),
     "",
     versioned
@@ -313,7 +343,7 @@ export function buildPyDocumentRepositoryFile(
     // needed: a per-find principal filter, and #2694's in-app write guard.
     authUserImport(
       findUser,
-      usesPrincipal || writeGuardInAppUsesPrincipal(agg),
+      usesPrincipal || allUsesPrincipal || writeGuardInAppUsesPrincipal(agg),
       aggHasFieldMask(agg),
     ),
     `from app.db.schema import ${row}`,
