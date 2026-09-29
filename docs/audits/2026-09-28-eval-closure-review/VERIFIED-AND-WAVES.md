@@ -127,6 +127,22 @@ All 9 PRs are open and ready. Each has a mutation-proved test, and its local gat
 | B6 | #15a Python loop-var collision (two `contains`); #24 compose `restart:` + boot-migration retry | A1 (same Python file) |
 | B7 | Docs/tracker sweep: the 18 unclaimed G8 items (language.md:1150, .NET verifier comment, eval-fieldops F-005, coverage eshop/testability rows, M-T6.56, register headers, broken links, `.ddd.txt` repros), port the six unmerged registers under `docs/audits/`, `coverage.md` rows for them + eval-clinica, headings for M-FT.5/M-FT.24, missions for G8-10b/c/e/f/g, the #45 slice in M-T5.31 | rebase on #3076 |
 
+### Wave B outcome (2026-09-29)
+
+All 9 PRs are open and ready. Each has a mutation-proved test and its local gates were run.
+
+| agent | PR | fixed | left open |
+|---|---|---|---|
+| B1 | #3092 | #32: argument types in `test` bodies; #8: parse error instead of a `lowerApply` crash | #9 is claimed by #3078 |
+| B2 | #3093 | #44: deep effect pass; #17: params and lets shadow resources (D7) | — |
+| B3 | #3095 | #36 `verify` status check; #29 `loom.api-unserved`; #30 rename-hint placement; #40a named hand-edited files | #40b goes to a mission |
+| B4 | #3096 | #28: IR diagnostics carry file:line:col | 136 sites on system/ui/api/store nodes with no IR origin yet; playground worker mapping; statement-level workflow spans |
+| B5 | #3098 | #15a; B-A3a: python workflow-state VO; B-A1: python doc/embedded/ES `all()` filter | python projection read-model VO flattening (python twin of #3089) |
+| B6 | #3097 | #24: compose `restart:` plus DB-connect retry on all 5 backends | Java/Elixir not booted locally |
+| B7 | #3099 | Docs and tracker sweep; ported registers; new missions M-T1.41, M-T2.19, M-T3.22/23, M-T5.44–46, M-T7.11, M-T9.77–79 and slices | M-T8.26 id collision (#3074 vs #3076) |
+| B8 | #3100 | B-A6a, B-A6b: null-aware predicates on elixir, java and dapper; dapper jsonb VO-leaf predicates | An enum VO leaf in a dapper predicate is honestly refused |
+| B9 | #3101 | B-A3b: elixir VO delta migrations as one `:map` column; Decimal read-back | B-A2 is not a bug (`loom.projection-groupby-key-not-columnar` refuses it everywhere); backfill/addIndex on a VO leaf |
+
 ### Wave C — after the decisions (7 agents)
 
 | agent | items | decision | waits on |
