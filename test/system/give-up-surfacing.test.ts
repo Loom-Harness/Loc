@@ -18,12 +18,12 @@
 // Two severities, and the split is measured rather than assumed — see
 // `NON_RUNNING_GIVE_UPS`.
 import { describe, expect, it } from "vitest";
+import { validate } from "../../src/api/index.js";
 import {
   collectGiveUps,
   NON_RUNNING_GIVE_UPS,
   partitionGiveUps,
 } from "../../src/system/give-up-report.js";
-import { validate } from "../../src/api/index.js";
 import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 /** `ui Web with scaffold(subdomains: [A, B])` where the target backend hosts
