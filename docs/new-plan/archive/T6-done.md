@@ -1264,3 +1264,92 @@ derives its required set from the create action's *params*, which for a
 over-requires. It has no caller in generated code (every write path goes
 through `base_changeset`); threading defaults onto crudish create params would
 ripple through every param-driven surface on all five backends.
+
+## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `done` (option B ratified as [D-ENVELOPE-RATIFY](../../decisions.md), landed 2026-09-10) · **S** · P0
+
+Found 2026-09-03 by the language-docs audit ([F21](../../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.
+
+**This is NOT a fix mission.** "Five-way inconsistent" is a parity question, not a bug with a known answer: hand it to the `parity-auditor` skill for the who-emits-what matrix and a decision on what `envelope` *should* mean, then file the fix as its own mission. Do not let an agent guess the intended semantics.
+
+**Verification when it lands.** The matrix, the decision recorded where the carrier is documented, and a successor mission ID for the emitter work.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F21, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.4** (`fileTrees: []` — scoping only). Relates to M-T6.14 (DEBT-08 `envelope` carrier, deferred there for "no live use" — this is the evidence that the carrier is not inert).
+
+> **Verified 2026-09-09 (fleet). ESCALATE — this is a P0, not a P2 parity nit (audit F57).**
+> `find audit(): Order envelope` reports `0 error(s), 0 warning(s)` and emits **non-compiling** output
+> on two backends: Java references `Envelope<T>` in three files and declares it in none; .NET's body
+> returns a bare `T` from a signature typed `Task<Envelope<T>>` (CS0029). It is four-way, not five.
+> **It survived because NO `.ddd` in the repo uses the carrier** — zero syntactic hits across corpus,
+> examples, build fixtures and playground — so every compile gate is blind by construction.
+> `docs/generators.md:66` gives generic carriers five ticks; two sit on output that does not build.
+> Scoping is done (see the fleet plan); the A/B/C fork needs user sign-off before any emitter change.
+> The docs correction is true under every option.
+
+> **CLOSED 2026-09-10 — option B ratified by the user and landed.** `envelope` **means a
+> single-row find**: the repository returns `T`, the route returns the bare body, 404 when
+> absent — exactly what node and python already shipped (both reproduced clean; the register's
+> "python 404s on absent" undersells node, which throws `AggregateNotFoundError` on an empty
+> `limit(1)` and 404s too). All five reproduced first: java's three `Envelope<Order>` signatures
+> (port / Spring-Data interface / impl, type declared nowhere, `OrderResponse.from(...)` called on
+> it) — CONFIRMED; dotnet's `Task<Envelope<Order>>` returning a bare `Order` — CONFIRMED (and the
+> query handler then reads `domain.Id.Value` off the carrier); elixir's `Repo.all` + JSON array
+> against a single-object OpenAPI — CONFIRMED. Option A (`{id, ts, body}`) stayed blocked: nothing
+> in the IR can source `ts`.
+> **Fix:** `envelopeReturn` (`src/ir/stdlib/generics.ts`, beside `pagedReturn`) is the one
+> recogniser; java unwraps in `findReturn`, dotnet in the new `domainFindShape` (composed with
+> `unionFindAsOptionalTwin` at all 8 call sites, so the port/impl/dapper adapters cannot diverge)
+> and the dead `Envelope<T>` record is deleted from `dotnet/emit/common.ts`, elixir's four
+> `isSingleReturn`/`isDocSingleReturn` predicates gained the carrier arm. node/python: no change
+> needed, verified.
+> **Fixture:** `test/fixtures/corpus/envelope.ddd` (+ manifest row, `backends: ALL`) — the first
+> `.ddd` in the repo to instantiate the carrier, so the per-PR corpus generation gate and every
+> backend compile tier now see it. Pinned by `test/generator/envelope-carrier.test.ts`
+> (`T envelope` and `T` must emit byte-identically, per backend).
+> **Semantics note for readers:** this REMOVES the distinct meaning the keyword was documented to
+> carry. `envelope` is now documentation-in-the-signature ("this read yields at most one row"),
+> not a wire wrapper. Docs corrected: `generators.md` (the five-tick carriers row, split + noted),
+> `payloads.md` §2, `language-reference/04-type-system.md` § `envelope`.
+> **Fixture tier — compile, not behavioural, and signed as such.** `envelope.ddd` carries no
+> `test e2e` block; it is listed in `E2E_LESS_CORPUS_FIXTURES` and `BEHAVIOURAL_ABSENT`. A block was
+> authored and withdrawn: it mints a wire golden, and the find-miss 404 `detail` is **not uniform** —
+> node answers `"not found"`, dotnet/java/python/elixir answer `"not_found"` (dotnet's own
+> `projectionClauseFor` comment calls `"not_found"` "the canonical find-miss detail token on every
+> backend"). A golden captured on the node leg would redden the other four on `main`.
+> **TWO SPIN-OFFS, both pre-existing and neither envelope-specific:**
+> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it. **CLOSED 2026-09-21 (#2979).** It was worse than 1-vs-4: node answered the token on its `: T?` / `: T option` arms (thrown from `routes-builder.ts`) and the space-spelling on its `: T` / `: T envelope` arms (thrown from `repository-find-builder.ts`) — an INTRA-backend split as well as a cross-backend one. node aligned on `"not_found"`; gated per site across 5 backends x 4 carriers by `test/conformance/find-miss-detail-parity.test.ts`, which also pins RS-27's by-id SENTENCE beside it so the two 404 classes cannot be collapsed. The miss arm of a single-row-find e2e block is no longer blocked;
+> (b) a FILTERLESS single-return find on an EVENT-SOURCED aggregate emits
+> `Enum.find(all, fn a ->  end)` on elixir — an empty lambda body, invalid Elixir (identical for
+> `find pick(): Ev` with no carrier).
+> A third, benign: the `envelope` carrier in a PAYLOAD FIELD (the other position the AST gate
+> admits) is unreachable — the monomorphized `<T>Envelope` payload has no builder, so nothing can
+> construct one.
+
+## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `done` (2026-09-10, [#2857](https://github.com/Loom-Harness/Loc/pull/2857); re-verified 2026-09-11) · **M** · P0
+
+Found 2026-09-09 by the verification fleet ([F59](../../audits/2026-09-03-language-docs-audit-findings.md)),
+as bycatch while resolving W3.1's gate-vs-lower fork. For a union carrying an `error` variant, the arm
+collapses to `_ =>` (C#) / `case null ->` (Java) and the arm's bound name is left unresolved:
+
+```csharp
+Owner = r switch { Hit h => h.Code, _ => n.Resource, };            // `n` unbound
+```
+```java
+this.owner = switch (r) { case null -> n.resource(); case Hit h -> h.code(); };  // `n` unbound
+```
+
+Node is correct, and two non-error variants are correct on all three — it is specifically the
+error-variant arm. Sites: `src/generator/dotnet/render-expr.ts:324`, `src/generator/java/render-expr.ts:420`.
+
+**Sequencing:** the W3.1 placement gate's message would tell users to switch to exactly this form. Either
+this lands first, or that message must not recommend it on .NET and Java.
+
+**Fixed by [#2857](https://github.com/Loom-Harness/Loc/pull/2857) (`f518e31`, 2026-09-10); re-verified 2026-09-11 by Wave C1 packet 1b BY GENERATING, before building anything on top of it.** Both leaves special-cased "exactly one non-error variant + at least one error variant" as a repository union find's OPTIONAL TWIN — an arity guess that also matches an ordinary `Hit | NotFound` DU, whose carriers do exist. The branch is gone on both. Repro (`payload Hit { code: string }` + `error NotFound { resource: string }`, a `Hit or NotFound` operation, `owner := match r { Hit h => h.code, NotFound n => n.resource }`) now emits the arm's binding on both backends:
+
+```csharp
+Owner = r switch { HitOrNotFound_Hit h => h.Code, HitOrNotFound_NotFound n => n.Resource, _ => throw … };
+```
+```java
+this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFound_NotFound n -> n.resource(); default -> null; };
+```
+
+and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
