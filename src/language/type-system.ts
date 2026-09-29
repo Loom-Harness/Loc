@@ -8,7 +8,12 @@ import {
   intrinsicsForReceiver,
   isIntrinsicName,
 } from "../util/intrinsics.js";
-import { ORG_CONTEXT_ACCESSOR, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
+import {
+  ORG_CONTEXT_ACCESSOR,
+  PRINCIPAL_IS_SYSTEM,
+  PRINCIPAL_ORG_PATH,
+  PRINCIPAL_ROOT_ORG,
+} from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import type {
   Aggregate,
@@ -1296,6 +1301,8 @@ function lookupPayloadMember(target: EventDecl | PayloadDecl, name: string): Ddd
  *  out of it. */
 function lookupUserMember(target: UserBlock, name: string): DddType {
   if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return T.prim("string");
+  // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
+  if (name === PRINCIPAL_IS_SYSTEM) return T.prim("bool");
   const f = target.fields.find((f) => f.name === name);
   if (f) return resolveTypeRef(f.type);
   return T.prim("string");
@@ -1333,6 +1340,7 @@ export function absentUserClaim(recvType: DddType, name: string): string[] | und
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   if (t.kind !== "userclaim") return undefined;
   if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return undefined;
+  if (name === PRINCIPAL_IS_SYSTEM) return undefined;
   if (t.ref.fields.some((f) => f.name === name)) return undefined;
   return t.ref.fields.map((f) => f.name);
 }
@@ -2204,6 +2212,7 @@ export function membersOfType(t: DddType): MemberCompletion[] {
         ),
         { name: PRINCIPAL_ORG_PATH, kind: "field", detail: "string" },
         { name: PRINCIPAL_ROOT_ORG, kind: "field", detail: "string" },
+        { name: PRINCIPAL_IS_SYSTEM, kind: "field", detail: "bool" },
       ];
     default:
       return [];

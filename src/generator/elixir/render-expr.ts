@@ -1,4 +1,5 @@
 import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -61,6 +62,10 @@ import {
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** Set by an event reactor that bound `current_user` to the system
+   *  principal (ruling D1): an op-call to a `currentUser`-reading operation
+   *  threads it as the context function's trailing actor.  Unset elsewhere. */
+  reactorPrincipal?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
   /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
@@ -554,6 +559,15 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // the derived capability/tenancy filters (`capability-filter.ts`) AND the
   // author-written `find … where` / `retrieval … where:` / query-projection
   // `where` predicates, which previously emitted the unpinned form.
+  // `currentUser.isSystem` (ruling D1).  The request principal is a plain map
+  // that never carries the key — only `system_principal/0` sets it — so read it
+  // with a default rather than struct-dot (`KeyError` on every request
+  // principal), and tolerate a nil actor (an internal caller) as "not system".
+  if (isPrincipalIsSystem(e)) {
+    const u = ctx.filterArgs ? "current_user" : recv;
+    const read = `(is_map(${u}) and Map.get(${u}, :is_system, false) == true)`;
+    return ctx.filterArgs ? `^${read}` : read;
+  }
   if (ctx.filterArgs && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
     const claim = snake(e.member);
     return `^(current_user && current_user.${claim})`;

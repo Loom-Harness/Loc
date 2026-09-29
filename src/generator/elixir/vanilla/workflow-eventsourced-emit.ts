@@ -28,6 +28,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
+import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -540,7 +541,13 @@ ${requireLogger}  def handle(%${contextModule}.Events.${upperFirst(sub.event)}{}
     # A reactor is a per-dispatch boundary: child execution frame (parent_id <-
     # the dispatching request's scope).
     ${appModule}.RequestContext.with_child_frame(fn ->
-${inner}
+${
+  // An event-sourced saga body is emit-only (no op-calls), so only its own
+  // guards can read the principal: bind the system principal (ruling D1) then.
+  reactorNeedsPrincipal(sub.statements, { aggregates: [] })
+    ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n`
+    : ""
+}${inner}
     end)
   end
 ${ensureHelper}end

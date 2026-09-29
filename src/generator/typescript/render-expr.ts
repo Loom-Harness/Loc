@@ -1,6 +1,7 @@
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
@@ -303,6 +304,10 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
 }
 
 function renderMember(recv: string, e: MemberExpr): string {
+  // `currentUser.isSystem` (ruling D1) — the slot is OPTIONAL on `User` (a
+  // request principal never carries it), so compare rather than read it bare:
+  // the expression stays a real `boolean` wherever it lands.
+  if (isPrincipalIsSystem(e)) return `(${recv}.isSystem === true)`;
   // Arrays expose collection ops without parentheses too — `lines.count`
   // should compile to `.length`.
   if (e.receiverType.kind === "array" && e.member === "count") return `${recv}.length`;

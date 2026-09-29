@@ -11,6 +11,7 @@ import {
   workflowUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -711,6 +712,15 @@ function renderEventReactorHandler(
   // method level and the buffer may lead the statements.  `renderHandler`'s
   // twin must NOT do this; see the note there.
   if (usage.hasEmit) stmtLines.push("        var _workflowEvents = new List<IDomainEvent>();");
+  // A reactor has no request principal: it runs as the SYSTEM principal
+  // (ruling D1), carrying the dispatching request's tenant and recording its
+  // user as `CausedBy`.  Bound only when the body — or an operation it calls,
+  // hoisted gate included — reads `currentUser` (it was an unbound CS0103).
+  if (reactorNeedsPrincipal(statements, ctx)) {
+    stmtLines.push(
+      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);`,
+    );
+  }
   const resourceClasses = buildResourceClasses(sys);
   const usesResourceOp = statements.some((st) => {
     const call =

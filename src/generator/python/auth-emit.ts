@@ -261,6 +261,15 @@ function renderUserModule(
     "@dataclass(frozen=True)",
     "class User:",
     ...fields,
+    // The system principal's two slots (ruling D1).  Defaulted, so every
+    // verifier keeps building a request principal unchanged; `/auth/me`
+    // projects the DECLARED claims only, so neither reaches the wire.
+    "    # `currentUser.isSystem` — True only on the system principal an event",
+    "    # reactor runs as (`system_principal()` below).",
+    "    is_system: bool = False",
+    "    # The originating user's id on the system principal — audit and logs",
+    "    # only, never read by a gate.",
+    "    caused_by: str | None = None",
     ...orgPathProp,
     ...rootOrgProp,
     ...guidClaimMethod,
@@ -287,8 +296,62 @@ function renderUserModule(
     "    if user is None:",
     '        raise PermissionError("unauthorized")',
     "    return user",
+    ...renderPySystemPrincipal(user, orgPathClaim, orgPathReadsRegistry, orgContext),
     "",
   );
+}
+
+/** `system_principal()` — the principal an event reactor runs as (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim EMPTY (never
+ *  the dev stub's `"admin"`), `is_system=True`, the tenancy claim (and, under
+ *  hierarchy, the resolved `org_path`) copied from the dispatching principal —
+ *  the event was raised inside its request — and `caused_by` its id (or its
+ *  own `caused_by` when it is itself a reactor).  No dispatching principal (a
+ *  timer tick) ⇒ an empty tenant, which matches no tenant-owned row. */
+function renderPySystemPrincipal(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  readsRegistry: boolean,
+  orgContext: boolean,
+): string[] {
+  const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
+  const empty = (f: FieldIR): string => {
+    if (f.optional) return "None";
+    if (f.type.kind === "primitive" && f.type.name === "string") return '""';
+    return stubValueForType(f.type);
+  };
+  const kwargs = user.fields.map((f) =>
+    f.name === tenantClaim
+      ? `        ${snake(f.name)}=${empty(f)} if origin is None else origin.${snake(f.name)},`
+      : `        ${snake(f.name)}=${empty(f)},`,
+  );
+  const causedBy = idField
+    ? `None if origin is None else origin.caused_by if origin.is_system else str(origin.${snake(idField.name)})`
+    : "None if origin is None else origin.caused_by";
+  const hierarchy = tenantClaim && readsRegistry;
+  return [
+    "",
+    "",
+    "def system_principal() -> User:",
+    '    """The principal an event reactor runs as: no claims, `is_system`, the',
+    "    dispatching principal's tenant, `caused_by` for audit.  Gates are evaluated",
+    '    against it normally — one that admits it says `currentUser.isSystem || …`."""',
+    "    origin = current_user_var.get()",
+    `    ${hierarchy ? "user" : "return"} User(`,
+    ...kwargs,
+    "        is_system=True,",
+    `        caused_by=${causedBy},`,
+    "    )",
+    ...(hierarchy
+      ? [
+          '    object.__setattr__(user, "org_path", "" if origin is None else origin.org_path)',
+          ...(orgContext
+            ? ['    object.__setattr__(user, "org_context_path", user.org_path)']
+            : []),
+          "    return user",
+        ]
+      : []),
+  ];
 }
 
 const VERIFIER_PY = `"""User-verifier registry.  Auto-generated.
