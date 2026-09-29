@@ -422,14 +422,19 @@ function renderInitialStateFile(
 ): string {
   const pk = new Set(table.primaryKey);
   const prefix = prefixOpt(table.schema);
-  const colLines = table.columns
-    .filter((c) => !c.valueArrayChildTable)
-    .map((c) => {
+  // Value-object leaf columns regroup into ONE `:map` column, exactly as the
+  // id-carrying `renderInitialFile` and the delta `renderCreateTableInline` do:
+  // the saga-state / projection-row schema types a value-object field `:map`
+  // (`ectoStateFieldType`, `mapTypeToEcto`), so a flattened `total_amount` /
+  // `total_currency` pair left the schema's `:total` with no column at all.
+  const colLines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map(
+    (c) => {
       if (pk.has(c.name)) {
         return `      add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`;
       }
       return "      " + renderEctoColumn(c, table);
-    });
+    },
+  );
   const ts = timestampsMacro(table);
   if (ts) colLines.push(`      ${ts}`);
   // Indexes, same as the id-carrying `renderInitialFile` and the DELTA path's
