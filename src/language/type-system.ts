@@ -1355,6 +1355,23 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
   // Member access transparently unwraps a single optional level.
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   switch (t.kind) {
+    // An ARRAY's member surface is exactly the collection-op catalogue
+    // (`COLLECTION_OP_SIGNATURES`) — which is already what `membersOfType`
+    // offers for completion on an array receiver, so this arm only makes
+    // VALIDATION agree with what completion has always claimed.
+    //
+    // Without it `collectionOpType`'s `default` returned `T.unknown` for an
+    // absent member, and `unknown` is the value every downstream check
+    // suppresses on — so a typo'd or invented collection op on an array
+    // receiver was reported NOWHERE and reached the emitters verbatim
+    // (testability audit F1's residue; the same shape in an aggregate
+    // `operation` and in a `domainService` body alike).
+    //
+    // `sum`/`avg`/`min`/`max` in their BARE form are collection ops, so they
+    // pass here and are refused by `loom.bare-collection-accessor` instead —
+    // its message names the lambda form, which is the actionable fix.
+    case "array":
+      return isCollectionOp(name) ? undefined : typeToString(t);
     case "aggregate": {
       if (name === "id") return undefined;
       return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;
