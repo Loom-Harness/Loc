@@ -116,6 +116,16 @@ describe("G3 — `this.` on the left of `:=`", () => {
     expect(errors, `unexpected: ${errors.join("\n")}`).toEqual([]);
   });
 
+  it("type-checks a bare head against the FIELD, not a shadowing parameter of another type (V4)", async () => {
+    // `rename(name: int) { name := name }` emits `this._name = name` — an int
+    // into a string field, TS2322 / CS0029.  It used to validate clean because
+    // the head resolved to the int parameter.
+    const mismatched = UNPREFIXED.replace("rename(name: string)", "rename(name: int)");
+    const { diagnostics } = await parseString(mismatched, { validate: true });
+    const hits = diagnostics.filter((d) => d.code === "loom.assign-type-mismatch");
+    expect(hits.map((d) => d.message)).toEqual(["Cannot assign 'int' to 'string'."]);
+  });
+
   // ---- the shadowing case, on four backends ------------------------------
   //
   // In each: the FIELD is written and the PARAMETER is read.  The two are
@@ -170,17 +180,17 @@ describe("G3 — `this.` on the left of `:=`", () => {
     // `adjust(total: decimal) { this.total := 0.50 }` — the FIELD is `money`.
     // The head must resolve against the field, so the literal elaborates for a
     // money target; resolving it against the shadowing `decimal` parameter
-    // would elaborate for a decimal one.  This is the observable half of
-    // `pathType(..., thisRooted)` — and the contrast below is what proves the
-    // flag is load-bearing rather than inert.
+    // would elaborate for a decimal one.
     const prefixed = bodyOf(fileAt(shadowed, PRODUCT.node), "public adjust(");
     const implicit = bodyOf(fileAt(unprefixed, PRODUCT.node), "public adjust(");
     expect(prefixed).toContain(MONEY_LITERAL);
-    // ... and the implicit spelling, under the same shadow, does not — it
-    // takes the parameter's `decimal` and writes a bare `0.50` into a field
-    // the constructor holds as a `Decimal`.
-    expect(implicit).not.toContain(MONEY_LITERAL);
-    expect(implicit).toContain("this._total = 0.50;");
+    // ... and so does the implicit spelling under the same shadow (M-T5.42,
+    // V4).  It used to take the parameter's `decimal` and write a bare `0.50`
+    // into a field the constructor holds as a `Decimal` — but the emitters
+    // write the MEMBER for a bare head too, so `pathType` now types a head that
+    // names a member as that member whether or not `this.` is spelled.
+    expect(implicit).toContain(MONEY_LITERAL);
+    expect(implicit).not.toContain("this._total = 0.50;");
   });
 
   // ---- the printer keeps the prefix ---------------------------------------

@@ -38,7 +38,39 @@ import {
   type CallableFeature,
   callableSiteOf,
 } from "../callable-sites.js";
-import type { Model } from "../generated/ast.js";
+import type { Model, Parameter } from "../generated/ast.js";
+
+/** The callable sites whose lowerer passes `defaults: false` to
+ *  `lowerCallableParams` (`src/ir/lower/callable-params.ts`): the grammar
+ *  parses `param: T = <expr>` at every site (one shared `Parameter` rule), but
+ *  these five lower NO default — the emitters never see one, so a caller that
+ *  omits the argument reaches a generated signature that still requires it.
+ *  Until a site grows the capability on every target, a default there is
+ *  refused (`loom.param-default-unsupported`) rather than dropped in silence.
+ *  Keyed by `$type`, like `CALLABLE_SITES`; the lowerer comments at each
+ *  `defaults: false` call name this set. */
+const DEFAULT_DROPPING_SITES: ReadonlySet<string> = new Set([
+  "DomainServiceOperation",
+  "HandleDecl",
+  "CommandHandler",
+  "QueryHandler",
+  "FunctionDecl",
+]);
+
+/** `loom.param-default-unsupported` — one error per defaulted parameter at a
+ *  site that drops defaults. */
+function checkDroppedParamDefaults(node: AstNode, label: string, accept: ValidationAcceptor): void {
+  if (!DEFAULT_DROPPING_SITES.has(node.$type)) return;
+  const params = (node as unknown as { params?: readonly Parameter[] }).params ?? [];
+  for (const p of params) {
+    if (!p.default) continue;
+    accept("error", diagMessage("loom.param-default-unsupported", { name: p.name, label }), {
+      node: p,
+      property: "default",
+      code: "loom.param-default-unsupported",
+    });
+  }
+}
 
 /** True when the node actually carries the feature: a modifier is a boolean
  *  flag, a clause is a parsed expression.  Both read the same way — the
@@ -62,6 +94,7 @@ export function checkCallableSites(model: Model, accept: ValidationAcceptor): vo
   for (const node of AstUtils.streamAllContents(model)) {
     const site = callableSiteOf(node.$type);
     if (!site) continue;
+    checkDroppedParamDefaults(node, site.label, accept);
     for (const feature of CALLABLE_FEATURES) {
       const allowed =
         feature === "requires" || feature === "when"

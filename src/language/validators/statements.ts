@@ -1037,7 +1037,15 @@ export function lvalueType(
   // parameter share a name, and resolving the head against the parameter would
   // type-check the assignment against the WRONG member — silently, whenever
   // the two types happen to be compatible.
-  const headSym = lv.thisRef ? undefined : env.resolve(lv.head);
+  //
+  // A BARE head that names a member of the aggregate is that member, too, even
+  // when a parameter / `let` of the same name is in scope (M-T5.42, V4): every
+  // backend emits an assignment as a write to the member (`this._name = …`),
+  // so type-checking `name := name` against the shadowing int parameter
+  // accepted a write its own target language rejects (TS2322 / CS0029).
+  const memberHead = lv.thisRef ? undefined : lookupRootMember(agg, lv.head);
+  const headSym =
+    lv.thisRef || (memberHead && memberHead.kind !== "unknown") ? undefined : env.resolve(lv.head);
   let cur: DddType;
   if (headSym) {
     cur = headSym.type;

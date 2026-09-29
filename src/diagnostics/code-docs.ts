@@ -39,6 +39,7 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.callable-modifier-not-allowed-here":
     "06-behavior-and-statements.md#the-callable-modifier-surface",
+  "loom.param-default-unsupported": "06-behavior-and-statements.md#parameter-defaults",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.unconstructible-server-field":

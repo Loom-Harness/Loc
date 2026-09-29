@@ -196,6 +196,10 @@ export const DIAGNOSTIC_MESSAGES = {
     label: unknown;
   }) =>
     `'${p.feature}' is not allowed on ${p.label}. A page or component 'action' runs in the browser, where the server-side modifiers mean nothing and nothing is enforceable. A page's own gate is the 'requires' page property; authorize the operation the action calls.`,
+  // A default on a site whose lowerer drops it (`defaults: false`) — refused
+  // rather than silently discarded (M-T5.42, V2).
+  "loom.param-default-unsupported": (p: { name: unknown; label: unknown }) =>
+    `Parameter '${p.name}' declares a default, but ${p.label} does not support parameter defaults: the default would be dropped and every generated signature would still require the argument. Remove '= …' and pass the value at each call site (an aggregate operation, create or destroy, or a workflow create, does honour a default).`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/channel.ts
