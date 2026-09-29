@@ -55,6 +55,43 @@ const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
  *  key returns the day that gate closes. */
 const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
+/** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
+ *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
+ *  (`stamp_at_time` / `stamp_who`) while every response DTO declares it NESTED,
+ *  so a read model has to bridge the two halves: the fold writes the leaves, the
+ *  read route rebuilds the nest.
+ *
+ *  **node** does, as of the PR that mints this fixture.  The other four are
+ *  excluded — an honest, named exclusion rather than a red gate, and each key
+ *  returns with its own fix:
+ *
+ *  - **java** almost certainly belongs here already: it is the one backend whose
+ *    emission bridges both halves — `@Embedded` + `@AttributeOverride` onto
+ *    exactly the migration's flat columns (`emit/projection-state.ts`), then
+ *    `new OrderBoardResponse(…, StampResponse.from(x.stamp()), x.seen() == null ?
+ *    null : StampResponse.from(x.seen()), AuditResponse.from(x.audit()))` with
+ *    both response records emitted (`emit/projection-reads.ts`).  It is held out
+ *    only because it was not COMPILED: `gradle testClasses bootJar` in
+ *    `gradle:9-jdk25` could not resolve its dependencies (Maven Central answered
+ *    429 through the sandbox proxy, twice).  Adding `"java"` here is a one-line
+ *    change for whoever can run that gate.  One behavioural caveat to check when
+ *    they do: JPA hands back a non-null `@Embedded` instance with null fields
+ *    when every column is null, so java's `x.seen() == null` arm may answer an
+ *    object of nulls where node answers `null`.
+ *
+ *  - **dotnet**: `OrderBoardRowConfiguration` maps the value object as a SCALAR
+ *    property to one column (`builder.Property(x => x.St).HasColumnName("st")`)
+ *    that the migration never creates, so EF fails at model build.  The
+ *    controller half is already right (it projects a nested `StampResponse`).
+ *  - **python**: the route returns `{"st": row.st}` against a SQLAlchemy model
+ *    whose only attributes are `st_at_time` / `st_who` — `AttributeError`.
+ *  - **elixir** (`vanilla`): the row schema types the field `field :st, :map`
+ *    over a table with no `st` column.  Its fix is entangled with #3082, which
+ *    makes elixir's state-table migration COLLAPSE value-object leaves into one
+ *    `:map` column — i.e. elixir is moving to a different column shape than the
+ *    other four read.  That fork wants settling before a key is minted here. */
+const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
+
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
   readonly id: string;
@@ -174,6 +211,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  M-T5.36 P9 (F5) added the BEHAVIOURAL half: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and the `test e2e` DSL had no verb for that — `api.fulfillment.run(…)` was refused as an unknown AGGREGATE — so the note here used to defer it.  `api.<wf>.run(…)` / `.instances()` / `.instance(key)` are that verb set, and this fixture is their runtime proof: the folded `status` / `attempts` scalars are asserted on the very row the command create must have persisted, which is the half of F58 no compile gate can see",
   },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
+  {
+    id: "projection-valueobject-row",
+    title:
+      "value object on a folded read model — leaf columns folded, nested object served (plus an absent optional one and a value object inside a value object)",
+    backends: PROJECTION_VO_ROW,
+    note: "Minted by the PR that fixed node (`backends` is node-only — see `PROJECTION_VO_ROW` for why each of the other four is held out, java included).  The shape validated `0 error(s)` and emitted on all five backends while FOUR of them produced a read model that cannot run — node with two compile errors in the generated project (`state.stamp = e.stamp` against a row that holds `stamp_atTime` / `stamp_who`, TS2339; `stamp: StampSchema.nullish()` with `StampSchema` declared nowhere, TS2304), dotnet with an EF model-build failure, python with an `AttributeError`, elixir naming a column the migration does not create.  Only java bridged the flat-column / nested-wire halves.  Nothing caught it because no corpus fixture carried a value object on a folded projection, so no tier ever compiled or booted one.  The optional field is never folded on purpose (the wire `null` arm) and `Audit` holds a `Stamp` on purpose (two levels of flattening, which a one-level implementation gets wrong silently).",
+  },
   {
     id: "projection-fold-statements",
     title:

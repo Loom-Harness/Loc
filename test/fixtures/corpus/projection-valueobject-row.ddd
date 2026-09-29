@@ -1,0 +1,103 @@
+// A `valueobject` field on a FOLDED PROJECTION's read model — the shape no
+// corpus fixture carried, which is why four of five backends emitted a read
+// model that cannot run while the source validated `0 error(s), 0 warning(s)`.
+//
+// The shared phase-⑨ `MigrationsIR` spreads a value-object field into one column
+// per leaf (`stamp: Stamp { atTime, who }` → `stamp_at_time` / `stamp_who`),
+// while every backend's response DTO declares the value object NESTED.  A read
+// model therefore has to bridge the two: the fold writes the LEAVES, the read
+// route rebuilds the NEST.  Only java did both (`@Embedded` +
+// `@AttributeOverride` onto the flat columns, then a nested `StampResponse`).
+//
+// On node neither half existed: the fold assigned the whole domain value to a
+// prop the row does not have (`state.stamp = e.stamp`, TS2339) and the response
+// schema named a `StampSchema` declared nowhere in the tree (TS2304).  Both are
+// compile errors in the GENERATED project, so only a build of it could notice —
+// and nothing built this shape.  That is this fixture's job.
+//
+// `optional` and NESTING are both here deliberately: an optional value object
+// answers wire `null` when it was never written (the shape .NET's `x.St is null
+// ? null : new StampResponse(...)` publishes), and a value object inside a value
+// object flattens two levels deep (`audit_made_at_time`), which a one-level
+// implementation gets wrong silently.
+//
+// BACKEND SCOPE: node only for now — see `PROJECTION_VO_ROW` in `manifest.ts`.
+// dotnet / python / elixir are each broken on this shape in their own way and
+// are fixed separately; the key returns the day each one does.
+system ProjectionVoRow {
+  subdomain Orders {
+    context Orders {
+      valueobject Stamp {
+        atTime: datetime
+        who: string
+      }
+
+      // A value object holding another value object — two levels of flattening.
+      valueobject Audit {
+        made: Stamp
+        note: string?
+      }
+
+      aggregate Order with crudish {
+        customer: string
+        operation place() {
+          emit OrderPlaced {
+            orderRef: id,
+            stamp: Stamp { atTime: now(), who: "clerk" },
+            audit: Audit { made: Stamp { atTime: now(), who: "system" }, note: "placed" }
+          }
+        }
+      }
+
+      repository Orders for Order { }
+
+      event OrderPlaced { orderRef: Order id, stamp: Stamp, audit: Audit }
+
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      projection OrderBoard keyed by orderRef {
+        orderRef: Order id
+        stamp: Stamp
+        // Never folded by any handler, so it stays absent — the wire `null` arm.
+        seen: Stamp?
+        audit: Audit
+        on(e: OrderPlaced) {
+          orderRef := e.orderRef
+          stamp := e.stamp
+          audit := e.audit
+        }
+      }
+    }
+  }
+
+  api OrdersApi from Orders
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: OrdersApi
+    port: 4000
+  }
+
+  // Runtime proof: place an order, then read the folded row back and assert the
+  // NESTED shape — the required value object present, the never-folded optional
+  // one `null`, and the nested one two levels deep.  The instants come from
+  // `now()`, so only their SHAPE is asserted (the canonical spelling is pinned by
+  // `datetime-wire.ddd`); `who` is a literal the fold carries verbatim, which is
+  // what proves the leaf columns round-tripped through the right props.
+  test e2e "a value object on a folded read model round-trips as a nested object" against d {
+    let o = api.orders.create({ customer: "Ada" })
+    api.orders.place(o)
+    let row = api.orderBoard.byKey(o.id)
+    expect(row.stamp.who).toBe("clerk")
+    expect(row.audit.made.who).toBe("system")
+    expect(row.audit.note).toBe("placed")
+    expect(row.seen).toBe(null)
+  }
+}
