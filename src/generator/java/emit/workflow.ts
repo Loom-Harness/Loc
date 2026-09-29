@@ -48,7 +48,6 @@ import {
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
-  wireToDomainGuards,
 } from "./wire.js";
 import { setterName, workflowStateClass } from "./workflow-state.js";
 

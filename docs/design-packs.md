@@ -822,13 +822,21 @@ spell `gap="xs"` and resolve to 10px, two inside the band.  Reaching for
 `gap={8}` instead would hit the number exactly and take the pack off its own
 scale, which is the trade the band exists to refuse.
 
-### The typography half
+### The typography half — documented, NOT gated
 
 One `heading level: 2` measured 14px on chakra, 24px on shadcn, 26px on
-mantine and 60px on mui.  `HEADING_SCALE_PX` in the same module is the
-ladder (h1 30 / h2 24 / h3 20 / h4 16 / h5 14 / h6 12), with a wider
-`HEADING_TOLERANCE_PX` band so a pack may keep its own rem steps
-(Mantine's 1.625rem h2 = 26px passes) while 14px and 60px do not.
+mantine and 60px on mui.  The intended ladder is h1 30 / h2 24 / h3 20 /
+h4 16 / h5 14 / h6 12, with a wider tolerance band than the spacing one
+(±4px) so a pack may keep its own rem steps — Mantine's 1.625rem h2 =
+26px would pass, while 14px and 60px would not.
+
+**No gate measures this today.**  `scripts/measure-pack-spacing.mjs`
+reads `SPACING_CONTRACT` only; the ladder and its band lived in
+`spacing-contract.ts` as two exported constants that nothing ever read,
+and were deleted with the rest of the never-referenced export surface in
+Wave CR1 packet g (audit row P1-4).  The numbers stay here because they
+are the measured motivation; re-declaring them in code belongs in the
+same PR as the probe that checks them, not before it.
 
 ### Adding a primitive, or a pack
 

@@ -327,6 +327,22 @@ function validateElixirIfSupport(loom: EnrichedLoomModel, diags: LoomDiagnostic[
             // on a relational one (`function-emit.ts`) — a tail value.
             flag(`function '${agg.name}.${fn.name}'`, fn.body.stmts, "value");
           }
+          // APPLIER bodies (CR1-f, wave CR1, audit row P0-2b).  They were
+          // missing from this loop, and `fold-stmt-emit.ts#renderFoldStatement`
+          // — which renders them — has arms for `assign` / `add` / `remove` /
+          // `let` / `expression` only and THROWS on everything else.  Measured:
+          // `apply(e: Deposited) { if e.amount > 0 { balance := balance + e.amount } }`
+          // printed `0 error(s), 0 warning(s)` and then aborted `ddd generate
+          // system` with "elixir vanilla fold: unsupported applier statement
+          // 'if' … the event-sourcing discipline validator should have rejected
+          // this" — the emitter naming the gate that did not exist.  `node`,
+          // `java`, `python` and `dotnet` all emit the same model, so this is
+          // the honest fifth-backend half this code is for, exactly as for an
+          // ES command body: `"event-sourced"` refuses ANY `if`, which is the
+          // fold renderer's real vocabulary.
+          for (const ap of agg.appliers ?? []) {
+            flag(`apply(${ap.event}) on '${agg.name}'`, ap.statements, "event-sourced");
+          }
         }
         for (const svc of ctx.domainServices) {
           for (const op of svc.operations) {

@@ -24,8 +24,8 @@
 // fully-resolved marker of a read; a `method-call` on a param ref of entity
 // type, resolved to a mutating aggregate operation, is the mutation marker), so
 // it never re-recognises the AST.
-import type { DomainServiceOperationIR, ExprIR, OperationIR } from "../types/loom-ir.js";
-import { walkStmtExprsDeep } from "./walk.js";
+import type { DomainServiceOperationIR, ExprIR, OperationIR, StmtIR } from "../types/loom-ir.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "./walk.js";
 
 export type DomainServiceTier = "pure" | "reading" | "mutating";
 
@@ -50,14 +50,46 @@ export type AggregateOpResolver = (
   opName: string,
 ) => OperationIR | undefined;
 
+/** Does a statement of this kind WRITE state directly?
+ *
+ *  An exhaustive table rather than an `||` chain of `kind ===` tests: a new
+ *  `StmtIR` kind must be ruled on here (`tsc` refuses a missing key) instead of
+ *  defaulting to "does not write", which is the answer that silently demotes a
+ *  `mutating` service to `pure` — and a `pure` service gets no read port and no
+ *  transaction from any backend. */
+const WRITES_STATE = {
+  assign: true,
+  add: true,
+  remove: true,
+  call: false,
+  emit: false,
+  expression: false,
+  if: false,
+  let: false,
+  precondition: false,
+  requires: false,
+  return: false,
+  "variant-match": false,
+} as const satisfies Record<StmtIR["kind"], boolean>;
+
 /** True when an aggregate `operation` writes its own (`this`-rooted) state — an
  *  `assign` / `add` / `remove` statement anywhere in its body.  This is the same
  *  this-write shape the domain-service body checks key on; a `domainService` op
- *  that CALLS such an operation on an aggregate parameter is `mutating`. */
+ *  that CALLS such an operation on an aggregate parameter is `mutating`.
+ *
+ *  ANYWHERE means anywhere: `walkStmtsDeep`, not a top-level `.some`.  An
+ *  operation whose only write sits in an `if` branch mutates exactly as much as
+ *  one that writes at the top of its body, and reading it as non-mutating
+ *  demotes every domain service that calls it to a tier with no save and no
+ *  transaction. */
 export function isMutatingOperation(op: OperationIR): boolean {
-  return op.statements.some(
-    (st) => st.kind === "assign" || st.kind === "add" || st.kind === "remove",
-  );
+  let writes = false;
+  for (const top of op.statements) {
+    walkStmtsDeep(top, (s) => {
+      if (WRITES_STATE[s.kind]) writes = true;
+    });
+  }
+  return writes;
 }
 
 /** Build an {@link AggregateOpResolver} over a context's aggregates.  A
@@ -103,14 +135,21 @@ export function classifyDomainServiceTier(
   }
 
   let reads = false;
+  // Statement-level mutation is checked over the DEEP statement list: a service
+  // body may branch, and an `assign` inside an `if` is the same write as one at
+  // the top.  (`walkStmtsDeep` is the census-sanctioned traversal; the
+  // EXPRESSION sweep below was already deep.)  The expression sweep stays over
+  // the TOP-LEVEL statements — `walkStmtExprsDeep` already descends into nested
+  // bodies, so running it per flattened entry would visit an `if`-nested
+  // expression once per enclosing level.
+  const deepBody: StmtIR[] = [];
+  for (const top of op.body) walkStmtsDeep(top, (n) => deepBody.push(n));
+  // A `this`-rooted write has no `this` on a service (the validator rejects it
+  // via `loom.domain-service-no-mutation`), but the IR shape (assign/add/remove)
+  // is still an unambiguous `mutating` signal — kept so the tier the
+  // validator/emitters switch on agrees with the gate.
+  if (deepBody.some((s) => WRITES_STATE[s.kind])) return "mutating";
   for (const stmt of op.body) {
-    // Statement-level mutation: a `this`-rooted write has no `this` on a service
-    // (the validator rejects it via `loom.domain-service-no-mutation`), but the
-    // IR shape (assign/add/remove) is still an unambiguous `mutating` signal —
-    // kept so the tier the validator/emitters switch on agrees with the gate.
-    if (stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove") {
-      return "mutating";
-    }
     let mutates = false;
     walkStmtExprsDeep(stmt, (e: ExprIR) => {
       // A `repo-read` Call anywhere in the body marks the operation `reading`.

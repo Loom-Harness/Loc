@@ -134,12 +134,3 @@ export function decodeValue(expr: string, t: TypeIR, target: WireDecodeTarget): 
     }
   }
 }
-
-/** True when a decode of `t` is anything other than the identity — i.e. the
- *  JSON form and the host form genuinely differ somewhere inside it.  Lets a
- *  caller keep an all-identity emission byte-identical with the pre-codec
- *  output instead of wrapping every field in a no-op. */
-export function needsDecode(t: TypeIR, target: WireDecodeTarget): boolean {
-  const probe = "__x";
-  return decodeValue(probe, t, target) !== probe;
-}
