@@ -1,0 +1,55 @@
+// A domain type whose name is also a BCL type the .NET backend's `using` set
+// brings into scope.  `aggregate Task` is the case with an in-the-wild
+// reproduction: `ddd new --platform dotnet --template crud` emits exactly this
+// shape, and before #3024 the generated project did not build AT ALL —
+// `generate system` said `0 error(s), 0 warning(s)` and `dotnet build` then
+// produced 17 errors:
+//
+//   CS0104 'Task' is an ambiguous reference between 'Api.Domain.Tasks.Task'
+//          and 'System.Threading.Tasks.Task'           (files that wildcard-
+//                                                       import the domain ns)
+//   CS0535/CS0738 'TaskRepository' does not implement
+//          'ITaskRepository.SaveAsync(Task, …)'         (the interface file
+//                                                       DECLARES that namespace,
+//                                                       so its bare `Task`
+//                                                       return silently meant
+//                                                       the DOMAIN type)
+//
+// `Queue` rides along as the SECOND name, and it is not redundant: it proves the
+// alias is general rather than `Task`-special-cased.  Only `Task` additionally
+// needs non-generic async returns qualified (it is the one colliding name the
+// emitter also uses as a return type) — aliasing alone left `aggregate Type`
+// failing with the identical error triple against `System.Type`, which is what
+// this pair is the ratchet on.
+//
+// The other four backends are unaffected (no such ambiguity), so the corpus row
+// is ALL: the point is that nothing else moves.
+system BclCollision {
+  subdomain Work {
+    context Work {
+      aggregate Task with crudish {
+        title: string
+        done: bool
+        invariant title.length > 0
+      }
+      repository Tasks for Task { }
+
+      aggregate Queue with crudish {
+        label: string
+        depth: int
+      }
+      repository Queues for Queue { }
+    }
+  }
+
+  api WorkApi from Work
+  storage pg { type: postgres }
+  resource workState { for: Work, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+}

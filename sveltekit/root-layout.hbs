@@ -5,6 +5,9 @@
 {{#if hasRealtimeHandlers}}  import RealtimeHandlers from "$lib/components/RealtimeHandlers.svelte";
 {{/if}}{{#if authUi}}  import AuthGate from "$lib/auth/AuthGate.svelte";
 {{/if}}{{#if i18nEnabled}}  import { t } from "$lib/i18n";
+{{/if}}{{#if usesCodeBlock}}  // Vendored syntax highlighter for the `CodeBlock` primitive
+  // (highlight.js, bundled - no CDN, works air-gapped).  Self-arms on import.
+  import "$lib/highlight";
 {{/if}}  import { toast } from "$lib/toast.svelte";
 
   let { children } = $props();
