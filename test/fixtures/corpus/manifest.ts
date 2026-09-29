@@ -224,6 +224,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  Java JOINED the row 2026-09-13 (M-T4.2, wave C2 packet 2d): its aggregation over a document source runs the same query NATIVE (`createNativeQuery`, `select count(*) from <schema>.<table> e`) instead of as JPQL over an `@Entity` a document aggregate does not have, so the per-backend gate and its two `#document` message variants are deleted.  Proved on a BOOTED Spring Boot app against Postgres 18: the singleton arm answers `{\"articles\":0}` then `{\"articles\":3}` after three creates, and the grouped arm answers one row per id — numbers from the database, not from the emitter.  The filtered crossing is still refused universally (`loom.projection-document-source-capability-filtered`); that negative lives in `test/ir/projection-document-aggregation.test.ts`.",
   },
   {
+    id: "projection-tph-source",
+    title:
+      "direct-table projection arms over a TPH (`sharedTable`) concrete source, and a `sum` over a value-object leaf",
+    doc: "language",
+    backends: ALL,
+    note: "minted by eval items 10 + 14b (2026-09-28 closure review): node named the concrete's nonexistent table (`schema.autoClaims`, TS2339), python/elixir read the shared table with no `kind` conjunct (a sibling concrete's rows counted — silent wrong data), and elixir summed the jsonb VO column itself (`sum(record.amount)`).  The e2e block asserts the numbers, since two of the three defects compiled clean.",
+  },
+  {
     id: "projection-join",
     title:
       "projection join — the by-id follow (`join <Agg> as <alias> on <idRef>`), carrying the referenced row's fields onto each projection row",

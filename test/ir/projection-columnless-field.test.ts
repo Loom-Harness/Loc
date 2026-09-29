@@ -284,6 +284,9 @@ describe("a value-object leaf is emitted as the column the schema wrote", () => 
     // — the assertion is "not the bare outermost name", per backend.
     ["dotnet", /[Pp]rice\.[Aa]mount/],
     ["java", /price\.amount/],
+    // Vanilla Ecto keeps the whole VO in ONE `:map` (jsonb) column, so the
+    // leaf is a cast jsonb extraction — `sum(record.price)` was `sum(jsonb)`.
+    ["elixir", /sum\(fragment\("\(\?->>'amount'\)::numeric", record\.price\)\)/],
   ] as const)(
     "%s",
     async (platform, expected) => {

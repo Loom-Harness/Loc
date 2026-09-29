@@ -26,6 +26,7 @@ import {
   isQueryTimeProjection,
   queryProjectionUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { projectionSourceTable } from "../../../ir/util/inheritance.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   type AggregateSelect,
@@ -200,8 +201,14 @@ export function buildQueryProjectionsFile(
     // A COMPUTED grouping key (`group by o.placedAt.startOfDay()`) renders
     // through the Drizzle intrinsic snippets, which build a `sql` template.
     if ((grouped?.groupBy ?? []).some((e) => groupKeyOf(e)?.transform)) rawDrizzleOps.add("sql");
-    const table = lowerFirst(plural(p.query.source));
+    const { table, kind } = directSourceTable(p, ctx);
     const parts: string[] = [];
+    // A TPH (`sharedTable`) concrete shares its root's table: scope the read to
+    // this concrete's rows, or every sibling's rows enter the aggregate.
+    if (kind) {
+      parts.push(`eq(schema.${table}.kind, ${JSON.stringify(kind)})`);
+      rawDrizzleOps.add("eq");
+    }
     if (p.query.filter) {
       const lowered = lowerToDrizzle(p.query.filter, table, ctx);
       if (!lowered) throw new Error(unloweredWhere(p.name));
@@ -225,7 +232,9 @@ export function buildQueryProjectionsFile(
   if (usingMikro) {
     for (const p of projections) {
       const f = p.query?.filter;
+      const kind = p.query?.source ? directSourceTable(p, ctx).kind : undefined;
       const parts = [
+        ...(kind ? [`{ kind: ${JSON.stringify(kind)} }`] : []),
         ...(f ? [mikroFilterFor(f, p, ctx)] : []),
         ...mikroCapabilityFilters(p, ctx),
       ].filter((x): x is string => x !== undefined);
@@ -446,7 +455,7 @@ export function buildQueryProjectionsFile(
     ...new Set(
       projections
         .filter((p) => p.query?.source)
-        .map((p) => mikroRowClassFor(p, p.query!.source!))
+        .map((p) => mikroRowClassFor(p, p.query!.source!, ctx))
         .filter((cls) => new RegExp(`\\b${cls}\\b`).test(file)),
     ),
   ].sort();
@@ -534,7 +543,7 @@ function emitQueryProjectionRoute(
   // and ORDERs BY, for a deterministic cross-backend read — exactly the
   // grouping columns, in one query.
   if (grouped && mikro) {
-    const rowClass = mikroRowClassFor(p, source);
+    const rowClass = mikroRowClassFor(p, source, ctx);
     const alias = "src";
     // SELECT: one raw fragment per grouping key + per aggregate, each aliased to
     // the projection field so the row comes back keyed like the drizzle one.
@@ -588,7 +597,7 @@ function emitQueryProjectionRoute(
   }
   // WHOLE-TABLE aggregation, mikro edition: the same push-down, one row out.
   if (aggregates && mikro) {
-    const rowClass = mikroRowClassFor(p, source);
+    const rowClass = mikroRowClassFor(p, source, ctx);
     const alias = "src";
     const selects = aggregates.map(
       (sel) =>
@@ -611,7 +620,7 @@ function emitQueryProjectionRoute(
     return out;
   }
   if (grouped) {
-    const sourceTable = `schema.${lowerFirst(plural(source))}`;
+    const sourceTable = `schema.${directSourceTable(p, ctx).table}`;
     const groupCols = grouped.groupBy.map((e) => groupKeyExpr(e, sourceTable)).join(", ");
     const cols = [
       ...grouped.keys.map((k) => `${k.field}: ${groupKeyExpr(k.expr, sourceTable, true)}`),
@@ -644,7 +653,7 @@ function emitQueryProjectionRoute(
   // produce one integer, which is the scaling failure M-T2.6 removed from
   // `findAll`.  One row out, so the response is the row itself.
   if (aggregates) {
-    const sourceTable = `schema.${lowerFirst(plural(source))}`;
+    const sourceTable = `schema.${directSourceTable(p, ctx).table}`;
     const cols = aggregates
       .map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable, colOf)}`)
       .join(", ");
@@ -681,7 +690,7 @@ function emitQueryProjectionRoute(
   // is why the runtime leg stayed green; `node-mikroorm-query-projections.test.ts`
   // now pins it.
   if (mikro && rawRead) {
-    const rowClass = mikroRowClassFor(p, source);
+    const rowClass = mikroRowClassFor(p, source, ctx);
     out.push(`    const rows = await db.find(${rowClass}, ${mikro.where ?? "{}"});`);
     const projectedFields = (p.query!.selects ?? [])
       .map((sel) => `      ${sel.field}: ${renderProjectionSelect(sel.expr, aliasMap)}`)
@@ -818,11 +827,31 @@ function emitQueryProjectionRoute(
  *  source reads `<Agg>Row`, a WORKFLOW source its saga-state Row, a PROJECTION
  *  source the folded read-model Row — the same three classes `renderMikroEntities`
  *  emits, so the names cannot drift. */
-function mikroRowClassFor(p: ProjectionIR, source: string): string {
+function mikroRowClassFor(p: ProjectionIR, source: string, ctx: EnrichedBoundedContextIR): string {
   const kind = p.query?.sourceKind;
   if (kind === "workflow") return `${upperFirst(source)}Row`;
   if (kind === "projection") return `${upperFirst(source)}Row`;
-  return `${source}Row`;
+  // A TPH concrete has no Row of its own — it reads its root's shared Row
+  // (scoped by the `kind` conjunct in `mikroWheres`).
+  return `${projectionSourceTable(source, ctx.aggregates).tableOwner}Row`;
+}
+
+/** The drizzle table (bare `schema.<name>` member) a direct-table projection
+ *  reads, plus the TPH `kind` discriminator scoping it.  A raw-table source
+ *  (`from <Workflow>` / `from <Projection>`) names its own table; an AGGREGATE
+ *  source names its table OWNER — the root's shared table for a TPH
+ *  (`sharedTable`) concrete, which owns no table of its own (selecting
+ *  `schema.<concretes>` was a TS2339, eval item 10). */
+function directSourceTable(
+  p: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
+): { table: string; kind?: string } {
+  const source = p.query!.source!;
+  const sourceKind = p.query?.sourceKind;
+  if (sourceKind === "workflow" || sourceKind === "projection")
+    return { table: lowerFirst(plural(source)) };
+  const { tableOwner, kind } = projectionSourceTable(source, ctx.aggregates);
+  return { table: lowerFirst(plural(tableOwner)), kind };
 }
 
 /** A projection `where` as a MikroORM FilterQuery literal.
