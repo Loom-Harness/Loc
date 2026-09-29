@@ -99,6 +99,7 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
             aggName: agg.name,
           }),
           source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
         });
       }
     }
@@ -275,6 +276,7 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
               aggName: read.aggName,
             }),
             source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
           });
           continue;
         }
@@ -292,6 +294,7 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
                 cap,
               }),
               source: `${sys.name}/${dep.name}`,
+              origin: dep.origin,
             });
             continue;
           }
@@ -306,6 +309,7 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
                 cap,
               }),
               source: `${sys.name}/${dep.name}`,
+              origin: dep.origin,
             });
           }
         }
@@ -397,6 +401,7 @@ export function validateTenancyFilterBypass(sys: SystemIR, diags: LoomDiagnostic
             claim,
           }),
           source: `${sys.name}/${ctx.name}`,
+          origin: ctx.origin,
         });
       }
     }

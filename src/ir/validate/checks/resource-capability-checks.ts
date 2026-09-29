@@ -125,6 +125,7 @@ export function validateRemoteApiOpSupport(sys: SystemIR, diags: LoomDiagnostic[
                 platform: dep.platform,
               }),
               source: `${sys.name}/${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
           });
         }

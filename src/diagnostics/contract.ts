@@ -91,8 +91,10 @@ export interface JsonDiagnostic {
   /** Canonical node address (`<keyword> <Context>.<Decl>[.<member>]`),
    *  shared with the outline address book.  Best-effort; may be absent. */
   node?: string;
-  /** Precise source range.  Present for CST-backed (Langium) diagnostics;
-   *  absent for IR diagnostics, which run on lowered IR with no CST. */
+  /** Precise source range.  Present for CST-backed (Langium) diagnostics,
+   *  and for an IR diagnostic whose check attached the IR node's `origin`
+   *  (resolved to the span of the declaration it is about); absent for an
+   *  IR diagnostic with no originating node. */
   range?: JsonRange;
   /** The offending source slice — free error context. */
   sourceText?: string;

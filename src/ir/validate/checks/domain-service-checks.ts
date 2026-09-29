@@ -156,6 +156,7 @@ function checkNullableRepoLoad(
         method,
       }),
       source: `${ctx.name}/${svc.name}.${op.name}`,
+      origin: ctx.origin,
     });
   }
 }
@@ -427,6 +428,7 @@ function checkAnemic(ctx: BoundedContextIR, svc: DomainServiceIR, diags: LoomDia
     code: "loom.domain-service-single-aggregate",
     message: diagMessage("loom.domain-service-single-aggregate", { name: svc.name }),
     source: `${ctx.name}/${svc.name}`,
+    origin: ctx.origin,
   });
 }
 

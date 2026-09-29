@@ -486,7 +486,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.operation-return-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/structural-checks.ts:628",
+    site: "src/ir/validate/checks/structural-checks.ts:641",
     what:
       "`or`-union operation returns ship on all five backends (SUPPORTED_RETURN_BACKENDS) — " +
       "latent seam for a NEW backend",
@@ -823,7 +823,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:302",
+    site: "src/ir/validate/checks/test-checks.ts:306",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,
@@ -871,7 +871,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1284",
+    site: "src/ir/validate/checks/workflow-checks.ts:1316",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -895,7 +895,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1297",
+    site: "src/ir/validate/checks/workflow-checks.ts:1330",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,

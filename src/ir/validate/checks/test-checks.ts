@@ -68,6 +68,7 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
             reason,
           }),
           source: `${ctx.name}/${agg.name}.test:${test.name}`,
+          origin: agg.origin,
         });
       }
     }
@@ -114,6 +115,7 @@ function checkThrowKindReadable(
       subject: offender.subject,
     }),
     source: `${ctx.name}/${agg.name}.test:${testName}`,
+    origin: agg.origin,
   });
 }
 
@@ -225,6 +227,7 @@ export function validateContextIntegrationTests(
             testName: test.name,
           }),
           source: `${ctx.name}.test:${test.name}`,
+          origin: ctx.origin,
         });
       }
       let inlineFind = false;
@@ -240,6 +243,7 @@ export function validateContextIntegrationTests(
             testName: test.name,
           }),
           source: `${ctx.name}.test:${test.name}`,
+          origin: ctx.origin,
         });
       }
     }

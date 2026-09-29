@@ -103,6 +103,7 @@ export function validateInheritanceStorage(
         hostNote,
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
@@ -151,6 +152,7 @@ export function validateTphFilterExpressibility(sys: SystemIR, diags: LoomDiagno
             root: rootBaseOf(agg, ctx.aggregates).name,
           }),
           source: key,
+          origin: agg.origin,
         });
       }
     }
@@ -190,6 +192,7 @@ export function validateEventSourcedStorage(
       code: "loom.event-sourcing-backend-unsupported",
       message: diagMessage("loom.event-sourcing-backend-unsupported", { name: agg.name, hostNote }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
@@ -232,6 +235,7 @@ export function validateEventSourcedWorkflowStorage(
       code: "loom.event-sourced-workflow-unsupported",
       message: diagMessage("loom.event-sourced-workflow-unsupported", { name: wf.name, hosts }),
       source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 }
@@ -270,6 +274,7 @@ export function validateProvenancedStorage(
         hostNote,
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
@@ -415,6 +420,7 @@ export function validateFieldMask(
             offending,
           }),
           source: `${ctx.name}/${agg.name}.${f.name}`,
+          origin: f.origin,
         });
       }
     }
@@ -429,6 +435,7 @@ export function validateFieldMask(
         unsupported: unsupported.join("/"),
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
   // Query-time projection responses are NOT yet mask-redacted — the shorthand
@@ -451,6 +458,7 @@ export function validateFieldMask(
           code: "loom.field-mask-projection-source",
           message: diagMessage("loom.field-mask-projection-source", { name: proj.name, src }),
           source: `${ctx.name}/projection/${proj.name}`,
+          origin: proj.origin,
         });
         continue;
       }
@@ -470,6 +478,7 @@ export function validateFieldMask(
             via: "join",
           }),
           source: `${ctx.name}/projection/${proj.name}`,
+          origin: proj.origin,
         });
         continue;
       }
@@ -487,6 +496,7 @@ export function validateFieldMask(
             field: launderingEvents.get(laundered.event),
           }),
           source: `${ctx.name}/projection/${proj.name}`,
+          origin: proj.origin,
         });
       }
     }
@@ -542,6 +552,7 @@ export function validateAuditedOperationSupport(
         hostNote,
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   };
   const capableLabel = "Hono (node) / .NET (dotnet) / Java (java) / Python (python) / elixir";
