@@ -92,6 +92,7 @@ import {
   validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
+  validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
   validateProjectionSourceProjectionBackend,
@@ -230,6 +231,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
     validatePagedQueryHandlerBackend(sys, diags);
+    validatePagedQueryHandlerShape(sys, diags);
     validateQueryTimeProjectionBackend(sys, diags);
     validateWholeTableAggregationBackend(sys, diags);
     validateGroupedProjectionBackend(sys, diags);

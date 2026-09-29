@@ -1557,6 +1557,22 @@ system S {
   } }
 }`,
 
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
+  "loom.paged-query-handler-shape": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order { }
+    criterion InRegion(rgn: string) of Order = region == rgn
+    retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+    queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let r = Orders.run(ByRegion(rgn))
+      return r
+    }
+  } }
+}`,
+
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     event Happened { thing: Thing id, label: string }

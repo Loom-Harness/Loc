@@ -2524,6 +2524,8 @@ export const DIAGNOSTIC_MESSAGES = {
     platform: unknown;
   }) =>
     `queryHandler '${p.name}' returns a \`paged\` envelope, which is currently only emitted on the node (Hono) backend; deployable '${p.dName}' (platform '${p.platform}') can't generate it yet.`,
+  "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion>(args)); return r\`, so no backend can generate it. ${p.hint}`,
   "loom.projection-query-time-unsupported": (p: {
     name: unknown;
     dName: unknown;

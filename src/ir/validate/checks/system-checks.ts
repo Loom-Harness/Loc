@@ -45,6 +45,7 @@ export {
   validateDocumentAggregationFilters,
   validateGroupedProjectionBackend,
   validatePagedQueryHandlerBackend,
+  validatePagedQueryHandlerShape,
   validateProjectionSourceProjectionBackend,
   validateQueryTimeProjectionBackend,
   validateWholeTableAggregationBackend,
