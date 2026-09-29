@@ -384,6 +384,7 @@ const WAIVERS: Record<string, string> = {
   // sites are pure relocations of the same 2.3-flagged offenders — same
   // code, same reason, new home; the walk.ts migration itself is still a
   // follow-up drain, not done here.
+  "src/ir/util/changeset-invariant-carrier.ts#structEvaluable": CLOSED_PREDICATE,
   "src/ir/validate/checks/datasource-checks.ts#docExprUnsupported": HOTSPOT_SPLIT_REASON,
   "src/ir/validate/checks/datasource-checks.ts#docFunctionUnsupported": HOTSPOT_SPLIT_REASON,
   "src/ir/validate/checks/datasource-checks.ts#docStmtUnsupported": HOTSPOT_SPLIT_REASON,
@@ -429,7 +430,6 @@ const WAIVERS: Record<string, string> = {
   "src/generator/dotnet/render-expr.ts#addCsExprUsing": CLOSED_PREDICATE,
   "src/generator/elixir/realtime-liveview.ts#exprUsesBind": CLOSED_PREDICATE,
   "src/generator/elixir/render-expr.ts#isDecimalOperand": CLOSED_PREDICATE,
-  "src/generator/elixir/vanilla/changeset-invariant-emit.ts#structEvaluable": CLOSED_PREDICATE,
   "src/generator/elixir/vanilla/provenance-emit.ts#leavesResolveToColumns": CLOSED_PREDICATE,
   "src/generator/elixir/vanilla/provenance-emit.ts#paramLeafNames": CLOSED_PREDICATE,
   "src/generator/elixir/vanilla/wire-serialize.ts#derivedRenderable": CLOSED_PREDICATE,

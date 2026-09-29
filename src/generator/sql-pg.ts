@@ -30,7 +30,7 @@ export function renderPgStep(step: MigrationStep): string {
       // its schema); qualify the source, bare the target.
       return `ALTER TABLE ${qualified(step.schema, step.from)} RENAME TO ${ident(step.to)};`;
     case "addColumn":
-      return renderAddColumn(step.table, step.schema, step.column, step.fk);
+      return renderAddColumn(step.table, step.schema, step.column, step.fk, step.ifNotExists);
     case "dropColumn":
       return `ALTER TABLE ${qualified(step.schema, step.table)} DROP COLUMN ${ident(step.name)};`;
     case "renameColumn":
@@ -188,9 +188,11 @@ function renderAddColumn(
   schema: string | undefined,
   column: ColumnShape,
   fk: FKShape | undefined,
+  ifNotExists = false,
 ): string {
   const t = qualified(schema, table);
-  let sql = `ALTER TABLE ${t} ADD COLUMN ${renderColumnDef(column)};`;
+  const guard = ifNotExists ? "IF NOT EXISTS " : "";
+  let sql = `ALTER TABLE ${t} ADD COLUMN ${guard}${renderColumnDef(column)};`;
   if (fk) {
     // FK targets live in the same schema as the referencing table.
     sql +=
