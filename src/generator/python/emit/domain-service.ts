@@ -46,7 +46,7 @@ import {
   walkWorkflowStmtExprsDeep,
 } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent, snake } from "../../../util/naming.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
 import { collectPyExprImports, renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
@@ -188,7 +188,7 @@ function renderOperation(op: DomainServiceOperationIR): string {
   // so a reading op is `async def` (the orchestrator awaits the call at its site).
   const ports = readPortsForOperation(op);
   const portParams = ports.map((p) => `${snake(p.repo)}: ${repoPortName(p.aggregate)}`);
-  const userParams = op.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const userParams = op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
   const kw = isReading ? "async def" : "def";
