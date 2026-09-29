@@ -27,11 +27,24 @@ async function seed(page: any, role: string): Promise<void> {
   // Mock the Job byId read so the `/jobs/:id` detail renders (and with it the
   // role-gated Approve button) without a real backend.
   // biome-ignore lint/suspicious/noExplicitAny: Playwright Route typing kept loose for portability.
+  //
+  // The body must satisfy the EMITTED `JobResponse` zod schema, not just look
+  // plausible.  `wireShape` puts `version` on every aggregate response, so a
+  // payload without it fails `JobResponse.parse(r)`, the query goes to
+  // `isError`, and the generated page renders that branch as `null` — a
+  // completely BLANK page.  The Approve button is then missing for a reason
+  // that has nothing to do with the role gate this file exists to test.
+  //
+  // That is exactly how this gate failed its first ever CI run: the mock
+  // omitted `version`, so "visible for the matching role" failed while
+  // "hidden for a non-matching role" PASSED VACUOUSLY on the same blank page.
+  // Keep this in step with the wire shape; the toolbar assertion below is the
+  // tripwire if it drifts again.
   await page.route("**/api/jobs/*", (route: any) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ id: "1", title: "Job One", status: "new" }),
+      body: JSON.stringify({ id: "1", title: "Job One", status: "new", version: 1 }),
     }),
   );
 }
@@ -73,6 +86,18 @@ test("page guard: matching role sees the page", async ({ page }) => {
 test("op button: hidden for a non-matching role", async ({ page }) => {
   await seed(page, "viewer");
   await page.goto("/jobs/1");
+  // ANTI-VACUITY: assert the detail actually rendered first.  `toHaveCount(0)`
+  // alone is satisfied by any page that fails to render — a schema-invalid mock,
+  // a 500, a routing miss — so on its own it proves nothing about the role gate.
+  // The toolbar is inside the QueryView's `data:` branch and every frontend
+  // emits it with this role/label, so its presence means the read resolved and
+  // the ONLY thing left to explain a missing button is the gate.
+  //
+  // ATTACHED, not VISIBLE: with the button correctly gated away the toolbar is
+  // an EMPTY `<div role="toolbar">`, which collapses to zero size, so
+  // `toBeVisible()` fails on exactly the state this case is asserting.  (Caught
+  // by this guard's own first run.)  Presence in the DOM is the real claim.
+  await expect(page.getByRole("toolbar", { name: "Actions" })).toBeAttached();
   await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 });
 
