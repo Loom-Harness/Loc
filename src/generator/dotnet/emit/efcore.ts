@@ -24,6 +24,7 @@ import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/val
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { BCL_COLLIDING_TYPE_NAMES } from "../bcl-collision.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -114,6 +115,16 @@ export function renderDbContext(
   // aggregate still contributes one).
   const hasEventLog = eventLogContexts.length > 0;
   const aggUsings = ctx.aggregates.map((a) => `using ${ns}.Domain.${plural(a.name)};`);
+  // A domain type whose name is also a BCL type reachable from this file's
+  // implicit usings (`aggregate Task` vs `System.Threading.Tasks.Task`) is
+  // CS0104-ambiguous in `DbSet<Task> Tasks => Set<Task>()`. A file-scoped alias
+  // outranks the wildcard import and binds the bare name to the DOMAIN type;
+  // being non-generic it leaves `Task<…>` alone. No-op without a collision.
+  for (const a of ctx.aggregates) {
+    if (BCL_COLLIDING_TYPE_NAMES.has(a.name)) {
+      aggUsings.push(`using ${a.name} = ${ns}.Domain.${plural(a.name)}.${a.name};`);
+    }
+  }
   if (anyDoc) aggUsings.push(`using ${ns}.Infrastructure.Persistence.Documents;`);
   if (hasEventLog) aggUsings.push(`using ${ns}.Infrastructure.Persistence.Events;`);
   // Event-sourced aggregates contribute NO per-aggregate DbSet (their stream
@@ -600,6 +611,11 @@ export function renderConfiguration(
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.EntityFrameworkCore.Metadata.Builders;",
       `using ${ns}.Domain.${plural(agg.name)};`,
+      // Same BCL-collision alias as the DbContext above — this file names the
+      // aggregate in `IEntityTypeConfiguration<Agg>` and `builder.ToTable(...)`.
+      BCL_COLLIDING_TYPE_NAMES.has(agg.name)
+        ? `using ${agg.name} = ${ns}.Domain.${plural(agg.name)}.${agg.name};`
+        : null,
       ...concreteUsings,
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.ValueObjects;`,

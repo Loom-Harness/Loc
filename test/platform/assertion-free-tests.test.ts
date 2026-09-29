@@ -78,8 +78,12 @@ const PINNED: Record<string, number> = {
   // third is the M-T2.15 value-collection gate, delegating the same way to
   // `runValueCollectionEvolutionGate` (which both `expect`s and throws); the
   // fourth is the M-T2.16 field-default gate, delegating to
-  // `runFieldDefaultEvolutionGate` (likewise).
-  "test/e2e/migration-evolution.test.ts": 4,
+  // `runFieldDefaultEvolutionGate` (likewise).  The fifth is the F-012
+  // journal-ordering gate, delegating to `runJournalOrderingGate` — which
+  // `expect`s the journal's `when` values (applied entries held fixed, the
+  // inserted one above the recorded watermark) and the post-boot
+  // information_schema probes, and throws on a failed boot.
+  "test/e2e/migration-evolution.test.ts": 5,
   "test/e2e/migration-evolution-dotnet.test.ts": 1,
   "test/e2e/migration-evolution-elixir.test.ts": 1,
   "test/e2e/migration-evolution-java.test.ts": 1,

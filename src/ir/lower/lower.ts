@@ -262,11 +262,13 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   // before any aggregate is lowered.  Reset per project so a re-run doesn't
   // leak the previous project's tests.
   indexHoistedTests(models);
-  const ambientEnumIndex = new Map<string, string>();
+  const ambientEnumIndex = new Map<string, string[]>();
   for (const m of allMembers) {
     if (!isEnumDecl(m)) continue;
     for (const v of m.values) {
-      if (!ambientEnumIndex.has(v.name)) ambientEnumIndex.set(v.name, m.name);
+      const owners = ambientEnumIndex.get(v.name);
+      if (!owners) ambientEnumIndex.set(v.name, [m.name]);
+      else if (!owners.includes(m.name)) owners.push(m.name);
     }
   }
   setAmbientEnumIndex(ambientEnumIndex);
@@ -1355,7 +1357,7 @@ function lowerContext(
   // aggregate's lowering re-uses the lowered IR directly.  The `this`
   // references inside a context-level filter resolve later when the
   // expression is rendered with a per-aggregate lambda binder.
-  const ctxCaps = collectContextLevelCapabilities(ctx, env);
+  const ctxCaps = collectContextLevelCapabilities(ctx);
   for (const m of ctx.members) {
     if (isEnumDecl(m)) enums.push(lowerEnum(m));
     else if (isValueObject(m)) valueObjects.push(lowerValueObject(m, env));
