@@ -14,8 +14,7 @@
 // set of non-PK `add :x, C` lines, and each T is the Ecto type that loads C.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `system S {
   subdomain C {
@@ -61,8 +60,7 @@ const LOADS: Record<string, string> = {
 };
 
 async function generated(): Promise<Map<string, string>> {
-  const { model } = await parseString(SRC, { validate: false });
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC);
 }
 
 function file(files: Map<string, string>, suffix: string): string {
