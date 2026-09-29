@@ -259,8 +259,9 @@ describe("a direct-table projection's select names real columns", () => {
 // on SQLAlchemy — a 500 at runtime, or the wrong number in a dashboard tile.
 //
 // `sum(o.price.amount)` is the case: the VO is FLATTENED into `price_amount` /
-// `price_currency` by node/drizzle, node/mikroorm, python and dapper, while EF
-// and JPA keep an object path (`OwnsOne` / `@AttributeOverride`).  Both answers
+// `price_currency` by node/drizzle, node/mikroorm and python, while EF and JPA
+// keep an object path (`OwnsOne` / `@AttributeOverride`), and dapper / vanilla
+// Ecto store the whole VO as ONE jsonb column (a cast extraction).  All answers
 // are right for their backend and neither is `price`, which is what reading the
 // outermost member name off the domain model produced.
 // ---------------------------------------------------------------------------
@@ -278,7 +279,9 @@ describe("a value-object leaf is emitted as the column the schema wrote", () => 
     ["node", /price_amount/],
     ["node { persistence: mikroorm }", /price_amount/],
     ["python", /price_amount/],
-    ["dotnet { persistence: dapper }", /price_amount/],
+    // Dapper's schema stores the VO as ONE jsonb column serialised by
+    // System.Text.Json (PascalCase keys) — `price_amount` does not exist there.
+    ["dotnet { persistence: dapper }", /sum\(\(price->>'Amount'\)::numeric\)/],
     // EF and JPA address the owned type by PATH rather than by flattened
     // column, so `price.Amount` / `price.amount` is the correct spelling there
     // — the assertion is "not the bare outermost name", per backend.

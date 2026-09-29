@@ -89,3 +89,32 @@ describe("elixir: a value-object leaf aggregates as a cast jsonb extraction", ()
     expect(src).not.toMatch(/sum\(record\.amount\)/);
   }, 120_000);
 });
+
+// The raw-Npgsql (`persistence: dapper`) twin of both defects.  Its projection
+// SQL named the concrete's own table (`FROM auto_claims` — `relation does not
+// exist`, a 500) and the flattened VO column (`sum(amount_amount)` — `column
+// does not exist`), but the Dapper schema stores a TPH concrete in the root's
+// shared `claims` table and a VO as ONE jsonb column serialised by
+// System.Text.Json (PascalCase keys).  EF (`HasDiscriminator` / owned types)
+// was already right and is the control.
+describe("dotnet/dapper: projection SQL reads the storage the Dapper schema writes", () => {
+  const DAPPER = "dotnet { persistence: dapper }";
+
+  it("TPH concrete: the shared table + the kind conjunct on both direct-table arms", async () => {
+    const src = await projectionSource(DAPPER, /Projections\/AutoClaim\w*QpHandler\.cs$/);
+    expect(src).not.toMatch(/\bauto_claims\b/);
+    expect(src).toContain(`"SELECT count(*)::int AS claims FROM claims WHERE kind = 'AutoClaim'"`);
+    expect(src).toContain(
+      `"SELECT status, count(*)::int AS claims FROM claims WHERE kind = 'AutoClaim' GROUP BY status ORDER BY status"`,
+    );
+  }, 120_000);
+
+  it("a value-object leaf aggregates as a cast jsonb extraction", async () => {
+    const src = await projectionSource(DAPPER, /Projections\/BillTotalsQpHandler\.cs$/);
+    expect(src).toContain(`sum((amount->>'Amount')::numeric)::numeric AS total FROM bills`);
+    expect(src).not.toMatch(/amount_amount/);
+    // …which is what the Dapper schema actually stores.
+    const schema = await projectionSource(DAPPER, /Persistence\/DbSchema\.cs$/);
+    expect(schema).toMatch(/amount jsonb not null/);
+  }, 120_000);
+});
