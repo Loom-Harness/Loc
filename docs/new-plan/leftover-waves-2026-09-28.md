@@ -41,7 +41,7 @@ These are user-owned forks. Each has a default that applies if it is not overrid
 | O5 | Elixir `timestamps` → `utc_datetime_usec` (RS-38 parity) **with** a generated `timestamp(0)`→`timestamptz` migration step | L1-E.4 | Do it, with the migration step |
 | O6 | Merge-queue admission of a PR with **zero check runs on its head** (#2964 fleet plan; #3002 was admitted this way) | L2.9 | Make `pr-gate` fail on an empty head |
 | O7 | Python mypy `[comparison-overlap]` on an enum progression in unit tests (#2957): cast, re-read, or `# type: ignore` | L1-D.5 | Re-read via a helper (`_status(wo)`) |
-| O8 | cowlib 2.20.0 (2 CVEs, no fixed version) in every generated Elixir app | L0 | Document the advisory in the generated README |
+| O8 | ~~cowlib 2.20.0 CVEs in every generated Elixir app~~ — **resolved by #3067** (serve on Bandit, not Plug.Cowboy) | — | — |
 
 ---
 
@@ -70,7 +70,7 @@ Legend:
 | D12 | `docs/build.mjs` `RENDERED_SUBDIRS` omits `new-plan/waves{,/handoffs}`, so 17 track-file links 404 on Pages | #2891 H5 |
 | D13 | `.NET #line` weaving doc comment says it is gated on `sourcemap`; it is actually gated on `sourceTexts` alone. **Decide** which one is intended, then fix the code or the comment. | `dotnet/index.ts:276` (#3017) |
 | D14 | Stdlib/docs: `collection-ops.ts:34` declares `sum` as `(λ): decimal`, but the type system returns the lambda type. `language.md` host-type table predates #2575. | #3055 |
-| D15 | Playground view-graph shows "—" for an unset `enforcement:`; unset now means `denyByDefault` | `web/src/builder/system-v2/view-graph.ts:617` (#3054) |
+| D15 | *(moved to L1-F — a code change, not docs)* Playground view-graph shows "—" for an unset `enforcement:`; unset now means `denyByDefault` | `web/src/builder/system-v2/view-graph.ts:617` (#3054) |
 | D16 | Mint mission rows for every untracked item in §2.2–2.4 that the waves below do not close in one PR, plus the Commons F-018 / F-008 / F-006 rows that only `coverage.md` mentions (#2922) | — |
 
 ### 2.2 Silent defects: validate clean, generated code broken (→ L1)
@@ -161,6 +161,7 @@ Legend:
 | F7 | Feliz: numeric scalar-array form cells have no parse guard (`int s` throws on `"a,2"`) | #2674 | `feliz/wire.ts:1070,1224` | S |
 | F8 | **Feliz**: all scaffold list pages share one pager state (Next on /products refetches categories); CI works around it | #2885 | repro, `generated-feliz-build.yml:582` | S–M |
 | F9 | **Flutter CreateForm drops fields** with a `// TODO` comment, not `giveUp()` (`datetime[]`, id/File arrays, nested VO arrays). `KNOWN_FLUTTER_GAPS` is `{}` because its fixture no longer reaches these arms. | ledger | repro, `flutter/forms-emit.ts:211,420,471,480` | S–M |
+| F11 | Playground view-graph shows "—" for an unset `enforcement:` (now means `denyByDefault`) | #3054 | `web/src/builder/system-v2/view-graph.ts:617` | S |
 | F10 | Feliz `renderNotice` escapes only `"`; there are three weaker Dart `dartStr` copies (`BYPASS_BASELINE` 5/2/2). **Land after #2966.** | #3011 4a | `feliz-target.ts:921` | S |
 
 ### 2.3 Gates, corpus, CI (→ L2)
@@ -254,7 +255,7 @@ Each wave lists how many agents it runs in parallel.
 
 ### L0 — True the ledgers (1 agent, docs + comments only; lands first)
 
-**D1–D16.** Archive the 12 done headings, fix the 7 statuses, rewrite the stale README paragraphs, correct the register `mission:`/`site:` fields (and consider a ±N-line `site` check in `unsupported-register.test.ts`), mint owners for the D10 ratchets, add `waves/` to `RENDERED_SUBDIRS`, and mint mission ids for every untracked §2 item so that L1–L3 PRs can cite them. Add the O8 advisory note. *Exit:* `mission-counts` shows 0 `done` in track files; every §2 item has an id.
+**D1–D16.** Archive the 12 done headings, fix the 7 statuses, rewrite the stale README paragraphs, correct the register `mission:`/`site:` fields (and consider a ±N-line `site` check in `unsupported-register.test.ts`), mint owners for the D10 ratchets, add `waves/` to `RENDERED_SUBDIRS`, and mint mission ids for every untracked §2 item so that L1–L3 PRs can cite them. *Exit:* `mission-counts` shows 0 `done` in track files; every §2 item has an id.
 
 ### L1 — The silent class, by tree (8 agents in parallel; after L0)
 
@@ -269,7 +270,7 @@ This is the P0/P1 wave. Every packet ends with a fixture in the corpus, so the c
 | **L1-C** | `src/generator/dotnet/` | C1–C4, V6's emitter half if any, M-T6.69 | After #3043 |
 | **L1-JP** | `src/generator/{java,python}/` | J1–J3, P1–P2, X3's python sites, O7 | After #2966 (java workflow gate) |
 | **L1-E** | `src/generator/elixir/` | E1–E10 | After #3023 |
-| **L1-F** | `src/generator/{vue,angular,feliz,flutter}/`, scaffold `_body-builders.ts` | F1–F10 | F10 and F6 after #2966 |
+| **L1-F** | `src/generator/{vue,angular,feliz,flutter}/`, scaffold `_body-builders.ts`, `web/src/builder/` | F1–F11 | F10 and F6 after #2966 |
 
 Run **X1, X2 and X4** as a ninth packet only if the fleet cap allows; otherwise fold X1 into L1-N (its node half) and hand the dotnet/java halves to L1-C/L1-JP. X2 and X4 touch every backend's projection or enum lookup and **must not** run beside the per-tree packets. They go first in L2.
 
@@ -353,5 +354,15 @@ O1–O8 answered any time before the packet that needs them (defaults apply othe
 - #2942: page emitter fail-open
 - #2938: CR1 batch 1
 - #2918: M-T5.35 create-input asymmetry
+
+**Refresh 2026-09-29** (`main` @ `cbda9165`, +10 merges; #2918 merging unblocks M-T9.26). **Merged since the snapshot:** #2918, #2943, #3023, #3043, #3048, #3049, #3059, #3062, #3064, #3067. #2938, #2945, #2948, #2966 and #3051 closed without merging, so their items are unclaimed again (#3065 re-opens #3051's ir-walk drain, and #3066 re-opens part of #2966). **New claims:**
+- #3063: soft-by-default keywords (209 → 58 reserved field names). May close V13; re-check before L1-V2.
+- #3065: CR1 ir-walk drain 111 → 43
+- #3066: JSON resource-verb param, an unbound principal in a workflow's inlined op gate, untyped containment-row cells
+- #3070: retro §119
+- #3071: Flutter `design:` warning
+- #3072: RS-4 `.000Z` on node raw-row read routes. Overlaps X3; L1-N takes only the X3 sites #3072 does not touch.
+- #3073: `loom.migration-rename-inferred`
+- #3074: `ddd breakpoints` recorder gap
 
 **Several of these are ready or stale for more than a week.** Landing or closing them is the cheapest progress available: #2918, #2938, #2942, #2943, #2945 since 09-13/14, and drafts #2947–#2949, #2966, #2969 since 09-14. Before L1 starts, the fleet lead should either take each over or close it, so its claim stops fencing work that is not moving.
