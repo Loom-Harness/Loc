@@ -182,6 +182,48 @@
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/orders/{id}/adjust",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "discount": 20,
+        "id": "<volatile:key>",
+        "quantity": 4,
+        "reference": "R2",
+        "total": {
+          "lineage": {
+            "computedValue": 105,
+            "inputs": [
+              {
+                "path": "total",
+                "value": 100
+              },
+              {
+                "path": "delta",
+                "value": 5
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "total",
+              "type": "Order"
+            }
+          },
+          "value": 105
+        },
+        "unitPrice": 30,
+        "version": 5
+      }
+    },
+    {
+      "seq": 10,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -194,19 +236,15 @@
             "reference": "R2",
             "total": {
               "lineage": {
-                "computedValue": 100,
+                "computedValue": 105,
                 "inputs": [
                   {
-                    "path": "quantity",
-                    "value": 4
+                    "path": "total",
+                    "value": 100
                   },
                   {
-                    "path": "unitPrice",
-                    "value": 30
-                  },
-                  {
-                    "path": "amount",
-                    "value": 20
+                    "path": "delta",
+                    "value": 5
                   }
                 ],
                 "snapshotId": "<volatile:key>",
@@ -215,10 +253,10 @@
                   "type": "Order"
                 }
               },
-              "value": 100
+              "value": 105
             },
             "unitPrice": 30,
-            "version": 4
+            "version": 5
           }
         ],
         "page": 1,
@@ -228,14 +266,14 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -248,7 +286,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/orders/by_reference?reference=R2",
       "status": 404,
@@ -261,7 +299,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -274,7 +312,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -287,7 +325,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -300,7 +338,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,

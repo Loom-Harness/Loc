@@ -591,6 +591,16 @@ const REGISTERED: Ratchet[] = [
     // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
     // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
     // once #2976's registry-row principal lands).
+    //
+    // 26 -> 23 (2026-09-28, wave C3 packet 3a, M-T9.13): `principal-read-filter`,
+    // `extern` and `workflow-primitive-params` each gained a `test e2e` block
+    // and a node-minted golden, green on all seven behavioural legs and
+    // mutation-proved.  (`numeric-operands` drained from the E2E-less register
+    // in the same packet but was never here — its domain `test` block already
+    // scored it behavioural.)  Six more blocks were written and booted and are
+    // HELD here on the runtime defects they found — the hand-off note
+    // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
+    // and its repro, and each row's reason above now names its defect.
     // 25 -> 27, SECOND raise at this merge (#3024 — `dotnet-bcl-type-collision`).
     //
     // READ THIS BEFORE TOUCHING THE NUMBER.  `main` and this branch BOTH raised
@@ -625,6 +635,13 @@ const REGISTERED: Ratchet[] = [
     // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
     //
+    // 27 / 23 -> 24, RE-DERIVED at the Wave C3 fold's `main` merge (2026-09-29):
+    // `main` carried 27 (its raises above) while this branch carried 23 (packet
+    // 3a's three drains off the 26 both sides forked from: 26 + 1 - 3 = 24);
+    // neither literal is the answer after a merge — the register itself is.  The
+    // merged `BEHAVIOURAL_ABSENT` in `test/system/gate-ledger.test.ts` holds
+    // exactly 24 rows by this file's own counter, so the bound is pinned to that
+    // count and mutation-proved (23 fails naming 24).
     // 27 -> 26 (2026-09-29, M-T6.73): `handler-triad` DRAINED, on the THIRD
     // attempt.  #2984 made a routed handler addressable and drained this cell;
     // booting it showed four of five backends did not serve an explicit route
@@ -649,6 +666,12 @@ const REGISTERED: Ratchet[] = [
     // landed on and wrong one merge later — which is how this PR was ejected
     // from the merge queue once already, on exactly this line.
     //
+    // 24 / 26 -> 23, RE-DERIVED at the Wave C3 3-A branch's `main` merge of
+    // #3024 (2026-09-29): `main` carried 26 (27 minus the `handler-triad` drain
+    // above) and this branch 24 (27 minus packet 3a's three drains); the merged
+    // register holds exactly 23 rows by this file's own counter (27 - 3 - 1),
+    // so the bound is that count, mutation-proved both ways (22 fails naming
+    // 23; 999 fails as slack).
     // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
     // — a RAISE of three, and the reviewed line this ratchet exists to force.
     // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
@@ -680,7 +703,14 @@ const REGISTERED: Ratchet[] = [
     // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
     // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
     // from memory of either branch.
-    max: 29,
+    //
+    // 23 / 29 -> 26, RE-DERIVED at the Wave C3 3-A branch's `main` merge of the
+    // fixture-shape audit (#3077, 2026-09-29): `main` carried 29 (its raise of
+    // three above) and this branch 23 (27 minus packet 3a's three drains minus
+    // `handler-triad`); the merged register holds exactly 26 rows by this file's
+    // own counter (29 - 3), mutation-proved both ways (25 fails naming 26;
+    // 999 fails as slack).
+    max: 26,
   },
 ];
 

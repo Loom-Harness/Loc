@@ -215,10 +215,18 @@ export function preserveArtifacts(genDir, workDir) {
 }
 
 /** The bundled boot: createApp on PGlite, served (static dist + /api) over one HTTP origin. */
-function serverEntrySource({ deplDir }) {
+function serverEntrySource({ deplDir, devStub = false }) {
   const J = JSON.stringify;
+  // `devStub`: register the backend's OWN dev-stub verifier (`auth/dev-stub.ts`,
+  // the module its `index.ts` calls) before `createApp` — an `auth: required`
+  // backend booted through `createApp` alone has no verifier and answers every
+  // request 401.  run.mjs does the same for its API tier; run-ui-auth.mjs is the
+  // UI-tier caller.  Off by default, so the auth-less cases are byte-identical.
+  const auth = devStub
+    ? `import { registerDevStubVerifier } from ${J(join(deplDir, "auth", "dev-stub.ts"))};\nregisterDevStubVerifier();\n`
+    : "";
   return `
-import { synthDDL } from ${J(join(REPO, "web/src/runtime/ddl.ts"))};
+${auth}import { synthDDL } from ${J(join(REPO, "web/src/runtime/ddl.ts"))};
 import { createApp } from ${J(join(deplDir, "http/index.ts"))};
 import * as schema from ${J(join(deplDir, "db/schema.ts"))};
 import { drizzle } from "drizzle-orm/pglite";
@@ -274,10 +282,10 @@ export async function startServer({ distDir }) {
 }
 
 /** Bundle + import the boot module; returns { startServer }. */
-export async function buildServerModule(deplDir, workDir) {
+export async function buildServerModule(deplDir, workDir, { devStub = false } = {}) {
   const entry = join(workDir, "server-entry.mts");
   const bundle = join(workDir, "server-bundle.mjs");
-  writeFileSync(entry, serverEntrySource({ deplDir }));
+  writeFileSync(entry, serverEntrySource({ deplDir, devStub }));
   const { build } = await import("esbuild");
   await build({
     entryPoints: [entry],

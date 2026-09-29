@@ -351,3 +351,122 @@ Sources: M-T9.34's own measurement pass. Blocked-by: nothing — M-T9.34's helpe
 Sources: [test-coverage-audit-2026-08-13](../../audits/test-coverage-audit-2026-08-13.md) §3.2. Relates to #2354 (the parse-error half, already landed in this helper), #2489, #2512.
 
 > **ID note.** M-T9.36–M-T9.38 minted 2026-08-23 by the numeric-types audit. M-T9.35 was allocated to #2604's census drain (since landed above).
+
+## M-T9.23 — Generated-output size & boot budgets — `done` · **S/M** · P3
+
+**Closed 2026-09-28 by wave C3 packet 3f** ([`waves/handoffs/wave-c3-3f-coverage.md`](../waves/handoffs/wave-c3-3f-coverage.md)). `.github/workflows/size-boot-budget.yml` (nightly / `run-size-boot` / dispatch) measures nine cells — the gzip bytes of four built frontend bundles and the ms-to-`/ready` of the five backends — via `test/e2e/size-boot-budget.test.ts` against `test/budget/size-boot-budget.json`; the ratchet core `test/budget/size-boot-ratchet.ts` (pinned by the fast `size-boot-ratchet.test.ts`) fails on growth past the kind's tolerance AND on a shrink past it, so a genuine gain must lower the baseline.  Baseline provenance per cell is in the budget file.
+
+Generators rot toward bloat silently — no gate notices when a template change adds 40% to every emitted frontend bundle or doubles backend cold-boot. Add a **nightly regression budget**: per-pack generated frontend bundle size (post-`vite build`) and per-backend cold-boot-to-`/ready` time, each with a pinned baseline + ratchet (fails on growth past a tolerance, forces the baseline *down* on genuine improvement — same anti-slack shape as the M-T9.8 allowlist ratchet). Cheap to stand up on the existing build/boot workflows; catches a class no correctness gate ever will.
+Sources: weak-spots §generated-code-quality; ratchet pattern from M-T9.8 (`test/platform/allowlist-ratchet.test.ts`).
+
+## M-T9.29 — Driven-primitive / combination census — `done` · **M** · P2
+
+**Closed 2026-09-28 by wave C3 packet 3f** ([`waves/handoffs/wave-c3-3f-coverage.md`](../waves/handoffs/wave-c3-3f-coverage.md)). The open half landed as `test/generator/_walker/primitive-census.test.ts`: it DRIVES every cell itself — 58 walker primitives × 15 frontend/pack cells (11 JSX packs, Feliz, Flutter, 2 HEEx packs) — and registers what it finds: 3 REFUSED cells (DataGrid on Flutter/HEEx, asserted by code) and 26 silent GAPS in three defects handed off (D-CENSUS-1 a row-scoped `Action` degrades on all 15 cells; D-CENSUS-2 `Avatar` drops its `alt` on 9; D-CENSUS-3 HEEx drops a component call's children, so `Slot` renders nothing), shrink-only with a stale arm.  The "four non-node compile legs" of the old status line had already shipped (#2690 — `pairwise.yml`'s compile matrix is five cells).
+
+R5's other half. `test/ir/api-caller-census.test.ts` closed "every generated ROUTE has a runtime caller" (216 → 13 pins, #2448/#2468, residue owned by M-T9.13). The same question is unanswered one layer over: **which walker primitives, and which combinations of features, does any test actually drive?** Coverage is counted per-feature while holes live per-cell (audit §4.4) — bugs cluster at feature × backend × adapter × example intersections no single fixture crosses.
+
+**Slice 1 — the pairwise-combination corpus harness — [#2512](https://github.com/Loom-Harness/Loc/pull/2512), merged 2026-08-16** (`test/pairwise/` + the three oracles), and it had already paid for itself before it landed: four of its findings merged ahead of the harness itself — [#2527](https://github.com/Loom-Harness/Loc/pull/2527) (F1: `shape: document` × `policy` crashed codegen), [#2528](https://github.com/Loom-Harness/Loc/pull/2528) (F2+F5: `mask unless` + principal filters never reached the non-relational repo builders), [#2529](https://github.com/Loom-Harness/Loc/pull/2529) (F4: a line-leading soft keyword before `:` lexed as an identifier). Every one is a two-feature intersection that both features' own per-feature tests pass.
+
+**Slice 1b — the harness reaches CI (`pairwise.yml`).** Slice 1 shipped the harness, the three
+oracles and three ratcheting registers, and then ran **nowhere**: no workflow invoked any of the
+`test:pairwise-*` scripts, so the corpus executed only when a human typed it. That forfeits the
+half of the ratchet that fires without a new bug — the **stale**-waiver arm. The first re-run
+after three weeks of `main` (@ `3a7199c7`) found **four stale waivers and zero new failures**:
+F1 was fixed by #2527 and F2+F5 by #2528, all weeks earlier, and `main` had been red on this leg
+ever since with nothing to say so. Tiers: the generation sweep is **per-PR** (~700 crossings ×
+5 backends, no toolchain, ~19s — its `crashed` verdict is valid-looking source taking the
+compiler down instead of answering with a named `loom.*` code); the `tsc` and schema-load
+oracles are **nightly + `run-pairwise` + dispatch**. Mutation-proved by re-seeding F1's defect
+(`desugarAuthzFilterInApp` passing the sentinel through undesugared): the leg goes red with
+exactly the 20 crashed crossings slice 1 recorded.
+
+> **Audit trap worth carrying forward.** Grep for the npm **script** (`test:pairwise`) when
+> asking whether a gate runs in CI — *not* for its `LOOM_*` env var. The var is set inside
+> package.json's script, so a correctly-wired workflow never mentions it: checking the var made
+> the healthy `schema-load.yml` look dark too.
+
+**Slice 1c — the compile oracle reaches all five backends.** `pairwise.yml`'s compile job is
+now a five-cell matrix, not node-only. First run: **python 7 compile failures (F6/F7/F8),
+dotnet 1 (F9), node and java clean, elixir unverified** (three local attempts lost to hex
+contention and a reaped dockerd; recorded as unverified rather than claimed green). **Two of
+the four are partial fixes of findings the register called CLOSED** — F6 *is* F2 (#2528's diff
+touches `src/generator/typescript/` only; python's non-relational builders emit `to_wire_masked`
+zero times) and F9 *is* #2527's follow-up 2 (which fixed the document shape and left the
+event-sourced impl). With #2664's three Hono-only schemathesis closures that is three
+independent instances of one defect: **a fix is marked closed when it lands on the first target
+it was reported against** — the cross-target-closure gap R11's successor should own. The
+structural correlate: the backends that split repository emission per storage shape (python,
+node, dotnet) are exactly the ones that drift; java's single repository emitter is clean.
+F6–F9 are emitter bugs, deliberately left for their own PR.
+
+**Open half:** the driven-primitive census proper — the ~55 walker primitives crossed against the six frontends and the design packs, with the undriven cells registered as a shrink-only ratchet rather than discovered one bug at a time. Plus the named compile-leg follow-up: the dotnet / java / python / elixir compile oracles over the same cover (slice 1 was node-only "to prove the harness earns them" — it has).
+
+Sources: [quality-audit-2026-08](../../audits/quality-audit-2026-08.md) R5. Related: M-T9.13 (the route-caller residue), M-T9.22 (generative fuzzing — the unstructured sibling of this structured sweep).
+
+## M-T9.39 — The i18n round-trip gate: every catalog key needs a consumption site, and every user-visible slot needs a key — `done` · **M** · P2
+
+**Closed 2026-09-28 by wave C3 packet 3f** ([`waves/handoffs/wave-c3-3f-coverage.md`](../waves/handoffs/wave-c3-3f-coverage.md)). `test/generator/_walker/i18n-round-trip.test.ts`: one fixture exercising every `USER_VISIBLE_SLOTS` role, both A13 shapes, a `DestroyForm`, an enum form and a scaffold, on all 15 frontend cells × {explicit, derived} menu — (a) every catalog key is read at a consumption site, (b) every authored literal is catalogued and rendered only through its key, and no raw-rendered English hides behind an over-merge waiver — plus the five backends' `msg.<hash>` catalogs (every code raised, every messaged rule — incl. the domain-floor state precondition — catalogued and raised).  Mutation-proved twice (the A13b revert → `deadKeys`; the trigger `t()` removed → `rawRendered`).  Its first run found ten defects (D-I18N-1..10), held as ratcheting waivers and handed off; #2969 (F-034, the locale wiring) is cited, not fixed.
+
+Minted 2026-08-30 from the [08-24 generator review](../../audits/generator-code-review-2026-08-24.md) §F5, re-verified on `main` @ `aa236ae`.
+
+§A13 found two "extracted key nothing renders" holes (the modal trigger/submit label, the sidebar) and #2667 fixed both — with an **instance** gate: `test/generator/_walker/i18n-dead-key-cross-target.test.ts`, whose own `describe`s are literally `A13a` and `A13b`. That closes the two instances, not the class, and the class has now produced findings in three separate audits (08-17's slot-ratchet finding, 08-24 §A13, 08-24 §D9's `Stat`-vs-`KeyValueRow` asymmetry). The structural reason is stated in §F5: **extraction and consumption read different tables** — `src/util/user-visible-slots.ts` + `_walker/i18n-extract.ts` decide what goes into `.loom/messages.en.json`; the per-primitive emitters decide what calls `t(`. Nothing compares the two.
+
+> ⚠ **#2668's gap ledger buckets this row as claimed by #2667.** It is not — verified on this head. Do not skip it on that ledger's authority.
+
+**The work:** one generated-project gate, run per target, asserting both directions over a fixture that exercises every user-visible slot: (a) every key in the emitted catalog has at least one `t("<key>"` consumption site in that target's emitted tree — the dead-key direction the A13 gate covers for two primitives; (b) every user-visible slot listed in `user-visible-slots.ts` that renders authored text in that tree does so through a catalog key — the direction `user-visible-slot-coverage.test.ts` approximates with a per-file regex whose own header warns about it (and which #2476 already caught once shipping English on 13 of 15 targets). Waivers ratchet, per the repo rule: a slot legitimately outside the catalog is pinned with a reason and the pin fails when it becomes stale.
+
+**Verification when it lands.** The gate must be mutation-proved twice — once by reverting an A13 half (the dead-key direction) and once by removing a `t()` wrap from a translated slot (the raw-render direction). A single green first run proves nothing here: this class's whole history is gates that never reached the thing they named.
+
+Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §F5, §A13, §D9; [generator-code-review-2026-08-17](../../audits/generator-code-review-2026-08-17.md) §8 (the vacuous slot ratchet). Relates to [M-T1.11](../T1-ui-frontend.md) (the i18n epic that owns the catalog).
+
+## M-T9.48 — The legacy single-context `generate` path asserted nothing — `done` · **M** · P1 ⭐
+
+**Residue closed 2026-09-28 by wave C3 packet 3f** ([`waves/handoffs/wave-c3-3f-coverage.md`](../waves/handoffs/wave-c3-3f-coverage.md)). The two `test/ir/collection-op-*` files now feed the legacy generators through `parseValid` (their `PARSE_STRING_ALONGSIDE` waivers deleted — the ratchet's stale arm proven), and `retrieval-emit.test.ts` pins that its `loads:` fixture is refused by EXACTLY `loom.retrieval-loads-unsupported`, so the `Unchecked` hop is a ratchet, not a mute.
+
+Minted 2026-09-03 by Wave G2 packet 2.1 of [verification-waves-2026-09](../verification-waves-2026-09.md), and mostly closed in the same PR.
+
+**The hole.** `generateHono` in `test/_helpers/generate.ts` was one line with no checks — `generateTypeScript(model, PINS)`. Its **66 call sites across 37 files** asserted on emitted output from an IR nothing had ever inspected: no phase ⑤/⑥ verifier, no phase ⑦ `validateLoomModel`, and for the **25 of those files that reached it through a bare `parseString`** rather than `parseValid`, no phase ① syntax check and no phase ④ AST validation either. This is the twin of M-T9.35's direct-orchestrator hole, on the other entry point, and it is the reason [M-T9.40](../T9-toolchain-health.md#m-t940----verify-ir-the-resolved-ir-contract-has-no-verifier-and-no-check-reaches-every-expression)'s `enumName: undefined` mutation was invisible to a third of the `test/generator/hono` suite.
+
+**What landed.** `assertModelVerifies(model)` — `lowerModel` → `mergeLoomModels` → `enrichLoomModel` → `assertLoomModelVerifies` → `validateLoomModel` — extracted as the shared body of `assertGeneratable`'s phase-⑤-and-later half and called from `generateHono`, so both paths assert the same phases and cannot drift. Zero call-site churn (it is synchronous and takes a `Model`). Slice 2 migrated the `parseString` callers to `parseValid`. `test/system/legacy-generate-path-ratchet.test.ts` pins the file list, the per-file call count and the total EXACTLY (not as a ceiling), plus the residual `parseString`-alongside set with a stated reason each.
+
+**The finding that cost the most to establish, and is the reason four files left the path rather than being repaired on it:** the legacy path CANNOT host a capability. `generateTypeScript` emits from `loom.contexts` — the LOOSE top-level contexts — and declaring a `system` re-parents every loose context into a `_default` subdomain, emptying that list. So a fixture on this path has, by construction, no backend deployable, and every hosted-capability check refuses it (`loom.tph-backend-unsupported`, `loom.audited-backend-unsupported`, and their siblings). Any future fixture for a hosted capability belongs on `generateSystemFiles`, and the ratchet's header says so.
+
+**The residue.**
+- ~~`generateDotnet` is the same hole on the .NET legacy path~~ — **closed by [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all) below**, which found the .NET hole was materially *larger* than this row assumed: the re-export meant 30 of the 39 caller files imported the generator straight from `src/`, outside the helper entirely, and the `parseString` column was 17 files rather than the two named here.
+- `test/ir/collection-op-lambda-element-type.test.ts` and `test/ir/collection-op-let-type.test.ts` still feed `generateHono` from a bare `parseString`; they were fenced to another packet in the wave and carry a reason in `PARSE_STRING_ALONGSIDE`.
+- `loom.retrieval-loads-unsupported` is refused on every path, so `test/generator/typescript/retrieval-emit.test.ts`'s `loads:` case stays on `generateSystemFilesUnchecked` with its reason — emitting from the refused model IS that test's subject, and the pin is the before-picture for whenever `loads:` ships.
+
+**Verification (done).** Re-seeded M-T9.40's mutation (`enumName: undefined` in the context-local enum-value arm of `src/ir/lower/lower-expr.ts`) and measured both sides of the assertion: with it, **8 tests across 2 `test/generator/hono` files fail** with `IR verification failed for .ddd fixture — enum-value ref 'Cancelled' has no enumName`; with the assertion stripped and the mutation still seeded, only **3** fail, on unrelated string assertions. **5 previously-silent tests now fail.** Blast radius of Route 1 itself: 17 tests across 5 files, every one a genuinely invalid fixture, all repaired — none by weakening the assertion.
+
+> Minted as `M-T9.44` on its branch; renumbered to **M-T9.48** on rebase because #2771's language-docs audit landed `M-T9.44`–`M-T9.47` first. The wave's PR body, commit messages and `test/system/legacy-generate-path-ratchet.test.ts` header may still say `M-T9.44` — this row is that work.
+
+Sources: [verification-waves-2026-09](../verification-waves-2026-09.md) Wave G2 packet 2.1, [verification-architecture-2026-08-31](../../audits/verification-architecture-2026-08-31.md) §4 C2. Relates to M-T9.40 (the verifier this puts on a second entry point), M-T9.35 (the direct-orchestrator ratchet this one is modelled on), M-T9.34 (the phase-⑦ flip on `generateSystemFiles`).
+## M-T9.43 — `render-expr-kinds` wants an EVALUATED value table, not a rendered-string table — `done` (wave C3 3d, 2026-09-28) · **M** · P2
+
+Minted 2026-09-03 to stop [M-T9.42](../T9-toolchain-health.md#m-t942--promote-the-duplicated-per-target-scenarios-into-the-corpus-then-delete-them)'s reference dangling: its promotion ranking names `render-expr-kinds` (3,203 LOC across four backends) as the one candidate that "wants M-T9.43's shape". This row is that shape.
+
+**The problem with the current tables.** Each backend's `render-expr-kinds.test.ts` (plus `phoenix-render-expr.test.ts`) pins, per `ExprIR.kind` arm, the STRING the target's leaf table renders. Four copies of the same arm list, each asserting a different spelling of the same meaning — so the shared dispatcher (`src/generator/_expr/target.ts`) is well covered on syntax and not covered at all on agreement. Two backends can render an arm in a way that compiles on both and evaluates differently, and every one of these tests stays green: the wire-golden differential recorded exactly that failure once already (RS-11 — three backends agreed, and all three were wrong).
+
+**The shape.** One table of `(ExprIR, expected VALUE)` rows, driven per backend by rendering the expression into a tiny executable harness in the target language and comparing the value, not the text. The rows are the semantics; the four leaf tables are the implementations under test. Divergences that are legitimate (money scale, integer division, `null` ordering) become named rows rather than four unrelated string pins.
+
+**What it is not.** Not a reference interpreter for Loom IR — the verification audit priced that and declined it, answering the same question more cheaply with a committed reviewed golden. This table is per-arm and shallow by design: it proves the five leaf tables mean the same thing on a fixed row set, and hands anything deeper to the behavioural tier.
+
+**Verification when it lands.** Mutation-proved per backend: change one leaf's operator (`&&` → `||`, integer `/` → float `/`, money `+` losing its scale) and the value row must fail on that backend and only that backend. The current string tables catch the first of those three and miss the other two — that difference is the whole justification, and the PR states it as a measured before/after, not as a claim.
+
+Sources: [verification-architecture-2026-08-31](../../audits/verification-architecture-2026-08-31.md) §1, §5 (the duplication ranking). Relates to M-T9.42 (the promotion campaign this unblocks for one of its six candidates), M-T9.13 (the behavioural matrix that owns the deep cases).
+
+**CLOSED (wave C3 3d).** `test/generator/_expr/expr-value-table.ts` (46 `(ExprIR, value)` rows, two NAMED divergences — substring's astral unit on python, `ToUpperInvariant`'s ß on .NET) driven by `test/generator/_expr/expr-value.test.ts`, which renders each row through the backend's real renderer and EXECUTES it: node in-process, python with the emitted `NUMERIC_PY`, java single-file launch, .NET file-based `dotnet run`. Vacuity guard: a missing toolchain skips unless named in `LOOM_EXPR_VALUES_REQUIRE`; CI requires python and java; every running backend must answer every row. **Measured before/after, 12 seeded mutations** (`&&`→`||`, `divTrunc`→float `/`, money `+` via float/rounding, ×4 backends): the value table fails exactly the mutated backend 12/12; the string tables caught 9/12 (`&&`→`||` passes the TS, java and .NET tables), and a value-preserving respelling fails the string table while the value table stays green. 26 python/java string arms deleted. Elixir and node-on-CI recipes are in [wave-c3-3d-promote.md](../waves/handoffs/wave-c3-3d-promote.md).
+
+## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `done` (wave C3 3d, 2026-09-28: the boundary stays, measured) · **S** · P2
+
+Minted 2026-09-07 as the explicit residue of [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all), which closed the *wrapper* and deliberately left the rung below it out of scope.
+
+**What is left.** `generateDotnetForContexts` — the system-mode entry the orchestrator itself calls — is still imported straight from `src/` by **six `test/` files** (re-counted 2026-09-07: `dotnet-find-gate`, `dotnet-schema-id-collisions`, `dotnet-tph-capability-filter`, `dotnet-tph`, `field-mask-dotnet`, `generator-dotnet`; a seventh hit is the ratchet naming it). Those call sites bypass `assertModelVerifies` exactly as the 136 wrapper-bypassing sites did before M-T9.49. The boundary was drawn on purpose and symmetrically — the Hono ratchet gates `generateHono`, not `generateTypeScriptForContexts` — so **this row's first job is to decide whether the boundary is still right**, not to assume it is wrong: the `ForContexts` entry is what `src/system/` calls in production, so a helper wrapper there is a different argument from the legacy-CLI-path one.
+
+**Note the overlap before picking a route.** `generator-dotnet.test.ts` alone is **66 of the 150 pinned .NET call sites** and is also M-T9.42's largest corpus-promotion candidate. Promoting it first shrinks this mission's surface by nearly half and shrinks the ratchet's pins in the same move; doing this mission first makes that promotion a bigger diff. Sequence accordingly.
+
+**Verification when it lands.** Whichever route: re-seed M-T9.40's `enumName: undefined` mutation at the enum-value lowering site and measure **both sides** — with the new assertion and with it stripped — reporting the count of *previously-silent* tests that now fail, the way M-T9.48 (5) and M-T9.49 (60) both did. A one-sided "N tests fail" number does not distinguish a working instrument from an unrelated string assertion.
+
+Sources: [verification-waves-2026-09](../verification-waves-2026-09.md) Wave G2 packet 2.2 residue. Relates to M-T9.49 (the wrapper this sits below), M-T9.42 (the promotion that shrinks it), M-T9.40 (the verifier).
+
+**CLOSED (wave C3 3d) — the boundary stays, and now it is measured rather than argued.** M-T9.40's `enumName: undefined` seeded at the context-local enum-value arm of `lower-expr.ts`, run over the seven `generateDotnetForContexts` importers (`dotnet-find-gate`, `dotnet-schema-id-collisions`, `dotnet-tph-capability-filter`, `dotnet-tph`, `field-mask-dotnet`, `generator-dotnet`, `legal-model-did-not-compile`): **without** a verifier at the entry 41 of 104 fail, all in `generator-dotnet` through the `generateDotnet` wrapper's verifier; **with** a temporary `assertLoomModelVerifies` at the `ForContexts` entry the SAME 41 fail. **Previously-silent tests that the new assertion catches: 0.** Unmutated with it in place, 104/104 pass — it would cost nothing and add nothing. The entry is what `src/system/` calls in production (verified there via `generateSystemFiles`/the CLI), and the choice stays symmetric with Hono's `generateHono`-not-`ForContexts` ratchet. `generator-dotnet.test.ts`'s pinned sites fell 66 → 58 in the same wave. Details: [wave-c3-3d-promote.md](../waves/handoffs/wave-c3-3d-promote.md).

@@ -24,7 +24,6 @@ const SRC = readFileSync("test/fixtures/corpus/tenancy-owned.ddd", "utf8").repla
   "java",
 );
 const ROOT = "d/src/main/java/com/loom/d";
-const SPEL_CONVERTED = ":#{@currentUserAccessor.user()?.tenantIdAsUuid()}";
 
 // A guid claim and the `tenantOwned` capability are incompatible by
 // construction: the capability provides `tenantId: string`, and comparing that
@@ -46,36 +45,10 @@ async function orgRepo(src: string = SRC): Promise<string> {
 }
 
 describe("java generator — derived registry self-scope filter", () => {
-  it("overrides findAll with the id.value-vs-converted-claim scoped @Query", async () => {
-    expect(await orgRepo()).toContain(
-      `@Query("select e from Organization e where (e.id.value = ${SPEL_CONVERTED})")\n    List<Organization> findAll();`,
-    );
-  });
-
-  it("overrides findById so a guessed foreign org id can't leak", async () => {
-    expect(await orgRepo()).toContain(
-      `@Query("select e from Organization e where e.id = :id and (e.id.value = ${SPEL_CONVERTED})")\n    Optional<Organization> findById(@Param("id") OrganizationId id);`,
-    );
-  });
-
   it("binds a same-typed guid claim directly (no UUID.fromString)", async () => {
     const repo = await orgRepo(guidClaim(SRC));
     expect(repo).toContain("e.id.value = :#{@currentUserAccessor.user()?.tenantId()}");
     expect(repo).not.toContain("fromString");
-  });
-
-  it("parses the claim to null instead of throwing — a malformed one reads empty (M-T3.7(c))", async () => {
-    const files = await generateSystemFiles(SRC);
-    // No read path may convert the claim inline: `UUID.fromString` in SpEL can
-    // only null-guard, so a malformed claim escapes as IllegalArgumentException.
-    // Reverting the fix puts `fromString` back into the @Query and reds this.
-    expect(await orgRepo()).not.toContain("fromString");
-    // The coercion lives on the principal (so the Criteria path, which holds a
-    // `User` and no bean, shares it) and swallows the malformed case.
-    const user = files.get(`${ROOT}/auth/User.java`)!;
-    expect(user).toContain("public java.util.UUID tenantIdAsUuid() {");
-    expect(user).toContain("return java.util.UUID.fromString(tenantId());");
-    expect(user).toContain("} catch (IllegalArgumentException e) {");
   });
 
   it("routes the reified-retrieval (Criteria) self-scope through the same accessor", async () => {

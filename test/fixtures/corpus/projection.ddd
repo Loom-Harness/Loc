@@ -94,6 +94,12 @@ system ProjectionSys {
     expect(updated.status).toBe("Draft")
     let board = api.orderBoard.byKey(ord)
     expect(board.status).toBe("Shipped")
+    // The LIST read beside the by-key one (PROMOTED from the per-backend
+    // `*-projection.test.ts` string copies, M-T9.42, which pinned both routes
+    // under /api/projections as emitted text): one folded row, the same state.
+    let boards = api.orderBoard.list()
+    expect(boards.count()).toBe(1)
+    expect(boards.first().status).toBe("Shipped")
 
     // The aggregate's own LIST route, beside the projection read.  Two
     // collections over the same lifecycle — one derived, one folded — and the
