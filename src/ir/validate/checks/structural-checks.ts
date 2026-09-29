@@ -29,6 +29,7 @@ import type {
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
+import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import {
   walkExprDeep,
@@ -1011,6 +1012,28 @@ export function validateExprIntegrity(loom: EnrichedLoomModel, diags: LoomDiagno
   const visitor =
     (source: string, inUi = false) =>
     (e: ExprIR) => {
+      // An enum value that TWO enums in scope declare, at a site with no
+      // contextual type to pick between them (F-022).  Lowering resolves the
+      // contextual cases — a field / param default, a `:=` RHS, an `emit`
+      // field, either side of a comparison — and clears `enumCandidates`; what
+      // survives to here genuinely could not be decided, and the honest answer
+      // is to say so rather than let the first-declared enum win silently and
+      // emit a comparison between two different enum types.
+      if (e.kind === "ref" && e.refKind === "enum-value" && e.enumCandidates) {
+        diags.push({
+          severity: "error",
+          code: "loom.ambiguous-enum-value",
+          message: diagMessage("loom.ambiguous-enum-value", {
+            value: e.name,
+            enums: e.enumCandidates.join("', '"),
+            // EVERY qualified spelling, not just the first candidate's: the
+            // compiler cannot know which enum was meant, so recommending one
+            // of them would be the silent first-wins pick wearing a hat.
+            qualified: e.enumCandidates.map((n) => `'${n}.${e.name}'`).join(" or "),
+          }),
+          source,
+        });
+      }
       if (e.kind === "call" && SCAFFOLD_PRIMITIVE_NAMES.has(e.name)) {
         diags.push({
           severity: "error",
@@ -1926,7 +1949,11 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
   return [...new Set(bad)];
 }
 
-export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+export function validateLifecycleBodyDropped(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+  backendPlatforms: Set<string> = new Set(),
+): void {
   for (const agg of ctx.aggregates) {
     // Event-sourced CREATES are rendered — a different path (`agg.creates[0]`
     // → the domain `_init` / fold) that works today.  Their DESTROY is not: no
@@ -1944,15 +1971,44 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
     // whose handler is the fold, so hoisting the gate out of `_init` is a
     // different (and larger) change than the state-based emission.  Naming it is
     // honest and cheap; the state-based form is the supported one.
-    if (esCreateRendered) {
-      for (const s of agg.canonicalCreate?.statements ?? []) {
-        if (s.kind !== "requires") continue;
-        diags.push({
-          severity: "error",
-          code: "loom.lifecycle-guard-event-sourced",
-          message: diagMessage("loom.lifecycle-guard-event-sourced", { agg: agg.name }),
-          source: `${ctx.name}/aggregate ${agg.name}.create`,
-        });
+    // WHICH BACKENDS cannot enforce an ES create gate.  Phoenix hoists a
+    // lifecycle gate to the CONTEXT function and binds a principal there, so an
+    // event-sourced `create ... { requires ... }` works on elixir and is golden-
+    // pinned (pairwise F10, `es-command-principal.test.ts`).  The refusal is
+    // therefore per-backend, not a property of event sourcing — refusing it
+    // everywhere would reject a model one backend emits correctly.
+    const esGateUnsupportedOn = esCreateGateUnsupportedOn(backendPlatforms);
+    if (esCreateRendered && esGateUnsupportedOn.length > 0) {
+      // EVERY create, not just the canonical one.  An event-sourced create is
+      // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
+      // an event stream IS the emitted one — and reading only
+      // `agg.canonicalCreate` here let its guard through untouched: it rendered
+      // into the domain `_init` as a free `currentUser`, so `ddd parse` said
+      // `0 error(s)` and the generated project then failed to COMPILE (measured
+      // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
+      // `cannot find symbol` / CS0103 / F821 elsewhere).  A security gate that
+      // silently does not deny, in other words — the exact outcome this refusal
+      // exists to prevent.  Same blind spot `loom.named-lifecycle-dropped`
+      // (#2532) closed one check over, for the DROPPED body rather than the guard.
+      //
+      // Per-create rather than per-canonical-create because NO create body on an
+      // ES aggregate can host an enforceable guard: the rendered one has no
+      // principal in scope, and any other is dropped outright.  `canonicalCreate`
+      // is a convenience accessor over `creates`, so this strictly WIDENS the old
+      // arm — the canonical case keeps its wording and its `.create` source.
+      for (const create of agg.creates ?? []) {
+        for (const s of create.statements) {
+          if (s.kind !== "requires") continue;
+          diags.push({
+            severity: "error",
+            code: "loom.lifecycle-guard-event-sourced",
+            message: diagMessage("loom.lifecycle-guard-event-sourced", {
+              agg: agg.name,
+              platforms: esGateUnsupportedOn.join(", "),
+            }),
+            source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
+          });
+        }
       }
     }
 
@@ -2045,7 +2101,11 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
       // contract check remains unconditional for every OTHER shape, which is
       // what keeps the hole the review found closed: the exemption is now scoped
       // to "a refusal already fired here", not to "this aggregate is ES".)
-      const esCreateRefused = esCreateRendered && label === "create";
+      // Stands down only where the ES refusal ACTUALLY fired — otherwise an
+      // elixir-only ES create would lose the contract check as well as the
+      // refusal, and nothing would police what its guard reads.
+      const esCreateRefused =
+        esCreateRendered && esGateUnsupportedOn.length > 0 && label === "create";
       for (const s of esCreateRefused ? [] : (action?.statements ?? [])) {
         if (s.kind !== "requires") continue;
         const illegal = lifecycleGuardIllegalReads(s.expr, label);

@@ -73,6 +73,7 @@ import {
   validateDefaultDeny,
   validateDocumentAggregationFilters,
   validateDotnetNameCollisions,
+  validateElixirInvariantCoverage,
   validateElixirOpSelfCallPosition,
   validateEventSourcedStorage,
   validateEventSourcedWorkflowStorage,
@@ -184,6 +185,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateChannelWiring(sys, diags);
     validateSavingShapeSupport(sys, diags);
     validateVanillaDocumentScope(sys, diags);
+    validateElixirInvariantCoverage(sys, diags);
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);
@@ -321,7 +323,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     );
     validateUnionsUnimplemented(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateUnionFindShapes(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateLifecycleBodyDropped(c, diags);
+    validateLifecycleBodyDropped(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateNamedLifecycleDropped(c, diags);
     validateWhenGateSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateOperationReturnsUnimplemented(

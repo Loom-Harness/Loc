@@ -16,6 +16,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
+import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -51,6 +52,12 @@ export function renderRepositoryInterface(
   // union type.  A `T envelope` return is unwrapped to `T` in the same step
   // (M-T6.57 — the carrier is a single-row find).  See `domainFindShape` in
   // find-emit.ts.
+  // A type named `Task` in this aggregate's own namespace (the one this file
+  // DECLARES) beats the implicit `global using System.Threading.Tasks`, so a
+  // bare `Task` return here would silently mean the DOMAIN type — which is what
+  // made `ITaskRepository.SaveAsync` disagree with its impl (CS0535/CS0738).
+  // `Task<…>` is unaffected: a non-generic type cannot bind a type argument.
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
   const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   const anyFindIsPaged = finds.some((f) => pagedReturn(f.returnType));
@@ -93,12 +100,12 @@ export function renderRepositoryInterface(
           ]
         : []),
       `    Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default);`,
-      `    Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
+      `    ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
       // Hard delete — only when the aggregate has a canonical `destroy`
       // (declared or via `crudish`); keeps plain repos unchanged.
       ...(agg.canonicalDestroy
         ? [
-            `    Task DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
+            `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
         : []),
       ...findLines,
@@ -145,6 +152,20 @@ export function renderRepositoryImpl(
     embedded?: boolean;
   },
 ): string {
+  // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
+  // is CS0104-ambiguous with the implicit `System.Threading.Tasks.Task`. The
+  // alias below binds the bare name to the DOMAIN type (a file-scoped alias
+  // outranks a wildcard import, and being non-generic it leaves `Task<…>` alone),
+  // so every `${agg.name}` reference resolves; the NON-GENERIC async returns are
+  // spelled through `bclTask` instead. Both are no-ops without a collision, so
+  // output stays byte-identical.
+  // Alias EVERY colliding name in scope (general — `Type`, `Stream`, `Queue`,
+  // … all need it); qualify non-generic returns only for `Task` (the sole name
+  // the emitter also uses as a return type).
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
+  const domainAliases = collidingNamesOfAggregate(agg).map(
+    (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
+  );
   const emitTrace = !!options?.emitTrace;
   const idClass = options?.idClass ?? `${agg.name}Id`;
   // Union-returning finds (P4c) reach the Domain repository as their optional
@@ -376,6 +397,7 @@ export function renderRepositoryImpl(
       // `.WithSpecification(...)` for `Run<Name>Async` retrieval methods.
       retrievals.length > 0 ? "using Ardalis.Specification.EntityFrameworkCore;" : null,
       `using ${ns}.Domain.${plural(agg.name)};`,
+      ...domainAliases,
       `using ${ns}.Domain.Common;`,
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.ValueObjects;`,
@@ -445,7 +467,7 @@ export function renderRepositoryImpl(
       ...loadManyByIdsLines,
       "    }",
       "",
-      `    public async Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var entry = _db.Entry(aggregate);",
       "        if (entry.State == EntityState.Detached)",
@@ -533,7 +555,7 @@ export function renderRepositoryImpl(
       ...(agg.canonicalDestroy
         ? [
             "",
-            `    public async Task DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+            `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
             "    {",
             `        _db.${setName}.Remove(aggregate);`,
             "        await _db.SaveChangesAsync(cancellationToken);",
@@ -695,6 +717,20 @@ export function renderDocumentRepositoryImpl(
   }>,
   options?: { extraUsings?: readonly string[]; idClass?: string },
 ): string {
+  // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
+  // is CS0104-ambiguous with the implicit `System.Threading.Tasks.Task`. The
+  // alias below binds the bare name to the DOMAIN type (a file-scoped alias
+  // outranks a wildcard import, and being non-generic it leaves `Task<…>` alone),
+  // so every `${agg.name}` reference resolves; the NON-GENERIC async returns are
+  // spelled through `bclTask` instead. Both are no-ops without a collision, so
+  // output stays byte-identical.
+  // Alias EVERY colliding name in scope (general — `Type`, `Stream`, `Queue`,
+  // … all need it); qualify non-generic returns only for `Task` (the sole name
+  // the emitter also uses as a return type).
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
+  const domainAliases = collidingNamesOfAggregate(agg).map(
+    (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
+  );
   const idClass = options?.idClass ?? `${agg.name}Id`;
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
@@ -814,6 +850,7 @@ export function renderDocumentRepositoryImpl(
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.Extensions.Logging;",
       `using ${ns}.Domain.${plural(agg.name)};`,
+      ...domainAliases,
       `using ${ns}.Domain.Common;`,
       `using ${ns}.Domain.Ids;`,
       `using ${ns}.Domain.ValueObjects;`,
@@ -871,7 +908,7 @@ export function renderDocumentRepositoryImpl(
       "    }",
       ...capMethod,
       "",
-      `    public async Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       // RS-14 — a document aggregate's `version` is served from the SNAPSHOT
       // inside `data`, while the optimistic-concurrency counter EF bumps lives
@@ -948,7 +985,7 @@ export function renderDocumentRepositoryImpl(
       ...(agg.canonicalDestroy
         ? [
             "",
-            `    public async Task DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+            `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
             "    {",
             `        var __existing = await _db.${setName}.FirstOrDefaultAsync(x => x.Id == aggregate.Id.Value, cancellationToken);`,
             "        if (__existing != null)",
@@ -991,6 +1028,20 @@ export function renderEventSourcedRepositoryImpl(
   contextName: string,
   options?: { extraUsings?: readonly string[]; idClass?: string },
 ): string {
+  // A type named `Task` reached through this file's `using <ns>.Domain.<Plural>;`
+  // is CS0104-ambiguous with the implicit `System.Threading.Tasks.Task`. The
+  // alias below binds the bare name to the DOMAIN type (a file-scoped alias
+  // outranks a wildcard import, and being non-generic it leaves `Task<…>` alone),
+  // so every `${agg.name}` reference resolves; the NON-GENERIC async returns are
+  // spelled through `bclTask` instead. Both are no-ops without a collision, so
+  // output stays byte-identical.
+  // Alias EVERY colliding name in scope (general — `Type`, `Stream`, `Queue`,
+  // … all need it); qualify non-generic returns only for `Task` (the sole name
+  // the emitter also uses as a return type).
+  const bclTask = csTaskType(taskInScopeOfAggregate(agg));
+  const domainAliases = collidingNamesOfAggregate(agg).map(
+    (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
+  );
   const idClass = options?.idClass ?? `${agg.name}Id`;
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
@@ -1101,6 +1152,7 @@ export function renderEventSourcedRepositoryImpl(
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.Extensions.Logging;",
       `using ${ns}.Domain.${plural(agg.name)};`,
+      ...domainAliases,
       `using ${ns}.Domain.Common;`,
       `using ${ns}.Domain.Events;`,
       `using ${ns}.Domain.Ids;`,
@@ -1153,7 +1205,7 @@ export function renderEventSourcedRepositoryImpl(
       "        return __out;",
       "    }",
       "",
-      `    public async Task SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
+      `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __pending = aggregate.PullEvents();",
       "        if (__pending.Count > 0)",
