@@ -183,3 +183,30 @@ export function operationBodyUsesCurrentUser(op: OperationIR): boolean {
 export function operationGatesUseCurrentUser(op: OperationIR): boolean {
   return operationGates(op).some(stmtUsesCurrentUser);
 }
+
+// ---------------------------------------------------------------------------
+// Where an EVENT-SOURCED `create` gate can be enforced.
+//
+// Placement decides it, and the backends genuinely differ.  Phoenix evaluates a
+// lifecycle gate in the CONTEXT function — `create_<agg>(attrs, current_user
+// \\ nil)`, with the controller passing the real principal — so an ES create's
+// `requires` is bound and enforced there like any other.  The other four render
+// the ES create body into the domain `_init`, which has no principal in scope:
+// `currentUser` is a free identifier, so the guard does not deny, it does not
+// COMPILE (`error TS2304` / `cannot find symbol` / CS0103 / F821).
+//
+// So `loom.lifecycle-guard-event-sourced` is a per-BACKEND refusal, not a
+// property of event sourcing — the `#1442 → #1447/#1449` pattern, where a
+// generic gate narrows as each backend gains support.  Phoenix's support is
+// pinned by `test/generator/elixir/es-command-principal.test.ts` (pairwise F10).
+// ---------------------------------------------------------------------------
+
+/** Backend platforms on which an event-sourced `create`'s `requires` gate is
+ *  ENFORCEABLE (the gate is hoisted to a caller that binds a principal). */
+export const ES_CREATE_GATE_BACKENDS: ReadonlySet<string> = new Set(["elixir"]);
+
+/** The hosting backends that would render an ES create gate into a principal-less
+ *  `_init` — empty when every host can enforce it.  Sorted, for stable wording. */
+export function esCreateGateUnsupportedOn(backendPlatforms: Iterable<string>): string[] {
+  return [...backendPlatforms].filter((p) => !ES_CREATE_GATE_BACKENDS.has(p)).sort();
+}

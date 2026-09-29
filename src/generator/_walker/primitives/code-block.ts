@@ -18,11 +18,15 @@
 // `<code></code>` (the same source compiled on Phoenix).
 //
 // Renders to a `<pre><code class="language-...">...</code></pre>`
-// block.  The shell template (`vite/index-html.hbs`) injects the
-// highlight.js CDN tags when at least one page on the deployable uses
-// CodeBlock — the walker flags that via `ctx.usesCodeBlock` and the
-// React generator's orchestrator (`src/generator/react/index.ts`)
-// aggregates the flag across all pages.
+// block.  Highlighting it is the emitted `src/lib/highlight.ts`
+// module's job: a VENDORED `highlight.js` (the 36-language
+// `lib/common` bundle — no CDN, so the app builds and runs
+// air-gapped), pulled in only when at least one page or component on
+// the deployable uses CodeBlock.  Every frontend orchestrator decides
+// that with `uiUsesCodeBlock` (`src/ir/util/code-block.ts`), the same
+// detect-once gate `decimal.js` rides via `usesMoney`; `ctx.usesCodeBlock`
+// below is the walker-local twin the page shells read.  A `language:`
+// outside the bundled set renders as plain text.
 //
 // The `source` string is rendered as JSX text inside the `<code>`
 // element, so JSX-significant punctuation must be HTML-entity-escaped.

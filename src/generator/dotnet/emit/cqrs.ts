@@ -1,4 +1,5 @@
 import { plural } from "../../../util/naming.js";
+import { BCL_COLLIDING_TYPE_NAMES } from "../bcl-collision.js";
 
 // Mediator command/query records + their handler scaffolds.  Body is
 // pre-rendered upstream — we just splice it into the handler.
@@ -70,7 +71,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Mediator;
 using ${args.ns}.Domain.${plural(args.aggName)};
-using ${args.ns}.Domain.Common;
+${BCL_COLLIDING_TYPE_NAMES.has(args.aggName) ? `using ${args.aggName} = ${args.ns}.Domain.${plural(args.aggName)}.${args.aggName};\n` : ""}using ${args.ns}.Domain.Common;
 using ${args.ns}.Domain.Ids;
 using ${args.ns}.Domain.ValueObjects;
 using ${args.ns}.Domain.Enums;
@@ -148,7 +149,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Mediator;
 using ${args.ns}.Domain.${plural(args.aggName)};
-using ${args.ns}.Domain.Ids;
+${BCL_COLLIDING_TYPE_NAMES.has(args.aggName) ? `using ${args.aggName} = ${args.ns}.Domain.${plural(args.aggName)}.${args.aggName};\n` : ""}using ${args.ns}.Domain.Ids;
 using ${args.ns}.Domain.ValueObjects;
 using ${args.ns}.Domain.Enums;
 using ${args.ns}.Application.${plural(args.aggName)}.Responses;

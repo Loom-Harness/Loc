@@ -51,6 +51,14 @@ on:
       - 'src/generator/sql-pg.ts'
       - 'src/generator/_persistence/**'
       - 'src/generator/elixir/migrations-emit.ts'
+      # The Drizzle journal (`meta/_journal.json`) and its ordering key.  Drizzle
+      # is the only backend here whose migrator is a WATERMARK
+      # (`lastApplied.created_at < entry.when`) rather than an applied-set, so
+      # the journal is the one migration artifact whose ordering can silently
+      # skip a migration or re-run an applied one — F-012, which this gate's
+      # `journal-ordering` leg now covers.  Omitting this path meant the file
+      # carrying that defect could not trigger the gate that catches it.
+      - 'src/generator/typescript/emit/migrations.ts'
       - 'test/e2e/migration-evolution.test.ts'
       - 'test/e2e/migration-evolution-python.test.ts'
       - 'test/e2e/migration-evolution-java.test.ts'
