@@ -903,6 +903,38 @@ function workflowBodies(wf: {
   ];
 }
 
+/** Does this ONE statement (not its children) write state or publish?  An
+ *  aggregate operation call, an event `emit`, a factory `let` (an INSERT), a
+ *  repository delete and an own-state `assign` are effects; guards, reads,
+ *  resource/domain-service calls and the two nesting kinds are not (their
+ *  nested statements are judged on their own by the deep walk).  Exhaustive,
+ *  so a new `WorkflowStmtIR` kind has to be ruled on here. */
+function isWorkflowEffect(s: WorkflowStmtIR): boolean {
+  switch (s.kind) {
+    case "op-call":
+    case "emit":
+    case "factory-let":
+    case "repo-delete":
+    case "assign":
+      return true;
+    case "precondition":
+    case "requires":
+    case "repo-let":
+    case "expr-let":
+    case "repo-run":
+    case "resource-call":
+    case "domain-service-call":
+    case "for-each":
+    case "if-let":
+      return false;
+    default: {
+      const _exhaustive: never = s;
+      void _exhaustive;
+      return false;
+    }
+  }
+}
+
 function validateWorkflowBody(
   ctx: BoundedContextIR,
   wf: {
@@ -946,6 +978,23 @@ function validateWorkflowBody(
       },
       crossContextBindings,
     );
+  }
+
+  // The per-arm `markMutated` calls above see only the statements each arm
+  // happens to iterate — the `for-each` arm counted a nested `op-call` but
+  // not an `emit` / factory-`let` / `Repo.delete`, and no arm looked below
+  // one level of nesting.  So a `transactional` workflow whose only effect
+  // sits inside a loop drew a false `transactional-no-effect` (eval item 44).
+  // Whether a body has an effect is a question about EVERY reachable
+  // statement, so it rides the census-sanctioned deep walk.
+  if (!mutated) {
+    for (const body of workflowBodies(wf)) {
+      for (const top of body) {
+        walkWorkflowStmtsDeep(top, (s) => {
+          if (isWorkflowEffect(s)) mutated = true;
+        });
+      }
+    }
   }
 
   if (wf.transactional && !mutated) {

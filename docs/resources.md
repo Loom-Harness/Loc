@@ -203,6 +203,12 @@ workflow ArchiveOrder(order: Order id) {
 
 The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
 
+- **lexically shadowable** — unlike `currentUser`, the handle is an ordinary
+  outer name: a parameter or `let` of the same name shadows it inside its
+  scope, so `create(name: string, st: string) { st := st }` next to a
+  `resource st { … }` copies the parameter, not the handle. (An entity field of
+  the same name does not shadow it; rename one of the two if that bites.)
+
 - **workflows only** — resource-ops are legal in a `workflow` body and a
   command/query handler body, and nowhere else
   (`loom.resource-op-outside-workflow`). An aggregate `operation` / `create` /
