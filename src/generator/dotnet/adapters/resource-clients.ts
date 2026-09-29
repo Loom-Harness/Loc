@@ -33,6 +33,21 @@ function cfg(store: StorageIR | undefined, key: string): string | undefined {
 
 /** Compose injects this name; a private copy of the rule would drift from it
  *  silently, so both sides read one helper. */
+/** The `put(key, json)` serializer both object-store adapters emit.
+ *
+ *  `docs/resources.md` types the second argument as a JSON VALUE — a record
+ *  literal (`{ a: x, b: y }`) reaches the call site as an anonymous object
+ *  (`new { A = …, B = … }`).  A `string` parameter made every such call a
+ *  CS1503, on a model that validated `0 error(s)` — so the parameter is
+ *  `object` and the helper serializes, matching node (`JSON.stringify`) and
+ *  python (`json.dumps`).  A string body passes through unquoted so a caller
+ *  that already rendered its own JSON is unaffected. */
+const csJsonHelper: readonly string[] = [
+  "    private static string ToJson(object body) =>",
+  "        body as string ?? JsonSerializer.Serialize(body);",
+  "",
+];
+
 const envVar = resourceEnvUrlVar;
 
 function storeOf(resource: DataSourceIR, stores: readonly StorageIR[]): StorageIR | undefined {
@@ -53,6 +68,7 @@ const s3DotnetAdapter: DotnetResourceAdapter = {
       "using System;",
       "using System.IO;",
       "using System.Collections.Generic;",
+      "using System.Text.Json;",
       "using System.Threading.Tasks;",
       "using Amazon.S3;",
       "using Amazon.S3.Model;",
@@ -61,6 +77,7 @@ const s3DotnetAdapter: DotnetResourceAdapter = {
       "",
       "public static class S3Resources",
       "{",
+      ...csJsonHelper,
     ];
     for (const r of resources) {
       const store = storeOf(r, stores);
@@ -71,13 +88,13 @@ const s3DotnetAdapter: DotnetResourceAdapter = {
         `        Environment.GetEnvironmentVariable("${envVar(r.name)}_BUCKET") ?? ${JSON.stringify(bucket)};`,
         `    private static readonly AmazonS3Client ${cls}Client = new AmazonS3Client();`,
         "",
-        `    public static async Task ${cls}_Put(string key, string body)`,
+        `    public static async Task ${cls}_Put(string key, object body)`,
         "    {",
         `        await ${cls}Client.PutObjectAsync(new PutObjectRequest`,
         "        {",
         `            BucketName = ${cls}Bucket,`,
         "            Key = key,",
-        "            ContentBody = body,",
+        "            ContentBody = ToJson(body),",
         '            ContentType = "application/json",',
         "        });",
         "    }",
@@ -179,6 +196,7 @@ const localDiskDotnetAdapter: DotnetResourceAdapter = {
       "",
       "public static class LocalDiskResources",
       "{",
+      ...csJsonHelper,
     ];
     for (const r of resources) {
       const cls = upperFirst(r.name);
@@ -225,9 +243,9 @@ const localDiskDotnetAdapter: DotnetResourceAdapter = {
         "",
         // Vendor-neutral JSON verbs (parity with s3's Put/Get/List/Delete) so
         // workflow bodies reaching the store keep working against localDisk.
-        `    public static async Task ${cls}_Put(string key, string body)`,
+        `    public static async Task ${cls}_Put(string key, object body)`,
         "    {",
-        `        await ${cls}_PutBytes(key, Encoding.UTF8.GetBytes(body), "application/json");`,
+        `        await ${cls}_PutBytes(key, Encoding.UTF8.GetBytes(ToJson(body)), "application/json");`,
         "    }",
         "",
         `    public static async Task<string?> ${cls}_Get(string key)`,
@@ -274,6 +292,7 @@ const rabbitmqDotnetAdapter: DotnetResourceAdapter = {
       "// Auto-generated.",
       "using System;",
       "using System.Text;",
+      "using System.Text.Json;",
       "using System.Threading.Tasks;",
       "using RabbitMQ.Client;",
       "",
@@ -281,6 +300,7 @@ const rabbitmqDotnetAdapter: DotnetResourceAdapter = {
       "",
       "public static class RabbitmqResources",
       "{",
+      ...csJsonHelper,
     ];
     for (const r of resources) {
       const cls = upperFirst(r.name);
@@ -299,20 +319,20 @@ const rabbitmqDotnetAdapter: DotnetResourceAdapter = {
         `        return _${cls}Channel;`,
         "    }",
         "",
-        `    public static async Task ${cls}_Enqueue(string message)`,
+        `    public static async Task ${cls}_Enqueue(object message)`,
         "    {",
         `        var ch = await ${cls}_Channel();`,
         `        await ch.QueueDeclareAsync(queue: "${r.name}", durable: true, exclusive: false, autoDelete: false, arguments: null);`,
         "        var props = new BasicProperties { Persistent = true };",
-        `        await ch.BasicPublishAsync(exchange: "", routingKey: "${r.name}", mandatory: false, basicProperties: props, body: Encoding.UTF8.GetBytes(message));`,
+        `        await ch.BasicPublishAsync(exchange: "", routingKey: "${r.name}", mandatory: false, basicProperties: props, body: Encoding.UTF8.GetBytes(ToJson(message)));`,
         "    }",
         "",
-        `    public static async Task ${cls}_Publish(string topic, string message)`,
+        `    public static async Task ${cls}_Publish(string topic, object message)`,
         "    {",
         `        var ch = await ${cls}_Channel();`,
         `        await ch.ExchangeDeclareAsync(exchange: "${r.name}", type: "topic", durable: true);`,
         "        var props = new BasicProperties { Persistent = true };",
-        `        await ch.BasicPublishAsync(exchange: "${r.name}", routingKey: topic, mandatory: false, basicProperties: props, body: Encoding.UTF8.GetBytes(message));`,
+        `        await ch.BasicPublishAsync(exchange: "${r.name}", routingKey: topic, mandatory: false, basicProperties: props, body: Encoding.UTF8.GetBytes(ToJson(message)));`,
         "    }",
         "",
       );
@@ -331,12 +351,14 @@ const restApiDotnetAdapter: DotnetResourceAdapter = {
       "using System;",
       "using System.Net.Http;",
       "using System.Text;",
+      "using System.Text.Json;",
       "using System.Threading.Tasks;",
       "",
       `namespace ${ns}.Resources;`,
       "",
       "public static class RestApiResources",
       "{",
+      ...csJsonHelper,
       "    private static readonly HttpClient Http = new HttpClient();",
       "",
     ];
@@ -354,9 +376,9 @@ const restApiDotnetAdapter: DotnetResourceAdapter = {
         "        return await res.Content.ReadAsStringAsync();",
         "    }",
         "",
-        `    public static async Task<string> ${cls}_Post(string path, string body)`,
+        `    public static async Task<string> ${cls}_Post(string path, object body)`,
         "    {",
-        '        var content = new StringContent(body, Encoding.UTF8, "application/json");',
+        '        var content = new StringContent(ToJson(body), Encoding.UTF8, "application/json");',
         `        var res = await Http.PostAsync(new Uri(new Uri(${cls}BaseUrl), path), content);`,
         "        res.EnsureSuccessStatusCode();",
         "        return await res.Content.ReadAsStringAsync();",
