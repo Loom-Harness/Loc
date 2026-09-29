@@ -274,7 +274,8 @@ export function generateDotnetForContexts(
      *  forwarded verbatim into the root `renderEntity` call so the REGULAR
      *  named-operation body loop can weave `#line` directives.  Gated on
      *  `sourcemap` also being present (same honest-skip convention as the
-     *  v3 sidecars): no text → no directives, never guessed. */
+     *  v3 sidecars; enforced at the `renderEntity` call site): no recorder
+     *  or no text → no directives, never guessed. */
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
@@ -1551,7 +1552,10 @@ function emitAggregate(
       operationReturnUnions,
       opFragments,
       construct,
-      sourceTexts,
+      // C5 (M-T6.75): `#line` weaving is a `--sourcemap` feature — without a
+      // recorder the output must stay byte-identical to a plain generate,
+      // even though the CLI always hands `sourceTexts` down.
+      sourcemap ? sourceTexts : undefined,
     ),
     agg.origin,
     opFragments,
