@@ -231,6 +231,23 @@ declaration is a validation error (`loom.orgpath-without-tenancy`).
 Full semantics, per-backend seams, and the `policy {}` read ladder they
 feed live in [tenancy.md](tenancy.md).
 
+### The system principal — `currentUser.isSystem`
+
+An event reactor (a workflow's event-triggered `create(e) by …` starter or
+`on(e)` subscription — including one a `timerSource` tick or a broker
+consumer drives) has no request principal. It runs as the **system
+principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is `true` (it is `false` on every
+request principal), every declared claim is EMPTY, the tenancy claim and
+`orgPath` are the triggering event's, and a runtime-only `causedBy` records the
+originating user's id for audit and logs. Gates are evaluated against it
+normally, so a gate that should admit a reactor says so —
+`requires currentUser.isSystem || currentUser.permissions.contains(…)` — and a
+reactor reaching a gate that reads `currentUser` without an `isSystem`
+disjunct is warned at compile time (`loom.reactor-gate-unsatisfiable`).
+`isSystem` / `causedBy` are reserved claim names (`loom.user-reserved-field`).
+The request principal's wire shape (`/auth/me`) is unchanged. Per-backend
+emission: [`language-reference/17-auth.md` § Reactors](language-reference/17-auth.md#reactors--the-system-principal-currentuserissystem).
+
 ### Permissions surface
 
 `permissions { ... }` lives at subdomain scope; each declared name

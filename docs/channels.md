@@ -208,6 +208,12 @@ structural half.
 
 ## Not yet
 
+- **Tenant + `causedBy` on the envelope / outbox row** (ruling D1,
+  [D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)) — a reactor runs as the system principal in its triggering event's
+  tenant, which in-process is copied from the dispatching request. An event
+  that crosses the outbox relay or a broker does not yet carry `tenantid` /
+  a `causedBy` extension, so its reactor has no origin and runs tenant-less
+  (fail-closed: tenant-scoped reads match nothing).
 - **Replay cursor** on `retention: log` (M-T4.2) — the durable log ships;
   consuming it from an arbitrary offset does not.
 - **Topic/queue ACLs beyond v1** — rabbit permissions are name-scoped per

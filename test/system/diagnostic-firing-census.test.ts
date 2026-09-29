@@ -508,6 +508,70 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
+  // disjunct: the system principal it runs as can never pass it.
+  "loom.reactor-gate-unsatisfiable": `
+system ReactorGate {
+  user { id: guid  permissions: string[] }
+  subdomain D {
+    permissions { close }
+    context Ord {
+      aggregate Order with crudish {
+        code: string
+        done: bool
+        operation finish() {
+          requires currentUser.permissions.contains(permissions.close)
+          done := true
+        }
+      }
+      repository Orders for Order { }
+      event Shipped { order: Order id, at: datetime }
+      workflow closeOrder {
+        orderRef: Order id
+        create(e: Shipped) by e.order {
+          let o = Orders.getById(e.order)
+          o.finish()
+        }
+      }
+    }
+  }
+}`,
+  // Ruling D1 — a timer tick has no tenant, so a tenant-scoped read from its
+  // reactor must say `ignoring tenantOwned`.
+  "loom.timer-tenant-read": `
+system TimerTenant {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Ops {
+    context Jobs {
+      aggregate Sweep crossTenant { runId: string }
+      event SweepTick { sweep: Sweep id, at: datetime }
+      aggregate Job with tenantOwned, crudish {
+        code: string
+        done: bool
+        operation close() { done := true }
+      }
+      repository Jobs for Job {
+        find byCode(c: string): Job where this.code == c
+      }
+      workflow sweepRun {
+        sweep: Sweep id
+        create(t: SweepTick) by t.sweep {
+          let j = Jobs.byCode("x")
+          j.close()
+        }
+      }
+      aggregate Organization with crudish { name: string }
+    }
+  }
+  timerSource nightly { for: SweepTick, cron: "0 3 * * *" }
+}`,
+  // `isSystem` / `causedBy` are the system principal's built-in slots.
+  "loom.user-reserved-field": `
+system Reserved {
+  user { id: guid  isSystem: bool }
+  subdomain S { context C { aggregate A with crudish { name: string } } }
+}`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:
