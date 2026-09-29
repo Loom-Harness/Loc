@@ -625,6 +625,30 @@ const REGISTERED: Ratchet[] = [
     // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
     //
+    // 27 -> 26 (2026-09-29, M-T6.73): `handler-triad` DRAINED, on the THIRD
+    // attempt.  #2984 made a routed handler addressable and drained this cell;
+    // booting it showed four of five backends did not serve an explicit route
+    // where the caller asks, so #2984 reverted its own drain and put the row
+    // back — correctly, since `gate-ledger` refuses a feature that boots on some
+    // declared backends and not others, with no allowlist, and
+    // `BEHAVIOURAL_SKIP` is at `max: 0`.  The emitter half of #3024 then fixed
+    // six defects and got FOUR legs to 0 wire divergences, but left the row in
+    // place rather than waive the fifth.
+    //
+    // What makes the drain legitimate now is that nothing is hidden: the last
+    // four divergences were the tier's malformed-body probe landing on a POST
+    // this create-less `Order` does not serve, where it cannot reach the parser
+    // it exists to test and measures whichever layer answers first instead.  The
+    // probe steps aside there now — the same step-aside its PATCH sibling
+    // already makes — so all five legs are green with NO per-backend waiver, no
+    // `BEHAVIOURAL_SKIP` entry, and no wire waiver.
+    //
+    // Re-derived against `main`'s CURRENT value at each merge, never carried:
+    // this branch was cut at 24 (-> 23), re-merged at 26 (-> 25), and is now
+    // re-merged at 27 (-> 26).  Each of those numbers was right on the tree it
+    // landed on and wrong one merge later — which is how this PR was ejected
+    // from the merge queue once already, on exactly this line.
+    //
     // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
     // — a RAISE of three, and the reviewed line this ratchet exists to force.
     // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
@@ -647,7 +671,16 @@ const REGISTERED: Ratchet[] = [
     // have to re-derive it.  They drain when the emitters are fixed: the same PR
     // that lands the fix returns the excluded backend key, adds the e2e block,
     // captures its golden, and deletes the entry here — lowering this number.
-    max: 30,
+    //
+    // MERGE RESOLUTION (fixture-shape audit, 2026-09-29): main's drain and this
+    // branch's raise landed on the same line and ejected this PR from the merge
+    // queue — the collision the note above predicts in its own last sentence.
+    // Re-DERIVED on the combined tree rather than carried from either side:
+    // main's 26 (27 minus the drained `handler-triad`) plus this branch's 3
+    // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
+    // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
+    // from memory of either branch.
+    max: 29,
   },
 ];
 
