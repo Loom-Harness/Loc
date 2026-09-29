@@ -107,10 +107,22 @@ describe("a workflow request missing a referenced param", () => {
 
   it("maps the refusal to the 422 the route publishes", () => {
     expect(ctl).toContain("def respond(conn, {:error, {:invalid_params, missing}})");
-    expect(ctl).toContain("422");
-    // The detail names WHICH parameter is missing — the whole point of
-    // returning the list rather than a bare atom.
-    expect(ctl).toContain('"missing required parameter(s): " <> Enum.join(missing, ", ")');
+    // L1-E / E7 (#3017) — the WIRE-VALIDATION rung node answers: one `errors[]`
+    // entry per missing param, its RFC 6901 pointer naming WHICH one — the
+    // whole point of returning the list rather than a bare atom.
+    expect(ctl).toContain(
+      'ProblemDetails.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))',
+    );
+  });
+
+  it("emits the `errors[]` sender the 422 arm calls, with a codeless entry clause", async () => {
+    const pd = await elixirFile(sys(WITH_PARAMS), "/problem_details.ex");
+    expect(pd).toContain("def validation_errors_response(conn, errors) when is_list(errors) do");
+    expect(pd).toContain("defp render_wire_error(%{pointer: pointer, message: message}) do");
+    // The coded clause must come FIRST — a map pattern matches a superset.
+    expect(pd.indexOf("message: message, code: code})")).toBeLessThan(
+      pd.indexOf("defp render_wire_error(%{pointer: pointer, message: message}) do"),
+    );
   });
 
   it("the 422 arm sits ahead of the sanitized catch-all", () => {

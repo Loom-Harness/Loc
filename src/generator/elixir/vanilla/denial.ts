@@ -369,6 +369,18 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
   return `${problemModule}.validation_errors_response(conn, errors)`;
 }
 
+/** The WIRE-VALIDATION 422 for a workflow request that omits a param its body
+ *  reads (L1-E / E7, #3017).  Node's request validator answers this with the
+ *  §3.2 `errors[]` extension — one `{pointer, message}` entry per missing
+ *  field, title "Validation failed" — and so does every other backend; elixir
+ *  answered the DOMAIN-FLOOR rung with the names folded into `detail`, so a
+ *  frontend ACL's `applyServerErrors` bound nothing.  The entries carry no
+ *  `code` (a structural error, like zod's), and go through the same
+ *  `validation_errors_response/2` sender the wire-rung precondition uses. */
+export function missingParamsResponse(problemModule = "ProblemDetails"): string {
+  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))`;
+}
+
 /** The two ProblemDetails clauses a controller needs to answer a typed denial,
  *  as `<head>` / `<body>` pairs so each call site can wrap them in its own
  *  `def respond(conn, …)` / `def <op>_<agg>_result(conn, …)` shape.
@@ -461,11 +473,7 @@ export function respondErrorTail(
       ? [
           clause(
             `def ${fnName}(conn, {:error, {:invalid_params, missing}})`,
-            denialResponse(
-              "precondition",
-              '"missing required parameter(s): " <> Enum.join(missing, ", ")',
-              overrides,
-            ),
+            missingParamsResponse(),
           ),
         ]
       : []),
