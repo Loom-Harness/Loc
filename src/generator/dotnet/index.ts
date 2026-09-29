@@ -24,6 +24,7 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
+import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import {
@@ -991,6 +992,8 @@ function emitProjectFromContexts(
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoForbiddenDetail: echoesDenialDetail(system?.deployable, system?.sys),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
