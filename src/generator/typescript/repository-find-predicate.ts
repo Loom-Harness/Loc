@@ -107,12 +107,6 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
 // the last trace of the old behaviour.
 // ---------------------------------------------------------------------------
 
-/** The `null` literal on either side of a comparison — the operand that turns
- *  an `eq`/`ne` into an `IS NULL` / `IS NOT NULL` test (F-039). */
-function isNullLiteral(e: ExprIR): boolean {
-  return e.kind === "literal" && e.lit === "null";
-}
-
 const COMPARE_OP_TO_DRIZZLE: Record<string, string> = {
   "==": "eq",
   "!=": "ne",

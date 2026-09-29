@@ -1,0 +1,121 @@
+// A value object referenced ACROSS a context boundary — `Billing.Receipt.shipTo`
+// resolves to `valueobject Addr` declared in the sibling context `Directory`,
+// with nothing imported and nothing re-declared.
+//
+// Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).
+// NO model anywhere in this repo had this shape — not one of 431 fixtures,
+// examples, journey stages or audit models — even though a type shared between
+// two contexts is the ordinary DDD move and the README's own Quick Example
+// shape.  `BoundedContextIR.siblingValueObjects` exists precisely to serve it,
+// so every emitter that MATERIALISES a referenced VO has two lookup paths to
+// keep in step: `ctx.valueObjects` for a local declaration and the sibling pool
+// for a foreign one.  Nothing exercised the second.
+//
+// What it pins: the flattening must produce the SAME leaf columns whichever pool
+// the VO came from.  `Directory.Person.home` and `Billing.Receipt.shipTo` are
+// the same `Addr`, so `home_line1`/`home_geo_lat`/`home_geo_lng` and
+// `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` must be structurally
+// identical — same recursion, same leaf types, same NULLability.  `Addr.geo: Geo`
+// keeps the nesting in play, because a cross-context lookup that succeeds at the
+// first level and fails at the second is the likelier bug.
+//
+// The evaluation's F-008 is what the blindness cost: the consuming context
+// emitted ONE column under the unflattened name while the owning context
+// flattened correctly, so the migration and the ORM disagreed on column name AND
+// type and only a live database could tell.  Per-backend state at mint time:
+//
+//   node    correct — `shipTo_line1`/`shipTo_geo_lat`/`shipTo_geo_lng` in the
+//           drizzle schema, the migration DDL and both rehydrate paths.
+//   dotnet  correct — `ReceiptConfiguration` nests `OwnsOne` and names
+//           `ship_to_line1` / `ship_to_geo_lat` / `ship_to_geo_lng`.
+//   java    correct — `@AttributeOverride(name = "line1", column = @Column(name
+//           = "ship_to_line1"))`, nested path overridden the same way.
+//   elixir  BROKEN TOO, by the SAME root cause as python.
+//           `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and
+//           defines neither `serialize_addr/1` nor the nested `serialize_geo/1`,
+//           while the OWNING context's `person_controller.ex` defines both —
+//           `** (CompileError) undefined function serialize_addr/1`, so
+//           `mix compile --warnings-as-errors` fails outright.  Excluded with
+//           python in the manifest's `SIBLING_VO_RESOLUTION` set.
+//
+//           This entry first claimed elixir was free, on the reasoning that a VO
+//           is one `:map` (jsonb) cell there so there is no flattening to get
+//           wrong.  The reasoning was sound and the conclusion WRONG: flattening
+//           is not the only artifact a VO needs, and the claim came from
+//           INSPECTING the emitted schema instead of compiling the project.  CI's
+//           `mix compile` found it in minutes.  Do not grade a backend here by
+//           reading its output.
+//   python  BROKEN, and this fixture is why we know.  `db/schema.py` and the
+//           migration both create the three flattened columns, while
+//           `receipt_repository.py` binds `"ship_to": aggregate.ship_to` on
+//           insert, `root["ship_to"]` on upsert, and reads `ship_to=row.ship_to`
+//           on hydrate — a column in NEITHER artifact.  Only the hydrate site is
+//           a type error (`"ReceiptRow" has no attribute "ship_to"`); the two
+//           bind sites are untyped dict literals, so `mypy --strict` catches 1
+//           of the 3 and a live request fails on all 3.  The repository builder
+//           resolves a VO through `ctx.valueObjects` only and falls through to
+//           the scalar path for a sibling-context one.  python is excluded from
+//           this row's `backends:` via the manifest's named
+//           `SIBLING_VO_RESOLUTION` set, which carries this reading — an
+//           exclusion, not a compile-skip, because a cell that only GENERATES is
+//           refused by `gate-ledger.test.ts`.  The key returns when the
+//           resolution lands.
+//
+// COMPILE-TIER ONLY — no `test e2e` block, for the same reason
+// `find-bypass.ddd` and `projection-agg-filters.ddd` have none.  A recorded
+// behavioural case must ship a reviewed wire golden
+// (`test/behavioral/wire-golden/`, gated by `golden-coverage.test.ts`), and a
+// golden can only be captured from a booted stack on every backend — which is
+// impossible while python's and elixir's halves of this shape are broken (above): the
+// recording would either fail or enshrine the defect as the answer key.  What
+// this fixture proves is static and per-backend: the flattened column set the
+// migration creates must equal the one the ORM/repository names, in BOTH
+// contexts.  Add the runtime block, and capture its golden, in the same PR that
+// fixes python.
+system VoCrossContext {
+  subdomain Commerce {
+    context Directory {
+      valueobject Geo {
+        lat: decimal
+        lng: decimal
+      }
+
+      valueobject Addr {
+        line1: string
+        geo: Geo
+      }
+
+      aggregate Person with crudish {
+        name: string
+        home: Addr
+        derived display: string = name
+      }
+
+      repository Persons for Person { }
+    }
+
+    // The consuming context.  `Addr` is NOT declared here.
+    context Billing {
+      aggregate Receipt with crudish {
+        reference: string
+        shipTo: Addr
+        derived display: string = reference
+      }
+
+      repository Receipts for Receipt { }
+    }
+  }
+
+  api CommerceApi from Commerce
+  storage primary { type: postgres }
+  resource directoryState { for: Directory, kind: state, use: primary }
+  resource billingState { for: Billing, kind: state, use: primary }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Directory, Billing]
+    dataSources: [directoryState, billingState]
+    serves: CommerceApi
+    port: 4000
+  }
+}

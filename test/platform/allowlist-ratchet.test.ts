@@ -672,7 +672,45 @@ const REGISTERED: Ratchet[] = [
     // register holds exactly 23 rows by this file's own counter (27 - 3 - 1),
     // so the bound is that count, mutation-proved both ways (22 fails naming
     // 23; 999 fails as slack).
-    max: 23,
+    // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
+    // — a RAISE of three, and the reviewed line this ratchet exists to force.
+    // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
+    // `vo-regex-invariant`) carry value-object shapes NO model in the repo had:
+    // a VO resolved from a sibling context, a root-level (shared-kernel) VO
+    // nested in a context-local one, and a `.matches(<regex>)` invariant.  None
+    // can carry a `test e2e` block YET, and the reason is unusual enough to be
+    // worth the raise rather than hidden by it: on each of them at least one
+    // backend CANNOT BOOT, so there is no stack to record a wire golden from and
+    // a captured golden would enshrine the defect as the reviewed answer key.
+    // (node's routes module makes a temporal-dead-zone read, TS2448/TS2454;
+    // python names columns its own schema never created, and emits `re.search`
+    // with no `import re`.)  Each broken backend is excluded BY NAME from its
+    // row's `backends:` in the corpus manifest — not skip-listed, because a
+    // generate-only cell is refused by gate-ledger's own
+    // "no cell is held up by generation alone".
+    //
+    // These three ARE a tier gap, unlike the two entries above, and each fixture
+    // header writes down the runtime assertion it wants so the drain does not
+    // have to re-derive it.  They drain when the emitters are fixed: the same PR
+    // that lands the fix returns the excluded backend key, adds the e2e block,
+    // captures its golden, and deletes the entry here — lowering this number.
+    //
+    // MERGE RESOLUTION (fixture-shape audit, 2026-09-29): main's drain and this
+    // branch's raise landed on the same line and ejected this PR from the merge
+    // queue — the collision the note above predicts in its own last sentence.
+    // Re-DERIVED on the combined tree rather than carried from either side:
+    // main's 26 (27 minus the drained `handler-triad`) plus this branch's 3
+    // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
+    // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
+    // from memory of either branch.
+    //
+    // 23 / 29 -> 26, RE-DERIVED at the Wave C3 3-A branch's `main` merge of the
+    // fixture-shape audit (#3077, 2026-09-29): `main` carried 29 (its raise of
+    // three above) and this branch 23 (27 minus packet 3a's three drains minus
+    // `handler-triad`); the merged register holds exactly 26 rows by this file's
+    // own counter (29 - 3), mutation-proved both ways (25 fails naming 26;
+    // 999 fails as slack).
+    max: 26,
   },
 ];
 
