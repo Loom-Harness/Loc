@@ -21,6 +21,7 @@ services:
 
   api:
     build: ./api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +40,7 @@ services:
 
   catalog_web:
     build: ./catalog_web
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -57,6 +59,7 @@ services:
 
   catalog_api:
     build: ./catalog_api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -75,6 +78,7 @@ services:
 
   web_app:
     build: ./web_app
+    restart: unless-stopped
     environment:
       VITE_API_BASE_URL: "http://localhost:8080/api"
       VITE_API_PROXY_TARGET: "http://api:8080"

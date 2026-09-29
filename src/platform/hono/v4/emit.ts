@@ -13,6 +13,7 @@ import { brokerChannelBindings } from "../../../generator/_channels/bindings.js"
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../../../generator/_i18n/validation-catalog.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
+import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
@@ -123,6 +124,7 @@ import { hasValueObjectInvariants } from "../../../ir/util/value-object-invarian
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
+import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -1836,6 +1838,69 @@ export default defineConfig({
 });
 `;
 
+/** The boot-time drizzle migrate call, retried with capped exponential backoff
+ *  while the database is unreachable (`BOOT_DB_RETRY`, eval item #24).  Only a
+ *  connection-shaped failure is retried — drizzle 0.45 wraps driver errors in
+ *  `DrizzleQueryError`, so the code is read off `err` or its `cause` chain; a
+ *  migration whose SQL fails logs `migration_failed` and aborts boot at once. */
+function renderHonoBootMigrate(): string {
+  const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
+  return lines(
+    "",
+    "// Apply pending schema migrations before serving traffic.  Drizzle's",
+    "// runtime migrator reads db/migrations/meta/_journal.json + each",
+    "// referenced .sql file, tracking state in `__drizzle_migrations`;",
+    "// idempotent across boots.  Bracketed with the catalog migration",
+    "// lifecycle events (observability.md) — drizzle's migrator runs the",
+    "// whole batch in one opaque call, so there's no per-migration",
+    "// `migration_applied` seam (Hono limitation; Python/.NET emit it).",
+    "// A database that is not reachable YET (refused / DNS / starting up) is",
+    `// retried up to ${maxAttempts} attempts with capped exponential backoff, so a`,
+    "// late db no longer kills the container on first boot.",
+    "const BOOT_DB_RETRYABLE = new Set([",
+    '  "ECONNREFUSED",',
+    '  "ECONNRESET",',
+    '  "ENOTFOUND",',
+    '  "EAI_AGAIN",',
+    '  "ETIMEDOUT",',
+    '  "EHOSTUNREACH",',
+    '  "57P03", // cannot_connect_now — "the database system is starting up"',
+    "]);",
+    "// The connection-shaped link of the error chain (drizzle wraps the driver",
+    "// error as `cause`), rendered for the retry log — undefined when none is.",
+    "function bootDbUnreachableReason(err: unknown): string | undefined {",
+    "  for (let e: unknown = err; e instanceof Error; e = e.cause) {",
+    "    const code = (e as { code?: unknown }).code;",
+    '    if (typeof code === "string" && BOOT_DB_RETRYABLE.has(code)) {',
+    "      return `${code}: ${e.message}`;",
+    "    }",
+    "    if (/Connection terminated/i.test(e.message)) return e.message;",
+    "  }",
+    "  return undefined;",
+    "}",
+    renderHonoBaseLogCall("migrationsStarting"),
+    `for (let attempt = 1, maxAttempts = ${maxAttempts}; ; attempt++) {`,
+    "  try {",
+    '    await migrate(db, { migrationsFolder: "./db/migrations" });',
+    `    ${renderHonoBaseLogCall("migrationsComplete")}`,
+    "    break;",
+    "  } catch (err) {",
+    "    const message = err instanceof Error ? err.message : String(err);",
+    "    const reason = bootDbUnreachableReason(err);",
+    "    if (attempt < maxAttempts && reason !== undefined) {",
+    `      const delay_ms = Math.min(${baseDelayMs} * 2 ** (attempt - 1), ${maxDelayMs});`,
+    `      ${renderHonoBaseLogCall("dbConnectRetry", "attempt, max_attempts: maxAttempts, delay_ms, error: reason")}`,
+    "      await new Promise((resolve) => setTimeout(resolve, delay_ms));",
+    "      continue;",
+    "    }",
+    `    ${renderHonoBaseLogCall("migrationFailed", "error: message")}`,
+    "    throw err;",
+    "  }",
+    "}",
+    "",
+  );
+}
+
 function renderProjectIndexTs(
   runMigrationsAtBoot: boolean,
   userShape?: UserIR,
@@ -1861,9 +1926,7 @@ function renderProjectIndexTs(
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait runSeeds(db);\n`
     : "";
-  const migCall = runMigrationsAtBoot
-    ? `\n// Apply pending schema migrations before serving traffic.  Drizzle's\n// runtime migrator reads db/migrations/meta/_journal.json + each\n// referenced .sql file, tracking state in \`__drizzle_migrations\`;\n// idempotent across boots.  Bracketed with the catalog migration\n// lifecycle events (observability.md) — drizzle's migrator runs the\n// whole batch in one opaque call, so there's no per-migration\n// \`migration_applied\` seam (Hono limitation; Python/.NET emit it).\n${renderHonoBaseLogCall("migrationsStarting")}\ntry {\n  await migrate(db, { migrationsFolder: "./db/migrations" });\n  ${renderHonoBaseLogCall("migrationsComplete")}\n} catch (err) {\n  ${renderHonoBaseLogCall("migrationFailed", "error: err instanceof Error ? err.message : String(err)")}\n  throw err;\n}\n`
-    : "";
+  const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
   // With an `auth { oidc }` block (D-AUTH-OIDC) we register the generated
   // OIDC verifier; otherwise we emit a permissive dev stub so the stack
