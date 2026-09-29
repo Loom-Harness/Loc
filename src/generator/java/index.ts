@@ -1,6 +1,4 @@
-import { enrichLoomModel } from "../../ir/enrich/enrichments.js";
 import { forCreateInput } from "../../ir/enrich/wire-projection.js";
-import { lowerModel } from "../../ir/lower/lower.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -52,7 +50,6 @@ import {
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
-import type { Model } from "../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
@@ -279,22 +276,6 @@ interface SystemArgs {
   migrations?: MigrationsIR[];
   styleAdapter?: StyleAdapter;
   layoutAdapter?: LayoutAdapter;
-}
-
-/**
- * Legacy / test entry: lowers the whole model and emits one project per
- * top-level bounded context (mirrors `generateDotnet`).
- */
-export function generateJava(
-  model: Model,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> {
-  const loom = enrichLoomModel(lowerModel(model));
-  const out = new Map<string, string>();
-  for (const ctx of loom.contexts) {
-    emitProjectFromContexts([ctx], ctx.name, out, undefined, !!options.emitTrace);
-  }
-  return out;
 }
 
 /**

@@ -508,6 +508,22 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `money managed` field: off the create input, no `= <default>`, no stamp,
+  // and `money` is the one scalar with NO language-defined absent value — a
+  // `Decimal` has no agreed zero, so node's create factory emitted `total:
+  // null` into a non-nullable slot while .NET persisted a fabricated `0`.
+  // Deliberately `money` and not `int`: an `int managed` IS constructible (the
+  // seed is `0`) and must stay silent, which is what keeps this fixture
+  // honest about what the gate refuses.
+  "loom.unconstructible-server-field": `
+system Unconstructible {
+  subdomain S { context Billing {
+    aggregate Invoice with crudish {
+      reference: string
+      total: money managed
+    }
+  } }
+}`,
   // Two enums in one context declaring the same member, and a bare use with no
   // expected type to resolve it — an untyped `let`.  First-wins would silently
   // pick `OrderStatus` and lower a comparison between two different enums
@@ -1228,6 +1244,20 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // An `oidc { … }` block with no `audience:` — the verifier then validates
+  // signature / iss / exp and accepts ANY token that issuer minted, for any of
+  // its clients.  Warning, not error: single-client deployments are legitimate
+  // and every backend can still be switched on with OIDC_AUDIENCE at deploy
+  // time.  What was not legitimate is the silence (CR1-b / P0-4).
+  "loom.auth-oidc-no-audience": `
+system S {
+  user { id: string }
+  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
 }`,
 
   // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
@@ -2627,6 +2657,33 @@ system P {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // A page `requires` gate outside the closed, client-evaluable subset every
+  // JS/F#/Dart gate renderer implements — a CONVERSION, the same shape that
+  // catches the toast gate above.  Without this gate the model reports
+  // `0 error(s), 0 warning(s)` and then aborts `ddd generate system` with a raw
+  // `Error: UI gate: expression kind 'convert' is not supported in a UI gate`
+  // from `renderGateExpr` / `renderFelizGate` / `renderFlutterGate`.
+  "loom.ui-gate-expr-unsupported": `
+system P {
+  user { id: guid  role: string }
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      requires string(currentUser.role) == "admin"
+      body: Stack { Heading { "home" } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
 }`,
 
   // `display`/`inspect` are reserved derived names that only mean something on

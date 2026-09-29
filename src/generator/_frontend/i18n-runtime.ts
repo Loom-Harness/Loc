@@ -61,8 +61,92 @@ export function renderLocaleCatalog(ui: UiIR, packChrome: Record<string, string>
   return `${JSON.stringify(buildUiCatalog(ui, packChrome), null, 2)}\n`;
 }
 
-/** `src/i18n.ts` — the `t(key, default, values?)` lookup + ICU-format shim. */
-export function renderI18nModule(): string {
+/** Translated locale catalogs, keyed by locale tag (`de`, `pt-BR`), as read off
+ *  the translator tree by `ddd i18n`'s `loadTranslations` and threaded through
+ *  `generate system`.  Plain data: `src/system/` and `src/platform/` stay
+ *  fs-free, the same arrangement `GenerateSystemOptions.sourceTexts` uses. */
+export type TranslationCatalogs = ReadonlyMap<string, Record<string, string>>;
+
+/** `src/locales/<locale>.json` for every translated locale on disk, keyed by
+ *  locale tag — the siblings of `renderLocaleCatalog`'s `en.json`.
+ *
+ *  Each is SCOPED to this UI's own keys, exactly as `en.json` is: the
+ *  translator tree is one catalog for the whole SYSTEM (every ui, plus the
+ *  backends' `msg.<hash>` validation messages), and shipping all of it into
+ *  every frontend bundle would put another deployable's strings in this app.
+ *  Intersecting also means a key the source no longer emits cannot survive in
+ *  a translated catalog while `en.json` has already dropped it.
+ *
+ *  A locale whose intersection is EMPTY is still returned.  The app must
+ *  advertise exactly the locales the translator created — otherwise "I ran
+ *  `ddd i18n init de` and the app still has no German" is the same disconnect
+ *  this path exists to close, moved one step later — and an empty catalog is a
+ *  correct one: every key falls back per key to the source-language default
+ *  `t(key, default)` already carries. */
+export function renderTranslatedCatalogs(
+  ui: UiIR,
+  translations: TranslationCatalogs | undefined,
+  packChrome: Record<string, string> = {},
+): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!translations || translations.size === 0) return out;
+  const keys = Object.keys(buildUiCatalog(ui, packChrome));
+  if (keys.length === 0) return out;
+  for (const locale of [...translations.keys()].sort()) {
+    if (locale === "en") continue;
+    const source = translations.get(locale) ?? {};
+    const scoped: Record<string, string> = {};
+    for (const key of keys) {
+      const value = source[key];
+      if (value !== undefined) scoped[key] = value;
+    }
+    out.set(locale, `${JSON.stringify(scoped, null, 2)}\n`);
+  }
+  return out;
+}
+
+/** A generated locale catalog's JS import identifier.  A BCP-47 tag carries
+ *  characters (`-`) a JS identifier cannot, so `pt-BR` binds as `loc_pt_BR`;
+ *  the registry KEY below stays the tag itself. */
+function localeIdent(locale: string): string {
+  return `loc_${locale.replace(/[^A-Za-z0-9_$]/g, "_")}`;
+}
+
+/** The `catalogs` registry entries for the translated locales, in emission
+ *  order (`en` first, then the rest sorted).
+ *
+ *  A region-tagged locale is registered TWICE — under its exact tag
+ *  (`"pt-BR"`) and under its base language (`pt`) — because `activeLocale()`
+ *  probes `navigator.language`'s base language (`"pt-BR".split("-")[0]`).
+ *  Without the alias a `pt-BR.json` the translator wrote would be emitted,
+ *  imported, registered, and still never reachable — the same half-wired shape
+ *  this whole path exists to remove.  The alias is skipped when the base
+ *  language has its own file (`pt.json` AND `pt-BR.json`): that file wins, and
+ *  nothing is silently shadowed. */
+function catalogEntries(locales: readonly string[]): string[] {
+  const out = [`en: en as Catalog`];
+  for (const locale of locales) {
+    out.push(`${JSON.stringify(locale)}: ${localeIdent(locale)} as Catalog`);
+    const base = locale.split("-")[0] ?? locale;
+    if (base !== locale && !locales.includes(base) && base !== "en") {
+      out.push(`${JSON.stringify(base)}: ${localeIdent(locale)} as Catalog`);
+    }
+  }
+  return out;
+}
+
+/** `src/i18n.ts` — the `t(key, default, values?)` lookup + ICU-format shim.
+ *
+ *  `locales` are the TRANSLATED catalogs `ddd i18n` produced that codegen
+ *  emitted alongside `en.json`: each is imported and registered in `catalogs`,
+ *  which is what makes `activeLocale()` able to resolve it.  The default — no
+ *  translator tree on disk, every caller before this existed — emits the
+ *  module BYTE-IDENTICALLY to the source-language-only form. */
+export function renderI18nModule(locales: readonly string[] = []): string {
+  const extra = [...new Set(locales)].filter((l) => l !== "en").sort();
+  const imports = extra
+    .map((l) => `import ${localeIdent(l)} from "./locales/${l}.json";\n`)
+    .join("");
   return `// Generated translation runtime (Loom i18n).
 // Source-language lookup with a per-key fallback and ICU message formatting via
 // \`intl-messageformat\`. To add a locale, drop a
@@ -72,10 +156,10 @@ export function renderI18nModule(): string {
 // (\`{total, number, ::currency/USD}\`, \`{d, date, ::yMMMd}\`).
 import { IntlMessageFormat } from "intl-messageformat";
 import en from "./locales/en.json";
-
+${imports}
 type Catalog = Record<string, string>;
 
-const catalogs: Record<string, Catalog> = { en: en as Catalog };
+const catalogs: Record<string, Catalog> = { ${catalogEntries(extra).join(", ")} };
 
 function activeLocale(): string {
   const nav = typeof navigator !== "undefined" ? navigator.language : "en";

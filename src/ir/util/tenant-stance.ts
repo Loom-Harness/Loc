@@ -273,18 +273,6 @@ export const DATA_KEY_LIKE_ESCAPE = "!";
  *  that all of them do, so a backend cannot drift to a different set. */
 export const DATA_KEY_LIKE_ESCAPED_CHARS: readonly string[] = [DATA_KEY_LIKE_ESCAPE, "%", "_"];
 
-/** The subtree LIKE pattern for an anchor path, as the generated code computes
- *  it: escape the pattern metacharacters, then append `.%`.  The reference
- *  implementation — the emitters spell this in their own language, and the
- *  structural test compares their behaviour against this. */
-export function dataKeyLikePattern(anchor: string): string {
-  let out = anchor;
-  for (const ch of DATA_KEY_LIKE_ESCAPED_CHARS) {
-    out = out.split(ch).join(DATA_KEY_LIKE_ESCAPE + ch);
-  }
-  return out + DATA_KEY_PATH_DELIMITER + "%";
-}
-
 /**
  * Semantics every backend renders the `scope` authorization filter (M-T9.9) to
  * (row R, principal P; fail-closed — no principal ⇒ matches nothing):
