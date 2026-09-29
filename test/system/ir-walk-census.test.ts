@@ -461,7 +461,12 @@ const WAIVERS: Record<string, string> = {
   "src/ir/validate/checks/structural-checks.ts#lifecycleGuardIllegalReads": CLOSED_PREDICATE,
   "src/ir/validate/checks/structural-checks.ts#validateEventSourcedDiscipline": CLOSED_PREDICATE,
   "src/ir/validate/checks/structural-checks.ts#validateEventSourcedDiscipline$2": CLOSED_PREDICATE,
-  "src/ir/validate/checks/workflow-checks.ts#checkBranchOpCalls": CLOSED_PREDICATE,
+  // Was two sites — `checkBranchOpCalls` (if-let) and the for-each arm's own
+  // inline copy, which had drifted apart: only the if-let one collected a
+  // `let` bound INSIDE the body, so `for l in ls { let p = …  p.consume(…) }`
+  // reported "references unknown binding 'p'" against the line above (F-004).
+  // They are one helper now, so the waiver moves with them.
+  "src/ir/validate/checks/workflow-checks.ts#checkNestedBodyOpCalls": CLOSED_PREDICATE,
   "src/ir/enrich/enrichments.ts#tailBindType": CLOSED_PREDICATE,
   "src/util/expr-body-type.ts#bodyTypeOf": CLOSED_PREDICATE,
   "src/util/expr-body-type.ts#provableStringType": CLOSED_PREDICATE,
