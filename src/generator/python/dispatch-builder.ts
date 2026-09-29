@@ -291,6 +291,7 @@ export function buildPyDispatchFile(
         resolved.saves,
         hasOutbox,
         construct,
+        ctx,
         opFragments,
       ),
       "",
@@ -648,14 +649,50 @@ function accumulatePy(path: string, op: "+" | "-", value: string): string {
  *  typed zero for each required non-key saga field.  Shared with the COMMAND
  *  route's load-or-allocate (`workflows-builder.ts`, F58), which binds the same
  *  `__key` local — one allocation shape for both entry points. */
-export function allocateKwargs(wf: WorkflowIR): string {
+export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   const corr = wf.correlationField as string;
   const parts = [`${snake(corr)}=__key`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
+    if (f.type.kind === "valueobject") {
+      const leaves = voLeafZeros(f.type.name, f.name, ctx);
+      if (leaves) {
+        parts.push(...leaves);
+        continue;
+      }
+    }
     parts.push(`${snake(f.name)}=${zeroFor(f)}`);
   }
   return parts.join(", ");
+}
+
+/** The zero kwargs for a REQUIRED value-object state field's flattened leaf
+ *  columns (`total_amount=Decimal("0"), total_currency=""`), recursing
+ *  through a nested value object.  The row flattens the field to exactly
+ *  these NOT NULL columns (`py-columns.columnsFor`) — there is no `total`
+ *  column to take a `total=""` kwarg, and building a zero value object would
+ *  run its constructor invariants on a placeholder.  An optional leaf (or a
+ *  whole optional nested value object) is a nullable column and stays unset.
+ *  A `decimal` leaf zeroes to a `Decimal`, the type its `Numeric` column
+ *  binds.  Undefined when the value object is not declared in scope. */
+function voLeafZeros(
+  voName: string,
+  prefix: string,
+  ctx: EnrichedBoundedContextIR,
+): string[] | undefined {
+  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  if (!vo) return undefined;
+  return vo.fields.flatMap((vf): string[] => {
+    if (vf.optional || vf.type.kind === "optional") return [];
+    const path = `${prefix}_${vf.name}`;
+    if (vf.type.kind === "valueobject") {
+      const nested = voLeafZeros(vf.type.name, path, ctx);
+      if (nested) return nested;
+    }
+    const zero =
+      vf.type.kind === "primitive" && vf.type.name === "decimal" ? 'Decimal("0")' : zeroFor(vf);
+    return [`${snake(path)}=${zero}`];
+  });
 }
 
 /** A typed zero for a workflow's own-state field — used both to allocate a
@@ -696,6 +733,9 @@ function handlerFn(
   saves: { name: string; aggName: string; repoName: string }[],
   hasOutbox: boolean,
   construct: string,
+  /** The hosting context — a value-object state field allocates its leaf
+   *  columns (`allocateKwargs`). */
+  ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string {
@@ -733,7 +773,7 @@ function handlerFn(
       // Load-or-allocate: a starter creates the instance if its key is new.
       out.push(`    state = await _load_${snake(wf.name)}(session, __key)`);
       out.push("    if state is None:");
-      out.push(`        state = ${wf.name}Row(${allocateKwargs(wf)})`);
+      out.push(`        state = ${wf.name}Row(${allocateKwargs(wf, ctx)})`);
       out.push("        session.add(state)");
     } else {
       // Route-to-existing, else drop + log.

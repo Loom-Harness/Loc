@@ -165,6 +165,12 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // ran green while `mypy` (the generated project's own bar) rejected it, and
   // the `datetime` half additionally STORED a `str` in a `datetime` field.
   ["test/e2e/fixtures/python-build/typed-test-literals.ddd", "api"],
+  // Eval-closure Wave B5: two `contains` collections in one `save` scope
+  // (#15a), value-object workflow-state fields over flattened columns
+  // (B-A3a), and a declared `find all() where` on the document / embedded /
+  // event-sourced shapes (B-A1) — pinned statically by
+  // `test/generator/python/python-eval-followups.test.ts`.
+  ["test/e2e/fixtures/python-build/eval-followups.ddd", "api"],
 ];
 
 describe.skipIf(!ENABLED)(
