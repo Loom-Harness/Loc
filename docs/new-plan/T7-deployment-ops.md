@@ -55,3 +55,13 @@ Item **P14** (#2946). `docker compose up` on a generated system races the backen
 **The fix:** `restart: unless-stopped` on every service the compose composes, plus a bounded connect-retry in each backend's boot path.
 
 **Verification.** Boot the stack with the database delayed (the `generated-stack-verifier` skill's recipe) on each backend; the k8s/compose gates unchanged.
+
+## M-T7.11 — Generated projects ship no lockfiles and range-pinned dependencies, with no recorded policy — `open` · **S** (decision) + **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#25** (FieldOps-audit F-038). A generated tree has no lockfile of any kind: the node `package.json` carries 21 caret ranges, python's `pyproject.toml` pins `fastapi>=0.115,<1` with no `uv.lock`, and the node Dockerfile comment admits there is no `package-lock`. Sources: `stacks/*/stack-package-deps.hbs`, `src/generator/python/pins.ts`, `src/platform/hono/v5/pins.ts`. The audit called it "the maintainer's call", but no decision was ever recorded (nothing in `docs/decisions.md` or `docs/new-plan/`), so two builds of the same model a month apart can resolve different dependency trees.
+
+**First, a D-decision** (record it in `docs/decisions.md`): emit lockfiles, pin exactly, or keep ranges by design and say so in the generated README. **Then** implement the ruling on every backend and frontend stack (npm, uv, NuGet, Gradle, mix, pub).
+
+**Verification.** Per the ruling: a generated tree carries the lockfile (or exact pins) for each stack, and the per-backend compile tiers install from it offline where the toolchain allows.
