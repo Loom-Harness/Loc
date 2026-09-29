@@ -624,7 +624,30 @@ const REGISTERED: Ratchet[] = [
     // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
     // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
-    max: 27,
+    //
+    // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
+    // — a RAISE of three, and the reviewed line this ratchet exists to force.
+    // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
+    // `vo-regex-invariant`) carry value-object shapes NO model in the repo had:
+    // a VO resolved from a sibling context, a root-level (shared-kernel) VO
+    // nested in a context-local one, and a `.matches(<regex>)` invariant.  None
+    // can carry a `test e2e` block YET, and the reason is unusual enough to be
+    // worth the raise rather than hidden by it: on each of them at least one
+    // backend CANNOT BOOT, so there is no stack to record a wire golden from and
+    // a captured golden would enshrine the defect as the reviewed answer key.
+    // (node's routes module makes a temporal-dead-zone read, TS2448/TS2454;
+    // python names columns its own schema never created, and emits `re.search`
+    // with no `import re`.)  Each broken backend is excluded BY NAME from its
+    // row's `backends:` in the corpus manifest — not skip-listed, because a
+    // generate-only cell is refused by gate-ledger's own
+    // "no cell is held up by generation alone".
+    //
+    // These three ARE a tier gap, unlike the two entries above, and each fixture
+    // header writes down the runtime assertion it wants so the drain does not
+    // have to re-derive it.  They drain when the emitters are fixed: the same PR
+    // that lands the fix returns the excluded backend key, adds the e2e block,
+    // captures its golden, and deletes the entry here — lowering this number.
+    max: 30,
   },
 ];
 

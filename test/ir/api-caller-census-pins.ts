@@ -644,6 +644,39 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // FIXTURE-SHAPE AUDIT (docs/audits/2026-09-29-fixture-shape-coverage.md) — three
+  // value-object SHAPES no model in the repo had, and a fourth class of reason for
+  // being e2e-less: not "needs a sidecar", "needs a second deployable" or "needs a
+  // fixture change", but **at least one backend cannot boot this shape at all**, so
+  // there is no stack to record a wire golden from and capturing one would enshrine
+  // the defect as the reviewed answer key.  Each broken backend is excluded by name
+  // from its row's `backends:` in the corpus manifest (not skip-listed — a
+  // generate-only cell is refused by gate-ledger).  All three are real tier gaps and
+  // each fixture header writes down the runtime assertion it wants, so the drain
+  // reads it off the file rather than re-deriving it.  M-T9.13 order: fix the
+  // emitter, return the backend key, add the block, capture the golden, delete the
+  // entry — one PR each.
+  //
+  // A VO resolved from a SIBLING context.  python's repository builder resolves a VO
+  // name through `ctx.valueObjects` only, so `receipt_repository.py` binds and reads
+  // the UNFLATTENED `ship_to` while its own schema and migration create
+  // `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` — every read and write of the
+  // consuming aggregate fails.  The evaluation's F-008.
+  "vo-cross-context",
+  // A ROOT-LEVEL (shared-kernel) VO nested in a context-local one.  node emits the
+  // context-local zod const before the root-level one it initialises from (TS2448 +
+  // TS2454 — a TDZ read, fatal at module evaluation, so the API never starts);
+  // python emits `class Outer` before `class UnLocode` (ruff F821 ×4).  The
+  // evaluation's F-007, with its frontend half already fixed and both backend halves
+  // open — one emission-order bug reached from one shape on two backends.
+  "vo-root-kernel",
+  // A `.matches(<regex>)` VO invariant — the regex is lifted into the wire/request
+  // validator beside the domain class, so two emitted files' import lists must agree.
+  // python's `wire_models.py` calls `re.search` with no `import re` (ruff F821) while
+  // the domain half imports it correctly.  F-013's defect class, fixed on .NET and
+  // live on python.  The runtime half is genuinely wanted here (422 at the wire
+  // boundary, not 500 and not silently stored) — see the fixture header.
+  "vo-regex-invariant",
   // COMPILE-TIER WITNESS (the "Assure" dev-experience evaluation) — a durable
   // broker channel + a workflow + NO reactor.  The cell the corpus never
   // paired: its sibling `channels-broker` is the same producer WITHOUT a
