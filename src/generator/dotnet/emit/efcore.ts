@@ -7,6 +7,7 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   FieldIR,
+  TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
@@ -594,6 +595,16 @@ export function renderConfiguration(
   // do), so it has nothing to ignore; every other config ignores it.
   const domainEventsIgnore =
     tph?.role === "base" ? [] : ["        builder.Ignore(x => x.DomainEvents);"];
+  // A DERIVED member typed as a contained entity (`derived byPriceDesc:
+  // LineItem[] = lines.sortBy(…)`) is a get-only `List<LineItem>` computed from
+  // the real containment.  EF's convention discovers read-only NAVIGATIONS, so
+  // it tried to map it as a second relationship to `LineItem` and refused to
+  // build the model at startup ("Unable to determine the relationship
+  // represented by navigation 'Order.ByPriceDesc'", wave C3 D1).  It is not
+  // persisted state, so it is ignored like `DomainEvents`.
+  const entityDerivedIgnores = agg.derived
+    .filter((d) => derivedHoldsEntity(d.type))
+    .map((d) => `        builder.Ignore(x => x.${upperFirst(d.name)});`);
   // The base config references each concrete type in its `HasValue<C>` chain,
   // so it imports every concrete's namespace.
   const concreteUsings =
@@ -642,10 +653,19 @@ export function renderConfiguration(
       ...indexLines,
       ...filterLines,
       ...domainEventsIgnore,
+      ...entityDerivedIgnores,
       "    }",
       "}",
     ) + "\n"
   );
+}
+
+/** True when a derived member's type is (an optional / array of) a contained
+ *  entity — the shape EF's convention mistakes for a navigation. */
+function derivedHoldsEntity(t: TypeIR): boolean {
+  if (t.kind === "optional") return derivedHoldsEntity(t.inner);
+  if (t.kind === "array") return derivedHoldsEntity(t.element);
+  return t.kind === "entity";
 }
 
 /** The underlying CLR type a strongly-typed id wraps, by its value kind —
@@ -968,6 +988,17 @@ function fieldConfigLines(
   if (leaf.kind === "enum") {
     return [
       `${indent}${builder}.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${colName};`,
+    ];
+  }
+  // An enum COLLECTION (`skills: Skill[]` → `List<Skill>`) stores member NAMES
+  // in a `text[]` column, exactly as the scalar arm above stores one.  EF maps
+  // `List<Skill>` as a primitive collection whose ELEMENT defaults to the
+  // enum's int, so every read 500'd ("Reading as 'System.Int32[]' is not
+  // supported for fields having DataTypeName 'text[]'", wave C3 D3); the
+  // element converter is the scalar arm's `HasConversion<string>()`.
+  if (leaf.kind === "array" && leaf.element.kind === "enum") {
+    return [
+      `${indent}${builder}.PrimitiveCollection(x => x.${upperFirst(f.name)}).ElementType(e => e.HasConversion<string>())${colName};`,
     ];
   }
   if (leaf.kind === "valueobject") {

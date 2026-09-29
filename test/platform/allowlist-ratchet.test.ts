@@ -642,7 +642,23 @@ const REGISTERED: Ratchet[] = [
     // merged `BEHAVIOURAL_ABSENT` in `test/system/gate-ledger.test.ts` holds
     // exactly 24 rows by this file's own counter, so the bound is pinned to that
     // count and mutation-proved (23 fails naming 24).
-    max: 24,
+    //
+    // 23 -> 20 (2026-09-28, wave C3 packet 3g): three of those six held
+    // blocks drained with the `src/` fixes for the defects they found —
+    // `collection-op-shapes` (D1), `enum-collection` (D3), `vo-id-reference`
+    // (D4) — each green on all seven legs against a node-minted golden.
+    //
+    // 20 -> 17 (same packet): the remaining three — `workflow-enum-state`
+    // (D2 + D6), `workflow-command-payload` (D2 + D7) and
+    // `projection-implicit-sub` (D8) — drained with the elixir workflow fixes
+    // and the plural-slug grammar fix, so all six blocks 3a held are home.
+    //
+    // 24 / 17 -> 18, RE-DERIVED at the 3g fold onto the Wave C3 3-A tree
+    // (2026-09-29): 3-A carried 24 (above) and 3g's branch 17 (its six drains
+    // off the 23 it forked from); the merged register holds exactly 18 rows by
+    // this file's own counter (24 - 6), so the bound is that count,
+    // mutation-proved both ways (17 fails naming 18; 999 fails as slack).
+    max: 18,
   },
 ];
 

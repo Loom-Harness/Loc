@@ -675,3 +675,15 @@ Sources: [`decisions.md`](../decisions.md) D-TPH-SUBTYPE-FILTER;
 `src/ir/util/inheritance.ts` (`nonRootFilterFields`),
 `src/generator/dotnet/emit/efcore.ts`. Relates to
 [M-T5.7](T5-language-core.md#m-t57) (the inheritance tail).
+
+## M-T6.74 — A message-less rule, and a missing required field, answer each framework's DEFAULT sentence: five wire contracts for one rule — `open` · **S–M** · P2 ⚠ needs a ruling first
+
+Observed by wave C3 (defect D5 of [`waves/handoffs/wave-c3-3a-e2eless.md`](waves/handoffs/wave-c3-3a-e2eless.md), re-measured by packet 3g in [`waves/handoffs/wave-c3-3g-fixes.md`](waves/handoffs/wave-c3-3g-fixes.md)). A bound with no `message` answers node `"Position must be at least 1"`, python `"Input should be greater than or equal to 1"`, .NET `"'Position' must be greater than or equal to '1'."`; a MISSING required payload field answers node `"Invalid input: expected string, received undefined"`, python `"Field required"`, .NET/dapper `"The Amount field is required."`, java `"Invalid decimal: null"`. `src/generator/zod-refine.ts` `singleFieldMessage` calls the node text "node-local" by design, but it is still one `errors[].message` wire field with five values, and it is why every wire golden that probes a 422 has to use a MESSAGED rule (the ruled M-T1.11 contract) — `workflow-command-payload`'s missing-`amount` probe was dropped in 3g for exactly this reason.
+
+Decide first (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): either the default sentence is canonical per rule shape (min / max / length / required / pattern — one table, rendered by every backend's validator adapter), or `message` is declared non-contractual for message-less rules and the wire differential masks it (keeping `pointer` and `code` binding). Then implement across the five and re-add the probe. Relates to M-T1.11 (the messaged contract), M-T6.75 (the java pointer half of the same probe).
+
+## M-T6.75 — java points a nested payload field's 422 at the leaf, not the path (`/amount` for `c.amount`) — `open` · **S** · P2 ⚠ verify-first
+
+Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `POST /api/workflows/claim_handling` with `{ "c": { …, no "amount" } }` answers 422 on all five backends (good), but java's `errors[0].pointer` is `/amount` where node / python / .NET / dapper / elixir say `/c/amount`, and its message is `"Invalid decimal: null"` — a decimal-coercion failure reported before (or instead of) the required-field check. The pointer is the contract a frontend binds a control to, so this is a wire defect independent of M-T6.74's message ruling.
+
+Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.74 has ruled the message.
