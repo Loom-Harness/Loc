@@ -6663,3 +6663,22 @@ like a finding: **`check-runs` paginates** (`total_count` was 328 against a
 started seconds earlier), and **`mergeable` frequently reads `null`/`unknown` on
 first poll** — poll twice before believing it. See §115 for why a clean
 `merge-tree` against `origin/main` still cannot predict a queue ejection.
+
+### And one local one: a shallow clone tracks only `main`
+
+`git clone --depth 1` leaves `remote.origin.fetch` as
+`+refs/heads/main:refs/remotes/origin/main`, so a feature branch **never gets a
+`refs/remotes/origin/<branch>` ref** — `git push -u` reports "set up to track"
+and creates nothing. Two consequences, each of which cost a cycle here (three
+times between them):
+
+  * the stop-hook's git check reads "no remote branch" and reports every local
+    commit as unpushed, on a branch that is pushed and identical to its remote;
+  * `git push --force-with-lease` fails with `stale info`, because the lease has
+    no local record to compare against. The fix is an explicit lease:
+    `git push --force-with-lease=<branch>:<remote-sha> origin HEAD:refs/heads/<branch>`.
+
+So after any push from a shallow clone, create the ref yourself —
+`git fetch origin <branch>:refs/remotes/origin/<branch>` — and verify with
+`git ls-remote origin <branch>` against `git rev-parse HEAD` rather than trusting
+either the hook or `@{upstream}`.
