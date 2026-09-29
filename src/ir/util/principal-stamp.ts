@@ -70,6 +70,12 @@ export function requiredClaimStamps(
   agg: Pick<AggregateIR, "fields"> & { contextStamps?: ContextStampIR[] },
   event: "create" | "update",
 ): RequiredClaimStamp[] {
+  // A caller with no `fields` cannot be reasoned about — a focused unit test
+  // builds a partial aggregate, and an emitter must not throw on one.  Answer
+  // "guard nothing", which is the conservative direction: a false negative
+  // leaves the previous behaviour exactly as it was, while a throw would break
+  // generation outright.
+  if (!Array.isArray(agg.fields)) return [];
   const optionalByName = new Map<string, boolean>();
   for (const f of agg.fields as FieldIR[]) {
     optionalByName.set(f.name, f.optional || f.type.kind === "optional");

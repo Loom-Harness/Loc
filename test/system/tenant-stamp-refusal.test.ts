@@ -15,15 +15,8 @@
 // CROSS-BACKEND test on purpose: the failure it guards is "four backends fixed,
 // one forgotten", and a per-backend suite cannot see that.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
-
-const services = createDddServices(NodeFileSystem);
-const parse = parseHelper<Model>(services.Ddd);
+import { generateSystemFiles } from "../_helpers/index.js";
 
 const SRC = `
 system Multi {
@@ -50,10 +43,11 @@ system Multi {
 
 let cached: Map<string, string> | undefined;
 async function files(): Promise<Map<string, string>> {
-  if (!cached) {
-    const doc = await parse(SRC, { validation: false });
-    cached = generateSystems(doc.parseResult.value).files;
-  }
+  // Through the shared helper, so this fixture is held to the same phase
+  // ①/④/⑦ assertions as every other — a five-backend model that silently
+  // stopped validating would otherwise let every assertion below read
+  // output no user could obtain (`direct-generate-systems-ratchet`, M-T9.35).
+  if (!cached) cached = await generateSystemFiles(SRC);
   return cached;
 }
 
