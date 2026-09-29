@@ -59,7 +59,7 @@ import {
   memoryMigrationArtifactIndex,
 } from "./migration-artifacts.js";
 import { buildMigrationLedger, type MigrationHistoryLedger } from "./migration-ledger.js";
-import { buildMigrations } from "./migrations-builder.js";
+import { buildMigrations, type MigrationWarning } from "./migrations-builder.js";
 import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import {
@@ -107,6 +107,13 @@ export interface SystemEmission {
    *  has history" from "this module is new" even when `-o` points at a tree
    *  that carries neither.  See `migration-ledger.ts` (F-029). */
   migrationLedger: MigrationHistoryLedger;
+  /** Non-fatal diagnostics raised while deriving the migrations (phase ⑨) —
+   *  today only `loom.migration-rename-inferred`, which announces the
+   *  drop+add → RENAME inference the builder makes on purpose and used to make
+   *  in silence (F-3).  Same lifting story as `giveUps` above: the fact is
+   *  known deep inside a pure pass with no console, so it rides out on the
+   *  emission and `src/cli/main.ts` prints it. */
+  migrationWarnings: MigrationWarning[];
 }
 
 export interface GenerateSystemOptions {
@@ -208,6 +215,8 @@ export function generateSystemsFromLoom(
   // the ledger is keyed by module and lives beside the `.ddd`, which may
   // declare several systems.
   const builtMigrations: MigrationsIR[] = [];
+  // Every system's phase-⑨ advisories, folded into one list on the emission.
+  const migrationWarnings: MigrationWarning[] = [];
   for (const sys of loom.systems) {
     emitSystem(sys, loom, out, {
       emitTrace: options.emitTrace,
@@ -219,6 +228,7 @@ export function generateSystemsFromLoom(
       recordedHistory: options.recordedHistory,
       ledgerPath: options.ledgerPath,
       collectMigrations: builtMigrations,
+      collectMigrationWarnings: migrationWarnings,
       sourcemap: recorder,
       sourceTexts: options.sourceTexts,
     });
@@ -295,6 +305,7 @@ export function generateSystemsFromLoom(
   return {
     files: out,
     giveUps: collectGiveUps(out),
+    migrationWarnings,
     // Always built (it is pure): callers with no source directory simply
     // never write it.
     migrationLedger: buildMigrationLedger(builtMigrations, options.recordedHistory ?? null),
@@ -317,6 +328,9 @@ function emitSystem(
     /** Sink the freshly-built `MigrationsIR[]` is appended to, so the caller
      *  can fold every system's migrations into one source-side ledger. */
     collectMigrations?: MigrationsIR[];
+    /** Sink for the derivation's non-fatal diagnostics, folded into
+     *  `SystemEmission.migrationWarnings`. */
+    collectMigrationWarnings?: MigrationWarning[];
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
   },
@@ -337,6 +351,7 @@ function emitSystem(
     tableRenameIntents: loom.tableRenameIntents,
     backfillIntents: loom.backfillIntents,
     sqlSteps: loom.sqlMigrationSteps,
+    warnings: options.collectMigrationWarnings,
   });
   // Baseline-safety guards (M-T2.2): refuse a silent re-baseline when the
   // snapshot is missing but migration files exist, verify files ↔ recorded
