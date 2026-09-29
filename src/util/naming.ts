@@ -367,19 +367,6 @@ export function escapeJavaIdent(name: string): string {
   return JAVA_KEYWORDS.has(name) ? `${name}_` : name;
 }
 
-/** Does `name` collide with a Java reserved word?  The predicate behind
- *  `src/generator/java/java-ident.ts`'s `isMangled`, which decides whether a
- *  DECLARED member needs its wire spelling pinned back on: `escapeJavaIdent` is
- *  a RENAME (`case` → `case_`), harmless for a local binding the emitter also
- *  declares, but a renamed record component is a renamed JSON property — so on
- *  a wire-carrying declaration the rename always travels with an explicit
- *  `@JsonProperty` / `@RequestParam` / converter (M-T6.36).  C# needs none of
- *  this (`@case` is lexically the identifier `case`), which is why the .NET arm
- *  of F2-ADP-7 is a one-line escape and the java arm is a funnel. */
-export function isJavaKeyword(name: string): boolean {
-  return JAVA_KEYWORDS.has(name);
-}
-
 /** Escape a (already snake_cased) local identifier that collides with a
  *  Python keyword with a trailing underscore (`class` → `class_`); pass
  *  through otherwise. */

@@ -28,6 +28,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
+import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -344,36 +345,25 @@ interface EsSub {
 
 /** Does any emit/guard/let in the body read the folded `state`? */
 function bodyUsesState(statements: WorkflowStmtIR[]): boolean {
+  // Rides the sanctioned walkers.  The hand-rolled twin this replaces was short
+  // on BOTH channels: its statement loop covered four of the fourteen
+  // `WorkflowStmtIR` kinds (no `assign`, `op-call`, `repo-*`, `resource-call`,
+  // `domain-service-call`, and — the one that bites — no `for-each` / `if-let`
+  // nesting), and its expression walk had no arm for `match`, `list`,
+  // `convert`, `duration`, `i18nFormat`, a `call`'s `style:` entries or a
+  // block-bodied lambda's statements.  The answer feeds `stateBind`: a false
+  // negative binds the fold snapshot as `_state` while the rendered body still
+  // names `state`, and `mix compile` fails with "undefined variable state".
   let used = false;
-  const visit = (e: import("../../../ir/types/loom-ir.js").ExprIR): void => {
-    if (used) return;
-    if (e.kind === "ref") {
-      if (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
-        used = true;
-      return;
-    }
-    if (e.kind === "member") visit(e.receiver);
-    else if (e.kind === "method-call") {
-      visit(e.receiver);
-      e.args.forEach(visit);
-    } else if (e.kind === "call") e.args.forEach(visit);
-    else if (e.kind === "binary") {
-      visit(e.left);
-      visit(e.right);
-    } else if (e.kind === "unary") visit(e.operand);
-    else if (e.kind === "paren") visit(e.inner);
-    else if (e.kind === "ternary") {
-      visit(e.cond);
-      visit(e.then);
-      visit(e.otherwise);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visit(f.value);
-    } else if (e.kind === "lambda" && e.body) visit(e.body);
-  };
   for (const st of statements) {
-    if (st.kind === "emit" || st.kind === "factory-let") for (const f of st.fields) visit(f.value);
-    else if (st.kind === "expr-let") visit(st.expr);
-    else if (st.kind === "precondition" || st.kind === "requires") visit(st.expr);
+    walkWorkflowStmtExprsDeep(st, (e) => {
+      if (
+        e.kind === "ref" &&
+        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
+      ) {
+        used = true;
+      }
+    });
   }
   return used;
 }

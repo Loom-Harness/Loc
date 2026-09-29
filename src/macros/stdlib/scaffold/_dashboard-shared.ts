@@ -104,25 +104,6 @@ export function seriesDateField(agg: Aggregate): string | null {
   return datetimes[0] ?? null;
 }
 
-/** The per-day series a dashboard chart tile binds for `agg`, or `null`.
- *  The series twin of `dashboardFieldsFor`, answering the same two ways for
- *  the same reason (expansion order is source order, so neither half may
- *  assume the other ran). */
-export function dashboardSeriesFor(agg: Aggregate): { projection: string } | null {
-  const ctx = agg.$container;
-  if (!isBoundedContext(ctx)) return null;
-  if (!hasDashboardTable(agg)) return null;
-  const name = dashboardSeriesName(agg.name);
-  const declared = ctx.members.find((m): m is Projection => isProjection(m) && m.name === name);
-  if (declared) {
-    // Only a GROUPED projection is a series — a singleton is one row and has
-    // nothing to plot along an axis.
-    return declared.groupBys.length > 0 && declared.source ? { projection: name } : null;
-  }
-  if (!contextScaffoldsDashboard(ctx)) return null;
-  return seriesDateField(agg) ? { projection: name } : null;
-}
-
 /** The KPI fields a dashboard card row shows for `agg`, or `null` when the
  *  aggregate has no dashboard projection to read.
  *

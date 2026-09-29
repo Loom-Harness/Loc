@@ -1,4 +1,3 @@
-import type { BoundedContextIR, DeployableIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { snake } from "../../util/naming.js";
 
 // ---------------------------------------------------------------------------
@@ -17,18 +16,6 @@ import { snake } from "../../util/naming.js";
 //     the subset claimed by a public operation (so the per-op route wins and
 //     the redundant standard CRUD action is suppressed).
 // ---------------------------------------------------------------------------
-
-export interface ApiEmitArgs {
-  contexts: BoundedContextIR[];
-  deployable: DeployableIR;
-  sys: SystemIR;
-  /** snake_case application name, e.g. "phoenix_app" */
-  appName: string;
-  /** PascalCase module prefix, e.g. "PhoenixApp" */
-  appModule: string;
-  /** Compile-time --trace switch. */
-  emitTrace?: boolean;
-}
 
 /** Standard CRUD action/define names the Phoenix backend emits for a served
  *  aggregate (list/get/create/update/destroy).  A public operation whose
@@ -94,9 +81,4 @@ export interface ApiRoute {
    * byte-identical.
    */
   first?: boolean;
-}
-
-export interface ApiEmitResult {
-  files: Map<string, string>;
-  apiRoutes: ApiRoute[];
 }

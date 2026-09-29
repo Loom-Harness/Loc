@@ -792,6 +792,16 @@ export function renderExpr(expr: ExprIR, ctx: WalkContext): string {
       // never a page-body expression.  Reaching the HEEx page renderer means it
       // leaked from a filter position; throw rather than emit invalid markup.
       throw new Error("heex renderExpr: 'authz-filter' is not a page-body expression");
+    default: {
+      // EXHAUSTIVENESS.  Every arm above returns or throws, so this is already
+      // unreachable — and a NEW `ExprIR.kind` was already a compile error, but
+      // only as a TS2366 ("function lacks ending return statement") pointing at
+      // the function header rather than at the missing arm.  The explicit
+      // `never` makes the same guarantee legible (and the error message
+      // useful), and is the form the walk census reads.
+      const _exhaustive: never = expr;
+      return _exhaustive;
+    }
   }
 }
 
@@ -2349,6 +2359,11 @@ function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
           `'${ctx.page.name}'; it is refused at validation ` +
           `(loom.if-stmt-page-body-unsupported).`,
       );
+    default: {
+      // EXHAUSTIVENESS — see the twin note on `renderExpr` above.
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 

@@ -16,12 +16,17 @@ import { diagText } from "../_helpers/diagnostics.js";
 const services = createDddServices(NodeFileSystem);
 const parse = parseHelper<Model>(services.Ddd);
 
-async function parseModel(src: string): Promise<{ model: Model; errors: string[] }> {
+async function parseModel(
+  src: string,
+): Promise<{ model: Model; errors: string[]; warningCodes: string[] }> {
   const doc = await parse(src, { validation: true });
   const diags = doc.diagnostics ?? [];
   return {
     model: doc.parseResult.value,
     errors: diags.filter((d) => d.severity === 1).map(diagText),
+    // CR1-b's `loom.auth-oidc-no-audience` is a WARNING, so it needs its own
+    // slice; `errors` above would never contain it.
+    warningCodes: diags.filter((d) => d.severity === 2).map((d) => String(d.code ?? "")),
   };
 }
 
@@ -133,6 +138,35 @@ describe("auth block — validation", () => {
   it("requires a clientId", async () => {
     const { errors } = await parseModel(system(`auth { provider: google }`));
     expect(errors.some((e) => e.includes("clientId"))).toBe(true);
+  });
+
+  // CR1-b / P0-4.  `audience:` is optional, but its default is UNSAFE: with no
+  // audience the verifier validates signature / iss / exp and then accepts the
+  // token — including one the SAME issuer minted for a different client.  A
+  // warning, not an error: single-client deployments are a legitimate shape and
+  // every backend can still be switched on with OIDC_AUDIENCE at deploy time.
+  // What is not legitimate is the silence — before this the word "audience"
+  // appeared in no validator, no IR check and no message in the catalog.
+  it("warns when oidc declares no audience (the aud check is then skipped)", async () => {
+    const { errors, warningCodes } = await parseModel(
+      system(`auth { provider: keycloak, oidc { issuer: "https://idp", clientId: env("C") } }`),
+    );
+    expect(errors).toEqual([]);
+    expect(warningCodes).toContain("loom.auth-oidc-no-audience");
+  });
+
+  it("does NOT warn once an audience is declared (literal or env)", async () => {
+    for (const audience of ['"acme-api"', 'env("OIDC_AUDIENCE")']) {
+      const { errors, warningCodes } = await parseModel(
+        system(
+          `auth { provider: keycloak, oidc { issuer: "https://idp", clientId: env("C"), audience: ${audience} } }`,
+        ),
+      );
+      expect(errors).toEqual([]);
+      expect(warningCodes, `audience: ${audience} should silence the warning`).not.toContain(
+        "loom.auth-oidc-no-audience",
+      );
+    }
   });
 
   it("rejects a claim mapping onto an unknown user field", async () => {

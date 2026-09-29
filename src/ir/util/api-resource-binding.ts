@@ -67,9 +67,3 @@ export function servedContextsFor(
   const hosted = new Set(binding.server.contextNames);
   return inSubdomain.filter((c) => hosted.has(c.name));
 }
-
-/** True when any deployable in the system wires an api-bound resource — the
- *  gate that keeps systems without one byte-identical. */
-export function systemHasApiResourceBindings(sys: SystemIR): boolean {
-  return sys.dataSources.some((r) => r.apiName);
-}
