@@ -165,6 +165,12 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   const audienceExpr = auth.oidc.audience
     ? csEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience)
     : 'Environment.GetEnvironmentVariable("OIDC_AUDIENCE")';
+  // The doc comment names only the checks this file performs: `aud` is
+  // validated against the declared audience (env-overridable), or — with no
+  // `audience:` — only when OIDC_AUDIENCE is set at runtime (G8-04).
+  const checksDoc = auth.oidc.audience
+    ? "checks iss / aud / exp"
+    : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
   const args = user.fields.map((f) => csClaimRead(f, auth)).join(",\n            ");
   return `// Auto-generated.
 using System.Text.Json;
@@ -180,7 +186,7 @@ namespace ${ns}.Auth;
 
 /// <summary>Generated OIDC verifier.  Validates the bearer
 /// token's signature against the issuer's JWKS (discovered + cached via
-/// <see cref="ConfigurationManager{T}"/>), checks iss / aud / exp, then
+/// <see cref="ConfigurationManager{T}"/>), ${checksDoc}, then
 /// projects the configured claims onto the <see cref="User"/> shape.
 /// Returns null to reject (→ 401).</summary>
 public sealed class OidcUserVerifier : IUserVerifier
