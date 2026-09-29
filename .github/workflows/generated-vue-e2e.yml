@@ -51,9 +51,24 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
+      # Every phase `generate system` walks, whatever the backend: parse ->
+      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
+      # util/ leaves (naming, code-builder, platform-axes) every emitter
+      # imports.  These are NOT inherited from the `push:` block above:
+      # test/system/workflow-path-coverage.test.ts reads each trigger's own
+      # block, because a post-merge net does not run on the pull request,
+      # which is where this gate's check name is shown.
+      - 'src/language/**'
+      - 'src/macros/**'
       - 'src/ir/**'
+      - 'src/system/**'
+      - 'src/util/**'
       - 'src/generator/vue/**'
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_expr/**'
       - 'src/generator/_frontend/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_trace/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/**'
       - 'src/platform/frontend-dispatch.ts'

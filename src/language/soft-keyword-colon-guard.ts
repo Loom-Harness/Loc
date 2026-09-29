@@ -97,6 +97,14 @@ export const GUARDED_SOFT_KEYWORDS: readonly string[] = [
   "paged",
   // `check <expr> message "…"` / `invariant <expr> message "…"`
   "message",
+  // Property trailing clauses: `qty: int provenanced`, `ssn: string
+  // sensitive(pii)`, `salary: money mask unless …`, `qty: int check qty > 0`
+  // — soft as field names since the keyword sweep, so a modifier-less field
+  // followed by a field NAMED one of them must not be swallowed.
+  "check",
+  "mask",
+  "provenanced",
+  "sensitive",
 ];
 
 /** `kw` followed (across any run of whitespace) by `:` is NOT this keyword.

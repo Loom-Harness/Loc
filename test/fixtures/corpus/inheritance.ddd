@@ -1,7 +1,32 @@
 // Aggregate inheritance (inheritance.md): TPH (sharedTable) + TPC (ownTable).
+//
+// SHAPE NOTE (docs/audits/2026-09-29-fixture-shape-coverage.md): `site: SiteCode`
+// puts a value object on an inheriting aggregate's OWN field, on BOTH layouts —
+// `Vendor` (TPH, so the flattened columns live on the SHARED table and are
+// NULLABLE there, because `Customer` does not declare them) and `Machine` (TPC,
+// so they live on the concrete's own table and are NOT NULL).
+//
+// Before it, NO fixture in the repo had that shape: 17 models carried aggregate
+// inheritance and every one gave its subtypes scalar fields only, so a VO
+// flattened onto a subtype row was unreachable from every gate on every backend.
+// That is the shape the platform evaluation's F-008 needed.
+//
+// It sits on the two NON-`crudish` subtypes on purpose.  `Customer` is the
+// subtype the `test e2e` block below creates and updates, and its request /
+// response bytes are the reviewed answer key in
+// `test/behavioral/wire-golden/inheritance.json`; adding a field there would
+// change every recorded body and require re-capturing the golden on all five
+// backends.  `Vendor`/`Machine` are only ever read EMPTY by the suite (an empty
+// list and a 404 envelope, neither of which names a field), so the golden stays
+// byte-identical while the compile tiers still see the flattening on both
+// layouts.  Keep it that way.
 system Parties {
   subdomain Registry {
     context Parties {
+      valueobject SiteCode {
+        region: string
+        code: string
+      }
       abstract aggregate Party inheritanceUsing: sharedTable {
         name: string
         email: string
@@ -10,9 +35,9 @@ system Parties {
         creditLimit: int
         operation raiseLimit(by: int) { creditLimit := creditLimit + by }
       }
-      aggregate Vendor extends Party { rating: int }
+      aggregate Vendor extends Party { rating: int  site: SiteCode }
       abstract aggregate Asset inheritanceUsing: ownTable { label: string }
-      aggregate Machine extends Asset { serial: string }
+      aggregate Machine extends Asset { serial: string  site: SiteCode }
       aggregate Vehicle extends Asset { plate: string }
       repository Customers for Customer {
         find byEmail(email: string): Customer? where this.email == email

@@ -86,6 +86,8 @@ export const DIAGNOSTIC_MESSAGES = {
     'oidc requires a `clientId` (env-bound).  Add `clientId: env("OIDC_CLIENT_ID")` to the `oidc { … }` block.',
   "loom.auth-unknown-claim-field": (p: { field: unknown }) =>
     `claim mapping targets unknown user field '${p.field}'.`,
+  "loom.auth-oidc-no-audience":
+    'oidc declares no `audience:`, so the generated verifier skips the `aud` check — ANY token the issuer minted, for ANY client of that issuer, is accepted. Declare `audience: env("OIDC_AUDIENCE")` (or a literal) in the `oidc { … }` block, or leave it undeclared and set OIDC_AUDIENCE in the deploy environment — all five backends read that variable. Silence this by declaring one either way.',
 
   // ----------------------------------------------------------------------
   // src/language/validators/builder-call.ts
@@ -1834,6 +1836,15 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/capability-checks.ts
   // ----------------------------------------------------------------------
+  // F-017 — a server-owned field that nothing ever writes.  Named for the
+  // MODEL property (the aggregate cannot be constructed), not for the
+  // per-backend symptom, which differs on all five.
+  "loom.unconstructible-server-field": (p: { agg: unknown; field: unknown; access: unknown }) =>
+    `aggregate '${p.agg}' cannot be created: field '${p.field}' is '${p.access}', so it is not on ` +
+    `the create input, but nothing writes it — it has no '= <default>' and no lifecycle stamp. ` +
+    `Every create would leave it unset (a null into a NOT NULL column). ` +
+    `Give it a default ('${p.field}: … = <expr>'), stamp it ('stamp onCreate { ${p.field} := … }'), ` +
+    `or make it optional ('${p.field}: …?').`,
   "loom.stamp-read-before-flush#aggregate-create-reads": (p: {
     name: unknown;
     cName: unknown;
@@ -2370,13 +2381,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `the statement out of the branch (compute a value inside the \`if\`, act on it after), or ` +
     `host this context on a node / dotnet / java / python backend.`,
   "loom.elixir-if-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED command body — whose ` +
-    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  An event-sourced ` +
-    `command is not rendered as a statement sequence on Phoenix: its guards become ` +
-    `\`with :ok <- ensure(…)\` clauses and its \`emit\`s become one \`events = […]\` list, ` +
-    `so a conditional \`emit\` has nowhere to render.  Express the choice as a conditional ` +
-    `VALUE inside the emitted event's fields (\`amount: over ? a : b\`), or host this ` +
-    `context on a node / dotnet / java / python backend.`,
+    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED body — whose ` +
+    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Neither half of the ` +
+    `event-sourced pair is rendered as a statement sequence on Phoenix: a COMMAND body's ` +
+    `guards become \`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` ` +
+    `list, so a conditional \`emit\` has nowhere to render; an APPLIER is a pure fold that ` +
+    `threads a rebound record through assignments, and an Elixir \`if\` block's bindings do ` +
+    `not escape it, so a conditional write compiles clean and silently does nothing.  ` +
+    `Express the choice as a conditional VALUE — inside the emitted event's fields, or on ` +
+    `the right of the assignment (\`amount: over ? a : b\`) — or host this context on a ` +
+    `node / dotnet / java / python backend.`,
   "loom.if-stmt-page-body-unsupported": (p: { where: unknown; uiName: unknown }) =>
     `An \`if\` statement is used in ${p.where} on ui '${p.uiName}'.  The \`if\` ` +
     `STATEMENT is a backend-body form (aggregate / domain-service operations); no frontend ` +
@@ -2403,6 +2417,24 @@ export const DIAGNOSTIC_MESSAGES = {
     `conditional VALUE (a ternary, or \`match { cond => …, else => … }\`) and let the ` +
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
+  "loom.ui-gate-expr-unsupported": (p: {
+    where: unknown;
+    kind: unknown;
+    detail: unknown;
+    fw: unknown;
+  }) =>
+    `${p.where} ${p.detail}. Every closed-table gate renderer implements the SAME ` +
+    `client-evaluable subset — \`currentUser\` and its claim chain, enum members, ` +
+    `string/bool/int/long/decimal literals, \`.contains(…)\` membership, comparisons, ` +
+    `boolean operators, \`!\`, parentheses and a ternary — and THROWS on anything else ` +
+    `(\`expression kind '${p.kind}' is not supported in a UI gate\`): ` +
+    `src/generator/_frontend/gate-expr.ts (React/Vue/Svelte/Angular), ` +
+    `src/generator/feliz/auth-gate.ts (Feliz), src/generator/flutter/auth-gate.ts (Flutter). ` +
+    `So on '${p.fw}' this \`.ddd\` validates and then CRASHES \`ddd generate system\` with a ` +
+    `raw stack trace. Rewrite the gate over the claims themselves ` +
+    `(\`requires currentUser.role == "admin"\`), put the computation on the backend gate ` +
+    `(\`operation … requires\`, which is the enforcing half anyway), or host this ui on ` +
+    `Phoenix LiveView, whose page gate goes through the general HEEx expression renderer.`,
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-framework-checks.ts — the Flutter action-body
   // gap (§18 sentinels: the `TODO(flutter full-parity)` arms in

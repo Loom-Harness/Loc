@@ -51,7 +51,7 @@ interface LocaleFilter {
  *  write `./out/.loom/messages.en.json` for a project generated in place
  *  while its siblings read `./locales` — the same command line meaning two
  *  different projects depending on where it was typed. */
-function localesDir(file: string, options: DirOption): string {
+export function localesDir(file: string, options: DirOption): string {
   if (options.dir !== undefined) return path.resolve(options.dir);
   return path.join(path.dirname(path.resolve(file)), "locales");
 }
@@ -78,6 +78,54 @@ function discoverLocales(dir: string, filter?: string): { locale: string; file: 
     out.push({ locale, file: path.join(dir, entry.name) });
   }
   return out.sort((a, b) => a.locale.localeCompare(b.locale));
+}
+
+/** Every translated locale catalog the translator tree holds, for `generate
+ *  system` to emit into the frontends (`<app>/src/locales/<locale>.json`).
+ *
+ *  Resolved through the SAME {@link localesDir} every `ddd i18n` subcommand
+ *  uses, so `--locales <dir>` and the default (`locales/` next to the `.ddd`)
+ *  behave identically on both sides.  A missing tree is the normal case and
+ *  returns an empty map — codegen then emits exactly what it emitted before.
+ *
+ *  Values the translator has NOT finished are dropped rather than shipped:
+ *  the generated runtime is `messages[key] ?? defaultMessage`, so a key whose
+ *  value is still `TODO: Approve` — or carries unresolved conflict markers —
+ *  would RENDER that text to the end user, while an ABSENT key falls back per
+ *  key to the source-language default `t(key, default)` already carries.  The
+ *  `_stale.<key>` shadows `--keep-stale` writes are dropped for the same
+ *  reason: they name keys the source no longer emits.
+ *
+ *  A locale whose every value is still `TODO:` therefore ships an EMPTY
+ *  catalog, and is still registered — the app must advertise exactly the
+ *  locales the translator created, or "I ran `ddd i18n init de` and the app
+ *  still has no German" is the same disconnect this fixes, moved one step. */
+export function loadTranslations(
+  file: string,
+  options: DirOption = {},
+): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>();
+  for (const { locale, file: localeFile } of discoverLocales(localesDir(file, options))) {
+    let raw: Catalog;
+    try {
+      raw = readCatalog(localeFile);
+    } catch {
+      // A hand-edited locale file that is not valid JSON must not take down a
+      // `generate system` run that is otherwise about the domain model.  `ddd
+      // i18n check` is the command that reports on the translator tree.
+      continue;
+    }
+    const catalog: Record<string, string> = {};
+    for (const key of Object.keys(raw).sort()) {
+      if (key.startsWith("_stale.")) continue;
+      const value = raw[key];
+      if (typeof value !== "string") continue;
+      if (isTodo(value) || hasConflictMarkers(value)) continue;
+      catalog[key] = value;
+    }
+    out.set(locale, catalog);
+  }
+  return out;
 }
 
 /** `ddd i18n extract <file> [-o out]` — write the fresh source catalog.
@@ -124,9 +172,25 @@ export async function runI18nInit(file: string, locale: string, options: DirOpti
 
 function summarize(locale: string, report: MergeReport): string {
   const parts = [`+${report.added.length} new`, `${report.kept.length} kept`];
+  if (report.carried.length) parts.push(`${report.carried.length} carried`);
   if (report.dropped.length) parts.push(`-${report.dropped.length} dropped`);
   if (report.conflicted.length) parts.push(`${report.conflicted.length} CONFLICT`);
   return `  ${locale}: ${parts.join(", ")}`;
+}
+
+/** Name every design-pack family carry-over (merge case 5) under its locale.
+ *
+ *  A carry is NOT silent even though the written value is a clean translation:
+ *  a string reviewed against one pack's UI can read differently in another's,
+ *  so the reviewer is told which keys moved and where from.  The signal lives
+ *  here and in the locale file's diff rather than inside the value — marking
+ *  the value would either lie about a human translation (`TODO: `) or ship a
+ *  marker the generated `t()` runtime would render to an end user. */
+function reportCarried(report: MergeReport): void {
+  for (const { key, from } of report.carried) {
+    console.log(`      carried: ${key}`);
+    console.log(`            <- ${from} (design-pack family swap; same role, same message)`);
+  }
 }
 
 /** `ddd i18n sync <file>` — three-way merge every locale, then bump the lock. */
@@ -154,6 +218,7 @@ export async function runI18nSync(
     writeJson(localeFile, merged);
     conflicts += report.conflicted.length;
     console.log(summarize(locale, report));
+    reportCarried(report);
   }
 
   // The lock only advances once every locale has reconciled against the new
@@ -186,6 +251,7 @@ export async function runI18nStatus(
     const ours = readCatalog(localeFile);
     const { report } = mergeCatalog(base, ours, theirs);
     console.log(summarize(locale, report));
+    reportCarried(report);
     if (reportHasPending(report)) pending = true;
   }
   if (pending) {
