@@ -3,6 +3,7 @@ import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
 import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
+import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
@@ -92,6 +93,7 @@ import {
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
   validatePagedQueryHandlerShape,
+  validatePageGateExprs,
   validatePermissions,
   validateProjectionSourceProjectionBackend,
   validateProvenancedStorage,
@@ -217,6 +219,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
     validateUiBodyStatementKinds(sys, diags);
+    validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);
@@ -298,6 +301,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFunctionBlockBodies(c, diags);
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
+    validateServerInitialisedFields(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateProjections(c, diags);
     validateAggregateConstructible(c, diags);

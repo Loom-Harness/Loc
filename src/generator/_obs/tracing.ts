@@ -73,13 +73,6 @@ export const TraceLogField = {
   spanId: "span_id",
 } as const;
 
-/** The server span's name — `{METHOD} {route-template}`, the OTel HTTP
- *  server-span naming convention (low cardinality: route template, never the
- *  raw path with ids).  Backends build this at the request seam. */
-export function serverSpanName(method: string, route: string): string {
-  return `${method} ${route}`;
-}
-
 // ---------------------------------------------------------------------------
 // Bundled dev collector (the batteries-included trace UI, sibling to the
 // Prometheus collector the metrics wiring adds — see src/system/index.ts).

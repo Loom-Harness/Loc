@@ -72,9 +72,3 @@ export const AUDIT_RECORD_INDEXES: ReadonlyArray<{ name: string; columns: readon
   { name: "audit_records_target_idx", columns: ["target_type", "target_id"] },
   { name: "audit_records_correlation_idx", columns: ["correlation_id"] },
 ];
-
-/** Lookup by Postgres column name — for emitters that walk their own list and
- *  need the canonical nullability for a column. */
-export function auditColumn(column: string): AuditRecordColumn | undefined {
-  return AUDIT_RECORD_COLUMNS.find((c) => c.column === column);
-}

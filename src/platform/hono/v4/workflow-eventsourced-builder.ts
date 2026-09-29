@@ -12,7 +12,7 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced workflows on Hono (workflow-and-applier.md A2-S5b) — the saga
@@ -106,10 +106,27 @@ function renderApplierStmt(s: StmtIR, indent: string): string {
       const value = renderTsExpr(s.value, ES);
       return `${indent}{ const __i = ${path}.findIndex((e) => e === (${value})); if (__i >= 0) ${path}.splice(__i, 1); }`;
     }
-    default:
+    // Every remaining `StmtIR` kind is refused: an applier is a PURE FOLD over
+    // the saga's own state.  Enumerated rather than left to a bare `default` so
+    // a new statement kind is a COMPILE error here (the `never` below) and has
+    // to be classified — fold-able or refused — instead of silently inheriting
+    // the refusal.
+    case "precondition":
+    case "requires":
+    case "let":
+    case "expression":
+    case "return":
+    case "emit":
+    case "call":
+    case "variant-match":
+    case "if":
       throw new Error(
         `es-workflow applier: unexpected statement kind '${s.kind}' (appliers are pure folds)`,
       );
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 
@@ -345,9 +362,4 @@ export function esHelperNames(wf: WorkflowIR): {
     append: `append${T}Events`,
     foldedSet: `${T}_FOLDED_EVENTS`,
   };
-}
-
-/** The slug used in the `event_unrouted` log (parity with the state path). */
-export function workflowSlug(wf: WorkflowIR): string {
-  return snake(wf.name);
 }

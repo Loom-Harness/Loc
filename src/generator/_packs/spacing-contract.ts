@@ -145,23 +145,3 @@ export const SPACING_CONTRACT = {
 } as const satisfies Record<string, SpacingRule>;
 
 export type SpacingConcern = keyof typeof SPACING_CONTRACT;
-
-/** The typography half of the contract — the `heading level:` ladder, in px.
- *  Included here (rather than in a second module) because it is measured the
- *  same way, by the same gate, and diverged for the same reason: one
- *  `heading level: 2` spanned 14px → 60px across four packs. */
-export const HEADING_SCALE_PX = {
-  1: 30,
-  2: 24,
-  3: 20,
-  4: 16,
-  5: 14,
-  6: 12,
-} as const;
-
-/** Font-size tolerance for the heading ladder, in px.  Wider than the spacing
- *  band because a library's heading sizes are rem-based and land on their own
- *  rounded steps (Mantine's h2 is 1.625rem = 26px against a 24px target); the
- *  band rejects the divergences that were actually found (14px, 60px) without
- *  forcing a pack off its own type scale. */
-export const HEADING_TOLERANCE_PX = 4;
