@@ -150,6 +150,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
             method: s.method,
           }),
           source: `${ctx.name}/${h.name}`,
+          origin: ctx.origin,
         });
       });
       for (const p of h.params) {
@@ -163,6 +164,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
               hName: h.name,
             }),
             source: `${ctx.name}/${h.name}`,
+            origin: ctx.origin,
           });
         }
       }
@@ -178,6 +180,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
         code: "loom.query-handler-saves",
         message: diagMessage("loom.query-handler-saves", { name: ctx.name, qName: q.name }),
         source: `${ctx.name}/${q.name}`,
+        origin: ctx.origin,
       });
     }
   }
@@ -196,6 +199,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
           touched: [...touched].sort().join(", "),
         }),
         source: `${ctx.name}/${c.name}`,
+        origin: ctx.origin,
       });
     }
   }

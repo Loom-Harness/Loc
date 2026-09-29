@@ -128,6 +128,7 @@ export function checkUnknownPageElements(
             ? diagMessage("loom.unknown-page-element#computed-callee")
             : diagMessage("loom.unknown-page-element", { where, name }),
         source: where,
+        origin: host.origin,
       });
     });
   }
@@ -168,6 +169,7 @@ export function checkSlotOutsideComponent(
         code: "loom.slot-outside-component",
         message: diagMessage("loom.slot-outside-component", { where }),
         source: where,
+        origin: page.origin,
       });
     });
   }
@@ -223,6 +225,7 @@ export function checkSubPrimitivePlacement(
               parents: [...parents].map((p) => `'${p}'`).join(" or "),
             }),
             source: where,
+            origin: host.origin,
           });
         }
       }
@@ -313,6 +316,7 @@ export function checkScaffoldFilterParams(
         aggregate: aggregateName,
       }),
       source: where,
+      origin: page.origin,
     });
   }
 }
@@ -373,6 +377,7 @@ export function checkOpFormRouteId(page: PageIR, diags: LoomDiagnostic[]): void 
           op: opName,
         }),
         source: pageWhere(page),
+        origin: page.origin,
       });
     });
   }
@@ -454,6 +459,7 @@ export function checkDestroyFormOf(
           code: "loom.destroy-form-of-unresolved",
           message: diagMessage("loom.destroy-form-of-unresolved#not-a-ref", { shape }),
           source: where,
+          origin: host.origin,
         });
         return;
       }
@@ -464,6 +470,7 @@ export function checkDestroyFormOf(
           code: "loom.destroy-form-of-unresolved",
           message: diagMessage("loom.destroy-form-of-unresolved#unresolved", { name: of.name }),
           source: where,
+          origin: host.origin,
         });
         return;
       }
@@ -475,6 +482,7 @@ export function checkDestroyFormOf(
             name: agg.name,
           }),
           source: where,
+          origin: host.origin,
         });
       }
     });
@@ -626,6 +634,7 @@ export function checkUnresolvedPageRefs(
           code: "loom.unresolved-page-ref",
           message: diagMessage("loom.unresolved-page-ref", { where, name: ref.name }),
           source: where,
+          origin: host.origin,
         });
       }
     });
@@ -693,6 +702,7 @@ export function checkInstanceEffectRouteId(
           route: page.route ?? "/",
         }),
         source: `page '${page.name}'`,
+        origin: page.origin,
       });
     });
   }
@@ -907,6 +917,7 @@ export function checkOfReadResolves(
           known: `'${read.aggregate}' exposes: ${readableOperations(finds).join(", ")}.`,
         }),
         source: where,
+        origin: host.origin,
       });
     });
   }

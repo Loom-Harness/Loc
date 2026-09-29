@@ -3,6 +3,23 @@
 exports[`ddd parse --json > golden: the bad model's diagnostics array is stable 1`] = `
 [
   {
+    "code": "loom.aggregate-not-constructible",
+    "message": "No code path can create a 'Order': it declares no 'create' (and no 'with crudish'), no workflow or commandHandler builds one, and it is not seeded or event-sourced. Its table can only ever be empty, so 'POST' is 405 and every read over it returns nothing. Add a 'create', give it 'with crudish', or say in a comment that it is populated out of band.",
+    "node": "Sales/Order",
+    "phase": "ir-validate",
+    "range": {
+      "end": {
+        "character": 3,
+        "line": 8,
+      },
+      "start": {
+        "character": 2,
+        "line": 5,
+      },
+    },
+    "severity": "warning",
+  },
+  {
     "code": "loom.bare-aggregate-in-type",
     "fixHint": {
       "kind": "replace-text",
@@ -34,13 +51,16 @@ exports[`ddd parse --json > golden: the bad model's diagnostics array is stable 
     "message": "No code path can create a 'Customer': it declares no 'create' (and no 'with crudish'), no workflow or commandHandler builds one, and it is not seeded or event-sourced. Its table can only ever be empty, so 'POST' is 405 and every read over it returns nothing. Add a 'create', give it 'with crudish', or say in a comment that it is populated out of band.",
     "node": "Sales/Customer",
     "phase": "ir-validate",
-    "severity": "warning",
-  },
-  {
-    "code": "loom.aggregate-not-constructible",
-    "message": "No code path can create a 'Order': it declares no 'create' (and no 'with crudish'), no workflow or commandHandler builds one, and it is not seeded or event-sourced. Its table can only ever be empty, so 'POST' is 405 and every read over it returns nothing. Add a 'create', give it 'with crudish', or say in a comment that it is populated out of band.",
-    "node": "Sales/Order",
-    "phase": "ir-validate",
+    "range": {
+      "end": {
+        "character": 3,
+        "line": 12,
+      },
+      "start": {
+        "character": 2,
+        "line": 10,
+      },
+    },
     "severity": "warning",
   },
 ]

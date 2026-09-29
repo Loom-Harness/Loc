@@ -75,6 +75,7 @@ export function validateWholeTableAggregationBackend(sys: SystemIR, diags: LoomD
               platform: d.platform,
             }),
             source: `${c.name}/${p.name}`,
+            origin: p.origin,
           });
         }
       }
@@ -109,6 +110,7 @@ export function validateGroupedProjectionBackend(sys: SystemIR, diags: LoomDiagn
             platform: d.platform,
           }),
           source: `${c.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
@@ -161,6 +163,7 @@ export function validateColumnlessProjectionSources(sys: SystemIR, diags: LoomDi
             reason,
           }),
           source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
@@ -220,6 +223,7 @@ export function validateDocumentAggregationFilters(sys: SystemIR, diags: LoomDia
             caps: caps.join(", "),
           }),
           source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
@@ -247,6 +251,7 @@ export function validatePagedQueryHandlerBackend(sys: SystemIR, diags: LoomDiagn
             platform: d.platform,
           }),
           source: `${c.name}/${h.name}`,
+          origin: c.origin,
         });
       }
     }
@@ -274,6 +279,7 @@ export function validateQueryTimeProjectionBackend(sys: SystemIR, diags: LoomDia
             platform: d.platform,
           }),
           source: `${c.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
@@ -318,6 +324,7 @@ export function validateWorkflowSourceProjectionBackend(
             platform: d.platform,
           }),
           source: `${c.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
@@ -361,6 +368,7 @@ export function validateProjectionSourceProjectionBackend(
             platform: d.platform,
           }),
           source: `${c.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
