@@ -32,6 +32,7 @@ import type {
   ColumnType,
   FKShape,
   IndexShape,
+  MigrationHistoryEntry,
   MigrationStep,
   MigrationsIR,
   SchemaSnapshot,
@@ -1937,6 +1938,57 @@ export function buildMigrations(
     }
   }
   const versionBlockOf = (name: string): number => versionBlocks.get(name) ?? 0;
+  // Global CREATION ORDINAL for migration-history entries (fleet-bug-hunt
+  // F-012).  Drizzle's runtime migrator is a watermark — it applies a journal
+  // entry only when `lastApplied.created_at < entry.when` — so the journal
+  // needs an ordering key that is stable per migration identity AND higher for
+  // every newly appended entry than for anything already applied.  `version`
+  // cannot supply one: versions are allocated in per-module blocks, so a delta
+  // in block 0 sorts below the *initial* of block 1 and disappears behind the
+  // watermark once that initial has run.  See `MigrationHistoryEntry.seq`.
+  //
+  // Resolved for every owner module up front, because allocating an ordinal for
+  // a new entry needs to see every ordinal already taken.  An entry that
+  // predates the field is backfilled from (version, module) order — the order
+  // the old journal already applied them in — so an existing project's recorded
+  // history keeps the same relative shape instead of being reshuffled.
+  const historySeq = new Map<string, number>();
+  const seqKey = (module: string, version: string, name: string): string =>
+    `${module}\u0000${version}\u0000${name}`;
+  let maxSeq = 0;
+  {
+    const legacy: { module: string; version: string; name: string }[] = [];
+    for (const name of ownerModules) {
+      const snap = snapshots.read(name);
+      if (snap === null) continue;
+      for (const e of snap.migrationHistory ?? []) {
+        if (e.seq === undefined) {
+          legacy.push({ module: name, version: e.version, name: e.name });
+          continue;
+        }
+        historySeq.set(seqKey(name, e.version, e.name), e.seq);
+        maxSeq = Math.max(maxSeq, e.seq);
+      }
+    }
+    // Backfill above every ordinal already recorded, so a partially-migrated
+    // snapshot set (some modules re-stamped, some not) cannot mint a duplicate.
+    legacy.sort((a, b) =>
+      a.version !== b.version
+        ? a.version < b.version
+          ? -1
+          : 1
+        : a.module < b.module
+          ? -1
+          : a.module > b.module
+            ? 1
+            : 0,
+    );
+    for (const e of legacy) historySeq.set(seqKey(e.module, e.version, e.name), ++maxSeq);
+  }
+  /** This module's history with every entry's ordinal resolved — recorded ones
+   *  kept verbatim, pre-`seq` ones carrying the backfill above. */
+  const withSeq = (module: string, history: readonly MigrationHistoryEntry[]) =>
+    history.map((e) => ({ ...e, seq: e.seq ?? historySeq.get(seqKey(module, e.version, e.name)) }));
   for (const m of sys.subdomains) {
     if (!m.migrationsOwner) continue;
     // Binding-aware saving-shape resolver: resolve each aggregate's
@@ -2110,14 +2162,22 @@ export function buildMigrations(
         ? {
             ...next,
             lastVersion: baseline?.lastVersion ?? next.lastVersion,
-            migrationHistory: prevHistory.length > 0 ? prevHistory : undefined,
+            // Like `versionBlock`, the resolved ordinals are stamped on EVERY
+            // snapshot write (the no-op one included), so a pre-`seq` project
+            // records its backfill on the first regen after this change rather
+            // than re-deriving it forever.
+            migrationHistory: prevHistory.length > 0 ? withSeq(m.name, prevHistory) : undefined,
             versionBlock,
             ...appliedField,
           }
         : {
             ...next,
             lastVersion: lastVersionAfter,
-            migrationHistory: [...prevHistory, { version, name }],
+            // The new entry is allocated ABOVE every ordinal already in use, so
+            // Drizzle's watermark cannot hide it behind an entry that has
+            // already been applied — which is what made the first real
+            // evolution of a multi-module system a silent no-op (F-012).
+            migrationHistory: [...withSeq(m.name, prevHistory), { version, name, seq: ++maxSeq }],
             versionBlock,
             ...appliedField,
           };

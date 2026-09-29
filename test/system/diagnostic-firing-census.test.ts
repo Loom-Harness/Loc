@@ -508,6 +508,23 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Two enums in one context declaring the same member, and a bare use with no
+  // expected type to resolve it — an untyped `let`.  First-wins would silently
+  // pick `OrderStatus` and lower a comparison between two different enums
+  // (F-022); the refusal is the honest answer.  The typed sites in the same
+  // aggregate stay silent, which is what makes this the ambiguous one.
+  "loom.ambiguous-enum-value": `
+system EnumAmbiguity {
+  subdomain S { context Billing {
+    enum OrderStatus   { Draft, Confirmed }
+    enum InvoiceStatus { Draft, Issued, Paid }
+    aggregate Invoice with crudish {
+      status: InvoiceStatus = Draft
+      label: string
+      operation touch() { let x = Draft  label := "x" }
+    }
+  } }
+}`,
   // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
   // Any other shape is refused by name (the operating org's id is not
   // derivable from a submitted path without a registry read).
@@ -2937,6 +2954,30 @@ system S {
   // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
   // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
   // so — the admin-only `find all` next to it is no protection at all.
+  // #3023: an invariant the Ecto changeset carrier can enforce on NEITHER path
+  // used to fall through both in silence — enforced at the domain floor on
+  // node/.NET/python/java and nowhere on elixir, at `0 error(s), 0 warning(s)`.
+  // `members` is a REFERENCE collection, whose join rows the repository writes
+  // after the changeset runs: the changeset would read `[]` and the rule would
+  // pass for every input, so it is reported rather than emitted as a check that
+  // cannot fail.
+  "loom.elixir-invariant-unenforced": `
+system S {
+  subdomain Shop { context Shop {
+    aggregate Order {
+      label: string
+      members: Member id[]
+      invariant members.count <= 6
+    }
+    aggregate Member { nick: string }
+    repository Orders for Order { }
+    repository Members for Member { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+
   "loom.default-deny-by-id-ungated": `
 system S {
   user { id: guid  role: string }
@@ -2951,6 +2992,36 @@ system S {
   storage pg { type: postgres }
   resource st { for: Vault, kind: state, use: pg }
   deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // F-004: `denyByDefault` + `persistedAs: eventLog`.  An event-sourced create
+  // cannot carry an ENFORCEABLE gate — its body renders into the domain `_init`,
+  // which has no principal in scope, so `loom.lifecycle-guard-event-sourced`
+  // refuses one outright.  Demanding a `requires` here was therefore an
+  // unsatisfiable error, and the two settings were mutually exclusive for any
+  // event-sourced aggregate with a creation endpoint: gate present → 1 error,
+  // gate absent → 1 error.  Now the honest warning, on the RECOURSE precedent
+  // the by-id arm above is built on.
+  "loom.default-deny-es-create-ungateable": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Ledger {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account {
+      find all(): Account[] requires currentUser.role == "admin"
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  resource el { for: Ledger, kind: eventLog, use: pg }
+  deployable api { platform: node contexts: [Ledger] dataSources: [st, el] serves: Api port: 3000 auth: required }
 }`,
 
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time

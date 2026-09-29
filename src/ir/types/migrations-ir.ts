@@ -286,6 +286,29 @@ export interface SchemaSnapshot {
 export interface MigrationHistoryEntry {
   version: string;
   name: string;
+  /** Global CREATION ORDINAL, allocated once when this entry is appended and
+   *  never recomputed (fleet-bug-hunt F-012).  It exists because Drizzle's
+   *  runtime migrator is a WATERMARK: it applies a journal entry only when
+   *  `lastApplied.created_at < entry.when`, so the journal's ordering key has
+   *  to be (a) stable per migration identity and (b) greater for every newly
+   *  appended entry than for anything already applied.
+   *
+   *  Neither holds for a key derived from `version`.  Versions are allocated in
+   *  per-module BLOCKS (`versionBlock` below), so they are NOT chronological: a
+   *  delta in module block 0 (`20260101500001`) sorts BELOW the initial
+   *  migration of module block 1 (`20260102000000`), and once that initial has
+   *  been applied the watermark hides the delta forever.  The positional key
+   *  this replaced (`epochMillis(version) + arrayIndex`) additionally renumbered
+   *  every later entry whenever one was inserted, so the journal stopped
+   *  agreeing with what the database recorded as applied.
+   *
+   *  A recorded ordinal fixes both: an entry keeps its ordinal for life, and a
+   *  newly appended one is allocated above every ordinal already in use.
+   *  Absent on snapshots that predate the field — the builder then backfills
+   *  deterministically from version order (the order the old journal used), so
+   *  existing projects keep a stable, same-shaped history.  Optional ⇒
+   *  `schemaVersion` stays 1; old snapshots read fine. */
+  seq?: number;
 }
 
 // Every delta step carries the Postgres `schema` of the relation it targets
@@ -303,7 +326,22 @@ export type MigrationStep =
   // Postgres/Ecto keep every FK constraint pointing at the table valid across
   // the rename, so no separate FK-retarget step is emitted.  Non-destructive.
   | { op: "renameTable"; from: string; to: string; schema?: string }
-  | { op: "addColumn"; table: string; schema?: string; column: ColumnShape; fk?: FKShape }
+  | {
+      op: "addColumn";
+      table: string;
+      schema?: string;
+      column: ColumnShape;
+      fk?: FKShape;
+      /** Render `ADD COLUMN IF NOT EXISTS`.  Set only by the LATE provenance
+       *  migration, which is re-derived from scratch on every generation rather
+       *  than diffed, so it can legitimately be re-applied against a database
+       *  that already carries some of its columns (see
+       *  `emitTypescriptProvenanceMigration`).  The diffed `MigrationsIR` steps
+       *  never set it — there a column that already exists is a derive bug, and
+       *  silently tolerating it would hide exactly the drift the
+       *  migrate-vs-create equivalence check exists to catch. */
+      ifNotExists?: boolean;
+    }
   | { op: "dropColumn"; table: string; schema?: string; name: string }
   | {
       op: "renameColumn";

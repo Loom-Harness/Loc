@@ -239,6 +239,25 @@ A string `.length` — in a domain rule, an invariant, a precondition, anywhere 
 
 `"😀X"` is therefore **2**, not 3: the astral character is one code point (two UTF-16 code units). Before this was pinned, node/.NET/java counted code units and accepted a value their own published `maxLength` forbade (`docs/audits/schemathesis-findings-2026-08.md`, F5).
 
+### Elixir: enforced or reported
+
+Four backends assert every invariant at a domain floor of their own (`_assertInvariants()` / `AssertInvariants()` / `_assert_invariants`), so any predicate the language admits is enforced. Elixir has no such floor — its carrier is the Ecto changeset, which has two paths: a native `validate_number` / `validate_length` / `validate_format` line for a message-less, unguarded single-field rule, and a custom `validate_invariants/1` for everything else, piped onto `base_changeset`, `update_changeset` and the operation-persist path.
+
+`validate_invariants/1` renders through the **same** expression renderer the operation and `derived` bodies use, so it covers cross-field comparisons, guarded rules (`… when …`), messaged rules, member reads, scalar intrinsics, collection ops and `derived` reads:
+
+```ddd
+invariant sku.trim().length > 0        // String.length(String.trim(data.sku))
+invariant lines.count > 0             // Enum.count(data.lines)
+invariant lines.any(l => l.qty > 0)   // Enum.any?(data.lines, …)
+invariant isBig == false              // the derived expression, INLINED
+```
+
+Two mechanics are worth knowing. A `derived` read is **inlined**, because an Ecto struct carries no computed field (`data.is_big` would be a missing key). A contained collection is normalised (`%Ecto.Association.NotLoaded{}` → `[]`) before it is read, since an unloaded containment means "no children" on both write paths.
+
+One shape is deliberately **not** enforced here: a **reference collection** (`X id[]`). Its join rows are written by the repository *after* the changeset runs, so the changeset would read an empty list and the rule would hold for every input — enforcement in name only, which is worse than none because it also looks enforced.
+
+That case, and anything else this carrier cannot evaluate (a `domainService` or resource call), raises **`loom.elixir-invariant-unenforced`** — a warning naming the aggregate, the invariant's source text and the specific reason. So on Elixir an invariant is either enforced or reported; it is never silently dropped. If you need a reported rule enforced, move it into an operation `precondition`, where the full aggregate is in scope, or host the context on another backend.
+
 ### The wire layer
 
 A non-private invariant is **also** projected to the request-validation layer the HTTP boundary runs *before* a command reaches the domain — so a malformed body is rejected as a 422, not a domain throw. It lands on the create **and** update request shapes of a constructible aggregate (one with a canonical `create`, e.g. via `crudish`). Simple single-field predicates lower to native validator constraints (`src/ir/validate/invariant-classify.ts` → `zod-refine.ts` / `dotnet/validator-emit.ts` / the Java `*Validator` / Pydantic `Field(...)`); anything the classifier can't reduce becomes a custom rule.
