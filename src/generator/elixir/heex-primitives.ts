@@ -1373,8 +1373,15 @@ export function renderAlert(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   return `<div class="alert ${alertVariant(color)}" role="alert"${testidAttr}>${titleEl}${message}</div>`;
 }
 
-/** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>` */
+/** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
+ *
+ *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
+ *  id?`), like the six JSX-family targets (`_walker/primitives/id-link.ts`):
+ *  an absent reference renders an em dash and no link, rather than
+ *  `~p"/locations/#{nil}"` — a link to `/locations/` (L1-E / E6, #2885).  A
+ *  REQUIRED reference stays byte-identical. */
 export function renderIdLink(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
+  let aggPascal = "";
   let aggName = "";
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
   const valueExpr = positionals[0];
@@ -1382,14 +1389,43 @@ export function renderIdLink(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
   for (let i = 0; i < expr.args.length; i++) {
     const name = expr.argNames?.[i];
     const arg = expr.args[i]!;
-    if (name === "of" && arg.kind === "ref") aggName = snake(plural(arg.name));
+    if (name === "of" && arg.kind === "ref") {
+      aggPascal = arg.name;
+      aggName = snake(plural(arg.name));
+    }
   }
   const testidAttr = testIdAttr(expr, ctx);
   if (aggName && valueExpr) {
     const idVal = renderExpr(valueExpr, { ...ctx, position: "template" });
-    return `<.link navigate={~p"/${aggName}/#{${idVal}}"}${testidAttr}>${valueHeex}</.link>`;
+    const link = `<.link navigate={~p"/${aggName}/#{${idVal}}"}${testidAttr}>${valueHeex}</.link>`;
+    if (!isOptionalReference(valueExpr, aggPascal, ctx)) return link;
+    return `<%= if ${idVal} do %>${link}<% else %><span${testidAttr}>—</span><% end %>`;
   }
   return `<span${testidAttr}>${valueHeex}</span>`;
+}
+
+/** Whether an `IdLink`'s value reads a field the model declares as an
+ *  OPTIONAL reference to `ofAggregate`.
+ *
+ *  The IR does not type a page body's record chain (a row binding's
+ *  `o.last_known_location` carries the placeholder `string`), and the HEEx
+ *  walk context carries no row-binding → aggregate map the way the JSX walker's
+ *  does.  So the member name is resolved against the model instead: the value
+ *  is optional when some aggregate or part declares a field of that name typed
+ *  `<ofAggregate> id?`.  A false positive only adds a guard whose else-arm never
+ *  runs; a value that is not a member read (a route param, a literal) is
+ *  treated as required, which is the output this primitive always emitted. */
+function isOptionalReference(valueExpr: ExprIR, ofAggregate: string, ctx: WalkContext): boolean {
+  if (valueExpr.kind !== "member" || !ofAggregate) return false;
+  const isOptionalRef = (t: TypeIR): boolean =>
+    t.kind === "optional" && t.inner.kind === "id" && t.inner.targetName === ofAggregate;
+  for (const agg of ctx.aggregatesByName.values()) {
+    const shapes = [agg.fields, ...agg.parts.map((p) => p.fields)];
+    for (const fields of shapes) {
+      if (fields.some((f) => f.name === valueExpr.member && isOptionalRef(f.type))) return true;
+    }
+  }
+  return false;
 }
 
 /** `FileLink(<file-ref>)` → a plain download anchor for a `File` field.  The

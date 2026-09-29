@@ -1956,6 +1956,9 @@ function renderWorkflowEventClauses(
       {:error, {_kind, detail}} when is_binary(detail) ->
         {:noreply, put_flash(socket, :error, detail)}
 
+      {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "${humanizeOp(wfSnake)} failed: #{inspect(reason)}")}
     end
