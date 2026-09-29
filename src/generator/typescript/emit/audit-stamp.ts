@@ -20,6 +20,10 @@
 
 import type { ContextStampIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import {
+  missingClaimMessage,
+  requiredClaimStampsAcross,
+} from "../../../ir/util/principal-stamp.js";
 import { lines } from "../../../util/code-builder.js";
 import { renderTsExpr } from "../render-expr.js";
 
@@ -119,6 +123,16 @@ export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
   // Each as a leading `, <field>: <value>` fragment so an empty set leaves the
   // spread (`{ ...row }`) clean — no dangling comma.
   const insertAssigns = [...insert.entries()].map(([f, e]) => `, ${f}: ${e.valueExpr}`).join("");
+  // F-018 — a claim-valued stamp into a NOT NULL column must REFUSE a principal
+  // whose claim is absent, rather than bind null and let the database raise an
+  // opaque 500.  Emitted before the row is assembled: after it, the null is
+  // already in the values and the guard is decoration.
+  const requiredInsert = requiredClaimStampsAcross(audited, "create");
+  const insertGuards = requiredInsert.flatMap((stamp) => [
+    `  if (currentUser.${stamp.claim} == null${stamp.claimIsString ? ` || currentUser.${stamp.claim} === ""` : ""}) {`,
+    `    throw new ForbiddenError(${JSON.stringify(missingClaimMessage(stamp))});`,
+    "  }",
+  ]);
   const updateAssigns = [...update.entries()].map(([f, e]) => `, ${f}: ${e.valueExpr}`).join("");
   const stripBinding =
     createOnly.length > 0
@@ -131,6 +145,7 @@ export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
     insertNeedsPrincipal || updateNeedsPrincipal
       ? `import type { User } from "../auth/user-types";`
       : null,
+    insertGuards.length > 0 ? `import { ForbiddenError } from "../domain/errors";` : null,
     "",
     "// Stamp a freshly-inserted row's audit columns from the ambient request",
     "// principal.  A non-request save (seed / system) has no context, so the row",
@@ -139,6 +154,7 @@ export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
     "  const ctx = requestContext();",
     "  if (!ctx) return row;",
     ...(insertNeedsPrincipal ? principalBinding : []),
+    ...insertGuards,
     `  return { ...row${insertAssigns} };`,
     "}",
     "",
