@@ -154,33 +154,82 @@ describe("If-Match: the generated client sends the precondition it promises", ()
 });
 
 // ---------------------------------------------------------------------------
-// The residual, pinned by name.
+// The two self-hosted frontends (#27).
 //
 // Feliz (F#/Elmish) and Flutter (Dart) do NOT ride the shared api module: each
-// builds its own HTTP calls, and neither keeps the loaded record in a query
-// cache the mutation can read — the Elmish `update` loop and Flutter's
-// `http.post(apiUri(...))` call sites take the route `id` and nothing else.
-// Wiring the precondition there means threading the loaded record through the
-// form seam, which is a larger change than this one and belongs with whoever
-// owns those emitters.
-//
-// Listed rather than silently skipped: a frontend that does not send the
-// precondition has a silent lost update, so the gap is a tracked number.
+// builds its own HTTP calls, and neither keeps a query cache the mutation can
+// read.  They used to be a named `DOES_NOT_SEND` waiver here — a silent lost
+// update on every `versioned` aggregate they edited.  Each now threads the
+// loaded record's version to the call site, so the rows below pin BOTH halves:
+// the api call that quotes it into the header, and the call site that supplies
+// the version of the record the page actually loaded (a header built from a
+// version nobody passes is the vacuous guard again, one hop along).
 // ---------------------------------------------------------------------------
-const DOES_NOT_SEND: Record<string, string> = {
-  feliz:
-    "Elmish: no query cache; the POST Cmd is built in `update` from the route id alone " +
-    "(`feliz/wire.ts` opPath). Needs the loaded record threaded through the form seam.",
-  flutter:
-    "Dart: `http.post(apiUri('/docs/$id/update'))` is built at the call site " +
-    "(`flutter/forms-emit.ts`, `riverpod-emit.ts`); the row is not in scope there.",
-};
 
-describe("If-Match: frontends that do not send it yet", () => {
-  it("is a closed, named list", () => {
-    expect(Object.keys(DOES_NOT_SEND).sort()).toEqual(["feliz", "flutter"]);
-    for (const [fw, why] of Object.entries(DOES_NOT_SEND)) {
-      expect(why.length, `${fw}: a waiver needs a reason`).toBeGreaterThan(40);
+const selfHosted = (platform: "feliz" | "flutter") => `
+system OccDemo {
+  subdomain S {
+    context C {
+      aggregate Doc with crudish, versioned {
+        title: string
+        body: string
+      }
+      repository Docs for Doc { }
     }
-  });
+  }
+${backend}
+  ui Web with scaffold(subdomains: [S]) { }
+  deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+}
+`;
+
+describe("If-Match: the self-hosted frontends send the loaded version", () => {
+  it("feliz: the update api fn quotes the version, and the submit arm passes the loaded one", async () => {
+    const files = await generateSystemFiles(selfHosted("feliz"));
+    const app = [...files].find(([p]) => p.endsWith("src/App.fs"))![1];
+    expect(app).toContain(
+      "let updateDoc (id: string) (ifMatch: string option) (form: UpdateDocOpForm)",
+    );
+    expect(app, "the entity-tag must be QUOTED (RFC 9110 §8.8.3)").toContain(
+      '|> (fun req -> match ifMatch with | Some v -> req |> Http.header (Headers.create "If-Match" (sprintf "\\"%s\\"" v)) | None -> req)',
+    );
+    // The version comes from the Model's byId read, and only when it is the
+    // record the route id addresses.
+    expect(app).toContain(
+      "  | SubmitUpdateDocOpForm id -> model, Cmd.OfAsync.perform (Api.updateDoc id (match model.DocById with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.version) | _ -> None)) model.UpdateDocOpForm UpdateDocOpDone",
+    );
+  }, 90_000);
+
+  it("flutter: the update form sends If-Match, and the detail page hands it the loaded version", async () => {
+    const files = await generateSystemFiles(selfHosted("flutter"));
+    const forms = [...files].find(([p]) => p.endsWith("lib/forms.dart"))![1];
+    expect(forms).toContain("  final int? expectedVersion;");
+    expect(forms).toContain(
+      "const UpdateDocForm({super.key, required this.id, this.expectedVersion});",
+    );
+    expect(forms, "the entity-tag must be QUOTED (RFC 9110 §8.8.3)").toContain(
+      "headers: {'Content-Type': 'application/json', if (widget.expectedVersion != null) 'If-Match': '\"${widget.expectedVersion}\"'},",
+    );
+    const detail = [...files].find(([p]) => p.endsWith("lib/pages/doc_detail_page.dart"))![1];
+    expect(detail).toContain("UpdateDocForm(id: id, expectedVersion: docById.version)");
+  }, 90_000);
+
+  it("the precondition rides the guarded write only (self-hosted)", async () => {
+    // Same rule as the JS clients: only `update` is preconditioned — .NET
+    // would otherwise guard writes the other four backends leave unguarded.
+    const withRename = (p: "feliz" | "flutter") =>
+      selfHosted(p).replace(
+        "        body: string\n",
+        "        body: string\n        operation rename(t: string) { title := t }\n",
+      );
+    const feliz = await generateSystemFiles(withRename("feliz"));
+    const app = [...feliz].find(([p]) => p.endsWith("src/App.fs"))![1];
+    expect(app).toContain("let renameDoc (id: string) (form: RenameDocOpForm)");
+    expect(app).toContain("(Api.renameDoc id) model.RenameDocOpForm");
+    const flutter = await generateSystemFiles(withRename("flutter"));
+    const forms = [...flutter].find(([p]) => p.endsWith("lib/forms.dart"))![1];
+    expect(forms).toContain("const RenameDocForm({super.key, required this.id});");
+    const detail = [...flutter].find(([p]) => p.endsWith("lib/pages/doc_detail_page.dart"))![1];
+    expect(detail).toContain("RenameDocForm(id: id)");
+  }, 90_000);
 });

@@ -13,8 +13,10 @@ import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
+import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, walk } from "../_walker/walker-core.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
@@ -33,6 +35,7 @@ import {
 import { fsIdent, isFsKeyword } from "./fs-ident.js";
 import { fsZeroValue } from "./type-fs.js";
 import {
+  actionThenMsg,
   byIdFieldName,
   type FelizFieldArray,
   type FelizFormField,
@@ -54,6 +57,22 @@ import {
   projectionFieldName,
   readFieldName,
 } from "./wire.js";
+
+/** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) —
+ *  declared by index.ts (`renderFelizActionToast`) only when a view calls it. */
+export const FELIZ_ACTION_TOAST = "actionToast";
+
+/** An `Action`'s `then:` effect as an F# `unit` expression, run by `update` once
+ *  the op's POST succeeds (M-FT.5).  `toast(<msg>)` shows the built-in toast;
+ *  anything else — `navigate(<Page>)` included — goes through the walker's
+ *  shared `emitActionThen`, exactly what the JSX frontends run, and is
+ *  `ignore`d so a value-typed expression still types as `unit`. */
+function felizActionThen(then: ExprIR, ctx: WalkContext): string {
+  if (then.kind === "call" && then.name === "toast" && then.args.length === 1) {
+    return `${FELIZ_ACTION_TOAST} (string (${emitExpr(then.args[0]!, ctx)}))`;
+  }
+  return `ignore (${emitActionThen(then, ctx)})`;
+}
 
 /** Msg case name for an action (`inc` → `Inc`). */
 function msgCase(action: string): string {
@@ -605,7 +624,15 @@ export const felizTarget: WalkerTarget = {
     }
     const action = felizAction(agg.name, op);
     ctx.usesRouteId = true; // the action dispatches with the route `id`
-    const button = `Html.button [ prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch (${action.triggerMsg} id)); prop.text "${action.label}" ]`;
+    // M-FT.5 — a `then:` effect rides the trigger as a closure (the collector
+    // marks the action `hasThen`, which declares the `…Then` Msg pair); `update`
+    // runs it once the POST succeeds.  Built HERE, where the QueryView binding
+    // the effect may read (`toast(n.title)`) is still in scope.
+    const thenArg = namedArgValue(call, "then");
+    const dispatched = thenArg
+      ? `${actionThenMsg(action)} (id, (fun () -> ${felizActionThen(thenArg, ctx)}))`
+      : `${action.triggerMsg} id`;
+    const button = `Html.button [ prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch (${dispatched})); prop.text "${action.label}" ]`;
     if (ctx.authUi) {
       const gate = opActionGate(op);
       if (gate) {
