@@ -135,6 +135,11 @@ function inlineDocuments(): InlineDoc[] {
 // ---------------------------------------------------------------------------
 const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why: string }[] = [
   {
+    file: "test/language/parsing/reserved-name-diagnostic.test.ts",
+    contains: "deployable {\n",
+    why: "a deployable with its name deleted, pinning the parse error's candidate list (keyword-sweep review)",
+  },
+  {
     file: "test/playground/builder-recovered-ast.test.ts",
     why: "its subject IS parse recovery — every fixture is a source mid-edit, and a parseable one would test nothing",
   },
