@@ -140,3 +140,75 @@ that silently moves comments is worse than none.
 which gives that census's file list a second job. Nothing here waits on
 [M-T9.51](T9-toolchain-health.md#m-t951): the gate it was going to widen landed
 as that census.
+
+## M-T8.26 — `ddd breakpoints` resolves FILES, not lines, for every declarative member — `open` · **L** · P2
+
+**The gap.** `ddd breakpoints <f.ddd> --line N` is documented as resolving a `.ddd` line to the
+generated `file:line(s)`. For **executable bodies** it does: an `operation` header resolves to the
+method's real line (the F-021 fix, commit `51943196`), and a statement inside one resolves to its own
+line, with columns on TS/Hono. For every **declarative member** — a property, an `invariant`, a
+`derived` field, a repository `find` — there is no region to resolve to, so the answer is the
+enclosing whole-file region: `<file>:1`, once per file the construct fanned out into. (A
+`valueobject` is worse still — see "a second, cheaper gap" below.) Evaluation finding **F-6**; re-measured on `main` @ `cbda9165` (PR #3074).
+
+**Diagnosed cause — the RECORDER, not the resolver** (evidence in #3074). `SourceMapRecorder`
+(`src/generator/_trace/sourcemap.ts`) has exactly two recording entry points: `file()`, which
+records one whole-file `[1, lineCount]` region, and `fragment()`, which layers statement-granular
+sub-regions onto one already-emitted fragment. All 15 `fragment()` call sites are executable bodies
+(operation bodies, workflow handlers, dispatch, components). **No declarative member is ever
+recorded.** On `examples/acme.ddd`: 171 regions over 134 files, 134 of them whole-file — exactly one
+per file; every one of the 37 fine regions is an `Agg.operation` or a workflow. On
+`examples/showcase.ddd` (272 files, 508 regions) all 17 distinct fine constructs are likewise
+operations or workflows, while 27 constructs appear *only* as whole-file regions. `.ddd:64`
+(a `sku: string` property) overlaps exactly 42 regions — 42 copies of the same
+`Products.Product` whole-aggregate region, target `[1,117]`. The resolver's enclosing-fallback rule
+(`src/dap/breakpoints.ts`) then correctly keeps them, because nothing line-local exists to prefer.
+Feeding the resolver a finer region is the whole job.
+
+**Why this is L, not S.** It is not one missing call. A declarative member's "generated location" is
+genuinely fan-out — that one property really is emitted into ~42 files (entity, DTO, create/update
+command + validator + handler, controller, repository, migration, test, frontend form and column …)
+across five backends and six frontends, each building its string independently through `lines(...)`
+with no statement/chunk structure to hang a sub-region on. And `fragment()`'s anchor discipline
+(exact text, recorded only when it occurs **exactly once** in the file) is a poor fit for
+one-line declarative emissions, which collide readily — `public string Sku { get; set; }` is not
+reliably unique, and a non-unique anchor is silently dropped by design. Expect either a
+per-emitter chunk/marks discipline like the one `statementSubRegions` gave the statement
+renderers, or an anchor primitive that takes an occurrence index instead of requiring uniqueness.
+
+**A second, cheaper gap found alongside it.** A `valueobject` is never `file()`-recorded at all:
+`Domain/ValueObjects/Money.cs` is emitted, but no map key exists for it, so *every* line of a
+valueobject — header, member, `invariant` — answers `No generated location maps to …` rather than
+`file:1`. That is a missing `file()` call per backend, not a granularity problem, and is very likely
+an **S** on its own. It is listed as slice 0 below because it is separable and worth landing first;
+it does NOT close the mission, and shipping it alone must not be reported as fixing F-6.
+
+**Suggested slicing** (each independently shippable, narrowest blast radius first):
+0. `file()`-record valueobject files on each backend that emits them, so a valueobject line at least
+   resolves to its file. Cheap; verify no other construct is silently unrecorded the same way.
+1. A member-anchor primitive on the recorder that survives non-unique text, with unit tests.
+2. Aggregate/valueobject **properties + invariants** on ONE backend (TS/Hono — it already carries
+   the marks machinery), proving the shape end to end through `ddd breakpoints`.
+3. Repository `find` declarations, same backend.
+4. Fan out 2–3 to .NET / Java / Python / Elixir.
+5. Frontend field-level regions (forms, table columns) — only if a consumer exists; see M-T8.2's
+   deferral rationale, which applies here too.
+
+**Gate (mutation-proved, per CLAUDE.md).** A test that generates with `--sourcemap` and asserts a
+property line resolves to a real generated line must FAIL when the new recorder call is reverted —
+the `:1` answer is exactly what a green-on-first-run check would keep reporting. Assert the
+resolved **line**, never just the file: the current bug is invisible to any assertion that only
+checks which file came back.
+
+**Related, deliberately NOT in scope.** **M-T8.2** (Sourcemap fan-out, above) is the
+orthogonal axis — column accuracy *within* an already-recorded statement region
+(`renderExprWithMarks`, TS/Hono only, 23 of showcase's 508 regions). This mission is about
+declarative members having no region at all; the two compose but neither blocks the other.
+
+**Sibling direction.** `ddd trace` shares the recorder and degrades the same way, but its contract
+tolerates it: a frame inside a generated property annotates to the enclosing aggregate — coarse,
+still honest. Verified in #3074. Fixing this mission sharpens `trace` for free.
+
+Sources: [source-map-and-debugging](../old/proposals/source-map-and-debugging.md) §5.2,
+[source-map-debug-kickoff](../old/plans/source-map-debug-kickoff.md) §2 (the
+"construct-granular by default" decision this mission revisits), [debugging.md](../debugging.md) §3.
