@@ -1353,3 +1353,69 @@ this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFou
 ```
 
 and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
+
+## M-T6.73 — An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is mounted OUTSIDE `/api` on four of five backends, and python wraps its scalar return — `done` · **S–M** · P1
+
+> **CLOSED 2026-09-27 — six emitter defects fixed, and `corpus/handler-triad`
+> drains on ALL FIVE behavioural legs with no waiver anywhere.**
+>
+> All five backends now serve an explicit route under `API_BASE_PATH` and answer
+> the handler's value unwrapped. Booting `corpus/handler-triad` one backend at a
+> time found **four more** defects beyond the two measured below — every one
+> invisible for the same reason, that a 404'ing route has no caller to see its
+> response:
+>
+> | fixed | where |
+> |---|---|
+> | the `/api` prefix | `.NET` `[Http*]` template (a leading slash is root-absolute, so a class-level `[Route]` would be ignored), each java `@*Mapping` (Spring always concatenates a class-level one), elixir's routes moved into `scope "/api"` |
+> | the `{"result": …}` envelope | python **and elixir** — elixir's surfaced only once its path was fixed |
+> | a bare `string` sent as `text/plain` | .NET (`StringOutputFormatter`) and java (`StringHttpMessageConverter`) |
+> | an int path param never coerced | elixir — Phoenix hands every segment over as a binary, so `Sum(a: int, b: int)` evaluated `"2" + "3"` and 500'd |
+>
+> **Booted proof**, each against a real Postgres: node (oracle, records the
+> golden), python, dotnet and java all pass with **0 wire divergences**; elixir's
+> e2e tier passes and all five routes answer `"hi"` / 5 / 0 / 42 / false.
+>
+> **`scaffoldApi` + `scaffoldHandlers` forced a scope decision.** Together they
+> synthesise one explicit handler per create/operation/find/get-by-id/destroy, so
+> the explicit route list becomes a 1:1 duplicate of the auto-derived REST surface
+> — measured on `vanilla-scaffold-handlers.ddd`, **all eight** explicit routes
+> shadow a derived route of the same method and path shape. Moving those under
+> `/api` puts two handlers on one slot, which elixir reports as a `mix compile
+> --warnings-as-errors` failure (an unreachable `do_match` clause), .NET as
+> `AmbiguousMatchException` and java as `Ambiguous handler methods mapped`. A
+> colliding route therefore keeps its historical root mounting, decided once in
+> `src/generator/_api/explicit-route-mount.ts` off `deriveContextOperations`; the
+> emitted scaffold tree is byte-identical, verified by tree diff on elixir and
+> java. The duplicate surface `scaffoldApi` emits is a **separate pre-existing
+> defect** (on node the scaffolded route is already unreachable).
+>
+> **What closed it — the probe, not an RS-rule.** The last four divergences were
+> the tier's malformed-body probe (`POST <collection>` with `"{not json"`) landing
+> on a POST this create-less `Order` does not serve. The probe's subject is the
+> BODY PARSER, and on an unserved POST it cannot reach the parser at all — it
+> measures whichever layer answers first, and the backends legitimately differ
+> there (node routes before reading the body → `405`; elixir parses at the
+> endpoint, `BodyParser` being plugged in `endpoint.ex` ahead of the router →
+> `400`). A probe that measures a different thing on each backend is not testing
+> its subject, so it now **steps aside** for a collection whose POST is not served
+> — the same step-aside its PATCH sibling already makes, derived from the CASE
+> (did the tier itself successfully POST there?) rather than from the response, so
+> every leg reaches the same verdict and the recordings keep the same length.
+>
+> **This deliberately did NOT settle the parse-vs-route ORDER.** Whether a server
+> should answer `405` before reading a body, or `400` after failing to parse one,
+> is a real contract question; both are RFC-legal, and it deserves its own mission
+> rather than being decided as a means to unblock a waiver. Nothing here rules on
+> it — the step-aside removes an ill-posed measurement, and an RS-rule can still
+> be minted later on its own merits.
+>
+> **Drained clean:** `BEHAVIOURAL_ABSENT` loses its row (ratchet 24 → 23, off
+> main's current value), the `test e2e` block is restored and the golden
+> re-recorded, and `getOrderById` / `cancelOrder` — the two routes the missing
+> create genuinely blocks — are pinned in `UNCALLED_PINS` under `R.noCreateRoute`.
+> **No per-backend waiver, no `BEHAVIOURAL_SKIP` entry, no wire waiver**, and
+> `gate-ledger`'s "compile-only on EVERY backend it declares" invariant untouched.
+> All five legs: **0 wire divergences**. The step-aside is scoped, not broad — 55
+> of 63 goldens still carry the probe answering `400` (reaching its actual
+> subject), and the whole node tier re-runs at 63 cases / 0 divergences.

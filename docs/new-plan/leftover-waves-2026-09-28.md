@@ -359,7 +359,7 @@ O1–O8 answered any time before the packet that needs them (defaults apply othe
 - #2938: CR1 batch 1
 - #2918: M-T5.35 create-input asymmetry
 
-**Refresh 2026-09-29** (`main` @ `cbda9165`, +10 merges; #2918 merging unblocks M-T9.26). **Merged since the snapshot:** #2918, #2943, #3023, #3043, #3048, #3049, #3059, #3062, #3064, #3067. #2918 closed M-T5.35 (archived by L0). Five PRs closed without merging; where their items went (verified from each PR's closing comment):
+**Refresh 2026-09-29** (`main` @ `cbda9165`, +10 merges; #2918 merging unblocks M-T9.26). **Merged since the snapshot:** #2918, #2943, #3023, #3043, #3048, #3049, #3059, #3062, #3064, #3067; later on 09-29, #3063 (soft keywords, so re-check V13 before L1-V2), #3040 (domainService params, so re-check V2), #3024 (M-T6.73 closed and archived), #2947 (F-017) and #3075. #2918 closed M-T5.35 (archived by L0). Five PRs closed without merging; where their items went (verified from each PR's closing comment):
 - **#2938 + #3051** → re-cut whole as **#3065** (open): CR1, the ir-walk waiver drain 111 → 43.
 - **#2966** → three of its fixes landed on `main` independently; the remaining three are carried by **#3066** (open).
 - **#2945** → fixed on `main` independently (python/elixir/java); the non-`.id` claim case is answered by the refusal `loom.find-where-not-queryable`; the remainder merged as **#3064**.

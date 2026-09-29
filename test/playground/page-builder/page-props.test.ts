@@ -214,7 +214,7 @@ describe("page builder — scalar prop add / replace / remove", () => {
 
   it("setPageRequires rejects a non-expression", () => {
     expect(setPageRequires(FULL, "Kitchen", "1 +")).toBeNull();
-    expect(setPageRequires(FULL, "Kitchen", "requires")).toBeNull();
+    expect(setPageRequires(FULL, "Kitchen", "let")).toBeNull();
   });
 
   it("setPageLayout writes a bare ref and rejects a non-identifier", () => {

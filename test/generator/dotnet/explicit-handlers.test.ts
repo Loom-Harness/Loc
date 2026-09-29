@@ -84,11 +84,15 @@ describe("dotnet — explicit commandHandler/queryHandler → Mediator", () => {
     const ctrl = fileEndingWith(await files(), "Api/SalesApiRoutesController.cs");
     expect(ctrl).toContain("public sealed class SalesApiRoutesController : ControllerBase");
     // command route: POST + wire-coerced id path param → new OrderId(...) → Send → Ok.
-    expect(ctrl).toContain('[HttpPost("/orders/{orderId}/cancellations")]');
+    // The template carries `/api` (M-T6.73): an explicit route is a DOMAIN route,
+    // so it serves under `API_BASE_PATH` like every other route class.  A leading
+    // slash makes an ASP.NET template root-absolute, so the prefix has to be IN
+    // the template — a class-level `[Route("api")]` would simply be ignored.
+    expect(ctrl).toContain('[HttpPost("/api/orders/{orderId}/cancellations")]');
     expect(ctrl).toContain("public async Task<IActionResult> CancelOrder(Guid orderId)");
     expect(ctrl).toContain("await _mediator.Send(new CancelOrderCommand(new OrderId(orderId)));");
     // query route: GET + Send → Ok(result).
-    expect(ctrl).toContain('[HttpGet("/orders/{orderId}/status")]');
+    expect(ctrl).toContain('[HttpGet("/api/orders/{orderId}/status")]');
     expect(ctrl).toContain("await _mediator.Send(new GetStatusQuery(new OrderId(orderId)));");
   });
 });
@@ -382,7 +386,7 @@ describe("dotnet — paged-run queryHandler over run(criterion)", () => {
 
   it("the controller action exposes [FromQuery] page/pageSize/sort/dir and dispatches the Query", async () => {
     const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "Api/ARoutesController.cs");
-    expect(ctrl).toContain('[HttpGet("/orders/projections/in_region")]');
+    expect(ctrl).toContain('[HttpGet("/api/orders/projections/in_region")]');
     expect(ctrl).toContain(
       "[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 1000000)] int page = 1",
     );

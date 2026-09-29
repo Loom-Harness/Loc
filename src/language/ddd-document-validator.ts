@@ -44,7 +44,12 @@ import {
   type ValidationOptions,
 } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
-import { refineParseErrorOffset, ruleParserOf, sourceTextOf } from "./parse-errors.js";
+import {
+  refineParseErrorOffset,
+  reservedDeclarationName,
+  ruleParserOf,
+  sourceTextOf,
+} from "./parse-errors.js";
 
 export class DddDocumentValidator extends DefaultDocumentValidator {
   private readonly coreServices: LangiumCoreServices;
@@ -91,7 +96,9 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
 
     const text = sourceTextOf(parseResult);
     if (!text) return;
-    const refined = refineParseErrorOffset(first, text, ruleParserOf(this.coreServices));
+    const refined =
+      refineParseErrorOffset(first, text, ruleParserOf(this.coreServices)) ??
+      reservedDeclarationName(first, text);
     if (!refined) return;
     const start = offsetToPosition(text, refined.offset);
     diagnostic.range = {
