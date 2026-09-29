@@ -547,8 +547,10 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // \`current_user\` in query` at COMPILE time.  It has to be interpolated, the
   // same way `param` / `enum-value` refs already are in this mode (`renderRef`).
   // Nil-safe, because the actor may be absent on an internal / unauthenticated
-  // read: a pinned `nil` matches no rows (Ecto binds `= NULL`, never `IS NULL`),
-  // so the read fails CLOSED instead of raising `KeyError` on `nil.id`.
+  // read: no `KeyError` on `nil.id`.  (Ecto's comparison with a bare pinned nil
+  // RAISES rather than matching nothing, so a comparison whose claim is declared
+  // `T?` renders through `renderEctoNullableComparison`, which binds via
+  // `type/2` and branches on nil explicitly.)
   //
   // This is the ONE place the pin is applied, so every Ecto read path gets it:
   // the derived capability/tenancy filters (`capability-filter.ts`) AND the
@@ -1402,6 +1404,10 @@ function renderBinary(
       return e.op === "==" ? `is_nil(${operand})` : `not is_nil(${operand})`;
     }
   }
+  if (ectoQuery) {
+    const nullAware = renderEctoNullableComparison(l, r, e);
+    if (nullAware !== null) return nullAware;
+  }
   // money / decimal operands cannot use the native `+`/`*`/`>` operators in
   // Elixir — both are `Decimal` structs.  Arithmetic dispatches through
   // `Decimal.add/2` / `mult/2` / `div/2`; comparisons go through
@@ -1473,6 +1479,68 @@ function renderBinary(
     return `rem(${l}, ${r})`;
   }
   return `${l} ${elOp} ${r}`;
+}
+
+/** The Elixir test that a NULLABLE comparison value is nil, or null when `e`
+ *  is not one.  A nullable value is a `currentUser.<claim>` declared `T?` or
+ *  a find parameter typed `T?` — the same two shapes the drizzle twin
+ *  (`repository-find-predicate.ts`, `isNullableValue`) branches on.  The claim
+ *  test also requires an actor, so an absent principal stays fail-closed
+ *  (its comparison `col == NULL` matches nothing) instead of reading the
+ *  NULL-column rows. */
+function ectoNilTest(x: ExprIR): string | null {
+  if (x.kind === "paren") return ectoNilTest(x.inner);
+  if (
+    x.kind === "member" &&
+    x.receiver.kind === "ref" &&
+    x.receiver.refKind === "current-user" &&
+    x.memberType.kind === "optional"
+  ) {
+    return `not is_nil(current_user) and is_nil(current_user.${snake(x.member)})`;
+  }
+  if (x.kind === "ref" && x.refKind === "param" && x.type?.kind === "optional") {
+    return `is_nil(${snake(x.name)})`;
+  }
+  return null;
+}
+
+/** A column read inside an Ecto query — `record.<field>` — the only shape
+ *  `type/2` accepts as its type-source argument. */
+const ECTO_FIELD_REF = /^[a-z_][A-Za-z0-9_]*\.[a-z_][A-Za-z0-9_]*$/;
+
+/** Null-aware comparison of a column against a NULLABLE pinned value inside an
+ *  Ecto query (eval B-A6a).  Ecto wraps every `^value` compared with
+ *  `==`/`!=`/`<`/… in `Ecto.Query.Builder.not_nil!/2`, so the plain
+ *  `record.col == ^(current_user && current_user.claim)` RAISED `ArgumentError`
+ *  ("comparison with nil is forbidden") the moment the claim was nil — a 500,
+ *  not the "no rows" the old comment promised.  Loom's semantics (the node
+ *  twin, #3085): `==` against null is `IS NULL`, `!=` is `IS NOT NULL`, an
+ *  ordering against null matches no row.
+ *
+ *  `type(^v, record.col)` casts the value to the column's Ecto type WITHOUT the
+ *  nil guard (the guard wraps only a bare `^` operand), so a nil value binds
+ *  SQL NULL; the `IS [NOT] NULL` arm is selected by a boolean the app computes
+ *  (`^(is_nil(v))`).  Returns null (caller keeps the plain comparison) for any
+ *  other shape. */
+function renderEctoNullableComparison(l: string, r: string, e: BinaryExpr): string | null {
+  if (!["==", "!=", "<", "<=", ">", ">="].includes(e.op)) return null;
+  const leftNil = ectoNilTest(e.left);
+  const rightNil = ectoNilTest(e.right);
+  // Exactly one side is the nullable value; the other must be a column.
+  if ((leftNil === null) === (rightNil === null)) return null;
+  const valueOnLeft = leftNil !== null;
+  const value = valueOnLeft ? l : r;
+  const col = valueOnLeft ? r : l;
+  if (!value.startsWith("^") || !ECTO_FIELD_REF.test(col)) return null;
+  const typed = `type(${value}, ${col})`;
+  const cmp = valueOnLeft
+    ? `${typed} ${elixirOp(e.op, false)} ${col}`
+    : `${col} ${elixirOp(e.op, false)} ${typed}`;
+  const nilTest = (leftNil ?? rightNil)!;
+  if (e.op === "==") return `((^(${nilTest}) and is_nil(${col})) or ${cmp})`;
+  if (e.op === "!=") return `((^(${nilTest}) and not is_nil(${col})) or ${cmp})`;
+  // An ordering against NULL is UNKNOWN in SQL — no row, as on node.
+  return cmp;
 }
 
 /** `DateTime.compare/2`-based order comparison (A5 temporal) — the datetime

@@ -756,7 +756,26 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       }
       const op = SQL_BINOP[e.op];
       if (!op) return refuseOutOfVocabulary("sql-dapper", `operator '${e.op}' in find`);
-      return `(${whereToSql(e.left, sqlCtx)} ${op} ${whereToSql(e.right, sqlCtx)})`;
+      const l = whereToSql(e.left, sqlCtx);
+      const r = whereToSql(e.right, sqlCtx);
+      // A NULLABLE comparison value — a `currentUser.<claim>` declared `T?` or
+      // a find parameter typed `T?` — compares null-aware (eval B-A6b, the
+      // node twin #3085): `col = @v` with a null `@v` is UNKNOWN and matched
+      // nothing, where Loom reads `==` against null as `IS NULL` and `!=` as
+      // `IS NOT NULL`.  An ordering against null matches no row everywhere,
+      // so only `==`/`!=` grow the null arm.  The parameter is reused, so
+      // Npgsql types the `@v IS NULL` test off the one binding.
+      if (
+        (e.op === "==" || e.op === "!=") &&
+        isNullableValue(e.left) !== isNullableValue(e.right)
+      ) {
+        const valueOnLeft = isNullableValue(e.left);
+        const value = valueOnLeft ? l : r;
+        const col = valueOnLeft ? r : l;
+        const nullArm = `${value} IS NULL AND ${col} IS ${e.op === "==" ? "" : "NOT "}NULL`;
+        return `(${l} ${op} ${r} OR (${nullArm}))`;
+      }
+      return `(${l} ${op} ${r})`;
     }
     case "method-call": {
       // `this.<refColl>.contains(x)` → EXISTS join subquery, the raw-SQL
@@ -817,7 +836,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       // `!this.flags.active`, which is also why the register's
       // `DAPPER_SUBSET = FULL_SUBSET` claim was wrong.
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this")
-        return sqlIdent(`${snake(e.receiver.member)}_${snake(e.member)}`);
+        return voLeafSql(snake(e.receiver.member), e.member, e.memberType);
       // `currentUser.<claim>` → a Dapper named parameter bound from the ambient
       // request principal (`RequestContext.Current!.CurrentUser!.<Claim>`).  The
       // caller (a capability `filter`) binds `@__cu_<claim>` into every SELECT's
@@ -855,6 +874,55 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     default:
       return refuseOutOfVocabulary("sql-dapper", `expression kind '${e.kind}' in find`);
   }
+}
+
+/** Whether a comparison operand is a NULLABLE value — a `currentUser.<claim>`
+ *  declared `T?` or a find parameter typed `T?` (the shapes the drizzle twin's
+ *  `isNullableValue` branches on). */
+function isNullableValue(x: ExprIR): boolean {
+  if (x.kind === "paren") return isNullableValue(x.inner);
+  if (x.kind === "member")
+    return (
+      x.receiver.kind === "ref" &&
+      x.receiver.refKind === "current-user" &&
+      x.memberType.kind === "optional"
+    );
+  return x.kind === "ref" && x.refKind === "param" && x.type?.kind === "optional";
+}
+
+/** `T` under any number of `optional` layers (a `T?` principal claim lowers as
+ *  a doubly-wrapped optional). */
+function stripOptional(t: TypeIR): TypeIR {
+  return t.kind === "optional" ? stripOptional(t.inner) : t;
+}
+
+/** A value-object leaf (`this.<vo>.<leaf>`) as Dapper SQL.  This adapter stores
+ *  the whole value object as ONE `jsonb` column (`fieldColumn`), serialised by
+ *  System.Text.Json with default options — so its keys are the C# property
+ *  names (`{"Amount":10.5,"Currency":"EUR"}`) and a strongly-typed id leaf is a
+ *  nested `{"Value":…}` object.  The leaf is therefore a jsonb text extraction,
+ *  cast back to the SQL type the leaf would have as a column so comparisons
+ *  and arithmetic behave as over a real column.  (It used to name the
+ *  flattened `<vo>_<leaf>` column the OTHER backends store — a `column does
+ *  not exist` 500 on the first call; the defect #3080 fixed for the
+ *  projection aggregates.)  An enum leaf is refused: default System.Text.Json
+ *  writes it as its ORDINAL, which neither an enum literal nor an enum
+ *  parameter (bound by name) can be compared against. */
+function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
+  const inner = stripOptional(leafType);
+  const col = sqlIdent(voColumn);
+  const key = upperFirst(leaf);
+  if (inner.kind === "id") {
+    const cast = idTypes(inner.valueType).sql;
+    const extract = `${col}->'${key}'->>'Value'`;
+    return cast === "text" ? `(${extract})` : `(${extract})::${cast}`;
+  }
+  if (inner.kind === "primitive") {
+    const cast = primTypes(inner.name).sql;
+    const extract = `${col}->>'${key}'`;
+    return cast === "text" || cast === "jsonb" ? `(${extract})` : `(${extract})::${cast}`;
+  }
+  return refuseOutOfVocabulary("sql-dapper", `value-object leaf of kind '${inner.kind}' in find`);
 }
 
 /** The `authz-filter` sentinels as raw Postgres SQL (M-T9.9 / M-T6.29).  A
@@ -973,9 +1041,12 @@ export interface FilterPrincipalRef {
 
 /** `${param} = ${base}.${claimProp}` fields for a `new { … }` / DynamicParameters. */
 export function principalFields(refs: readonly FilterPrincipalRef[], base: string): string[] {
-  return refs.map(
-    (r) => `${r.param} = ${r.valueExpr ? r.valueExpr(base) : `${base}.${r.claimProp}`}`,
-  );
+  return refs.map((r) => `${r.param} = ${principalValue(r, base)}`);
+}
+
+/** The C# value one principal ref binds, read off the accessor `base`. */
+function principalValue(r: FilterPrincipalRef, base: string): string {
+  return r.valueExpr ? r.valueExpr(base) : `${base}.${r.claimProp}`;
 }
 
 /** Collect the distinct `currentUser.<claim>` references across the given
@@ -992,8 +1063,23 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
   const add = (ref: FilterPrincipalRef): void => {
     if (!byParam.has(ref.param)) byParam.set(ref.param, ref);
   };
-  const addClaim = (member: string): void =>
-    add({ param: currentUserParam(member), claimProp: upperFirst(member) });
+  const addClaim = (member: string, type?: TypeIR): void => {
+    const claimProp = upperFirst(member);
+    // An id-typed claim is the strongly-typed id struct on `User`, which Dapper
+    // has no handler for ("cannot be used as a parameter value") — bind its
+    // wrapped `.Value`, exactly as an id-typed find parameter does.
+    const inner = type ? stripOptional(type) : undefined;
+    if (inner?.kind === "id") {
+      const nav = type?.kind === "optional" ? "?." : ".";
+      add({
+        param: currentUserParam(member),
+        claimProp,
+        valueExpr: (base) => `${base}.${claimProp}${nav}Value`,
+      });
+      return;
+    }
+    add({ param: currentUserParam(member), claimProp });
+  };
   // Claim ACCESSES a parent node has already bound under a different parameter.
   // `walkExprDeep` visits the parent first and then descends regardless of what
   // the visitor did, so without this the self-scope comparison's claim operand
@@ -1010,7 +1096,7 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
         e.receiver.kind === "ref" &&
         e.receiver.refKind === "current-user"
       ) {
-        if (!consumed.has(e)) addClaim(e.member);
+        if (!consumed.has(e)) addClaim(e.member, e.memberType);
         return;
       }
       // The hierarchical-tenancy subtree sentinel reads TWO principal claims
@@ -1641,7 +1727,8 @@ export function renderDapperRepository(
       // the `@<name>` SQL parameter); the verbatim `@` prefix is only the C#
       // identifier escape, so both halves take it (F2-ADP-7).
       const n = escapeCsharpIdent(p.name);
-      if (pt.kind === "id") return `${n} = ${n}.Value`;
+      if (pt.kind === "id")
+        return p.type.kind === "optional" ? `${n} = ${n}?.Value` : `${n} = ${n}.Value`;
       if (pt.kind === "enum") {
         return p.type.kind === "optional" ? `${n} = ${n}?.ToString()` : `${n} = ${n}.ToString()`;
       }
@@ -1852,14 +1939,14 @@ export function renderDapperRepository(
       ...r.params.map((p) => {
         const pt = p.type.kind === "optional" ? p.type.inner : p.type;
         const n = escapeCsharpIdent(p.name);
-        const val = pt.kind === "id" ? `${n}.Value` : n;
+        const val = pt.kind === "id" ? `${n}${p.type.kind === "optional" ? "?." : "."}Value` : n;
         return `        p.Add("${p.name}", ${val});`;
       }),
       // Principal params (`__cu_<claim>`) — the spliced capability filter's refs
       // plus any the retrieval's own `where` carries — bound from the ambient
       // request principal (the retrieval method takes no `currentUser` param).
       ...dedupPrincipalRefs([...filterPrincipalRefs, ...collectFilterPrincipalRefs([r.where])]).map(
-        (pr) => `        p.Add("${pr.param}", ${AMBIENT_CURRENT_USER}.${pr.claimProp});`,
+        (pr) => `        p.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
       ),
     ];
     return lines(
