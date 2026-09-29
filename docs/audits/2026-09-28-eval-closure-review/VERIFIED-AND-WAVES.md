@@ -41,22 +41,22 @@ Machine-readable results, with evidence and fix sketches, are in [`reverified-it
 | #2949, #3040 | primitive-receiver member reads; domainService env | open — #9 stacks on them |
 | M-T3.10 | #42b `can_*` for `requires` gates | live mission |
 
-## Decisions needed before a fix (with the default I would take)
+## Rulings (owner, 2026-09-29)
 
-| # | question | recommended default |
+| # | question | ruling |
 |---|---|---|
-| D1 (#3) | A reactor has no request principal. What does a gated op called from a reactor do? | **Refuse** at phase ⑦ with `loom.reactor-gated-op`: "call an ungated internal op, or gate the emitter" |
-| D2 (#6) | Target-language reserved member names (`def`, `class`, `assertInvariants`) | **Escape** in Python through one ident funnel (wire alias kept, mirroring Java M-T6.36); **rename** the .NET private helper. Refusal only for names no backend can alias |
-| D3 (#13) | Kafka consumer start offset | `earliest` for a new group when `retention: work`; keep `latest` for `log` |
-| D4 (#20) | 403 detail echoes the gate predicate | Constant `"Forbidden"` plus a policy-decision id; predicate goes to the server log only |
-| D5 (#22) | `denyByDefault` leaves the auto-`findAll` list route open | **Warning** `loom.default-deny-list-ungated`, same tier as the by-id warning |
-| D6 (#23) | Malformed dev-claims header | **400** on all five dev stubs |
-| D7 (#17) | Param/let named like a `resource` | Params and lets **shadow** resource handles (lexical scoping) |
-| D8 (#38) | ICU `plural`/`select` in backend domain code | **Warning** now (`loom.interp-format-dropped-in-domain`); rendering stays a mission |
-| D9 (#39) | Cross-context policy | Named diagnostic `loom.policy-out-of-scope` now; sharing stays a mission |
-| D10 (#15d) | Python message for a message-less rule | Use the same synthesized message node emits (wire parity) |
-| D11 (#37, #47) | `npx ddd` naming; README "No drift / Identical contracts" | Print the invocation that actually ran; qualify both README claims with a link to the unsupported register |
-| D12 (#25, #40b, #43b, #41, #42a, M-FT.24 union wire) | Lockfiles; stale-pin detector; event/equality matchers; aggregate move; multi-resource; union wire shape | **Mission only**, no build in these waves |
+| D1 (#3) | A reactor has no request principal. What does a gated op reached from a reactor do? | **Reactors run as a `system` principal, tenant-scoped, and gates are evaluated against it.** <br>• **The principal:** `{isSystem: true, tenant: the triggering event's tenant, causedBy: the originating user id}`. `causedBy` is for audit and logs only. <br>• **Gates:** evaluated normally. A gate that can pass for system must say so, e.g. `requires currentUser.isSystem or …`. <br>• **Warning:** a reactor that reaches a gate system can never satisfy gets a compile-time warning. <br>• **Tenancy:** filters and stamps use the event's tenant, so the channel envelope must carry it. <br>• **Timers:** they have no tenant, so a tenant-owned read from a timer needs an explicit `crossTenant`. <br>• **Language surface:** add `currentUser.isSystem`. |
+| D2 (#6) | Target-language reserved member names | **Escape per backend.** Python gets one ident funnel that keeps the wire and DB names (pydantic alias, `mapped_column` name), mirroring Java M-T6.36. .NET renames its private helper. |
+| D3 (#13) | Kafka consumer start offset | **`earliest` for a new group on work queues** (`retention: work` / `delivery: queue`). `retention: log` keeps `latest`. |
+| D4 (#20) | 403 detail echoes the gate predicate | **Echo in dev only:** the predicate stays in the body under dev-stub auth; otherwise the body is a constant `Forbidden` and the predicate goes to the server log. |
+| D5 (#22) | `denyByDefault` leaves the auto-`findAll` list route open | **Warning** `loom.default-deny-list-ungated`, same tier as the by-id warning. |
+| D6 (#23) | Malformed dev-claims header | **400** on all five dev stubs. |
+| D7 (#17) | Param/let named like a `resource` | **Params and lets shadow** resource handles (lexical scoping). |
+| D8 (#38) | ICU `plural`/`select` in backend domain code | **Warning now** (`loom.interp-format-dropped-in-domain`); rendering becomes a mission. |
+| D9 (#39) | Cross-context policy | **Clear diagnostic now** (`loom.policy-out-of-scope`); sharing becomes a mission. |
+| D10 (#15d) | Python message for a message-less rule | **Match node's synthesized message** (wire parity; the regex never leaves the server). |
+| D11 (#37, #47) | `npx ddd` naming; README claims | **Print the invocation that actually ran**, and qualify both README claims with a link to the unsupported register. |
+| D12 | Lockfiles, stale-pin detector, event/equality matchers, aggregate move, multi-resource, union wire shape | **Mission only.** |
 
 ## Waves
 
@@ -100,9 +100,9 @@ Agents inside a wave touch **disjoint files**. Cross-wave order follows file con
 
 | agent | items | decision | waits on |
 |---|---|---|---|
-| C1 | #3 reactor gated-op refusal | D1 | #3066 |
+| C1 | #3 reactors run as a tenant-scoped `system` principal: `currentUser.isSystem`, tenant carried in the event envelope, a warning for unsatisfiable gates, `crossTenant` for timers (all five backends; a language-feature-developer slice) | D1 | #3066 |
 | C2 | #6 target reserved words (Python funnel, .NET helper) | D2 | — |
-| C3 | #20 403 detail; #22 list-route warning; #23 dev-claims 400; #26 demo tenant seed + permissions attr; #39 `loom.policy-out-of-scope` | D4–D6, D9 | #3065 (`auth-emit.ts`) |
+| C3 | #20 403 detail (echo in dev only); #22 list-route warning; #23 dev-claims 400; #26 demo tenant seed + permissions attr; #39 `loom.policy-out-of-scope` | D4–D6, D9 | #3065 (`auth-emit.ts`) |
 | C4 | #13 Kafka offset, all five backends + channels-e2e-kafka proof | D3 | — |
 | C5 | #15d Python message-less rule message | D10 | — |
 | C6 | #38 ICU-drop warning; #37 `ddd new` invocation; #47 README claims | D8, D11 | — |
