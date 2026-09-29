@@ -24,14 +24,7 @@ import {
   isAggregate,
   isBoundedContext,
   isDeployable,
-  isEnumDecl,
-  isEventDecl,
-  isPage,
-  isRepository,
-  isSubdomain,
-  isSystem,
   isValueObject,
-  isWorkflow,
   type Model,
 } from "./generated/ast.js";
 import { addressOf, isAddressable } from "./print/outline.js";

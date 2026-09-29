@@ -1246,6 +1246,20 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // An `oidc { … }` block with no `audience:` — the verifier then validates
+  // signature / iss / exp and accepts ANY token that issuer minted, for any of
+  // its clients.  Warning, not error: single-client deployments are legitimate
+  // and every backend can still be switched on with OIDC_AUDIENCE at deploy
+  // time.  What was not legitimate is the silence (CR1-b / P0-4).
+  "loom.auth-oidc-no-audience": `
+system S {
+  user { id: string }
+  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
+
   // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
   // (the detector wants the whole chain), so no read port is threaded in and
   // every backend emits the bare repository name.
@@ -2643,6 +2657,33 @@ system P {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // A page `requires` gate outside the closed, client-evaluable subset every
+  // JS/F#/Dart gate renderer implements — a CONVERSION, the same shape that
+  // catches the toast gate above.  Without this gate the model reports
+  // `0 error(s), 0 warning(s)` and then aborts `ddd generate system` with a raw
+  // `Error: UI gate: expression kind 'convert' is not supported in a UI gate`
+  // from `renderGateExpr` / `renderFelizGate` / `renderFlutterGate`.
+  "loom.ui-gate-expr-unsupported": `
+system P {
+  user { id: guid  role: string }
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      requires string(currentUser.role) == "admin"
+      body: Stack { Heading { "home" } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
 }`,
 
   // `display`/`inspect` are reserved derived names that only mean something on

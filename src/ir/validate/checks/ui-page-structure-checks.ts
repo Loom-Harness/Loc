@@ -532,8 +532,34 @@ function directlyRenderedRefs(e: ExprIR, out: Extract<ExprIR, { kind: "ref" }>[]
       directlyRenderedRefs(e.then, out);
       directlyRenderedRefs(e.otherwise, out);
       return;
-    default:
+    // Every remaining kind STOPS the descent, deliberately — see the note
+    // above: a receiver-rooted shape (`member` / `method-call` / a nested
+    // `call`) roots at an `unknown` ref BY DESIGN (an enum name, an api
+    // handle) and is resolved by the member walk, not by this ref gate.  The
+    // rest are leaves or carry no ref a slot renders directly.  Enumerated
+    // rather than left to a `default:` so a new `ExprIR` kind is a decision
+    // someone makes here, not a silent non-descent.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
       return;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+    }
   }
 }
 

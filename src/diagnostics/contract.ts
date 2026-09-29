@@ -110,9 +110,6 @@ export interface OutlineDecl {
   members: string[];
 }
 
-/** @deprecated alias of {@link OutlineDecl} kept for back-compat. */
-export type OutlineAggregate = OutlineDecl;
-
 export interface OutlineContext {
   name: string;
   aggregates: OutlineDecl[];

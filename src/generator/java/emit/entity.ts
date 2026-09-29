@@ -16,6 +16,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
@@ -984,11 +985,23 @@ export function renderJavaEntity(
     const claimAssign = (s: { field: string; value: ExprIR }): string =>
       `        this.${s.field} = ${renderJavaExpr(s.value, renderCtx)};`;
     const updateClaims = claimStamps.filter((s) => !s.createEvent);
+    // F-018 — refuse a principal whose claim is absent BEFORE assigning.  After
+    // the assignment the null is on the entity and the NOT NULL violation is
+    // Hibernate's to report at flush, as an opaque 500.
+    const claimGuards = (event: "create" | "update"): string[] =>
+      isAgg(entity)
+        ? requiredClaimStamps(entity, event).flatMap((stamp) => [
+            `        if (currentUser.${stamp.claim}() == null${stamp.claimIsString ? ` || currentUser.${stamp.claim}().isEmpty()` : ""}) {`,
+            `            throw new ForbiddenException(${JSON.stringify(missingClaimMessage(stamp))});`,
+            `        }`,
+          ])
+        : [];
     claimStampHookLines.push(
       ...(plainStampHooks ? [] : [`    @PrePersist`]),
       `    void _stampOnCreate() {`,
       `        var currentUser = CurrentUserAccessor.currentOrNull();`,
       `        if (currentUser == null) return;`,
+      ...claimGuards("create"),
       ...claimStamps.map(claimAssign),
       `    }`,
       ``,
@@ -999,6 +1012,7 @@ export function renderJavaEntity(
         `    void _stampOnUpdate() {`,
         `        var currentUser = CurrentUserAccessor.currentOrNull();`,
         `        if (currentUser == null) return;`,
+        ...claimGuards("update"),
         ...updateClaims.map(claimAssign),
         `    }`,
         ``,

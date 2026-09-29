@@ -26,8 +26,6 @@ import {
   collectionOpOnBinding,
   collectionOpSite,
   FRONTEND_RENDERED_COLLECTION_OPS,
-  isCollectionReceiver,
-  isCollectionType,
   pagedEnvelopeLambdaParam,
   rowSetLambdaParam,
 } from "../../util/collection-op-site.js";
