@@ -16,20 +16,41 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** Visit every workflow statement in `stmts`, descending into the nested
- *  bodies of `for-each` / `if-let` so a mutation buried in a branch is seen. */
+ *  bodies of `for-each` / `if-let` so a mutation buried in a branch is seen.
+ *  Rides `walkWorkflowStmtsDeep` — the hand-rolled twin it replaces named the
+ *  two nesting kinds inline, which is exactly the copy that goes stale the day
+ *  a third one lands. */
 function forEachStmtDeep(stmts: WorkflowStmtIR[], fn: (s: WorkflowStmtIR) => void): void {
-  for (const s of stmts) {
-    fn(s);
-    if (s.kind === "for-each") forEachStmtDeep(s.body, fn);
-    else if (s.kind === "if-let") {
-      forEachStmtDeep(s.thenBody, fn);
-      forEachStmtDeep(s.elseBody ?? [], fn);
-    }
-  }
+  for (const s of stmts) walkWorkflowStmtsDeep(s, fn);
 }
+
+/** Does a workflow statement of this kind MUTATE — write state, create, delete,
+ *  raise an event, or dispatch a command?
+ *
+ *  An exhaustive table rather than an `||` chain of `kind ===` tests: a new
+ *  `WorkflowStmtIR` kind must be RULED ON here (`tsc` refuses a missing key)
+ *  instead of defaulting to "read-only", which is the answer that makes
+ *  `loom.query-handler-mutates` stop firing. */
+const MUTATING_WORKFLOW_STMT = {
+  assign: true,
+  "domain-service-call": true,
+  emit: true,
+  "factory-let": true,
+  "op-call": true,
+  "repo-delete": true,
+  "expr-let": false,
+  "for-each": false,
+  "if-let": false,
+  precondition: false,
+  "repo-let": false,
+  "repo-run": false,
+  requires: false,
+  "resource-call": false,
+} as const satisfies Record<WorkflowStmtIR["kind"], boolean>;
 
 /** True when a handler body performs any mutation — a save (an aggregate
  *  dirty at exit), an aggregate op-call, a factory create, an emitted event, a
@@ -38,16 +59,7 @@ function handlerMutates(h: CommandHandlerIR | QueryHandlerIR): boolean {
   if (h.savesAtExit.length > 0) return true;
   let mutates = false;
   forEachStmtDeep(h.statements, (s) => {
-    if (
-      s.kind === "emit" ||
-      s.kind === "factory-let" ||
-      s.kind === "op-call" ||
-      s.kind === "repo-delete" ||
-      s.kind === "assign" ||
-      s.kind === "domain-service-call"
-    ) {
-      mutates = true;
-    }
+    if (MUTATING_WORKFLOW_STMT[s.kind]) mutates = true;
   });
   return mutates;
 }
@@ -71,6 +83,23 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "for-each":
         aggs.add(s.varAggName);
         break;
+      // The kinds that name no aggregate: the two guards, a pure `let`, an
+      // own-state write, an event, a resource call and a domain-service call
+      // (whose aggregates are reached through its argument expressions, not a
+      // statement field).  Named rather than left to a fall-through so a new
+      // `WorkflowStmtIR` kind that DOES carry one is a `tsc` error here.
+      case "precondition":
+      case "requires":
+      case "expr-let":
+      case "assign":
+      case "emit":
+      case "resource-call":
+      case "domain-service-call":
+        break;
+      default: {
+        const _exhaustive: never = s;
+        void _exhaustive;
+      }
     }
   });
   aggs.delete("");

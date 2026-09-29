@@ -18,7 +18,6 @@ import {
   isBoundedContext,
   isChannel,
   isComponent,
-  isContainment,
   isDomainService,
   isEntityPart,
   isEnumDecl,
@@ -511,15 +510,6 @@ export function enclosingAggregate(node: AstNode | undefined): Aggregate | undef
   return undefined;
 }
 
-export function enclosingEntityPart(node: AstNode | undefined): EntityPart | undefined {
-  let cur: AstNode | undefined = node;
-  while (cur) {
-    if (isEntityPart(cur)) return cur;
-    cur = cur.$container;
-  }
-  return undefined;
-}
-
 function localParts(agg: Aggregate): EntityPart[] {
   const out: EntityPart[] = [];
   for (const m of agg.members) {
@@ -535,10 +525,4 @@ export function getModel(node: AstNode | undefined): Model | undefined {
     cur = cur.$container;
   }
   return undefined;
-}
-
-export function isContainmentRef(
-  node: AstNode | undefined,
-): node is import("./generated/ast.js").Containment {
-  return !!node && isContainment(node);
 }

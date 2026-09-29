@@ -729,12 +729,13 @@ function renderVanillaRouter(
   liveRoutes: LiveRoute[] = [],
   hasEmbeddedSpa = false,
 ): string {
-  // Routes prefixed with `!root:` (e.g. the OpenAPI spec endpoint) sit OUTSIDE
-  // the `/api` scope so they're served at the router root (cross-backend
-  // alignment: every backend serves `/openapi.json`).  They still pipe through
-  // `:api` for JSON content negotiation — the Auth plug there already bypasses
-  // `/openapi.json`, so they stay reachable without a token.  Bare paths splice
-  // into `scope "/api"` as before.
+  // Routes prefixed with `!root:` (e.g. the OpenAPI spec endpoint, the `/files`
+  // object-store pair, and an explicit route whose `/api` slot an auto-derived
+  // aggregate route already occupies) sit OUTSIDE the `/api` scope so they're
+  // served at the router root (cross-backend alignment: every backend serves
+  // `/openapi.json`).  They still pipe through `:api` for JSON content
+  // negotiation — the Auth plug there already bypasses `/openapi.json`, so they
+  // stay reachable without a token.  Bare paths splice into `scope "/api"`.
   const rootApiRoutes = apiRoutes.filter((r) => r.path.startsWith("!root:"));
   // `!sse:` — the realtime SSE stream (channels.md Part I).  It CANNOT ride the
   // `:api` pipeline: `plug :accepts, ["json"]` answers 406 to the
@@ -742,9 +743,16 @@ function renderVanillaRouter(
   // `:sse` pipeline at the router root instead (the path already carries the
   // `/api` prefix, so the served URL is unchanged from the other backends').
   const sseRoutes = apiRoutes.filter((r) => r.path.startsWith("!sse:"));
-  const scopedApiRoutes = apiRoutes.filter(
+  // `first` routes lead the `/api` scope.  Phoenix matches in declaration order
+  // and the explicit-route emitter runs after the per-aggregate one, so a
+  // user-declared `GET /api/orders/describe` appended behind the derived
+  // `GET /api/orders/:id` would never match.  A stable partition, so every
+  // other route keeps its insertion order and the emitted router is unchanged
+  // for a system with no `first` route.
+  const scoped = apiRoutes.filter(
     (r) => !r.path.startsWith("!root:") && !r.path.startsWith("!sse:"),
   );
+  const scopedApiRoutes = [...scoped.filter((r) => r.first), ...scoped.filter((r) => !r.first)];
   const routeLines = withStaticSubpathGuards(scopedApiRoutes)
     .map((r) =>
       r.guard

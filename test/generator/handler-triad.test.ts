@@ -67,9 +67,13 @@ describe("A — .NET emits a handler that touches no aggregate", () => {
 
   it("routes both through the api controller (the route used to vanish too)", async () => {
     const ctrl = fileEndingWith(await files("dotnet"), "Api/ARoutesController.cs");
-    expect(ctrl).toContain('[HttpPost("/echo/{text}")]');
+    // Templates carry `/api` (M-T6.73): an explicit route is a DOMAIN route and
+    // serves under `API_BASE_PATH`, which is the path the emitted `test e2e`
+    // caller requests.  A leading slash makes an ASP.NET template root-absolute,
+    // so the prefix has to be in the template itself.
+    expect(ctrl).toContain('[HttpPost("/api/echo/{text}")]');
     expect(ctrl).toContain("await _mediator.Send(new EchoCommand(text));");
-    expect(ctrl).toContain('[HttpGet("/sum/{a}/{b}")]');
+    expect(ctrl).toContain('[HttpGet("/api/sum/{a}/{b}")]');
     expect(ctrl).toContain("await _mediator.Send(new SumQuery(a, b));");
     // The neutral namespace is imported, not the (non-existent) per-aggregate one.
     expect(ctrl).toContain("using D.Application.Handlers;");
