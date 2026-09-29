@@ -30,8 +30,21 @@
 //           `ship_to_line1` / `ship_to_geo_lat` / `ship_to_geo_lng`.
 //   java    correct — `@AttributeOverride(name = "line1", column = @Column(name
 //           = "ship_to_line1"))`, nested path overridden the same way.
-//   elixir  free by construction — a VO is one `:map` (jsonb) cell there, so
-//           there is no flattening to get wrong.  Carried as the contrast.
+//   elixir  BROKEN TOO, by the SAME root cause as python.
+//           `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and
+//           defines neither `serialize_addr/1` nor the nested `serialize_geo/1`,
+//           while the OWNING context's `person_controller.ex` defines both —
+//           `** (CompileError) undefined function serialize_addr/1`, so
+//           `mix compile --warnings-as-errors` fails outright.  Excluded with
+//           python in the manifest's `SIBLING_VO_RESOLUTION` set.
+//
+//           This entry first claimed elixir was free, on the reasoning that a VO
+//           is one `:map` (jsonb) cell there so there is no flattening to get
+//           wrong.  The reasoning was sound and the conclusion WRONG: flattening
+//           is not the only artifact a VO needs, and the claim came from
+//           INSPECTING the emitted schema instead of compiling the project.  CI's
+//           `mix compile` found it in minutes.  Do not grade a backend here by
+//           reading its output.
 //   python  BROKEN, and this fixture is why we know.  `db/schema.py` and the
 //           migration both create the three flattened columns, while
 //           `receipt_repository.py` binds `"ship_to": aggregate.ship_to` on
@@ -43,7 +56,7 @@
 //           resolves a VO through `ctx.valueObjects` only and falls through to
 //           the scalar path for a sibling-context one.  python is excluded from
 //           this row's `backends:` via the manifest's named
-//           `SIBLING_VO_FLATTENING` set, which carries this reading — an
+//           `SIBLING_VO_RESOLUTION` set, which carries this reading — an
 //           exclusion, not a compile-skip, because a cell that only GENERATES is
 //           refused by `gate-ledger.test.ts`.  The key returns when the
 //           resolution lands.
@@ -53,7 +66,7 @@
 // behavioural case must ship a reviewed wire golden
 // (`test/behavioral/wire-golden/`, gated by `golden-coverage.test.ts`), and a
 // golden can only be captured from a booted stack on every backend — which is
-// impossible while python's half of this shape is broken (above): the
+// impossible while python's and elixir's halves of this shape are broken (above): the
 // recording would either fail or enshrine the defect as the answer key.  What
 // this fixture proves is static and per-backend: the flattened column set the
 // migration creates must equal the one the ORM/repository names, in BOTH

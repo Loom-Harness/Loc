@@ -55,22 +55,45 @@ const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
  *  key returns the day that gate closes. */
 const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
-/** The backends that flatten a value object resolved from a SIBLING context the
- *  same way they flatten a locally-declared one.
+/** The backends that correctly MATERIALISE a value object resolved from a SIBLING
+ *  context — i.e. that emit every artifact the VO needs, not just the reference
+ *  to it.
  *
- *  `python` is absent, and this is the NAME of that exclusion.  Its repository
- *  builder looks a VO name up in `ctx.valueObjects` only and falls through to the
- *  scalar path for a foreign one, so `db/schema.py` and the migration create
- *  `ship_to_line1` / `ship_to_geo_lat` / `ship_to_geo_lng` while
- *  `receipt_repository.py` binds `"ship_to": aggregate.ship_to` on insert,
- *  `root["ship_to"]` on upsert and reads `ship_to=row.ship_to` on hydrate — a
- *  column in NEITHER artifact, so every read and every write of the consuming
- *  context's aggregate fails.  `mypy --strict` sees only the hydrate site (the two
- *  bind sites are untyped dict literals), so the compile tier catches 1 of the 3.
- *  This is the platform evaluation's F-008; the fix is to resolve through
- *  `siblingValueObjects` as `findValueObjectInScope` already does elsewhere.  The
- *  key returns the day that lands. */
-const SIBLING_VO_FLATTENING: readonly Backend[] = ALL.filter((b) => b !== "python");
+ *  `python` and `elixir` are absent, and this is the NAME of that exclusion.  One
+ *  root cause, two shapes: both emitters resolve a VO name through
+ *  `ctx.valueObjects` only, so the CALL SITE (derived from the aggregate's wire
+ *  shape, which spans contexts) is emitted while the DEFINITION (derived from the
+ *  context's own VO list) is not.
+ *
+ *    python  `db/schema.py` and the migration create `ship_to_line1` /
+ *            `ship_to_geo_lat` / `ship_to_geo_lng`, while `receipt_repository.py`
+ *            binds `"ship_to": aggregate.ship_to` on insert, `root["ship_to"]` on
+ *            upsert and reads `ship_to=row.ship_to` on hydrate — a column in
+ *            NEITHER artifact, so every read and every write of the consuming
+ *            context's aggregate fails.  `mypy --strict` sees only the hydrate
+ *            site (the two bind sites are untyped dict literals), so the compile
+ *            tier catches 1 of the 3.
+ *    elixir  `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and
+ *            defines neither `serialize_addr/1` nor the nested `serialize_geo/1`,
+ *            while the OWNING context's `person_controller.ex` defines both —
+ *            `** (CompileError) undefined function serialize_addr/1`, so
+ *            `mix compile --warnings-as-errors` fails outright.
+ *
+ *  This is the platform evaluation's F-008.  The fix on both is to resolve through
+ *  the sibling pool (as `findValueObjectInScope` already does elsewhere); each key
+ *  returns the day its emitter does.
+ *
+ *  NOTE FOR THE NEXT READER — elixir was first recorded here as FREE, on the
+ *  reasoning that a VO is one `:map`/jsonb cell there so there is no flattening to
+ *  get wrong.  That reasoning was sound and the conclusion was wrong: flattening
+ *  is not the only artifact a VO needs, and the claim came from INSPECTING the
+ *  emitted schema rather than compiling the project.  `mix compile` in CI found it
+ *  in minutes.  Same correction the commons dev-experience audit had to make for
+ *  the same reason (grading a target by inspection); see
+ *  docs/audits/2026-09-29-fixture-shape-coverage.md. */
+const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter(
+  (b) => b !== "python" && b !== "vanilla",
+);
 
 /** The backends that emit a ROOT-LEVEL (shared-kernel) value object's declaration
  *  BEFORE the context-local one whose field is typed by it.
@@ -409,8 +432,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a value object referenced ACROSS a context boundary (`Billing.Receipt.shipTo` → `valueobject Addr` in sibling context `Directory`) — the flattening must produce the same leaf columns from the sibling pool as from the local one",
     doc: "language",
-    backends: SIBLING_VO_FLATTENING,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): NO model in the repo referenced a value object across a context boundary — not one of the 406 models under test/, examples/, web/src/examples/, journey/ and docs/audits/models/ — although `BoundedContextIR.siblingValueObjects` exists precisely to serve it and a type shared between two contexts is the ordinary DDD move.  So every emitter that materialises a referenced VO had two lookup paths (`ctx.valueObjects` for a local declaration, the sibling pool for a foreign one) and only the first was ever exercised.  The evaluation's F-008 is what that cost: the consuming context emitted ONE column under the UNFLATTENED name while the owning context flattened correctly, so migration and ORM disagreed on column name AND type, observable only against a live database.  node/dotnet/java are correct (`ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` in the drizzle schema + DDL, `OwnsOne` column names, nested `@AttributeOverride`); elixir is free by construction (a VO is one `:map`/jsonb cell, no flattening to get wrong) and rides as the contrast.  PYTHON IS BROKEN and this fixture is how we know: `db/schema.py` and the migration create the three flattened columns while `receipt_repository.py` binds `\"ship_to\": aggregate.ship_to` on insert, `root[\"ship_to\"]` on upsert and reads `ship_to=row.ship_to` on hydrate — a column in NEITHER.  Only the hydrate site type-errors, so `mypy --strict` catches 1 of the 3 sites and a live request fails on all 3.  python is therefore excluded from `backends:` here via the named `SIBLING_VO_FLATTENING` set above (a reasoned exclusion, not a compile-skip — see `gate-ledger.test.ts`), and the key returns when the sibling-pool resolution lands.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.",
+    backends: SIBLING_VO_RESOLUTION,
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): NO model in the repo referenced a value object across a context boundary — not one of the 406 models under test/, examples/, web/src/examples/, journey/ and docs/audits/models/ — although `BoundedContextIR.siblingValueObjects` exists precisely to serve it and a type shared between two contexts is the ordinary DDD move.  So every emitter that materialises a referenced VO had two lookup paths (`ctx.valueObjects` for a local declaration, the sibling pool for a foreign one) and only the first was ever exercised.  The evaluation's F-008 is what that cost: the consuming context emitted ONE column under the UNFLATTENED name while the owning context flattened correctly, so migration and ORM disagreed on column name AND type, observable only against a live database.  node/dotnet/java are correct (`ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` in the drizzle schema + DDL, `OwnsOne` column names, nested `@AttributeOverride`) and ride as the contrast.  PYTHON IS BROKEN and this fixture is how we know: `db/schema.py` and the migration create the three flattened columns while `receipt_repository.py` binds `\"ship_to\": aggregate.ship_to` on insert, `root[\"ship_to\"]` on upsert and reads `ship_to=row.ship_to` on hydrate — a column in NEITHER.  Only the hydrate site type-errors, so `mypy --strict` catches 1 of the 3 sites and a live request fails on all 3.  TWO backends fail it, for ONE root cause — the call site comes from the aggregate's wire shape (which spans contexts) and the definition from the context's own VO list (which does not). python's is the column mismatch above; ELIXIR's is a `** (CompileError) undefined function serialize_addr/1`: `receipt_controller.ex` calls the serializer and defines neither it nor the nested `serialize_geo/1`, while the owning context's `person_controller.ex` defines both. Both are excluded from `backends:` here via the named `SIBLING_VO_RESOLUTION` set above (a reasoned exclusion, not a compile-skip — see `gate-ledger.test.ts`); each key returns when its emitter resolves through the sibling pool. Elixir was first recorded as FREE on the reasoning that a VO is one `:map` cell there — sound reasoning, wrong conclusion, reached by INSPECTING the emitted schema instead of compiling it, and corrected by `mix compile` in CI within minutes.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.",
   },
   {
     id: "nested-valueobject",

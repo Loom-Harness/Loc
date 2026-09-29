@@ -657,11 +657,15 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // emitter, return the backend key, add the block, capture the golden, delete the
   // entry — one PR each.
   //
-  // A VO resolved from a SIBLING context.  python's repository builder resolves a VO
-  // name through `ctx.valueObjects` only, so `receipt_repository.py` binds and reads
-  // the UNFLATTENED `ship_to` while its own schema and migration create
-  // `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` — every read and write of the
-  // consuming aggregate fails.  The evaluation's F-008.
+  // A VO resolved from a SIBLING context.  TWO backends fail it for ONE root cause —
+  // the call site comes from the aggregate's wire shape (which spans contexts), the
+  // definition from the context's own VO list (which does not).  python's repository
+  // builder binds and reads the UNFLATTENED `ship_to` while its own schema and
+  // migration create `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng`, so every
+  // read and write of the consuming aggregate fails; elixir's
+  // `receipt_controller.ex` calls `serialize_addr/1` and defines neither it nor the
+  // nested `serialize_geo/1` (`** (CompileError)`), while the owning context's
+  // controller defines both.  The evaluation's F-008.
   "vo-cross-context",
   // A ROOT-LEVEL (shared-kernel) VO nested in a context-local one.  node emits the
   // context-local zod const before the root-level one it initialises from (TS2448 +

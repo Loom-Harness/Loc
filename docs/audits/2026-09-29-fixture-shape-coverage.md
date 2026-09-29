@@ -122,7 +122,7 @@ what was added. Column keys: `corpus` = `test/fixtures/corpus/`; `ts`/`java`/`do
 | finding | shape its trigger needed | fleet coverage before this audit |
 |---|---|---|
 | **F-007** zod schemas emitted out of order; react/vue/svelte fail to build | root-level (shared-kernel) VO nested in a **context-local** VO | **0 models** |
-| **F-008** cross-context VO ⇒ migration SQL and ORM disagree on column name *and* type | VO referenced across a context boundary | **0 models** |
+| **F-008** cross-context VO ⇒ migration SQL and ORM disagree on column name *and* type (and, on elixir, an undefined serializer) | VO referenced across a context boundary | **0 models** |
 | **F-008** (python) VO not flattened for an aggregate that `extends` a base | VO on an inheriting aggregate's **own field** | **0 models** |
 | **F-009** `domainService` precondition throws an unimported `DomainError` | `domainService` + `precondition` | **0 models** |
 | **F-013** .NET wire validator calls `Regex.IsMatch` with no `using` | a `.matches(<regex>)` VO invariant | **0 corpus**; 4 fleet-wide, **none reaching a .NET or Java gate** (three are `examples/*.ddd`, consumed only by the frontend build matrix; the fourth is elixir-only) |
@@ -222,14 +222,49 @@ succeeds at the first level and fails at the second is the likelier bug.
 
 The four closest pre-existing VO fixtures all stay green. Only the new shape catches it.
 
-**It also found a live defect, unseeded.** Python's repository builder resolves a VO through
-`ctx.valueObjects` only and falls through to the scalar path for a sibling-context one:
-`db/schema.py` and the migration create `ship_to_line1` / `ship_to_geo_lat` /
-`ship_to_geo_lng`, while `receipt_repository.py` binds `"ship_to": aggregate.ship_to` on
-insert, `root["ship_to"]` on upsert, and reads `ship_to=row.ship_to` on hydrate — a column
-in **neither** artifact. `mypy --strict` sees only the hydrate site; the two bind sites are
-untyped dict literals, so a live request fails on all three. node/dotnet/java are correct,
-elixir is free (a VO is one `:map` cell).
+**It also found live defects, unseeded — on TWO backends, for one root cause.** Both emitters
+resolve a VO name through `ctx.valueObjects` only, so the **call site** (derived from the
+aggregate's wire shape, which spans contexts) is emitted while the **definition** (derived
+from the context's own VO list) is not:
+
+- **python** — `db/schema.py` and the migration create `ship_to_line1` / `ship_to_geo_lat` /
+  `ship_to_geo_lng`, while `receipt_repository.py` binds `"ship_to": aggregate.ship_to` on
+  insert, `root["ship_to"]` on upsert, and reads `ship_to=row.ship_to` on hydrate — a column
+  in **neither** artifact. `mypy --strict` sees only the hydrate site; the two bind sites are
+  untyped dict literals, so a live request fails on all three.
+- **elixir** — `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and defines
+  neither `serialize_addr/1` nor the nested `serialize_geo/1`, while the **owning** context's
+  `person_controller.ex` defines both. `** (CompileError) undefined function
+  serialize_addr/1` — `mix compile --warnings-as-errors` fails outright.
+
+node/dotnet/java are correct and ride as the contrast.
+
+### The elixir half is a correction to this audit, and it belongs in the record
+
+The first version of this document, and of the fixture's own header, recorded elixir as
+**free by construction** — "a VO is one `:map`/jsonb cell there, so there is no flattening to
+get wrong". The reasoning was sound. The conclusion was wrong, and the reason it was wrong is
+the same mistake this audit is about: **I graded elixir by INSPECTING its emitted schema
+instead of compiling the project.** Flattening is not the only artifact a VO needs; the
+serializer helper is another, and it is emitted from the context-local VO list. `mix compile`
+in CI found it within minutes of the PR going out of draft.
+
+Two things follow that are worth more than the defect:
+
+1. **It is the same failure mode one level up.** §118's thesis is that a gate can run the
+   right mechanism and still be blind because of its fixture. This was a *reviewer* running
+   the right reasoning and still being blind because of the artifact he read. The commons
+   dev-experience audit had to make the identical correction for the identical reason
+   (`2026-09-13-commons-dev-experience.md` — "targets were graded by INSPECTION rather than
+   compiled"), which is now two audits in three weeks.
+2. **The fixture did its job before anyone believed it.** The shape was added because the
+   *inventory* said nothing in the repo had it, not because anyone suspected elixir. It then
+   caught a backend the audit had explicitly written off as safe. A shape-driven fixture finds
+   defects its author did not predict — which is the strongest available argument that the
+   gap was worth closing, and not one the mutation proof could have made.
+
+The `elixir` column in the verification table below was `gen ✅` on this fixture for exactly
+this reason: generation succeeded, so inspection had nothing to catch. Only `mix compile` did.
 
 ### 3. `test/fixtures/corpus/vo-root-kernel.ddd` — new
 
@@ -303,7 +338,7 @@ gets a **named constant** whose doc comment is the defect report — the emitted
 disagree, the exact diagnostic, which half is correct, and the one change that returns the
 key:
 
-- `SIBLING_VO_FLATTENING` — excludes python (`vo-cross-context`)
+- `SIBLING_VO_RESOLUTION` — excludes python **and elixir** (`vo-cross-context`)
 - `ORDERED_ROOT_VO_EMISSION` — excludes node and python (`vo-root-kernel`)
 - `WIRE_REGEX_IMPORT` — excludes python (`vo-regex-invariant`)
 
@@ -317,7 +352,7 @@ behavioural block must lose its entry. None of the three defects is fixed here �
 | fixture | declared backends | node `tsc` | python `ruff`+`mypy --strict` | dotnet `/warnaserror` | java `compileJava` | elixir |
 |---|---|:--:|:--:|:--:|:--:|:--:|
 | `inheritance` (widened) | all 5 | ✅ | ✅ | ✅ | ✅ | gen ✅ |
-| `vo-cross-context` | 4 — python excluded | ✅ | *excluded (live defect)* | ✅ | ✅ | gen ✅ |
+| `vo-cross-context` | 3 — python + elixir excluded | ✅ | *excluded (live defect)* | ✅ | ✅ | *excluded (live defect, found by CI)* |
 | `vo-root-kernel` | 3 — node + python excluded | *excluded (live defect)* | *excluded (live defect)* | ✅ | ✅ | gen ✅ |
 | `vo-regex-invariant` | 4 — python excluded | ✅ | *excluded (live defect)* | ✅ | ✅ | gen ✅ |
 
@@ -335,9 +370,13 @@ Also green: `gate-ledger` (incl. the `generateOnly` and signed-register checks),
 dotnet in `mcr.microsoft.com/dotnet/sdk:10.0`, java in `gradle:9-jdk25` (the host's JDK 21
 cannot build the emitted Java-25 toolchain). `bootJar` was not reached — Maven Central
 answered `429` through the sandbox proxy — so the java column is `compileJava`/`testClasses`
-only. Elixir was verified by generation plus inspection rather than `mix compile`: it needs
-the `LOOM_HEX_MIRROR` path, and a VO is a single `:map` cell there, so neither flattening nor
-declaration order can bite.
+only. Elixir was verified by generation plus inspection rather than `mix compile` — it needs the
+`LOOM_HEX_MIRROR` path — **and on `vo-cross-context` that was not good enough**: CI's
+`mix compile` found a defect inspection could not see (see the correction above). Treat the
+`gen ✅` cells in the elixir column as "generation only, not compiled", because that is all
+they are. The audit's own conclusion here is that an elixir claim in this repo is not safe
+until `mix compile` has run, and `docs/tools.md` ships the hex-mirror recipe that makes it
+runnable locally.
 
 ## Shapes deliberately NOT added, and why
 
