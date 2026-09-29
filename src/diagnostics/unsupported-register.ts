@@ -447,7 +447,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // M-T1.20, which already IS the register of frontend refusals accepted in
     // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
     // refuse it, which is what makes it a surface decision rather than a port.
-    site: "src/ir/validate/checks/if-stmt-checks.ts:349",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:365",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
@@ -461,7 +461,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/migration-checks.ts:257",
+    site: "src/ir/validate/checks/migration-checks.ts:284",
     what:
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
@@ -666,7 +666,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.toast-message-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-action-body-checks.ts:865",
+    site: "src/ir/validate/checks/ui-action-body-checks.ts:818",
     what:
       "an `on <chan>.<Event> { toast(<expr>) }` message outside the subset all FOUR realtime " +
       "renderers implement.  NARROWED 2026-09-02: a member access CHAIN of any depth off the " +
@@ -678,6 +678,26 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "still THROWS on the remainder, so the gate replaces a codegen abort.  Drains when the " +
       "renderers grow the general expression path (they would then share the walker's " +
       "expression emitter rather than four hand-written subsets)",
+    mission: "M-T1.10",
+  },
+  {
+    code: "loom.ui-gate-expr-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1118",
+    what:
+      "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
+      "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +
+      "`feliz/auth-gate.ts`, `flutter/auth-gate.ts`).  The exact twin of the " +
+      "`toast-message-unsupported` row above, found by the same method: the three `switch`es " +
+      "are arm-for-arm identical and each THROWS on the remainder, so a gate carrying a " +
+      'conversion (`string(currentUser.role) == "admin"`), a call, a list, a `match` or a ' +
+      "non-currentUser ref reported `0 error(s), 0 warning(s)` and then aborted `ddd generate " +
+      "system` with a raw `Error: UI gate: expression kind 'convert' is not supported in a UI " +
+      "gate` — measured on svelte, CR1-f.  NOT latent: phoenixLiveView is excluded because it " +
+      "renders the page gate through the general HEEx expression renderer, which is precisely " +
+      "the shape the other six lack.  Drains when the gate renderers route through the " +
+      "frontends' own expression emitters instead of three hand-written subsets — the same " +
+      "drain condition, and the same seam, as M-T1.10",
     mission: "M-T1.10",
   },
   {
@@ -751,7 +771,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.vanilla-document-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:549",
+    site: "src/ir/validate/checks/datasource-checks.ts:571",
     what:
       "elixir `shape: document`, the residue after CRUD + scalar finds/ops landed: a PROVENANCED " +
       "op, or a body/find predicate reading a dereferenced cross-aggregate entity, a " +
@@ -839,7 +859,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/query-checks.ts:323",
+    site: "src/ir/validate/checks/query-checks.ts:346",
     what: "explicit `loads:` deferred — retrievals load the whole aggregate",
     mission: "M-T5.4",
     verified: true,
@@ -863,7 +883,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.handler-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/api-checks.ts:116",
+    site: "src/ir/validate/checks/api-checks.ts:145",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -887,7 +907,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // `lower-domain-service.ts`) retires this row.
     code: "loom.domain-service-read-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/domain-service-checks.ts:245",
+    site: "src/ir/validate/checks/domain-service-checks.ts:274",
     what: "a repository read used as a MEMBER RECEIVER in a domainService body — v1 binds it first",
     mission: "M-T5.14",
     verified: true,

@@ -26,7 +26,6 @@ async function seed(page: any, role: string): Promise<void> {
   );
   // Mock the Job byId read so the `/jobs/:id` detail renders (and with it the
   // role-gated Approve button) without a real backend.
-  // biome-ignore lint/suspicious/noExplicitAny: Playwright Route typing kept loose for portability.
   //
   // The body must satisfy the EMITTED `JobResponse` zod schema, not just look
   // plausible.  `wireShape` puts `version` on every aggregate response, so a
@@ -40,6 +39,8 @@ async function seed(page: any, role: string): Promise<void> {
   // "hidden for a non-matching role" PASSED VACUOUSLY on the same blank page.
   // Keep this in step with the wire shape; the toolbar assertion below is the
   // tripwire if it drifts again.
+  //
+  // biome-ignore lint/suspicious/noExplicitAny: Playwright Route typing kept loose for portability.
   await page.route("**/api/jobs/*", (route: any) =>
     route.fulfill({
       status: 200,
