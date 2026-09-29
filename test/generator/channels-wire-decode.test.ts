@@ -126,7 +126,6 @@ function loadDecoder(moduleSource: string): DecodeFn {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
   const exports: Record<string, unknown> = {};
-  // biome-ignore lint/security/noGlobalEval: executing the emitter's OWN output is the point of this gate.
   new Function("exports", "Decimal", "baseLogger", js)(exports, FakeDecimal, {
     info: () => {},
     warn: () => {},

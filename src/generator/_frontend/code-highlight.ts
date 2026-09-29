@@ -28,11 +28,6 @@
 // import`), so the Angular project lists the same stylesheet in `angular.json`'s
 // `styles` array instead and emits the module WITHOUT the import.
 
-/** npm range for the vendored highlighter, as it appears in each stack's
- *  `stack-package-deps.hbs` conditional.  Kept here so the template and the
- *  emitted module are read together. */
-export const HIGHLIGHT_JS_DEP_RANGE = "^11.11.0";
-
 /** The theme stylesheet, as `angular.json`'s `styles` array spells it. */
 export const HIGHLIGHT_THEME_ANGULAR_STYLE = "node_modules/highlight.js/styles/github-dark.css";
 
