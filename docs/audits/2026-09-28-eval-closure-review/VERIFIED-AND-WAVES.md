@@ -84,6 +84,37 @@ Agents inside a wave touch **disjoint files**. Cross-wave order follows file con
 | A8 | #18 scaffold selects a subdomain its `targets:` backend doesn't serve → phase-⑦ `loom.ui-scaffold-unserved`; fix G8-02 doc/comment | `ui-backend-binding-checks.ts`, `page-metamodel.md`, `walker-core.ts` comment | all 6 frontends | M |
 | A9 | #27 Feliz/Flutter `If-Match`; M-FT.5 `then:` toast on Feliz/Flutter | `feliz/wire.ts`, `feliz-target.ts`, `flutter/forms-emit.ts`, `flutter-target.ts` | feliz, flutter | M |
 
+
+### Wave A outcome (2026-09-29)
+
+All 9 PRs are open and ready. Each has a mutation-proved test, and its local gates and backend compile tier were run.
+
+| agent | PR | fixed |
+|---|---|---|
+| A1 | #3079 | #2: `find all() where` filter on python and elixir (plain and paged paths) |
+| A2 | #3080 | #10: TPH projection source and discriminator on node (drizzle, mikroorm), python and elixir; #14b: elixir `sum` over a jsonb VO leaf |
+| A3 | #3082 | #14a: elixir workflow-state VO, optional, `id[]` and enum field types, plus the state migration and allocation (also the D8 sibling from #3058) |
+| A4 | #3083 | #11: foreign-event VO/enum closure; #12: optional-field decoding on .NET and python; F-046 |
+| A5 | #3084 | #7: honest refusal for a paged `queryHandler` over a retrieval run |
+| A6 | #3085 | #5: node null-aware find predicate; #19: `npm run typecheck` in the generated node Dockerfile |
+| A7 | #3086 | #15b: ruff F841; #15c: mypy comparison-overlap |
+| A8 | #3088 | #18: `loom.ui-scaffold-unserved`; G8-02: docs and comment |
+| A9 | #3090 | #27: If-Match on Feliz and Flutter; M-FT.5: `then:` on Feliz and Flutter |
+
+**New follow-ups found by Wave A**, added to Wave B:
+
+| id | defect | from |
+|---|---|---|
+| B-A6a | **elixir** `where: record.col == ^(current_user && current_user.claim)` raises an Ecto `ArgumentError` at runtime when the claim is null | A6 |
+| B-A6b | **java** JPQL `e.col = :#{currentUser?.claim}` binds `= NULL` for a null claim and returns no rows, unlike node | A6 |
+| B-A3a | **python** has the #14a shape: `BillingRow(total="")` over flattened `total_amount`/`total_currency` columns | A3 |
+| B-A3b | **elixir** stores a Decimal inside a VO written from domain code as a string in jsonb; delta `addColumn` of a VO field still flattens | A3 |
+| B-A1 | **python** document, embedded and event-sourced repository `all()` ignores a declared `all` filter | A1 |
+| B-A4 | **node** omits an optional event field left out of `emit` (it is absent rather than null); channels-e2e and corpus fixtures need an optional-field row | A4 |
+| B-A9 | **flutter** Riverpod `match await` on a versioned update sends no If-Match; **feliz** scaffolded param-less OperationForm plus a custom Action on the same op collide | A9 |
+| B-A2 | **elixir** grouping key over a VO leaf (`group by b.amount.currency`) renders `record.<leaf>` | A2 |
+| M | Accept a retrieval-run in a paged `queryHandler` (the fix beyond A5's refusal) | mission |
+
 ### Wave B — validators, CLI, docs (7 agents; start after Wave A merges or as independent PRs)
 
 | agent | items | waits on |
