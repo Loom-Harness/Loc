@@ -172,9 +172,25 @@ export async function runI18nInit(file: string, locale: string, options: DirOpti
 
 function summarize(locale: string, report: MergeReport): string {
   const parts = [`+${report.added.length} new`, `${report.kept.length} kept`];
+  if (report.carried.length) parts.push(`${report.carried.length} carried`);
   if (report.dropped.length) parts.push(`-${report.dropped.length} dropped`);
   if (report.conflicted.length) parts.push(`${report.conflicted.length} CONFLICT`);
   return `  ${locale}: ${parts.join(", ")}`;
+}
+
+/** Name every design-pack family carry-over (merge case 5) under its locale.
+ *
+ *  A carry is NOT silent even though the written value is a clean translation:
+ *  a string reviewed against one pack's UI can read differently in another's,
+ *  so the reviewer is told which keys moved and where from.  The signal lives
+ *  here and in the locale file's diff rather than inside the value — marking
+ *  the value would either lie about a human translation (`TODO: `) or ship a
+ *  marker the generated `t()` runtime would render to an end user. */
+function reportCarried(report: MergeReport): void {
+  for (const { key, from } of report.carried) {
+    console.log(`      carried: ${key}`);
+    console.log(`            <- ${from} (design-pack family swap; same role, same message)`);
+  }
 }
 
 /** `ddd i18n sync <file>` — three-way merge every locale, then bump the lock. */
@@ -202,6 +218,7 @@ export async function runI18nSync(
     writeJson(localeFile, merged);
     conflicts += report.conflicted.length;
     console.log(summarize(locale, report));
+    reportCarried(report);
   }
 
   // The lock only advances once every locale has reconciled against the new
@@ -234,6 +251,7 @@ export async function runI18nStatus(
     const ours = readCatalog(localeFile);
     const { report } = mergeCatalog(base, ours, theirs);
     console.log(summarize(locale, report));
+    reportCarried(report);
     if (reportHasPending(report)) pending = true;
   }
   if (pending) {
