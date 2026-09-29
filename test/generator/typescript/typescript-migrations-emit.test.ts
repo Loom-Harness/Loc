@@ -175,4 +175,115 @@ describe("typescript migrations emitter", () => {
       expect(whens[i]).toBeGreaterThan(whens[i - 1]);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // F-012 — the journal's ORDERING KEY.
+  //
+  // Drizzle's runtime migrator is a WATERMARK: it applies a journal entry only
+  // when `lastApplied.created_at < entry.when`, strictly.  Three requirements
+  // follow, and the old positional key (`epochMillis(version) + arrayIndex`)
+  // met none of them on a real multi-module evolution:
+  //
+  //   (1) strictly increasing down the journal;
+  //   (2) NEVER changing for an entry already applied;
+  //   (3) strictly greater, for a newly appended entry, than for every entry
+  //       already applied.
+  //
+  // The gate below is built from the real shape `buildMigrations` produces:
+  // per-module version BLOCKS (`MODULE_VERSION_STRIDE`), which is what makes
+  // (1) and (3) fail for any key derived from `version` — module A's delta
+  // (`20260101500001`) sorts BELOW module B's initial (`20260102000000`).
+  // -------------------------------------------------------------------------
+  describe("journal ordering key (F-012)", () => {
+    /** Module A initial, module B initial — the state after the FIRST deploy.
+     *  `seq` is the creation ordinal `buildMigrations` now records. */
+    const deployed: MigrationHistoryEntry[][] = [
+      [{ version: "20260101000000", name: "Initial", seq: 1 }],
+      [{ version: "20260102000000", name: "Initial", seq: 2 }],
+    ];
+    /** …and after the FIRST EVOLUTION: a delta inserted into module A, which
+     *  lands in A's own version block and therefore BELOW B's initial. */
+    const evolved: MigrationHistoryEntry[][] = [
+      [
+        { version: "20260101000000", name: "Initial", seq: 1 },
+        { version: "20260101500001", name: "AddNotes", seq: 3 },
+      ],
+      [{ version: "20260102000000", name: "Initial", seq: 2 }],
+    ];
+
+    function journalFor(
+      histories: MigrationHistoryEntry[][],
+      extra: ReadonlyArray<{ version: string; tag: string }> = [],
+    ): { tag: string; when: number }[] {
+      const out = new Map<string, string>();
+      emitTypescriptMigrations(
+        histories.map((history, i) => ({
+          module: i === 0 ? "ModuleA" : "ModuleB",
+          storageName: "",
+          baseline: snap(),
+          next: snap(history),
+          steps: [{ op: "dropTable", name: `t${i}` }],
+          version: history[history.length - 1].version,
+          name: history[history.length - 1].name,
+        })),
+        out,
+        extra,
+      );
+      return JSON.parse(out.get("db/migrations/meta/_journal.json")!).entries;
+    }
+
+    const PROVENANCE = [{ version: "29991231000000", tag: "29991231000000_provenance" }];
+
+    it("(1) is strictly increasing even when a module's delta sorts below a later module's initial", () => {
+      const whens = journalFor(evolved, PROVENANCE).map((e) => e.when);
+      for (let i = 1; i < whens.length; i++) {
+        expect(whens[i]).toBeGreaterThan(whens[i - 1]);
+      }
+    });
+
+    it("(2) does not renumber an already-applied entry when a migration is inserted", () => {
+      const before = new Map(journalFor(deployed, PROVENANCE).map((e) => [e.tag, e.when]));
+      const after = new Map(journalFor(evolved, PROVENANCE).map((e) => [e.tag, e.when]));
+      // Both module initials were applied by the first deploy; the database
+      // recorded those exact `when` values.  Inserting module A's delta must
+      // leave them untouched — otherwise the journal stops agreeing with the
+      // database about what has run.
+      for (const tag of ["20260101000000_module_a_initial", "20260102000000_module_b_initial"]) {
+        expect(after.get(tag)).toBe(before.get(tag));
+      }
+    });
+
+    it("(3) gives a newly inserted migration a `when` above every already-applied entry", () => {
+      // The watermark the first deploy leaves behind is the HIGHEST `when` in
+      // the journal it applied — which includes the always-last provenance
+      // entry.  A new delta must clear it, or the migrator silently skips it
+      // and the column never appears (F-012 symptom 1).
+      const watermark = Math.max(...journalFor(deployed, PROVENANCE).map((e) => e.when));
+      const after = journalFor(evolved, PROVENANCE);
+      const inserted = after.find((e) => e.tag === "20260101500001_module_a_add_notes");
+      expect(inserted).toBeDefined();
+      expect(inserted!.when).toBeGreaterThan(watermark);
+    });
+
+    it("keeps the provenance entry LAST without pinning it above future migrations", () => {
+      const after = journalFor(evolved, PROVENANCE);
+      const provenance = after[after.length - 1];
+      expect(provenance.tag).toBe("29991231000000_provenance");
+      // Last in its own generation...
+      for (const e of after.slice(0, -1)) {
+        expect(provenance.when).toBeGreaterThan(e.when);
+      }
+      // ...but NOT so far ahead that the next generation cannot clear it.  A
+      // year-2999 sentinel (~3.25e13) made every later migration unreachable;
+      // the gap here is a single slot.
+      const nextGeneration: MigrationHistoryEntry[][] = [
+        [...evolved[0], { version: "20260101500002", name: "AddMore", seq: 4 }],
+        evolved[1],
+      ];
+      const next = journalFor(nextGeneration, PROVENANCE);
+      const added = next.find((e) => e.tag === "20260101500002_module_a_add_more");
+      expect(added).toBeDefined();
+      expect(added!.when).toBeGreaterThan(provenance.when);
+    });
+  });
 });

@@ -601,7 +601,48 @@ const REGISTERED: Ratchet[] = [
     // HELD here on the runtime defects they found — the hand-off note
     // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
     // and its repro, and each row's reason above now names its defect.
-    max: 23,
+    // 25 -> 27, SECOND raise at this merge (#3024 — `dotnet-bcl-type-collision`).
+    //
+    // READ THIS BEFORE TOUCHING THE NUMBER.  `main` and this branch BOTH raised
+    // 25 -> 26 at the same time, for DIFFERENT fixtures — `org-context` above,
+    // `dotnet-bcl-type-collision` here.  Because both sides wrote the identical
+    // literal `26`, git auto-merged the `max:` line WITHOUT a conflict and left
+    // only the prose to collide.  The number it produced was wrong: two +1
+    // raises off a base of 25 are ADDITIVE, so the answer is **27**.
+    // A ratchet bound is the one kind of value where a clean textual merge
+    // proves nothing — always re-derive it as base + each side's delta, and
+    // mutation-prove the result, rather than trusting the merged literal.
+    //
+    // The fixture itself: a NEW corpus entry whose subject the compile tier does
+    // not merely gate but IS — a domain type named after a BCL type (`aggregate
+    // Task` vs `System.Threading.Tasks.Task`) made the emitted .NET project fail
+    // its own build with 17 errors (CS0104 in every file that wildcard-imports
+    // the domain namespace, CS0535/CS0738 where the repository interface
+    // DECLARES it) while `generate system` reported `0 error(s), 0 warning(s)`.
+    // The shipped `ddd new --platform dotnet --template crud` starter emits
+    // exactly that shape, so the starter did not compile.
+    //
+    // A `test e2e` block here would be the hollowing-out this gate was minted to
+    // stop rather than a drain: the fix is a compile-time `using` alias plus a
+    // qualified non-generic return, and NEITHER is observable on the wire — a C#
+    // alias cannot change the runtime type, so a booted round-trip would assert
+    // the same bytes `core-domain` already records and mint a golden with no new
+    // content.  The oracle that reads the thing under test is
+    // `corpus-dotnet-build`: either `dotnet build /warnaserror` accepts the tree
+    // or it does not.
+    //
+    // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
+    // gap.  If the entry ever stops paying for itself the honest move is to
+    // delete the fixture, not to boot it.
+    //
+    // 27 / 23 -> 24, RE-DERIVED at the Wave C3 fold's `main` merge (2026-09-29):
+    // `main` carried 27 (its raises above) while this branch carried 23 (packet
+    // 3a's three drains off the 26 both sides forked from: 26 + 1 - 3 = 24);
+    // neither literal is the answer after a merge — the register itself is.  The
+    // merged `BEHAVIOURAL_ABSENT` in `test/system/gate-ledger.test.ts` holds
+    // exactly 24 rows by this file's own counter, so the bound is pinned to that
+    // count and mutation-proved (23 fails naming 24).
+    max: 24,
   },
 ];
 

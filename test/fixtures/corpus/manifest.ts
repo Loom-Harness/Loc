@@ -324,6 +324,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by M-T6.36 (wave C2 packet 2d).  `reserved-words.ddd`'s closing note names this class and declines it: a host-language keyword breaks the generated DTO / entity, not the SQL, and no backend claimed it.  Java was the one that could not simply escape — C# has verbatim identifiers, TS allows any property name, python/elixir escape locals only — because a Java record component name IS the Jackson property, the springdoc schema key and the Spring binding path, so a rename moves the wire on java alone.  That is why the shape was REFUSED (`loom.java-reserved-identifier-unsupported`) rather than emitted.  The fix pairs a mangled host identifier with an explicit wire annotation at every such site, and this fixture is the ratchet on the pairing: the names are reserved in JAVA ONLY and are not Postgres reserved words, so the other four backends must keep emitting them bare (that is the `ALL` row, not a java-only one) and the SQL-quoting concern stays with `reserved-words.ddd`.",
   },
   {
+    id: "dotnet-bcl-type-collision",
+    title:
+      "a domain type whose name is also a BCL type the .NET `using` set brings into scope (`aggregate Task` vs `System.Threading.Tasks.Task`, `aggregate Queue` vs `System.Collections.Generic.Queue`)",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
+  },
+  {
     id: "vo-field-default",
     title:
       "VALUE-OBJECT-typed field default — the wire boundary renders a non-scalar default differently from a scalar one",

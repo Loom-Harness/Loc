@@ -57,7 +57,8 @@
   "migrationHistory": [
     {
       "version": "20260101000000",
-      "name": "Initial"
+      "name": "Initial",
+      "seq": 1
     }
   ],
   "versionBlock": 0

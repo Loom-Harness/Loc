@@ -759,6 +759,56 @@ columns, which `ALTER` tables the module migration owns and so ship as a *late*
 migration (a far-future version like `29991231235959`) sorting after every
 module's initial migration.
 
+### The Drizzle journal's ordering key
+
+Drizzle is the only backend in the table above whose migrator is a **watermark**
+rather than an applied-set: `migrate()` reads the single highest
+`__drizzle_migrations.created_at` and applies a journal entry only when
+`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Alembic and Ecto all
+record *each* applied migration by identity, so for them an inserted migration is
+simply pending and nothing can renumber.
+
+That makes `when` load-bearing in a way a filename is not. Three requirements:
+
+1. **strictly increasing** down the journal — a tie or a decrease silently skips
+   an entry, and its tables are never created;
+2. **never changing** for an entry already applied — a bumped `when` re-runs it,
+   and the re-run dies on `already exists`;
+3. **strictly greater**, for a newly appended entry, than for every entry already
+   applied — otherwise the watermark hides it forever.
+
+`when` therefore derives from `MigrationHistoryEntry.seq`, a global **creation
+ordinal** recorded in the module snapshot when the entry is appended and never
+recomputed: `when = epochMillis(BASE_TIMESTAMP) + seq * 2`. Entries take the even
+slots; the odd slot just above the newest one carries the always-last provenance
+migration, so it sorts after its own generation without sitting above the next
+one. The late provenance migration is emitted with `ADD COLUMN IF NOT EXISTS`
+because it is re-derived from scratch each generation rather than diffed, so
+re-applying it is a no-op — and a field newly marked `provenanced` now actually
+receives its column.
+
+`when` cannot be derived from `version`: versions are allocated in per-module
+**blocks** (`versionBlock`), so they are not chronological. A delta in block 0
+(`20260101500001`) sorts *below* the initial migration of block 1
+(`20260102000000`), which breaks (1) and (3) the moment a second module exists.
+The key this replaced was `epochMillis(version) + arrayIndex`, which broke all
+three at once — inserting a migration renumbered every later entry, and the
+year-2999 provenance sentinel, always the last row, was always the entry that got
+renumbered, so it re-ran on every boot. The first deploy was fine; the *second* —
+the first real evolution, against a database with data in it — silently skipped
+its own migration and crashed the boot if anything was `provenanced`. The runtime
+gate is the `journal-ordering` leg of `migration-evolution-e2e`.
+
+> **Upgrading a stack deployed before this change.** Its `__drizzle_migrations`
+> holds watermarks from the old key, which ran up to a year-2999 sentinel
+> (~3.25e13) — far above anything the new key emits. Such a database reads every
+> new `when` as already-applied and applies nothing, which leaves it exactly as
+> stuck as the bug already left it (it could not evolve either way), rather than
+> re-running its whole chain and crashing. Recover it once with
+> `DELETE FROM "__drizzle_migrations";` after confirming the schema matches the
+> head model — the chain is then re-applied from a journal whose ordering is
+> stable. Stacks generated after this change need nothing.
+
 ## Migration-evolution gate — proving migrations evolve *on data* (M-T2.13)
 
 The tiers above prove a migration **emits** (`test:k8s`, corpus compile) and

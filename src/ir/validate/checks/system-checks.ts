@@ -12,6 +12,7 @@ export {
 } from "./auth-permission-checks.js";
 export {
   validateDotnetNameCollisions,
+  validateElixirInvariantCoverage,
   validateElixirOpSelfCallPosition,
 } from "./backend-syntax-checks.js";
 export {
