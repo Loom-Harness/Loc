@@ -173,8 +173,16 @@ describe.skipIf(!ENABLED)(
           // dependency that re-introduces `plug_cowboy` transitively would
           // never show up in mix.exs, so mix.lock is the only place this can
           // honestly be asserted.
+          // NOT `ranch`: it is a generic TCP acceptor pool, not part of the
+          // CVE chain, and a fixture with an email resource reaches it
+          // legitimately (Swoosh's SMTP adapter -> gen_smtp -> ranch).
+          // Forbidding it failed `vanilla-resources` and
+          // `vanilla-outbox-marker` for a reason with nothing to do with
+          // what this assertion names.  The carrier is `cowlib`; the only
+          // edges into it are `plug_cowboy` -> `cowboy` (+ its
+          // `cowboy_telemetry` sibling).
           const lock = fs.readFileSync(path.join(projDir, "mix.lock"), "utf8");
-          for (const pkg of ["cowlib", "cowboy", "cowboy_telemetry", "ranch", "plug_cowboy"]) {
+          for (const pkg of ["cowlib", "cowboy", "cowboy_telemetry", "plug_cowboy"]) {
             expect(lock, `${pkg} resolved into ${path.basename(projDir)}'s mix.lock`).not.toContain(
               `"${pkg}": {:hex`,
             );
