@@ -5,6 +5,7 @@ import {
   handleFor,
   type PgConn,
   runFieldDefaultEvolutionGate,
+  runJournalOrderingGate,
   runMigrationEvolutionGate,
   runMoneyBoundsCatchUpGate,
   runValueCollectionEvolutionGate,
@@ -83,5 +84,21 @@ describe.skipIf(!ENABLED)(
     it("applies to a populated db with no flag, backfills it, and leaves NO column default", async () => {
       await runFieldDefaultEvolutionGate();
     }, 240_000);
+  },
+);
+
+// F-012 — the journal ORDERING KEY.  The gate above boots twice against a
+// populated database too, and it never caught this: its fixture is
+// single-module and non-provenanced, so the old positional key came out
+// monotonic by luck.  This one uses the two-module + `provenanced` shape a real
+// system has, and proves the second migration actually RUNS (rather than being
+// emitted correctly and silently skipped behind the watermark) and that a
+// `provenanced` model still boots instead of dying on "already exists".
+describe.skipIf(!ENABLED)(
+  "journal-ordering gate — a two-module, `provenanced` system survives its FIRST evolution (F-012)",
+  () => {
+    it("applies the inserted migration, keeps applied entries' `when` fixed, and boots", async () => {
+      await runJournalOrderingGate(nodeDriver);
+    }, 480_000);
   },
 );

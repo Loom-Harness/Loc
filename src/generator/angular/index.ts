@@ -13,11 +13,16 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_GATE_ANGULAR, AUTH_SESSION_SERVICE_ANGULAR } from "../_frontend/auth-ui.js";
+import {
+  HIGHLIGHT_MODULE_ANGULAR_TS,
+  HIGHLIGHT_THEME_ANGULAR_STYLE,
+} from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   E2E_FIXTURES_TS,
@@ -145,18 +150,34 @@ export function generateAngularForContexts(
   const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
   const usesMoney = contexts.some(contextUsesMoney);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  // Hoisted above the project shell: the shell's package.json / angular.json /
+  // main.ts all gate on whether this ui renders a `CodeBlock`.
+  const ui = deployable.uiName ? sys.uis.find((u) => u.name === deployable.uiName) : undefined;
+  // `CodeBlock { ... }` pulls in the VENDORED highlighter — the `highlight.js`
+  // dependency, the `src/lib/highlight.ts` module, its side-effect import from
+  // `main.ts`, and the theme stylesheet in angular.json's `styles`.  Angular
+  // used to hardcode this `false` (and its `index.html` gate with it), so an
+  // Angular app rendering CodeBlock emitted `<pre><code class="language-…">`
+  // with no highlighter anywhere.  The theme cannot ride the module the way it
+  // does on the Vite frontends: the Angular compiler rejects a side-effect CSS
+  // import from TypeScript (TS2882), so angular.json carries it instead.
+  const usesCodeBlock = ui ? uiUsesCodeBlock(ui, options.topLevelComponents ?? []) : false;
 
   // --- Project shell (pack-emitted) -----------------------------------
-  out.set("package.json", pack.render("package-json", { usesMoney }));
+  out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));
   // `baseHref` build option only when the bundle is sub-path-mounted; unset
   // (root-mount) omits it so the emitted angular.json stays byte-identical.
   out.set(
     "angular.json",
-    pack.render("angular-json", { baseHref: basePath ? baseHref : undefined }),
+    pack.render("angular-json", {
+      baseHref: basePath ? baseHref : undefined,
+      highlightThemeStyle: usesCodeBlock ? HIGHLIGHT_THEME_ANGULAR_STYLE : undefined,
+    }),
   );
   out.set("tsconfig.json", pack.render("tsconfig", {}));
   out.set("tsconfig.app.json", pack.render("tsconfig-app", {}));
-  out.set("src/main.ts", pack.render("main", {}));
+  out.set("src/main.ts", pack.render("main", { usesCodeBlock }));
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_ANGULAR_TS);
   out.set("src/styles.css", pack.render("theme", prepareThemeVM(sys.theme)));
   out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
   // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
@@ -186,7 +207,6 @@ export function generateAngularForContexts(
   // `src/app/pages/`.  Forms / actions / reads render real bodies via the
   // Angular Reactive-Form + signal walker seams; only a route/title-only
   // page (no body) renders a title stub.
-  const ui = deployable.uiName ? sys.uis.find((u) => u.name === deployable.uiName) : undefined;
   // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
   // renders the call verbatim, exactly like `navigate(…)`, so without an
   // emitted module and a matching import the component references a symbol the
@@ -633,7 +653,6 @@ export function generateAngularForContexts(
       ogImage: undefined,
       canonical: undefined,
       favicon: undefined,
-      usesCodeBlock: false,
       usesFileUpload: false,
     }),
   );
