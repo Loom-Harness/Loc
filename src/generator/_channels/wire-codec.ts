@@ -79,16 +79,59 @@ export interface WireDecodeTarget {
    *  dispatch is `decodeValue`'s and stays there; a leaf that switches on
    *  `t.kind` has re-created the private copy this contract replaced. */
   passthrough(expr: string, t: TypeIR): string;
+  /** Rebuild a value object from its wire RECORD (a JSON object keyed by the
+   *  VO's DSL field names).  `view` turns a wire value known to be such a
+   *  record into an expression `read` can index; `build` constructs the host
+   *  VO from its fields, each already decoded (declaration order).  Omitted
+   *  when the backend's VO crosses untyped (elixir maps) — the value then
+   *  takes the named `passthrough`. */
+  /** Read an OPTIONAL field off `payload` tolerating its ABSENCE (a producer
+   *  may omit a null field) — for a language whose plain `read` throws on a
+   *  missing key (C# `GetProperty`, a Python `[...]` subscript).  The result
+   *  is what the `optional` leaf tests.  Omitted when `read` already yields
+   *  the language's absent value (TS `undefined`, Java `Map.get` null). */
+  readOptional?(payload: string, field: string): string;
+  valueObject?: {
+    view(expr: string): string;
+    build(name: string, fields: ReadonlyArray<{ name: string; decoded: string }>): string;
+  };
 }
 
+/** A value object's declared fields by name — what the dispatcher needs to
+ *  rebuild a carried VO field-by-field.  A VO absent from the lookup takes
+ *  the named passthrough (never a guess at its shape). */
+export type WireValueObjectFields = ReadonlyMap<string, readonly FieldIR[]>;
+
 /** Decode one event field off `payload`, through `target`. */
-export function decodeField(payload: string, field: FieldIR, target: WireDecodeTarget): string {
-  return decodeValue(target.read(payload, field.name), field.type, target);
+export function decodeField(
+  payload: string,
+  field: FieldIR,
+  target: WireDecodeTarget,
+  vos?: WireValueObjectFields,
+): string {
+  return decodeValue(readField(payload, field, target), field.type, target, vos);
+}
+
+/** The read of one field — absence-tolerant when the field is optional and
+ *  the target's plain `read` is not. */
+function readField(
+  payload: string,
+  field: { name: string; type: TypeIR },
+  target: WireDecodeTarget,
+): string {
+  return field.type.kind === "optional" && target.readOptional
+    ? target.readOptional(payload, field.name)
+    : target.read(payload, field.name);
 }
 
 /** Decode a wire value of IR type `t`, through `target`.  Owns the whole
  *  `TypeIR.kind` dispatch and all recursion — a target supplies leaves only. */
-export function decodeValue(expr: string, t: TypeIR, target: WireDecodeTarget): string {
+export function decodeValue(
+  expr: string,
+  t: TypeIR,
+  target: WireDecodeTarget,
+  vos?: WireValueObjectFields,
+): string {
   switch (t.kind) {
     case "primitive":
       return target.primitive[t.name](expr);
@@ -97,23 +140,35 @@ export function decodeValue(expr: string, t: TypeIR, target: WireDecodeTarget): 
     case "enum":
       return target.enumValue(expr, t.name);
     case "optional": {
-      const decoded = decodeValue(expr, t.inner, target);
+      const decoded = decodeValue(expr, t.inner, target, vos);
       return target.optional ? target.optional(expr, decoded) : decoded;
     }
     case "array":
       return target.array
-        ? target.array(expr, (item) => decodeValue(item, t.element, target))
+        ? target.array(expr, (item) => decodeValue(item, t.element, target, vos))
         : target.passthrough(expr, t);
-    // A value object / entity part carried on an event.  Reconstructing one
-    // field-by-field needs the referenced record's OWN field list, which the
-    // channel emitters are not handed today (and which, for a FOREIGN event,
-    // is not even merged into the consuming deployable — its
-    // `domain/value-objects` module comes out EMPTY while the event module
-    // imports from it, so that model does not compile at all).  This routes
-    // through the NAMED passthrough rather than a silent `default:` — so a
-    // nested `datetime`/`money` inside a carried record is a known, visible
-    // gap with one place to close it, not an accident of switch fall-through.
-    case "valueobject":
+    // A value object carried on an event: rebuilt field-by-field off its
+    // wire record, so a nested `datetime` / `money` / enum / id is decoded
+    // exactly as a top-level field would be (eval item 11 — the typed
+    // backends handed the raw JSON to the VO-typed constructor parameter).
+    case "valueobject": {
+      const fields = vos?.get(t.name);
+      if (!fields || !target.valueObject) return target.passthrough(expr, t);
+      // A self-referential VO (`Node { next: Node? }`) would recurse forever
+      // at GENERATE time; below its first level it takes the passthrough.
+      const inner = new Map(vos);
+      inner.delete(t.name);
+      const record = target.valueObject.view(expr);
+      return target.valueObject.build(
+        t.name,
+        fields.map((f) => ({
+          name: f.name,
+          decoded: decodeValue(readField(record, f, target), f.type, target, inner),
+        })),
+      );
+    }
+    // An entity part cannot be an event field type the typed backends build
+    // (events carry ids, not parts) — named passthrough, never a guess.
     case "entity":
       return target.passthrough(expr, t);
     // Tagged unions / carrier generics cross as their own JSON shape, and
@@ -139,7 +194,11 @@ export function decodeValue(expr: string, t: TypeIR, target: WireDecodeTarget): 
  *  JSON form and the host form genuinely differ somewhere inside it.  Lets a
  *  caller keep an all-identity emission byte-identical with the pre-codec
  *  output instead of wrapping every field in a no-op. */
-export function needsDecode(t: TypeIR, target: WireDecodeTarget): boolean {
+export function needsDecode(
+  t: TypeIR,
+  target: WireDecodeTarget,
+  vos?: WireValueObjectFields,
+): boolean {
   const probe = "__x";
-  return decodeValue(probe, t, target) !== probe;
+  return decodeValue(probe, t, target, vos) !== probe;
 }
