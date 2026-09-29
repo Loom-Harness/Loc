@@ -208,6 +208,30 @@ the old wording. The `pack.` namespace cannot collide with the authored-string
 keys (`page.*` / `component.*` / `menu.*`) or with the toolchain's own curated
 `chrome.*` table.
 
+**Swapping a pack does not throw the translations away.** Because `<family>` is
+part of the key, moving a UI from `shadcn@v4` to `mui@v7` re-keys every chrome
+string the two packs spell identically — `pack.shadcn.removeItem.<h>` becomes
+`pack.mui.removeItem.<h>`, with the *same* `<h>`. `ddd i18n sync` follows that
+rename and **carries the existing translation onto the new key** (merge case 5,
+`src/i18n/merge.ts`), reporting each one as `carried` and naming both keys so a
+reviewer can re-check the wording against the new pack's UI:
+
+```
+$ ddd i18n sync app.ddd
+  de: +0 new, 41 kept, 6 carried, -8 dropped
+      carried: pack.mui.removeItem.k9d3x1
+            <- pack.shadcn.removeItem.k9d3x1 (design-pack family swap; same role, same message)
+```
+
+The carry is deliberately narrow: same `<role>`, same `<hash>`, the old key gone
+from the fresh extraction, the new key untranslated, the lock
+(`locales/.loom/source.lock.json`) proving the English is byte-identical, and the
+donor a real translation rather than a `TODO:`/conflicted value. Anything
+ambiguous — two dropped families offering one wording, or two new families
+wanting one — carries **nothing** and falls back to a `TODO:`. A role the new
+pack spells differently has a different hash and still re-keys, which is the
+whole point of hashing the message.
+
 Templates spell a declared string through four helpers, which are bound into
 every `pack.render(...)` (including partials):
 

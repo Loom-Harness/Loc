@@ -1047,6 +1047,76 @@ function validateWorkflowStatements(
    *  on {@link validateWorkflowBody}. */
   crossContextBindings: ReadonlySet<string> = new Set(),
 ): void {
+  /** The shallow op-call check for a NESTED body — a `for-each` body or an
+   *  `if-let` branch.
+   *
+   *  A `let` declared INSIDE the nested body binds for the rest of it, so it is
+   *  registered BEFORE the op-calls are checked and unregistered after.  That
+   *  is what makes
+   *
+   *      for u in us { let p = Parts.getById(u.part)  p.consume(u.quantity) }
+   *      if let o = Orders.find(C) { let cu = Customers.getById(x)  cu.touch() }
+   *
+   *  legal: every backend already walks into these bodies and injects the
+   *  repository for exactly this shape (verified on all five — the node/python
+   *  `const p = await parts.getById(...)`, the .NET `_parts.GetByIdAsync`, the
+   *  Java `partsRepository.getById`, the Phoenix `Context.get_part` — each
+   *  followed by the per-iteration save).  Without it the validator refuses a
+   *  form every emitter supports, and blames the USE ("references unknown
+   *  binding 'p'") for a binding that is bound on the line above.
+   *
+   *  The `if-let` arm had this; the `for-each` arm did not, which is the whole
+   *  of F-004 — so the two now share ONE implementation rather than a copy that
+   *  can drift apart again. */
+  const checkNestedBodyOpCalls = (
+    body: import("../../types/loom-ir.js").WorkflowStmtIR[],
+    loopVar: string,
+    /** Which nesting this body belongs to.  The two message keys are spelled
+     *  LITERALLY at their `diagMessage` call sites below rather than passed in
+     *  as a parameter: `diagnostic-catalog.test.ts` reads the call site, so a
+     *  key behind a local is invisible to it — the catalog then reports the
+     *  site as inline wording and both keys as orphans (CLAUDE.md,
+     *  "Diagnostic wording lives in one catalog"). */
+    nesting: "for" | "if-let",
+  ): void => {
+    const bodyLocal: string[] = [];
+    for (const inner of body) {
+      if (inner.kind === "op-call") {
+        markMutated();
+        // A binding poisoned by a cross-context repository read is already
+        // reported at its `let` — see the top-level op-call arm.
+        if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
+          diags.push({
+            severity: "error",
+            code: "loom.workflow-foreach-unknown-binding",
+            message:
+              nesting === "for"
+                ? diagMessage("loom.workflow-foreach-unknown-binding#workflow-in-for-references", {
+                    name: wf.name,
+                    var: loopVar,
+                    target: inner.target,
+                    op: inner.op,
+                  })
+                : diagMessage(
+                    "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
+                    { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
+                  ),
+            source: `${ctx.name}/${wf.name}`,
+          });
+        }
+      } else if (inner.kind === "emit" || inner.kind === "factory-let") {
+        markMutated();
+      }
+      if (
+        (inner.kind === "repo-let" || inner.kind === "factory-let") &&
+        !bindingAgg.has(inner.name)
+      ) {
+        bindingAgg.set(inner.name, inner.aggName);
+        bodyLocal.push(inner.name);
+      }
+    }
+    for (const n of bodyLocal) bindingAgg.delete(n);
+  };
   for (const st of statements) {
     switch (st.kind) {
       case "precondition":
@@ -1435,36 +1505,7 @@ function validateWorkflowStatements(
           });
         }
         bindingAgg.set(st.var, st.varAggName);
-        for (const inner of st.body) {
-          // A `let` INSIDE the loop binds for the rest of the body.  Collecting
-          // it here is what the arm was missing: without it
-          //
-          //     for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }
-          //
-          // reported "references unknown binding 'p'" — pointing at the USE,
-          // one line below the `let` that plainly declares it, which reads as
-          // "you have a typo" rather than "this shape is unsupported" (F-002).
-          if (inner.kind === "repo-let" || inner.kind === "factory-let") {
-            bindingAgg.set(inner.name, inner.aggName);
-            continue;
-          }
-          if (inner.kind === "op-call") {
-            markMutated();
-            // A binding poisoned by a cross-context repository read is already
-            // reported at its `let` — see the op-call arm below.
-            if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
-              diags.push({
-                severity: "error",
-                code: "loom.workflow-foreach-unknown-binding",
-                message: diagMessage(
-                  "loom.workflow-foreach-unknown-binding#workflow-in-for-references",
-                  { name: wf.name, var: st.var, target: inner.target, op: inner.op },
-                ),
-                source: `${ctx.name}/${wf.name}`,
-              });
-            }
-          }
-        }
+        checkNestedBodyOpCalls(st.body, st.var, "for");
         break;
       }
       case "if-let": {
@@ -1543,43 +1584,7 @@ function validateWorkflowStatements(
           break;
         }
         const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
-          // A `let` declared INSIDE the branch binds for the rest of that
-          // branch.  Registering it here is what makes
-          //
-          //     if let o = Orders.find(C) { let cu = Customers.getById(x)  cu.touch() }
-          //
-          // legal — the emitters already walk into the branch bodies and inject
-          // the repository for exactly this shape (dotnet-workflow-repo-find's
-          // "injects a repository first used inside an if-let branch body"), so
-          // without it the validator refused a form every backend emits.
-          const branchLocal: string[] = [];
-          for (const inner of body) {
-            if (inner.kind === "op-call") {
-              markMutated();
-              // Same suppression as the `for-each` arm above.
-              if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
-                diags.push({
-                  severity: "error",
-                  code: "loom.workflow-foreach-unknown-binding",
-                  message: diagMessage(
-                    "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
-                    { name: wf.name, var: st.var, target: inner.target, op: inner.op },
-                  ),
-                  source: `${ctx.name}/${wf.name}`,
-                });
-              }
-            } else if (inner.kind === "emit" || inner.kind === "factory-let") {
-              markMutated();
-            }
-            if (
-              (inner.kind === "repo-let" || inner.kind === "factory-let") &&
-              !bindingAgg.has(inner.name)
-            ) {
-              bindingAgg.set(inner.name, inner.aggName);
-              branchLocal.push(inner.name);
-            }
-          }
-          for (const n of branchLocal) bindingAgg.delete(n);
+          checkNestedBodyOpCalls(body, st.var, "if-let");
         };
         bindingAgg.set(st.var, st.aggName); // `var` bound only in the then-branch
         checkBranchOpCalls(st.thenBody);
