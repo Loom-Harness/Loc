@@ -2,6 +2,8 @@
 
 **Question:** were the problems that the September 2026 platform-evaluation sessions found closed properly, or are there still open bugs and gaps, missing missions, and wrong claims?
 
+> **Superseded in part (2026-09-29):** §2–§3 were re-proved item by item on fresh `main`; see [VERIFIED-AND-WAVES.md](VERIFIED-AND-WAVES.md) for the verified status, corrections, and the fix-wave plan.
+
 **Answer:** about two thirds of what was found is fixed and verified. Bookkeeping has not kept up:
 
 - **Six evaluation runs never reached `main`.** Their findings live only on unmerged branches, and nothing in `docs/new-plan/` points at them.

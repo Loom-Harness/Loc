@@ -1,0 +1,1590 @@
+[
+ {
+  "id": "1",
+  "title": "Inferred column RENAME is silent (no loom.migration-rename-inferred)",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3073 (draft, opened 09-29, get_files=[] \u2014 claim ticket only)",
+  "claimCoversAll": true,
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "i1/v1.ddd->v2.ddd (title->description), regen into out-1: '0 error(s), 0 warning(s)'; out-1/api/db/migrations/20260101500001_sd_migrate.sql:1 `ALTER TABLE \"c\".\"products\" RENAME COLUMN \"title\" TO \"description\";`. Heuristic in src/system/migrations-builder.ts ~1338-1426 (renameFor). Behaviour is documented as a guess in docs/migrations.md:151-185; only the diagnostic is missing. No rename-inferred code in src/.",
+  "files": [
+   "src/system/migrations-builder.ts",
+   "src/system/index.ts",
+   "src/cli/main.ts",
+   "src/diagnostics/messages.ts"
+  ],
+  "targets": [
+   "all backends (shared MigrationsIR)"
+  ],
+  "fixSketch": "As #3073 scopes it: emit a non-fatal warning at the renameFor.set collapse site, lift it via SystemEmission to the CLI, add a catalog entry and a mutation-proved test in test/ir/migrations-builder.test.ts. #3073's diff is still empty, so nothing is fixed yet.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "2",
+  "title": "Declared `find all() where <pred>` drops its filter on python and elixir",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S1",
+  "size": "M",
+  "needsDecision": false,
+  "evidence": "i2/python.ddd: out-2-python/api/app/db/repositories/doc_repository.py:33-34 `async def all(self)` -> `select(DocRow)`, no where. i2/elixir.ddd: out-2-elixir/api/lib/api/c/doc_repository.ex:7-8 `def list do {:ok, Repo.all(Api.C.Doc)}`. Controls apply the filter: node doc-repository.ts:79 `.where(ne(schema.docs.ownerUserId, \"\"))`, java @Query `where e.ownerUserId <> ''`, dotnet `.Where(x => x.OwnerUserId != \"\")`. Source: src/generator/python/repository-builder.ts:102 (filters out finds named all) and 296-326 (all built from capability filterPred only); src/generator/elixir/vanilla/repository-emit.ts:99 and 281-298 (listBody = capEff only). No open PR or mission covers it (#2945 closed; #3060 touches python repository-builder only for VO hydrate).",
+  "files": [
+   "src/generator/python/repository-builder.ts",
+   "src/generator/elixir/vanilla/repository-emit.ts"
+  ],
+  "targets": [
+   "python",
+   "elixir"
+  ],
+  "fixSketch": "When the declared `all` find has a filter, AND it into the all/list WHERE: python rootWhere(find.filter,...) via the existing find-predicate renderer; elixir combine with capEff via the find-predicate lowering renderFind uses (also the paged list path). Pin with a generator unit test per backend plus a behavioral/wire-golden row. Low risk; minor overlap with #3060 in the python file.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "7",
+  "title": "Routed paged queryHandler over Repo.run(<Retrieval>) crashes all five backends",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "i7/<plat>.ddd (clinica r08b with ListViaRetrieval uncommented and routed): parse OK, 0 errors; generate system exits 1 on node/dotnet/python/java/elixir with `Error: internal: paged queryHandler 'ListViaRetrieval' in 'C' does not match the supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.` at hono/v4/explicit-handlers-builder.js:160, dotnet/explicit-handlers-emit.js:282, python/...:231, java/...:191, elixir/vanilla/...:405. Root: src/ir/enrich/enrichments.ts:1142-1185 synthesizePagedQueryHandlerFinds skips retrieval-runs; its comment says the non-Hono gate rejects them, but src/ir/validate/checks/projection-backend-checks.ts PAGED_QH_SUPPORTED lists all 5, so no gate fires. Not in M-T5.31. #3024 edits the four non-node explicit-handlers-emit.ts files (conflict risk, not a fix).",
+  "files": [
+   "src/ir/enrich/enrichments.ts",
+   "src/ir/validate/checks/projection-backend-checks.ts",
+   "src/diagnostics/messages.ts",
+   "src/platform/hono/v4/explicit-handlers-builder.ts",
+   "src/generator/*/explicit-handlers-emit.ts"
+  ],
+  "targets": [
+   "node",
+   "dotnet",
+   "python",
+   "java",
+   "elixir"
+  ],
+  "fixSketch": "S: an IR validator refusal (e.g. loom.paged-query-handler-shape) for a paged queryHandler whose body is not the let r = Repo.run(<Criterion>) ; return r shape, suggesting the retrieval's criterion. M: extend the synthesis to accept a retrieval-run (retrieval where-criterion as filter, sort as default order) and relax the five pagedRunStmt checks. Pin with a negative validator test, mutation-proved. Coordinate with #3024.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "10",
+  "title": "Projection over a TPH (sharedTable) subtype: node selects nonexistent schema.autoClaims; python/elixir drop the kind discriminator",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S1",
+  "size": "M",
+  "needsDecision": false,
+  "evidence": "i10/<plat>.ddd. node out-10-node/api/http/query-projections.ts:55 `.from(schema.autoClaims)`, but db/schema.ts exports only `claims` and `openByStatuses` (TS2339). python query_projections_routes.py:32-35 `select(ClaimRow.status, func.count()).select_from(ClaimRow).group_by(...)` with no kind filter, so it silently counts every subtype. elixir query_projections/open_by_status.ex:18 `from(record in Api.C.AutoClaim, ...)` on schema \"claims\" with no kind conjunct (silent wrong data). dotnet (EF HasDiscriminator, _db.AutoClaims) and java (JPQL on a SINGLE_TABLE entity) are correct. Source: src/platform/hono/v4/projection-query-routes-builder.ts:614,647 `schema.${lowerFirst(plural(source))}`; src/generator/python/query-projections-builder.ts:209 (owner table, no discriminator); src/generator/elixir/vanilla/query-projections-emit.ts:165/299/372/446. #2940 explicitly left it open; no PR or mission.",
+  "files": [
+   "src/platform/hono/v4/projection-query-routes-builder.ts",
+   "src/generator/python/query-projections-builder.ts",
+   "src/generator/elixir/vanilla/query-projections-emit.ts",
+   "src/ir/util/inheritance.ts"
+  ],
+  "targets": [
+   "node",
+   "python",
+   "elixir"
+  ],
+  "fixSketch": "Add a shared projectionSource helper in src/ir/util/inheritance.ts returning the owner table plus an optional {kind column, value} discriminator. Node uses the owner table and ANDs eq(kind); python and elixir AND the kind conjunct across the grouped, aggregate and row projection forms. Pin with generator tests on the three backends and add the model to the node ts-build fixture corpus.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "14a",
+  "title": "Elixir workflow state value-object field emitted as `field :total, :string`; migration has total_amount/total_currency",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S1",
+  "size": "M",
+  "needsDecision": false,
+  "evidence": "i14a/elixir.ddd (workflow Billing { orderId: Order id  total: Money ... total := Money{...} }): out-14a/d/lib/d/c/workflows/billing_state.ex:10 `field :total, :string`; priv/repo/migrations/20260101000000_create_billings.exs:8-9 `add :total_amount, :decimal, null: false` / `add :total_currency, :text, null: false`; billing/start_order_placed.ex:13 `Repo.insert!(%...BillingState{order_id: key, total: nil})`, :17 `change(state, %{total: %{amount: ...}})`. Source: src/generator/elixir/dispatch-emit.ts:340-359 ectoStateFieldType maps every non-primitive (VO/enum/optional) to :string. #3058 lists the sibling D8 (optional datetime -> :string) in its E2E-less register only; its diff does not touch dispatch-emit.ts.",
+  "files": [
+   "src/generator/elixir/dispatch-emit.ts",
+   "src/generator/elixir/migrations-emit.ts"
+  ],
+  "targets": [
+   "elixir"
+  ],
+  "fixSketch": "Make ectoStateFieldType use the aggregate schema field mapping. Unwrap optional first (this also fixes D8), and either collapse the VO to :map in the state-table migration as aggregates do (collapseVoGroups) or emit flattened fields plus build/read in the start/handle emitters. Pin with a generator test that the state schema fields equal the migration columns. Coordinate with #3058.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "14b",
+  "title": "Elixir projection sum(record.amount) over a jsonb (:map) value-object column",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "i14b/elixir.ddd (clearline F-011 repro): out-14b-elixir/api/lib/api/c/query_projections/bill_totals.ex:18 `select: %{n: count(record.id), total: sum(record.amount)}`; bill.ex:11 `field :amount, :map`; migration `add :amount, :map`, so Postgres gets sum(jsonb). Node control is fixed: `sum(schema.bills.amount_amount)`. Source: src/generator/elixir/vanilla/query-projections-emit.ts:693-702 ectoAggregate emits `${op}(record.${snake(arg.member)})` from the leaf name only, so any VO sub-field path collapses (wrong column here, a nonexistent field for other leaf names). #2940 left the elixir half open; no mission.",
+  "files": [
+   "src/generator/elixir/vanilla/query-projections-emit.ts",
+   "src/ir/validate/checks/projection-backend-checks.ts"
+  ],
+  "targets": [
+   "elixir"
+  ],
+  "fixSketch": "When the aggregate arg is a member of a :map-stored VO, emit sum(fragment(\"(?->>'<leaf>')::numeric\", record.<vo>)) with the cast taken from the leaf type, or else refuse honestly in projection-backend-checks. Pin with a generator test and add the repro to the elixir compile/behavioral corpus.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "14c",
+  "title": "Elixir pure-core dispatch/2 stores an uncoerced datetime param",
+  "verdict": "NOT-A-BUG",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "i14c/elixir-test2.ddd: out-14c2/d/lib/d/ops/work_order.ex:24-26 `at = Map.get(params, \"at\"); record = %{record | dispatched_at: at}` (no coercion, while ops.ex:50-58 coerces via DateTime.from_iso8601), so the source divergence is real. But the pure core is emitted only for aggregates with tests (schema-emit.ts:380), and its only caller, the emitted ExUnit test, now passes a DateTime thanks to #2957: `dispatch(w, %{\"at\" => elem(DateTime.from_iso8601(\"2026-01-01T10:00:00Z\"), 1)})`. The divergence is latent and unreachable from generated code. Side findings (unverified by toolchain): expect RHS datetime literals are not coerced (`assert w.dispatched_at == \"2026-...\"` on elixir; node/python likewise), and `w.dispatch(now())` in an elixir unit test emits a bare `now` (out-14c/d/test/ops/work_order_test.exs:7).",
+  "files": [
+   "src/generator/elixir/vanilla/domain-core-emit.ts"
+  ],
+  "targets": [
+   "elixir"
+  ],
+  "fixSketch": "Optional hardening: reuse the context fn's param-coercion prelude in renderPureOp. The two side findings (expect-RHS literal coercion; bare `now` in the elixir test renderer) deserve their own items.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "41",
+  "title": "Moving an aggregate between contexts has no data-preserving path",
+  "verdict": "NOT-A-BUG",
+  "severity": "S3",
+  "size": "L",
+  "needsDecision": true,
+  "evidence": "i41/v1.ddd->v2.ddd (Note moved from context A to B), regen into out-41: exit 1, `migration for module \"Sd\" contains 1 destructive change(s): - DROP TABLE a.notes ... re-run with --allow-destructive`. The destructive gate refuses honestly and nothing is lost silently. It is a feature gap: no SET SCHEMA / move step exists in MigrationStep or migrations-builder. docs/new-plan/coverage.md:235 dispositions commons F-009 as 'a feature', with no mission.",
+  "files": [
+   "src/system/migrations-builder.ts",
+   "src/ir/types/migrations-ir.ts",
+   "src/generator/sql-pg.ts",
+   "src/generator/elixir/migrations-emit.ts"
+  ],
+  "targets": [
+   "all DB backends"
+  ],
+  "fixSketch": "If wanted, file a T2 mission: add a moveTableSchema step (ALTER TABLE a.x SET SCHEMA b; Ecto execute), with diffSchema pairing a same-name table across schemas under explicit migration-block intent (e.g. A.Note -> B.Note) plus the owned-child cascade. Needs a design ruling first.",
+  "group": "g1-persistence"
+ },
+ {
+  "id": "3",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3066 (command-workflow path, java+dotnet only)",
+  "claimCoversAll": false,
+  "severity": "S1",
+  "size": "M",
+  "needsDecision": true,
+  "files": [
+   "src/platform/hono/v4/workflow-builder.ts:2113",
+   "src/generator/dotnet/workflow-emit.ts:580",
+   "src/generator/dotnet/workflow-emit.ts:1878",
+   "src/generator/java/emit/workflow.ts:388",
+   "src/generator/python/dispatch-builder.ts:770",
+   "src/generator/elixir/vanilla/workflow-execution-emit.ts",
+   "src/ir/validate/checks/workflow-checks.ts"
+  ],
+  "targets": [
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "evidence": "Reactor repro i3-<plat>.ddd (the claims-branch F-103 repro: workflow create(e: Shipped) calls a gated o.finish()). On all 5 backends parse and generate give 0 errors and exit 0. node http/workflows.ts:103 uses currentUser unbound; npx tsc --noEmit gives TS2304 Cannot find name 'currentUser'. dotnet CloseOrderStartShippedHandler.cs:35 and java OrdDispatcher.java:41 are unbound the same way. python app/dispatch.py:28 calls o.finish() with the gate silently dropped, although the route order_routes.py:123 has it. elixir start_shipped.ex:18 calls finish_order(o, %{}), so current_user is nil and ord.ex:51 crashes on current_user.permissions. Control repro i3cmd (a command workflow): node, python and elixir are correct on main; dotnet CloseItHandler.cs:29 and java OrdWorkflows.java:29 are unbound. I built #3066 head 6a9a6479 (git archive + tsc -b) and regenerated: it binds currentUser on the java and dotnet COMMAND paths only. The reactor output is unchanged on node/dotnet/java/python, and its diff never touches renderEventReactorHandler, the java dispatcher, python dispatch-builder or the elixir starter. No validator refuses a gated op reached from an event-triggered starter or reactor. No mission exists, and PR search finds nothing else.",
+  "fixSketch": "Land after #3066. The reactor half needs a language ruling, because a reactor has no request principal. Recommended: a phase-7 refusal `loom.reactor-gated-op` in workflow-checks.ts, riding walkWorkflowStmtsDeep plus operationGatesUseCurrentUser/operationBodyUsesCurrentUser. It fires when an event-triggered create(e) or on(e) body calls an op whose gate or body reads currentUser, and the message suggests an ungated internal op or gating the emitting command. The alternative is a system run-as principal on 5 backends (L). The refusal also makes python's fail-open drop honest. Pin it with a test/ir validator test plus a negative corpus fixture. The file overlaps #3065 and #2969 (workflow-checks.ts) and #3066 (op-gates.ts).",
+  "group": "g2-auth"
+ },
+ {
+  "id": "4",
+  "verdict": "FIXED-ON-MAIN",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "src/diagnostics/messages.ts"
+  ],
+  "evidence": "Fixed by #3048 (merge 31c71ad52, commit 905b4e322). i4-<plat>.ddd is an ES create with `requires IsAdmin()` in its body under DEFAULT enforcement. node, dotnet, java and python now give the error loom.lifecycle-guard-event-sourced ('cannot be enforced on <backend> ... gate the caller instead'); the old 0 errors plus unbound currentUser/ForbiddenError is gone. elixir gives 0 errors and enforces, with lib/api/c.ex:15 `ensure(current_user.role == \"admin\", {:forbidden, ...})` and the principal bound. esgate2 with the enforcement line removed (an ungated ES create under default deny) gives 0 errors plus a loom.default-deny-es-create-ungateable WARNING, and generates with no currentUser in domain/*.ts. So an ES aggregate with a create builds again. Residual nit: that warning still points at mission M-T3.16, which is archived (docs/new-plan/archive/T3-done.md:48), and nothing live owns in-place gating on 4 backends.",
+  "fixSketch": "Optional (S): repoint the stale M-T3.16 reference in the loom.default-deny-es-create-ungateable message to a live mission, and mint one for in-place ES-create gating on node/dotnet/java/python.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "5",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "files": [
+   "src/generator/typescript/repository-find-predicate.ts:293-311"
+  ],
+  "targets": [
+   "node"
+  ],
+  "evidence": "Repro eval/repro/nullable-claim-find.ddd (on main): parse gives OK with 0 errors. Generated out-i5/api/db/repositories/workOrder-repository.ts:99 is `where(eq(schema.workOrders.technicianId, currentUser.technicianId))`, and auth/user-types.ts:11 is `technicianId: Ids.TechnicianId | null`. After npm install, npx tsc --noEmit gives workOrder-repository.ts(99,75): error TS2769 No overload matches this call ... Type 'null' is not assignable to type 'string | SQLWrapper'. The oriented column/value arm emits `${fn}(${col}, ${value})` ignoring the value's optionality; only a literal null is handled (nullComparison, ~line 267). #2947 (not open, stale) only adds isNullLiteral for the literal case. PR search and new-plan grep find nothing.",
+  "fixSketch": "In repository-find-predicate.ts, when the value operand's type is optional, emit `(v == null ? isNull(col) : eq(col, v))` for ==, and the isNotNull/ne mirror for !=. That keeps Loom null==null semantics; a validator refusal is the alternative. Pin with a generator unit test plus a ts-build corpus fixture (tsc gate), and also check the python, java and dotnet find emitters for the same optional-claim shape (not verified here). No open-PR conflict.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "20",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": true,
+  "files": [
+   "src/platform/hono/v4/routes-builder.ts:1720",
+   "src/platform/hono/v4/routes-builder.ts:1746",
+   "src/platform/hono/v4/workflow-builder.ts:2075",
+   "src/platform/hono/v4/workflow-builder.ts:2122",
+   "src/generator/typescript/render-stmt.ts:174",
+   "src/generator/dotnet/cqrs/commands.ts:52",
+   "src/generator/dotnet/workflow-emit.ts:1795",
+   "src/generator/dotnet/render-stmt.ts:112",
+   "src/generator/java/emit/service.ts:229",
+   "src/generator/java/emit/workflow.ts:307",
+   "src/generator/java/render-stmt.ts:103",
+   "src/generator/python/routes-builder.ts:1171",
+   "src/generator/python/workflows-builder.ts:982",
+   "src/generator/python/render-stmt.ts:165",
+   "src/generator/elixir/vanilla/denial.ts:151"
+  ],
+  "targets": [
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "evidence": "There are 21 `Forbidden: ${g.source}` emission sites across all 5 backends. The generated 403 handlers put the message in the problem detail: node routes onError `problem(403, \"Forbidden\", err.message)`; dotnet DomainExceptionFilter.cs:72 `Problem(context, 403, \"Forbidden\", fe.Message, ...)`; elixir `{:forbidden, detail}`; python raises ForbiddenError(\"Forbidden: currentUser.permissions.contains(permissions.close)\") in workflows_routes.py:37. No env or production switch exists. It is pinned by test/behavioral/wire-golden/auth-simple.json:169 (`\"detail\": \"Forbidden: currentUser.role == \\\"agent\\\"\"`) and shown as normal output in docs/auth.md:456/498/551. #3058's census and M-T9.25 check the 403 shape, not whether the detail discloses the predicate.",
+  "fixSketch": "Needs a policy decision. Emit a constant detail ('Forbidden', optionally with the gate's policyDecisionId pd_<hex>) and keep the source only in the server log line. Do it through one shared helper per backend at the listed sites, re-baseline the wire goldens (behavioral differential gate), and update docs/auth.md. Size M, low runtime risk; it is wire-visible, so the goldens change.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "21",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3065 (Wave CR1, packet CR1-b / P0-4)",
+  "claimCoversAll": true,
+  "severity": "S2",
+  "size": "S",
+  "files": [
+   "src/platform/hono/v4/auth-emit.ts",
+   "src/generator/elixir/auth-emit.ts",
+   "src/language/validators/auth.ts",
+   "docs/auth.md:1167"
+  ],
+  "targets": [
+   "node",
+   "elixir"
+  ],
+  "evidence": "On main, generating i3cmd-<plat> (oidc, no audience:) shows the env fallback in dotnet OidcUserVerifier.cs:21, JAVA OidcUserVerifier.java:42 and python oidc.py:26. The claim that java lacks it is WRONG. node has no fallback, only a comment (auth/oidc.ts:83), and elixir has none either. No warning exists. The doc sentence has moved to docs/auth.md:1167-1168 ('absence turns the aud check off'), which is inaccurate for dotnet, java and python. #3065's diff emits AUDIENCE/VERIFY_OPTIONS unconditionally on node and audience/0 + aud_present? + the aud claim validator unconditionally on elixir. It also adds the warning loom.auth-oidc-no-audience (validators/auth.ts + messages.ts), a new docs/auth.md 'Token audience (aud)' section, a 17-auth.md rewrite, and an audience probe in the four *-oidc-e2e legs. The default stays off by design (a warning, not an error). #3065 itself records one residual: OIDC_AUDIENCE=\"\" is an opt-out on node and elixir but rejects every token on dotnet, java and python.",
+  "fixSketch": "Covered by #3065; merge it. Follow-ups: normalise the empty-string opt-out on dotnet, java and python, and optionally reword docs/auth.md:1167 to point at the new section.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "22",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": true,
+  "files": [
+   "src/ir/validate/checks/default-deny-checks.ts:229-235",
+   "src/diagnostics/messages.ts",
+   "docs/auth.md:52-60"
+  ],
+  "targets": [
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "evidence": "Repro i22.ddd: default enforcement, an admin-gated create and operation, no explicit find all. parse gives 0 errors and 1 warning, and the warning is only loom.default-deny-by-id-ungated for /api/secrets/{id}. Generated http/secret.routes.ts:127-141 has GET / calling repo.all(...) with no gate. default-deny-checks.ts skips find.synthesized / name==='all' by design ('out of scope ... follow-up'). docs/auth.md:52-60 documents the exception, but there is no docs/decisions.md record, and M-T3.19 covers by-id only. Unlike by-id, this route has recourse (`find all(): T[] requires <expr>`, enforced on all 5), so the no-recourse argument for by-id does not apply.",
+  "fixSketch": "Add a warning `loom.default-deny-list-ungated` (it could become an error, since recourse exists; that needs a ruling) beside the by-id loop in default-deny-checks.ts. Fire it when an aggregate's auto-injected find all is not overridden by a gated explicit one, with the text naming `find all(): T[] requires ...` in messages.ts. Pin with a test/ir test; add a decisions.md entry. No open-PR conflict.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "23",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": true,
+  "files": [
+   "src/platform/hono/v4/auth-emit.ts:114-120",
+   "src/generator/dotnet/auth-emit.ts:665",
+   "src/generator/java/emit/auth.ts:286",
+   "src/generator/python/index.ts:1249",
+   "src/generator/elixir/auth-emit.ts:355-370",
+   "docs/auth.md:1100-1104"
+  ],
+  "targets": [
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "evidence": "node dev stub: `try { return {...base, ...JSON.parse(Buffer.from(injected,'base64')...)} } catch { return base; }` (auth-emit.ts:114-120). It is the same on ALL five backends, not just hono: dotnet 'Malformed dev-claims header -> fall back', java catch at auth.ts:286, python `except Exception: return user` (index.ts:1249), elixir `else _ -> user`. It is documented as intended in docs/auth.md:1100-1104 ('silently ignored, and the request runs as the built-in admin'). It is dev-stub only; with oidc configured, the OIDC verifier replaces the stub. It is still a footgun, because a permission test can false-green as admin.",
+  "fixSketch": "Answer 400 (or log a warn) when the header is present but undecodable, in the 5 dev-stub emitters. Update docs/auth.md:1100 and extend test/generator/dev-claims-parity.test.ts. Rebase after #3065, which edits hono/v4/auth-emit.ts and elixir/auth-emit.ts.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "26",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "files": [
+   "src/system/index.ts:1124-1127",
+   "src/system/index.ts:1086-1110",
+   "src/generator/_persistence/seed-datasets.ts"
+  ],
+  "targets": [
+   "compose/keycloak realm",
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "evidence": "Repro i26.ddd: keycloak, claims {orgId:\"org_id\"}, tenancy by user.orgId of Org, and a tenantOwned Invoice. Generated keycloak/realm.json gives the demo user attributes {orgId:[\"demo-org-id\"], role:[\"admin\"]}, and no Org row is seeded. org-repository.ts:88's registry self-scope is `uuidRegex.test(orgId) ? eq(orgs.id, orgId) : and(isNull(id), isNotNull(id))`. \"demo-org-id\" is not a uuid, so the demo user's registry list is permanently empty, and creating an Org cannot fix it. tenantOwned rows do round-trip because the stamp uses the same claim, so the 'all tenant lists empty' wording overstates it. PERMISSIONS HALF: NOT-A-BUG. src/system/index.ts:1086-1110 deliberately never seeds authority claims (role/permissions) so that denial stays demonstrable. #2948 is not open.",
+  "fixSketch": "When a claim field is the tenancy claim, seed a stable uuid instead of `demo-<field>`, and emit a matching first-boot registry row for the tenancy registry aggregate through the seed-datasets path. Pin with a system test on realm.json plus the seed; runtime gates are tenancy-e2e and auth-oidc-compose-e2e. No open-PR conflict.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "39",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": true,
+  "files": [
+   "src/language/validators/",
+   "src/diagnostics/messages.ts:1000",
+   "docs/language.md:343"
+  ],
+  "evidence": "The cargo-branch polscope.ddd (policy IsAdmin in context A, `requires IsAdmin()` in context B) on main gives `polscope.ddd:10:36 error: 'requires' must be of type 'bool', got 'unknown'`. docs/language.md:343 documents policies as context-level and even quotes this message, so the scope rule is design. The poor diagnostic is the live defect. Cross-context and subdomain policy or permission sharing is a feature gap with no mission.",
+  "fixSketch": "S: in the AST type resolution for a policy call, when the callee resolves to a policy declared in another context, emit `loom.policy-out-of-scope` ('policy X is declared in context A; policies are context-local \u2014 redeclare it in B'). The text goes in messages.ts, with a test/language validator test. Sharing (a subdomain- or system-level policy) is M/L and needs a language decision.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "42b",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "live mission M-T3.10 'Offerability: authz-aware can_<op>' (docs/new-plan/T3-security-governance.md:87, open, M, P3)",
+  "claimCoversAll": true,
+  "severity": "S4",
+  "size": "M",
+  "files": [
+   "src/platform/hono/v4/routes-builder.ts:1770",
+   "src/generator/dotnet/emit/api.ts:124",
+   "src/generator/elixir/vanilla/api-emit.ts:299"
+  ],
+  "evidence": "can_<op> exists only for `when`-gated ops: emitCanOpRoute returns [] when !op.when (routes-builder.ts:1770); dotnet and elixir are the same. UI requires-gating is client-side and currentUser-only (docs/auth.md:943-980). The previous review's 'no mission' is wrong: M-T3.10 is live and also listed in completion-waves-2026-09.md:211. This is a feature gap, not a defect.",
+  "fixSketch": "Owned by M-T3.10: fold param-free requires gates into the can_<op> companion ({allowed, reason}) on all 5 backends.",
+  "group": "g2-auth"
+ },
+ {
+  "id": "6",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "needsDecision": true,
+  "title": "No target-language reserved-word escaping for member names (python fields/ops, .NET AssertInvariants)",
+  "evidence": "i6.ddd parse 0 errors. py_compile: out-6/py/app/domain/thing.py:8 `def __init__(self, *, id: ThingId, name: str, def: str, lambda: int, pass: bool, ...` SyntaxError; :55 `def class(self)`; db/schema.py:19 `def: Mapped[str]`; http/thing_routes.py:23; db/repositories/thing_repository.py:58 `aggregate.def`. .NET out-6/net/Domain/Things/Thing.cs:20 `public string AssertInvariants {get;...}` + :54 `private void AssertInvariants()` (CS0102). src/util/naming.ts:274 PYTHON_KEYWORDS/escapePythonIdent applied only to locals; src/generator/python/emit/aggregate.ts:468,576 use bare snake(); src/generator/dotnet/emit/entity.ts:562,621,685 hard-coded helper name. #3063 is Loom keywords only (its follow-ups name TS params/.NET System, not python members); #3043 is BCL type names. No new-plan mission.",
+  "files": [
+   "src/util/naming.ts",
+   "src/generator/python/emit/aggregate.ts",
+   "src/generator/python/emit/schema.ts",
+   "src/generator/python/repository-builder.ts",
+   "src/generator/python/routes-builder.ts",
+   "src/generator/dotnet/emit/entity.ts"
+  ],
+  "targets": [
+   "python",
+   "dotnet"
+  ],
+  "fixSketch": "Decide refusal vs escape. S path: validator loom.target-reserved-member rejecting member/op names in the per-backend reserved sets of the deployed platforms (+ .NET helper names like assertInvariants). M path: python member-name funnel escapePythonIdent(snake(name)) through domain/schema/repo/http-models with wire alias kept (pydantic alias, mapped_column('def')), mirroring java's M-T6.36 funnel; rename .NET private helper. Pin with python compile corpus fixture + unit test. Conflict: #3065 touches naming.ts.",
+  "group": "g3-lang"
+ },
+ {
+  "id": "8",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": false,
+  "title": "CLI crashes in lowerApply on syntax-broken `apply Opened {}` instead of printing the parse error",
+  "evidence": "i8.ddd (event-sourcing example with `apply Opened {`): `parse` exit 1 `TypeError: Cannot read properties of undefined (reading 'ref') at lowerApply (out/ir/lower/lower-members.js:32:31)`; generate system exit 1. src/api validate() correctly reports loom.parse-error \"Expecting token of type '(' but found `Opened`\". Cause: src/cli/main.ts:185 parseProject lowers the recovered AST even with parser errors; src/ir/lower/lower-members.ts:75 `a.event.ref` with a.event undefined. PR search 'lowerApply' \u2192 only #765/#839 (May/June).",
+  "files": [
+   "src/cli/main.ts",
+   "src/ir/lower/lower-members.ts"
+  ],
+  "targets": [
+   "cli"
+  ],
+  "fixSketch": "Short-circuit parseProject/parseFile before lowerProject when any doc has lexer/parser errors and print them; defensively `a.event?.ref?.name ?? a.event?.$refText`. Pin with a CLI test feeding a malformed apply (exit code + message).",
+  "group": "g3-lang"
+ },
+ {
+  "id": "9",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "title": "Invented member on an array receiver parses clean and is emitted verbatim",
+  "evidence": "i9.ddd 0 errors. out-9/api/domain/thing.ts:28 `get bad(): number { return this._tags.bogus; }`; out-9/api/domain/services.ts:12 `return f.totallyInvented > 0;`; py/app/domain/thing.py:40 `self._tags.bogus`; py/app/domain/services/probe.py:16 `f.totally_invented`. (f.count now renders correctly.) src/language/type-system.ts:1183 array\u2192collectionOpType returns unknown; validators/types.ts ~244 checks only userclaim/record receivers. #2949 absentPrimitiveMember explicitly undefined for arrays; #3040 only binds/types domainService lets (tests cover record receiver `one.totallyInvented`), no array gate.",
+  "files": [
+   "src/language/type-system.ts",
+   "src/language/validators/types.ts"
+  ],
+  "targets": [
+   "all backends (validator)"
+  ],
+  "fixSketch": "Add absentCollectionMember over the collection-op catalogue and report loom.unknown-member (#collection variant) in the same validator loop. Stack on #2949 (same block) and #3040 (domainService env). Pin: type-system unit test + diagnostic-firing census.",
+  "group": "g3-lang"
+ },
+ {
+  "id": "17",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": true,
+  "title": "Field/param named like a resource \u2192 spurious loom.lifecycle-body-dropped on create",
+  "evidence": "i17.ddd (field st, resource st, with crudish) \u2192 1 error loom.lifecycle-body-dropped Ships/aggregate Ship.create; i17-ctrl.ddd (resource renamed) 0 errors; also reproduces with hand-written create(name, st){ st := st }. src/ir/lower/lower-expr.ts:2366-2381 resolveNameRef resolves env.resources before params ('not shadowable') so RHS lowers refKind:'resource'; src/ir/validate/checks/structural-checks.ts:1847 exemption requires refKind==='param'. No PR/mission found.",
+  "files": [
+   "src/ir/lower/lower-expr.ts",
+   "src/ir/validate/checks/structural-checks.ts"
+  ],
+  "targets": [
+   "validator/IR"
+  ],
+  "fixSketch": "Either let params/lets shadow resource handles in resolveNameRef, or refuse the collision up front with a named diagnostic (loom.name-shadows-resource). Pin with IR validate unit test. Conflict: #3065 edits structural-checks.ts.",
+  "group": "g3-lang"
+ },
+ {
+  "id": "31",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3063",
+  "claimCoversAll": true,
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": false,
+  "title": "Keyword field names (event/storage/\u2026) rejected with 'Expecting }'",
+  "evidence": "On main: event/storage/deployable/ui/workflow/channel/system/aggregate/api as field \u2192 `Expecting token of type '}' but found <kw>`; test \u2192 `Expecting token of type 'STRING' but found ':'`; resource/module/page OK. #3063 (open, base cbda916) softens 235 words incl. event/storage/workflow/channel/ui/api/deployable, keeps 58 hard (system, aggregate, test, \u2026) with reasons and adds parse-errors.ts reservedDeclarationName naming the keyword. Verified from PR body+file list, not rebuilt.",
+  "files": [
+   "src/language/ddd.langium",
+   "src/language/parse-errors.ts",
+   "src/language/soft-keyword-colon-guard.ts"
+  ],
+  "targets": [
+   "grammar"
+  ],
+  "fixSketch": "Land #3063; remaining hard words (test/system/aggregate) are intentional rulings with a now-named error.",
+  "group": "g3-lang"
+ },
+ {
+  "id": "32",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": false,
+  "title": "Operation-call argument types in unit `test` bodies unchecked",
+  "evidence": "i32.ddd 0 errors; out-32/api/test/claims.integration.test.ts:26 `r.retarget(42);` :29 `r.bump(\"x\");` and py/tests/test_claims_integration.py:31,34. checkCallArgs/checkExprCallArgs (src/language/validators/statements.ts:450-510,910) never run over TestBlock; only validators/test-placement.ts:57 visits TestBlock. No PR/mission found.",
+  "files": [
+   "src/language/validators/statements.ts",
+   "src/language/validators/test-placement.ts",
+   "src/language/type-system.ts"
+  ],
+  "targets": [
+   "validator"
+  ],
+  "fixSketch": "Walk TestBlock statements with envForNode (typed lets) and run checkExprCallArgs + the member-call-stmt arg check. Pin with language validator unit test.",
+  "group": "g3-lang"
+ },
+ {
+  "id": "44",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": false,
+  "title": "loom.transactional-no-effect false positive for emit/factory-let inside for-each",
+  "evidence": "i44.ddd \u2192 2 warnings (pingAll, cloneAll) while out-44/api/http/workflows.ts:48-52 `db.transaction(... for (const j of matched) { workflowEvents.push({ type: \"Pinged\"...` and :82-87 `Job.create(...); await jobs.save(c)`. src/ir/validate/checks/workflow-checks.ts:1389-1405 for-each arm marks mutated only on op-call (repo-delete ignored in both for-each and if-let; no nesting). #3065 rewrites only the if-let arm (1505ff) into an exhaustive switch; for-each untouched.",
+  "files": [
+   "src/ir/validate/checks/workflow-checks.ts"
+  ],
+  "targets": [
+   "validator"
+  ],
+  "fixSketch": "Use walkWorkflowStmtsDeep (src/ir/util/walk.ts) to mark mutated on op-call/emit/factory-let/repo-delete at any depth. Pin with IR validate unit test. Stack on/coordinate with #3065 (same file).",
+  "group": "g3-lang"
+ },
+ {
+  "id": "46",
+  "verdict": "NOT-A-BUG",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": false,
+  "title": "Hand-written queryHandler overriding scaffoldPaged's handler",
+  "evidence": "i46.ddd (scaffoldPaged + scaffoldPagedApi + hand `queryHandler ListOrderByInRegion(...): int { return 7 }`) 0 errors; out-46/api/http/salesApi-routes.ts route returns `httpCtx.json(7 as unknown, 200)`; ctrl serves paged findAllByInRegion. Deterministic documented scope-local override-by-name (src/macros/expander.ts:843-893 mergeScopedMembers; docs/scaffold-macros.md:97,150-195). Repo run method disappears only because nothing references it. Side finding (untriaged): the overriding handler's GET route takes a required JSON request body + requireJsonContentType (salesApi-routes.ts:22,31).",
+  "files": [
+   "src/macros/expander.ts"
+  ],
+  "targets": [
+   "macro"
+  ],
+  "fixSketch": "Optional DX: info-level note when an explicit member overrides a macro-synthesized one with a different signature. Separately triage GET routes bound to hand-written scalar-param queryHandlers emitting a JSON body.",
+  "group": "g3-lang"
+ },
+ {
+  "id": "11",
+  "title": "A value object or enum on a foreign carried event does not compile: the consumer's VO/enum module is empty but still imported (wider than claimed)",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S1",
+  "size": "M",
+  "needsDecision": false,
+  "files": [
+   "src/platform/hono/v4/emit.ts",
+   "src/generator/python/index.ts",
+   "src/generator/dotnet/index.ts",
+   "src/generator/java/index.ts",
+   "src/generator/dotnet/emit/channels.ts",
+   "src/generator/python/dispatch-builder.ts",
+   "src/generator/java/emit/channels.ts"
+  ],
+  "targets": [
+   "node",
+   "python",
+   "dotnet",
+   "java"
+  ],
+  "evidence": "Repro scratchpad/reverify/g4-eventing/i11.ddd and i11b.ddd: enum Level and valueobject Price in Orders; event OrderPlaced{price: Price, level: Level} carried on a redis channel and consumed by Shipping deployables on node/dotnet/python/java/elixir. `generate system` reports 0 errors, exit 0.\n- node: out-11/ship_api/domain/value-objects.ts is 2 lines ('// Auto-generated.'), yet domain/events.ts:3-4 imports `{ Price }` and `{ Level }` from './value-objects' (http/channels.ts:9 too). tsc (repo-local, bundler resolution) reports: `domain/events.ts(3,28): error TS2306: File '.../value-objects.ts' is not a module.`\n- python: app/domain/value_objects.py contains only its docstring. `import app.domain.events` (with a stub uuid6) raises `ImportError: cannot import name 'Level' from 'app.domain.value_objects'`.\n- dotnet: Domain/ValueObjects and Domain/Enums _namespace.cs are empty, while Domain/Events/OrderPlaced.cs:9 declares `Price Price, Level Level`, so CS0246.\n- java: no Price.java or Level.java is emitted, while domain/events/OrderPlaced.java:10 uses both.\n- Second defect: the decoder passthrough hands a string to the VO parameter. dotnet ChannelTransport.cs:150 has `data.GetProperty(\"price\").GetString()!`; java ChannelCodec.java:34 has `(String) data.get(\"price\")`; python channels.py:54 has `price=cast(str, payload[\"price\"])`.\n- elixir: OK (untyped maps).\n- Root cause: `foreignConsumedEvents` is merged into events and id brands but not into the VO/enum pool. See src/platform/hono/v4/emit.ts:745 and :784 (`renderEnumsAndValueObjects(merged)`), python/index.ts:194, dotnet/index.ts:532-568, java/index.ts:1291-1342.\n- Claims: #3060 (test imports, python hydration, elixir indexes), #3065 and #3077 do not cover this. Merged #3033 fixed a cross-context enum inside a single deployable, not across deployables. No mission in docs/new-plan.",
+  "fixSketch": "1. Add a shared IR helper that computes the transitive VO+enum closure of the foreign consumed events, recursing into nested VOs. Merge that closure into the consumer's valueObjects/enums (or its valueObjectPool sibling pool) on node, python, dotnet and java.\n2. Add a `valueobject` decode leaf to the channel wire-codec targets for dotnet, python and java, reusing each backend's VO-from-JSON hydrator.\n3. Pin with a corpus fixture: a cross-deployable channel consumer whose event carries a VO and an enum. That fixture reaches the corpus-*-build compile gates. Add per-backend vitest shape assertions.\n4. Coordinate the fixture with #3077 (fixture-shape audit). No file conflicts with open PRs.",
+  "group": "g4-eventing"
+ },
+ {
+  "id": "12",
+  "title": ".NET and python channel decoders don't guard optional event fields",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "files": [
+   "src/generator/dotnet/emit/channels.ts",
+   "src/generator/python/dispatch-builder.ts"
+  ],
+  "targets": [
+   "dotnet",
+   "python"
+  ],
+  "evidence": "Repro i12b.ddd: event with shippedAt: datetime?, qty: int?, note: string?, ref: Order id?. The node producer emits them explicitly null (`out-12b/sales_api/domain/order.ts:30`: `shippedAt: null, qty: null, ...`). The model validates with 0 errors.\n- dotnet consumer, out-12b/ship_net/Infrastructure/Channels/ChannelTransport.cs:150: `DateTime.Parse(data.GetProperty(\"shippedAt\").GetString()!, ...)` and `data.GetProperty(\"qty\").GetInt32()`. A JSON null gives ArgumentNullException or InvalidOperationException; an absent key gives KeyNotFoundException.\n- python consumer, ship_py/app/channels.py:53: `shipped_at=datetime.fromisoformat(cast(str, payload[\"shippedAt\"]))` and `ref=OrderId(cast(str, payload[\"ref\"]))`. None gives TypeError; an absent key gives KeyError.\n- node (ship_api/http/channels.ts:248) and java (ChannelCodec.java:35) do guard these fields.\n- Source: src/generator/dotnet/emit/channels.ts:107 and src/generator/python/dispatch-builder.ts:1254 both carry an explicit 'No `optional` leaf' comment.\n- Claims: no open PR and no mission.\n- Side finding (new): omitting optional event fields in `emit` is only a warning ('Event field shippedAt not provided'), but node then emits `this._events.push({type, order, at})`, which fails tsc with TS2345 (i12.ddd, out-12/sales_api/domain/order.ts:30).",
+  "fixSketch": "- dotnet: add an `optional` leaf to the wire-decode target: `data.TryGetProperty(\"f\", out var v) && v.ValueKind != JsonValueKind.Null ? <inner(v)> : null`.\n- python: add `None if payload.get(\"f\") is None else <inner>`.\n- Pin with the channels-* generator shape tests, and add optional fields to the channels-e2e fixture (run-channels label).\n- Separately, fix the side finding: either promote the omitted-field warning to an error, or have node fill omitted optional fields with null.\n- No conflicts with open PRs.",
+  "group": "g4-eventing"
+ },
+ {
+  "id": "13",
+  "title": "Kafka consumers start at the latest offset, so events published before a new group's first join are lost (all 5 backends, not 3)",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": true,
+  "files": [
+   "src/generator/typescript/emit/channels.ts",
+   "src/generator/java/emit/channels.ts",
+   "src/generator/dotnet/emit/channels.ts",
+   "src/generator/python/channels-builder.ts",
+   "src/generator/elixir/channels-emit.ts",
+   "test/generator/elixir/channels-kafka-elixir.test.ts"
+  ],
+  "targets": [
+   "node",
+   "java",
+   "dotnet",
+   "python",
+   "elixir"
+  ],
+  "evidence": "Repro i13.ddd: kafka with delivery: queue, retention: work; consumers on all 5 backends; 0 errors. Generated lines:\n- node: ship_api/http/channels.ts:122 `await consumer.subscribe({ topic: address })` (no fromBeginning)\n- java: KafkaChannelTransport.java:131 `AUTO_OFFSET_RESET_CONFIG, \"latest\"`\n- dotnet: ChannelTransport.cs:141 `AutoOffsetReset = AutoOffsetReset.Latest`\n- python: channels.py:136 `AIOKafkaConsumer(` with no auto_offset_reset, so the aiokafka default 'latest' applies\n- elixir: kafka_consumer.ex:61 `begin_offset: :latest`\nSource: typescript/emit/channels.ts:422, java/emit/channels.ts:720, dotnet/emit/channels.ts:545, python/channels-builder.ts:473, elixir/channels-emit.ts:1297.\nMitigating evidence: test/generator/elixir/channels-kafka-elixir.test.ts:160-161 pins `:latest` deliberately ('not a full-log replay'), and docs/channels.md lists the replay cursor under 'Not yet'. So on broadcast/log this is arguably the design. On queue/work it contradicts retention: work, and the rabbit twin (F-112) was fixed as a bug in #3029. The loss happens only on a new group's first boot or after offset expiry.\nClaims: no PR (a 'kafka offset' search finds only merged July PRs) and no mission in T4-eventing-temporal.md.",
+  "fixSketch": "Needs a ruling first: earliest for new groups on retention: work, and decide separately for log. Then:\n- node: fromBeginning: true\n- java: \"earliest\"\n- dotnet: AutoOffsetReset.Earliest\n- python: auto_offset_reset=\"earliest\"\n- elixir: begin_offset: :earliest\nUpdate the elixir pin test and add shape pins for the other four backends. Runtime proof: a channels-e2e-kafka leg that publishes before the consumer boots. Risk: a full-log replay on a fresh deploy for `log` channels; that is acceptable on `work`, which has envelope-id idempotency.",
+  "group": "g4-eventing"
+ },
+ {
+  "id": "16",
+  "title": "java objectStore.put(key, {...}) passes Map.of into a String parameter (.NET has the same defect)",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3066",
+  "claimCoversAll": true,
+  "severity": "S1",
+  "size": "S",
+  "needsDecision": false,
+  "files": [
+   "src/generator/java/adapters/resource-clients.ts",
+   "src/generator/dotnet/adapters/resource-clients.ts"
+  ],
+  "targets": [
+   "java",
+   "dotnet"
+  ],
+  "evidence": "Repro i16.ddd: corpus resources.ddd with `salesFiles.put(\"orders/\" + name, { id: name, n: 1 })`; 0 errors on all 5 platforms.\n- java: out-16-java/d/.../SalesWorkflows.java:28 calls `S3Resources.salesFilesPut(\"orders/\" + name, Map.of(\"id\", name, \"n\", 1));`, which does not match S3Resources.java:29 `salesFilesPut(String key, String body)`.\n- .NET (not in the original claim) has the same defect: ArchiveHandler.cs:28 passes `new { Id = ..., N = 1 }` to S3Resources.cs:17 `SalesFiles_Put(string key, string body)`, so CS1503.\n- node and python take unknown/object; elixir passes a map to its adapter.\n- Source: java/adapters/resource-clients.ts:59 and :527; dotnet/adapters/resource-clients.ts (s3, localDisk, rabbitmq, restApi).\n- #3066's diff changes the java s3 and localDisk Put to `Object body` with a Jackson toJson helper. It changes the dotnet Put, Enqueue, Publish and Post to `object` with ToJson. It adds test/generator/resource-verb-json-body.test.ts, with mutation proofs stated. Java enqueue and post already took Object on main, so the PR covers the whole defect.\n- Side note: docs/resources.md:189 `jobs.enqueue({ event: \"archived\", ... })` does not parse ('Expecting }' but found `event`); #3063's soft keywords may cover it.",
+  "fixSketch": "Land #3066; nothing further needed. Optionally add a corpus fixture with a record-literal put so the java-build and dotnet-build compile gates reach it.",
+  "group": "g4-eventing"
+ },
+ {
+  "id": "42a",
+  "title": "Only one resource per (context, kind), e.g. two external APIs on one context",
+  "verdict": "NOT-A-BUG",
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": true,
+  "files": [
+   "src/language/validators/deployable.ts",
+   "src/diagnostics/messages.ts"
+  ],
+  "targets": [
+   "node",
+   "python",
+   "dotnet",
+   "java",
+   "elixir"
+  ],
+  "evidence": "Repro i42.ddd: two kind: api resources (ocr, fraud) on context Sales. parse exits 1 with: `error: Deployable 'd' has two dataSources for (Sales, kind: api): 'ocr' and 'fraud'. Pick exactly one per (context, kind).` The rule is src/language/validators/deployable.ts:572-586 (loom.datasource-duplicate); the message is at src/diagnostics/messages.ts:492. This is an honest, documented refusal, not silent miscompilation, so it is a feature/design gap rather than a defect. The gap itself is real and unowned: #2969 only promises a write-up, and there is no new-plan mission. The api, objectStore, mailer and queue verbs are addressed by resource name, and the emitters already emit one client function per resource name.",
+  "fixSketch": "Design decision first. Then relax the duplicate key so it applies only to the persistence kinds (state, eventLog, snapshot, cache, replica), and allow several api, objectStore, mailer or queue resources per context. Verify on all 5 backends that two same-kind resources emit distinct clients and env vars, with a compile-tier corpus fixture. Size M.",
+  "group": "g4-eventing"
+ },
+ {
+  "id": "F-046",
+  "title": "node producer envelopeFor casts through `as unknown as`",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": false,
+  "files": [
+   "src/generator/typescript/emit/channels.ts"
+  ],
+  "targets": [
+   "node"
+  ],
+  "evidence": "Generated out-12/sales_api/http/channels.ts:120: `const { type, __loomEventId, ...data } = event as unknown as { type: string; __loomEventId?: string; } & Record<string, unknown>;`. Source: src/generator/typescript/emit/channels.ts:502. It is not a runtime bug, but it is the same double-cast shape that hid F-019. No PR or mission claims it.",
+  "fixSketch": "Type the parameter as `DomainEvent & { readonly __loomEventId?: string }` and destructure it directly, so `data` is the typed rest. Add a `not.toContain(\"as unknown as\")` assertion to the node channels shape test. Size S, low risk.",
+  "group": "g4-eventing"
+ },
+ {
+  "id": "#15a",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "title": "python mypy --strict fails: loop var `child` reused across two `contains` collections",
+  "evidence": "Repro 15a.ddd (WorkOrder contains lines: Line[] + photos: Photo[], python): parse/generate 0 errors exit 0. `uv run mypy --strict app` -> app/db/repositories/work_order_repository.py:106 Incompatible types in assignment (Photo vs Line); :110 \"Line\" has no attribute \"url\". Source src/generator/python/repository-builder.ts:1615-1616 (depth-0 fixed `child`/`child_row`). #3060 touches repository-builder.ts only for findValueObjectInScope; no mission.",
+  "files": [
+   "src/generator/python/repository-builder.ts"
+  ],
+  "targets": [
+   "python"
+  ],
+  "fixSketch": "Per-containment depth-0 names (e.g. __<v>_child/__<v>_row) or suffix when >1 containment; add python-build fixture with two contains (test:python / python-build.yml). Check dotnet/java twins.",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#15b",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": false,
+  "title": "ruff F841 on unused getById let in python workflows_routes.py",
+  "evidence": "Repro 15b.ddd: `let t = Techs.getById(tech)` unused -> ruff: F841 app/http/workflows_routes.py:37:9 `t = await techs.get_by_id(tech)`. Source src/generator/python/workflows-builder.ts:996-999 repoLet arm lacks the usedLets guard that repoRun (1010) / exprLet (1019) have. #3066 touches workflows-builder.ts only for callsUserGatedOp. No mission.",
+  "files": [
+   "src/generator/python/workflows-builder.ts"
+  ],
+  "targets": [
+   "python"
+  ],
+  "fixSketch": "In repoLet, when binding unused (and not in savesAtExit nor an op-call/assign receiver \u2014 collectUsedLetNames only sees expr refs, so union those in) emit the awaited get_by_id bare (keeps 404 existence check). Pin with python-build fixture.",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#15c",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": false,
+  "title": "mypy comparison-overlap on emitted enum-progression unit test",
+  "evidence": "Repro 15c.ddd: test asserts Scheduled, complete(), asserts Completed. tests/test_work_order.py:12 `assert wo.status == WoStatus.Completed` -> mypy --strict app tests: Non-overlapping equality check [comparison-overlap]; pytest passes. Source src/generator/python/emit/tests.ts:394. #3060 touches tests.ts only for sibling imports. No mission.",
+  "files": [
+   "src/generator/python/emit/tests.ts",
+   "src/generator/python/index.ts"
+  ],
+  "targets": [
+   "python"
+  ],
+  "fixSketch": "Emit [[tool.mypy.overrides]] module='tests.*' disable_error_code=['comparison-overlap'] in generated pyproject, or re-read actual via an object-typed helper. Pin with python-build fixture.",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#15d",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "needsDecision": true,
+  "title": "python message-less single-field rule returns pydantic raw message (leaks regex); wider than matches",
+  "evidence": "Repro 15d.ddd: customer_routes.py:43 `Field(pattern=r\"^[^@]+@...$\")`; problem.py:189 `str(e[\"msg\"])` -> runtime msg `String should match pattern '^[^@]+@[^@]+\\.[^@]+$'`; node customer.routes.ts:14 uses message \"Billing Email is not in the expected format\". Source src/generator/python/emit/wire-constraints.ts:39,83 and src/generator/python/index.ts:2026. Also affects ge/le/min_length shapes vs singleFieldMessage (src/generator/zod-refine.ts:159). No PR/mission.",
+  "files": [
+   "src/generator/python/emit/wire-constraints.ts",
+   "src/generator/python/index.ts",
+   "src/generator/zod-refine.ts"
+  ],
+  "targets": [
+   "python"
+  ],
+  "fixSketch": "Emit per-model {field: singleFieldMessage} table from the same SingleFieldPattern and substitute in the RequestValidationError handler (or map pydantic error types). Small ruling on whether message-less rules carry a code. Pin with a behavioral wire-golden on message-less rules.",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#19",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "title": "generated node Dockerfile runs tsup only, never tsc --noEmit",
+  "evidence": "napi/Dockerfile:18 `RUN npm run build` (build=tsup, dts:false); package.json:9 typecheck script unused. Source src/platform/hono/v4/emit.ts:2108 DOCKERFILE_TS (reused by v5). NUANCE: CI does typecheck generated node output on fixtures/corpus \u2014 hono-build.yml `npm run test:tsc` (test/e2e/generated-build.test.ts:96 npx tsc --noEmit) and corpus-build.yml `test:tsc-corpus`, per-PR path-scoped; so the 'every type error ships' claim holds only for user models outside those. No PR/mission.",
+  "files": [
+   "src/platform/hono/v4/emit.ts"
+  ],
+  "targets": [
+   "node"
+  ],
+  "fixSketch": "Add `RUN npm run typecheck` before `RUN npm run build` in DOCKERFILE_TS; unit-pin Dockerfile content; compose-boot legs cover it. Risk: latent-TS-error user models stop building (intended).",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#24",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": false,
+  "title": "generated compose has no restart policy and no DB connect retry",
+  "evidence": "grep -c 'restart:' docker-compose.yml = 0; only depends_on db condition: service_healthy (src/system/index.ts:1363-1367). Node boot migrate one-shot rethrow (src/platform/hono/v4/emit.ts:1865); python lifespan run_migrations no retry; no EnableRetryOnFailure/pool_pre_ping/retry anywhere in src/generator. #2946 deferred; no mission.",
+  "files": [
+   "src/system/index.ts",
+   "src/platform/hono/v4/emit.ts"
+  ],
+  "targets": [
+   "compose",
+   "node",
+   "python",
+   "dotnet",
+   "java",
+   "elixir"
+  ],
+  "fixSketch": "Emit `restart: unless-stopped` for app services in system compose (S); optional per-backend boot-migration retry/backoff (M). Pin in test/system compose tests.",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#25",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": true,
+  "title": "generated projects ship no lockfiles; node caret deps, python ranges",
+  "evidence": "No *lock* file in generated tree; napi/package.json 21 caret deps; python pyproject `fastapi>=0.115,<1`, no uv.lock; Dockerfile comment admits no package-lock. Sources stacks/*/stack-package-deps.hbs, src/generator/python/pins.ts, src/platform/hono/v5/pins.ts. No decision record/mission (grep lockfile/caret/pinning in new-plan + decisions.md).",
+  "files": [
+   "stacks/",
+   "src/generator/python/pins.ts",
+   "src/platform/hono/v5/pins.ts"
+  ],
+  "targets": [
+   "node",
+   "python",
+   "elixir",
+   "dotnet",
+   "java",
+   "frontends"
+  ],
+  "fixSketch": "Record a D-decision (lock emission vs exact pins vs ranges-by-design) and mint a mission; implementation follows the ruling.",
+  "claimedBy": "",
+  "claimCoversAll": false,
+  "group": "g5-python-build"
+ },
+ {
+  "id": "#18",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "needsDecision": false,
+  "title": "Scaffolded ui selects a subdomain its targets: backend does not serve; no phase-7 check, false doc and code claims",
+  "evidence": "Main cbda91658. Repros in scratchpad reverify/g6-frontend/i18/. Two node backends: 'api' serves Notes, 'tasksApi' serves Tasks. ui 'with scaffold(subdomains:[Notes,Tasks])'; web has 'platform: static, targets: api'.\n\n(v3) No api params: parse reports 0 errors, exit 0. generate reports 12x loom.method-call-unresolved-receiver and exits 1, e.g. 'web/src/pages/tasks/list.tsx:24: method-call Task.all(...): receiver did not resolve'. No diagnostic names targets: or the .ddd scaffold.\n\n(v1, worse than claimed) ui declares 'api Notes: NotesApi' and binds '{Notes: api}'. parse 0 errors; generate prints '0 error(s), 2 warning(s) in generated pages', EXIT 0, writes 111 files. web/src/pages/tasks/list.tsx:7 'import { useAllTasks } from \"../../api/task\"', but web/src/api/ holds only client.ts, config.ts, note.ts, so the build fails with TS2307.\n\n(v2) Binding 'Tasks: api' is correctly refused at parse.\n\nSource:\n- src/ir/enrich/enrichments.ts:2119 narrows the frontend's contextNames to the targets: backend.\n- The scaffold macro still emits pages for every selected subdomain.\n- src/ir/validate/checks/ui-checks.ts:76-85 builds aggNames from ALL contexts, so bare Task.all passes.\n- docs/page-metamodel.md:213-214 and :1268 promise a 'reachable through targets' check that does not exist.\n- src/generator/_walker/walker-core.ts:2088 'DEAD on valid .ddd' is falsified by v3.\n\nClaim check:\n- #2942's new checkOfReadBinds uses the same model-wide aggNames (read in its diff), so it does not catch this.\n- M-T1.35 (T1-ui-frontend.md:476) covers only the multi-handle shape, so pr-sweep's 'OPEN-TRACKED via M-T1.35' is wrong.\n- #3065 touches ui-checks.ts and enrichments.ts only for exhaustiveness refactors.",
+  "files": [
+   "src/ir/enrich/enrichments.ts",
+   "src/ir/validate/checks/ui-checks.ts",
+   "src/ir/validate/checks/ui-backend-binding-checks.ts",
+   "src/macros/stdlib/scaffold/_pages.ts",
+   "src/generator/_walker/walker-core.ts",
+   "docs/page-metamodel.md"
+  ],
+  "fixSketch": "Add a phase-7 check (e.g. loom.ui-scaffold-unserved) in ui-backend-binding-checks.ts, which avoids the ui-checks.ts conflicts with #3065 and #2942. For each frontend deployable, any page read (handle-rooted or bare) naming an aggregate whose context is not in the deployable's enriched contextNames is an error. Report once per scaffolded subdomain, naming the ui, the subdomain and the targets: deployable, and giving the fixes (add the context, drop it from scaffold, or wait for M-T1.35). Fix the walker-core comment and page-metamodel section 3 in the same PR. Tests: a fast IR-validate test with the v1 and v3 fixtures, a firing-census entry, and a mutation proof showing v1 returns to exit 0 with the dangling api/task import.",
+  "targets": [
+   "react",
+   "vue",
+   "svelte",
+   "angular",
+   "feliz",
+   "flutter"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "#27",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "needsDecision": false,
+  "title": "Feliz and Flutter update calls never send If-Match (silent lost update on versioned aggregates)",
+  "evidence": "Repro reverify/g6-frontend/i27/occ-{feliz,flutter,react}.ddd with 'aggregate Note with crudish, versioned'.\n- React: web/src/api/note.ts:86 'api.post(`/notes/${seg(id)}/update`, input, ifMatch(loaded?.version))'.\n- Feliz: web/src/App.fs:234-238 updateNote sends Http.request with only a Content-Type header.\n- Flutter: web/lib/forms.dart:106-108 'http.post(apiUri(.../update), headers: const {'Content-Type': 'application/json'})'.\n- Server side, node api/http/note.routes.ts:146 'parseIfMatch(ifMatch, aggregate.version)' falls back to the loaded version, so the guard passes vacuously.\n\nSource: src/generator/feliz/wire.ts:3310-3330 renderOperationFn; src/generator/flutter/forms-emit.ts:1490-1492 submitMethod; predicate src/generator/_frontend/occ.ts:30.\n\ntest/generator/if-match-client-parity.test.ts:159-181 pins DOES_NOT_SEND={feliz,flutter}. No open PR touches these files and no new-plan mission mentions If-Match.",
+  "files": [
+   "src/generator/feliz/wire.ts",
+   "src/generator/flutter/forms-emit.ts",
+   "src/generator/_frontend/occ.ts",
+   "test/generator/if-match-client-parity.test.ts"
+  ],
+  "fixSketch": "Thread the loaded record's version into the update op form on both frontends, gated on sendsIfMatchPrecondition. Feliz: the Model already holds NoteById, so pass the version to updateNote and add an If-Match header. Flutter: pass the row version the edit form already prefills from. Delete the DOES_NOT_SEND rows in the same PR (the test ratchets). Gates: the fast if-match-client-parity test plus the generated-feliz-build and generated-flutter-build compile legs. No conflicts with open PRs.",
+  "targets": [
+   "feliz",
+   "flutter"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "#33",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3071 (draft, opened 2026-09-29, stub commit f808130d2 with empty diff)",
+  "claimCoversAll": true,
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": false,
+  "title": "Flutter deployable design: is dropped with no diagnostic",
+  "evidence": "Repro reverify/g6-frontend/i33/. 'design: mantine' and 'design: shadcn' on 'platform: flutter' both give 0 errors and 0 warnings; 'diff -r' of the two output trees is empty. 'design: coreComponents' (a heex pack) on flutter also gives 0 errors, while the same value errors on react and on feliz.\n\nCorrection: 'design: bogusPack' is a PARSE error ('Expected one of: mantine, shadcn, ...'), so 'accepts any value' means any pack enum member.\n\nSource: src/ir/lower/lower-deployment.ts:100 drops design for flutter; src/language/validators/deployable.ts:440 checkDeployableDesignPack has no flutter arm; src/language/validators/data/platform-rules.ts:133 expectedPackFormatFor returns undefined for flutter.\n\nDraft #3071 claims exactly this (a warning via loom.design-pack-ignored#flutter). Its branch has only the claim stub, so nothing is implemented yet.",
+  "files": [
+   "src/language/validators/deployable.ts",
+   "src/language/validators/data/platform-rules.ts",
+   "src/ir/lower/lower-deployment.ts"
+  ],
+  "fixSketch": "Covered by #3071's plan: a flutter warning arm in checkDeployableDesignPack plus a messages.ts slug. Nothing extra is needed.",
+  "targets": [
+   "flutter"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "#45",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": false,
+  "title": "Scaffold list filter bar scans find params only; criterion and retrieval reads get no bar (blocked on M-T5.31 route)",
+  "evidence": "Repro reverify/g6-frontend/i45/find.ddd vs crit.ddd.\n- find bySku(sku): products/list.tsx is 111 lines with 15 'sku' hits (filter bar present), and there is a route (api/http/product.routes.ts:29,106).\n- criterion BySku(sku) + retrieval InStock: list.tsx is 67 lines with no filter bar. Nothing in api/http or web/src references InStock or BySku: no route and no hook.\n- The D7b index-hint half IS fixed now: 'Product.stock is read on a query filter but has no index'.\n\nSource: src/macros/stdlib/scaffold/_body-builders.ts:1190 filterFindsForAggregate iterates m.finds only.\n\nM-T5.31 (T5-language-core.md:178) lists retrieval requires, a route per retrieval, and scaffoldPaged retirement; it never mentions the filter bar (axis 4). No PR covers it.",
+  "files": [
+   "src/macros/stdlib/scaffold/_body-builders.ts",
+   "docs/new-plan/T5-language-core.md"
+  ],
+  "fixSketch": "This cannot be fixed on its own: there is no endpoint for a bar to bind to until M-T5.31 slice 2 lands retrieval routes. Add a slice to M-T5.31 (docs, S): after slice 2, filterFindsForAggregate also scans parameterised retrievals; test with a scaffold-body-builders case. Do not mint a separate mission.",
+  "targets": [
+   "react",
+   "vue",
+   "svelte",
+   "angular",
+   "feliz",
+   "flutter",
+   "elixir"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "#43",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "needsDecision": true,
+  "title": "No event, object-equality or navigation matcher; unit-test member reads on aggregates are not type-checked (silent tsc break)",
+  "evidence": "Repro reverify/g6-frontend/i43/.\n- 'expect(n).toEmit(Renamed)' and 'expect(n).toEqual(n)' are refused at parse ('expect requires a matcher'), which is honest.\n- src/util/intrinsic-matchers.ts has 13 matchers (toBe, the four comparisons, toBeSameInstant, toHaveText, toHaveCount, toBeVisible, toContain, toBeNull, toBeAbsent, toThrow). There is no event, deep-equality or URL/navigation matcher. 'not.' exists for locator matchers, so a visible field error can be asserted but 'did not navigate' cannot. UI toThrow is refused (loom.e2e-ui-throw-invalid).\n\nNEW, and silent: 'expect(n.events).toContain(Renamed)' and 'expect(n.bogus).toBe(1)' both parse with 0 errors, and 'generate ts' emits them verbatim. npx tsc (repo node_modules) on the emitted domain/note.test.ts gives:\n- 'note.test.ts(9,14): error TS2339: Property events does not exist on type Note'\n- 'note.test.ts(9,32): error TS2304: Cannot find name Renamed'\n\nOpen #2949 covers primitive receivers only. No mission or PR exists for the matchers.",
+  "files": [
+   "src/util/intrinsic-matchers.ts",
+   "src/language/type-system",
+   "src/ir/validate/checks"
+  ],
+  "fixSketch": "(a) Validator, S-M: in test bodies, a member read on an entity-typed let must resolve to a wire or derived field, and a bare type name in value position is refused. Extend #2949's pattern to entity receivers and coordinate with it. (b) Feature mission, M, needs a design ruling: expect(x).toEmit(Event) at the unit tier via pullEvents(); toEqual for value objects; and a toHaveURL / not-navigated locator matcher. Gates: a test/language type-system test plus the generated unit-test compile tier.",
+  "targets": [
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir",
+   "react"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "M-FT.5",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "title": "Action then:-toast works on the 4 JSX frontends (claim partly refuted), but Feliz drops it, Flutter hardcodes a snackbar, and a Feliz Action without single: true does not compile",
+  "evidence": "Repro reverify/g6-frontend/ft5/act-<fw>.ddd: a page with 'QueryView { of: N.Note.byId(id), data: n => Stack { Action { n.archive, then: toast(\"Archived\") } } }'.\n\nREFUTED for the JSX frontends. react pages/note_view.tsx:26 emits 'archiveNote.mutateAsync({}).then(() => { toast(\"Archived\"); })' with toast imported from ../lib/toast. vue note_view.vue:29, svelte +page.svelte:21 and angular note-view.component.ts:43 do the same. The toast slot is then:, documented at page-metamodel.md:283.\n\nStill broken:\n- Flutter lib/pages/note_view_page.dart:20 shows a hardcoded SnackBar('Archive done'); the author's then: is ignored.\n- Feliz: src/generator/feliz/feliz-target.ts:583 renderAction never reads then:.\n\nNEW silent compile break (Feliz): without 'single: true', generate gives 0 errors and App.fs:102 emits 'dispatch (ArchiveNote id)', but 'type Msg' (App.fs:72-74) has no ArchiveNote case and there is no Api.archiveNote. The F# compiler would report FS0039 (inferred from the missing case; F# was not compiled). With 'single: true' the wiring appears (App.fs:89-113). Cause: collectPageActions (src/generator/feliz/wire.ts:2054) gates on isSingleQueryView (wire.ts:2372), which reads the literal flag, while the renderer uses the derived ctx.paramTypes. page-metamodel.md:1125-1138 says single is derived.\n\nM-FT.5 is UNKNOWN-DEFINITION in docs/new-plan/missions/field-test-2026-09-register.md:17. No PR covers it.",
+  "files": [
+   "src/generator/feliz/wire.ts",
+   "src/generator/feliz/feliz-target.ts",
+   "src/generator/flutter/flutter-target.ts",
+   "docs/new-plan/missions/field-test-2026-09-register.md"
+  ],
+  "fixSketch": "(1) S: in collectPageActions, use the derived query shape (queryShape in _walker/paged-query.ts) instead of isSingleQueryView; add a Feliz test for an unflagged byId QueryView with an Action and prove it with the generated-feliz-build leg. (2) S-M: render then: on Feliz by dispatching the effect in the Done(Ok) arm, and on Flutter by replacing the hardcoded snackbar; or refuse then: on those two with a coded diagnostic. Give M-FT.5 a real heading scoped to Feliz and Flutter.",
+  "targets": [
+   "feliz",
+   "flutter"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "M-FT.24",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": true,
+  "title": "OpenAPI for an op returning an error union declares the union (including the error arm) as the 200 body, but serves the error arm as 404 problem+json, on all backends",
+  "evidence": "Repro reverify/g6-frontend/ft24/opunion.ddd, 'operation reserve(): Order or NotFound { return NotFound {...} }'.\n- node api/http/order.routes.ts:133 declares '200: schema: OrderOrNotFound', defined at :36 as a discriminatedUnion including {type:'NotFound', resource}. But :149-150 serves the NotFound arm as a 404 application/problem+json, and :135 declares 404 as generic ProblemDetails, which lacks resource.\n- dotnet Api/OrdersController.cs:74 '[ProducesResponseType(typeof(...OrderOrNotFound), 200)]'.\n- python app/http/problem.py:38-39 has a _OP_UNION_RESPONSES oneOf that includes NotFound.\n- java emits OrderOrNotFoundResponse_{Order,NotFound}.\n- Control: a find 'recent(): Order or NotFound' is documented correctly (200 OrderResponse plus 404).\n\nNo PR (the search showed only closed ones) and no new-plan mission. M-FT.24 is UNKNOWN-DEFINITION (register line 25).",
+  "files": [
+   "src/platform/hono/v4/routes-builder.ts",
+   "src/generator/dotnet/index.ts",
+   "src/generator/java/emit/openapi-customizer.ts",
+   "src/generator/elixir/vanilla/openapi-emit.ts",
+   "src/generator/_payload/union-wire.ts"
+  ],
+  "fixSketch": "Use one shared helper in _payload/union-wire.ts that splits an op-union into its success arms (the 200 schema) and its error arms (each with its mapped status and a problem schema carrying the arm's fields); all five OpenAPI emitters consume it. Gates: the cross-backend OpenAPI parity test and the Schemathesis tier. The undefined 'union wire shape' half needs an owner-written card first, which is the design decision.",
+  "targets": [
+   "node",
+   "dotnet",
+   "python",
+   "java",
+   "elixir"
+  ],
+  "group": "g6-frontend"
+ },
+ {
+  "id": "28",
+  "title": "IR-phase diagnostics print with no file:line",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "needsDecision": false,
+  "evidence": "src/ir/validate/checks/diagnostic.ts:6 LoomDiagnostic = {severity,message,source,code}, no span. src/cli/main.ts:291/300 prints `${code} ${source}: ${message}`. The r36 run printed `C/A warning: No code path can create a 'A' ...` with no path:line, while AST diags from the same file print `<abs>.ddd:10:59 error:`. No open PR or live new-plan mission found (searched 'LoomDiagnostic span', grepped docs/new-plan).",
+  "files": [
+   "src/ir/validate/checks/diagnostic.ts",
+   "src/cli/main.ts",
+   "src/ir/lower/origin.ts"
+  ],
+  "fixSketch": "Add optional `origin?: OriginRef` (or {file,line,col}) to LoomDiagnostic. Populate it in the check leaves from the IR node's `origin` (already captured by src/ir/lower/origin.ts), starting with the highest-traffic codes. printIrDiagnostics then prefixes `file:line:col` when present, and src/api/report.ts maps it to the wire range. This is mechanical across ~40 check leaves; land it incrementally. Pin with a CLI test asserting `path:line` on one IR error and one IR warning. Low risk. May textually conflict with #3065, which touches check leaves.",
+  "targets": [
+   "cli"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "29",
+  "title": "api block no deployable serves is silent",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "Scratch r29.ddd has `api CatalogApi from Sd`, `api OrphanApi from Sd`, and a node deployable with `serves: CatalogApi`. `ddd parse`: 0 error(s), 0 warning(s), exit 0; `generate system` exit 0. src/language/validators/deployable.ts:593-630 validates each serves list (frontend, unknown, duplicate) but never checks for an unserved api. No PR or mission found.",
+  "files": [
+   "src/language/validators/deployable.ts",
+   "src/diagnostics/messages.ts"
+  ],
+  "fixSketch": "Add a system-level warning `loom.api-unserved`: for each ApiDecl, warn when no deployable's `serves:` references it. Put it in the validators next to validateServes, with the message in messages.ts. Test in test/language (fires, and does not fire on acme.ddd). Size S, risk low. Check the examples corpus for existing orphan apis, which would start warning.",
+  "targets": [
+   "validator"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "30",
+  "title": "migration-ambiguous-rename hint omits root-level placement",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "Scratch r30: v1 has a,b and v2 has a2,b2. Regenerating prints `If this is a rename, declare it explicitly ...:\\n  migration \"<name>\" { <Aggregate>.<oldField> -> <newField> }` (src/system/migrations-builder.ts:1210-1211) with exit 1 and no placement hint. Placing the block inside `system {}` gives `inside.ddd:2:3 error: Expecting token of type '}' but found `migration``. At root level it works: `ALTER TABLE \"catalog\".\"items\" RENAME COLUMN \"a\" TO \"a2\"`. The message is an inline literal, not in src/diagnostics/messages.ts. Draft #3073 edits migrations-builder.ts (rename-inferred warning) but not this message.",
+  "files": [
+   "src/system/migrations-builder.ts",
+   "src/diagnostics/messages.ts"
+  ],
+  "fixSketch": "Reword to 'add at the TOP LEVEL of the .ddd file (outside `system { }`)', and ideally prefill the concrete Aggregate.old -> new lines from `renames`. Move the text into messages.ts under loom.migration-ambiguous-rename. Optionally add a parser-recovery hint for `migration` inside system. Update test/ir/migrations-builder tests. Size S. Coordinate with #3073 (same file, and adds a sibling rename message).",
+  "targets": [
+   "system",
+   "cli"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "34",
+  "title": "ddd breakpoints answers :1 for fields/invariants/finds",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3074 (diagnosis + docs + mission M-T8.26; ships no fix)",
+  "claimCoversAll": false,
+  "severity": "S3",
+  "size": "L",
+  "needsDecision": false,
+  "evidence": "Scratch r34 with --sourcemap. `breakpoints --line 5` (name: string), `--line 6` and `--line 7` (invariant) each give `api/domain/item.ts:1` and `api/http/item.routes.ts:1`, but the invariant is emitted at item.ts:47. `--line 13` (find byName) gives `api/db/repositories/item-repository.ts:1`, but it is at :97. `--line 9` (op stmt) \u2192 item.ts:30:29, which is correct. Cause: declarative members only get whole-file `sourcemap.file()` regions (src/platform/hono/v4/emit.ts:1071,1196), and fragment() is used only for executable bodies. #3074 (open, ready) reaches the same diagnosis, mints M-T8.26 (L, P2) and corrects docs/debugging.md, but changes no code.",
+  "files": [
+   "src/generator/_trace/sourcemap.ts",
+   "src/platform/hono/v4/emit.ts",
+   "src/dap/breakpoints.ts"
+  ],
+  "fixSketch": "Follow M-T8.26's slicing: add a declarative-member sub-region API (anchor by emitted line index, not by a unique-text anchor) and feed it from the TS aggregate/repository emitters first (invariant block, field getters, find methods), then the other backends. The gate must assert the resolved LINE (test/trace or test/dap). L, low runtime risk.",
+  "targets": [
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "35",
+  "title": "ddd trace can't map the default node bundle (no --enable-source-maps)",
+  "verdict": "FIXED-ON-MAIN",
+  "severity": "S4",
+  "evidence": "The generated api/Dockerfile (scratch out-29, generated WITHOUT --sourcemap) ends with `CMD [\"node\", \"--enable-source-maps\", \"dist/index.js\"]` and a comment explaining ddd trace. Source: src/platform/hono/v4/emit.ts:2121-2127. git blame gives ^caea4ce8d (2026-09-14, the shallow-clone boundary), so the fix is at or before that date; the 09-28 review missed it. tsup.config.ts has `sourcemap: true`, and the runtime stage copies /app/dist including the .map. A simulated V8-remapped frame `at Item.assertInvariants (/app/domain/item.ts:47:30)` fed to `ddd trace --map out-34/.loom/sourcemap.json` annotates to `Catalog.Item (main.ddd:4)`: 2 of 3 frames annotated, and the dist frame is left unannotated. Residual: not boot-verified (no Docker), and line granularity inherits #34.",
+  "files": [
+   "src/platform/hono/v4/emit.ts"
+  ],
+  "fixSketch": "None needed. Optionally add a LOOM_OBS/e2e assertion that a thrown domain error's log frame names domain/<agg>.ts when booted.",
+  "targets": [
+   "node"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "36",
+  "title": "ddd verify accepts status typos ('passed'/'failed') and exits 0",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "S",
+  "needsDecision": false,
+  "evidence": "Scratch r36 (verify-cli.test.ts DDL). results `[{name:'go works',suite:'A',status:'failed'}]` \u2192 `Verified 0/2 requirements (0 failing, 2 unverified, 0 untested).`, rc=0, and o-failed/.loom/verification.md:20 reads `_No unknown results._`. So a FAILED test passes the gate. `passed` gives the same result; `pass` gives 2/2. src/cli/main.ts:1397 `outcomes = parsed.results;` does no per-entry validation, although docs/verify.md says `status` must be `pass|fail|skip` and malformed input exits 2. #2924 (the earlier claim) merged without it. No open PR or mission.",
+  "files": [
+   "src/cli/main.ts",
+   "src/verify/verification.ts",
+   "docs/verify.md"
+  ],
+  "fixSketch": "Validate each result in runVerify: name must be a string and status must be in {pass,fail,skip}. On violation exit 2 with a message naming the entry index and the bad value, suggesting 'failed'\u2192'fail' and 'passed'\u2192'pass'. A lenient alias map is a defensible alternative, but an error is safer. Add cases to test/cli/verify-cli.test.ts and mutation-prove them. Size S, risk low.",
+  "targets": [
+   "cli"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "37",
+  "title": "ddd new prints `npx ddd \u2026`, which runs an unrelated npm package outside the clone",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": true,
+  "evidence": "`node bin/cli.js new app37 --template crud` prints `next: cd app37 && npx ddd generate system main.ddd -o . && docker compose up` (src/cli/main.ts:1197). The same spelling appears in the main.ddd header and README (src/cli/new-templates.ts:250,307,328). The README says 'npx ddd ... is what an install from a published package gives you'. `npm view ddd` gives description 'Plot common visualizations from the command line', version 0.0.4, bin {ddd:'./main.sh'}. `npm view loc-ddd-dsl` gives E404. The scaffolded dir has no package.json, so npx resolves the public package. npx was not executed. No PR or mission.",
+  "files": [
+   "src/cli/main.ts",
+   "src/cli/new-templates.ts"
+  ],
+  "fixSketch": "Print the invocation that actually ran: derive it from process.argv (e.g. `node /abs/path/bin/cli.js`), or print `node <repo>/bin/cli.js` until a package is published. Fix the README template text too. Owner decision: whether to publish under a scoped name (e.g. `npx loc-ddd-dsl`). Pin with test/cli new-command output. Size S.",
+  "targets": [
+   "cli"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "38",
+  "title": "ICU plural/select branch text silently dropped in backend derived fields",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "needsDecision": true,
+  "evidence": "Scratch r38 with node/python/java/dotnet/elixir deployables. `derived p: string = `{qty, plural, one {# item} other {# items}}`` becomes api/domain/order.ts:25 `get p(): string { return String(this._qty); }`, pyapi/app/domain/order.py:35 `return str(self._qty)` and dn/Domain/Orders/Order.cs:30 `this.Qty.ToString(...)`. `derived sel = {name, select, vip {VIP} other {std}}` becomes order.ts:26 `return this._name;`. parse and generate both give 0 errors, 0 warnings. The cause is `i18nFormat: (inner) => inner` in the leaf tables: typescript/render-expr.ts:121, dotnet:276, python:118, java:332, elixir:225. docs/language.md:1003-1010 documents plural/select without saying backends drop them; the only record is archive T1-done. No PR or mission.",
+  "files": [
+   "src/generator/_expr/target.ts",
+   "src/language/validators/template.ts",
+   "src/diagnostics/messages.ts",
+   "docs/language.md"
+  ],
+  "fixSketch": "Minimum: a warning `loom.interp-format-dropped-in-domain` whenever a plural/select/selectordinal hole appears in a template that lowers into backend domain code (derived, function, operation), plus a docs sentence. Better, and an owner call: render plural/select on the backends as a match/if chain over the branch keys (English CLDR 'one'/'other' plus =N exact matches). The warning is S; the rendering is M across 5 backends. Gate: test/language diagnostic test, plus the wire golden if rendered.",
+  "targets": [
+   "validator",
+   "node",
+   "dotnet",
+   "java",
+   "python",
+   "elixir"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "40",
+  "title": ".loomignore: hand-edited files counted not named; pinned file goes stale with no warning",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "needsDecision": true,
+  "evidence": "Scratch r40. (1) Editing api/domain/item.ts and http/item.routes.ts then regenerating prints `Wrote 2 file(s) in out, 2 of which had local modifications (pinnable via .loomignore)` without naming either file: src/cli/main.ts:969-972 prints only `locallyModifiedPaths.length`. (2) With out/.loomignore=`api/domain/item.ts`, adding field `c: int` and regenerating prints `skipped (.loomignore): 1`, rc 0, no warning. The regenerated item-repository.ts:60 uses `aggregate.c` and http/item.routes.ts:66 uses `Item.create({ a, b, c: body.c })`, while the pinned item.ts:54 has `create(input: { a: string; b: string })` and no `c` getter. The build is statically broken (TS2339 plus an excess-property error); tsc was not run because there are no deps. The former claim #2948 closed 09-28. No mission in docs/new-plan.",
+  "files": [
+   "src/cli/main.ts",
+   "docs/tools.md"
+  ],
+  "fixSketch": "(a) S: list the locally-modified paths, capped at about 10, and apply the same to --dry-run. (b) M: stale-pin detector. Record in .loom/manifest.json the generator hash of each pinned path's would-be content, and when that hash changes between runs, warn `loom.pinned-file-stale: <path> \u2014 the generator's version changed; diff with --dry-run --diff`. Optionally add `--diff` to print a unified diff for pinned or modified files. Pin with test/cli tests on regenerate output. Low risk; touches the same main.ts region as #3073's warning printing.",
+  "targets": [
+   "cli"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "47",
+  "title": "README 'No drift between layers' / 'Identical API contracts' unqualified",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "needsDecision": true,
+  "evidence": "README.md:10-11 reads 'No drift between layers.' and README.md:217 reads 'Identical API contracts; idiomatic per-runtime output'. Neither is qualified, and the Status section (README.md:371-387) adds no caveat about known parity gaps or unsupported-register rows. The last README edits (2a97b94dd F-019 is FieldOps numbering, /api + npx notes) did not touch these lines. No PR or mission; #3076 (L0 ledgers) touches a different README (docs/new-plan).",
+  "files": [
+   "README.md"
+  ],
+  "fixSketch": "Qualify both claims, e.g. 'one wire contract derived from one model, checked per PR by the cross-backend wire differential; known per-backend gaps are listed in <link to unsupported-register/parity doc>'. Docs-only, S; the owner decides how to word marketing claims.",
+  "targets": [
+   "docs"
+  ],
+  "group": "g7-cli"
+ },
+ {
+  "id": "G8-01",
+  "title": "language.md:1150 says a hand-written create cannot carry its own gate",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "files": [
+   "docs/language.md"
+  ],
+  "evidence": "docs/language.md:1150 (added 82362f30f): 'Not on create \u2014 the grammar has no requires slot there \u2026 a hand-written create cannot carry its own gate'. Both halves are false. (1) The grammar: Create has CallableGates (src/language/ddd.langium:1992-1993; fragment :1956); a header `requires` parses and is then refused by the validator ('requires' is not allowed on a create). (2) A body-statement `requires` works: create-gate.ddd validates 0 errors, and generate emits out-create-gate/api/http/order.routes.ts:59 `if (!(currentUser.role === \"admin\")) throw new ForbiddenError(...)`. All five backends are pinned by test/generator/lifecycle-forbidden-remap.test.ts:44. No open PR edits this line (#3076 edits only the decimal/money table in language.md).",
+  "fixSketch": "Replace with: 'requires is refused as a HEADER clause on create/destroy (no loaded instance); gate a hand-written create with a leading body statement `requires <expr>` (emitted on all five backends) or with crudish(requires: <Policy>).'",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-02",
+  "title": "page-metamodel.md promises a scaffold-targets validator that does not exist; walker-core says the branch is DEAD",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S2",
+  "size": "M",
+  "files": [
+   "docs/page-metamodel.md",
+   "src/generator/_walker/walker-core.ts",
+   "src/ir/validate/checks/"
+  ],
+  "evidence": "Repro: dhw7gb eval/repro/scaffold-page-wrong-deployable.ddd. parse: 0 errors, exit 0. generate system: exit 1 with `loom.method-call-unresolved-receiver web_app/src/pages/notes/detail.tsx:18: method-call Note.byId(id): receiver did not resolve` (xN); no message names the .ddd scaffold or targets:. Wrong claims: docs/page-metamodel.md:213-214 and :1267-1268 promise the validator obligation; walker-core.ts:2088 says 'DEAD on valid .ddd' (still there at :2111 on #3065). M-T1.35 covers only multi-handle binding, and no mission covers this.",
+  "fixSketch": "Either add a phase-\u2466 check in ui-backend-binding-checks.ts (every scaffolded aggregate's context must be hosted by the ui deployable's targets) \u2014 M, pin with a validator test plus a generate-exit test \u2014 or change both doc bullets to 'not validated; surfaces at generate'. Fix the walker-core comment either way.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-03",
+  "title": "docs/auth.md aud fallback description (now line 1167)",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3065",
+  "claimCoversAll": false,
+  "severity": "S3",
+  "size": "S",
+  "files": [
+   "docs/auth.md",
+   "docs/language-reference/17-auth.md"
+  ],
+  "evidence": "docs/auth.md:1167-1170 says 'absence turns the aud check off'. Generated auth-oidc corpus with no audience: dotnet OidcUserVerifier.cs:21 reads OIDC_AUDIENCE; python oidc.py:26 reads os.environ.get(\"OIDC_AUDIENCE\"); java OidcUserVerifier.java:41 reads System.getenv(\"OIDC_AUDIENCE\"). node and elixir do not read it. So the doc is wrong for three backends; the audit wrongly listed Java as not falling back. #3065 makes node/elixir env-reachable, adds a correct 'Token audience' section and rewrites 17-auth.md:199, but its auth.md diff is additions only, so line 1167 stays and contradicts the new section.",
+  "fixSketch": "On or after #3065: change auth.md:1167 to 'optional; with none declared and OIDC_AUDIENCE unset the aud check is skipped \u2014 see Token audience'.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-04",
+  "title": ".NET generated OIDC verifier comment says 'checks iss / aud / exp' with no audience",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "src/generator/dotnet/auth-emit.ts",
+   "src/generator/java/emit/auth.ts"
+  ],
+  "evidence": "out-oidc-dotnet/d/Auth/OidcUserVerifier.cs:15 says 'checks iss / aud / exp', while :58 has `ValidateAudience = Audience is not null`. The comment comes from src/generator/dotnet/auth-emit.ts:183 and is unconditional. The Java comment says '(matches Hono/.NET)', which was also inaccurate. No open PR touches dotnet/auth-emit.ts (#3065 changes node/elixir only).",
+  "fixSketch": "Emit 'checks iss / exp, and aud when OIDC_AUDIENCE or the declared audience is set'. Add a dotnet leg to test/generator/auth-verifier-doc-honesty.test.ts.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-05",
+  "title": "eval-fieldops F-005 says enforcement: opt is the language default",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval-fieldops/FINDINGS.md"
+  ],
+  "evidence": "eval-fieldops/FINDINGS.md:153 `auth { enforcement: opt \u2026 } // \u2190 the LANGUAGE DEFAULT`; :145-146 say 'opt-in, not default' and 'SILENT under enforcement: opt'. On main, src/ir/lower/lower-auth.ts:22 has DEFAULT_ENFORCEMENT = \"denyByDefault\" (M-T3.1). #3076 edits this file only at :928-984.",
+  "fixSketch": "Add a dated note under the F-005 heading: since M-T3.1 (2026-09-28) the default is denyByDefault, so the ungated projection is loom.default-deny-ungated unless opt is explicit; the `ignoring tenantOwned` + `requires true` leak remains.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-06a",
+  "title": "coverage.md eshop row stale (P7/P11 open, P8->#2876, P1-P11)",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/coverage.md"
+  ],
+  "evidence": "coverage.md:231 says 'Eleven defects D1\u2013D10 / P1\u2013P11', 'P8 \u2026 \u2192 #2876' and 'Deliberately still open \u2026 P7/P9/P11'. The audit body runs to P13 (2026-09-10-eshop-dev-experience.md:1214,1312). Merged: #2900 (P7, a49eb4ab1), #2902 (P8, e7a4af0a3), #2901 (P11, 4da21c0e8). #3076 does not touch this row.",
+  "fixSketch": "Row 231: change P1\u2013P11 to P1\u2013P13; map P7\u2192#2900, P8\u2192#2902, P11\u2192#2901; remove P7/P11 from 'still open'.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-06b",
+  "title": "coverage.md claimshub row 'all still open'",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3076",
+  "claimCoversAll": true,
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/coverage.md"
+  ],
+  "evidence": "coverage.md:236 says 'all still open as of 2026-09-13 \u2026 claims remain true on main until they land'. #2878/#2883/#2884 are merged (9f6984f7, 6442e2a3, f9c0712a). #3076's diff rewrites the row to 'all three have since merged'.",
+  "fixSketch": "Land #3076 (already correct).",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-06c",
+  "title": "coverage.md freight row cites mission ids with no heading / colliding headings",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3076",
+  "claimCoversAll": false,
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/coverage.md",
+   "docs/audits/2026-09-10-freight-fleet-plan.md"
+  ],
+  "evidence": "coverage.md:240 cites M-T2.15, M-T6.63/64/65, M-T6.67a and M-T9.60, none of which has a heading. M-T1.33, M-T1.34, M-T5.30 and M-T9.59 are headings for different missions (T1:441, T1:273, T5:168, T9:855). #3076 appends a note saying these are PR labels, not headings, and adds M-T9.67. It does not map each finding to its landed PR (#2875\u2013#2914).",
+  "fixSketch": "After #3076, optionally map each id to its merged PR in the row.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-06d",
+  "title": "coverage.md testability rows: F3 'in flight', F12 omitted; F58->M-T6.60",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/coverage.md"
+  ],
+  "evidence": "coverage.md:232 says 'In flight: F3 \u2192 #2967 + #2997', but both merged (0f4d58dcb, c29c62f9a). F12 (testability-audit.md:360) is not dispositioned. Row 233 says 'only open work \u2026 #2967/#2997'. The 'F58\u2192M-T6.60' mapping is in row 239 (verification-fleet-plan), not a testability row, and is wrong: M-T6.60 is numeric strictness, and M-T6.62 (T6:432-436) cites F58. #3076 does not touch these.",
+  "fixSketch": "Row 232: F3 closed (#2967/#2997); add an F12 disposition. Row 233: 'no open work'. Row 239: F58\u2192M-T6.62.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-07a",
+  "title": "Mission-id collisions M-T9.59, M-T2.16, M-T1.32\u201334, M-T5.30",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3076",
+  "claimCoversAll": false,
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/coverage.md",
+   "docs/audits/2026-09-10-freight-fleet-plan.md",
+   "docs/new-plan/T9-toolchain-health.md"
+  ],
+  "evidence": "M-T9.59: the heading is the suffix register (T9:855), but commit 3772511f1 used the id for the unbound-symbol gate. M-T2.16: the heading is `ddd diff` (T2:41), but #2895 commits d4e7c77fd/ffaa13d9a used it. M-T1.32/33/34 and M-T5.30: the headings are unrelated live missions; the freight fleet plan (:73,80,81,88,91) uses the ids for other work. #3076 adds a coverage note naming M-T1.33/1.34/5.30/9.59 as collided and mints M-T9.67. It omits M-T2.16 and M-T1.32 and edits neither the fleet plan nor the headings.",
+  "fixSketch": "Add '(id collided \u2014 landed as <PR>)' annotations in freight-fleet-plan.md for all six ids, and extend #3076's note with M-T2.16 (#2895) and M-T1.32.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-07b",
+  "title": "Stale statuses M-T1.31, M-T9.47, M-T6.62, M-T3.19",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3076",
+  "claimCoversAll": false,
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/T1-ui-frontend.md",
+   "docs/new-plan/T9-toolchain-health.md",
+   "docs/new-plan/T6-backend-parity.md",
+   "docs/new-plan/T3-security-governance.md"
+  ],
+  "evidence": "On main: T1:372 M-T1.31 'open (F11 in flight)' (#2860 merged); T9:453 M-T9.47 'open'; T6:432 M-T6.62 'in-flight'; T3:106 M-T3.19 '\u2026 and says nothing \u2014 open'. On #3076's branch: M-T1.31 is archived done, M-T9.47/M-T6.62/M-T3.19 are 'partial'. The M-T3.19 title still says 'and says nothing', contradicting its own status.",
+  "fixSketch": "Land #3076, and drop 'and says nothing' from the M-T3.19 title.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-07c",
+  "title": "M-T6.56 still 'open' though only residue remains",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/T6-backend-parity.md"
+  ],
+  "evidence": "T6:156 heading says `open`. The body records F20 as a DECISION (2026-09-09) and 'F16 / F60 CLOSED 2026-09-13 (wave C2 2a)'; only the F23/F61 HEEx workflow handler and the function-derived residue remain. #3076's branch keeps `open`.",
+  "fixSketch": "Change the status to `partial` (F16/F60 closed, F20 decision; F23/F61 + function-derived residue open).",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-08a",
+  "title": "eval/fieldops-audit FINDINGS/FIX-PLAN/README headers stale",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval/fieldops-audit/FINDINGS.md",
+   "eval/fieldops-audit/FIX-PLAN.md",
+   "eval/fieldops-audit/README.md"
+  ],
+  "evidence": "FINDINGS.md:3 says '45 findings \u2026 16 S1' and the correction block says '43 live'; the file has 52 `### F-` headings and 18 'Severity: **S1' lines. FIX-PLAN.md:12 says 'Waves 1\u20135 are still plans', but wave 4/5 commits are on main (b383852a2, ad92e91b2, b22b1d80d via #2911). README.md:10 says '45 \u2026 43 live'. No PR touches eval/. (The F-005/F-047/\u00a75.6/\u00a73.5 dispositions were not individually re-verified.)",
+  "fixSketch": "Add a dated header block: 50 findings (52 entries incl. sub-ids), 18 S1, waves 0\u20135 landed in #2911, with the per-finding status table. Mirror it in README and FIX-PLAN \u00a70.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-08b",
+  "title": "eval-fieldops FINDINGS/README stale (only 09-14 status; F-023/24/25; README count 22 vs 26)",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3076",
+  "claimCoversAll": false,
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval-fieldops/FINDINGS.md",
+   "eval-fieldops/README.md"
+  ],
+  "evidence": "On main FINDINGS.md:918 is the 09-14 snapshot and F-023/24/25 read 'not fixed'. #3076 adds a 'Later status (2026-09-29)' block and marks F-023/24/25 fixed (#2983/#2981/#2982). Not covered: README.md:6 still says '22 numbered findings (F-001\u2026F-022)' while the register has 26 `### F-` entries, and the F-005 default text (G8-05).",
+  "fixSketch": "Land #3076; also update README.md:6 to 26 findings with a pointer to the Later-status block.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-08c",
+  "title": "eval-clinica FINDINGS dispositions wrong (F-009 'fixed', F-008 unowned, F-018/F-012 'claimed open', tally)",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "files": [
+   "eval-clinica/FINDINGS.md"
+  ],
+  "evidence": "F-009 (:46) says 'fixed \u2026 no longer reproduces', but routed r08b (f009-routed.ddd) gives parse 0 errors, then generate exit 1 with 'Error: internal: paged queryHandler 'ListViaRetrieval' in 'C' does not match the supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.' plus a stack trace, on node and python. F-008 (:45) 'open, unowned' is owned by M-T5.31 (T5:178). F-018 (:54) 'claimed, open #2980': #2980 merged 09-22, and r18 now gives loom.containment-cycle. F-012 (:50) 'claimed, open #2948': #2948 was closed unmerged 09-28. Tally (:9-11) S1=7, but the body has 8 S1 severity lines. No open PR touches eval-clinica, and no open PR claims the F-009 crash.",
+  "fixSketch": "Add a dated disposition block: F-009 still crashes when routed (a real code defect that needs a validator refusal or emitter support \u2014 separate item); F-008\u2192M-T5.31; F-018 fixed by #2980; F-012 unowned since #2948 closed (M-T8.28 in #3076 covers the .loomignore half); recount the tally.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-08d",
+  "title": "Commons audit header counts and deferred-table statuses stale",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/audits/2026-09-13-commons-dev-experience.md",
+   "docs/new-plan/coverage.md"
+  ],
+  "evidence": "Commons :19 says '22 findings. S1 \u00d710', but the table (:61-83) has 23 rows including F-023 S1, so S1=11. The ':103 Found while fixing, deliberately NOT fixed' table still lists crudish+auditable\u2192Java UserId, which is fixed: d1.ddd on java emits `String createdBy` in NoteResponse.java:9. The foreach factory-let false positive was fixed by b383852a. coverage.md:235 says 'F-018 \u2026 is the only genuinely open row'; F-008/F-009/F-019 are open too. #3076 adds M-T8.27/M-T8.28 pointers but keeps 'only genuinely open'.",
+  "fixSketch": "Header: 23 findings, S1 \u00d711. Mark D-1 fixed (#2960) and D-4 fixed (b383852a) in the deferred table. coverage.md:235: 'F-018, F-008, F-009 and F-019 remain open'.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-08e",
+  "title": "claimshub doc says D1/D2/D4 PRs open, not merged",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/audits/2026-09-10-claimshub-dev-experience.md"
+  ],
+  "evidence": ":16 says 'those PRs were still open'; :45 '#2878 \u2026 Open, not merged'; :90 '#2884 fix in flight'; :242 '#2883 fix in flight'. All three merged (9f6984f7, f9c0712a, 6442e2a3). #3076 fixes coverage.md but not this file.",
+  "fixSketch": "Add 'Status 2026-09-29: merged (#2878 9f6984f7 / #2884 f9c0712a / #2883 6442e2a3)' lines under each and in the intro.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-09a",
+  "title": "eval/FINDINGS.md cites repro files that exist only on bxc2c6",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval/FINDINGS.md"
+  ],
+  "evidence": "Missing on main but present on origin/claude/loom-dsl-evaluation-bxc2c6: eval/probe/feed-a.ddd (:94), eval/commons/s4.ddd (:294), eval/evo/mv1.ddd + mv2 (:415), eval/probe/rowlevel.ddd (:515), eval/adversarial/05-missing-ctor-field.ddd (:606), eval/commons/breadth.ddd (:952), eval/phase0/readme-quick.ddd (:20), readme-quick-fixed.ddd (:144). Also the eval/commons/out and eval/probe/visibility dirs.",
+  "fixSketch": "Port those ~9 .ddd files from bxc2c6 (git show bxc2c6:<path>), or rewrite the refs as 'origin/claude/loom-dsl-evaluation-bxc2c6:<path>'.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-09b",
+  "title": "eval/fieldops-audit/* links at the wrong level",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval/fieldops-audit/README.md",
+   "eval/fieldops-audit/FINDINGS.md",
+   "eval/fieldops-audit/FIX-PLAN.md"
+  ],
+  "evidence": "README.md:15-19 links fieldops/, repro/, repro/broken/, matrix/, evidence/ and repatch.sh; all exist at eval/, not eval/fieldops-audit/. The fix-plans/ link resolves, so the audit named the wrong dir. The backtick paths `eval/fix-plans/` (FINDINGS:18, FIX-PLAN:11,137) and `eval/FIX-PLAN.md` (FINDINGS:19) are wrong; the real paths are under eval/fieldops-audit/.",
+  "fixSketch": "README: prefix those links with ../. FINDINGS/FIX-PLAN: change to eval/fieldops-audit/fix-plans/ and eval/fieldops-audit/FIX-PLAN.md.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-09c",
+  "title": "eval/evidence/README.md uses FieldOps numbering in the Commons tree",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval/evidence/README.md"
+  ],
+  "evidence": "eval/evidence/README.md:14-17 cites F-020 (minio), F-035 (onCreate) and F-034 (wire). In eval/FINDINGS.md, F-020 is the Java Objects import; the minio/F-034/F-035 meanings are eval/fieldops-audit/FINDINGS.md:883,1525,1572. The cited F-035-java-Thing.java does not exist in eval/evidence.",
+  "fixSketch": "Say 'numbering = eval/fieldops-audit/FINDINGS.md', link it, and drop or restore F-035-java-Thing.java.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-09d",
+  "title": "eval-clinica repro/*.ddd.txt crash ddd parse with a raw stack trace",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "eval-clinica/repro/r01-duration-field.ddd.txt",
+   "eval-clinica/repro/r04-soft-keyword-param.ddd.txt",
+   "eval-clinica/FINDINGS.md",
+   "src/language/project-loader.ts"
+  ],
+  "evidence": "`node bin/cli.js parse eval-clinica/repro/r01-duration-field.ddd.txt` (the command documented at eval-clinica/FINDINGS.md:232) prints 'Error: The service registry contains no services for the extension '.txt'.' with a stack trace through project-loader walk, exit 1. r04 (:316) is the same.",
+  "fixSketch": "Docs: tell the reader to copy to .ddd first (or rename, if .txt was chosen to keep corpus globs off them). Optional CLI hardening in project-loader/cli main: refuse non-.ddd input with a message instead of a stack trace.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10a",
+  "title": "FIX-PLAN \u00a75.3 cross-backend symbol sweep has no mission",
+  "verdict": "CONFIRMED-CLAIMED",
+  "claimedBy": "#3076",
+  "claimCoversAll": true,
+  "severity": "S3",
+  "size": "M",
+  "files": [
+   "docs/new-plan/T9-toolchain-health.md",
+   "test/system/emitted-unbound-symbols.test.ts"
+  ],
+  "evidence": "On main the node-only gate exists (test/system/emitted-unbound-symbols.test.ts, emitted-symbol-binding.test.ts), and no docs/new-plan heading covers the python/java/dotnet/elixir port. #3076 mints '## M-T9.67 \u2014 The unbound-symbol gate is node-only: port it to python, java, dotnet and elixir'.",
+  "fixSketch": "Land #3076.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10b",
+  "title": "FIX-PLAN \u00a75.8 widen ir-walk-census to independent if statements \u2014 no mission",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "L",
+  "files": [
+   "test/system/ir-walk-census.test.ts",
+   "docs/new-plan/T9-toolchain-health.md"
+  ],
+  "evidence": "eval/fieldops-audit/FIX-PLAN.md:666-680 asks to 'Mint it as its own mission' (~76 sites across ~12 files). No new-plan heading or #3076 row matches. #3065 changes the census's waiver shape and expiry but not the shape-#2 detector.",
+  "fixSketch": "Mint a T9 mission: count non-chained `if (<x>.kind === \u2026)` within one function body over ExprIR/StmtIR/WorkflowStmtIR, with triage into migrate / never-check / waive. Sequence it after #3065 lands (same file).",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10c",
+  "title": "FIX-PLAN \u00a75.5 real OIDC code-flow gate \u2014 no mission",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "files": [
+   "test/e2e/auth-oidc-python-e2e.test.ts",
+   "docs/new-plan/T3-security-governance.md"
+  ],
+  "evidence": "The existing OIDC e2e only asserts `/api/auth/login` answers 307 with an oidc_state cookie (auth-oidc-python-e2e.test.ts:257-262; same in the elixir compose test :190). Nothing drives login\u2192Keycloak form\u2192/auth/callback\u2192session cookie. `grep -i 'code-flow|code flow|authorization-code|/auth/callback' docs/new-plan/*.md` finds only an unrelated T4 SSE note.",
+  "fixSketch": "Mint a T3/T9 mission: one Playwright (or fetch+form-post) leg against the generated Keycloak realm per backend that completes the code flow and asserts /api/auth/me. Wire it under the auth-oidc label.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10d",
+  "title": "Deep-fuzz nightly leg has no mission",
+  "verdict": "NOT-A-BUG",
+  "severity": "S4",
+  "size": "S",
+  "files": [
+   "docs/new-plan/T9-toolchain-health.md"
+  ],
+  "evidence": "REFUTED. M-T9.64 '## The deep fuzz tier is built, red, and runs nowhere \u2014 open \u00b7 M \u00b7 P1' (T9:964, added caea4ce8d 2026-09-14) explicitly says 'Add a nightly leg, register it in ci-red-alarm.yml'. Still unimplemented (no fuzz-deep in .github/workflows), but owned. The minor sub-item 'second deployable + test e2e in the fuzz generator' (FIX-PLAN \u00a75.1) is not in M-T9.64 or in the M-T9.22 remainder.",
+  "fixSketch": "None needed for the nightly leg. Optionally append the generator-widening sub-item to M-T9.64.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10e",
+  "title": "FIX-PLAN \u00a75.7 two-line corpus fixtures \u2014 no mission",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "S",
+  "files": [
+   "test/fixtures/corpus/validation-messages.ddd",
+   "docs/new-plan/T9-toolchain-health.md"
+  ],
+  "evidence": "eval/fieldops-audit/FIX-PLAN.md:656-664 asks for three fixtures: validation-messages.ddd with a message-less matches(...) and toThrow(422); a fixture with requires true + a currentUser.<claim> find filter + for\u00d7if-let; and a ts-build fixture with a VO holding an X id + enum-stated workflow + managed default. No new-plan mission names them. #3076's new M-T9.74 lists a different fixture set.",
+  "fixSketch": "Append these three to M-T9.74 (#3076) or mint a sibling mission. Each fixture needs an e2e block (coordinate with #3058's E2E_LESS list).",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10f",
+  "title": "vue/svelte/angular field-shape waivers have no owner",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "M",
+  "files": [
+   "test/system/frontend-field-shape-coverage.test.ts"
+  ],
+  "evidence": "test/system/frontend-field-shape-coverage.test.ts:99-107 MISSING = vue [decimal, datetime, scalar-array, file], svelte [id-ref-optional, scalar-array], angular [id-ref, id-ref-optional, file], labelled 'DEBT, not policy'. `grep field-shape docs/new-plan` is empty on main and on #3076.",
+  "fixSketch": "Mint a T1 mission: add each shape to that framework's build-gate scaffold aggregate (generated-{vue,svelte,angular}-build) and delete the waiver in the same PR.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ },
+ {
+  "id": "G8-10g",
+  "title": "clinica wave-0 generated-compiles gate \u2014 no mission",
+  "verdict": "CONFIRMED-UNCLAIMED",
+  "severity": "S3",
+  "size": "L",
+  "files": [
+   "eval-clinica/FIX-PLAN.md",
+   "test/fixtures/corpus/"
+  ],
+  "evidence": "eval-clinica/FIX-PLAN.md:82-100 plans test/system/generated-compiles.test.ts plus a realistic corpus app (clinica/main.ddd). The test does not exist and no new-plan heading names it. It is partly superseded by the per-backend corpus compile legs (python-build/java/dotnet/elixir/ts), but the realistic multi-feature app fixture was never added.",
+  "fixSketch": "Mint a mission to promote eval-clinica/clinica/main.ddd (trimmed) into test/fixtures/corpus/ so the existing per-backend compile legs reach it. Needs an e2e block per the #3058 rule. No new bespoke gate.",
+  "needsDecision": false,
+  "group": "g8-docs-claims"
+ }
+]
