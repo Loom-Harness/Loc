@@ -41,6 +41,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#the-callable-modifier-surface",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
+  "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
@@ -102,6 +103,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
   "loom.parameter-default-type-mismatch":
     "06-behavior-and-statements.md#operation--a-mutating-method",
+  // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
+  "loom.elixir-invariant-unenforced":
+    "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
@@ -362,6 +366,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",

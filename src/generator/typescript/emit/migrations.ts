@@ -40,6 +40,23 @@ function migrationTag(version: string, module: string, name: string): string {
   return `${version}_${snake(module)}_${snake(name)}`;
 }
 
+/** Anchor for the journal's `when` values — epoch millis of `BASE_TIMESTAMP`
+ *  (2026-01-01T00:00:00Z), the canonical first-migration instant.  `when` itself
+ *  is `WHEN_BASE + ordinal * 2` (see `renderJournal`): drizzle treats it as an
+ *  opaque monotonic integer, and anchoring it here keeps it readable as a
+ *  plausible timestamp rather than a bare counter.
+ *
+ *  The anchor deliberately sits at the BOTTOM of the range the pre-F-012 key
+ *  produced (which ran from this same instant up to a year-2999 sentinel,
+ *  ~3.25e13).  A database migrated by the old key therefore reads every new
+ *  `when` as older than its recorded watermark and applies nothing, which leaves
+ *  such a stack exactly as stuck as the bug already left it — instead of
+ *  re-running its whole chain and crashing the boot on "already exists", which
+ *  is what a higher anchor would do.  Recovering one is a one-time
+ *  `DELETE FROM "__drizzle_migrations"` (documented in docs/migrations.md);
+ *  every stack generated after this change is unaffected. */
+const WHEN_BASE = Date.UTC(2026, 0, 1, 0, 0, 0);
+
 export function emitTypescriptMigrations(
   migrations: MigrationsIR[],
   out: Map<string, string>,
@@ -73,48 +90,92 @@ function renderJournal(
   migrations: MigrationsIR[],
   extraHistory: ReadonlyArray<{ version: string; tag: string }> = [],
 ): string {
+  // One row per (module, history entry), ordered by each entry's recorded
+  // CREATION ORDINAL (`MigrationHistoryEntry.seq`), then any always-last extra
+  // (the provenance migration).  Rows are keyed on the resolved tag, not the
+  // bare version: modules in one deployable can share a version, and de-duping
+  // by version alone would collapse every module's "Initial" into one entry and
+  // drop the rest of the database's tables.
+  const rows = migrations.flatMap((m) =>
+    (m.next.migrationHistory ?? []).map((e) => ({
+      seq: e.seq,
+      version: e.version,
+      tag: migrationTag(e.version, m.module, e.name),
+    })),
+  );
+  // Every entry the fixed builder stamps carries an ordinal.  A history that
+  // does NOT (a hand-assembled IR in a unit test, or a snapshot no regen has
+  // re-stamped yet) falls back to (version, tag) order numbered from 1 — the
+  // order the old journal used, and still strictly increasing, but WITHOUT the
+  // per-identity stability, so an insert there still renumbers.  Decided for the
+  // journal as a whole rather than per row: mixing recorded ordinals with
+  // positional ones could mint two rows with the same key, and a tie is the one
+  // failure that is silent.
+  const recorded = rows.every((r) => r.seq !== undefined);
+  const ordered = recorded
+    ? [...rows].sort((a, b) => (a.seq as number) - (b.seq as number))
+    : [...rows].sort((a, b) =>
+        a.version !== b.version ? (a.version < b.version ? -1 : 1) : a.tag < b.tag ? -1 : 1,
+      );
+  const ordinals = recorded ? ordered.map((r) => r.seq as number) : ordered.map((_, i) => i + 1);
   const entries: {
     idx: number;
     version: string;
     when: number;
     tag: string;
     breakpoints: boolean;
-  }[] = [];
-  let idx = 0;
-  // One row per (module, history entry) plus any extra (e.g. provenance)
-  // rows.  Modules in the same deployable share a version on their initial
-  // migration, so rows are keyed on the resolved tag (not bare version) —
-  // de-duping by version alone would collapse every module's "Initial" into
-  // one entry and drop the rest of the database's tables.  Sort by
-  // (version, tag) for a stable, ordered journal that mirrors the emitted
-  // `.sql` filenames.
-  const rows = migrations
-    .flatMap((m) =>
-      (m.next.migrationHistory ?? []).map((e) => ({
-        version: e.version,
-        tag: migrationTag(e.version, m.module, e.name),
-      })),
-    )
-    .concat(extraHistory)
-    .sort((a, b) =>
-      a.version !== b.version ? (a.version < b.version ? -1 : 1) : a.tag < b.tag ? -1 : 1,
-    );
-  for (const row of rows) {
+  }[] = ordered.map((row, idx) => ({
+    idx,
+    version: "7",
+    // `when` is the ordering key drizzle's runtime migrator compares against
+    // the database: it applies an entry only when
+    // `lastApplied.created_at < entry.when`, STRICTLY.  That imposes three
+    // requirements, and the key this replaced met none of them (F-012):
+    //
+    //   (1) strictly increasing down the journal — a tie or a decrease silently
+    //       skips an entry, and its tables are never created;
+    //   (2) never changing for an entry that has already been applied — a
+    //       bumped `when` re-runs it and the re-run dies on "already exists";
+    //   (3) strictly greater, for a NEWLY appended entry, than for every entry
+    //       already applied — otherwise the watermark hides it forever.
+    //
+    // The old key was `epochMillis(version) + arrayIndex`.  The index broke (2)
+    // — inserting a migration renumbered every later entry — and the version
+    // broke (1) and (3): per-module version BLOCKS are not chronological, so a
+    // delta in block 0 (`20260101500001`) sorts below block 1's initial
+    // (`20260102000000`), and `Date.UTC` silently rolls the out-of-range hour
+    // field a strided version carries (`…500001` → hour 50) into a LATER
+    // instant than the version that follows it.
+    //
+    // Pairs of slots per ordinal: the EVEN slot carries the history entry, and
+    // the ODD slot immediately above the newest one is reserved for the
+    // always-last provenance migration below, so it sorts after this
+    // generation's entries without sitting above the next generation's.
+    when: WHEN_BASE + ordinals[idx] * 2,
+    tag: row.tag,
+    breakpoints: true,
+  }));
+  // The LATE provenance migration (`29991231000000_provenance`) is re-derived
+  // from scratch every generation rather than diffed, so it has no ordinal of
+  // its own and must stay last.  It used to be pinned to a year-2999 epoch,
+  // which made it permanently the highest `when` in the journal — so the
+  // watermark it left behind hid EVERY subsequent migration (requirement 3),
+  // and because it was also always the last row, it was always the entry the
+  // positional index renumbered, so it re-ran on every boot and crashed on
+  // `column … already exists`.  Anchoring it to the odd slot just above the
+  // newest history entry keeps it last within its own generation while leaving
+  // the next generation's entries above it.  Its SQL is emitted with
+  // `ADD COLUMN IF NOT EXISTS`, so re-applying it is a no-op — and a field
+  // newly marked `provenanced` now actually gets its column.
+  const maxOrdinal = ordinals.reduce((mx, o) => Math.max(mx, o), 0);
+  for (const extra of extraHistory) {
     entries.push({
-      idx,
+      idx: entries.length,
       version: "7",
-      // `when` must be STRICTLY INCREASING across entries: drizzle's runtime
-      // migrator applies a migration only when `lastApplied.created_at < when`
-      // (strictly), so any two entries sharing a `when` collapse to one — the
-      // second is silently skipped, its tables never created.  Modules in one
-      // deployable share a version on their initial migration (all map to the
-      // same epoch millis), so add `idx` to break ties.  Since `rows` is sorted
-      // by version and `idx` increases by 1 per row, `base + idx` is monotonic.
-      when: versionToEpochMillis(row.version) + idx,
-      tag: row.tag,
+      when: WHEN_BASE + maxOrdinal * 2 + 1,
+      tag: extra.tag,
       breakpoints: true,
     });
-    idx++;
   }
   // Drizzle journal envelope.  Version "7" matches what drizzle-kit
   // 0.30.x emits for the postgresql dialect; if a future drizzle-kit
@@ -131,20 +192,6 @@ function renderJournal(
       2,
     ) + "\n"
   );
-}
-
-/** Map a `YYYYMMDDHHMMSS` version slug to epoch millis.  Deterministic; the
- *  caller adds the entry index so colliding versions still yield distinct,
- *  strictly-increasing `when` values (drizzle's migrator skips ties). */
-function versionToEpochMillis(version: string): number {
-  if (version.length !== 14) return 0;
-  const year = Number(version.slice(0, 4));
-  const month = Number(version.slice(4, 6)) - 1;
-  const day = Number(version.slice(6, 8));
-  const hour = Number(version.slice(8, 10));
-  const min = Number(version.slice(10, 12));
-  const sec = Number(version.slice(12, 14));
-  return Date.UTC(year, month, day, hour, min, sec);
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +249,13 @@ export function emitTypescriptProvenanceMigration(
             table,
             schema: ds?.schema,
             column: { name: provColumn(f.name), type: { kind: "json" }, nullable: true },
+            // Re-derived from scratch on every generation, and (unlike the
+            // diffed steps) re-applied whenever this migration is re-homed above
+            // the newest history entry — so it has to tolerate the columns it
+            // already added.  It also means a field newly marked `provenanced`
+            // finally receives its column: before, this migration either
+            // re-ran and died on "already exists", or never ran again at all.
+            ifNotExists: true,
           }),
         );
       }

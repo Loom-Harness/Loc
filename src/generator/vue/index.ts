@@ -14,6 +14,7 @@ import type {
 import { contextUsesMoney, uiUsesMoney } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
@@ -21,6 +22,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
+import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
@@ -713,7 +715,15 @@ export function generateVueForContexts(
     }
     out.set("src/lib/schemas.ts", schemas);
   }
-  out.set("package.json", renderShell(pack, "package-json", { usesMoney }));
+  // `CodeBlock { ... }` pulls in the VENDORED highlighter — the `highlight.js`
+  // dependency plus the `src/lib/highlight.ts` module that arms it — under one
+  // per-deployable flag, exactly as `decimal.js` rides `usesMoney`.  Vue used
+  // to hardcode this `false` (and its `index.html` gate with it), so a Vue app
+  // rendering CodeBlock emitted `<pre><code class="language-…">` with no
+  // highlighter anywhere.
+  const usesCodeBlock = uiUsesCodeBlock(ui, options.topLevelComponents ?? []);
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
+  out.set("package.json", renderShell(pack, "package-json", { usesMoney, usesCodeBlock }));
   out.set("tsconfig.json", renderShell(pack, "tsconfig", {}));
   out.set("tsconfig.node.json", renderShell(pack, "tsconfig-node", {}));
   out.set("vite.config.ts", renderShell(pack, "vite-config", { base: viteBase, apiProxyTarget }));
@@ -722,7 +732,13 @@ export function generateVueForContexts(
   // `import "./globals.css"`.  `vite/client` declares the `*.css`
   // side-effect module (mirrors the React generator).
   out.set("src/vite-env.d.ts", '/// <reference types="vite/client" />\n');
-  out.set("index.html", renderShell(pack, "index-html", prepareIndexHtmlVM(sys, deployable, ui)));
+  out.set(
+    "index.html",
+    renderShell(pack, "index-html", {
+      ...prepareIndexHtmlVM(sys, deployable, ui),
+      usesCodeBlock,
+    }),
+  );
   out.set("Dockerfile", renderShell(pack, "dockerfile", {}));
   out.set(".dockerignore", renderShell(pack, "dockerignore", {}));
   out.set("certs/.gitkeep", "");
@@ -991,7 +1007,6 @@ function prepareIndexHtmlVM(
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,
     favicon: deployable.favicon,
-    usesCodeBlock: false,
     usesFileUpload: false,
   };
 }

@@ -12,6 +12,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
@@ -19,6 +20,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_TSX, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
+import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import {
   renderI18nModule,
   renderLocaleCatalog,
@@ -53,12 +55,7 @@ import {
 } from "./emit-templates.js";
 import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { deriveSidebarFromUi } from "./menu-emitter.js";
-import {
-  deriveExtraRoutesFromUi,
-  emitPageObjectsForUi,
-  emitPagesForUi,
-  uiUsesCodeBlock,
-} from "./pages-emitter.js";
+import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { renderZustandStoreModule } from "./store-builder.js";
 import { defaultNavSections } from "./templating/preparers/app-shell.js";
@@ -533,20 +530,26 @@ export function generateReactForContexts(
   // same detect-once conditional-dep contract as `usesMoney` above.  Only the
   // mantine v9 `package-json.hbs` references the flag today.
   const usesChart = uiUsesChart(ui);
-  out.set("package.json", renderShellFile("package-json", { usesMoney, usesChart }, pack));
+  // Pages that render `CodeBlock { ... }` pull in the VENDORED highlighter —
+  // the `highlight.js` dependency plus the `src/lib/highlight.ts` module that
+  // arms it, both gated on this one per-deployable flag exactly as
+  // `decimal.js` is gated on `usesMoney`.  (It used to gate a CDN `<script>`
+  // in `index.html`; a generated app must build and run air-gapped.)
+  const usesCodeBlock = uiUsesCodeBlock(ui, options.topLevelComponents ?? []);
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
+  out.set(
+    "package.json",
+    renderShellFile("package-json", { usesMoney, usesChart, usesCodeBlock }, pack),
+  );
   out.set("tsconfig.json", renderShellFile("tsconfig", {}, pack));
   out.set("tsconfig.node.json", renderShellFile("tsconfig-node", {}, pack));
   out.set(
     "vite.config.ts",
     renderShellFile("vite-config", { base: viteBase, apiProxyTarget }, pack),
   );
-  // Pages that use the `CodeBlock { ... }` primitive need the
-  // highlight.js CDN payload injected into the shell HTML — every
-  // page's CDN tags are identical, so a single per-deployable
-  // detect-once / inject-once gate keeps the HTML lean when no page
-  // uses code rendering.  Mirrors the `usesMoney` flag for
-  // `decimal.js` in `package.json` below.
-  const usesCodeBlock = uiUsesCodeBlock(ui, options.topLevelComponents ?? []);
+  // `usesCodeBlock` also rides into the shell HTML — as the second module
+  // entry (`/src/lib/highlight.ts`) Vite bundles and links the theme CSS for,
+  // not as a CDN script tag.
   out.set(
     "index.html",
     renderShellFile(

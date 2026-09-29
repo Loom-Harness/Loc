@@ -1,0 +1,43 @@
+// Journal-ordering gate (F-012) — the EVOLVED model (v2).
+//
+// Paired with journal-order-base.ddd (v1) — see that file for why this pair
+// exists and what it reaches that the sibling base/evolved pair cannot.
+//
+// The ONLY change from v1 is `notes: string?` on Catalog.Product: the most
+// ordinary evolution there is, a single nullable add.  It derives one delta in
+// Catalog's version block (`20260101500001`), which sorts BELOW Billing's
+// already-applied initial (`20260102000000`) — so under the old positional
+// journal key the generated SQL was correct and simply never executed.
+system ShopJournal {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        name: string
+        price: money
+        notes: string?
+      }
+      repository Products for Product { }
+    }
+  }
+  subdomain Billing {
+    context Billing {
+      aggregate Invoice with crudish {
+        ref: string
+        total: int provenanced
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  api CatalogApi from Catalog
+  api BillingApi from Billing
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog, Billing]
+    dataSources: [catalogState, billingState]
+    serves: CatalogApi, BillingApi
+    port: 4000
+  }
+}

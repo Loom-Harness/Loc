@@ -46,6 +46,93 @@ Python, Java (and the React/Vue/Svelte/Angular/Feliz frontends) by construction 
 by coincidence. This is the shape a union
 variant or a carrier argument projects through when it names an aggregate.
 
+### Numeric wire forms — `money` is a string, `decimal` is a number
+
+`wireShape` fixes the field *order*; the numeric **primitive you pick fixes the
+JSON form**, and the two decimal-ish primitives deliberately differ. Choosing
+between them is therefore a wire decision, not only a storage one:
+
+- **`money`** crosses as a fixed-scale decimal **string**, always 4 decimals —
+  normative in [`conformance-semantics.md` § RS-12](conformance-semantics.md#rs-12--money-wire-scale-is-consistent-across-backends).
+- **`decimal`** crosses as a JSON **number**, float64-wide — normative in
+  [`conformance-semantics.md` § RS-24](conformance-semantics.md#rs-24--a-plain-decimal-is-a-json-number-only-money-is-a-string),
+  which also records the per-backend narrowings this took.
+
+Those two rules are the source of truth; this section only says where the choice
+shows up in a payload. One aggregate with one of each:
+
+```ddd
+aggregate Invoice {
+  amount: money
+  taxRate: decimal
+
+  create(amount: money, taxRate: decimal) {
+    amount := amount
+    taxRate := taxRate
+  }
+}
+```
+
+`GET /api/invoices/{id}` — the identical body on all five backends, for
+`amount = 12.5` and `taxRate = 0.0825`:
+
+```json
+{
+  "id": "1d9f0a7e-5c33-4b19-9e08-2c7d4f6a1b02",
+  "amount": "12.5000",
+  "taxRate": 0.0825,
+  "version": 1
+}
+```
+
+Note what `money` does and `decimal` does not: `12.5` is re-emitted as
+`"12.5000"`. The scale is pinned, so `"12.5"`, `"12.50"` and `"12"` all read
+back the same way, and no client can round-trip an amount through a float.
+
+The generated encoder that produces each, one line per backend — the response
+boundary only, since the **request** direction deliberately stays on each
+backend's wide type (see RS-24). Quoted verbatim from generated output, except
+that the .NET and Java rows drop the `System.Globalization.` / `java.math.`
+qualifiers the emitters write in full:
+
+| Backend | `money` → string | `decimal` → number |
+|---|---|---|
+| node / Hono | `root.amount.toFixed(4)` | `root.taxRate` (already a JS `number`) |
+| .NET | `found.Amount.ToString("F4", CultureInfo.InvariantCulture)` | `double.Parse(found.TaxRate.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)` |
+| Phoenix | `__money_round(record.amount)` → `Decimal.round(dec, 4)` | `__decimal_num(record.tax_rate)` → `Decimal.to_float(dec)` |
+| Python | `money_str(root.amount)` → `format(amount.quantize(Decimal("1e-4"), rounding="ROUND_HALF_UP"), "f")` | `root.tax_rate` (already a `float`) |
+| Java | `value.amount().setScale(4, RoundingMode.HALF_UP).toPlainString()` | `value.taxRate().doubleValue()` |
+
+The response DTO declares the same split, so it is visible in the served
+OpenAPI too — node's Zod schema, for instance:
+
+```ts
+export const InvoiceResponse = z.object({
+  id: z.string(),
+  amount: z.string(),   // money   → string
+  taxRate: z.number(),  // decimal → number
+  version: z.number().int().openapi({ format: "int32" }),
+}).openapi("InvoiceResponse");
+```
+
+and `.loom/wire-spec.json` carries it as the contract artifact:
+
+```json
+"amount":  { "type": "string", "format": "decimal" },
+"taxRate": { "type": "number" }
+```
+
+**For a client author:** parse `amount` with a decimal type, never a float — the
+string is the whole point of `money`. `decimal` is safe to read as a double,
+because the backend already narrowed it to one.
+
+The per-backend column mapping and the full five-language expansion (domain
+type, DDL, and both directions) live in
+[`language-reference/04-type-system.md` § `money`](language-reference/04-type-system.md#money--precise-column-string-on-the-wire).
+The arithmetic rules that keep the two types apart — `money ± money`,
+`money × {int|long|decimal}`, and the rejection of `money + decimal` — are in
+[§ Numeric representation rules](language-reference/04-type-system.md#numeric-representation-rules).
+
 ---
 
 ## 2. Generic carriers — `paged` and `envelope`
