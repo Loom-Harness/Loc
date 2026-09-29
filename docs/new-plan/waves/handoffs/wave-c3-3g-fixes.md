@@ -79,7 +79,7 @@ Every mutation below was seeded by FILE COPY in `src/`, rebuilt (`npx tsc -b`), 
 | `NODE_USE_ENV_PROXY=1 node scripts/mission-counts.mjs --check` | up to date (after `--write` for M-T6.74 / M-T6.75) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | exit 0, no broken-link output |
-| `npm test` (full, `NPM_TEST_EXIT` appended) | **exit 0** — 2230 files passed / 90 skipped; 27094 tests passed, 6 expected-fail, 1264 skipped |
+| `npm test` (full, `NPM_TEST_EXIT` appended) | on `602599cdb` (last `src/`/`test/` change): **exit 0** — 2230 files passed / 90 skipped; 27094 tests passed, 6 expected-fail, 1264 skipped.  Re-run on the final head (docs-only delta): 2229 passed, **1 failed** — `test/cli/cli-tooling-truth.test.ts` › "no `--help` text points at the frozen design record…" `Test timed out in 30000ms` under load ≈ 15 from the sibling packets; re-run ALONE: **27 / 27 passed** (a starvation timeout, not a regression) |
 
 **Not merged:** this branch is on the C3 coordinator head (`8319c1026`); `origin/main` moved since and the coordinator resolves that at the fold. The open-PR overlaps that fold must handle are §3 (#3060 carried verbatim; #3063's soft-keyword sweep will overlap `PluralSlugKeyword`).
 
