@@ -1371,7 +1371,10 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
     // pass here and are refused by `loom.bare-collection-accessor` instead —
     // its message names the lambda form, which is the actionable fix.
     case "array":
-      return isCollectionOp(name) ? undefined : typeToString(t);
+      // `length` is an alias `collectionOpType` types as `int` (see there); it
+      // is legal on an array but absent from the catalogue, so `isCollectionOp`
+      // alone would reject it.
+      return isCollectionOp(name) || name === "length" ? undefined : typeToString(t);
     case "aggregate": {
       if (name === "id") return undefined;
       return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;
@@ -1433,6 +1436,19 @@ function collectionOpType(
 ): DddType {
   switch (name) {
     case "count":
+    // `<array>.length` — an ALIAS for `count`, not a catalogue op.  The IR has
+    // typed it as `int` all along (`lower-expr.ts`, the `array` arm), and its
+    // comment there claims this is "exactly as the language type-system already
+    // reports it" — which was NOT true: `collectionOpType` had no `length` case,
+    // so the language layer returned `T.unknown` while the IR and every emitter
+    // handled it (java renders `.size()`, and the corpus relies on it).  That is
+    // the same IR/language disagreement shape as F1, found by this PR's own gate
+    // turning a valid fixture red.
+    //
+    // It is deliberately NOT added to COLLECTION_OP_SIGNATURES: that catalogue
+    // drives `collection-op-completeness`, which requires every backend to
+    // RENDER each entry, and `length` is spelled `count` there.
+    case "length":
       return T.prim("int");
     case "sum": {
       // sum returns the lambda's body type when one is given;

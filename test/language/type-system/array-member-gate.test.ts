@@ -94,6 +94,23 @@ describe("the false-positive guard: every legal array member stays clean", () =>
     join: '(", ")',
   };
 
+  it("`length` — the catalogue-less alias — stays clean in BOTH positions", async () => {
+    // Regression guard for a FALSE POSITIVE this gate originally had.
+    // `<array>.length` is an alias for `count`: the IR has always typed it
+    // `int` and every emitter renders it (java `.size()`), but it is absent
+    // from COLLECTION_OP_SIGNATURES, so keying the gate on `isCollectionOp`
+    // alone rejected a construct the whole pipeline supports — it turned
+    // `test/generator/java/generator-java-openapi-customizer.test.ts` red on a
+    // `requires currentUser.permissions.length > 0` that emits correct Java.
+    //
+    // It is NOT added to the catalogue: that drives
+    // `collection-op-completeness`, which demands every backend RENDER each
+    // entry, and the rendered spelling is `count`.
+    const { agg, svc } = twoPosition("f.length > 0");
+    expect((await parseString(agg)).errors).toEqual([]);
+    expect((await parseString(svc)).errors).toEqual([]);
+  });
+
   it("the catalogue is non-empty (vacuum guard)", () => {
     expect(COLLECTION_OP_SIGNATURES.length).toBeGreaterThan(10);
   });
