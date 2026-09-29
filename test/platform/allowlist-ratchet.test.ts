@@ -642,23 +642,56 @@ const REGISTERED: Ratchet[] = [
     // merged `BEHAVIOURAL_ABSENT` in `test/system/gate-ledger.test.ts` holds
     // exactly 24 rows by this file's own counter, so the bound is pinned to that
     // count and mutation-proved (23 fails naming 24).
+    // 27 -> 26 (2026-09-29, M-T6.73): `handler-triad` DRAINED, on the THIRD
+    // attempt.  #2984 made a routed handler addressable and drained this cell;
+    // booting it showed four of five backends did not serve an explicit route
+    // where the caller asks, so #2984 reverted its own drain and put the row
+    // back — correctly, since `gate-ledger` refuses a feature that boots on some
+    // declared backends and not others, with no allowlist, and
+    // `BEHAVIOURAL_SKIP` is at `max: 0`.  The emitter half of #3024 then fixed
+    // six defects and got FOUR legs to 0 wire divergences, but left the row in
+    // place rather than waive the fifth.
     //
+    // What makes the drain legitimate now is that nothing is hidden: the last
+    // four divergences were the tier's malformed-body probe landing on a POST
+    // this create-less `Order` does not serve, where it cannot reach the parser
+    // it exists to test and measures whichever layer answers first instead.  The
+    // probe steps aside there now — the same step-aside its PATCH sibling
+    // already makes — so all five legs are green with NO per-backend waiver, no
+    // `BEHAVIOURAL_SKIP` entry, and no wire waiver.
+    //
+    // Re-derived against `main`'s CURRENT value at each merge, never carried:
+    // this branch was cut at 24 (-> 23), re-merged at 26 (-> 25), and is now
+    // re-merged at 27 (-> 26).  Each of those numbers was right on the tree it
+    // landed on and wrong one merge later — which is how this PR was ejected
+    // from the merge queue once already, on exactly this line.
+    //
+    // 24 / 26 -> 23, RE-DERIVED at the Wave C3 3-A branch's `main` merge of
+    // #3024 (2026-09-29): `main` carried 26 (27 minus the `handler-triad` drain
+    // above) and this branch 24 (27 minus packet 3a's three drains); the merged
+    // register holds exactly 23 rows by this file's own counter (27 - 3 - 1),
+    // so the bound is that count, mutation-proved both ways (22 fails naming
+    // 23; 999 fails as slack).
     // 23 -> 20 (2026-09-28, wave C3 packet 3g): three of those six held
     // blocks drained with the `src/` fixes for the defects they found —
     // `collection-op-shapes` (D1), `enum-collection` (D3), `vo-id-reference`
     // (D4) — each green on all seven legs against a node-minted golden.
-    //
     // 20 -> 17 (same packet): the remaining three — `workflow-enum-state`
     // (D2 + D6), `workflow-command-payload` (D2 + D7) and
     // `projection-implicit-sub` (D8) — drained with the elixir workflow fixes
     // and the plural-slug grammar fix, so all six blocks 3a held are home.
-    //
     // 24 / 17 -> 18, RE-DERIVED at the 3g fold onto the Wave C3 3-A tree
     // (2026-09-29): 3-A carried 24 (above) and 3g's branch 17 (its six drains
     // off the 23 it forked from); the merged register holds exactly 18 rows by
     // this file's own counter (24 - 6), so the bound is that count,
     // mutation-proved both ways (17 fails naming 18; 999 fails as slack).
-    max: 18,
+    //
+    // 23 / 18 -> 17, RE-DERIVED again when the 3g fold took the 3-A branch's
+    // later `main` merges (2026-09-29): 3-A now carries 23 (#3024's
+    // `handler-triad` drain) and 3g's six drains come off that — the merged
+    // register holds exactly 17 rows by this file's own counter (23 - 6),
+    // mutation-proved both ways (16 fails naming 17; 999 fails as slack).
+    max: 17,
   },
 ];
 

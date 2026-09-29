@@ -17,6 +17,12 @@ import {
   MIKRO_OUTBOX_ROW_CLASS,
   mikroWorkflowRowClass,
 } from "../../../generator/typescript/emit/mikroorm.js";
+import {
+  RAW_INSTANT_FN,
+  rawInstantFields,
+  rawRowWireExpr,
+  renderRawInstantHelper,
+} from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
@@ -689,7 +695,11 @@ export function buildWorkflowsFile(
     );
   }
 
-  return [...imports, "", ...body].join("\n") + "\n";
+  // The raw-row canonical-instant helper the instance-read routes call — module
+  // level, and only when a route actually references it (an unused function is an
+  // error under the generated-project Biome config, like every import above).
+  const instantHelper = hasRef(RAW_INSTANT_FN) ? [...renderRawInstantHelper(), ""] : [];
+  return [...imports, "", ...instantHelper, ...body].join("\n") + "\n";
 }
 
 /** Every resource-op call in a workflow's statements (bare or let-bound). */
@@ -1143,6 +1153,10 @@ function emitInstanceRoutes(
   const rowClass = mikroWorkflowRowClass(wf);
   const corr = wf.correlationField as string;
   const helpers = esHelperNames(wf);
+  // The instance-row props whose value arrives as a JS `Date` (see
+  // `raw-row-wire.ts`) — off the same `instanceWireShape` the response DTO above
+  // is built from, so the two cannot disagree about which field is an instant.
+  const instants = rawInstantFields(wf.instanceWireShape);
   const out: string[] = [];
   // List.
   out.push(`app.openapi(`);
@@ -1167,8 +1181,14 @@ function emitInstanceRoutes(
   } else {
     out.push(`    const rows = await db.select().from(${table});`);
   }
+  // RS-4 — an instance row goes out RAW (no repository `toWire` on this path),
+  // so a `datetime` state column would serialise through `Date.prototype.toJSON`
+  // and ship the padded `.000` fraction no other backend ships.  A
+  // datetime-free workflow keeps the verbatim `rows` expression.
+  const rowsExpr =
+    instants.length === 0 ? "rows" : `rows.map((r) => (${rawRowWireExpr("r", instants)}))`;
   out.push(
-    `    return httpCtx.json(rows as unknown as z.infer<typeof ${T}InstanceListResponse>, 200);`,
+    `    return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}InstanceListResponse>, 200);`,
   );
   out.push(`  },`);
   out.push(`);`);
@@ -1239,7 +1259,9 @@ function emitInstanceRoutes(
     out.push(`    const row = rows[0];`);
     out.push(`    if (!row) throw new AggregateNotFoundError(\`${T} \${id} not found\`);`);
   }
-  out.push(`    return httpCtx.json(row as unknown as z.infer<typeof ${T}InstanceResponse>, 200);`);
+  out.push(
+    `    return httpCtx.json(${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>, 200);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;

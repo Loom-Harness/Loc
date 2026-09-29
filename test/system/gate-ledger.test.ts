@@ -97,8 +97,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "extern-handlers":
     "the scaffold-once shape `extern` had, WITHOUT `extern`'s way out: the two routed handlers carry no precondition, so every call reaches the unimplemented user hook and a golden would pin the scaffold's fail-fast; the mount-path agreement for routed handlers is #3024 (re-checked wave C3 3a, when `extern` drained on its preconditions)",
   "handler-resource-ops": "outbound I/O inside a handler body; needs the resource's container",
-  "handler-triad":
-    "every route is an explicit `route … -> <Ctx>.<Handler>`; the e2e surface can address one since #2984, but FOUR of the five backends do not serve it at the path node does — see the register entry in api-caller-census-pins.ts",
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
