@@ -31,13 +31,13 @@ describe("elixir repository — claim guards close one `end` each", () => {
   it("two claim-valued create stamps emit two nested guards and two matching ends", async () => {
     const source = readFileSync(FIXTURE, "utf8").replace(/__PLATFORM__/g, "elixir");
     const fn = insertFn(await generateSystemFiles(source));
-    const guards = fn.match(/^    if current_user == nil or is_nil\(current_user\.\w+\)/gm) ?? [];
+    const guards = fn.match(/^ {4}if current_user == nil or is_nil\(current_user\.\w+\)/gm) ?? [];
     expect(guards).toHaveLength(2);
     // The function body: N guard `end`s at 4-space indent, then the `def`'s own
     // `end` at 2-space indent — every `do` closed, nothing left open.
-    const guardEnds = fn.match(/^    end$/gm) ?? [];
+    const guardEnds = fn.match(/^ {4}end$/gm) ?? [];
     expect(guardEnds).toHaveLength(guards.length);
-    expect(fn.match(/^  end$/gm) ?? []).toHaveLength(1);
+    expect(fn.match(/^ {2}end$/gm) ?? []).toHaveLength(1);
     // A crude but decisive balance check on the block keywords Elixir counts.
     const opens = (fn.match(/\bdo$/gm) ?? []).length;
     const closes = (fn.match(/^\s*end$/gm) ?? []).length;
