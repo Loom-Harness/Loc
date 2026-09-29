@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { reservedFieldNameKeywords } from "../../../src/language/soft-keywords.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
@@ -105,5 +106,66 @@ describe("a reserved word in a name position says it is reserved (#2864)", () =>
     `);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.join("\n")).not.toContain("is a Loom keyword");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The reserved-keyword sweep: a keyword written as a FIELD name.
+//
+// Agents building domains kept writing `event: string` / `route: …` / `theme:
+// …` and getting `Expecting token of type '}' but found 'event'` — framed as an
+// unbalanced brace, on a line that is fine.  Most such words are now soft; for
+// the short hard list that is left (`reservedFieldNameKeywords()`, read off the
+// grammar), the failure must say the word is a keyword, whichever way the
+// parser happened to trip on it: at the word itself (the body's repetition
+// exits), or one token later at the `:` (the word heads a member of its own —
+// `operation: string` enters `Operation`).  And it must say so for the field
+// in EITHER position, first in the body or after another field.
+// ---------------------------------------------------------------------------
+
+describe("a hard keyword as a field name says it is a keyword (reserved-keyword sweep)", () => {
+  const hard = reservedFieldNameKeywords();
+
+  it("the hard list is short, and holds none of the words the sweep softened", () => {
+    expect(hard.length).toBeGreaterThan(0);
+    expect(hard.length, "the sweep's whole point is that this list stays short").toBeLessThan(70);
+    for (const w of ["event", "theme", "layout", "channel", "document", "node", "api", "ui"]) {
+      expect(hard, `'${w}' is a domain word the sweep made soft`).not.toContain(w);
+    }
+  });
+
+  for (const where of ["first", "after another field"] as const) {
+    it(`every hard keyword, declared ${where}, is named as a keyword on its own line`, async () => {
+      const wrong: string[] = [];
+      for (const k of hard) {
+        const body = where === "first" ? `${k}: string` : `title: string\n    ${k}: string`;
+        const { errors } = await parseString(`context C {\n  aggregate A {\n    ${body}\n  }\n}`);
+        const line = where === "first" ? 3 : 4;
+        const hit = errors.find((e) => e.includes(`'${k}' is a Loom keyword`));
+        if (!hit?.startsWith(`${line}:`)) wrong.push(`${k}: ${errors.join(" | ")}`);
+      }
+      expect(wrong).toEqual([]);
+    });
+  }
+
+  it("a SOFT word used the same way still parses (the sweep, not just the message)", async () => {
+    const { errors } = await parseString(`
+      context Freight {
+        aggregate Shipment {
+          title: string
+          event: string
+          theme: string
+          layout: string
+          channel: string
+          document: string
+          node: string
+          platform: string
+          port: int
+          check: int
+          provenanced: bool
+        }
+      }
+    `);
+    expect(errors).toEqual([]);
   });
 });
