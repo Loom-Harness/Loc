@@ -1582,11 +1582,13 @@ function saveMethod(
 
   // Diff-sync each contained collection (recursing into nested part-in-part
   // containments, each keyed by its DIRECT parent's id).
-  // Two or more containment edges anywhere in the tree share one function
-  // scope, so each level's locals are named by its containment PATH — a single
-  // `child` rebound from `Line` to `Photo` is a mypy --strict
-  // `Incompatible types in assignment` (eval-closure item 15a).
-  const pathNames = containmentEdgeCount(agg) > 1;
+  // Every level's locals share one function scope and are named by DEPTH
+  // (`child` at the root, `__c<depth>` below), so two containment edges at
+  // the same depth rebind one name across part types — a `child` rebound from
+  // `Line` to `Photo` is a mypy --strict `Incompatible types in assignment`
+  // (eval-closure item 15a).  Such a tree names each level by its containment
+  // PATH instead; a single chain keeps the historical names byte-identical.
+  const pathNames = containmentDepthCollides(agg);
   for (const c of agg.contains) {
     out.push(
       ...syncContainment(agg, c, ctx, aggVar, `${aggVar}.id`, "        ", 0, pathNames ? "" : null),
@@ -1750,10 +1752,22 @@ function syncContainment(
   return out;
 }
 
-/** Every containment edge in the aggregate's tree — the root's own plus each
- *  part's nested ones. */
-function containmentEdgeCount(agg: EnrichedAggregateIR): number {
-  return agg.contains.length + agg.parts.reduce((n, p) => n + p.contains.length, 0);
+/** True when two containment edges sit at the same depth of the aggregate's
+ *  containment tree — the case the depth-named save locals collide on. */
+function containmentDepthCollides(agg: EnrichedAggregateIR): boolean {
+  let level: readonly ContainmentIR[] = agg.contains;
+  const seen = new Set<string>();
+  while (level.length > 0) {
+    if (level.length > 1) return true;
+    const next: ContainmentIR[] = [];
+    for (const c of level) {
+      if (seen.has(c.partName)) continue;
+      seen.add(c.partName);
+      next.push(...(agg.parts.find((p) => p.name === c.partName)?.contains ?? []));
+    }
+    level = next;
+  }
+  return false;
 }
 
 function syncJoinTable(assoc: AssociationIR, f: FieldIR, aggVar: string): string[] {
