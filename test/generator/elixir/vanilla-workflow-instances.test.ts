@@ -75,8 +75,8 @@ describe("vanilla foundation — workflow-instance read endpoints", () => {
     expect(ctrl!).toContain('def order_fulfillment_instance(conn, %{"id" => id}) do');
     expect(ctrl!).toContain("Acme.Repo.get(Acme.Fulfillment.Workflows.OrderFulfillmentState, id)");
     // camelCase wire keys ← snake struct fields.
-    expect(ctrl!).toContain("orderId: row.order_id");
-    expect(ctrl!).toContain("attempts: row.attempts");
+    expect(ctrl!).toContain(`"orderId" => record.order_id`);
+    expect(ctrl!).toContain(`"attempts" => record.attempts`);
     expect(ctrl!).not.toContain("Ash");
   });
 
@@ -154,7 +154,7 @@ describe("vanilla foundation — workflow-instance read endpoints", () => {
 // of `Repo.all(<Wf>State)` / `Repo.get`, the actions fold the stream via the
 // `<Wf>Stream` module (`list_instances/0` for LIST, `instance_by_id/1` for
 // byId).  Route paths + action names + wire keys stay identical to the state
-// path (the projection reads `row.<field>` on both the Ecto row and the folded
+// path (`serialize_<wf>/1` reads `record.<field>` on both the Ecto row and the folded
 // struct), so cross-backend OpenAPI parity holds.
 describe("vanilla foundation — event-sourced workflow-instance reads", () => {
   const ES_SRC = `system Sys {
@@ -190,10 +190,12 @@ describe("vanilla foundation — event-sourced workflow-instance reads", () => {
     const ctrl = files.get(ctrlKey!)!;
     const Stream = "Api.F.Workflows.OrderFulfillmentStream";
     // LIST folds every stream; byId folds one (nil → 404).
-    expect(ctrl).toContain(`data = Enum.map(${Stream}.list_instances(), fn row -> %{`);
+    expect(ctrl).toContain(
+      `data = Enum.map(${Stream}.list_instances(), &serialize_order_fulfillment/1)`,
+    );
     expect(ctrl).toContain(`case ${Stream}.instance_by_id(id) do`);
-    expect(ctrl).toContain("orderId: row.order_id");
-    expect(ctrl).toContain("paid: row.paid");
+    expect(ctrl).toContain(`"orderId" => record.order_id`);
+    expect(ctrl).toContain(`"paid" => record.paid`);
     // NOT the state-path Repo read.
     expect(ctrl).not.toContain("Repo.all(Api.F.Workflows.OrderFulfillmentState)");
     expect(ctrl).not.toContain("Repo.get(Api.F.Workflows.OrderFulfillmentState");
