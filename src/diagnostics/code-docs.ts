@@ -43,6 +43,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.unconstructible-server-field":
     "03-domain-modeling.md#a-server-owned-field-must-have-a-value",
+  "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
@@ -104,6 +105,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
   "loom.parameter-default-type-mismatch":
     "06-behavior-and-statements.md#operation--a-mutating-method",
+  // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
+  "loom.elixir-invariant-unenforced":
+    "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",

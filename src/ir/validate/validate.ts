@@ -74,6 +74,7 @@ import {
   validateDefaultDeny,
   validateDocumentAggregationFilters,
   validateDotnetNameCollisions,
+  validateElixirInvariantCoverage,
   validateElixirOpSelfCallPosition,
   validateEventSourcedStorage,
   validateEventSourcedWorkflowStorage,
@@ -185,6 +186,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateChannelWiring(sys, diags);
     validateSavingShapeSupport(sys, diags);
     validateVanillaDocumentScope(sys, diags);
+    validateElixirInvariantCoverage(sys, diags);
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);

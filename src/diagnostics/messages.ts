@@ -1351,6 +1351,13 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.applier-guard": (p: { name: unknown; event: unknown; kind: unknown }) =>
     `aggregate '${p.name}' apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
+  "loom.ambiguous-enum-value": (p: { value: unknown; enums: unknown; qualified: unknown }) =>
+    `bare enum value '${p.value}' is declared by more than one enum in scope ('${p.enums}'), ` +
+    `and this use has no expected type to choose between them. ` +
+    `Write it qualified — ${p.qualified} — or rename one of the values. ` +
+    `Loom resolves a bare value from the SITE's type (a field or parameter default, a ':=' target, ` +
+    `either side of a comparison); nothing here supplies one, and guessing would compile to a ` +
+    `comparison between two different enums.`,
   "loom.scaffold-unexpanded": (p: { name: unknown }) =>
     `un-expanded scaffold primitive '${p.name}' — the scaffold macro could not resolve its ` +
     `target aggregate or workflow; check that the referenced symbol exists in the ` +
@@ -2985,6 +2992,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `scalar array is fine). Simplify them to scalar form, host this ` +
     `aggregate on a backend with full document support (node / dotnet / python / java), ` +
     `or use shape: relational / shape: embedded.`,
+  "loom.elixir-invariant-unenforced": (p: {
+    ctxName: unknown;
+    name: unknown;
+    source: unknown;
+    reason: unknown;
+  }) =>
+    `invariant '${p.source}' on '${p.ctxName}.${p.name}' is NOT ENFORCED on the ` +
+    `elixir backend: ${p.reason}. node / dotnet / python / java all assert it at ` +
+    `their domain floor, so hosting this context on elixir silently drops the rule ` +
+    `— this warning is the drop, made visible. Rewrite the predicate so the ` +
+    `changeset can evaluate it against the proposed row (a comparison over stored ` +
+    `fields, a contained collection, a derived value, or a scalar intrinsic all ` +
+    `work), move the rule into an operation 'precondition' (which runs in the ` +
+    `domain body where the full aggregate is in scope), or host this context on a ` +
+    `backend that enforces it.`,
   "loom.vanilla-op-call-position": (p: {
     ctxName: unknown;
     name: unknown;

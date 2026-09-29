@@ -17,6 +17,7 @@ import type { BoundedContextIR, CriterionIR, ExprIR } from "../../ir/types/loom-
 import { firstNonQueryableNode } from "../../ir/validate/validate.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, upperFirst } from "../../util/naming.js";
+import { BCL_COLLIDING_TYPE_NAMES } from "./bcl-collision.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 
 /** The `IsSatisfiedBy` parameter name — matches the abstract base
@@ -116,6 +117,13 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
   return lines(
     "// Auto-generated.",
     ...[...usings].map((u) => `using ${u};`),
+    // The candidate aggregate's name may be a BCL type this file's usings also
+    // bring into scope (`criterion … of Task` → CS0104 against
+    // `System.Threading.Tasks.Task`, which is what the shipped dotnet starter
+    // hit). A file-scoped alias outranks the wildcard import; no-op otherwise.
+    BCL_COLLIDING_TYPE_NAMES.has(candidate)
+      ? `using ${candidate} = ${ns}.Domain.${plural(candidate)}.${candidate};`
+      : null,
     "",
     `namespace ${ns}.Domain.Criteria;`,
     "",
