@@ -63,8 +63,8 @@ import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { PY_PAGED_CONTROLS, pyWireToDomain } from "./routes-builder.js";
 import {
-  collectServiceReadPorts,
   collectLiveLetNames,
+  collectServiceReadPorts,
   pyReadPortResolver,
   pyWorkflowStmtTarget,
 } from "./workflows-builder.js";

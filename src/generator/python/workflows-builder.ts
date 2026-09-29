@@ -574,12 +574,37 @@ export function collectLiveLetNames(
 ): Set<string> {
   const live = collectUsedLetNames([...sts]);
   for (const s of savesAtExit) live.add(s.name);
+  // Closed, never-checked: a new statement kind that names a binding
+  // outside an `ExprIR` must decide here whether it keeps a `let` alive.
   for (const st of sts)
     walkWorkflowStmtsDeep(st, (n) => {
-      if (n.kind === "op-call") live.add(n.target);
-      else if (n.kind === "for-each") for (const s of n.savesPerIteration) live.add(s.name);
-      else if (n.kind === "if-let")
-        for (const s of [...n.savesInThen, ...n.savesInElse]) live.add(s.name);
+      switch (n.kind) {
+        case "op-call":
+          live.add(n.target);
+          return;
+        case "for-each":
+          for (const s of n.savesPerIteration) live.add(s.name);
+          return;
+        case "if-let":
+          for (const s of [...n.savesInThen, ...n.savesInElse]) live.add(s.name);
+          return;
+        case "precondition":
+        case "requires":
+        case "emit":
+        case "factory-let":
+        case "repo-let":
+        case "expr-let":
+        case "repo-run":
+        case "repo-delete":
+        case "resource-call":
+        case "domain-service-call":
+        case "assign":
+          return;
+        default: {
+          const _exhaustive: never = n;
+          return _exhaustive;
+        }
+      }
     });
   return live;
 }
