@@ -11,7 +11,8 @@ import { snake } from "../../util/naming.js";
 //
 //   - `ApiRoute` — the route descriptor collected per-controller and spliced
 //     into router.ex's `scope "/api"` block (the `!root:` sentinel marks the
-//     handful of routes — /health, /ready — that land outside the api scope).
+//     handful of routes — /openapi.json, /files — that land outside the api
+//     scope; `first` marks one that must precede the derived routes).
 //   - `CRUD_VERB_NAMES` / `crudOpNames` — the standard CRUD action names and
 //     the subset claimed by a public operation (so the per-op route wins and
 //     the redundant standard CRUD action is suppressed).
@@ -79,6 +80,20 @@ export interface ApiRoute {
   controller: string;
   /** Action atom, e.g. ":place_order". */
   action: string;
+  /**
+   * Splice this route at the FRONT of `scope "/api"`, ahead of the
+   * auto-derived aggregate routes, instead of appending it.
+   *
+   * Phoenix matches in declaration order, and the explicit-route emitter runs
+   * AFTER the per-aggregate one, so an explicit route with a static segment
+   * where an aggregate route has a param — `GET /api/orders/describe` against
+   * the auto-CRUD `GET /api/orders/:id` — would be appended BEHIND the param
+   * route and never match.  A user-declared route outranks a derived one, so
+   * it goes first.  Set only by `emitExplicitRoutesController`; every other
+   * route keeps insertion order, which is why the emitted router is otherwise
+   * byte-identical.
+   */
+  first?: boolean;
 }
 
 export interface ApiEmitResult {
