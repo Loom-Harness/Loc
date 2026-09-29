@@ -2280,6 +2280,8 @@ system P {
   "loom.serves-unknown-api": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
   ),
+  // A second api the base's only backend never lists in `serves:` (#29).
+  "loom.api-unserved": topology("api OrphanApi from D"),
   // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
   // `api Sales: OrdersApi` parameter, so every shape below is a real binding
   // defect rather than a missing declaration.
@@ -3614,6 +3616,12 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // unsupported-primitive arm and the two procedural packs' missing-renderer
   // fallback.
   "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  // Phase ⑨ too: the ambiguous-rename refusal fires only when a BASELINE
+  // snapshot diffs against a source that dropped+added columns the heuristic
+  // cannot collapse — `validate()` has no baseline.  Its catalog entry is new
+  // (#30: the text moved out of an inline literal); the pointed-at file drives
+  // it and asserts the top-level placement hint.
+  "loom.migration-ambiguous-rename": "test/ir/migrations-builder.test.ts",
   // Phase ⑨, and not reachable from a `.ddd` at all: the discarded-backfill
   // invariant (F-018 §4) needs a BASELINE SNAPSHOT to diff against — one
   // generation's schema plus a second source that adds the backfilled column.

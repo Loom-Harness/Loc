@@ -1785,6 +1785,9 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/api-checks.ts
   // ----------------------------------------------------------------------
+  /** An `api` no backend deployable `serves:` — dead declaration (#29). */
+  "loom.api-unserved": (p: { name: unknown; backends: unknown }) =>
+    `api '${p.name}' is declared but no backend deployable serves it, so no deployable mounts its routes or carries its contract. Add it to a backend deployable's 'serves:' list (backends: ${p.backends}), or remove the declaration.`,
   "loom.handler-param-reserved-id": (p: { name: unknown; kind: unknown; hName: unknown }) =>
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +

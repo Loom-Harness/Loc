@@ -180,6 +180,10 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.match-unknown-variant",
   "loom.menu-link-unresolved",
   "loom.method-call-unresolved-receiver",
+  // No language-reference chapter covers migration blocks (their home is
+  // docs/migrations.md § Rename detection); #30 moved this code's text into
+  // the catalog, which is what put it on this list.
+  "loom.migration-ambiguous-rename",
   "loom.migration-backfill-discarded",
   "loom.migration-duplicate-name",
   "loom.migration-expr-unsupported",
