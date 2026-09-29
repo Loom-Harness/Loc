@@ -51,7 +51,7 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
   denialOverrides,
@@ -351,7 +351,6 @@ function renderController(
   // it into the context reads.  Non-principal aggregates stay byte-identical.
   const principal = aggregateUsesPrincipalContextFilter(agg);
   const cuBind = principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
-  const listArg = principal ? "current_user" : "";
   const getActor = principal ? ", current_user" : "";
   // The auto-`findAll` is paged-by-default (M-T2.6): the `index` action parses
   // `page`/`pageSize`/`sort`/`dir` query controls (via the shared `page_param`
@@ -362,10 +361,15 @@ function renderController(
     (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
   );
   const indexPaged = !readOnly && (listAllFind ? !!pagedReturn(listAllFind.returnType) : false);
+  // The LIST read threads the actor when its predicate reads the principal — a
+  // principal capability filter, or a declared `find all(): X[] where <pred>`
+  // reading `currentUser` (`listUsesPrincipal`, shared with the repo + context).
+  const listPrincipal = listUsesPrincipal(agg, listAllFind);
+  const listArg = listPrincipal ? "current_user" : "";
   // The paging controls are bound by the `with` clauses `PAGE_WITH_CLAUSES`
   // prepends (page-param.ts), so an out-of-range window 422s before the read
   // instead of being clamped into a page the caller never asked for.
-  const pagedListArgs = `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${principal ? ", current_user" : ""}`;
+  const pagedListArgs = `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
   // The LIST read's authorization gate — 403 before the query, the same
   // contract `renderFindActions` gives every NAMED find.  `index` is emitted
   // here, outside that loop (the list endpoint has its own paged shape), which
@@ -376,7 +380,7 @@ function renderController(
   // `current_user` may already be bound by `cuBind` (principal-scoped reads);
   // bind it here only when the gate is the sole reason it's needed.
   const indexCuBind =
-    indexGateUsesUser && !principal
+    (indexGateUsesUser || listPrincipal) && !principal
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"
       : "";
   const indexBody = indexPaged
@@ -405,7 +409,7 @@ ${indexBody}
     end
   end`
     : `  def index(conn, ${indexParamArg}) do
-${cuBind}${indexBody}
+${cuBind}${indexCuBind}${indexBody}
   end`;
   // Command-load context fn a MUTATION action loads through (authorization.md):
   // `get_<agg>_for_write` when the aggregate's write scope is

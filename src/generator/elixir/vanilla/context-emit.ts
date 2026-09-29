@@ -49,7 +49,11 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  findUsesPrincipal,
+  listUsesPrincipal,
+} from "./capability-filter.js";
 import {
   aggregateHasDomainFloorCodes,
   aggregateHasResidualInvariants,
@@ -452,9 +456,13 @@ function renderContextModule(
     const listRepo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const listAllFind = listRepo?.finds?.find((f) => f.name === "all");
     const listPaged = listAllFind ? !!pagedReturn(listAllFind.returnType) : false;
+    // The list delegate threads the actor whenever the repository `list` does —
+    // a principal capability filter, or a declared `all` predicate reading
+    // `currentUser` (`listUsesPrincipal`, shared with the repo + controller).
+    const listPrincipal = listUsesPrincipal(agg, listAllFind);
     const listDelegateArgs = listPaged
-      ? `page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, sort \\\\ "id", dir \\\\ "asc"${principal ? ", current_user \\\\ nil" : ""}`
-      : principal
+      ? `page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, sort \\\\ "id", dir \\\\ "asc"${listPrincipal ? ", current_user \\\\ nil" : ""}`
+      : listPrincipal
         ? "current_user \\\\ nil"
         : "";
     // A principal-referencing lifecycle stamp threads `current_user` into the
