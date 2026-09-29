@@ -163,6 +163,32 @@ describe.skipIf(!ENABLED)(
           // Routed through the loopback hex mirror when LOOM_HEX_MIRROR=1.
           runMixCompile(projDir, mirror);
 
+          // THE SUPPLY-CHAIN CLAIM, pinned against the REAL lockfile rather
+          // than the emitted source: no edge of the cowboy chain may be
+          // resolved.  cowlib's latest release is the one carrying
+          // CVE-2026-43966 / CVE-2026-43969 and there is nothing to bump to,
+          // so the only fix is not to depend on it — which the emitter does
+          // by serving on Bandit (see the unit gate in
+          // test/generator/elixir/vanilla-http-adapter.test.ts).  A
+          // dependency that re-introduces `plug_cowboy` transitively would
+          // never show up in mix.exs, so mix.lock is the only place this can
+          // honestly be asserted.
+          // NOT `ranch`: it is a generic TCP acceptor pool, not part of the
+          // CVE chain, and a fixture with an email resource reaches it
+          // legitimately (Swoosh's SMTP adapter -> gen_smtp -> ranch).
+          // Forbidding it failed `vanilla-resources` and
+          // `vanilla-outbox-marker` for a reason with nothing to do with
+          // what this assertion names.  The carrier is `cowlib`; the only
+          // edges into it are `plug_cowboy` -> `cowboy` (+ its
+          // `cowboy_telemetry` sibling).
+          const lock = fs.readFileSync(path.join(projDir, "mix.lock"), "utf8");
+          for (const pkg of ["cowlib", "cowboy", "cowboy_telemetry", "plug_cowboy"]) {
+            expect(lock, `${pkg} resolved into ${path.basename(projDir)}'s mix.lock`).not.toContain(
+              `"${pkg}": {:hex`,
+            );
+          }
+          expect(lock).toContain('"bandit": {:hex');
+
           // If the fixture's aggregates declared domain `test "..."` blocks, the
           // emitter wrote an ExUnit suite (+ test_helper.exs) — run it (DB-free).
           if (fs.existsSync(path.join(projDir, "test", "test_helper.exs"))) {
