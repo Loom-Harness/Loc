@@ -1140,16 +1140,14 @@ MacroCall:
 MacroArg:
     name=MacroArgName ':' value=MacroArgValue;
 
-// Macro-arg names, and ONLY macro-arg names, additionally admit
-// `requires` — so `with crudish(requires: CatalogManager)` names the
-// authorization gate with the same word the gate itself uses.  It is
-// deliberately NOT folded into `LooseName`: that rule also backs
-// `Parameter.name`, `Property.name`, `CallArg.name` and friends, and
-// `requires` has to stay a hard keyword everywhere a statement or a
-// header gate clause can start.  Inside a macro call's parentheses
-// nothing else can begin with it, so the widening is ambiguity-free.
+// Macro-arg names — `with crudish(requires: CatalogManager)` names the
+// authorization gate with the same word the gate itself uses.  `requires`
+// was once admitted HERE ONLY; the reserved-keyword sweep moved it into
+// `CommonSoftKeywords` (no statement or expression starts with it, and a
+// header gate clause is introduced after the callable's `)`), so this rule
+// is now just `LooseName` and stays as the macro-arg seam.
 MacroArgName returns string:
-    LooseName | 'requires';
+    LooseName;
 
 // Macro arg ref-list elements are bare IDs, not Langium cross-
 // references.  We don't use the [Target:ID] form because:
@@ -2034,15 +2032,70 @@ Parameter:
 // into three rules by hand; `keyword-identifier-completeness.test.ts` proves
 // the factoring is byte-identical, and a keyword with a HARD position in one of
 // the three rules stays a per-rule extra, NOT here.
+//
+// SOFT BY DEFAULT.  Hand-picked batches (D4, `slot`, `route`/`type`/…) kept
+// losing the race against agents naming domain fields `event`, `theme`,
+// `layout`, `channel`, `document`, `node`, … so the reserved-keyword sweep
+// turned the rule around: every word keyword joins this set unless it is on the
+// short list of words that must stay hard — and a NEW keyword belongs here too
+// unless it is one of those.  The hard list, and why:
+//
+//   * types / literals / expression + statement words — `int` `string` `bool`
+//     `decimal` `long` `guid` `datetime` `json` `File` `Self` `id` `true`
+//     `false` `null` `this` `now` `if` `else` `match` `find` `in` `as` `with`
+//     `where` `when` `unless` `from` `let` `return` `emit` `persist` `expect`
+//     `for`, and the HTTP verbs.  Admitting them as a name makes an expression
+//     or statement ambiguous.
+//   * the heads of members that share a body with `Property` — `contains`
+//     `derived` `invariant` `private` `unique` `function` `operation` `create`
+//     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
+//     same token, so a MALFORMED member (`create { }`) stops reporting its real
+//     error and reports a no-viable-alternative on the head instead.
+//   * words that parse but break a generated backend — `enum` `import`
+//     `extends` `static` (TypeScript / Python / Java reserved as a parameter or
+//     attribute) and `system` (a C# `System` property shadows every
+//     fully-qualified `System.*` reference the .NET emitter writes), plus
+//     `repository` / `aggregate` (the Java service binds each create / update
+//     input to a local named after the field, which then shadows its own
+//     `repository` field / `aggregate` local).  Soften them only together with
+//     the emitter fix.
+//
+// A field named after a hard word gets `loom.parse-error#reserved-name`
+// ("'event' is a Loom keyword … rename it") from
+// `reservedDeclarationName` in `parse-errors.ts`, not a stray `Expecting '}'`.
+// Words that also trail a `Property` (`check`, `mask`, `provenanced`,
+// `sensitive`, the access modifiers, the `TypeRef` carriers) additionally sit
+// in `soft-keyword-colon-guard.ts`.
 CommonSoftKeywords returns string:
-      'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
-      | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
-      | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
-      | 'index' | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'link' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
-      | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
-      | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'route' | 'schema'
-      | 'secret' | 'select' | 'service' | 'slot' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
-      | 'tenancy' | 'title' | 'token' | 'ttl' | 'type' | 'use' | 'user' | 'write';
+      'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular'
+      | 'angularMaterial' | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bigquery' | 'bind'
+      | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'chakra' | 'channel'
+      | 'channels' | 'channelSource' | 'check' | 'claims' | 'clickhouse' | 'clientId' | 'clientSecret'
+      | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
+      | 'cookie' | 'coreComponents' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'daisyui'
+      | 'dataSources' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
+      | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
+      | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
+      | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
+      | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'handle' | 'header' | 'hosts' | 'httpStatus'
+      | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
+      | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
+      | 'keyPrefix' | 'kind' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
+      | 'mailer' | 'main' | 'managed' | 'mantine' | 'mask' | 'meilisearch' | 'menu' | 'message' | 'migration'
+      | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
+      | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
+      | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'policy'
+      | 'port' | 'postgres' | 'precondition' | 'primeng' | 'projection' | 'provenanced' | 'provider'
+      | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
+      | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
+      | 'required' | 'requirement' | 'requires' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
+      | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
+      | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
+      | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
+      | 'solution' | 'sort' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
+      | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
+      | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
+      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`
@@ -2058,11 +2111,7 @@ CommonSoftKeywords returns string:
 LooseName returns string:
     ID | CommonSoftKeywords
     // LooseName-only (soft here but not in every value position):
-    | 'aggregates' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
-    | 'contexts' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'id' | 'ignoring'
-    | 'link' | 'menu' | 'modules' | 'page' | 'permissions'
-    | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
-    | 'views' | 'workflows';
+    | 'await' | 'contains' | 'from' | 'id' | 'ignoring' | 'page';
 
 // A dotted page reference for `menu { link <Area>.<Page> }` — lets a menu link
 // disambiguate role-named scaffold pages (`List` / `New` / `Detail`) by their
@@ -2312,8 +2361,7 @@ LValueIdent returns string:
     // LValueIdent-only extras (structural keywords not in the shared
     // value core; assignment / call statement target).  Composing CommonSoftKeywords here also closes the
     // "declarable-but-unreadable" class (M-T5.18 Track C, BUG-004: `e.resource`).
-    | 'aggregates' | 'api' | 'contains' | 'contexts' | 'create' | 'destroy' | 'id' | 'modules'
-    | 'page' | 'permissions' | 'ui' | 'views' | 'workflows';
+    | 'contains' | 'create' | 'destroy' | 'id' | 'page';
 
 // ---------------------------------------------------------------------------
 // Expressions (precedence climbing, lowest to highest)
@@ -2585,8 +2633,7 @@ MemberName returns string:
     // MemberName-only extras (structural keywords not in the shared
     // value core; member access after `.`).  Composing CommonSoftKeywords here also closes the
     // "declarable-but-unreadable" class (M-T5.18 Track C, BUG-004: `e.resource`).
-    | 'aggregates' | 'api' | 'contains' | 'contexts' | 'create' | 'destroy' | 'find' | 'id'
-    | 'ignoring' | 'modules' | 'page' | 'permissions' | 'ui' | 'views' | 'where' | 'workflows';
+    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where';
 
 // Lambdas accept either a single expression body or a brace-wrapped block of
 // statements.  Block bodies are required for multi-statement event handlers in
@@ -2763,10 +2810,7 @@ NameRef:
 NameRefIdent returns string:
     ID | CommonSoftKeywords
     // NameRefIdent-only (soft here but not in every value position):
-    | 'aggregates' | 'api' | 'bind' | 'cache' | 'component' | 'contains' | 'contexts' | 'create'
-    | 'design' | 'destroy' | 'framework' | 'ignoring' | 'link' | 'menu' | 'modules' | 'page'
-    | 'permissions' | 'route' | 'section' | 'static' | 'targets' | 'ui' | 'urlStyle' | 'views'
-    | 'workflows';
+    | 'contains' | 'create' | 'destroy' | 'ignoring' | 'page';
 
 // ---------------------------------------------------------------------------
 // Terminals
