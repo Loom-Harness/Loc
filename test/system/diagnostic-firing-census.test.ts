@@ -508,6 +508,22 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `money managed` field: off the create input, no `= <default>`, no stamp,
+  // and `money` is the one scalar with NO language-defined absent value — a
+  // `Decimal` has no agreed zero, so node's create factory emitted `total:
+  // null` into a non-nullable slot while .NET persisted a fabricated `0`.
+  // Deliberately `money` and not `int`: an `int managed` IS constructible (the
+  // seed is `0`) and must stay silent, which is what keeps this fixture
+  // honest about what the gate refuses.
+  "loom.unconstructible-server-field": `
+system Unconstructible {
+  subdomain S { context Billing {
+    aggregate Invoice with crudish {
+      reference: string
+      total: money managed
+    }
+  } }
+}`,
   // Two enums in one context declaring the same member, and a bare use with no
   // expected type to resolve it — an untyped `let`.  First-wins would silently
   // pick `OrderStatus` and lower a comparison between two different enums
