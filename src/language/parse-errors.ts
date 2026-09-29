@@ -43,7 +43,7 @@ import type { LangiumCoreServices, ParseResult } from "langium";
 import { LangiumParserErrorMessageProvider } from "langium";
 import { diagMessage } from "../diagnostics/messages.js";
 import { nearestName } from "../util/edit-distance.js";
-import { isDeclareOnlySoftKeyword } from "./soft-keywords.js";
+import { isDeclareOnlySoftKeyword, isFieldNameKeyword, isGrammarKeyword } from "./soft-keywords.js";
 
 /** How many of the expected tokens a message names before it stops.  Five is
  *  enough to show the SHAPE of the closed set (`node`, `dotnet`, `react`, …)
@@ -328,6 +328,52 @@ export function refineParseErrorOffset(
     base = nested;
   }
   return best;
+}
+
+/**
+ * A keyword written as a DECLARATION NAME — `event: string` in an aggregate
+ * body.  Where the member alternation has no `ID` arm left to try (the body's
+ * repetition simply exits), chevrotain reports the word against whatever
+ * closes the block: `Expecting token of type '}' but found 'event'`, which
+ * reads as an unbalanced brace and never says the word is Loom's.  When the
+ * word instead heads a member of its own (`operation: string`), the parser
+ * commits to that member and trips on the `:` — `Unexpected ':'`, one token
+ * past the cause.
+ *
+ * The source shape settles both: a word-shaped keyword immediately followed by
+ * `:` (not `:=` / `::`) is a name the author was declaring.  So when the
+ * failure sits ON such a word, or on the `:` right after one, report the word
+ * as a keyword and say how to get past it.  Only for a word that really is
+ * refused as a field name (`isFieldNameKeyword`) — `Note title: string` is a
+ * missing `{`, not a reserved `title`.  `undefined` for every other failure,
+ * so the message is only ever replaced, never invented.
+ */
+export function reservedDeclarationName(
+  err: IRecognitionException,
+  text: string,
+): RefinedParseError | undefined {
+  const token = err.token;
+  if (!token || Number.isNaN(token.startOffset)) return undefined;
+  let word: string;
+  let offset: number;
+  if (token.image === ":") {
+    if (/^[:=]/.test(text.slice(token.startOffset + 1))) return undefined;
+    const before = /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(text.slice(0, token.startOffset));
+    if (!before?.[1]) return undefined;
+    word = before[1];
+    offset = before.index;
+  } else {
+    if (!isKeywordToken(token.tokenType) || !isWordLike(token.image)) return undefined;
+    if (!/^\s*:(?![:=])/.test(text.slice(token.startOffset + token.image.length))) return undefined;
+    word = token.image;
+    offset = token.startOffset;
+  }
+  if (!isGrammarKeyword(word) || isFieldNameKeyword(word)) return undefined;
+  return {
+    offset,
+    length: word.length,
+    message: diagMessage("loom.parse-error#reserved-name", { found: word, expected: "name" }),
+  };
 }
 
 /** The source text behind a parse result, or `undefined` when the parse
