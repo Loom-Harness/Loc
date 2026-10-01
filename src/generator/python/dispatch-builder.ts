@@ -26,7 +26,7 @@ import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { esEventRow, esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -769,7 +769,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -830,7 +830,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
