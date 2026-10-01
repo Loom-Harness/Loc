@@ -2,7 +2,7 @@ import type { BoundedContextIR, EventIR, SystemIR, TypeIR } from "../../ir/types
 import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { type RealtimeRoomPlan, realtimeRoomPlan } from "../../ir/util/realtime-rooms.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Realtime SSE wire — `app/realtime.py` (channels.md, Part I).  Events carried
@@ -51,7 +51,7 @@ function pyWireValue(access: string, t: TypeIR): string {
 function frameArm(ev: EventIR, keyword: "if" | "elif"): string[] {
   const payload = [
     `"type": "${ev.name}"`,
-    ...ev.fields.map((f) => `"${f.name}": ${pyWireValue(`event.${snake(f.name)}`, f.type)}`),
+    ...ev.fields.map((f) => `"${f.name}": ${pyWireValue(`event.${pythonIdent(f.name)}`, f.type)}`),
   ].join(", ");
   return [
     `    ${keyword} isinstance(event, ${ev.name}):`,

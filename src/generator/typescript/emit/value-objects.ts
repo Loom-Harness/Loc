@@ -1,7 +1,7 @@
 import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 
@@ -145,10 +145,15 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see docs/old/plans/dap-node-debug.md
   // "Non-erasable syntax". Semantically identical output otherwise.
   const fieldDecls = v.fields.map((f) => `  readonly ${f.name}: ${renderTsType(f.type)};`);
+  // A constructor PARAMETER is a binding, so a field named after a reserved
+  // word (`yield`, a strict-mode reserved word in every ES module) binds under
+  // its escaped spelling; the property keeps the declared name — any string is
+  // a legal TS property (eval item 6, ruling D2).
   const ctorParams = v.fields.map(
-    (f, i) => `    ${f.name}: ${renderTsType(f.type)}${i < v.fields.length - 1 ? "," : ""}`,
+    (f, i) =>
+      `    ${escapeTsIdent(f.name)}: ${renderTsType(f.type)}${i < v.fields.length - 1 ? "," : ""}`,
   );
-  const ctorAssignments = v.fields.map((f) => `    this.${f.name} = ${f.name};`);
+  const ctorAssignments = v.fields.map((f) => `    this.${f.name} = ${escapeTsIdent(f.name)};`);
   // Invariant violations throw DomainError, not a bare Error (S9): a VO
   // tripping on request input must surface through the ProblemDetails
   // taxonomy (400), never as an unclassified 500.

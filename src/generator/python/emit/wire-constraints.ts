@@ -19,6 +19,7 @@ import {
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
+import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
 
 /** Map of `field → Field(...)` constraint string for every single-field,
@@ -95,19 +96,32 @@ function pyRawRegex(src: string): string {
 
 /** Splice a derived `Field(...)` onto a request-field declaration, folding any
  *  existing default (`= None` / `= False`) into `Field(default=…, …)` so the
- *  field's optionality is preserved. */
+ *  field's optionality is preserved.
+ *
+ *  `name` is the WIRE name.  A wire name that is a python keyword (`def`)
+ *  cannot be the attribute, so the attribute is the escaped
+ *  `pythonWireIdent` spelling (`def_`) and the wire key is kept by an
+ *  explicit `alias="def"` folded into the same `Field(...)` (eval item 6,
+ *  ruling D2).  Every other name is byte-identical. */
 export function withFieldConstraint(
   name: string,
   decl: string,
   fieldExpr: string | undefined,
 ): string {
-  if (!fieldExpr) return `    ${name}: ${decl}`;
+  const attr = pythonWireIdent(name);
+  const alias = pythonWireNeedsAlias(name) ? `alias=${JSON.stringify(name)}` : null;
+  const expr = alias
+    ? fieldExpr
+      ? `Field(${fieldExpr.slice("Field(".length, -1)}, ${alias})`
+      : `Field(${alias})`
+    : fieldExpr;
+  if (!expr) return `    ${attr}: ${decl}`;
   const eq = decl.indexOf(" = ");
-  if (eq === -1) return `    ${name}: ${decl} = ${fieldExpr}`;
+  if (eq === -1) return `    ${attr}: ${decl} = ${expr}`;
   const type = decl.slice(0, eq);
   const dflt = decl.slice(eq + 3);
-  const inner = fieldExpr.slice("Field(".length, -1);
-  return `    ${name}: ${type} = Field(default=${dflt}, ${inner})`;
+  const inner = expr.slice("Field(".length, -1);
+  return `    ${attr}: ${type} = Field(default=${dflt}, ${inner})`;
 }
 
 /** A Pydantic `@model_validator(mode="after")` enforcing the wire-scoped

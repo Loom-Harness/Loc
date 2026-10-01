@@ -225,6 +225,24 @@ export function renderAggregate(
   );
 }
 
+/** The name of the generated private invariant-check method.  It is
+ *  `_assertInvariants` unless the entity already binds that member: every
+ *  field / part keeps its state in a private `_<name>` backing field, so a
+ *  member `assertInvariants` declared a field with the method's own name
+ *  (esbuild: `Duplicate member "_assertInvariants"`).  On a collision the
+ *  helper steps aside with trailing underscores (eval item 6, ruling D2);
+ *  every other entity keeps the unchanged name. */
+function invariantHelperName(e: EntityShape): string {
+  const taken = new Set<string>([
+    ...e.fields.map((f) => `_${f.name}`),
+    ...e.fields.filter((f) => f.provenanced).map((f) => `_${f.name}_provenance`),
+    ...e.contains.map((c) => `_${c.name}`),
+  ]);
+  let name = "_assertInvariants";
+  while (taken.has(name)) name += "_";
+  return name;
+}
+
 function rootShape(a: AggregateIR): EntityShape {
   return {
     name: a.name,
@@ -315,6 +333,7 @@ function renderEntity(
   emitTrace = false,
   opFragments?: OpFragment[],
 ): string {
+  const assertName = invariantHelperName(e);
   const containsType = (c: ContainmentIR): string =>
     `${c.partName}${c.collection ? "[]" : " | null"}`;
   const containsGetterType = (c: ContainmentIR): string =>
@@ -473,7 +492,7 @@ function renderEntity(
   // in-operation evaluations.
   ctorAssignments.push(
     "    if (!trustStore) {",
-    emitTrace ? `      this._assertInvariants("<init>");` : "      this._assertInvariants();",
+    emitTrace ? `      this.${assertName}("<init>");` : `      this.${assertName}();`,
     "    }",
   );
 
@@ -605,9 +624,7 @@ function renderEntity(
         ops.push(`    return this.${hookName}(${callArgs});`);
       } else {
         ops.push(`    this.${hookName}(${callArgs});`);
-        ops.push(
-          emitTrace ? `    this._assertInvariants("${op.name}");` : "    this._assertInvariants();",
-        );
+        ops.push(emitTrace ? `    this.${assertName}("${op.name}");` : `    this.${assertName}();`);
       }
       ops.push("  }");
       ops.push("");
@@ -666,9 +683,7 @@ function renderEntity(
     }
     if (body.length > 0) ops.push(body);
     if (!op.returnType) {
-      ops.push(
-        emitTrace ? `    this._assertInvariants("${op.name}");` : "    this._assertInvariants();",
-      );
+      ops.push(emitTrace ? `    this.${assertName}("${op.name}");` : `    this.${assertName}();`);
     }
     ops.push("  }");
     ops.push("");
@@ -821,8 +836,8 @@ function renderEntity(
           `    const inst = ${newSelf(`{ id: Ids.new${e.name}Id() } as unknown as ${stateLiteral}, true`)};`,
           `    inst._init(${esCreate.params.map((p) => `input.${p.name}`).join(", ")});`,
           emitTrace
-            ? `    inst._assertInvariants(${JSON.stringify(esCreate.name)});`
-            : `    inst._assertInvariants();`,
+            ? `    inst.${assertName}(${JSON.stringify(esCreate.name)});`
+            : `    inst.${assertName}();`,
           `    return inst;`,
           `  }`,
           "",
@@ -968,8 +983,8 @@ function renderEntity(
     // wrapper → "extern") so the invariant_evaluated trace line carries
     // op context.  Trace off: byte-identical no-arg signature.
     emitTrace
-      ? "  private _assertInvariants(__op: string): void {"
-      : "  private _assertInvariants(): void {",
+      ? `  private ${assertName}(__op: string): void {`
+      : `  private ${assertName}(): void {`,
     ...invariants,
     "  }",
     "",

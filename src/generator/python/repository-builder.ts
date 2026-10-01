@@ -49,7 +49,7 @@ import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
@@ -71,6 +71,7 @@ import {
   isRefCollectionField,
   isValueCollectionField,
   joinRowClassName,
+  pyColumnAttr,
   rowClassName,
   valueCollectionRowClassName,
 } from "./py-columns.js";
@@ -300,7 +301,7 @@ export function buildPyRepositoryFile(
   const pagedAll = autoAllFind ? !!pagedReturn(autoAllFind.returnType) : false;
   const allWhere = rootWhere(null, root, kind, filterPred);
   const allSortMap = sortableFields(agg)
-    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
+    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
     .join(", ");
   const allMethodLines = pagedAll
     ? [
@@ -541,7 +542,7 @@ export function relationalFindMethod(
 ): string {
   const root = rowClassName(tableOwnerName(agg, ctx.aggregates));
   const kind = discriminatorValue(agg, ctx.aggregates);
-  const params = find.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   // currentUser-scoped finds take the actor as the trailing parameter;
   // the predicate renders `current_user.<claim>` as a plain bind value.
   if (findUsesCurrentUser(find)) params.push("current_user: User");
@@ -576,10 +577,10 @@ export function relationalFindMethod(
     // Server-side sort (M-T2.6): whitelist maps each wire key to its snake
     // column attr; an unknown key falls back to `id` (stable default order).
     const sortMap = sortableFields(agg)
-      .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
+      .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
       .join(", ");
     return lines(
-      `    async def ${snake(find.name)}(${sig}) -> PagedResult[${agg.name}]:`,
+      `    async def ${pythonIdent(find.name)}(${sig}) -> PagedResult[${agg.name}]:`,
       "        offset = (page - 1) * page_size",
       `        _sort_columns = {${sortMap}}`,
       `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
@@ -599,7 +600,7 @@ export function relationalFindMethod(
   const sig = ["self", ...params].join(", ");
   if (isList) {
     return lines(
-      `    async def ${snake(find.name)}(${sig}) -> list[${agg.name}]:`,
+      `    async def ${pythonIdent(find.name)}(${sig}) -> list[${agg.name}]:`,
       `        rows = (await self._session.execute(select(${root})${where})).scalars().all()`,
       `        items = ${hydrateListExpr(agg, bulkHydrate)}`,
       findExecutedLine(agg, find.name, "len(items)"),
@@ -607,7 +608,7 @@ export function relationalFindMethod(
     );
   }
   return lines(
-    `    async def ${snake(find.name)}(${sig}) -> ${agg.name} | None:`,
+    `    async def ${pythonIdent(find.name)}(${sig}) -> ${agg.name} | None:`,
     `        row = (await self._session.execute(select(${root})${where})).scalars().first()`,
     findExecutedLine(agg, find.name, "0 if row is None else 1"),
     "        if row is None:",
@@ -644,10 +645,10 @@ export function pyInMemoryPagedFind(
   opts: { sig: string; loadLines: readonly string[]; filteredExpr: string },
 ): string {
   const sortMap = sortableFields(agg)
-    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
+    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
     .join(", ");
   return lines(
-    `    async def ${snake(find.name)}(${opts.sig}) -> PagedResult[${agg.name}]:`,
+    `    async def ${pythonIdent(find.name)}(${opts.sig}) -> PagedResult[${agg.name}]:`,
     ...opts.loadLines,
     `        matched = ${opts.filteredExpr}`,
     "        total = len(matched)",
@@ -693,7 +694,7 @@ function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicat
     const matched = agg.fields.find(
       (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
     );
-    if (matched) clauses.push(`${root}.${snake(matched.name)} == ${snake(p.name)}`);
+    if (matched) clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   if (clauses.length === 0) return null;
   if (clauses.length === 1) return { expr: clauses[0]!, ops: new Set() };
@@ -823,10 +824,12 @@ function viewFindMethod(
         })
       : filterPred;
   const where = rootWhere(pred, root, kind, methodFilterPred);
-  const viewParams = (view.params ?? []).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const viewParams = (view.params ?? []).map(
+    (p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`,
+  );
   const viewSig = ["self", ...viewParams].join(", ");
   return lines(
-    `    async def ${snake(view.name)}(${viewSig}) -> list[${agg.name}]:`,
+    `    async def ${pythonIdent(view.name)}(${viewSig}) -> list[${agg.name}]:`,
     `        rows = (await self._session.execute(select(${root})${where})).scalars().all()`,
     `        items = ${hydrateListExpr(agg)}`,
     findExecutedLine(agg, view.name, "len(items)"),
@@ -857,12 +860,12 @@ function runMethod(
   const orderBy =
     retrieval.sort.length > 0
       ? `.order_by(${retrieval.sort
-          .map((t) => `${root}.${snake(t.path[0]!.name)}.${t.direction}()`)
+          .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
           .join(", ")})`
       : "";
   const params = [
     "self",
-    ...retrieval.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+    ...retrieval.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
     "offset: int | None = None",
     "limit: int | None = None",
   ];
@@ -994,7 +997,7 @@ function hydrateVo(
       // IN the value object keeps its own null: with the VO present that one
       // really can be absent.  (Ported from #2872, which fixed the pre-recursion
       // inline version this helper replaced.)
-      const col = `${rowVar}.${snake(path)}`;
+      const col = `${rowVar}.${pythonIdent(path)}`;
       return hydrateScalar(
         nullableGroup && !leafOptional ? `required(${col})` : col,
         vf.type,
@@ -1006,7 +1009,7 @@ function hydrateVo(
   if (!optional) return ctor;
   const probe = voProbeColumn(voName, prefix, ctx);
   if (probe === undefined) return ctor;
-  return `(${ctor} if ${rowVar}.${snake(probe)} is not None else None)`;
+  return `(${ctor} if ${rowVar}.${pythonIdent(probe)} is not None else None)`;
 }
 
 /** Domain ctor kwarg for one declared field, reading flattened columns
@@ -1018,7 +1021,7 @@ export function hydrateField(rowVar: string, f: FieldIR, ctx: EnrichedBoundedCon
     const hydrated = hydrateVo(rowVar, t.name, f.name, opt, ctx);
     if (hydrated !== undefined) return hydrated;
   }
-  return hydrateScalar(`${rowVar}.${snake(f.name)}`, f.type, f.optional);
+  return hydrateScalar(`${rowVar}.${pythonIdent(f.name)}`, f.type, f.optional);
 }
 
 /** Reconstruct a value-object-collection list from its loaded child rows
@@ -1033,7 +1036,7 @@ export function hydrateValueCollection(
 ): string {
   const vo = findValueObjectInScope(ctx, vc.voName);
   const args = (vo?.fields ?? [])
-    .map((vf) => hydrateScalar(`${rowVar}.${snake(vf.name)}`, vf.type, false))
+    .map((vf) => hydrateScalar(`${rowVar}.${pythonIdent(vf.name)}`, vf.type, false))
     .join(", ");
   return `[${vc.voName}(${args}) for ${rowVar} in ${snake(vc.fieldName)}_rows]`;
 }
@@ -1084,7 +1087,7 @@ function tphAssertNarrow(
     if (f.optional || f.type.kind === "optional") continue;
     if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
     for (const col of columnsForFields([f], ctx)) {
-      out.push(`${ind}assert row.${col.attr} is not None`);
+      out.push(`${ind}assert row.${pyColumnAttr(col)} is not None`);
     }
   }
   return out;
@@ -1106,25 +1109,25 @@ function buildAggConstruction(
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) {
       const vc = valueCollectionsFor(agg).find((c) => c.fieldName === f.name);
-      if (vc) kwargs.push(`${snake(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`);
+      if (vc) kwargs.push(`${pythonIdent(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`);
       continue;
     }
     if (isRefCollectionField(f)) {
       const assoc = assocFor(agg, f.name);
       if (!assoc) continue;
       kwargs.push(
-        `${snake(f.name)}=[${assoc.targetAgg}Id(__r.${assoc.targetFk}) for __r in ${snake(f.name)}_rows]`,
+        `${pythonIdent(f.name)}=[${assoc.targetAgg}Id(__r.${assoc.targetFk}) for __r in ${snake(f.name)}_rows]`,
       );
       continue;
     }
-    kwargs.push(`${snake(f.name)}=${hydrateField("row", f, ctx)}`);
+    kwargs.push(`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`);
   }
   for (const c of agg.contains) {
     const v = snake(c.name);
     kwargs.push(
       c.collection
-        ? `${v}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
-        : `${v}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`,
+        ? `${pythonIdent(c.name)}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
+        : `${pythonIdent(c.name)}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`,
     );
   }
   const provFields = provenancedFieldsOf(agg);
@@ -1337,12 +1340,12 @@ function partHydrateMethod(
     `parent_id=${parentName}Id(row.parent_id)`,
     ...p.fields
       .filter((f) => !isRefCollectionField(f) && !isValueCollectionField(f))
-      .map((f) => `${snake(f.name)}=${hydrateField("row", f, ctx)}`),
+      .map((f) => `${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`),
     ...p.contains.map((c) => {
       const v = snake(c.name);
       return c.collection
-        ? `${v}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
-        : `${v}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`;
+        ? `${pythonIdent(c.name)}=[${hydratePartCall(agg, c.partName, "__r")} for __r in ${v}_rows]`
+        : `${pythonIdent(c.name)}=(${hydratePartCall(agg, c.partName, `${v}_rows[0]`)} if ${v}_rows else None)`;
     }),
   ];
   out.push(
@@ -1395,7 +1398,7 @@ function persistVoLeaves(
   if (!vo) return undefined;
   return vo.fields.flatMap((vf): Array<[string, string]> => {
     const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
-    const sub = `${access}.${snake(vf.name)}`;
+    const sub = `${access}.${pythonIdent(vf.name)}`;
     const path = `${prefix}_${vf.name}`;
     if (inner.kind === "valueobject") {
       const nestedGuards = vf.optional || vf.type.kind === "optional" ? [...guards, sub] : guards;
@@ -1419,7 +1422,7 @@ export function persistField(
 ): Array<[string, string]> {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   const opt = f.optional || f.type.kind === "optional";
-  const access = `${ownerExpr}.${snake(f.name)}`;
+  const access = `${ownerExpr}.${pythonIdent(f.name)}`;
   if (t.kind === "valueobject") {
     const pairs = persistVoLeaves(access, t.name, f.name, opt ? [access] : [], ctx);
     if (pairs !== undefined) return pairs;
@@ -1630,10 +1633,12 @@ function syncContainment(
     if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
     childPairs.push(...persistField(loopVar, f, ctx));
   }
-  const items = c.collection ? `${ownerExpr}.${v}` : itemsVar;
+  const items = c.collection ? `${ownerExpr}.${pythonIdent(c.name)}` : itemsVar;
   const out: string[] = [];
   if (!c.collection) {
-    out.push(`${indent}${itemsVar} = [${ownerExpr}.${v}] if ${ownerExpr}.${v} is not None else []`);
+    out.push(
+      `${indent}${itemsVar} = [${ownerExpr}.${pythonIdent(c.name)}] if ${ownerExpr}.${pythonIdent(c.name)} is not None else []`,
+    );
   }
   out.push(
     `${indent}${v}_existing = (`,
@@ -1669,7 +1674,7 @@ function syncJoinTable(assoc: AssociationIR, f: FieldIR, aggVar: string): string
   const joinRow = joinRowClassName(assoc);
   const v = snake(f.name);
   return [
-    `        ${v}_current = [str(__t) for __t in ${aggVar}.${v}]`,
+    `        ${v}_current = [str(__t) for __t in ${aggVar}.${pythonIdent(f.name)}]`,
     `        ${v}_existing = (`,
     "            await self._session.execute(",
     `                select(${joinRow}.${assoc.targetFk}).where(${joinRow}.${assoc.ownerFk} == ${aggVar}.id)`,
@@ -1706,16 +1711,16 @@ function syncValueCollection(
 ): string[] {
   const vcRow = valueCollectionRowClassName(vc.childTable);
   const vo = findValueObjectInScope(ctx, vc.voName);
-  const v = snake(vc.fieldName);
   // Flattened VO column kwargs: `amount=Decimal(str(__e.amount)), …`.
   const voKwargs = (vo?.fields ?? []).map(
-    (vf) => `${snake(vf.name)}=${persistScalar(`__e.${snake(vf.name)}`, vf.type, false)}`,
+    (vf) =>
+      `${pythonIdent(vf.name)}=${persistScalar(`__e.${pythonIdent(vf.name)}`, vf.type, false)}`,
   );
   return [
     "        await self._session.execute(",
     `            delete(${vcRow}).where(${vcRow}.${vc.parentFk} == ${aggVar}.id)`,
     "        )",
-    `        for __i, __e in enumerate(${aggVar}.${v} or []):`,
+    `        for __i, __e in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
     "            await self._session.execute(",
     `                insert(${vcRow}).values(`,
     `                    ${vc.parentFk}=${aggVar}.id,`,
@@ -1839,7 +1844,10 @@ export function wireValue(
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return expr;
     const fields = vo.fields
-      .map((vf) => `"${vf.name}": ${wireValue(`${expr}.${snake(vf.name)}`, vf.type, ctx, false)}`)
+      .map(
+        (vf) =>
+          `"${vf.name}": ${wireValue(`${expr}.${pythonIdent(vf.name)}`, vf.type, ctx, false)}`,
+      )
       .join(", ");
     const obj = `{${fields}}`;
     return optional ? `(None if ${expr} is None else ${obj})` : obj;
@@ -1889,7 +1897,7 @@ function wireProjection(
             : "";
       if (!partName) continue;
       const helper = `self._wire_${snake(partName)}`;
-      const access = `${varExpr}.${snake(wf.name)}`;
+      const access = `${varExpr}.${pythonIdent(wf.name)}`;
       pairs.push(
         wf.type.kind === "array"
           ? `"${wf.name}": [${helper}(__e) for __e in ${access}]`
@@ -1898,7 +1906,7 @@ function wireProjection(
       continue;
     }
     pairs.push(
-      `"${wf.name}": ${wireValue(`${varExpr}.${snake(wf.name)}`, wf.type, ctx, wf.optional)}`,
+      `"${wf.name}": ${wireValue(`${varExpr}.${pythonIdent(wf.name)}`, wf.type, ctx, wf.optional)}`,
     );
   }
   return pairs;

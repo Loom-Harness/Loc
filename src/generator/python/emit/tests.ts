@@ -12,7 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { escapePythonIdent, snake } from "../../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import {
   coerceTestArgs,
   coerceTestLiteral,
@@ -251,7 +251,7 @@ export function renderTestExpr(
     const recv = renderTestExpr(e.receiver, ctx, lets);
     const rt = e.receiver.memberType;
     const inner = rt.kind === "optional" ? rt.inner : rt;
-    return `cast(${renderPyType(inner)}, ${recv}).${snake(e.member)}`;
+    return `cast(${renderPyType(inner)}, ${recv}).${pythonIdent(e.member)}`;
   }
   // Calls of currentUser-gated ops thread the synthetic actor as the
   // trailing argument (mirrors the TS test emitter).  The aggregate
@@ -284,7 +284,7 @@ export function renderTestExpr(
       // A currentUser-gated op's method signature carries a trailing
       // `current_user` parameter; thread the synthetic actor.
       if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR_PY);
-      return `${recv}.${snake(e.member)}(${args.join(", ")})`;
+      return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
     }
   }
   if (
@@ -321,7 +321,7 @@ export function renderCreateInput(
   return obj.fields
     .map((f) => {
       const t = declared.get(f.name);
-      return `${snake(f.name)}=${t === undefined ? renderPyExpr(f.value) : coerceCreateValue(f.value, t, ctx)}`;
+      return `${pythonIdent(f.name)}=${t === undefined ? renderPyExpr(f.value) : coerceCreateValue(f.value, t, ctx)}`;
     })
     .join(", ");
 }

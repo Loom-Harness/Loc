@@ -6,7 +6,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent, snake } from "../../../util/naming.js";
 import {
   type Entry,
   groupByDataset,
@@ -192,7 +192,7 @@ function qualifiedInsert(row: SeedRowIR, schema: string | undefined): string {
 function renderInput(row: SeedRowIR, agg: SeederAggregate): string {
   const typeByName = new Map(agg.createParams.map((p) => [p.name, p.type]));
   return row.fields
-    .map((f) => `${snake(f.name)}=${renderField(f.value, typeByName.get(f.name))}`)
+    .map((f) => `${pythonIdent(f.name)}=${renderField(f.value, typeByName.get(f.name))}`)
     .join(", ");
 }
 
