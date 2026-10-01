@@ -6579,3 +6579,106 @@ original numbering and nothing collided. Retaining the *lowest* makes it fail
 with `got 1,1,2`. Same lesson as §59/§63 one level up: a mutation proof is
 itself a check that can fail to reach what it names, so read which assertion
 fired — and when a seeded defect passes, the test is the suspect, not the seed.
+
+## 119. A PR kept in draft to be honest about missing verification is the PR whose verification never runs (2026-09-28)
+
+M-T5.35 (#2918) took **fifteen days** to merge a change that was correct and green
+on day one. Nothing was wrong with the code. Three things were wrong with how I
+read CI and merge state, and all three are the same mistake: **treating a status
+field as a diagnosis instead of reading the config that produces it.**
+
+### The draft trap
+
+The heavy tiers are draft-gated:
+
+```yaml
+if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+```
+
+So `corpus × {tsc, java, python, dotnet}`, all nine `behavioral*` legs and
+`build-generated-*` **skip on a draft PR**. I had deliberately kept #2918 in draft
+because I could not run those tiers locally (no dotnet SDK, JDK 21 against a
+generated project that wants 25, no `mix`) and did not want to claim "ready"
+without them. That instinct produced the opposite of what it intended: the draft
+status was the reason the verification could not run.
+
+Worse, the PR looked **green** the whole time — `pr-gate` ✅, `tests passed` ✅,
+0 failures. `pr-gate` only binds what actually RUNS on the head (`docs/ci-gating.md`),
+so 63 of 81 checks skipped and the aggregate went green over the gap. Even
+`corpus-build-passed` reported success while every one of its matrix cells
+skipped underneath it. Flipping to ready turned 81 checks into 328 and ran the
+five compile legs and the goldens for the first time — all green, but that was
+luck, not knowledge.
+
+**So: a green draft is not evidence. Before trusting a green PR, count what was
+SKIPPED and ask which of those were the tiers your change actually needed.**
+If you cannot verify locally, ready-with-a-caveat-in-the-body beats draft-for-honesty
+— draft suppresses the evidence you are being honest about lacking.
+
+### `blocked` is not a diagnosis
+
+`mergeable_state: blocked` with green required checks sat there for two weeks and
+I produced three plausible theories, each costing days:
+
+1. *"waiting on a reviewer"* — wrong: `required_approving_review_count` is **0**,
+   and the PRs that merged around it had zero reviews too.
+2. *"the repo is dormant"* — true for six days, then stale, and I kept asserting
+   it after it stopped being true.
+3. *"my auto-merge used the wrong method"* — real (the `ccr/auto_merge` route
+   hard-codes `merge`; the ruleset allows only `squash`) but not decisive.
+
+The answer was one call — `GET /repos/{owner}/{repo}/rules/branches/main` — which
+prints the `pull_request`, `required_status_checks` and `merge_queue` rules
+outright. `blocked` here means **"not in the merge queue"**, nothing more:
+enqueuing flipped it to `clean` instantly. Note the legacy
+`/branches/main/protection` endpoint reads EMPTY on this repo (it is governed by
+rulesets), so an empty protection read is not evidence of no protection.
+
+Also worth knowing: **nothing in this repo merges via auto-merge.** Every merged
+PR shows `merged_by: lemmit` and `auto_merge: no`. Arming auto-merge is not a way
+to land a PR here; it is a way to make a PR look like it will land.
+
+### Nightly red is not main red
+
+Chasing the same PR I reported `main` red on 13 failing checks — `compile oracle
+(dotnet/python)`, `full`, `fuzz (elixir)`. Every one resolved to `event=schedule`
+(`Conformance full (nightly)`, `Pairwise combination corpus`, `Schemathesis
+contract fuzzing`), and one of those "failures" belonged to a run whose own
+conclusion was `success`. **Resolve a failing check to its workflow run and read
+`event` before concluding anything about a branch.** The tell I saw and misread:
+the same check names repeating with different run IDs on an unchanging commit —
+that is nightlies stacking up, not a branch breaking.
+
+### The shared root, and the cheap habit
+
+All three are the shape of §114: a measurement that was available, cheap, and
+skipped in favour of inference. A check-run list, a `mergeable_state`, an
+aggregate check — each is a *summary over whatever happened to execute*. The
+config that decides what executes (a workflow `if:` guard, a ruleset, a run's
+`event`) is one read away and is authoritative. Read it first.
+
+Two API gotchas that cost real time here, both of which make a partial view look
+like a finding: **`check-runs` paginates** (`total_count` was 328 against a
+100-item page — for an hour I believed 72 jobs were stuck queued when they had
+started seconds earlier), and **`mergeable` frequently reads `null`/`unknown` on
+first poll** — poll twice before believing it. See §115 for why a clean
+`merge-tree` against `origin/main` still cannot predict a queue ejection.
+
+### And one local one: a shallow clone tracks only `main`
+
+`git clone --depth 1` leaves `remote.origin.fetch` as
+`+refs/heads/main:refs/remotes/origin/main`, so a feature branch **never gets a
+`refs/remotes/origin/<branch>` ref** — `git push -u` reports "set up to track"
+and creates nothing. Two consequences, each of which cost a cycle here (three
+times between them):
+
+  * the stop-hook's git check reads "no remote branch" and reports every local
+    commit as unpushed, on a branch that is pushed and identical to its remote;
+  * `git push --force-with-lease` fails with `stale info`, because the lease has
+    no local record to compare against. The fix is an explicit lease:
+    `git push --force-with-lease=<branch>:<remote-sha> origin HEAD:refs/heads/<branch>`.
+
+So after any push from a shallow clone, create the ref yourself —
+`git fetch origin <branch>:refs/remotes/origin/<branch>` — and verify with
+`git ls-remote origin <branch>` against `git rev-parse HEAD` rather than trusting
+either the hook or `@{upstream}`.
