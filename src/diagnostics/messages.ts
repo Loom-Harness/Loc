@@ -1971,6 +1971,20 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.migration-backfill-discarded": (p: { module: unknown; columns: unknown }) =>
     `migration for module "${p.module}" declares backfill(s) for column(s) that this migration ADDS, but nothing consumed them — the declared value would never run:\n${p.columns}\nThis is an internal inconsistency in the derived migration, not a mistake in the model. Report it: the migration was NOT written.`,
 
+  /** The rename heuristic GUESSED (docs/migrations.md § Rename detection): one
+   *  dropped column plus one added column, same type and nullability, with no
+   *  backfill and no default, collapsed into a single `renameColumn`.  The
+   *  inference is deliberate and load-bearing — a real rename would otherwise
+   *  lose its data — but it is structurally unable to tell a rename from two
+   *  unrelated columns, since both produce a byte-identical diff.  So it
+   *  ANNOUNCES itself: a warning (never an error — an error would break every
+   *  model relying on the collapse) so the one case it gets wrong is a line on
+   *  stderr instead of a silently misattributed column. */
+  "loom.migration-rename-inferred": (p: { module: unknown; from: unknown; to: unknown }) =>
+    `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
+    `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
+    `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
   // ----------------------------------------------------------------------
