@@ -1763,6 +1763,13 @@ describe("applyDestructivePolicy — silent-rename data-loss guard", () => {
     expect(err.renames).toEqual([{ table: "users", drops: ["age"], adds: ["years"] }]);
     // The remedy is spelled out in the message.
     expect(err.message).toMatch(/migration "<name>" \{ <Aggregate>\.<oldField> -> <newField> \}/);
+    // …and WHERE it goes (#30): a `migration` block is a top-level declaration,
+    // and placed inside `system { }` it is a parse error the reader can't map
+    // back to this hint.
+    expect(err.message).toContain("TOP LEVEL of the .ddd file");
+    expect(err.message).toContain("outside `system { … }`");
+    // The drop/add list is still interpolated through the catalog entry.
+    expect(err.message).toContain("  - users: drop [age] + add [years]");
   });
 
   it("rename+type-change is annotatable → renameColumn in place, no drop (the type-cast is separately gated, not a data drop)", () => {

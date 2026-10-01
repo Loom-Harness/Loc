@@ -1201,18 +1201,12 @@ export class MigrationAmbiguousRenameError extends MigrationDestructiveError {
   ) {
     super(module, offending);
     this.name = "MigrationAmbiguousRenameError";
-    this.message =
-      `migration for module "${module}" drops and adds column(s) on the same table that ` +
-      `look like an unannotated rename — emitting them as drop+add would DESTROY the ` +
-      `renamed column's data:\n` +
-      renames
+    this.message = diagMessage("loom.migration-ambiguous-rename", {
+      module,
+      renames: renames
         .map((r) => `  - ${r.table}: drop [${r.drops.join(", ")}] + add [${r.adds.join(", ")}]`)
-        .join("\n") +
-      `\nIf this is a rename, declare it explicitly so the data is preserved:\n` +
-      `  migration "<name>" { <Aggregate>.<oldField> -> <newField> }\n` +
-      `(this handles both a rename that also changes type and two renames at once.)\n` +
-      `If you really mean to drop the old column and add a new empty one — losing the ` +
-      `data — re-run \`generate system\` with --allow-destructive.`;
+        .join("\n"),
+    });
   }
 }
 
