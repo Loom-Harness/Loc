@@ -51,6 +51,13 @@ system DecimalExact {
         // naming defect this fixture found and hands off, not its subject.
         tie: decimal
         total: decimal
+        // A CROSS-FIELD decimal invariant sitting exactly on its boundary:
+        // `0.1 + 0.2 <= 0.3` holds exactly and FAILS in binary floating point
+        // (0.30000000000000004).  It rides every backend's wire validator as
+        // well as the domain check, so the create in the `test e2e` below is
+        // the proof the WIRE-boundary refine computes exactly too (node's zod
+        // `.refine` answered 422 here while the other four answered 201).
+        invariant a + b <= 0.3
         contains parts: Part[]
         entity Part {
           weight: decimal
