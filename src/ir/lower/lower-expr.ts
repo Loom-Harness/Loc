@@ -84,6 +84,7 @@ import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
 import type {
   BinOp,
+  DataSourceKind,
   ExprIR,
   IdValueType,
   PathIR,
@@ -2341,6 +2342,17 @@ function hasIdBinding(env: Env): boolean {
   );
 }
 
+/** The kind of the ambient resource handle `name` names, or `undefined` when
+ *  no resource of that name is in scope OR a lexical binder (a param, a `let`,
+ *  an absence-match alias) shadows it — ruling D7.  The single test every
+ *  "is this head a resource handle" site asks, so the expression path and the
+ *  two statement paths (`lower-stmt.ts`, `lower-workflow.ts`) cannot disagree
+ *  about what a shadowed name means. */
+export function ambientResourceKind(name: string, env: Env): DataSourceKind | undefined {
+  if (env.locals.has(name) || env.refAliases?.has(name)) return undefined;
+  return env.resources?.get(name);
+}
+
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Criterion-parameter substitution — while inlining a criterion body, a
   // bare reference to one of its parameters resolves to the caller's
@@ -2363,28 +2375,10 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
       type: { kind: "entity", name: USER_SHAPE_NAME },
     };
   }
-  // Ambient resource handle (`files`, `jobs`, …) — a `resource X { for:
-  // <thisCtx>, … }` declaration in scope.  Resolved before
-  // locals so it isn't shadowable, mirroring `currentUser`.  The type is
-  // a synthetic marker; a `.verb(...)` call on this ref lowers to a
-  // `resource-op` (see `applySuffixToRecv`).
-  const resourceKind = env.resources?.get(name);
-  if (resourceKind) {
-    const boundApi = env.resourceApis?.get(name);
-    return {
-      kind: "ref",
-      name,
-      refKind: "resource",
-      resourceName: name,
-      resourceKind,
-      ...(boundApi ? { resourceApiName: boundApi } : {}),
-      type: { kind: "entity", name: RESOURCE_HANDLE_SHAPE },
-    };
-  }
   // Absence-match binding alias (Env.refAliases) — the binding is the
   // narrowed subject itself, so the ref lowers to the aliased subject ref.
   // Checked before locals so the binding shadows a same-named outer local
-  // (ordinary binding scoping), after `currentUser`/resources so those stay
+  // (ordinary binding scoping), after `currentUser` so that stays
   // unshadowable.
   const alias = env.refAliases?.get(name);
   if (alias) return alias;
@@ -2396,6 +2390,29 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   if (local) {
     const refKind = local.kind;
     return { kind: "ref", name, refKind, type: local.type };
+  }
+  // Ambient resource handle (`files`, `jobs`, …) — a `resource X { for:
+  // <thisCtx>, … }` declaration in scope.  Resolved AFTER the lexical binders
+  // above (ruling D7): a param or `let` named like a resource shadows it, the
+  // way any inner binding shadows an outer name.  It used to be resolved
+  // first ("not shadowable"), so `create(name, st) { st := st }` next to a
+  // `resource st` lowered the RHS to the resource handle and the lifecycle
+  // gate reported a spurious `loom.lifecycle-body-dropped`.  Still ahead of
+  // the enclosing entity's fields.  The type is a synthetic marker; a
+  // `.verb(...)` call on this ref lowers to a `resource-op` (see
+  // `applySuffixToRecv`).
+  const resourceKind = ambientResourceKind(name, env);
+  if (resourceKind) {
+    const boundApi = env.resourceApis?.get(name);
+    return {
+      kind: "ref",
+      name,
+      refKind: "resource",
+      resourceName: name,
+      resourceKind,
+      ...(boundApi ? { resourceApiName: boundApi } : {}),
+      type: { kind: "entity", name: RESOURCE_HANDLE_SHAPE },
+    };
   }
   // Property of enclosing entity / value object / workflow.  A workflow is a
   // state-bearing entity (workflow-and-applier.md A2): its `Property` members

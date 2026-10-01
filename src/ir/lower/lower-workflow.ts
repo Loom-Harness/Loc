@@ -62,6 +62,7 @@ import { isWriteMethod } from "../util/repo-methods.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
+  ambientResourceKind,
   inferExprType,
   lowerEmitFields,
   lowerExpr,
@@ -905,7 +906,7 @@ function lowerWorkflowStatementInner(
       // `files.put(args)` — a bare resource-op call.  When the
       // head is an ambient resource handle, lower to a `resource-call`
       // statement; otherwise it's an op-call on a let binding.
-      const resourceKind = env.resources?.get(lv.head);
+      const resourceKind = ambientResourceKind(lv.head, env);
       if (resourceKind) {
         const verb = lv.tail[0]!;
         const verbDef = findVerb(resourceKind, verb);
