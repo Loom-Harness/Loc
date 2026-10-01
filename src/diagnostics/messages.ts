@@ -443,6 +443,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
   "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
     `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
+  // Same code, different reason.  The bare entry above is the no-UI-mount case;
+  // Flutter DOES mount a UI, so that wording would be false for it — but the
+  // outcome is the same one the user needs to hear (the value is dropped), so
+  // it stays one code and splits only the message.
+  "loom.design-pack-ignored#flutter": (p: { design: unknown; name: unknown }) =>
+    `Design '${p.design}' on Flutter deployable '${p.name}' has no effect. ` +
+    `Flutter has no design-pack menu — it renders Material 3 widgets ` +
+    `procedurally, so 'design:' is dropped at lowering and the generated ` +
+    `project is identical without it. Remove the 'design:' line.`,
   // The theme must be QUOTED.  `DesignPack` is a closed keyword set of pack
   // families plus `STRING`, so a bare `design: light` is a PARSE error — this
   // message used to list the themes bare, which meant pasting its own
