@@ -4543,3 +4543,62 @@ of the rest.
 M-T5.10 and M-T5.40;
 `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 and its coordination
 note's item 3.
+
+## D-REACTOR-SYSTEM-PRINCIPAL — event reactors run as a tenant-scoped system principal
+
+**Status:** PINNED (owner ruling D1, 2026-09-29 —
+`docs/audits/2026-09-28-eval-closure-review/VERIFIED-AND-WAVES.md` § Rulings).
+
+**Question.** A reactor — a workflow's event-triggered `create(e) by …`
+starter or `on(e)` subscription, including one driven by a `timerSource`
+tick or a broker-consumed event — has no request, so it has no request
+principal. What does a gated operation it calls do? Before this ruling the
+answer was five different defects (eval item 3): node, .NET and java emitted a
+`currentUser` nothing declared (TS2304 / CS0103 / javac), python dropped the
+operation's gate entirely (fail-open), elixir passed `nil` and crashed on
+`nil.permissions`.
+
+**Decision.** Reactors run as a **system principal**, tenant-scoped, and gates
+are **evaluated against it** — never skipped.
+
+- **The principal.** `{ isSystem: true, tenant: the triggering event's tenant,
+  causedBy: the originating user's id }`. Every declared claim is EMPTY (the
+  zero of its type — never the dev stub's `"admin"`), so no claims gate passes
+  by accident. `causedBy` is for audit and logs only: it is not a language
+  member and no gate can read it.
+- **Language surface.** `currentUser.isSystem` (bool). A gate that admits a
+  reactor says so: `requires currentUser.isSystem || …`. `isSystem` and
+  `causedBy` are reserved claim names (`loom.user-reserved-field`).
+- **Gates.** Evaluated normally. A reactor that reaches a gate the system
+  principal can never satisfy — one that reads `currentUser` and never
+  mentions `currentUser.isSystem` — gets a compile-time **warning**,
+  `loom.reactor-gate-unsatisfiable`.
+- **Tenancy.** Filters and stamps use the event's tenant. In-process, that is
+  the tenant of the request that raised the event (the system principal copies
+  the dispatching principal's tenancy claim and `orgPath`).
+- **Timers.** A tick has no tenant, so a tenant-owned read from a timer-driven
+  reactor must be explicitly cross-tenant: a `find` / inline `Repo.run` with
+  `ignoring tenantOwned` (the language's existing cross-tenant read clause —
+  `crossTenant` itself is an aggregate stance, not a read clause). Otherwise
+  **error** `loom.timer-tenant-read`.
+
+**Emission (all five backends).** The request principal is unchanged on the
+wire (`/auth/me` projects the declared claims): node `User.isSystem?` /
+`causedBy?` + `systemPrincipal()` in `auth/middleware.ts`; .NET init-only
+`IsSystem` / `CausedBy` (serializer-skipped at default) +
+`User.SystemPrincipal(origin)`; java trailing record components with a
+claims-only constructor + `User.systemPrincipal(origin)`; python defaulted
+dataclass fields + `system_principal()`; elixir `system_principal/0` in the
+web `Auth` module, reading the origin the auth plug stashes in the process
+dictionary. A reactor binds it only when its body — or an operation it calls,
+hoisted gate included — reads `currentUser`
+(`src/ir/util/system-principal.ts` `reactorNeedsPrincipal`).
+
+**Not yet (tracked in PR #3103's body).** The channel envelope / outbox row
+does not yet carry the tenant and `causedBy`, so a reactor fed by the outbox
+relay or a broker consumer has no origin and runs tenant-less (fail-closed:
+tenant-scoped reads match nothing) until the envelope slice lands.
+
+**Affects.** `docs/language-reference/17-auth.md` § Reactors; `docs/auth.md`;
+`docs/tenancy.md`; `docs/workflow.md`; `docs/channels.md`;
+`src/ir/validate/checks/reactor-principal-checks.ts`.

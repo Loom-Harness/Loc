@@ -375,6 +375,11 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
+  "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
+  // Ruling D1 — reactors run as the system principal.
+  "loom.reactor-gate-unsatisfiable":
+    "17-auth.md#reactors--the-system-principal-currentuserissystem",
+  "loom.timer-tenant-read": "17-auth.md#reactors--the-system-principal-currentuserissystem",
   // The target-agnostic `match await` subject gate (audit F66) — the reference
   // section that spells the one supported shape.
   "loom.async-effect-subject-unsupported":

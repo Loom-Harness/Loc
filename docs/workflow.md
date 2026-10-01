@@ -412,6 +412,13 @@ types are in scope **only** in `create` / `handle` parameter positions —
 elsewhere a bare event/payload name stays unresolved.  See the
 [language reference](language.md#type-references).
 
+> **Principal.** A reactor / event starter has no request, so it runs as the
+> **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is
+> empty, and the tenant is the triggering event's.  Gates on the operations it
+> calls are evaluated against it — `requires currentUser.isSystem || …` admits
+> it; a gate that reads `currentUser` without that disjunct is warned
+> (`loom.reactor-gate-unsatisfiable`).  See [`language-reference/17-auth.md` § Reactors](language-reference/17-auth.md#reactors--the-system-principal-currentuserissystem).
+
 > **Status.** The parameter surface above parses, resolves, and
 > type-checks today.  **In-process dispatch ships on the Hono, .NET,
 > Phoenix, Python, and Java backends** (channels.md): when a `channel` in the deployable

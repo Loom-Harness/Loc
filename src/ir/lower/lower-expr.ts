@@ -74,6 +74,7 @@ import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
+  PRINCIPAL_IS_SYSTEM,
   PRINCIPAL_ORG_CONTEXT_PATH,
   PRINCIPAL_ORG_PATH,
   PRINCIPAL_ROOT_ORG,
@@ -3290,6 +3291,8 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
       name === PRINCIPAL_ORG_CONTEXT_PATH
     )
       return { kind: "primitive", name: "string" };
+    // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
+    if (name === PRINCIPAL_IS_SYSTEM) return { kind: "primitive", name: "bool" };
     const f = env.user.fields.find((f) => f.name === name);
     if (f) return f.optional ? { kind: "optional", inner: f.type } : f.type;
     return { kind: "primitive", name: "string" };
@@ -3650,6 +3653,8 @@ function stepInto(t: TypeIR, name: string, env: Env): TypeIR {
       name === PRINCIPAL_ORG_CONTEXT_PATH
     )
       return { kind: "primitive", name: "string" };
+    // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
+    if (name === PRINCIPAL_IS_SYSTEM) return { kind: "primitive", name: "bool" };
     const f = env.user.fields.find((f) => f.name === name);
     if (f) return f.optional ? { kind: "optional", inner: f.type } : f.type;
     return { kind: "primitive", name: "string" };

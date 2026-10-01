@@ -191,7 +191,8 @@ export function renderAuthFiles(
       imports.size > 0 ? `` : null,
       `/** Strongly-typed claim shape from the system's user block —`,
       ` *  \`currentUser\` references resolve against this. */`,
-      `public record User(${components}) {`,
+      `public record User(${components}${fields.length > 0 ? ", " : ""}boolean isSystem, String causedBy) {`,
+      ...systemPrincipalMembers(fields, orgPathClaim, actorIdField?.name),
       ...orgPathAccessor,
       ...rootOrgAccessor,
       ...orgContextAccessor,
@@ -1291,6 +1292,50 @@ function collectAuthImports(t: TypeIR, into: Set<string>): void {
     collectAuthImports(t.element, into);
   }
   if (t.kind === "optional") collectAuthImports(t.inner, into);
+}
+
+/** The system principal's members on the `User` record (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  `isSystem` / `causedBy`
+ *  are trailing record components (the accessors `isSystem()` / `causedBy()`
+ *  are what `currentUser.isSystem` renders to), and a constructor at the
+ *  CLAIMS-ONLY arity keeps every `new User(<claims>)` site — the dev stub, the
+ *  OIDC verifier, the generated tests — building a request principal
+ *  (`isSystem = false`) unchanged.  `systemPrincipal(origin)` is the principal
+ *  an event reactor runs as: every claim EMPTY (never the dev stub's
+ *  `"admin"`), the tenancy claim copied from the dispatching principal, and
+ *  `causedBy` its id (or its own `causedBy` when it is itself a reactor). */
+function systemPrincipalMembers(
+  fields: FieldIR[],
+  tenantClaim: string | undefined,
+  idField: string | undefined,
+): string[] {
+  const names = fields.map((f) => f.name);
+  const empty = (f: FieldIR): string => {
+    if (f.optional) return "null";
+    if (f.type.kind === "primitive" && f.type.name === "string") return '""';
+    return stubValue(f.type);
+  };
+  const args = fields.map((f) =>
+    f.name === tenantClaim ? `origin == null ? ${empty(f)} : origin.${f.name}()` : empty(f),
+  );
+  const causedBy = idField
+    ? `origin == null ? null : origin.isSystem() ? origin.causedBy() : String.valueOf(origin.${idField}())`
+    : "origin == null ? null : origin.causedBy()";
+  return [
+    ``,
+    `    /** A REQUEST principal — every verifier builds one of these. */`,
+    `    public User(${fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ")}) {`,
+    `        this(${[...names, "false", "null"].join(", ")});`,
+    `    }`,
+    ``,
+    `    /** The principal an event reactor runs as: no claims, \`isSystem\`, the`,
+    `     *  dispatching principal's tenant, \`causedBy\` for audit.  Gates are`,
+    `     *  evaluated against it normally — one that admits it says`,
+    `     *  \`currentUser.isSystem || …\`. */`,
+    `    public static User systemPrincipal(User origin) {`,
+    `        return new User(${[...args, "true", causedBy].join(", ")});`,
+    `    }`,
+  ];
 }
 
 /** Dev-stub claim values — mirrors the .NET DevStubUserVerifier:

@@ -711,6 +711,67 @@ function stubCsharpValueForType(t: TypeIR): string {
   }
 }
 
+/** The system principal's members on the `User` record (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL): `IsSystem` / `CausedBy`
+ *  (init-only, default false / null, and skipped by the serializer at their
+ *  defaults — so a request principal's `/auth/me` body is unchanged), plus the
+ *  `SystemPrincipal(origin)` factory an event reactor binds `currentUser` to.
+ *  Every claim is EMPTY — never the dev stub's `"admin"` — so a claims gate
+ *  cannot pass by accident; the tenancy claim and the materialized path are the
+ *  dispatching principal's (the event was raised inside its request), and
+ *  `CausedBy` is its id (or its own `CausedBy` when it is itself a reactor). */
+function renderSystemPrincipalMembers(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  readsRegistry: boolean,
+  orgContext: boolean,
+): string {
+  const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
+  const args = user.fields
+    .map((f) =>
+      f.name === tenantClaim
+        ? `origin is null ? ${systemCsharpValueFor(f)} : origin.${upperFirst(f.name)}`
+        : systemCsharpValueFor(f),
+    )
+    .join(", ");
+  const causedBy = idField
+    ? `origin is null ? null : origin.IsSystem ? origin.CausedBy : origin.${upperFirst(idField.name)}.ToString()`
+    : "origin?.CausedBy";
+  const inits = [
+    "IsSystem = true",
+    `CausedBy = ${causedBy}`,
+    ...(tenantClaim && readsRegistry ? ["OrgPath = origin?.OrgPath ?? string.Empty"] : []),
+    ...(tenantClaim && orgContext ? ["OrgContextPath = origin?.OrgPath ?? string.Empty"] : []),
+  ];
+  return `
+    /// <summary><c>currentUser.isSystem</c> — true only on the system principal
+    /// an event reactor runs as (<see cref="SystemPrincipal"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsSystem { get; init; }
+
+    /// <summary>The originating user's id on the system principal — audit and
+    /// logs only, never read by a gate.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CausedBy { get; init; }
+
+    /// <summary>The principal an event reactor runs as: no claims,
+    /// <c>IsSystem</c>, the dispatching principal's tenant.  Gates are evaluated
+    /// against it normally — one that admits it says
+    /// <c>currentUser.isSystem || …</c>.</summary>
+    public static User SystemPrincipal(User? origin) => new User(${args})
+    {
+        ${inits.join(",\n        ")},
+    };
+`;
+}
+
+/** The EMPTY value of one claim on the system principal. */
+function systemCsharpValueFor(f: { type: TypeIR; optional: boolean }): string {
+  if (f.optional) return "null";
+  if (f.type.kind === "primitive" && f.type.name === "string") return "string.Empty";
+  return stubCsharpValueForType(f.type);
+}
+
 function renderUserRecord(
   user: UserIR,
   ns: string,
@@ -769,11 +830,14 @@ function renderUserRecord(
         get => _orgContextPath ?? OrgPath;
         set => _orgContextPath = value;
     }`;
+  const systemMembers = renderSystemPrincipalMembers(user, orgPathClaim, readsRegistry, orgContext);
   const orgPathMember = !orgPathClaim
-    ? ";"
+    ? `
+{${systemMembers}
+}`
     : readsRegistry
       ? `
-{
+{${systemMembers}
     private string? _orgPath;
 
     /// <summary>The caller's tenant materialized path
@@ -795,7 +859,7 @@ ${rootOrgProp}${orgContext ? orgContextProp : ""}
     /// (<c>currentUser.orgPath</c>) — derived per-request from the tenancy
     /// claim (multi-tenancy).</summary>
     public string OrgPath => $"{${upperFirst(orgPathClaim)}}";
-${rootOrgProp}
+${rootOrgProp}${systemMembers}
 }`;
   return `// Auto-generated.
 using ${ns}.Domain.Enums;

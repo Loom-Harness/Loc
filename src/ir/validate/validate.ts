@@ -24,6 +24,10 @@ import {
   validateRetrievals,
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
+import {
+  validateReactorGates,
+  validateTimerTenantReads,
+} from "./checks/reactor-principal-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
@@ -247,6 +251,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // infra-emitted tick-event shape, single-fire state requirement, and the
     // dead-config unbound warning.
     validateTimerSources(sys, diags);
+    // Reactors run as the tenant-scoped system principal (ruling D1): a timer
+    // tick has no tenant, so its tenant-owned reads must opt out explicitly.
+    validateTimerTenantReads(sys, diags);
     // Advisory index-suggestion lint (uniqueness-and-indexes.md §11,
     // D-INDEX-SUGGEST) — WARNING-severity `loom.index-suggestion` for a
     // query-filtered column with no covering index.  Never auto-derives; rides
@@ -315,6 +322,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
     validateApplicationHandlers(c, diags);
+    // Ruling D1: a reactor's gates are evaluated against the system principal;
+    // warn on one it can never satisfy.
+    validateReactorGates(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
     validateContainmentCycles(c, diags);
