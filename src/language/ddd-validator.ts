@@ -83,6 +83,7 @@ import {
   checkTemplateHoles,
   checkTenancyDecls,
   checkTernaryExprs,
+  checkTestBodyCallArgs,
   checkTestPlacement,
   checkTheme,
   checkThemeContrast,
@@ -232,6 +233,9 @@ export class DddValidator {
     // Store-action calls (`Cart.add(42)`) in page/component/store action bodies —
     // never walked by the aggregate statement checker, so arity + arg types went
     // unchecked. Resolve `<store>.<action>` and check both invocation forms.
+    // Operation-call arguments inside unit / integration `test` bodies — not an
+    // aggregate operation, so the statement walk above never reached them.
+    guard("test-body-call-args", model, () => checkTestBodyCallArgs(model, accept));
     guard("store-action-args", model, () => checkStoreActionCallArgs(model, accept));
     // User-component prop passing (`Panel(amount: "x")` / `Panel { amount: "x" }`) —
     // check each provided prop value against the component's declared param type.
