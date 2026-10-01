@@ -39,9 +39,11 @@
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
@@ -95,6 +97,23 @@ function namedArg(call: ExprIR, name: string): ExprIR | undefined {
   return idx >= 0 ? call.args[idx] : undefined;
 }
 
+/** An `Action`'s `then:` effect as a Dart STATEMENT, run inside the button's
+ *  success branch (M-FT.5) — in the widget tree, so it has a `BuildContext`.
+ *  `toast(<msg>)` shows a snackbar with the author's message; anything else —
+ *  `navigate(<Page>)` included — goes through the walker's shared
+ *  `emitActionThen`, exactly what the JSX frontends run after the mutation. */
+function flutterActionThen(then: ExprIR, ctx: WalkContext): string {
+  if (then.kind === "call" && then.name === "toast" && then.args.length === 1) {
+    const arg = then.args[0]!;
+    const msg = emitExpr(arg, ctx);
+    // A string literal is already a `String`; anything else is interpolated,
+    // the coercion the JS frontends get for free.
+    const text = arg.kind === "literal" && arg.lit === "string" ? msg : `'\${${msg}}'`;
+    return `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${text})));`;
+  }
+  return `${emitActionThen(then, ctx)};`;
+}
+
 /** The aggregate a form primitive's `of:` arg refers to (a bare aggregate ref),
  *  resolved through the walker's `aggregatesByName`, or undefined. */
 function formOfAggregate(
@@ -125,7 +144,7 @@ function routeIdArg(ctx: WalkContext): string {
 function instanceOperation(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
-): { agg: AggregateIR; op: AggregateIR["operations"][number]; idExpr: string } | undefined {
+): OpFormTarget | undefined {
   const argNames = call.argNames ?? [];
   const inst = (call.args ?? []).find((_, i) => !argNames[i]);
   if (inst?.kind !== "member" || inst.receiver.kind !== "ref") return undefined;
@@ -136,7 +155,31 @@ function instanceOperation(
   const idExpr = ctx.paramNames.has(inst.receiver.name)
     ? `${emitExpr(inst.receiver, ctx)}.id`
     : routeIdArg(ctx);
-  return { agg, op, idExpr };
+  // #27 — the instance IS the loaded record, so its `version` is the
+  // optimistic-concurrency precondition the widget sends as `If-Match` (the
+  // Dart twin of the JS clients' `ifMatch(loaded?.version)`).  The receiver
+  // renders through the walker's own scope (a QueryView `data:` binding maps to
+  // the unwrapped provider value), so it names the record in scope here.
+  const versionExpr = sendsIfMatchPrecondition(agg, op)
+    ? `${emitExpr(inst.receiver, ctx)}.version`
+    : undefined;
+  return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
+}
+
+/** A resolved op-form reference: the aggregate + op, the Dart expression for the
+ *  record id, and — for a `versioned` update — the loaded record's version. */
+interface OpFormTarget {
+  agg: AggregateIR;
+  op: AggregateIR["operations"][number];
+  idExpr: string;
+  versionExpr?: string;
+}
+
+/** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
+ *  `expectedVersion:` when the call site holds the loaded record. */
+function opFormWidgetCall(r: OpFormTarget): string {
+  const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or
@@ -146,7 +189,7 @@ function instanceOpFormWidget(
   ctx: WalkContext,
 ): string | undefined {
   const r = instanceOperation(call, ctx);
-  return r ? `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr})` : undefined;
+  return r ? opFormWidgetCall(r) : undefined;
 }
 
 /** A route template (`/products/:id`) → a Dart string with `:param` segments
@@ -669,11 +712,17 @@ export const flutterTarget: WalkerTarget = {
     // Feliz, and sidesteps the QueryView data-param rename (`p` → the provider var).
     ctx.usesRouteId = true;
     const label = humanize(op.name);
+    // M-FT.5 — the author's `then:` effect runs on success, in place of the
+    // default "<Op> done" snackbar (which used to run whatever `then:` said).
+    const thenArg = namedArg(call, "then");
+    const onSuccess = thenArg
+      ? flutterActionThen(thenArg, ctx)
+      : `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)})));`;
     const button =
       `ElevatedButton(onPressed: () async { ` +
       `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}')); ` +
       `if (res.statusCode >= 200 && res.statusCode < 300 && context.mounted) { ` +
-      `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)}))); ` +
+      `${onSuccess} ` +
       `} }, child: Text(${dartString(label)}))`;
     if (ctx.authUi) {
       const gate = opActionGate(op);
@@ -737,8 +786,7 @@ export const flutterTarget: WalkerTarget = {
         "Modal: OperationForm child must name of: <Agg> and op: <public op>",
       );
     }
-    const { agg, op } = resolved;
-    const widget = operationFormWidgetName(agg.name, op.name);
+    const { op } = resolved;
     // Trigger label — the Button's first positional string literal, else the op.
     const triggerNames = trigger.argNames ?? [];
     const firstPositional = (trigger.args ?? []).find((_, i) => !triggerNames[i]);
@@ -762,7 +810,7 @@ export const flutterTarget: WalkerTarget = {
     return (
       `ElevatedButton(onPressed: () => showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
-      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${widget}(id: ${resolved.idExpr}))))), ` +
+      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)})))), ` +
       `child: Text(${labelExpr}))`
     );
   },

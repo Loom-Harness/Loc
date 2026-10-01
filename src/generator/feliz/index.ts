@@ -46,7 +46,7 @@ import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
-import { bcByAggregateOf } from "../_walker/paged-query.js";
+import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
@@ -64,7 +64,7 @@ import {
   renderFelizComponentModule,
 } from "./component-emit.js";
 import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
-import { felizTarget } from "./feliz-target.js";
+import { FELIZ_ACTION_TOAST, felizTarget } from "./feliz-target.js";
 import {
   type FsExprCtx,
   fsString,
@@ -77,7 +77,11 @@ import {
 import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
-import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
+import {
+  felizRealtimeRefetchAggregates,
+  renderFelizActionToast,
+  renderFelizRealtime,
+} from "./realtime.js";
 import {
   felizPersistedStores,
   renderStorePersistModule,
@@ -119,6 +123,7 @@ import {
   formHasFieldErrors,
   formsHaveFileField,
   idLabelsFrom,
+  mergeFelizAction,
   opHasForm,
   renderApiModule,
   renderAsyncOutcomeTypes,
@@ -966,6 +971,22 @@ function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[]
   return out;
 }
 
+/** What the page collectors need to DERIVE a QueryView's single-record shape
+ *  the way the walker does (`queryShape`) — so an unflagged `QueryView { of:
+ *  X.byId(id) }` binds its data lambda for the collector exactly as it does for
+ *  the renderer (M-FT.5). */
+function shapeCtxOf(
+  ui: UiIR,
+  contexts: EnrichedBoundedContextIR[],
+  aggregatesByName: ReadonlyMap<string, unknown>,
+): PagedQueryContext {
+  return {
+    apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
+    aggregatesByName,
+    bcByAggregate: bcByAggregateOf(contexts),
+  };
+}
+
 /** The operation forms a ui hosts, across ALL its pages (deduped by form type) —
  *  `OperationForm(of: X, op: Y)`. */
 function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizOperationForm[] {
@@ -983,6 +1004,7 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
       enumsByName,
       idLabels,
       vosByName,
+      shapeCtxOf(ui, contexts, aggregatesByName),
     )) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
@@ -997,13 +1019,14 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
 function actionsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizAction[] {
   const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
   for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
-  const seen = new Set<string>();
   const out: FelizAction[] = [];
   for (const page of ui.pages) {
-    for (const a of collectPageActions(page, aggregatesByName)) {
-      if (seen.has(a.triggerMsg)) continue;
-      seen.add(a.triggerMsg);
-      out.push(a);
+    for (const a of collectPageActions(
+      page,
+      aggregatesByName,
+      shapeCtxOf(ui, contexts, aggregatesByName),
+    )) {
+      mergeFelizAction(out, a);
     }
   }
   return out;
@@ -1584,6 +1607,7 @@ function renderAppFs(
   // already knows.  Purely additive — it can turn the open ON where it was
   // missing, never off, so every app that compiled before is byte-identical.
   const viewsNavigate = views.some((v) => v.includes("Router."));
+  const viewsToast = views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
 
   return lines(
     "module App",
@@ -1724,6 +1748,10 @@ function renderAppFs(
     // component named after a wire record / `Model` / `Api` can't collide with an
     // App.fs member — see `renderFelizComponentModule`.
     ...renderFelizComponentModule(walkedComponents.decls),
+    // M-FT.5 — the toast an `Action { …, then: toast(…) }` closure calls; asked
+    // of the rendered views (the one place that knows), like `viewsNavigate`.
+    viewsToast ? "" : false,
+    viewsToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
     "",
     views.join("\n"),
     "",
