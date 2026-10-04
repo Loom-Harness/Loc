@@ -141,7 +141,35 @@ which gives that census's file list a second job. Nothing here waits on
 [M-T9.51](T9-toolchain-health.md#m-t951): the gate it was going to widen landed
 as that census.
 
-## M-T8.26 — `ddd breakpoints` resolves FILES, not lines, for every declarative member — `open` · **L** · P2
+## M-T8.26 — 366 `loom.*` codes have no language-reference anchor — `open` · **L** (batches of ~40) · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L4-CODES (leftover-waves-2026-09-28).**
+
+Owner of the `UNDOCUMENTED_CODES` ratchet (`test/system/diagnostic-docs-undocumented.ts`, pinned by `test/system/diagnostic-docs-anchors.test.ts`) — **366 entries** on `cbda9165`. The ratchet was minted by M-T8.18 (done, archived), which left the residue with no owner (leftover-waves D10). A code without an anchor is a Problems row in the playground and an LSP diagnostic that link nowhere.
+
+**The drain:** batches of ~40 by prefix — workflow + projection first, then policy/tenancy/resource — each adding the entry to `src/diagnostics/code-docs.ts` (with the heading it anchors to in `docs/language-reference/`) and deleting it from the list in the same PR, as the ratchet requires.
+
+**Done when** the list is empty and the ratchet is deleted (or turned into a zero-assertion).
+
+## M-T8.27 — `ddd trace` cannot map the default backend's own bundle (Commons F-018) — `open` · **S–M** · P3 ⚠ verify-first
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3 owner triage (leftover-waves-2026-09-28).**
+
+From the [Commons dev-experience audit](../audits/2026-09-13-commons-dev-experience.md) (row F-018, S3, "the only genuinely open row"; `coverage.md` was its only pointer). A runtime stack trace from the **default** node backend (`platform: node` → Hono v5) does not resolve back to `.ddd` source through `.loom/sourcemap.json` — the trace names bundle paths the sourcemap does not key. Not the same finding as #2948's F-018 (that is [M-T3.20](T3-security-governance.md#m-t320)).
+
+**Verify first:** generate with `--sourcemap` on the default platform, throw from a domain operation, and run `ddd trace` on the log; the audit's snapshot predates #3074's recorder work (`ddd breakpoints` recorder gap — check that PR's scope before building).
+
+**Verification.** A `ddd trace` test over the default backend's emitted layout, mutation-proved.
+
+## M-T8.28 — A `.loomignore` pin goes permanently stale with no detector (Commons F-008) — `open` · **M** · P3 (design)
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3 owner triage (leftover-waves-2026-09-28).**
+
+From the [Commons dev-experience audit](../audits/2026-09-13-commons-dev-experience.md) (row F-008, S2, "open (design)"). A `.loomignore` entry pins a hand-edited generated file so regeneration skips it; when the model later changes what that file *should* contain, nothing says so — the pin silently freezes the old emission forever. Related to #2948's F-031 overwrite-visibility report (merged independently), which covers the opposite direction (a regen clobbering an unpinned hand-edit).
+
+**The design question:** a regen-time diff of the would-be emission against the pinned file's recorded base (a `.loom/` fingerprint), reported as a warning. Needs a short design note before code.
+
+## M-T8.29 — `ddd breakpoints` resolves FILES, not lines, for every declarative member — `open` · **L** · P2
 
 **The gap.** `ddd breakpoints <f.ddd> --line N` is documented as resolving a `.ddd` line to the
 generated `file:line(s)`. For **executable bodies** it does: an `operation` header resolves to the

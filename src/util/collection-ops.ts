@@ -31,7 +31,11 @@ export interface CollectionOpSignature {
 //     and yield the empty value rather than raising.
 export const COLLECTION_OP_SIGNATURES: ReadonlyArray<CollectionOpSignature> = [
   { name: "count", signature: "int" },
-  { name: "sum", signature: "(λ): decimal" },
+  // `sum` is typed as the lambda BODY's type (`U`: an `int` projection sums to
+  // `int`, a `money` one to `money`), or the element type `T` when called with
+  // no lambda — the `sum` arm of `collectionOpType` in language/type-system.ts,
+  // not a fixed `decimal`.
+  { name: "sum", signature: "(λ?): U" },
   { name: "all", signature: "(λ): bool" },
   { name: "any", signature: "(λ): bool" },
   { name: "where", signature: "(λ): T[]" },

@@ -102,6 +102,18 @@ function renderTestsCore(
   const bodyStr = body.join("\n");
   const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
   const subjectNames = subjectImport ? subjectImport.symbols.filter(refs) : [];
+  // …and every OTHER aggregate in the context the body names.  A test body may
+  // legally reach for a sibling aggregate — the validator admits it, and it is
+  // the only way to exercise a value object holding a CROSS-aggregate reference
+  // (`Berth { ship: Ship id }` needs a `Ship` to get an id from).  Scoping the
+  // import to the subject alone emitted `Ship.create(...)` with no `Ship` in
+  // scope: `TS2304`.  Each sibling lives in its own per-aggregate module, so
+  // this is one import line each, narrowed by the same body scan as everything
+  // else here.  Freight audit D3 follow-up (#2881 left this open).
+  const siblingAggs = ctx.aggregates
+    .filter((a) => a.name !== describeName && refs(a.name))
+    .map((a) => a.name)
+    .sort();
   const voNames = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter(refs);
@@ -119,6 +131,9 @@ function renderTestsCore(
   if (usesDecimal) lines.push(`import Decimal from "decimal.js";`);
   if (subjectImport && subjectNames.length > 0) {
     lines.push(`import { ${subjectNames.join(", ")} } from "${subjectImport.modulePath}";`);
+  }
+  for (const name of siblingAggs) {
+    lines.push(`import { ${name} } from "./${lowerFirst(name)}";`);
   }
   if (voNames.length > 0) {
     lines.push(`import { ${voNames.join(", ")} } from "./value-objects";`);

@@ -225,7 +225,7 @@ layer finer regions on top of it. So:
 The `file:1` rows are not a resolver failure: those constructs record no region
 of their own, so the enclosing file region is the only true thing the map knows.
 The valueobject row is a plainer omission — no region is recorded at any
-granularity. Both are tracked as mission **M-T8.26** in
+granularity. Both are tracked as mission **M-T8.29** in
 [`docs/new-plan/T8-dx-tooling-ai.md`](new-plan/T8-dx-tooling-ai.md).
 
 A `:column` suffix appears only where a fine expression region exists — today
@@ -263,7 +263,7 @@ column and all.
 `derived` field, a repository `find` and a `valueobject` member record no region
 of their own — only operations and workflows do — so their declaration lines
 still answer `file:1`, per the granularity table above (finding F-6, mission
-M-T8.26). `ddd trace` reads the same map and degrades the same way in reverse: a
+M-T8.29). `ddd trace` reads the same map and degrades the same way in reverse: a
 stack frame landing inside a generated property annotates to the enclosing
 aggregate rather than the field, which is coarse but not wrong.
 

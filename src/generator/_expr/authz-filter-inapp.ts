@@ -198,8 +198,39 @@ export function desugarAuthzFilterInApp(e: ExprIR, aggName: string): ExprIR {
         left: desugarAuthzFilterInApp(e.left, aggName),
         right: desugarAuthzFilterInApp(e.right, aggName),
       };
-    default:
+    // Identity for every other kind — and NOT merely "safe by default": a
+    // sentinel cannot be nested under one.  `authz-filter` nodes have exactly
+    // three construction sites (`buildDenyFilter` / `buildScopeFilter` via
+    // `buildDeepScopeFilter` / `buildGlobalScopeFilter`, all in
+    // `src/ir/util/tenant-stance.ts`), and enrichment installs each as a WHOLE
+    // `contextFilters[i]` entry or a whole `writeScopeFilter` — never as a
+    // sub-expression of a user predicate.  The three recursive arms above are
+    // the defensive envelope around a hand-composed conjunction.  Named rather
+    // than left to a `default:` so a new `ExprIR` kind that could CARRY a
+    // predicate (a future `match`-shaped filter, say) is a `tsc` error here.
+    case "action-ref":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ref":
+    case "ternary":
+    case "this":
       return e;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return e;
+    }
   }
 }
 
@@ -217,7 +248,31 @@ export function hasAuthzFilter(e: ExprIR): boolean {
       return hasAuthzFilter(e.operand);
     case "binary":
       return hasAuthzFilter(e.left) || hasAuthzFilter(e.right);
-    default:
+    // Cannot contain a sentinel — same construction argument as
+    // {@link desugarAuthzFilterInApp}; the two switches must stay arm-for-arm
+    // identical, which is what the `never` below enforces.
+    case "action-ref":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ref":
+    case "ternary":
+    case "this":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
