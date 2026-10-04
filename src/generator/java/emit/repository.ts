@@ -20,7 +20,7 @@ import {
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
-import { isMangled, jid } from "../java-ident.js";
+import { isMangled, javaLocals, jid, localOf } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -259,14 +259,34 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
   return { ...find, returnType: { kind: "optional", inner: success } };
 }
 
+/** Names a declared-find delegate in the repository IMPL spells itself — the
+ *  `jpa` / `em` / `currentUserAccessor` fields and the `result` / `__sort` /
+ *  `__sortField` / `__session` locals.  A find param landing here is declared
+ *  under a `_`-suffixed name in the impl (`javaLocals`); the port's parameter
+ *  names are irrelevant to the override, so only the impl moves. */
+const REPO_IMPL_FIND_NAMES: ReadonlySet<string> = new Set([
+  "jpa",
+  "em",
+  "currentUserAccessor",
+  "result",
+  "__sort",
+  "__sortField",
+  "__session",
+]);
+
 /** Finds keep their DSL name; a find returning `T[]` → `List<T>`,
  *  a single `T` → `T` (nullable); `T paged` → `Paged<T>` with trailing
- *  `int page, int pageSize` parameters (1-based, cross-backend). */
-function findSignature(find: FindIR, imports: Set<string>): string {
+ *  `int page, int pageSize` parameters (1-based, cross-backend).
+ *  `locals` names each param's Java identifier when it differs from `jid`. */
+function findSignature(
+  find: FindIR,
+  imports: Set<string>,
+  locals: ReadonlyMap<string, string> = new Map(),
+): string {
   const params = [
     ...find.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     }),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
@@ -722,13 +742,17 @@ export function renderJavaRepositoryImpl(
   const findExecutedLog = (f: FindIR, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${f.name}", "rows", ${rowsExpr});`;
   const delegateLines = finds.flatMap((f) => {
-    const sig = findSignature(f, imports);
+    const findLocals = javaLocals(
+      f.params.map((p) => p.name),
+      REPO_IMPL_FIND_NAMES,
+    );
+    const sig = findSignature(f, imports, findLocals);
     const findBypass: FilterBypass = { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps };
     if (isPagedFind(f)) {
       imports.add("org.springframework.data.domain.PageRequest");
       imports.add("org.springframework.data.domain.Sort");
       const args = [
-        ...f.params.map((p) => jid(p.name)),
+        ...f.params.map((p) => localOf(findLocals, p.name)),
         "PageRequest.of(page - 1, pageSize, __sort)",
       ].join(", ");
       // Server-side sort (M-T2.6): whitelist the wire key against the sortable
@@ -752,7 +776,7 @@ export function renderJavaRepositoryImpl(
         ``,
       ];
     }
-    const args = f.params.map((p) => jid(p.name)).join(", ");
+    const args = f.params.map((p) => localOf(findLocals, p.name)).join(", ");
     const rowsExpr = f.returnType.kind === "array" ? "result.size()" : "result == null ? 0 : 1";
     return [
       `    @Override`,

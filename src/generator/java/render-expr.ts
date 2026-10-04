@@ -81,6 +81,11 @@ export interface JavaRenderContext {
    *  canonical-constructor parameters carry the values and `this` is not
    *  yet available. */
   bareProps?: boolean;
+  /** With `bareProps`: the local a `this`-rooted property ref renders as,
+   *  overriding the default `jid(name)` — set by the wire validator when a
+   *  field's parse-local had to be renamed off a name the method itself uses
+   *  (`javaLocals`, java-ident.ts).  Unset everywhere else. */
+  propExpr?: (name: string) => string | undefined;
   /** Render `this`-rooted property / id refs through the public
    *  accessors (`a.name()`, `a.id()`).  Needed when the receiver is an
    *  aggregate read from OUTSIDE its package (query-projection reads in the
@@ -442,7 +447,7 @@ function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
       return ctx.paramExpr?.(e.name) ?? jid(e.name);
     case "this-prop":
     case "this-vo-prop":
-      if (ctx.bareProps) return jid(e.name);
+      if (ctx.bareProps) return ctx.propExpr?.(e.name) ?? jid(e.name);
       if (ctx.accessorProps) return `${ctx.thisName}.${jid(e.name)}()`;
       return `${ctx.thisName}.${jid(e.name)}`;
     case "this-derived":
