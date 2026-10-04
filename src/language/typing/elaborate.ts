@@ -160,6 +160,9 @@ export interface Frame {
   /** Inside a row-shaped walker primitive (`For` / `Table` / `DataGrid`): the
    *  row element type every context-less lambda in the body binds. */
   rowElem?: Ty;
+  /** Inside a `toast(…)` message: every part renders as text, so `+` beside
+   *  a string concatenates ANY operand, with no conversion. */
+  textConcat?: boolean;
   /** Inside a projection `select`: the whole-table aggregation operators
    *  (`count`, `sum(x)`, …) are in scope with the source table as receiver. */
   selectAggregates?: boolean;
@@ -303,12 +306,22 @@ export class Elaborator {
   /** The binder table: what entering a node of each `$type` puts in scope. */
   private enterNode(node: AstNode, scope: Scope): Scope {
     if (isBoundedContext(node)) return scope.child({ ctx: node, ui: false });
+    if (node.$type === "LValue" && (node as { head?: string; call?: boolean }).head === "toast") {
+      return scope.child({ textConcat: true });
+    }
     if (isUi(node)) return scope.child({ ui: true, ctx: undefined });
     if (isTestE2E(node)) return scope.child({ e2e: true, ctx: undefined, owner: undefined });
     if (isAggregate(node) || isEntityPart(node) || isValueObject(node) || isWorkflow(node)) {
       return scope.child({ owner: node, candidateAlias: undefined });
     }
     if (isProjection(node)) return scope.child({ owner: node, candidateAlias: undefined });
+    // A migration backfill (`Order.quantity = quantity + 1`) reads the
+    // backfilled aggregate's columns as bare names, in its context.
+    if (node.$type === "ColumnStep") {
+      const agg = (node as { aggregate?: { ref?: AstNode } }).aggregate?.ref;
+      if (agg && isAggregate(agg)) return scope.child({ owner: agg, ctx: agg.$container });
+      return scope;
+    }
     if (isRepository(node)) {
       const agg = node.aggregate?.ref;
       return agg ? scope.child({ owner: agg }) : scope;
@@ -611,7 +624,7 @@ export class Elaborator {
     if ((f.ctx || f.ui) && !f.e2e) {
       const enums = this.index.enumsDeclaringValue(name, node);
       const e = enums[0];
-      if (e) return { kind: "enum", ref: e, name: e.name };
+      if (e) return { kind: "enum", ref: e, name: e.name, ...(enums.length > 1 ? { candidates: enums } : {}) };
     }
     if (name === "currentUser" || name === ORG_CONTEXT_ACCESSOR)
       return Ty.record({ of: "principal", ref: user });
@@ -732,6 +745,13 @@ export class Elaborator {
         rt = r;
         lt = l;
       }
+      if (op === "+" && scope.frame.textConcat && (isPrim(lt, "string") || isPrim(rt, "string"))) {
+        // A toast message: the consumer renders each part as text.
+        folds.push({ op, left: lt, right: rt, result: Ty.prim("string"), textConcat: true });
+        acc = Ty.prim("string");
+        leftNode = undefined;
+        continue;
+      }
       const result = BOOL_OPS.has(op) ? Ty.prim("bool") : arithmetic(lt, rt, op);
       folds.push({ op, left: lt, right: rt, result });
       acc = result;
@@ -745,7 +765,8 @@ export class Elaborator {
    *  enum value several enums declare resolves to the one the other operand
    *  has, when that enum declares it. Recorded as the node's elaborated type. */
   private retargetEnum(node: Expression, t: Ty, expected: Ty): Ty {
-    if (t.kind !== "enum" || expected.kind !== "enum" || t.name === expected.name) return t;
+    if (t.kind !== "enum" || expected.kind !== "enum" || expected.candidates) return t;
+    if (t.name === expected.name && !t.candidates) return t;
     const bare = node && isParenExpr(node) ? node.inner : node;
     if (!bare || !isNameRef(bare)) return t;
     if (!expected.ref?.values.some((v) => v.name === bare.name)) return t;
@@ -1339,6 +1360,8 @@ export interface Fold {
   left: Ty;
   right: Ty;
   result: Ty;
+  /** A text-context concatenation (a toast message): no part is converted. */
+  textConcat?: boolean;
 }
 
 const COMPARISON_OPS: ReadonlySet<string> = new Set(["==", "!=", "<", "<=", ">", ">="]);
@@ -1421,8 +1444,21 @@ function join(a: Ty, b: Ty): Ty | undefined {
     if (ai >= 0 && bi >= 0) return Ty.prim(order[Math.max(ai, bi)] as PrimitiveName);
     return undefined;
   }
+  if (a.kind === "enum" && b.kind === "enum") return joinEnums(a, b);
   if (sameType(a, b)) return a;
   return undefined;
+}
+
+/** Two enum types joined: an ambiguous side (a bare value several enums
+ *  declare) narrows to the other side's enum when it is a candidate; two
+ *  ambiguous sides keep the candidates they share. */
+function joinEnums(a: Ty & { kind: "enum" }, b: Ty & { kind: "enum" }): Ty | undefined {
+  const ca = a.candidates ?? (a.ref ? [a.ref] : []);
+  const cb = b.candidates ?? (b.ref ? [b.ref] : []);
+  const shared = ca.filter((e) => cb.includes(e));
+  if (shared.length === 0) return a.name === b.name ? a : undefined;
+  const first = shared[0]!;
+  return { kind: "enum", ref: first, name: first.name, ...(shared.length > 1 ? { candidates: shared } : {}) };
 }
 
 function declOf(t: Ty): unknown {

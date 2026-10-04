@@ -129,13 +129,6 @@ export function renderMessageExprElixir(e: ExprIR, bind: string): string {
       }
       case "paren":
         return `(${go(x.inner)})`;
-      // An implicit string conversion adds nothing: every part above already
-      // renders as text (`to_string`).
-      case "convert":
-        if (x.target === "string") return go(x.value);
-        throw new Error(
-          "realtime handle_info: only a conversion to string is supported in a toast message.",
-        );
       case "binary":
         // Toast messages are strings, so a `+` between parts is Elixir string
         // concatenation (`<>`); any other operator passes through verbatim.

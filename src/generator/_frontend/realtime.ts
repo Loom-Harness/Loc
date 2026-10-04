@@ -202,13 +202,6 @@ function renderMessageExpr(e: ExprIR, bind: string): string {
     }
     case "paren":
       return `(${renderMessageExpr(e.inner, bind)})`;
-    // An implicit string conversion (`"Order " + e.order` where `order` is an
-    // id) adds nothing here: every part above is already rendered as text.
-    case "convert":
-      if (e.target === "string") return renderMessageExpr(e.value, bind);
-      throw new Error(
-        "RealtimeHandlers: only a conversion to string is supported in a toast message.",
-      );
     case "binary":
       return `${renderMessageExpr(e.left, bind)} ${e.op} ${renderMessageExpr(e.right, bind)}`;
     default:

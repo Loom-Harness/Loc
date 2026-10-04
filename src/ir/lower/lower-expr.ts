@@ -233,13 +233,21 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
     // `convert` IR so backends emit `String(x)` / `x.ToString()` /
     // `to_string(x)` per their existing renderConvert dispatch —
     // identical to what the explicit `string(x)` form would produce.
+    // Two REPRESENTATION rules (M-T5.44 §D7) decide when no conversion is
+    // needed: a text-context concatenation (a toast message renders every part
+    // as text), and an `X id` in a ui body (on every frontend the id IS its
+    // wire string).
+    const noConvert = (t: TypeIR): boolean =>
+      fold?.textConcat === true || (env.ui === true && t.kind === "id");
     if (op === "+") {
       const lStr = accType.kind === "primitive" && accType.name === "string";
       const rStr = rhsType.kind === "primitive" && rhsType.name === "string";
-      if (lStr && !rStr && isImplicitlyStringifiableIR(rhsType, env)) {
+      if (fold?.textConcat) {
+        // left as written
+      } else if (lStr && !rStr && !noConvert(rhsType) && isImplicitlyStringifiableIR(rhsType, env)) {
         rhsIR = wrapForStringConcat(rhsIR, rhsType);
         rhsType = { kind: "primitive", name: "string" };
-      } else if (rStr && !lStr && isImplicitlyStringifiableIR(accType, env)) {
+      } else if (rStr && !lStr && !noConvert(accType) && isImplicitlyStringifiableIR(accType, env)) {
         acc = wrapForStringConcat(acc, accType);
         accType = { kind: "primitive", name: "string" };
       }
@@ -280,7 +288,7 @@ function promoteLiteral(expr: Expression, ir: ExprIR, typing: TypingSession): Ex
 /** A node type from the single pass, in IR vocabulary — with the one
  *  REPRESENTATION rule the IR has always applied: a bare `null` (the pass's
  *  `never?`) carries the `string` placeholder, as every emitter expects. */
-export function irType(t: Ty): TypeIR {
+function irType(t: Ty): TypeIR {
   if (t.kind === "optional" && t.inner.kind === "never")
     return { kind: "primitive", name: "string" };
   return toTypeIR(t);

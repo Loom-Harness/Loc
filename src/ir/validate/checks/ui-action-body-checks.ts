@@ -774,13 +774,6 @@ function toastMessageProblem(
       return toastMessageProblem(e.inner, bind);
     case "binary":
       return toastMessageProblem(e.left, bind) ?? toastMessageProblem(e.right, bind);
-    // The implicit string conversion `+` inserts around a non-string part
-    // (`"Order " + e.order`): every renderer already renders each part as
-    // text, so a conversion TO string is transparent.
-    case "convert":
-      return e.target === "string"
-        ? toastMessageProblem(e.value, bind)
-        : { kind: "convert", detail: `converts to '${e.target}' — a toast message is text` };
     // Everything outside the five-arm v1 subset is refused, by name.  Spelled
     // out rather than left to a `default:` so a NEW `ExprIR` kind is a `tsc`
     // error here — the three renderers this mirrors (`renderMessageExpr`,
@@ -789,6 +782,7 @@ function toastMessageProblem(
     case "action-ref":
     case "authz-filter":
     case "call":
+    case "convert":
     case "duration":
     case "i18nFormat":
     case "id":

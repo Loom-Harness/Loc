@@ -13,8 +13,9 @@ import { type TypingSession, typingSession } from "./index.js";
 
 let sessions = new WeakMap<AstNode, TypingSession>();
 
-/** The session typing `node`'s compilation unit — its own document unless a
- *  caller primed a wider unit (lowering does: the whole import closure). */
+/** The session typing `node`'s document. Validators and lowering both type per
+ *  document today (cross-document names resolve as they did before the pass);
+ *  widening to the import closure is design §D5's, measured in its own slice. */
 export function typingFor(node: AstNode): TypingSession {
   const root = AstUtils.findRootNode(node);
   let s = sessions.get(root);
@@ -22,14 +23,6 @@ export function typingFor(node: AstNode): TypingSession {
     s = typingSession([root as Model]);
     sessions.set(root, s);
   }
-  return s;
-}
-
-/** Type a multi-document compilation unit as ONE session (cross-document
- *  names resolve) and make it the session for each of its documents. */
-export function primeTyping(models: readonly Model[]): TypingSession {
-  const s = typingSession(models);
-  for (const m of models) sessions.set(m, s);
   return s;
 }
 

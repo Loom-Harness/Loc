@@ -75,7 +75,12 @@ export type UnknownCause =
 export type Ty = (
   | { kind: "primitive"; name: PrimitiveName }
   | { kind: "id"; target: Aggregate | EntityPart | Workflow | Projection | undefined; name: string }
-  | { kind: "enum"; ref: EnumDecl | undefined; name: string }
+  /** `candidates` (two or more) marks a bare enum value several enums at the
+   *  same level declare: AMBIGUOUS until an expected type picks one (`ref` is
+   *  then only the first candidate). Lowering keeps the ambiguity until a use
+   *  site's expected type resolves it; unmigrated validators read it as
+   *  `unknown`, as they always have. */
+  | { kind: "enum"; ref: EnumDecl | undefined; name: string; candidates?: EnumDecl[] }
   | { kind: "valueobject"; ref: ValueObject | undefined; name: string }
   | { kind: "record"; shape: RecordShape }
   | { kind: "array"; element: Ty }

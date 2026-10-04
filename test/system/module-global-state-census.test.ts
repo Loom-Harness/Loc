@@ -82,6 +82,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setTopLevelFnIndex` before lowering any body (lower.ts:293).",
   },
+  "src/language/typing/shared.ts:sessions": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakMap keyed by the AST root it types; reassigned empty by `invalidateTyping` on every `DocumentBuilder.onUpdate`.",
+  },
   "src/ir/lower/lower-expr.ts:lowerExprObserver": {
     discipline: "scoped-restore",
     reason:

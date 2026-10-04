@@ -84,4 +84,36 @@ describe("single typing pass", () => {
     expect(await typeOfText(src, "nope")).toBe("unknown:unresolved-name");
     expect(await typeOfText(src, "this.missing")).toBe("unknown:unresolved-member");
   });
+
+  it("elaborates a bare literal beside money (and not under scaling)", async () => {
+    const src = ctx(`aggregate A { price: money
+      derived p: money = price + 1
+      derived h: money = price / 2 }`);
+    const model = (await parseString(src, { validate: false })).model as Model;
+    const s = typingSession([model]);
+    const lit = (text: string) =>
+      [...AstUtils.streamAst(model)].find((n) => isExpression(n) && n.$cstNode?.text === text)!;
+    const one = lit("1");
+    const two = lit("2");
+    expect(tyKey(s.synthAt(one)!)).toBe("p:int");
+    expect(tyKey(s.typeAt(one)!)).toBe("p:money");
+    expect(tyKey(s.typeAt(two)!)).toBe("p:int");
+    expect(await typeOfText(src, "price + 1")).toBe("p:money");
+    expect(await typeOfText(src, "price / 2")).toBe("p:money");
+  });
+
+  it("keeps a bare enum value two enums declare ambiguous until a context picks one", async () => {
+    const src = ctx(`enum OrderStatus { Draft, Placed }
+      enum InvoiceStatus { Draft, Issued }
+      aggregate Invoice { status: InvoiceStatus  label: string
+        derived isDraft: bool = status == Draft }`);
+    const model = (await parseString(src, { validate: false })).model as Model;
+    const s = typingSession([model]);
+    const draft = [...AstUtils.streamAst(model)].find(
+      (n) => isExpression(n) && n.$cstNode?.text === "Draft",
+    )!;
+    const own = s.synthAt(draft)!;
+    expect(own.kind === "enum" && own.candidates?.length).toBe(2);
+    expect(tyKey(s.typeAt(draft)!)).toBe("enum:InvoiceStatus");
+  });
 });
