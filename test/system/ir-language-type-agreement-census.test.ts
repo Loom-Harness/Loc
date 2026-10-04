@@ -399,10 +399,8 @@ async function runCensus(): Promise<{
 /** `<container>/<class>` → exact count of joined lets that disagree. */
 const DISAGREEMENT_BASELINE: Record<string, number> = {
   // ── language-fails-open: the let is never BOUND (`envForNode` has no arm) ──
-  // A unit `test` block (`TestBlock`): no arm, so no let is bound
-  // (the IR types them: `Order.create(..)` → rec:Order, `Money(..)` → vo:Money).
-  // Owned by #3092.
-  "TestBlock/language-fails-open": 101,
+  // (Unit `test` and `test e2e` lets are pinned as TOTAL gaps in
+  // TOTAL_GAP_CONTAINERS below, not counted here.)
   // No CommandHandler / QueryHandler / FunctionDecl arm (params AND lets
   // unbound). Owned by Track A of the census work.
   "CommandHandler/language-fails-open": 28,
@@ -422,15 +420,6 @@ const DISAGREEMENT_BASELINE: Record<string, number> = {
   // remote-api op `orders.getOrderById(..)` (5, IR: rec / paged<> / union).
   "WorkflowCreateDecl/language-fails-open": 58,
   // ── ir-string-fallback: IR `string` is `inferExprType`'s unresolved default ──
-  // Every `test e2e` let. The e2e lowering env is EMPTY by design
-  // (`lowerE2E`, lower.ts: "bare-name lookups would mostly be unknown"), so
-  // `api.orders.create(..)` roots at an unresolved `api` ref and types as
-  // string. The language side is unbound too (no TestE2E arm) — neither layer
-  // types these; the IR's string just looks like a type.
-  "TestE2E/ir-string-fallback": 917,
-  // `let found = Order.findById(o.id)` in a unit test — no such static on an
-  // aggregate, unresolved, defaulted to string.
-  "TestBlock/ir-string-fallback": 1,
   // `let x = Foos.getById(f)` where `Foos` is another context's repository
   // (eval/repro/wf-cross-context-repo.ddd) — unresolved, defaulted to string.
   "WorkflowCreateDecl/ir-string-fallback": 1,
@@ -442,6 +431,37 @@ const DISAGREEMENT_BASELINE: Record<string, number> = {
   // gap (there is no faithful key to normalise either side to).
   // examples/showcase.ddd ×1, elixir-vanilla-build/vanilla-workflow-unused-let.ddd ×4.
   "WorkflowCreateDecl/both-concrete-differ": 5,
+};
+
+/** Containers where EVERY let fails for one structural reason. These are pinned
+ *  as a total gap rather than an exact count: corpus growth there (every new
+ *  test adds lets) is not a regression, and an exact count would turn this
+ *  census red on every fixture added anywhere in the repo. The invariant is
+ *  instead: NO let in the container agrees, and every let sits in one of the
+ *  listed classes. A real fix (any let starting to agree) or a drift into an
+ *  unexpected class turns it red, and the fix must move the container out of
+ *  this table and into exact DISAGREEMENT_BASELINE rows in the same change.
+ *  `minRows` is a vacuum floor so a broken walker cannot pass by finding none. */
+const TOTAL_GAP_CONTAINERS: Record<string, { classes: string[]; minRows: number; why: string }> = {
+  // `test e2e`: the e2e lowering env is EMPTY by design (`lowerE2E`, lower.ts:
+  // "bare-name lookups would mostly be unknown"), so `api.orders.create(..)`
+  // roots at an unresolved `api` ref and the IR types it `string`; the language
+  // side has no TestE2E arm, so it is unbound too. Neither layer types these
+  // lets — the IR's string only looks like a type. ~917 lets on bce7f4093.
+  TestE2E: {
+    classes: ["ir-string-fallback"],
+    minRows: 500,
+    why: "neither layer types e2e lets (empty lowering scope; no envForNode arm)",
+  },
+  // unit `test`: no `envForNode` arm, so no let is bound (the IR types them:
+  // `Order.create(..)` → rec:Order, `Money(..)` → vo:Money) — owned by #3092.
+  // The one ir-string-fallback is `let found = Order.findById(o.id)`: no such
+  // static on an aggregate, so the IR defaults it to string. ~102 lets.
+  TestBlock: {
+    classes: ["language-fails-open", "ir-string-fallback"],
+    minRows: 50,
+    why: "no envForNode arm for a unit test body (#3092 adds it)",
+  },
 };
 
 /** Unjoined lets, by category → exact count. `UNEXPLAINED` must stay absent. */
@@ -518,7 +538,7 @@ describe("IR ⇄ language let-type agreement census", () => {
   it("no NEW type disagreement between the IR and the language layer", () => {
     const live = tally(
       census.rows
-        .filter((r) => r.klass && r.klass !== "agree")
+        .filter((r) => r.klass && r.klass !== "agree" && !(r.container in TOTAL_GAP_CONTAINERS))
         .map((r) => `${cellOf(r)}/${r.klass}`),
     );
     const grown = Object.entries(live)
@@ -532,10 +552,33 @@ describe("IR ⇄ language let-type agreement census", () => {
     ).toEqual([]);
   });
 
+  it("total-gap containers stay total: none agrees, and no row drifts class", () => {
+    for (const [container, gap] of Object.entries(TOTAL_GAP_CONTAINERS)) {
+      const rows = census.rows.filter((r) => r.klass && r.container === container);
+      expect(
+        rows.length,
+        `${container}: vacuum floor — the census found too few lets`,
+      ).toBeGreaterThan(gap.minRows);
+      const agreeing = rows.filter((r) => r.klass === "agree").map((r) => `${r.file} ${r.key}`);
+      expect(
+        agreeing,
+        `${container} is pinned as a TOTAL gap (${gap.why}) but some lets now AGREE — the gap is ` +
+          "being drained. Move it out of TOTAL_GAP_CONTAINERS into exact DISAGREEMENT_BASELINE rows:",
+      ).toEqual([]);
+      const drifted = rows
+        .filter((r) => r.klass !== "agree" && !gap.classes.includes(r.klass as string))
+        .map((r) => `${r.file} ${r.key}: ${r.klass}`);
+      expect(
+        drifted,
+        `${container}: a let moved into a class the total gap does not cover — a NEW disagreement:`,
+      ).toEqual([]);
+    }
+  });
+
   it("anti-slack: a drained disagreement lowers its baseline row in the same change", () => {
     const live = tally(
       census.rows
-        .filter((r) => r.klass && r.klass !== "agree")
+        .filter((r) => r.klass && r.klass !== "agree" && !(r.container in TOTAL_GAP_CONTAINERS))
         .map((r) => `${cellOf(r)}/${r.klass}`),
     );
     const stale = Object.entries(DISAGREEMENT_BASELINE)
