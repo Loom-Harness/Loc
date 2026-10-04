@@ -2,6 +2,8 @@
 
 *Snapshot: `main` @ `a6b538b` (2026-09-10), 5 open PRs, 7 open issues. Third plan in the 2026-09 series, after [`improvement-waves-2026-09.md`](improvement-waves-2026-09.md) (the silent-gap drain + seams) and [`verification-waves-2026-09.md`](verification-waves-2026-09.md) (gate promotion + instruments). Those two are not superseded — their unfinished items are re-homed here by id — but this plan is the one with an END STATE: every register that can record a gap on a shipping target reads zero, every live mission is done or carries an owner disposition, and every feature×target cell is proven at runtime. It forks no status table: mission statuses stay in the track files, ledger rows stay in `docs/audits/targets-completeness-2026-08-30.ledger.json`, register rows stay in `src/diagnostics/unsupported-register.ts`.*
 
+> **Status 2026-09-29 (wave L0 of [`leftover-waves-2026-09-28.md`](leftover-waves-2026-09-28.md)).** **C0, C1, C2, C4 and C5 are merged** (C5 last: 5b = #3057, `d2a0bc02`, 2026-09-28). **C3 is claimed by #3058** (draft, 3-A — nothing landed). **C6 and C7 have not started.** The residue the merged waves left, the unexecuted C6/C7 remainder and the orphaned missions are carried — by mission id — in the [leftover plan](leftover-waves-2026-09-28.md) (waves L0–L4); this plan keeps its §1 end-state table and its C3 wave. The "now" column of §1 is the 2026-09-10 snapshot except where a cell says otherwise; `node scripts/completion-denominators.mjs` is the live answer.
+
 *Four parallel code-verified surveys produced the numbers below (merge history 08-17 → 09-10; every gap/waiver/ratchet register; all 175 live mission headings; open PRs, issues and CI on `main`). Where a count appears in prose it names the file that computes it — the count in the file wins the moment they disagree (§91).*
 
 ---
@@ -47,8 +49,8 @@
 | Pairwise compile waivers | `test/pairwise/` `COMPILE_WAIVERS` | 4 (F11, F12, F13, F15) | 0 |
 | Dapper corpus refusal | `DAPPER_UNSUPPORTED` | 1 (`tenancy-hierarchy`) | 0 or a decision |
 | Non-parsing sources | `NON_PARSING_SOURCES` | 1 (`examples/sales-ui.ddd` — a declared historical prototype whose header says it does not parse) | M-T9.51 decides repair-or-delete; the test-level census over `examples/*.ddd` already exists (`authz-gate-census.test.ts` `loadPopulation`), so the gap is only a *workflow* iterating `examples/**` beyond `acme`/`showcase` |
-| `test/` typecheck baseline | `test-typecheck-baseline.json` (M-T9.50) | 470 errors / 182 files | 0 / 0 and the baseline file deleted |
-| Uncoded validator conditions | M-T9.56 ratchet (`diagnostic-catalog.test.ts`) | ~130 conditions collapsing to one non-catalog code | 0 |
+| `test/` typecheck baseline | `test-typecheck-baseline.json` (M-T9.50) | ~~470 errors / 182 files~~ **0 / 0** (2026-09-29: wave C4 4b, #3011 — the baseline file is deleted and `scripts/test-typecheck.mjs` now fails on any error) | 0 / 0 and the baseline file deleted |
+| Uncoded validator conditions | M-T9.56 ratchet (`diagnostic-catalog.test.ts`) | ~~~130 conditions collapsing to one non-catalog code~~ **0** (2026-09-29: wave C4 4c, #3011 — `diagnostic-catalog.test.ts` invariant 5 fails on any uncoded site) | 0 |
 | Emitter-side silent sentinels | §18 of the gap survey (walker `TODO … hooks {}` at `walker-core.ts:2014`, riverpod `TODO(flutter full-parity)` ×3, drizzle predicate `TODO` fallback, `extern-functions.ts`/`component-prop-type.ts` throws, svelte/liveview collision throws, elixir `raise "cross-context reading"`) | ~11 sites with no `loom.*` code | 0 — each routed through the give-up gate (M-T9.55) or a code |
 | Runtime legs not binding per-PR | `channels-e2e`, `api-call-e2e`, `phoenix-ui-e2e`, tenancy hierarchy legs, `migration-evolution` (queue only) | 5 | 0 |
 | Flaky-gate issues | `flaky-gate` label | 3 (two at 0 %) | 0 |
@@ -101,6 +103,8 @@ The owner directive of 2026-08-10 stands: **gaps and bugs on a target outrank ar
 
 ### Wave C0 — land, stabilise, and true the ledgers (3–5 days; Opus ×5 + coordinator; **one PR** for code, the merge order is owner clicks)
 
+**Status (2026-09-29): merged.**
+
 Nothing in C1–C7 is scheduled until C0's exit holds; three of its packets are prerequisites the last two plans deferred and paid for.
 
 | packet | rows | tree | exit |
@@ -117,6 +121,8 @@ Exit: five PRs merged, three flaky issues closed by the script (or quarantined a
 
 ### Wave C1 — the P0s and the silent class (1–1.5 weeks; Opus ×7 + coordinator; **one PR**)
 
+**Status (2026-09-29): merged.**
+
 The fleet's Tier 0/Tier 1 order (`docs/audits/2026-09-09-verification-fleet-plan.md`) is honoured inside the branch: 1d's give-up drain is folded first (every later sentinel gate is a no-op until it lands), then 1a/1b/1c, then the rest.
 
 | packet | rows (in order) | tree |
@@ -132,6 +138,8 @@ The fleet's Tier 0/Tier 1 order (`docs/audits/2026-09-09-verification-fleet-plan
 Exit: ledger P1 = 0; the give-up census reports 0 unrouted sites over all 140 walker files; every §18 sentinel has a code or a proof of unreachability; three P0 missions archived; the fixture set contains every shape a C1 fix gates (rule 13).
 
 ### Wave C2 — nothing unsupported on any target (2–3 weeks; Opus ×10 + coordinator; **one PR**, packets fenced by target tree)
+
+**Status (2026-09-29): merged** (closed at 16 owned gap rows).
 
 The wave the owner's directive names. Each packet owns one target's tree and every open row on it — the LIVE register rows, the ledger P2/P3 rows, the deferred component shapes, the pairwise waivers. A row closes one of two ways: **implemented on every target that has the feature**, or **re-classed as a `scope` row with a `D-*` entry in `docs/decisions.md`** naming the owner and the reason (the D-DATAGRID-TARGETS precedent). "Latent" rows (the 20 whose gate set already names every shipping target) move to a `seam` kind in the register in the coordinator's first commit so `MAX_OPEN_GAPS` counts only gaps — and the pin then ratchets to 0 across this wave.
 
@@ -152,6 +160,8 @@ Exit (all measured): `MAX_OPEN_GAPS` counts 0 LIVE rows; `KNOWN_FLUTTER_GAPS = [
 
 ### Wave C3 — verification that sees runtime values (2 weeks; Opus ×6 + coordinator; **two PRs** — harness code, then CI-workflow changes; test-only, runs concurrently with C2)
 
+**Status (2026-10-04): in flight** — PR 3-A [#3058](https://github.com/Loom-Harness/Loc/pull/3058) is ready (3a, 3c, 3f, 3d, 3b folded); packet 3g and PR 3-B (3e) follow it; log in [`waves/wave-c3.md`](waves/wave-c3.md).
+
 | packet | rows | tree |
 |---|---|---|
 | **3a the E2E-less drain + the compile-only cells** | issue #2793 first (the behavioural tier cannot address explicit `route … ->` handler routes — a `test e2e` addressing form for handler routes, the blocker under 6 of the 13 fixtures), then drain `E2E_LESS_CORPUS_FIXTURES` 13 → 2 in this order: `projection-agg-filters`, `projection-document-aggregation`, `tenancy-hierarchy` (the two-principal harness; the cells that exist *because of* a cross-tenant COUNT leak), `outbox`, `channels-broker`, `resources`, `handler-resource-ops`, `handler-triad`, `extern`, `extern-handlers`, `api-call` (needs two deployables). Every drain so far found a defect the waiver hid — budget the fixes into the packet, hand off by tree | `test/ir/api-caller-census-pins.ts`, `test/behavioral/**`, `test/e2e/fixtures/corpus/**` |
@@ -164,6 +174,8 @@ Exit (all measured): `MAX_OPEN_GAPS` counts 0 LIVE rows; `KNOWN_FLUTTER_GAPS = [
 Exit: `E2E_LESS_CORPUS_FIXTURES` = 2; compile-only cells ≤ 10; 0 runtime legs outside both the per-PR set and the queue; the gate-discovered share on #2580 above the audit share in two consecutive windows; M-T9.42 reads "41 of 42".
 
 ### Wave C4 — the debt seams and compiler hygiene (2 weeks; Opus ×6 + coordinator; **one PR**; starts after #2770 and #2778 are in)
+
+**Status (2026-09-29): merged** (#3011).
 
 | packet | rows | tree |
 |---|---|---|
@@ -178,7 +190,7 @@ Exit: baseline files 0; uncoded conditions 0; M-T5.21 `done`; M-T9.26 `done` or 
 
 ### Wave C5 — decisions and the coordinated moments (owner + Opus ×3; one docs PR for the rulings, then one PR per moment)
 
-> **COMPLETE (2026-09-28).** Five PRs merged the same day — #3053 (the rulings: 23 `proposed` → `applied`), #3054 (M-T3.1 `denyByDefault` default, a major with its codemod), #3055 (M-T5.22 decimal-exact RS-37 + M-T5.1's A4 gate and VO→422), #3056 (M-T3.6 (3)+(5) `organizationContext` + switch gate), #3057 (the second golden moment: RS-38 sub-second datetime, M-T1.11 (c), M-T3.16 C2). Log and owner-decision roll-up: [`waves/wave-c5.md`](waves/wave-c5.md).
+**Status (2026-09-29): merged** — 5.0 #3053, 5d #3054, 5a+5c #3055, 5e #3056, 5b #3057; log in [`waves/wave-c5.md`](waves/wave-c5.md).
 
 Fifteen rulings block work in C1–C4 today. **The batch itself moved to Wave C0 as packet 0.6** (the #2849 review pointed out that C1's 1a/1b/1c block on rulings 1–3, so a C5 batch would stall the critical path); the table stays here as the record of what each ruling unblocks. Each ruling names its default so an absent owner does not stall the fleet (the default is taken after 48 h unless the ruling is marked *owner-only*).
 
@@ -208,6 +220,8 @@ Then the **four coordinated single-PR moments**, one Opus agent each, sequenced 
 
 ### Wave C6 — product completion: every open mission built or dispositioned (3–4 weeks; Opus ×8 + coordinator; one PR per track fence)
 
+**Status (2026-09-29): not started** — its build list is carried as waves L3 (build) and the L3 owner triage of [`leftover-waves-2026-09-28.md`](leftover-waves-2026-09-28.md).
+
 "All done" includes the 56 PRODUCT missions. They divide into work that is scoped and buildable now, and proposals the owner has not yet commissioned. The wave opens with a **one-hour owner triage** over the second group; the defaults below apply to anything not triaged.
 
 **Build (scoped, no proposal needed):** T1 — M-T1.2 slice 3 (`s3` presigned direct upload) + File-delete cleanup, M-T1.6 forms tail, M-T1.7 async actions 3–4, M-T1.10 realtime beyond toast, M-T1.11 residue, M-T1.12 a11y tail (incl. the HEEx axe leg and the flowbite deviations), M-T1.17 builder polish; T2 — M-T2.1 (d), M-T2.7 seeding phases 5–7, M-T2.8 slice 2, M-T2.9 `dataSources:`, M-T2.10 residue; T3 — M-T3.2 item 5 `exists <Aggregate>`, M-T3.7 (e), M-T3.8 (if not resolved as `scope` in C2), M-T3.9, M-T3.10 `can_<op>` authz fold, M-T3.11; T4 — M-T4.2 residue, M-T4.3 LISTEN/NOTIFY, M-T4.6 templated email + `job`, M-T4.8; T5 — M-T5.3 payload tail + `option`, M-T5.4 criterion/retrieval tails (Phoenix reification), M-T5.5, M-T5.7 I4, M-T5.8, M-T5.12, M-T5.13 Stage B, M-T5.14 Shape B, M-T5.19 (a)+(b); T6 — M-T6.13; T7 — M-T7.2 k8s hardening, M-T7.3 multi-target proxy, M-T7.4, M-T7.8, M-T7.9 `connection:` wiring; T8 — M-T8.2 (when a consumer exists — else close), M-T8.3 agent-loop last mile, M-T8.4, M-T8.5, M-T8.6, M-T8.15 device proof.
@@ -217,6 +231,8 @@ Then the **four coordinated single-PR moments**, one Opus agent each, sequenced 
 Exit: `grep -c '^## M-T' docs/new-plan/T*.md` counts only `frozen`/`recurring` rows and missions carrying a dated owner `deferred(proposal by <date>)`; everything else is in `archive/`.
 
 ### Wave C7 — docs truth and the closing audit (1 week; Opus ×3)
+
+**Status (2026-09-29): not started** — carried as packet L4-C7 of [`leftover-waves-2026-09-28.md`](leftover-waves-2026-09-28.md).
 
 - **7.1 status-refresh** over `docs/**` against the merged tree: M-T9.46 (F37–F46 doc corrections, the two parse-error examples), M-T9.47 (heading ids, the slug rule written once), M-T9.51 (`examples/sales-ui.ddd` repaired, `NON_PARSING_SOURCES` emptied, the parse gate widened to `examples/**`), `docs/generators.md`'s per-target tables generated from the gate sets, the `parity-auditor` skill's matrix regenerated, README counts from a script, `docs/new-plan/waves/` carrying every wave's log and hand-offs (C1–C6 included).
 - **7.2 the closing `parity-auditor` sweep** — re-derive every register in §1 from scratch on the final head by GENERATING (the #2840 method), not by reading rows; anything found becomes a mission before this plan is declared done.
@@ -266,7 +282,7 @@ For a C3 packet add: *"Test-only. No `src/` file is edited — a defect found is
 | `KNOWN_FLUTTER_GAPS` / pairwise `COMPILE_WAIVERS` | 4 / 4 | 0 / 4 | — | — | **0 / 0** |
 | `E2E_LESS_CORPUS_FIXTURES` / compile-only cells | 13 / 59 | 13 / 59 | **2 / ≤ 10** | — | 2 / ≤ 10 |
 | runtime legs outside per-PR and queue / `flaky-gate` issues / nightly reds | 5 / 3 / 3 | 5 / **0 / 0** (C0) | **0** / 0 / 0 | 0 | 0 |
-| `test/` typecheck errors / uncoded validator conditions | 470 / ~130 | 470 / ~130 (ratchet) | — | **0 / 0** | 0 / 0 |
+| `test/` typecheck errors / uncoded validator conditions | ~~470 / ~130~~ **0 / 0** (C4, #3011; see §1) | 470 / ~130 (ratchet) | — | **0 / 0** | 0 / 0 |
 | gate-discovered share of fixes (#2580) | 13 % | — | > audit share | sustained | sustained 2 windows |
 | live GAP / VERIFY / DEBT / DECISION missions not `done` | ~110 | ~100 | ~80 | ~45 | **0** (C5 + C7 — the programme's claim) |
 | live PRODUCT missions not `done`/`frozen`/`declined`/dated-deferred | 56 | 56 | 56 | 56 | 0 (C6 — roadmap, reported separately) |

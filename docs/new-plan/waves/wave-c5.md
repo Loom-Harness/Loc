@@ -2,7 +2,7 @@
 
 Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 "Wave C5". Rules: §3 there and §3/§3a of [`../improvement-waves-2026-09.md`](../improvement-waves-2026-09.md). The wave lands as **one docs PR (the rulings) followed by one PR per moment**, each on `claude/loom-review-planning-adz0n4` restarted from `main` after the previous one merges — the plan's "sequenced so their fixture re-baselines never overlap" is enforced by the branch, not by discipline.
 
-## Status: **WAVE COMPLETE — all five moments merged 2026-09-28.** 5.0 rulings #3053 (06:00Z) · 5d denyByDefault #3054 → `d16aed8f2` (08:32Z) · 5a decimal-exact + 5c exception-less #3055 → `8202fb632` (09:32Z) · 5e organizationContext #3056 → `525df5152` (11:41Z) · 5b second golden moment #3057 → `d2a0bc02c` (12:58Z). Five PRs, five first-attempt queue merges, two post-fold CI fixes (5d's flutter heredoc pin; 5b's CA1720 `RulePointer`). Owner decisions collected in § "Wave result" below.
+## Status: **WAVE COMPLETE — all five moments merged 2026-09-28.** 5.0 rulings #3053 (06:00Z) · 5d denyByDefault #3054 → `d16aed8f2` (08:32Z) · 5a decimal-exact + 5c exception-less #3055 → `8202fb632` (09:32Z) · 5e organizationContext #3056 → `525df5152` (11:41Z) · 5b second golden moment #3057 → `d2a0bc02c` (12:58Z). Five PRs, five first-attempt queue merges, two post-fold CI fixes (5d's flutter heredoc pin; 5b's CA1720 `RulePointer`). Owner decisions collected in § "Wave result" below. Its residue is carried by [`../leftover-waves-2026-09-28.md`](../leftover-waves-2026-09-28.md).
 
 ## Why C5 is the next moment, and what it is not
 
