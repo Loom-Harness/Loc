@@ -19,7 +19,16 @@ import {
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
+import { pyRef } from "../../_imports/python.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
+
+// The pydantic carriers, written as `ref()` markers — the importing module's
+// block derives from whichever survive into its text.
+const FIELD = pyRef("pydantic", "Field");
+const MODEL_VALIDATOR = pyRef("pydantic", "model_validator");
+const VALIDATION_ERROR = pyRef("pydantic", "ValidationError");
+const INIT_ERROR_DETAILS = pyRef("pydantic_core", "InitErrorDetails");
+const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
 
 /** Map of `field → Field(...)` constraint string for every single-field,
  *  message-less invariant over one of `available`.  Multiple constraints
@@ -56,7 +65,7 @@ export function createFieldConstraints(
         kwargs.push(kw);
       }
     }
-    if (kwargs.length > 0) out.set(field, `Field(${kwargs.join(", ")})`);
+    if (kwargs.length > 0) out.set(field, `${FIELD}(${kwargs.join(", ")})`);
   }
   return out;
 }
@@ -106,8 +115,8 @@ export function withFieldConstraint(
   if (eq === -1) return `    ${name}: ${decl} = ${fieldExpr}`;
   const type = decl.slice(0, eq);
   const dflt = decl.slice(eq + 3);
-  const inner = fieldExpr.slice("Field(".length, -1);
-  return `    ${name}: ${type} = Field(default=${dflt}, ${inner})`;
+  const inner = fieldExpr.slice(`${FIELD}(`.length, -1);
+  return `    ${name}: ${type} = ${FIELD}(default=${dflt}, ${inner})`;
 }
 
 /** A Pydantic `@model_validator(mode="after")` enforcing the wire-scoped
@@ -159,14 +168,14 @@ export function createModelValidator(
     const input = path && available.has(path) ? `self.${path}` : "None";
     const raise = inv.message
       ? path
-        ? `raise ValidationError.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    InitErrorDetails(\n                        type=PydanticCustomError(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)}),\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
-        : `raise PydanticCustomError(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)})`
+        ? `raise ${VALIDATION_ERROR}.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    ${INIT_ERROR_DETAILS}(\n                        type=${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)}),\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
+        : `raise ${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)})`
       : `raise ValueError(${JSON.stringify(`Invariant violated: ${inv.source}`)})`;
     return lines(`        if ${fails}:`, `            ${raise}`);
   });
   return lines(
     "",
-    '    @model_validator(mode="after")',
+    `    @${MODEL_VALIDATOR}(mode="after")`,
     `    def _check_invariants(self) -> "${cls}":`,
     ...checks,
     "        return self",

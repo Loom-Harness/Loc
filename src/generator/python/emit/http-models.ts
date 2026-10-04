@@ -1,6 +1,7 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
+import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
 import {
   MONEY_INTEGER_DIGITS,
@@ -8,11 +9,33 @@ import {
   MONEY_RANGE_MESSAGE,
   MONEY_WIRE_SCALE,
 } from "../../money-scale.js";
+import { PY, pyVoOrEnum } from "../py-symbols.js";
 import {
   createFieldConstraints,
   createModelValidator,
   withFieldConstraint,
 } from "./wire-constraints.js";
+
+// Symbols the wire-model module and the wire-typed annotations reference —
+// written as `ref()` markers, so each module's import block derives from use.
+const ANNOTATED = pyRef("typing", "Annotated");
+const GENERIC = pyRef("typing", "Generic");
+const TYPEVAR = pyRef("typing", "TypeVar");
+const pyd = (n: string): string => pyRef("pydantic", n);
+const BASE_MODEL = pyd("BaseModel");
+const FIELD = pyd("Field");
+const AFTER_VALIDATOR = pyd("AfterValidator");
+const BEFORE_VALIDATOR = pyd("BeforeValidator");
+const STRING_CONSTRAINTS = pyd("StringConstraints");
+const WITH_JSON_SCHEMA = pyd("WithJsonSchema");
+const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
+
+/** A reference to one of the shared wire-model module's names
+ *  (`app/http/wire_models.py`): spelled bare inside that module itself, and
+ *  imported (under `alias`, when given) everywhere else. */
+export function wireModelRef(name: string, alias?: string): string {
+  return pyRef("app.http.wire_models", name, alias);
+}
 
 // ---------------------------------------------------------------------------
 // `app/http/wire_models.py` — one Pydantic model per value object,
@@ -37,10 +60,10 @@ export const PY_UUID_STR = "UuidStr";
  *  uuid}`) instead of the `pattern` pydantic would otherwise emit, so the
  *  spec reads identically to the other four backends'. */
 const PY_UUID_STR_DEF = [
-  `${PY_UUID_STR} = Annotated[`,
+  `${PY_UUID_STR} = ${ANNOTATED}[`,
   "    str,",
-  `    StringConstraints(pattern=r"${UUID_WIRE_PATTERN}"),`,
-  '    WithJsonSchema({"type": "string", "format": "uuid"}),',
+  `    ${STRING_CONSTRAINTS}(pattern=r"${UUID_WIRE_PATTERN}"),`,
+  `    ${WITH_JSON_SCHEMA}({"type": "string", "format": "uuid"}),`,
   "]",
 ];
 
@@ -75,15 +98,15 @@ export const PY_MONEY_STR = "MoneyStr";
  *  `NUMERIC(19,4)` column and every other backend's parser accept. */
 const PY_MONEY_STR_DEF = [
   "",
-  '_MONEY_RE = re.compile(r"^-?\\d+(\\.\\d+)?$")',
+  `_MONEY_RE = ${PY.re}.compile(r"^-?\\d+(\\.\\d+)?$")`,
   "",
   "",
   "def _money_str(value: str) -> str:",
   "    if _MONEY_RE.match(value) is None:",
   "        # The context form, not an f-string: the message is a TEMPLATE, and a",
   "        # value containing braces would otherwise be re-interpreted as one.",
-  "        raise PydanticCustomError(",
-  '            "money_format", "Invalid decimal: {value}", {"value": json.dumps(value)}',
+  `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
+  `            "money_format", "Invalid decimal: {value}", {"value": ${PY.json}.dumps(value)}`,
   "        )",
   "    # RANGE, not format: the grammar above already passed, and what is left is",
   "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
@@ -92,16 +115,16 @@ const PY_MONEY_STR_DEF = [
   "    # client fault (M-T6.60 divergence 3).  Counted on the digits rather than",
   "    # computed, so a value too large to hold is never constructed.",
   `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${MONEY_INTEGER_DIGITS}:`,
-  "        raise PydanticCustomError(",
-  `            "money_range", ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: {value}`)}, {"value": json.dumps(value)}`,
+  `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
+  `            "money_range", ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
   "        )",
   "    return value",
   "",
   "",
-  `${PY_MONEY_STR} = Annotated[`,
+  `${PY_MONEY_STR} = ${ANNOTATED}[`,
   "    str,",
-  "    AfterValidator(_money_str),",
-  '    WithJsonSchema({"type": "string", "format": "decimal"}),',
+  `    ${AFTER_VALIDATOR}(_money_str),`,
+  `    ${WITH_JSON_SCHEMA}({"type": "string", "format": "decimal"}),`,
   "]",
 ];
 
@@ -145,8 +168,8 @@ const PY_WIRE_NUM_DEF = [
   "    return value",
   "",
   "",
-  `${PY_WIRE_NUM} = Annotated[float, BeforeValidator(_reject_non_number)]`,
-  `${PY_WIRE_INT} = Annotated[int, BeforeValidator(_reject_non_number)]`,
+  `${PY_WIRE_NUM} = ${ANNOTATED}[float, ${BEFORE_VALIDATOR}(_reject_non_number)]`,
+  `${PY_WIRE_INT} = ${ANNOTATED}[int, ${BEFORE_VALIDATOR}(_reject_non_number)]`,
 ];
 
 /** Name of the shared int32-constrained alias emitted into
@@ -175,15 +198,15 @@ export const PY_INT32 = "Int32";
  *  int64 range it would declare is wider than the JSON numbers either python
  *  or node can carry exactly — a bound nothing enforces is the F21 mistake. */
 const PY_INT32_DEF = [
-  `${PY_INT32} = Annotated[`,
+  `${PY_INT32} = ${ANNOTATED}[`,
   "    int,",
   // The F17 guard rides here too: a declared `int` publishes
   // `{"type": "integer"}`, and `true` is not an integer however python spells
   // it.  Placed FIRST so it runs before the int coercion that would have
   // silently turned the bool into 0/1.
-  `    BeforeValidator(_reject_non_number),`,
-  "    Field(ge=-2147483648, le=2147483647),",
-  '    WithJsonSchema({"type": "integer", "format": "int32"}),',
+  `    ${BEFORE_VALIDATOR}(_reject_non_number),`,
+  `    ${FIELD}(ge=-2147483648, le=2147483647),`,
+  `    ${WITH_JSON_SCHEMA}({"type": "integer", "format": "int32"}),`,
   "]",
 ];
 
@@ -202,10 +225,10 @@ const PY_INT32_DEF = [
 export const PY_INT32_PARAM = "Int32Param";
 
 const PY_INT32_PARAM_DEF = [
-  `${PY_INT32_PARAM} = Annotated[`,
+  `${PY_INT32_PARAM} = ${ANNOTATED}[`,
   "    int,",
-  "    Field(ge=-2147483648, le=2147483647),",
-  '    WithJsonSchema({"type": "integer", "format": "int32"}),',
+  `    ${FIELD}(ge=-2147483648, le=2147483647),`,
+  `    ${WITH_JSON_SCHEMA}({"type": "integer", "format": "int32"}),`,
   "]",
 ];
 
@@ -237,10 +260,15 @@ const PY_WIRE_STR_DEF = [
   "    return value",
   "",
   "",
-  `${PY_WIRE_STR} = Annotated[str, AfterValidator(_reject_nul)]`,
+  `${PY_WIRE_STR} = ${ANNOTATED}[str, ${AFTER_VALIDATOR}(_reject_nul)]`,
 ];
 
-/** The `from app.http.wire_models import …` line a routes-shaped module needs:
+/** LEGACY (M-T9.84): kept only for `projections-builder.ts` /
+ *  `query-projections-builder.ts`, which still assemble their own import
+ *  block — the wire types `requestPyType` / `responsePyType` / `paramPyType`
+ *  return are `ref()` markers now, so a migrated caller needs no line.
+ *
+ *  The `from app.http.wire_models import …` line a routes-shaped module needs:
  *  its aliased value-object models plus `UuidStr` when the module annotates a
  *  reference-typed request field.  One import line (ruff F401 forbids the
  *  unused half, so both sides stay demand-driven). */
@@ -307,15 +335,15 @@ function wireFieldType(
         // validation, and the response needs the same published shape .NET and
         // java emit. `long` is a bigint and stays a bare `int` (see PY_INT32).
         case "int":
-          return dir === "param" ? PY_INT32_PARAM : PY_INT32;
+          return wireModelRef(dir === "param" ? PY_INT32_PARAM : PY_INT32);
         case "long":
           // No `WireInt` on a parameter: the guard it carries rejects the very
           // string a query parameter always is (see PY_INT32_PARAM). A bare
           // `int` is what this annotated before F17, and it published the same
           // `{"type": "integer"}` then as now.
-          return dir === "param" ? "int" : PY_WIRE_INT;
+          return dir === "param" ? "int" : wireModelRef(PY_WIRE_INT);
         case "decimal":
-          return dir === "param" ? "float" : PY_WIRE_NUM;
+          return dir === "param" ? "float" : wireModelRef(PY_WIRE_NUM);
         case "money":
           // Money crosses the wire as its canonical decimal STRING in both
           // directions on every backend (Hono/.NET/Java/Phoenix) — the route
@@ -328,17 +356,17 @@ function wireFieldType(
           // RESPONSE side stays a bare `str` — it is OUR digits going out, the
           // constraint would never fire, and narrowing it would only publish a
           // needless schema restriction on a field clients read.
-          return inbound ? PY_MONEY_STR : "str";
+          return inbound ? wireModelRef(PY_MONEY_STR) : "str";
         // REQUEST only: the alias rejects a NUL the `text` column cannot hold
         // (F20). A response string came out of that same column.
         case "string":
-          return inbound ? PY_WIRE_STR : "str";
+          return inbound ? wireModelRef(PY_WIRE_STR) : "str";
         case "guid":
           return "str";
         case "bool":
           return "bool";
         case "datetime":
-          return inbound ? "datetime" : "str";
+          return inbound ? PY.datetime : "str";
         case "json":
           return "object";
         case "File":
@@ -351,7 +379,7 @@ function wireFieldType(
           // the published schema said `string` where the other four said
           // object. No corpus fixture declared a `File` field until
           // `file-download.ddd` (M-T6.39), so no compile tier ever saw it.
-          return "FileRef";
+          return PY.FileRef;
         default:
           return "str";
       }
@@ -367,16 +395,16 @@ function wireFieldType(
       // RESPONSE stays a bare `str`: the constraint is an INPUT gate, and the
       // response models are also fed by `to_wire` (which already yields the
       // stored uuid), so re-validating outbound buys nothing.
-      return t.valueType === "guid" && inbound ? PY_UUID_STR : "str";
+      return t.valueType === "guid" && inbound ? wireModelRef(PY_UUID_STR) : "str";
     case "enum":
-      return t.name;
+      return pyVoOrEnum(t.name);
     case "valueobject":
       // Wire models share one shape across directions; the request/
       // response difference only bites on top-level scalars (datetime /
       // money), which VOs carry as their declared field types — the
       // VO model uses the response spelling (plain JSON numbers /
       // parsed datetimes accept both directions via coercion).
-      return `${t.name}${voSuffix}`;
+      return voSuffix === "" ? wireModelRef(t.name) : wireModelRef(t.name, `${t.name}${voSuffix}`);
     case "entity":
       return `${t.name}Response`;
     case "array":
@@ -390,7 +418,7 @@ function wireFieldType(
       // from the published OpenAPI schema, which is exactly the divergence the
       // carrier exists to remove.
       if (t.ctor === "provenanced") {
-        return `${PY_PROVENANCED}[${wireFieldType(t.arg, ctx, dir, voSuffix)}]`;
+        return `${wireModelRef(PY_PROVENANCED)}[${wireFieldType(t.arg, ctx, dir, voSuffix)}]`;
       }
       return "object";
     default:
@@ -413,10 +441,10 @@ function provenancedModel(): string[] {
   return [
     "",
     "",
-    `${PY_PROV_TYPEVAR} = TypeVar("${PY_PROV_TYPEVAR}")`,
+    `${PY_PROV_TYPEVAR} = ${TYPEVAR}("${PY_PROV_TYPEVAR}")`,
     "",
     "",
-    `class ${PY_PROVENANCED}(BaseModel, Generic[${PY_PROV_TYPEVAR}]):`,
+    `class ${PY_PROVENANCED}(${BASE_MODEL}, ${GENERIC}[${PY_PROV_TYPEVAR}]):`,
     `    """A provenanced field's value together with the lineage of the write`,
     "    that produced it — the same { value, lineage } object every other Loom",
     "    backend serves.  Storage keeps the two apart (a typed value column plus a",
@@ -483,7 +511,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     return lines(
       "",
       "",
-      `class ${vo.name}(BaseModel):`,
+      `class ${vo.name}(${BASE_MODEL}):`,
       vo.fields.map((f) => {
         // A VO subfield declared optional (`line2: string?`) must be OMISSIBLE
         // on the wire.  Pydantic reads `X | None` with NO DEFAULT as
@@ -514,58 +542,10 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
       a.fields.some((f) => f.provenanced) ||
       a.parts.some((p) => p.fields.some((f) => f.provenanced)),
   );
-  const body = models.join("") + (hasProv ? lines(...provenancedModel()) : "");
-  const uses = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(body);
-  const enumNames = ctx.enums.map((e) => e.name).filter(uses);
-  const pydanticNames = [
-    ctx.valueObjects.length > 0 || hasProv ? "BaseModel" : null,
-    // `Field` is unconditional because `Int32` uses it, and `Int32` — like
-    // `UuidStr` and `WireStr` — is emitted unconditionally.
-    "Field",
-    // `AfterValidator` likewise: the always-emitted `WireStr` alias uses it.
-    "AfterValidator",
-    // `BeforeValidator` likewise: the always-emitted `WireNum`/`WireInt` aliases
-    // and `Int32` all carry the F17 numeric-type guard.
-    "BeforeValidator",
-    // `UuidStr` is emitted unconditionally (every routes module imports it for
-    // its reference-typed request annotations), so its two pydantic pieces are
-    // always in the import list.
-    "StringConstraints",
-    // `MoneyStr` (M-T6.48) also needs `AfterValidator`, and used to add its own
-    // conditional entry here — but the name became UNCONDITIONAL above when the
-    // always-emitted `WireStr` alias started using it (F20), so a second entry
-    // is now a duplicate import.  Removed rather than re-ordered: the position
-    // that note was defending is the one the name already occupies.
-    // A messaged single-field rule raises through `ValidationError.
-    // from_exception_data` so the error carries the field's `loc` (M-T1.11).
-    uses("ValidationError") ? "ValidationError" : null,
-    "WithJsonSchema",
-    uses("model_validator") ? "model_validator" : null,
-  ].filter((n): n is string => n != null);
   return lines(
     `"""Pydantic wire models for value objects.  Auto-generated."""`,
     "",
-    // Demand-driven, unlike `UuidStr` below: every routes module annotates a
-    // reference id, but plenty of contexts carry no money at all, and ruff F401
-    // would flag the dead `json` / `re` imports in those.  Keeping it
-    // conditional also means a money-free project's wire models are
-    // byte-identical to before this alias existed — which
-    // `vo-invariant-422.test.ts` pins deliberately.
-    needsMoney ? "import json" : null,
-    needsMoney ? "import re" : null,
-    needsMoney ? "" : null,
-    uses("datetime") ? "from datetime import datetime" : null,
-    uses("Decimal") ? "from decimal import Decimal" : null,
-    hasProv ? "from typing import Annotated, Generic, TypeVar" : "from typing import Annotated",
-    "",
-    `from pydantic import ${pydanticNames.join(", ")}`,
-    // `_money_str` raises one too, so the money alias pulls it in even when no
-    // messaged invariant does.
-    uses("PydanticCustomError") || needsMoney
-      ? `from pydantic_core import ${uses("InitErrorDetails") ? "InitErrorDetails, PydanticCustomError" : "PydanticCustomError"}`
-      : null,
-    enumNames.length > 0 ? "" : null,
-    enumNames.length > 0 ? `from app.domain.value_objects import ${enumNames.join(", ")}` : null,
+    PY_IMPORTS,
     "",
     PY_UUID_STR_DEF,
     needsMoney ? PY_MONEY_STR_DEF : null,

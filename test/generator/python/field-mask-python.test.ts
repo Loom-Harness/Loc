@@ -8,6 +8,7 @@
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import {
   aggHasFieldMask,
   buildPyRepositoryFile,
@@ -85,7 +86,7 @@ describe("mask unless — Python read redaction", () => {
   it("routes read boundaries through to_wire_masked and admits null on the DTO", async () => {
     const { ctx, agg } = await ctxAndAgg();
     const repo = ctx.repositories.find((r) => r.aggregateName === "P");
-    const routes = buildPyRoutesFile(agg, repo, ctx);
+    const routes = spellMarkers(buildPyRoutesFile(agg, repo, ctx));
     // GET by id + the (paged, via crudish) list route both go through the
     // masked serializer.
     expect(routes).toContain("repo.to_wire_masked(await repo.get_by_id(PId(id)))");
