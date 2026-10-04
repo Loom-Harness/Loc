@@ -1679,7 +1679,7 @@ describe("mikroorm — workflow (saga) correlation store is persistence-neutral"
     // pins the same fact (the cascade's dispatcher is the default); it just no
     // longer pins the ABSENCE of the tee.
     expect(httpIndex).toContain(
-      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db)),",
+      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
   });
 });

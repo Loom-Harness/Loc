@@ -79,8 +79,8 @@ describe("python event-sourced saga starter guard (S5b)", () => {
   it("the dispatcher runs the on reactor BEFORE the starter", async () => {
     const d = file(await gen(PAIRED), "app/dispatch.py");
     const dispatch = d.slice(d.indexOf("class InProcessDispatcher"));
-    const onCall = dispatch.indexOf("await _tracker_on_project_archived(");
-    const startCall = dispatch.indexOf("await _tracker_create_project_archived(");
+    const onCall = dispatch.indexOf("lambda: _tracker_on_project_archived(");
+    const startCall = dispatch.indexOf("lambda: _tracker_create_project_archived(");
     expect(onCall).toBeGreaterThanOrEqual(0);
     expect(startCall).toBeGreaterThan(onCall);
   });

@@ -62,7 +62,9 @@ describe("python projection runtime", () => {
     expect(dispatch).toContain("state.status = OrderStatus.Placed");
     // routed in the isinstance fan-out
     expect(dispatch).toContain("isinstance(event, OrderPlaced)");
-    expect(dispatch).toContain("await _proj_order_book_order_placed(self._session, self, event)");
+    expect(dispatch).toContain(
+      "lambda: _proj_order_book_order_placed(self._session, self, event))",
+    );
   });
 
   it("emits list + by-key read routes", async () => {

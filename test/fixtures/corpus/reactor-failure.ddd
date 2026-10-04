@@ -82,5 +82,24 @@ system ReactorFailure {
     // reacted fine.
     let okAgain = api.tickets.getById(ok)
     expect(okAgain.status).toBe("Resolved")
+    let tickets = api.tickets.all()
+    expect(tickets.total).toBe(2)
+
+    // The remaining CRUD routes, on rows no reactor touches — so the census
+    // sees every derived operation driven, and none of them reacts.
+    let manual = api.surveys.create({ ticket: ok.id, email: "manual@example.test" })
+    let manualRead = api.surveys.getById(manual)
+    expect(manualRead.email).toBe("manual@example.test")
+    api.surveys.update(manual, { ticket: ok.id, email: "edited@example.test" })
+    let edited = api.surveys.getById(manual)
+    expect(edited.email).toBe("edited@example.test")
+    api.surveys.destroy(manual)
+    expect(api.surveys.getById(manual)).toThrow(404)
+    let spare = api.tickets.create({ email: "spare@example.test", status: "Open" })
+    api.tickets.update(spare, { email: "spare@example.test", status: "Closed" })
+    let closed = api.tickets.getById(spare)
+    expect(closed.status).toBe("Closed")
+    api.tickets.destroy(spare)
+    expect(api.tickets.getById(spare)).toThrow(404)
   }
 }

@@ -122,6 +122,140 @@
     },
     {
       "seq": 10,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "ok@example.test",
+            "id": "<volatile:key>",
+            "status": "Resolved",
+            "version": 2
+          },
+          {
+            "email": "boom@example.test",
+            "id": "<volatile:key>",
+            "status": "Resolved",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/surveys",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/surveys/{id}",
+      "status": 200,
+      "body": {
+        "email": "manual@example.test",
+        "id": "<volatile:key>",
+        "ticket": "<uuid>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/surveys/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/surveys/{id}",
+      "status": 200,
+      "body": {
+        "email": "edited@example.test",
+        "id": "<volatile:key>",
+        "ticket": "<uuid>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 15,
+      "method": "DELETE",
+      "path": "/api/surveys/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/surveys/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Survey {id} not found",
+        "instance": "/api/surveys/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "email": "spare@example.test",
+        "id": "<volatile:key>",
+        "status": "Closed",
+        "version": 2
+      }
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/tickets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -134,7 +268,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -147,7 +281,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 24,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -160,7 +294,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 25,
       "method": "GET",
       "path": "/api/workflows/ask_for_rating/instances/{id}",
       "status": 404,

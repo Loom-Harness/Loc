@@ -149,7 +149,7 @@ describe("MikroORM broker channels", () => {
     // in-process dispatcher built on it.
     expect(index).toContain("const db = orm.em;");
     expect(index).toContain(
-      "const app = createApp(db, channelPublishTee(channelTransports, inProcessEvents));",
+      "const app = createApp(db, channelPublishTee(channelTransports, requestEvents));",
     );
     expect(index).toContain(
       "const stopChannelConsumers = await startChannelConsumers(channelTransports, inProcessEvents);",
@@ -170,7 +170,7 @@ describe("MikroORM broker channels", () => {
       "const stopOutboxRelay = startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }));",
     );
     expect(index).toContain(
-      "const app = createApp(db, channelPublishTee(channelTransports, createOutboxDispatcher(db, inProcessEvents)));",
+      "const app = createApp(db, channelPublishTee(channelTransports, createOutboxDispatcher(db, requestEvents)));",
     );
     // The workflow-less producer file carries the mikro outbox machinery.
     const wf = files.get("api/http/workflows.ts") as string;

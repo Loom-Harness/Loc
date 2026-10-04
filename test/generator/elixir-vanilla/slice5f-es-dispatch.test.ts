@@ -69,7 +69,7 @@ describe("vanilla — ES append → Dispatcher fan-out", () => {
   it("dispatches each appended event when the context has a saga subscription", async () => {
     const files = await generateSystemFiles(WITH_SAGA);
     const repo = repoOf(files, "/orders/order_repository.ex");
-    expect(repo).toContain("Api.Orders.Dispatcher.dispatch(ev)");
+    expect(repo).toContain("Api.Orders.Dispatcher.AfterCommit.dispatch(ev)");
     // …and the Dispatcher the call targets is actually emitted.
     expect([...files.keys()].some((k) => k.endsWith("/orders/dispatcher.ex"))).toBe(true);
   });
