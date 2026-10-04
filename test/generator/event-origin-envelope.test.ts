@@ -1,0 +1,157 @@
+// ---------------------------------------------------------------------------
+// Item 3 (d) / ruling D1 (docs/decisions.md D-REACTOR-SYSTEM-PRINCIPAL): a
+// reactor runs as the system principal OF THE TRIGGERING EVENT'S TENANT — also
+// when the event reaches it through the outbox relay or across a broker.
+//
+// Before: the system principal copied its tenant from the dispatching
+// request's principal.  The outbox relay and the channel consumer run with no
+// request, so a durable or broker-delivered event's reactor ran TENANT-LESS
+// (every tenant-scoped read matched nothing): the envelope carried no tenant
+// and the outbox row only the bare event.
+//
+// Now every backend snapshots the raising frame's EVENT ORIGIN
+// (`{tenant, orgPath, causedBy}`) onto the outbox row (reserved payload key
+// `__loomOrigin`) and the envelope (`tenantid` / `loomorgpath` /
+// `loomcausedby`), and the relay / consumer deliver the event inside a frame
+// whose ambient principal is the system principal of that origin.
+// ---------------------------------------------------------------------------
+
+import { describe, expect, it } from "vitest";
+import { honoProjectDirs, unboundSymbols } from "../_helpers/emitted-binding.js";
+import { generateSystemFiles } from "../_helpers/index.js";
+
+const fixture = (platform: string, auth = true): string => `
+system Acme {
+  user { id: guid  tenantId: string  permissions: string[] }
+  tenancy by user.tenantId of Organization
+  subdomain Sales {
+    context Orders {
+      aggregate Order with tenantOwned, crudish {
+        status: string
+        operation place() {
+          status := "Placed"
+          emit OrderPlaced { order: id, at: now() }
+        }
+      }
+      repository Orders for Order {}
+      event OrderPlaced { order: Order id, at: datetime }
+      channel Lifecycle {
+        carries: OrderPlaced
+        delivery: queue
+        retention: work
+      }
+    }
+    context Accounts {
+      aggregate Organization with crudish { name: string }
+    }
+  }
+  subdomain Fulfilment {
+    context Shipping {
+      aggregate Shipment with tenantOwned, crudish {
+        orderRef: Order id
+        status: string
+        operation dispatch() {
+          requires currentUser.isSystem
+          status := "Dispatched"
+        }
+      }
+      repository Shipments for Shipment {}
+      workflow Fulfil {
+        orderId: Order id
+        create(p: OrderPlaced) by p.order {
+          let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+          s.dispatch()
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  storage bus { type: rabbitmq }
+  resource ordersState { for: Orders, kind: state, use: primary }
+  resource accountsState { for: Accounts, kind: state, use: primary }
+  resource shippingState { for: Shipping, kind: state, use: primary }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable salesApi { platform: ${platform} contexts: [Orders, Accounts] dataSources: [ordersState, accountsState] channels: [lifecycleBus] port: 3000${auth ? " auth: required" : ""} }
+  deployable shipApi  { platform: ${platform} contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001${auth ? " auth: required" : ""} }
+}
+`;
+
+/** The same two deployables with no auth: no principal, so no tenancy, no
+ *  tenant-owned aggregates and no principal gate either. */
+const authless = (platform: string): string =>
+  fixture(platform, false)
+    .replace("  user { id: guid  tenantId: string  permissions: string[] }\n", "")
+    .replace("  tenancy by user.tenantId of Organization\n", "")
+    .replaceAll("with tenantOwned, crudish", "with crudish")
+    .replace("          requires currentUser.isSystem\n", "");
+
+async function gen(platform: string, auth = true): Promise<Map<string, string>> {
+  return generateSystemFiles(auth ? fixture(platform) : authless(platform));
+}
+
+function get(files: Map<string, string>, suffix: string): string {
+  const hit = [...files.entries()].find(([k]) => k.endsWith(suffix));
+  expect(hit, `${suffix} not emitted; got:\n${[...files.keys()].join("\n")}`).toBeDefined();
+  return hit![1];
+}
+
+describe("event origin rides the outbox row and the envelope (ruling D1, item 3d)", () => {
+  describe("node", () => {
+    it("auth/middleware.ts: origin snapshot, origin → system principal, and the delivery frame", async () => {
+      const mw = get(await gen("node"), "ship_api/auth/middleware.ts");
+      expect(mw).toContain("export function currentEventOrigin(): EventOrigin | null {");
+      expect(mw).toContain(
+        '    tenant: user.tenantId == null || String(user.tenantId) === "" ? null : String(user.tenantId),',
+      );
+      expect(mw).toContain(
+        "    causedBy: user.isSystem ? (user.causedBy ?? null) : String(user.id),",
+      );
+      expect(mw).toContain(
+        "export function systemPrincipalFor(origin: EventOrigin | null): User {",
+      );
+      expect(mw).toContain(
+        '    tenantId: (origin?.tenant ?? "") as unknown as UserClaims["tenantId"],',
+      );
+      expect(mw).toContain("export function runAsEventOrigin<T>(");
+      expect(mw).toContain("      currentUser: systemPrincipalFor(origin),");
+    });
+
+    it("producer: the outbox row records the origin; the relay re-opens it before publishing", async () => {
+      const wf = get(await gen("node"), "sales_api/http/workflows.ts");
+      expect(wf).toContain("payload: { ...event, __loomOrigin: currentEventOrigin() }");
+      expect(wf).toContain("const { __loomOrigin: origin, ...payload } = row.payload");
+      expect(wf).toContain("await runAsEventOrigin(origin, () =>");
+      expect(wf).toContain(
+        'import { currentEventOrigin, type EventOrigin, runAsEventOrigin } from "../auth/middleware";',
+      );
+    });
+
+    it("envelope carries tenantid / loomorgpath / loomcausedby; the consumer delivers inside the origin", async () => {
+      const ch = get(await gen("node"), "ship_api/http/channels.ts");
+      expect(ch).toContain("  tenantid?: string;");
+      expect(ch).toContain("    ...originAttributes(currentEventOrigin()),");
+      expect(ch).toContain(
+        "        await runAsEventOrigin(originOf(envelope), () => dispatcher.dispatch(event));",
+      );
+      expect(ch).toContain(
+        "  return { tenant: tenantid ?? null, orgPath: loomorgpath ?? null, causedBy: loomcausedby ?? null };",
+      );
+    });
+
+    it("every emitted symbol is bound (both deployables)", async () => {
+      const files = await gen("node");
+      const dirs = honoProjectDirs(files);
+      expect(dirs.length).toBe(2);
+      for (const dir of dirs) expect(unboundSymbols(files, dir)).toEqual([]);
+    });
+
+    it("an auth-less deployable keeps the bare row and envelope", async () => {
+      const files = await gen("node", false);
+      expect(get(files, "sales_api/http/workflows.ts")).not.toContain("__loomOrigin");
+      expect(get(files, "ship_api/http/channels.ts")).not.toContain("tenantid");
+      expect(get(files, "ship_api/http/channels.ts")).toContain(
+        "        await dispatcher.dispatch(event);",
+      );
+    });
+  });
+});
