@@ -191,4 +191,58 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       expect(get(files, "ship_api/app/channels.py")).not.toContain("tenantid");
     });
   });
+
+  describe("dotnet", () => {
+    it("Auth: EventOrigin record + payload codec; User origin snapshot, factory and frame", async () => {
+      const files = await gen("dotnet");
+      const origin = get(files, "ship_api/Auth/EventOrigin.cs");
+      expect(origin).toContain('public const string Key = "__loomOrigin";');
+      expect(origin).toContain("var origin = User.CurrentEventOrigin();");
+      const user = get(files, "ship_api/Auth/User.cs");
+      expect(user).toContain(
+        "        : new EventOrigin(NullIfEmpty(user.TenantId?.ToString()), NullIfEmpty(user.OrgPath), user.IsSystem ? user.CausedBy : user.Id.ToString());",
+      );
+      expect(user).toContain("origin?.Tenant is { Length: > 0 } t ? t : string.Empty");
+      expect(user).toContain(
+        "    public static System.IDisposable EnterEventOrigin(EventOrigin? origin)",
+      );
+      expect(user).toContain("        frame.CurrentUser = SystemPrincipalFor(origin);");
+      // A reactor frame's audit actor is its originating user, not the zero id.
+      expect(get(files, "ship_api/Domain/Common/RequestContext.cs")).toContain(
+        "public string? ActorId => CurrentUser is { IsSystem: true } system",
+      );
+    });
+
+    it("producer: the outbox row records the origin; the relay re-enters it per row", async () => {
+      const files = await gen("dotnet");
+      expect(
+        get(files, "sales_api/Infrastructure/Events/OutboxDomainEventDispatcher.cs"),
+      ).toContain("Payload = global::SalesApi.Auth.EventOriginPayload.Capture(ev),");
+      expect(get(files, "sales_api/Infrastructure/Events/OutboxRelayService.cs")).toContain(
+        "using var __origin = global::SalesApi.Auth.User.EnterEventOrigin(global::SalesApi.Auth.EventOriginPayload.Read(row.Payload));",
+      );
+    });
+
+    it("envelope carries the origin attributes; the consumer delivers inside it", async () => {
+      const ch = get(await gen("dotnet"), "ship_api/Infrastructure/Channels/ChannelTransport.cs");
+      expect(ch).toContain(
+        '    [JsonPropertyName("tenantid"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]',
+      );
+      expect(ch).toContain("        var origin = global::ShipApi.Auth.User.CurrentEventOrigin();");
+      expect(ch).toContain("            TenantId = origin?.Tenant,");
+      expect(ch).toContain(
+        "        using var __origin = global::ShipApi.Auth.User.EnterEventOrigin(envelope.ToOrigin());",
+      );
+    });
+
+    it("an auth-less deployable keeps the bare row and envelope", async () => {
+      const files = await gen("dotnet", false);
+      expect(
+        get(files, "sales_api/Infrastructure/Events/OutboxDomainEventDispatcher.cs"),
+      ).toContain("Payload = JsonSerializer.Serialize((object)ev),");
+      expect(get(files, "ship_api/Infrastructure/Channels/ChannelTransport.cs")).not.toContain(
+        "tenantid",
+      );
+    });
+  });
 });
