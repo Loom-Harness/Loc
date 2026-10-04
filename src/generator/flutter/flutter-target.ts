@@ -57,7 +57,7 @@ import {
   renderDartCollectionOp,
   renderDartIntrinsic,
 } from "./dart-expr.js";
-import { DART_RESERVED_WORDS, dartMember } from "./dart-member.js";
+import { dartMember } from "./dart-member.js";
 import {
   createFormWidgetName,
   destroyFormWidgetName,
@@ -242,12 +242,19 @@ export const flutterTarget: WalkerTarget = {
   // --- State seam — Riverpod projected-state reads + Notifier writes --------
   // Reads dereference the projected immutable state record the view holds
   // (`state.<field>`); the field keeps its source (camelCase) name.
-  renderStateRead: (ref: StateRef, _pos: RenderPosition) => `state.${ref.name}`,
+  renderStateRead: (ref: StateRef, _pos: RenderPosition) => `state.${dartMember(ref.name)}`,
   // A `derived` binding is NOT a member of the Riverpod state object — it is a
   // getter on the widget (component) / a hoisted local, computed from params +
   // state.  So it reads BARE; spelling it `state.<name>` (the pre-seam default)
   // named a field the `<X>State` data class never declares.
-  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => ref.name,
+  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => dartMember(ref.name),
+  /** Dart spelling for a model-derived identifier — a page/component param, a
+   *  `let` binding, a lambda / `For` binder, an action payload param.  A Dart
+   *  reserved word (`default`, `class`, `new`, `var`, …) is illegal as ANY
+   *  identifier, and Dart has no escape syntax, so it takes the same `<name>_`
+   *  spelling `dartMember` gives a wire field; every other name falls through
+   *  `undefined` and is emitted unchanged. */
+  escapeIdent: (name: string) => (dartMember(name) !== name ? dartMember(name) : undefined),
   // A `state.<field> := <value>` write inside an event handler calls the
   // Notifier's generated `set<Field>` setter (emitted per state cell by
   // `riverpod-emit.ts`; the page shell binds `notifier`).
@@ -268,7 +275,7 @@ export const flutterTarget: WalkerTarget = {
   renderNestedStateWrite: (segments: readonly string[], valueJs: string) => {
     const [root, ...rest] = segments;
     if (!root) return `notifier.${setterName("")}(${valueJs})`;
-    return `notifier.${setterName(root)}(${copyWithChain(`state.${root}`, rest, valueJs)})`;
+    return `notifier.${setterName(root)}(${copyWithChain(`state.${dartMember(root)}`, rest, valueJs)})`;
   },
 
   // --- Store seam — a store is its own Riverpod provider (Stage 5) ---------
@@ -354,11 +361,12 @@ export const flutterTarget: WalkerTarget = {
   renderPagedEnvelopeMember: ({ member, handle }) => `${lowerFirst(handle)}.${member}`,
 
   /** A wire field named after a Dart RESERVED word (`default`, `enum`,
-   *  `extends`, …) is the `<name>_` member on the generated model
-   *  (`dart-member.ts`), so `row.default` — a parse error — reads `row.default_`.
-   *  Every other member falls through `undefined` to the shared bare emit. */
+   *  `extends`, …) or an `Object` member (`toString`, `hashCode`, …) is the
+   *  `<name>_` member on the generated model (`dart-member.ts`), so
+   *  `row.default` — a parse error — reads `row.default_`.  Every other member
+   *  falls through `undefined` to the shared bare emit. */
   renderMemberRead: ({ receiver, member }) =>
-    DART_RESERVED_WORDS.has(member) ? `${receiver}.${dartMember(member)}` : undefined,
+    dartMember(member) !== member ? `${receiver}.${dartMember(member)}` : undefined,
 
   /** Dart NAMED RECORD for a find's query bag — `(page: 1, pageSize: 10, …)`.
    *  The shared default is a JavaScript object literal, whose bare `page:` keys
@@ -388,8 +396,8 @@ export const flutterTarget: WalkerTarget = {
    *  `InkWell` around text reads as undifferentiated tappable content. */
   renderSortableHeader(spec) {
     const { header, field } = spec;
-    const k = `state.${spec.sortKey.name}`;
-    const d = `state.${spec.sortDir.name}`;
+    const k = `state.${dartMember(spec.sortKey.name)}`;
+    const d = `state.${dartMember(spec.sortDir.name)}`;
     const setK = setterName(spec.sortKey.name);
     const setD = setterName(spec.sortDir.name);
     const q = dartString(field);
@@ -413,7 +421,7 @@ export const flutterTarget: WalkerTarget = {
    *  disables on page 1, Next on the last page — a disabled `TextButton` takes
    *  `onPressed: null`, which is also what greys it out. */
   renderPager(spec) {
-    const p = `state.${spec.page.name}`;
+    const p = `state.${dartMember(spec.page.name)}`;
     const setP = setterName(spec.page.name);
     const total = spec.totalPagesExpr;
     // `const Text('Prev')` only stays const while the label is a literal — a
@@ -443,8 +451,8 @@ export const flutterTarget: WalkerTarget = {
    *  String / num / DateTime, which is every sortable scalar the wire carries.
    *  Unknown key → the rows unchanged, matching the JS targets' `if (!key)`. */
   renderSortedRows(spec) {
-    const k = `state.${spec.sortKey.name}`;
-    const d = `state.${spec.sortDir.name}`;
+    const k = `state.${dartMember(spec.sortKey.name)}`;
+    const d = `state.${dartMember(spec.sortDir.name)}`;
     if (spec.columns.length === 0) return spec.rowsExpr;
     // A money column is a Dart `String` holding the wire's digits (M-T1.21), so
     // the `Comparable` arm below would order it as TEXT — `'10.0000'` before
@@ -514,7 +522,7 @@ export const flutterTarget: WalkerTarget = {
    *  the rows pass through untouched rather than filtering to nothing. */
   renderFilteredRows({ rowsExpr, filter, columns }) {
     if (columns.length === 0) return rowsExpr;
-    const q = `state.${filter.name}`;
+    const q = `state.${dartMember(filter.name)}`;
     const vals = columns.map((f) => `row.${dartMember(f)}`).join(", ");
     return (
       `(${rowsExpr}).where((row) { final __q = ${q}.trim().toLowerCase(); ` +
@@ -950,7 +958,9 @@ export const flutterTarget: WalkerTarget = {
         children.push(arg);
         continue;
       }
-      entries.push(`${paramName}: ${emitExpr(arg, ctx)}`);
+      // The named arg is the widget's constructor param, which
+      // `component-emit.ts` spells through `dartMember` (`default` → `default_`).
+      entries.push(`${dartMember(paramName)}: ${emitExpr(arg, ctx)}`);
     }
     if (children.length > 0) {
       // Children are MARKUP, so they walk (not `emitExpr`), in the CALLER's

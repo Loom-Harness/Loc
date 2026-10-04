@@ -21,6 +21,7 @@
 
 import type { EnrichedBoundedContextIR, StoreIR } from "../../ir/types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
+import { dartMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
 import { usesMoney } from "./money-runtime.js";
 import { FLUTTER_NAV_MARKER } from "./nav-runtime.js";
@@ -96,9 +97,11 @@ function renderStore(
   // `buildStateInits` builds each entry as exactly `<name>: <expr>`, so the
   // declared-default EXPRESSION is the tail past the known-length prefix (never
   // a `split(": ")`, which a map/record literal in the initializer would break).
-  const defaults = new Map(fields.map((f, i) => [f.name, entries[i]!.slice(f.name.length + 2)]));
+  const defaults = new Map(
+    fields.map((f, i) => [f.name, entries[i]!.slice(dartMember(f.name).length + 2)]),
+  );
   const seeded = fields.map((f, i) =>
-    overrides.has(f.name) ? `${f.name}: ${overrides.get(f.name)}` : entries[i]!,
+    overrides.has(f.name) ? `${dartMember(f.name)}: ${overrides.get(f.name)}` : entries[i]!,
   );
   const isConst = constEligible && overrides.size === 0;
   const buildReturn =
@@ -120,7 +123,7 @@ function renderStore(
   for (const action of store.actions) {
     const param = action.params[0];
     const locals = new Map<string, string>();
-    if (param) locals.set(param.name, param.name);
+    if (param) locals.set(param.name, dartMember(param.name));
     const ctx = stateCtx({
       stateNames,
       derivedNames: new Set(),
@@ -132,7 +135,7 @@ function renderStore(
     // provider that reads its OWN notifier is what Riverpod reports as a
     // circular dependency, and the method is right here anyway.
     const body = action.body.map((s) => renderNotifierStmt(s, ctx, store.name));
-    const sig = param ? `${dartType(param.type)} ${param.name}` : "";
+    const sig = param ? `${dartType(param.type)} ${dartMember(param.name)}` : "";
     out.push("", `  void ${action.name}(${sig}) {`);
     for (const b of body) out.push(`    ${b}`);
     out.push("  }");

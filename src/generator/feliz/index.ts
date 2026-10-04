@@ -267,7 +267,7 @@ function storeWrappers(
     for (const member of members) {
       const local = storeMemberLocal(storeName, member, reserved);
       if (fieldNames.has(member)) {
-        lines.push(`    let ${local} = model.${storeModelField(storeName, member)}`);
+        lines.push(`    let ${fsIdent(local)} = model.${storeModelField(storeName, member)}`);
       } else {
         const p = actionsByName.get(member)?.params[0]?.name;
         lines.push(
@@ -421,7 +421,7 @@ function renderPageView(
   // `renderRouteId` seam — while `/greet/:who` binds `who`, which is the name
   // the body actually uses.  Renaming the first param to `id` and dropping the
   // rest binds locals no body refers to.
-  const idParam = routeParams.map((n) => ` (${n}: string)`).join("");
+  const idParam = routeParams.map((n) => ` (${fsIdent(n)}: string)`).join("");
   const head = `let ${fnName} (model: Model) (dispatch: Msg -> unit)${idParam} =`;
   if (!page.body) return `${head}\n    Html.none`;
   const stateNames = new Set(page.state.map((s) => s.name));
@@ -597,7 +597,8 @@ function routePattern(route: string | undefined): string {
   const binds = routeParamSegments(route);
   const pats = segs.map((s, i) => {
     if (!s.startsWith(":")) return `"${s}"`;
-    return binds[i] ?? "_";
+    const bound = binds[i];
+    return bound === undefined ? "_" : fsIdent(bound);
   });
   return `[ ${pats.join("; ")} ]`;
 }
@@ -612,8 +613,8 @@ function caseFields(n: number): string {
  *  `""` (nullary), `" id"` (single field), `" (who, mood)"` (a tuple). */
 function caseArgs(names: readonly string[]): string {
   if (names.length === 0) return "";
-  if (names.length === 1) return ` ${names[0]}`;
-  return ` (${names.join(", ")})`;
+  if (names.length === 1) return ` ${fsIdent(names[0]!)}`;
+  return ` (${names.map(fsIdent).join(", ")})`;
 }
 
 /** Pages in `parseUrl` MATCH order — F# takes the first arm that matches, and a
@@ -686,7 +687,7 @@ function renderRouting(
   const idArms = pages.filter(hasRouteParam).map((p) => {
     const names = routeParamNames(p);
     const binder = caseArgs(names.map((n, i) => (i === 0 ? n : "_")));
-    return `  | ${pageCase(p, nameCtx)}${binder} -> ${names[0]}`;
+    return `  | ${pageCase(p, nameCtx)}${binder} -> ${fsIdent(names[0]!)}`;
   });
   const wildcard = pages.every(hasRouteParam) ? [] : ['  | _ -> ""'];
   const accessor =
@@ -779,7 +780,7 @@ function renderRootView(
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
-    const args = names.length > 0 ? ` ${names.join(" ")}` : "";
+    const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
   const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate);

@@ -58,9 +58,29 @@ export const DART_RESERVED_WORDS: ReadonlySet<string> = new Set([
   "with",
 ]);
 
-/** `name` as a Dart member/local identifier: a reserved word takes a trailing
- *  underscore (`default` → `default_`); every other name is returned unchanged,
- *  so a model without such a field emits byte-identical Dart. */
+/** The members every Dart class inherits from `Object` that a same-named FIELD
+ *  cannot coexist with: `toString`/`noSuchMethod` are METHODS (a field of that
+ *  name is `conflicting_field_and_method`), `runtimeType` is a `Type` getter (a
+ *  `String` field is an `invalid_override`), and `hashCode` is an `int` getter
+ *  (an `int` field type-checks but silently replaces the object's hash — and any
+ *  other type is an `invalid_override`).  All four are legal Loom field names. */
+export const DART_OBJECT_MEMBERS: ReadonlySet<string> = new Set([
+  "hashCode",
+  "noSuchMethod",
+  "runtimeType",
+  "toString",
+]);
+
+/** `name` as a Dart identifier derived from a user model name — a wire field, a
+ *  state cell, a component/page param, a `let` binding, a lambda / match-arm
+ *  binder.  A reserved word or an `Object` member takes a trailing underscore
+ *  (`default` → `default_`, `toString` → `toString_`); every other name is
+ *  returned unchanged, so a model without such a name emits byte-identical
+ *  Dart.  ONE spelling for declaration and use alike: every site that declares
+ *  the name and every site that reads it goes through here, so the two cannot
+ *  disagree.  (An `Object`-member name is harmless as a plain local, but
+ *  spelling it the same everywhere is what keeps a component param — a widget
+ *  FIELD and a `State` getter — and its body reads in step.) */
 export function dartMember(name: string): string {
-  return DART_RESERVED_WORDS.has(name) ? `${name}_` : name;
+  return DART_RESERVED_WORDS.has(name) || DART_OBJECT_MEMBERS.has(name) ? `${name}_` : name;
 }

@@ -58,6 +58,7 @@ import {
   emittableComponentParams,
   renderComponentsFile,
 } from "./component-emit.js";
+import { dartMember } from "./dart-member.js";
 import { renderDartModels } from "./dart-model-emit.js";
 import { flutterTarget } from "./flutter-target.js";
 import {
@@ -828,7 +829,7 @@ function renderPage(
       }
     }
   }
-  const derivedLines = derivedBinds.map((d) => `    final ${d.name} = ${d.dart};`);
+  const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
 
   // A page becomes a Riverpod `ConsumerWidget` (bound to `ref`) when it either
   // projects reactive state / actions (Track D) OR issues a QueryView read
@@ -900,7 +901,7 @@ function routeArgBindings(paramNames: readonly string[], needsId: boolean): stri
   const out = ["    final routeArgs = ModalRoute.of(context)?.settings.arguments;"];
   for (const n of names) {
     out.push(
-      `    final ${n} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
+      `    final ${dartMember(n)} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
         `: (routeArgs as String? ?? '');`,
     );
   }
@@ -960,7 +961,7 @@ function storeBindings(
       const local = storeMemberLocal(storeName, member, reserved);
       out.push(
         fields.has(member)
-          ? `    final ${local} = ref.watch(${provider}.select((s) => s.${member}));`
+          ? `    final ${dartMember(local)} = ref.watch(${provider}.select((s) => s.${dartMember(member)}));`
           : `    final ${local} = ref.read(${provider}.notifier).${member};`,
       );
     }

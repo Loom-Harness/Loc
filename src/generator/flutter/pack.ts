@@ -308,7 +308,7 @@ function primitiveModalControlled(c: Ctx): string {
   const title = c.hasTitle ? `title: ${asText(String(c.title ?? ""))}, ` : "";
   const body = childrenList(c);
   return (
-    `LoomModalHost(open: state.${opened}, ${title}` +
+    `LoomModalHost(open: state.${dartMember(opened)}, ${title}` +
     `onClose: () => notifier.${setter}(false), ` +
     `child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: ${body}))`
   );
@@ -677,7 +677,7 @@ function primitiveButton(c: Ctx): string {
 
 /** `state.<bind>` — the reactive read of a bound state field. */
 function boundRead(c: Ctx): string {
-  return `state.${String(c.bind ?? "")}`;
+  return `state.${dartMember(String(c.bind ?? ""))}`;
 }
 
 /** An input LABEL as a Dart string expression: the walker's translation call

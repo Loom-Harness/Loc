@@ -69,6 +69,7 @@ import type { WalkerTarget } from "../_walker/target.js";
 import { emitExpr, tryRenderNavigateCall, type WalkContext } from "../_walker/walker-core.js";
 import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
+import { dartMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
 import { dartNavigateArgs, flutterTarget } from "./flutter-target.js";
 import { flutterPack } from "./pack.js";
@@ -221,7 +222,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       const rhs = emitExpr(stmt.value, ctx);
       // The current value at the (possibly nested) target — the read the compound
       // is relative to (`state.order.items`).
-      const cur = `state.${seg.join(".")}`;
+      const cur = `state.${seg.map(dartMember).join(".")}`;
       // A collection target appends / removes-by-value on the Dart list; a scalar
       // target is an arithmetic compound (`+`/`-`).  `stmt.collection` (set at
       // lowering) is the discriminator — the same flag the JS/F# frontends read.
@@ -234,7 +235,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       return `state = ${nestedCopyWith(seg, value)};`;
     }
     case "let":
-      return `final ${stmt.name} = ${emitExpr(stmt.expr, ctx)};`;
+      return `final ${dartMember(stmt.name)} = ${emitExpr(stmt.expr, ctx)};`;
     case "expression":
       return `${emitExpr(stmt.expr, ctx)};`;
     case "call": {
@@ -387,7 +388,10 @@ function renderVariantMatchNotifier(
     const isError =
       arm.isError === true || !!bc?.payloads.some((p) => p.name === tag && p.kind === "error");
     const armCtx: WalkContext = arm.binding
-      ? { ...ctx, lambdaParams: new Map([...ctx.lambdaParams, [arm.binding, arm.binding]]) }
+      ? {
+          ...ctx,
+          lambdaParams: new Map([...ctx.lambdaParams, [arm.binding, dartMember(arm.binding)]]),
+        }
       : ctx;
     const body = arm.body.map((s) => renderNotifierStmt(s, armCtx));
     return { tag, binding: arm.binding, body, isError };
@@ -434,7 +438,8 @@ function renderVariantMatchNotifier(
   );
   for (const arm of arms) {
     out.push(`  case ${dartString(arm.tag)}:`, "    {");
-    if (arm.binding) out.push(`      final ${arm.binding} = ${arm.tag}.fromJson(result);`);
+    if (arm.binding)
+      out.push(`      final ${dartMember(arm.binding)} = ${arm.tag}.fromJson(result);`);
     for (const b of arm.body) out.push(`      ${b}`);
     out.push("    }");
   }
@@ -525,7 +530,7 @@ export function stateSetterMethods(
       out.push(
         "",
         `  void ${setter}(${f.dt} v) {`,
-        ...wrap(`state = state.copyWith(${f.name}: v);`),
+        ...wrap(`state = state.copyWith(${dartMember(f.name)}: v);`),
         "  }",
       );
     }
@@ -534,7 +539,7 @@ export function stateSetterMethods(
       out.push(
         "",
         `  void ${setter}Text(String v) {`,
-        ...wrap(`state = state.copyWith(${f.name}: ${parse});`),
+        ...wrap(`state = state.copyWith(${dartMember(f.name)}: ${parse});`),
         "  }",
       );
     }
@@ -550,20 +555,25 @@ export function renderStateDataClass(
   fields: readonly DartStateField[],
 ): string[] {
   const ctorParams = fields
-    .map((f) => (f.nullable ? `this.${f.name}` : `required this.${f.name}`))
+    .map((f) => (f.nullable ? `this.${dartMember(f.name)}` : `required this.${dartMember(f.name)}`))
     .join(", ");
   const out: string[] = [
     `class ${className} {`,
     `  const ${className}(${ctorParams ? `{${ctorParams}}` : ""});`,
-    ...fields.map((f) => `  final ${f.dt} ${f.name};`),
+    ...fields.map((f) => `  final ${f.dt} ${dartMember(f.name)};`),
   ];
   if (fields.length > 0) {
     out.push("");
     out.push(
-      `  ${className} copyWith({${fields.map((f) => `${f.paramType} ${f.name}`).join(", ")}}) {`,
+      `  ${className} copyWith({${fields.map((f) => `${f.paramType} ${dartMember(f.name)}`).join(", ")}}) {`,
     );
     out.push(
-      `    return ${className}(${fields.map((f) => `${f.name}: ${f.name} ?? this.${f.name}`).join(", ")});`,
+      `    return ${className}(${fields
+        .map((f) => {
+          const m = dartMember(f.name);
+          return `${m}: ${m} ?? this.${m}`;
+        })
+        .join(", ")});`,
     );
     out.push("  }");
   }
@@ -582,8 +592,8 @@ export function buildStateInits(
     f.init
       ? // A money cell holds the wire STRING, and `m: money = 1.50` lowers as a
         // DECIMAL literal — a bare `1.50` seeded into a `String` (M-T1.21).
-        `${f.name}: ${coerceDartMoneyInit(f.type, emitExpr(f.init, ctx))}`
-      : `${f.name}: ${dartZeroValue(f.type)}`,
+        `${dartMember(f.name)}: ${coerceDartMoneyInit(f.type, emitExpr(f.init, ctx))}`
+      : `${dartMember(f.name)}: ${dartZeroValue(f.type)}`,
   );
   // `now()` is a literal KIND but not a compile-time constant — it renders as
   // `DateTime.now().toUtc()`, a runtime call a `const` constructor invocation
@@ -651,7 +661,7 @@ export function renderRiverpod(
   for (const action of page.actions) {
     const param = action.params[0];
     const locals = new Map<string, string>();
-    if (param) locals.set(param.name, param.name);
+    if (param) locals.set(param.name, dartMember(param.name));
     const ctx = stateCtx({
       stateNames,
       derivedNames,
@@ -672,7 +682,7 @@ export function renderRiverpod(
     );
     if (isAsync) asyncEffectActions.add(action.name);
     const idParam = isAsync ? "String id" : "";
-    const actionParam = param ? `${dartType(param.type)} ${param.name}` : "";
+    const actionParam = param ? `${dartType(param.type)} ${dartMember(param.name)}` : "";
     const paramList = [idParam, actionParam].filter(Boolean).join(", ");
     const sig = isAsync
       ? `Future<void> ${action.name}(${paramList}) async`

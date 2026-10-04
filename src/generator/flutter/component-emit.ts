@@ -61,6 +61,7 @@ import { lines } from "../../util/code-builder.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
+import { dartMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
 import { flutterTarget } from "./flutter-target.js";
 import { usesMoney } from "./money-runtime.js";
@@ -267,7 +268,7 @@ function derivedGetters(
       apiParamNames: new Map(ctx.apiParams.map((p) => [p.name, p.apiName])),
       userComponents: componentParams,
     });
-    const line = `  ${dartType(d.type)} get ${d.name} => ${emitExpr(d.expr, dctx)};`;
+    const line = `  ${dartType(d.type)} get ${dartMember(d.name)} => ${emitExpr(d.expr, dctx)};`;
     seen.add(d.name);
     return line;
   });
@@ -410,7 +411,7 @@ function renderStatefulComponent(
 
   // Param getters — a bare param read in the body/actions resolves here.
   const paramGetters = c.params.map(
-    (p) => `  ${dartType(p.type)} get ${p.name} => widget.${p.name};`,
+    (p) => `  ${dartType(p.type)} get ${dartMember(p.name)} => widget.${dartMember(p.name)};`,
   );
 
   // Action methods — each body wrapped in `setState` (a write is
@@ -419,7 +420,7 @@ function renderStatefulComponent(
   const actionMethods = c.actions.map((action) => {
     const param = action.params[0];
     const locals = new Map<string, string>();
-    if (param) locals.set(param.name, param.name);
+    if (param) locals.set(param.name, dartMember(param.name));
     const actionCtx = stateCtx({
       stateNames,
       derivedNames,
@@ -430,7 +431,7 @@ function renderStatefulComponent(
       userComponents: componentParams,
     });
     const sig = param
-      ? `void ${action.name}(${dartType(param.type)} ${param.name})`
+      ? `void ${action.name}(${dartType(param.type)} ${dartMember(param.name)})`
       : `void ${action.name}()`;
     const body = action.body.map((s) => `      ${renderNotifierStmt(s, actionCtx)}`);
     return lines(`  ${sig} {`, "    setState(() {", ...body, "    });", "  }");
@@ -512,8 +513,8 @@ export function renderComponentsFile(
   const blocks = used.map((c) => {
     const walked = walkComponent(c, componentParams, ctx);
     const { widget, usesChildren } = walked;
-    const ctorParts = c.params.map((p) => `required this.${p.name}`);
-    const fields = c.params.map((p) => `  final ${dartType(p.type)} ${p.name};`);
+    const ctorParts = c.params.map((p) => `required this.${dartMember(p.name)}`);
+    const fields = c.params.map((p) => `  final ${dartType(p.type)} ${dartMember(p.name)};`);
     // `Slot { }` in the body reads the `child` param — OPTIONAL (not `required`),
     // so a call site that passes no children still constructs, and the slot's
     // `child ?? const SizedBox.shrink()` renders nothing.
