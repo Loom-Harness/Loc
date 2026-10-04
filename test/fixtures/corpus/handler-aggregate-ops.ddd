@@ -1,0 +1,123 @@
+// Routed command/query handlers OVER A LIVE AGGREGATE ROW — the half of the
+// explicit application layer `handler-triad` cannot reach.
+//
+// `handler-triad` drives five routed handlers on an EMPTY table (its `Order`
+// has no create), so everything it proves is mount + param binding + scalar
+// return.  The shapes that touch a real row were asserted only as emitted TEXT,
+// once per backend, in `test/generator/<backend>/explicit-handlers.test.ts`
+// (M-T9.42 slice 2, ~1.9k LOC across five copies):
+//
+//   • load → mutate → SAVE → return the id      (Cancel)
+//   • a scalar read off a loaded aggregate       (Status)
+//   • an AGGREGATE return projected to its wire  (Fetch — toWire / <Agg>Response)
+//   • a value-object BODY param beside a path id (Discount)
+//   • a repository DELETE                         (Remove)
+//   • the not-found rung on a missing id          (every getById-backed route)
+//
+// Each assertion below reads the effect BACK through a different route, so a
+// handler that compiled but forgot to save, returned the raw domain entity,
+// dropped the body param or never deleted is a wrong VALUE, not a 200.
+system HandlerAggregateOps {
+  subdomain Sales {
+    context Ordering {
+      valueobject Money {
+        amount: int
+        currency: string
+      }
+      aggregate Order with crudish {
+        code: string
+        status: string
+        discount: int
+        discountReason: string
+        operation cancel() { status := "cancelled" }
+        operation applyDiscount(amount: Money, reason: string) {
+          discount := discount + amount.amount
+          discountReason := reason
+        }
+      }
+      repository Orders for Order { }
+
+      commandHandler Cancel(orderId: Order id): Order id {
+        let o = Orders.getById(orderId)
+        o.cancel()
+        return o.id
+      }
+      queryHandler Status(orderId: Order id): string {
+        let o = Orders.getById(orderId)
+        return o.status
+      }
+      queryHandler Fetch(orderId: Order id): Order {
+        let o = Orders.getById(orderId)
+        return o
+      }
+      commandHandler Discount(orderId: Order id, amount: Money, reason: string): Order id {
+        let o = Orders.getById(orderId)
+        o.applyDiscount(amount, reason)
+        return o.id
+      }
+      commandHandler Remove(orderId: Order id) {
+        let o = Orders.getById(orderId)
+        Orders.delete(o)
+      }
+    }
+  }
+  api SalesApi from Sales {
+    route POST   "/orders/{orderId}/cancellations" -> Ordering.Cancel
+    route GET    "/orders/{orderId}/status"        -> Ordering.Status
+    route GET    "/orders/{orderId}/view"          -> Ordering.Fetch
+    route POST   "/orders/{orderId}/discounts"     -> Ordering.Discount
+    route DELETE "/orders/{orderId}/removal"       -> Ordering.Remove
+  }
+  storage pg { type: postgres }
+  resource orderingState { for: Ordering, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ordering]
+    dataSources: [orderingState]
+    serves: SalesApi
+    port: 4000
+  }
+
+  test e2e "routed handlers load, mutate, save, project and delete a real row" against d {
+    let o = api.orders.create({ code: "A-1", status: "open", discount: 0, discountReason: "" })
+
+    // Scalar read off a loaded aggregate, before any handler wrote.
+    expect(api.ordering.status(o)).toBe("open")
+
+    // Aggregate return: the WIRE shape, not the raw domain entity.  A backend
+    // that serialised the entity would leak private state / miss `id`.
+    let view = api.ordering.fetch(o)
+    expect(view.id).toBe(o)
+    expect(view.code).toBe("A-1")
+    expect(view.status).toBe("open")
+
+    // Value-object body param beside a path id.  Read back through the
+    // DERIVED getById, so a handler that dropped the body, mis-bound the VO or
+    // forgot to save answers the old values.
+    let d1 = api.ordering.discount(o, { amount: 15, currency: "EUR" }, "loyalty")
+    expect(d1).toBe(o)
+    let afterDiscount = api.orders.getById(o)
+    expect(afterDiscount.discount).toBe(15)
+    expect(afterDiscount.discountReason).toBe("loyalty")
+    // A second call accumulates — the load reads what the first SAVE wrote.
+    api.ordering.discount(o, { amount: 5, currency: "EUR" }, "again")
+    expect(api.orders.getById(o).discount).toBe(20)
+
+    // load → mutate → save → return id, observed through the other handler.
+    expect(api.ordering.cancel(o)).toBe(o)
+    expect(api.ordering.status(o)).toBe("cancelled")
+    expect(api.orders.getById(o).status).toBe("cancelled")
+
+    // Repository delete: the row is GONE for both the derived and the routed read.
+    api.ordering.remove(o)
+    expect(api.orders.getById(o)).toThrow(404)
+    expect(api.ordering.status(o)).toThrow(404)
+  }
+
+  test e2e "a routed handler over a missing id answers the not-found rung" against d {
+    let missing = "44444444-4444-4444-8444-444444444444"
+    expect(api.ordering.status(missing)).toThrow(404)
+    expect(api.ordering.fetch(missing)).toThrow(404)
+    expect(api.ordering.cancel(missing)).toThrow(404)
+  }
+}
