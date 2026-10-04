@@ -39,7 +39,7 @@ import type { BoundedContextIR } from "../types/loom-ir.js";
 
 /** The name every aggregate's list read carries — the auto-`findAll`'s, and
  *  the one a hand-written `find all(...)` must use to override it. */
-export const ALL_READ = "all";
+const ALL_READ = "all";
 
 /** True when `<Agg>.all` returns the `paged<T>` envelope (`{items, page,
  *  pageSize, total, totalPages}`) rather than a bare `T[]`.
