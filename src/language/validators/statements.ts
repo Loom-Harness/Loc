@@ -5,6 +5,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { nearestName } from "../../util/edit-distance.js";
 import type {
   ActionDecl,
   Aggregate,
@@ -817,11 +818,19 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
     seen.add(f.name);
     const expected = declared.get(f.name);
     if (!expected) {
-      accept("error", diagMessage("loom.emit-unknown-field", { evName: ev.name, f: f.name }), {
-        node: f,
-        property: "name",
-        code: "loom.emit-unknown-field",
-      });
+      accept(
+        "error",
+        diagMessage("loom.emit-unknown-field", {
+          evName: ev.name,
+          f: f.name,
+          suggestion: nearestName(f.name, declared.keys()),
+        }),
+        {
+          node: f,
+          property: "name",
+          code: "loom.emit-unknown-field",
+        },
+      );
       continue;
     }
     const actual = typeOf(f.value, env);

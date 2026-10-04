@@ -3,6 +3,7 @@
 // queryable-subset predicate helpers, used across several check modules.
 // -------------------------------------------------------------------------
 
+import { nearestName } from "../../../util/edit-distance.js";
 import { intrinsicFor, intrinsicReturnType } from "../../../util/intrinsics.js";
 import type { AggregateIR, BoundedContextIR, ExprIR } from "../../types/loom-ir.js";
 import { durationCtorOperand, isDatetimeTypedIR } from "../../util/temporal.js";
@@ -17,6 +18,25 @@ export function aggregateHasMember(agg: AggregateIR, name: string): boolean {
     agg.contains.some((c) => c.name === name) ||
     agg.derived.some((d) => d.name === name)
   );
+}
+
+/** The nearest stored field to `name` on `agg` — the "did you mean" for an
+ *  unknown `sort` head.  Stored fields first so a near miss lands on a column
+ *  before it lands on a containment / derived property. */
+export function nearestAggregateMember(agg: AggregateIR, name: string): string | undefined {
+  return nearestName(name, [
+    ...agg.fields.map((f) => f.name),
+    ...agg.contains.map((c) => c.name),
+    ...agg.derived.map((d) => d.name),
+  ]);
+}
+
+/** An unknown column reference: `text` is the quoted offending path (with the
+ *  reason when the member exists but is not a column), `suggestion` the
+ *  nearest real column path when there is a near miss. */
+export interface UnknownColumnRef {
+  text: string;
+  suggestion?: string;
 }
 
 /** Walk an already-queryable expression and return the first
@@ -43,7 +63,7 @@ export function firstUnknownColumnRef(
      *  there would emit SQL against a missing column). */
     allowSelfId?: boolean;
   },
-): string | null {
+): UnknownColumnRef | null {
   switch (e.kind) {
     case "literal":
     case "this":
@@ -69,13 +89,20 @@ export function firstUnknownColumnRef(
         if (derived) {
           // Derived isn't a stored column — emitting SQL against it
           // would also fail.  Reject with a more specific message.
-          return `'this.${e.member}' (derived properties are computed, not stored as columns)`;
+          return {
+            text: `'this.${e.member}' (derived properties are computed, not stored as columns)`,
+          };
         }
         const containment = agg.contains.find((c) => c.name === e.member);
         if (containment) {
-          return `'this.${e.member}' (containments aren't queryable directly — see docs/language.md)`;
+          return {
+            text: `'this.${e.member}' (containments aren't queryable directly — see docs/language.md)`,
+          };
         }
-        return `'this.${e.member}'`;
+        const columns = agg.fields.map((f) => f.name);
+        if (opts?.allowSelfId) columns.push("id");
+        const near = nearestName(e.member, columns);
+        return { text: `'this.${e.member}'`, suggestion: near ? `this.${near}` : undefined };
       }
       // `this.vo.sub` — value-object flattened column.  Verify vo
       // is a VO-typed field AND sub is a field on the VO.
@@ -87,14 +114,28 @@ export function firstUnknownColumnRef(
         const voField = agg.fields.find(
           (f) => f.name === (e.receiver as { member: string }).member,
         );
+        const voMember = (e.receiver as { member: string }).member;
         if (!voField) {
-          return `'this.${(e.receiver as { member: string }).member}'`;
+          const near = nearestName(
+            voMember,
+            agg.fields.map((f) => f.name),
+          );
+          return { text: `'this.${voMember}'`, suggestion: near ? `this.${near}` : undefined };
         }
         const voName =
           e.receiver.memberType.kind === "valueobject" ? e.receiver.memberType.name : "";
         const vo = ctx.valueObjects.find((v) => v.name === voName);
         if (vo?.fields.some((f) => f.name === e.member)) return null;
-        return `'this.${(e.receiver as { member: string }).member}.${e.member}'`;
+        const near = vo
+          ? nearestName(
+              e.member,
+              vo.fields.map((f) => f.name),
+            )
+          : undefined;
+        return {
+          text: `'this.${voMember}.${e.member}'`,
+          suggestion: near ? `this.${voMember}.${near}` : undefined,
+        };
       }
       return null;
     }

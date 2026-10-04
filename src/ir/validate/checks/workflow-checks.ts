@@ -4,6 +4,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst } from "../../../util/naming.js";
 import {
   createInputFields,
@@ -1128,6 +1129,7 @@ function validateWorkflowStatements(
                 name: wf.name,
                 evName: ev.name,
                 f,
+                suggestion: nearestName(f, declared),
               }),
               source: `${ctx.name}/${wf.name}`,
             });
@@ -1217,6 +1219,7 @@ function validateWorkflowStatements(
                 name: wf.name,
                 aggName: st.aggName,
                 p,
+                suggestion: nearestName(p, allowed),
               }),
               source: `${ctx.name}/${wf.name}`,
             });
@@ -1250,6 +1253,7 @@ function validateWorkflowStatements(
               repoName: st.repoName,
               method: st.method,
               finds: repo.finds.map((f) => f.name).join(", ") || "(no declared finds)",
+              suggestion: nearestName(st.method, ["getById", ...repo.finds.map((f) => f.name)]),
             }),
             source: `${ctx.name}/${wf.name}`,
           });
@@ -1582,6 +1586,10 @@ function validateWorkflowStatements(
               name: wf.name,
               aggName,
               op: st.op,
+              suggestion: nearestName(
+                st.op,
+                agg.operations.map((o) => o.name),
+              ),
             }),
             source: `${ctx.name}/${wf.name}`,
           });
