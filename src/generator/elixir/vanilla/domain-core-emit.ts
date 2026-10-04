@@ -2,10 +2,13 @@ import type {
   AggregateIR,
   BoundedContextIR,
   EnrichedAggregateIR,
+  ExprIR,
   FunctionIR,
   OperationIR,
   SystemIR,
+  TestIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -59,6 +62,53 @@ export function hasPureDomainCore(
   sys?: SystemIR,
 ): boolean {
   return !isEventSourced(agg) && !isVanillaDocAgg(agg, ctx, sys);
+}
+
+/** True when the aggregate's pure core must be emitted: it declares its own
+ *  `test` blocks, OR some other unit test in the context constructs it.
+ *
+ *  A test body may legally reach for a SIBLING aggregate — the only way to
+ *  exercise a value object holding a cross-aggregate reference (`Berth { ship:
+ *  Ship id }` needs a `Ship` to take an id from).  `tests-emit.ts` renders
+ *  that `Ship.create(...)` as `<App>.<Ctx>.Ship.create/1` — the pure core —
+ *  so gating the core on the aggregate's OWN tests alone left the call naming
+ *  a function nothing defined (`Ship.create/1 is undefined` at `mix test`).
+ *  Context INTEGRATION tests are excluded: they persist through the context
+ *  facade (`create_<agg>`), never the pure core. */
+export function needsPureDomainCore(agg: AggregateIR, ctx: BoundedContextIR): boolean {
+  return agg.tests.length > 0 || aggregatesCreatedInUnitTests(ctx).has(agg.name);
+}
+
+/** Names of the context's aggregates whose `create` a unit-test body (on an
+ *  aggregate, value object or domain service) calls — `<Agg>.create(...)`,
+ *  the receiver a bare aggregate name.  The same receiver shape `renderCreate`
+ *  in `tests-emit.ts` keys the emitted module on. */
+export function aggregatesCreatedInUnitTests(ctx: BoundedContextIR): Set<string> {
+  const aggNames = new Set(ctx.aggregates.map((a) => a.name));
+  const created = new Set<string>();
+  const visit = (e: ExprIR): void => {
+    if (
+      e.kind === "method-call" &&
+      e.member === "create" &&
+      !e.isIntrinsicMatcher &&
+      e.receiver.kind === "ref" &&
+      aggNames.has(e.receiver.name)
+    ) {
+      created.add(e.receiver.name);
+    }
+  };
+  const tests: TestIR[] = [
+    ...ctx.aggregates.flatMap((a) => a.tests),
+    ...ctx.valueObjects.flatMap((v) => v.tests),
+    ...ctx.domainServices.flatMap((s) => s.tests),
+  ];
+  for (const t of tests) {
+    for (const s of t.statements) {
+      if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
+      else walkStmtExprsDeep(s, visit);
+    }
+  }
+  return created;
 }
 
 /** The pure-core function bodies for one aggregate, injected into its schema
