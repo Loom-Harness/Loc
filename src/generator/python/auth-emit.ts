@@ -337,7 +337,7 @@ function renderPySystemPrincipal(
     "    dispatching principal's tenant, `caused_by` for audit.  Gates are evaluated",
     '    against it normally — one that admits it says `currentUser.isSystem || …`."""',
     "    origin = current_user_var.get()",
-    `    ${hierarchy ? "user" : "return"} User(`,
+    `    ${hierarchy ? "user =" : "return"} User(`,
     ...kwargs,
     "        is_system=True,",
     `        caused_by=${causedBy},`,
