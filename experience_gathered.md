@@ -6627,16 +6627,34 @@ I produced three plausible theories, each costing days:
 3. *"my auto-merge used the wrong method"* — real (the `ccr/auto_merge` route
    hard-codes `merge`; the ruleset allows only `squash`) but not decisive.
 
-The answer was one call — `GET /repos/{owner}/{repo}/rules/branches/main` — which
-prints the `pull_request`, `required_status_checks` and `merge_queue` rules
-outright. `blocked` here means **"not in the merge queue"**, nothing more:
-enqueuing flipped it to `clean` instantly. Note the legacy
-`/branches/main/protection` endpoint reads EMPTY on this repo (it is governed by
-rulesets), so an empty protection read is not evidence of no protection.
+The first move that should have come before any theory is one call —
+`GET /repos/{owner}/{repo}/rules/branches/main` — which prints the
+`pull_request`, `required_status_checks` and `merge_queue` rules outright. It is
+what killed theory 1 in seconds. Note the legacy `/branches/main/protection`
+endpoint reads EMPTY on this repo (it is governed by rulesets), so an empty
+protection read is not evidence of no protection.
 
-Also worth knowing: **nothing in this repo merges via auto-merge.** Every merged
-PR shows `merged_by: lemmit` and `auto_merge: no`. Arming auto-merge is not a way
-to land a PR here; it is a way to make a PR look like it will land.
+**What `blocked` actually meant is still unconfirmed**, and the first draft of
+this entry got it wrong in exactly the way the entry warns about. #2918 sat
+`blocked` with both required checks green, and enqueuing flipped it to `clean`
+— so I wrote "`blocked` means not in the merge queue." Then #3070, under the same
+ruleset, went green → `clean` with **no** enqueue at all. One observation had
+been promoted to a rule. What the two cases do rule out:
+
+  * **not reviews** — `required_approving_review_count` is 0 on both;
+  * **not the auto-merge method** — #2918 was already `blocked` with every check
+    green for hours *before* auto-merge was first armed.
+
+What differs and has not been tested: #2918 changed generator code across 12
+files, #3070 one Markdown file. Whether the queue requirement or a check
+binding is path-dependent is the open question. If you hit `blocked` with green
+required checks, read the ruleset and try enqueuing — it worked here — but do
+not assume you know why.
+
+Also worth knowing: **in the sample I checked, nothing here merged via
+auto-merge** — four recent merged PRs, every one `merged_by: lemmit` and
+`auto_merge: no`. Arming auto-merge did not land #2918; it made it look like it
+would.
 
 ### Nightly red is not main red
 
