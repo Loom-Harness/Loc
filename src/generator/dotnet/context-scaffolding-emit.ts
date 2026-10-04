@@ -111,6 +111,9 @@ export function emitEvents(
   ns: string,
   out: Map<string, string>,
   hasSubscriptions = false,
+  /** The project maps an EF `AppDbContext` (not `persistence: dapper`): the
+   *  dispatcher then detaches a failed reactor's staged changes. */
+  efDbContext = true,
 ): void {
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
   for (const ev of ctx.events) {
@@ -146,6 +149,9 @@ export function emitDispatcher(
   ns: string,
   out: Map<string, string>,
   hasSubscriptions = false,
+  /** The project maps an EF `AppDbContext` (not `persistence: dapper`): the
+   *  dispatcher then detaches a failed reactor's staged changes. */
+  efDbContext = true,
 ): void {
   out.set("Infrastructure/Events/NoopDomainEventDispatcher.cs", renderNoopDispatcher(ns));
   // In-process dispatch (channels.md): the Mediator-notification dispatcher
@@ -155,7 +161,7 @@ export function emitDispatcher(
   if (hasSubscriptions) {
     out.set(
       "Infrastructure/Events/InProcessDomainEventDispatcher.cs",
-      renderInProcessDispatcher(ns),
+      renderInProcessDispatcher(ns, efDbContext),
     );
   }
 }
