@@ -1,0 +1,176 @@
+// Insurance claims — iteration 1 (MVP): policies, claims, adjusters.
+system Claims {
+
+  subdomain Insurance {
+    context Underwriting {
+      enum PolicyStatus { Draft, Active, Lapsed, Cancelled }
+      enum CoverageKind { Collision, Theft, Fire, Water, Liability }
+
+      aggregate Policyholder with crudish {
+        fullName: string
+        email: string
+        phone: string?
+        invariant fullName.length > 0
+        derived display: string = fullName
+        invariant email.contains("@")
+      }
+
+      aggregate Policy {
+        number: string immutable
+        holder: Policyholder id
+        status: PolicyStatus managed = Draft
+        effectiveFrom: datetime
+        effectiveTo: datetime
+        deductible: money
+        contains coverages: Coverage[]
+
+        derived display: string = number
+        invariant effectiveTo > effectiveFrom
+        invariant deductible >= money("0")
+
+        entity Coverage {
+          kind: CoverageKind
+          limit: money
+          invariant limit > money("0")
+        }
+
+        create(number: string, holder: Policyholder id, effectiveFrom: datetime, effectiveTo: datetime, deductible: money) { }
+
+        operation addCoverage(kind: CoverageKind, limit: money) {
+          precondition status == Draft message "coverages can only change on a draft policy"
+          precondition !coverages.any(c => c.kind == kind) message "coverage already present"
+          coverages += Coverage { kind: kind, limit: limit }
+        }
+
+        operation activate() {
+          precondition status == Draft
+          precondition coverages.count > 0 message "a policy needs at least one coverage"
+          status := Active
+          emit PolicyActivated { policy: id, at: now() }
+        }
+
+        operation cancel(reason: string) {
+          precondition status == Active
+          status := Cancelled
+          emit PolicyCancelled { policy: id, reason: reason, at: now() }
+        }
+
+        function coversLoss(kind: CoverageKind, at: datetime): bool =
+          status == Active && at >= effectiveFrom && at <= effectiveTo && coverages.any(c => c.kind == kind)
+      }
+
+      event PolicyActivated { policy: Policy id, at: datetime }
+      event PolicyCancelled { policy: Policy id, reason: string, at: datetime }
+
+      repository Policyholders for Policyholder { }
+      repository Policies for Policy {
+        find byNumber(number: string): Policy? where this.number == number
+      }
+    }
+
+    context ClaimsHandling {
+      enum ClaimStatus { Submitted, UnderReview, Approved, Rejected, Paid, Closed }
+
+      aggregate Adjuster with crudish {
+        name: string
+        email: string
+        maxOpenClaims: int = 10
+        derived display: string = name
+        invariant maxOpenClaims > 0
+      }
+
+      aggregate Claim {
+        claimNumber: string immutable
+        policy: Policy id
+        kind: CoverageKind
+        lossDate: datetime
+        reportedAt: datetime managed
+        description: string
+        status: ClaimStatus managed = Submitted
+        assignedTo: Adjuster id?
+        estimatedAmount: money
+        approvedAmount: money?
+        rejectionReason: string?
+        contains notes: ClaimNote[]
+
+        derived display: string = claimNumber
+        invariant description.length >= 10
+        invariant lossDate <= reportedAt
+        invariant estimatedAmount > money("0")
+
+        entity ClaimNote {
+          text: string
+          at: datetime
+          invariant text.length > 0
+        }
+
+        create(claimNumber: string, policy: Policy id, kind: CoverageKind, lossDate: datetime, description: string, estimatedAmount: money) { }
+
+        operation assign(adjuster: Adjuster id) {
+          precondition status == Submitted || status == UnderReview
+          assignedTo := adjuster
+          status := UnderReview
+        }
+
+        operation addNote(text: string) {
+          notes += ClaimNote { text: text, at: now() }
+        }
+
+        operation approve(amount: money) {
+          precondition status == UnderReview message "only claims under review can be approved"
+          precondition amount > money("0")
+          precondition amount <= estimatedAmount message "approved amount exceeds estimate"
+          approvedAmount := amount
+          status := Approved
+          emit ClaimApproved { claim: id, amount: amount, at: now() }
+        }
+
+        operation reject(reason: string) {
+          precondition status == UnderReview
+          rejectionReason := reason
+          status := Rejected
+          emit ClaimRejected { claim: id, reason: reason, at: now() }
+        }
+
+        operation markPaid() {
+          precondition status == Approved
+          status := Paid
+        }
+      }
+
+      event ClaimSubmitted { claim: Claim id, policy: Policy id, at: datetime }
+      event ClaimApproved { claim: Claim id, amount: money, at: datetime }
+      event ClaimRejected { claim: Claim id, reason: string, at: datetime }
+
+      criterion OpenFor(a: Adjuster id) of Claim = assignedTo == a && status == UnderReview
+      retrieval OpenClaimsFor(a: Adjuster id) of Claim {
+        where: OpenFor(a)
+        sort: [reportedAt desc]
+      }
+
+      repository Adjusters for Adjuster { }
+      repository Claims for Claim { }
+    }
+  }
+
+  ui Backoffice with scaffold(subdomains: [Insurance]) { }
+
+  storage primary { type: postgres }
+  resource uwState { for: Underwriting, kind: state, use: primary }
+  resource claimState { for: ClaimsHandling, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Underwriting, ClaimsHandling],
+    dataSources: [uwState, claimState],
+    port: 3000
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: Backoffice,
+    port: 3001,
+    design: mantine
+  }
+}

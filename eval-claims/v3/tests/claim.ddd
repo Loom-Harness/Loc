@@ -1,0 +1,15 @@
+test "approve requires review" for Claim {
+  let c = Claim.create({ claimNumber: "T-1", policy: "01a107b6-d4b9-73a7-90fa-0d5ce3ee7876", kind: Fire, lossDate: now() - days(3), description: "Test claim description", estimatedAmount: money("1000") })
+  expect(c.status).toBe(Submitted)
+  expect(c.approve(money("10"))).toThrow()
+}
+
+test "payout is approved minus deductible" for Claim {
+  let c = Claim.create({ claimNumber: "T-2", policy: "01a107b6-d4b9-73a7-90fa-0d5ce3ee7876", kind: Fire, lossDate: now() - days(3), description: "Test claim description", estimatedAmount: money("1000") })
+  c.intake(money("100"), false)
+  expect(c.payout).toBe(money("-100"))
+}
+
+test "future loss date rejected" for Claim {
+  expect(Claim.create({ claimNumber: "T-3", policy: "01a107b6-d4b9-73a7-90fa-0d5ce3ee7876", kind: Fire, lossDate: now() + days(3), description: "Test claim description", estimatedAmount: money("1000") })).toThrow()
+}

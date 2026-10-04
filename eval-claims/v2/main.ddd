@@ -1,0 +1,242 @@
+// Insurance claims — iteration 1 (MVP): policies, claims, adjusters.
+system Claims {
+
+  subdomain Insurance {
+    context Underwriting {
+      enum PolicyStatus { Draft, Active, Lapsed, Cancelled }
+      enum CoverageKind { Collision, Theft, Fire, Water, Liability }
+
+      aggregate Policyholder with crudish {
+        fullName: string
+        email: string
+        phone: string?
+        invariant fullName.length > 0
+        derived display: string = fullName
+        invariant email.contains("@")
+      }
+
+      aggregate Policy {
+        number: string immutable
+        unique (number)
+        holder: Policyholder id
+        status: PolicyStatus managed = Draft
+        effectiveFrom: datetime
+        effectiveTo: datetime
+        deductible: money
+        contains coverages: Coverage[]
+
+        derived display: string = number
+        invariant effectiveTo > effectiveFrom
+        invariant deductible >= money("0")
+
+        entity Coverage {
+          kind: CoverageKind
+          limit: money
+          invariant limit > money("0")
+        }
+
+        create(number: string, holder: Policyholder id, effectiveFrom: datetime, effectiveTo: datetime, deductible: money) { }
+
+        operation addCoverage(kind: CoverageKind, limit: money) {
+          precondition status == Draft message "coverages can only change on a draft policy"
+          precondition !coverages.any(c => c.kind == kind) message "coverage already present"
+          coverages += Coverage { kind: kind, limit: limit }
+        }
+
+        operation activate() {
+          precondition status == Draft
+          precondition coverages.count > 0 message "a policy needs at least one coverage"
+          status := Active
+          emit PolicyActivated { policy: id, effectiveFrom: effectiveFrom, effectiveTo: effectiveTo, deductible: deductible, kinds: coverages.map(c => c.kind), at: now() }
+        }
+
+        operation cancel(reason: string) {
+          precondition status == Active
+          status := Cancelled
+          emit PolicyCancelled { policy: id, reason: reason, at: now() }
+        }
+
+        function coversLoss(kind: CoverageKind, at: datetime): bool =
+          status == Active && at >= effectiveFrom && at <= effectiveTo && coverages.any(c => c.kind == kind)
+      }
+
+      event PolicyActivated { policy: Policy id, effectiveFrom: datetime, effectiveTo: datetime, deductible: money, kinds: CoverageKind[], at: datetime }
+      event PolicyCancelled { policy: Policy id, reason: string, at: datetime }
+
+      repository Policyholders for Policyholder { }
+      repository Policies for Policy {
+        find byNumber(number: string): Policy? where this.number == number
+      }
+    }
+
+    context ClaimsHandling {
+      enum ClaimStatus { Submitted, UnderReview, Approved, Rejected, Paid, Closed }
+
+      aggregate Adjuster with crudish {
+        name: string
+        email: string
+        maxOpenClaims: int = 10
+        derived display: string = name
+        invariant maxOpenClaims > 0
+      }
+
+      aggregate Claim {
+        claimNumber: string immutable
+        unique (claimNumber)
+        policy: Policy id immutable
+        kind: CoverageKind
+        lossDate: datetime
+        reportedAt: datetime managed
+        description: string
+        status: ClaimStatus managed = Submitted
+        assignedTo: Adjuster id? managed
+        estimatedAmount: money
+        approvedAmount: money? managed
+        deductibleApplied: money managed = money("0")
+        suspectedFraud: bool managed = false
+        rejectionReason: string? managed
+        contains notes: ClaimNote[]
+
+        derived display: string = claimNumber
+        create(claimNumber: string, policy: Policy id, kind: CoverageKind, lossDate: datetime, description: string, estimatedAmount: money) { }
+        invariant description.length >= 10
+        invariant lossDate <= reportedAt message "loss date cannot be in the future"
+        derived payout: money = (approvedAmount ?? money("0")) - deductibleApplied
+        invariant estimatedAmount > money("0")
+
+        entity ClaimNote {
+          text: string
+          at: datetime
+          invariant text.length > 0
+        }
+
+
+        operation intake(deductible: money, fraud: bool) {
+          precondition status == Submitted
+          deductibleApplied := deductible
+          suspectedFraud := fraud
+          emit ClaimSubmitted { claim: id, policy: policy, at: now() }
+        }
+
+        operation assign(adjuster: Adjuster id) {
+          precondition status == Submitted || status == UnderReview
+          assignedTo := adjuster
+          status := UnderReview
+        }
+
+        operation addNote(text: string) {
+          notes += ClaimNote { text: text, at: now() }
+        }
+
+        operation approve(amount: money) {
+          precondition status == UnderReview message "only claims under review can be approved"
+          precondition amount > money("0")
+          precondition amount <= estimatedAmount message "approved amount exceeds estimate"
+          approvedAmount := amount
+          status := Approved
+          emit ClaimApproved { claim: id, amount: amount, at: now() }
+        }
+
+        operation reject(reason: string) {
+          precondition status == UnderReview
+          rejectionReason := reason
+          status := Rejected
+          emit ClaimRejected { claim: id, reason: reason, at: now() }
+        }
+
+        operation markPaid() {
+          precondition status == Approved
+          status := Paid
+        }
+      }
+
+      event ClaimSubmitted { claim: Claim id, policy: Policy id, at: datetime }
+      event ClaimApproved { claim: Claim id, amount: money, at: datetime }
+      event ClaimRejected { claim: Claim id, reason: string, at: datetime }
+
+      criterion OpenFor(a: Adjuster id) of Claim = assignedTo == a && status == UnderReview
+      retrieval OpenClaimsFor(a: Adjuster id) of Claim {
+        where: OpenFor(a)
+        sort: [reportedAt desc]
+      }
+
+      // Local replica of Underwriting's policy terms (anti-corruption layer).
+      aggregate CoveredPolicy {
+        policy: Policy id immutable
+        unique (policy)
+        active: bool
+        effectiveFrom: datetime
+        effectiveTo: datetime
+        deductible: money
+        kinds: CoverageKind[]
+        derived display: string = "replica"
+
+        operation deactivate() { active := false }
+      }
+      repository CoveredPolicies for CoveredPolicy { }
+      criterion ForPolicy(p: Policy id) of CoveredPolicy = policy == p
+
+      workflow replicatePolicies {
+        policy: Policy id
+        create(e: PolicyActivated) by e.policy {
+          let cp = CoveredPolicy.create({ policy: e.policy, active: true, effectiveFrom: e.effectiveFrom, effectiveTo: e.effectiveTo, deductible: e.deductible, kinds: e.kinds })
+        }
+        on(e: PolicyCancelled) by e.policy {
+          if let cp = CoveredPolicies.find(ForPolicy(e.policy)) {
+            cp.deactivate()
+          }
+        }
+      }
+
+      workflow fileClaim transactional {
+        create(claimNumber: string, policy: Policy id, kind: CoverageKind, lossDate: datetime, description: string, estimatedAmount: money) {
+          if let terms = CoveredPolicies.find(ForPolicy(policy)) {
+          precondition terms.active message "policy is not active"
+          precondition terms.kinds.contains(kind) message "policy does not cover this kind of loss"
+          precondition lossDate >= terms.effectiveFrom && lossDate <= terms.effectiveTo message "loss date outside the policy period"
+          let claim = Claim.create({ claimNumber: claimNumber, policy: policy, kind: kind, lossDate: lossDate, description: description, estimatedAmount: estimatedAmount })
+          claim.intake(terms.deductible, lossDate < terms.effectiveFrom + days(30))
+          } else {
+            precondition false message "unknown policy"
+          }
+        }
+      }
+
+      criterion OpenAssigned(a: Adjuster id) of Claim = assignedTo == a && status == UnderReview
+
+      workflow assignClaim transactional {
+        create(claim: Claim id, adjuster: Adjuster id) {
+          let c = Claims.getById(claim)
+          let a = Adjusters.getById(adjuster)
+          let open = Claims.findAll(OpenAssigned(adjuster))
+          precondition open.count < a.maxOpenClaims message "adjuster is at capacity"
+          c.assign(adjuster)
+        }
+      }
+
+      repository Adjusters for Adjuster { }
+      repository Claims for Claim { }
+    }
+  }
+
+  ui Backoffice with scaffold(subdomains: [Insurance]) { }
+
+  storage primary { type: postgres }
+  resource uwState { for: Underwriting, kind: state, use: primary }
+  resource claimState { for: ClaimsHandling, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Underwriting, ClaimsHandling],
+    dataSources: [uwState, claimState],
+    port: 3000
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: Backoffice,
+    port: 3001,
+    design: mantine
+  }
+}
