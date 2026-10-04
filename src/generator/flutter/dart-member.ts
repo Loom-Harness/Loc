@@ -1,0 +1,66 @@
+// ---------------------------------------------------------------------------
+// Dart identifier spelling for names DERIVED from user model names.
+//
+// A wire field is emitted as a Dart member of the model class (`final int
+// default;`) and read as `row.default` — and `default`, `enum`, `extends`,
+// `class`, `switch`, … are RESERVED words in Dart, illegal as any identifier
+// (unlike Dart's *built-in* identifiers — `abstract`, `static`, `import`,
+// `extern`-likes — which are legal member names and need nothing).  Loom admits
+// many of them as field names (`default` was never a Loom keyword; others are
+// soft since #3063), so a model that validates `0 error(s)` produced a Flutter
+// app `flutter analyze` rejected with `expected_identifier_but_got_keyword`.
+//
+// Dart has no escaping syntax (no F# double-backtick, no C# `@`), so the Dart
+// MEMBER takes a trailing underscore (`default_`) — the conventional spelling
+// (openapi-generator's Dart target, protobuf's `default_N`).  The WIRE key is
+// unchanged: `fromJson`/`toJson` still read and write `'default'`, so the JSON
+// contract every other target speaks is untouched.
+//
+// The set is Dart's reserved-word list (Dart language spec §21.1.1, "reserved
+// words").  (`package-name.ts` keeps its own, wider list: a pubspec `name:` also
+// rejects some built-in identifiers.)
+// ---------------------------------------------------------------------------
+
+/** Dart's reserved words — never legal as an identifier of any kind. */
+export const DART_RESERVED_WORDS: ReadonlySet<string> = new Set([
+  "assert",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "default",
+  "do",
+  "else",
+  "enum",
+  "extends",
+  "false",
+  "final",
+  "finally",
+  "for",
+  "if",
+  "in",
+  "is",
+  "new",
+  "null",
+  "rethrow",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "var",
+  "void",
+  "while",
+  "with",
+]);
+
+/** `name` as a Dart member/local identifier: a reserved word takes a trailing
+ *  underscore (`default` → `default_`); every other name is returned unchanged,
+ *  so a model without such a field emits byte-identical Dart. */
+export function dartMember(name: string): string {
+  return DART_RESERVED_WORDS.has(name) ? `${name}_` : name;
+}

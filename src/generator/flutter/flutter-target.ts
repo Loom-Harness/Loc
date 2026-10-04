@@ -57,6 +57,7 @@ import {
   renderDartCollectionOp,
   renderDartIntrinsic,
 } from "./dart-expr.js";
+import { DART_RESERVED_WORDS, dartMember } from "./dart-member.js";
 import {
   createFormWidgetName,
   destroyFormWidgetName,
@@ -352,6 +353,13 @@ export const flutterTarget: WalkerTarget = {
   // fires on a paged read, so the handle always names the carrier here.)
   renderPagedEnvelopeMember: ({ member, handle }) => `${lowerFirst(handle)}.${member}`,
 
+  /** A wire field named after a Dart RESERVED word (`default`, `enum`,
+   *  `extends`, …) is the `<name>_` member on the generated model
+   *  (`dart-member.ts`), so `row.default` — a parse error — reads `row.default_`.
+   *  Every other member falls through `undefined` to the shared bare emit. */
+  renderMemberRead: ({ receiver, member }) =>
+    DART_RESERVED_WORDS.has(member) ? `${receiver}.${dartMember(member)}` : undefined,
+
   /** Dart NAMED RECORD for a find's query bag — `(page: 1, pageSize: 10, …)`.
    *  The shared default is a JavaScript object literal, whose bare `page:` keys
    *  are not Dart identifiers; emitting it verbatim is what made every
@@ -446,8 +454,8 @@ export const flutterTarget: WalkerTarget = {
     const arms = spec.columns
       .map((f) =>
         money.has(f)
-          ? `${dartString(f)} => LoomMoney.compare(a.${f}, b.${f})`
-          : `${dartString(f)} => (a.${f} as Comparable).compareTo(b.${f} as Comparable)`,
+          ? `${dartString(f)} => LoomMoney.compare(a.${dartMember(f)}, b.${dartMember(f)})`
+          : `${dartString(f)} => (a.${dartMember(f)} as Comparable).compareTo(b.${dartMember(f)} as Comparable)`,
       )
       .join(", ");
     return (
@@ -507,7 +515,7 @@ export const flutterTarget: WalkerTarget = {
   renderFilteredRows({ rowsExpr, filter, columns }) {
     if (columns.length === 0) return rowsExpr;
     const q = `state.${filter.name}`;
-    const vals = columns.map((f) => `row.${f}`).join(", ");
+    const vals = columns.map((f) => `row.${dartMember(f)}`).join(", ");
     return (
       `(${rowsExpr}).where((row) { final __q = ${q}.trim().toLowerCase(); ` +
       `return __q.isEmpty || <Object?>[${vals}].any((v) => v != null && ` +

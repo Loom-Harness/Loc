@@ -32,6 +32,7 @@
 import { lowerFirst } from "../../util/naming.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { giveUpText } from "../_walker/give-up.js";
+import { dartMember } from "./dart-member.js";
 
 type Ctx = Record<string, string | number | boolean | readonly string[] | undefined>;
 
@@ -517,7 +518,7 @@ function primitiveChart(c: Ctx): string {
   // column reaches the row as the wire STRING (M-T1.21), and a projection row's
   // `y:` has no usable static type here, so the coercion has to be total over
   // BOTH a number and that string.  The cast threw on every money series.
-  const point = `LoomChartPoint(r.${x}.toString(), LoomMoney.toNum(r.${y}).toDouble())`;
+  const point = `LoomChartPoint(r.${dartMember(x)}.toString(), LoomMoney.toNum(r.${dartMember(y)}).toDouble())`;
   return `LoomChart(isBar: ${isBar}, label: ${label}, points: ${rows}.map((r) => ${point}).toList())`;
 }
 
