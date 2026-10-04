@@ -13,10 +13,8 @@ import {
   isCallSuffix,
   isExpectStmt,
   isIntLit,
-  isLetStmt,
   isMemberSuffix,
   isNameRef,
-  isParenExpr,
   isPostfixChain,
   isTestE2E,
   type MatchExpr,
@@ -144,29 +142,12 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       });
       continue;
     }
-    // A LOCATOR matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) asserts
-    // against a live DOM node, so its argument has to be something the ui e2e
-    // renderer can turn into a Playwright `Locator`: a field read on a page
-    // the test has on screen.  Everything else used to reach
-    // `renderExpectStmt`'s compiler-invariant throw and kill `generate system`
-    // with a stack trace (audit 2026-09-03 F6) — the input validated clean and
-    // then crashed the compiler, which is the one outcome that is never
-    // acceptable.  Reject it here, where the source span is.
-    const locatorSig = intrinsicMatcherSig(matcher.member);
-    if (locatorSig?.on === "locator") {
-      const asserted = assertedExpr(stmt);
-      if (asserted && !isPageFieldRead(asserted, stmt)) {
-        accept(
-          "error",
-          diagMessage("loom.locator-matcher-receiver", {
-            matcher: matcher.member,
-            actual: asserted.$cstNode?.text ?? "the asserted expression",
-          }),
-          { node: stmt, property: "expr", code: "loom.locator-matcher-receiver" },
-        );
-      }
-      continue;
-    }
+    // A LOCATOR matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) needs a
+    // page-field receiver — `loom.locator-matcher-receiver`, checked on the
+    // resolved IR (`checkLocatorMatcherReceivers`, ir/validate/checks/
+    // test-checks.ts, M-T5.42 V15).  None of the value-matcher rules below
+    // applies to it.
+    if (intrinsicMatcherSig(matcher.member)?.on === "locator") continue;
     // `toBeSameInstant` forgives wire timestamp FORMAT — a concept that only
     // exists once a value has crossed the HTTP boundary.  In a domain unit test
     // (in-memory values) there is nothing to forgive, so restrict it to e2e.
@@ -312,16 +293,6 @@ export function checkThrowKindPlacement(model: Model, accept: ValidationAcceptor
   }
 }
 
-/** The expression under assertion.  `expect` is a KEYWORD, not a call — the
- *  statement's `expr` is the parenthesised actual with the matcher hanging off
- *  it as postfix suffixes (`.not` optionally in between), so the asserted
- *  expression is the chain's parenthesised head. */
-function assertedExpr(stmt: ExpectStmt): Expression | undefined {
-  if (!isPostfixChain(stmt.expr)) return undefined;
-  const head = stmt.expr.head;
-  return isParenExpr(head) ? head.inner : head;
-}
-
 /** Does this `test e2e` block lower to the Playwright (`.ui.spec.ts`) renderer
  *  rather than the vitest+fetch one?
  *
@@ -360,45 +331,6 @@ function lowersToUiSpec(block: TestE2E): boolean {
   // the `ui` root at all (a mixed-root body lowers to BOTH kinds), so follow
   // the root, not the platform.
   return AstUtils.streamAllContents(block).some((n) => isNameRef(n) && n.name === "ui");
-}
-
-/** `<local>.<field>` where `<local>` is bound in the same `test e2e` body to a
- *  `ui.<aggregate>.getById(…)` or `ui.<aggregate>.create(…)` — the two calls
- *  that put a row on screen.  `<field>` must be a real field: `id` is the page
- *  object's own property, not a rendered cell. */
-function isPageFieldRead(e: Expression, stmt: ExpectStmt): boolean {
-  if (!isPostfixChain(e)) return false;
-  if (e.suffixes.length !== 1) return false;
-  const suffix = e.suffixes[0];
-  if (!suffix || !isMemberSuffix(suffix) || suffix.call || suffix.member === "id") return false;
-  const head = e.head;
-  if (!isNameRef(head)) return false;
-  return pageLocals(stmt).has(head.name);
-}
-
-/** Names `let`-bound to a `ui.<aggregate>.getById(…)` / `.create(…)` in the
- *  enclosing `test e2e` body. */
-function pageLocals(stmt: ExpectStmt): Set<string> {
-  const out = new Set<string>();
-  const block = AstUtils.getContainerOfType(stmt, isTestE2E);
-  if (!block) return out;
-  for (const s of block.body) {
-    if (!isLetStmt(s) || !isUiRowCall(s.expr)) continue;
-    out.add(s.name);
-  }
-  return out;
-}
-
-/** `ui.<slug>.getById(…)` / `ui.<slug>.create(…)`. */
-function isUiRowCall(e: Expression): boolean {
-  if (!isPostfixChain(e)) return false;
-  const head = e.head;
-  if (!isNameRef(head) || head.name !== "ui") return false;
-  if (e.suffixes.length !== 2) return false;
-  const [slug, method] = e.suffixes;
-  if (!slug || !isMemberSuffix(slug) || slug.call) return false;
-  if (!method || !isMemberSuffix(method) || !method.call) return false;
-  return method.member === "getById" || method.member === "create";
 }
 
 export function checkMatchesCalls(model: Model, accept: ValidationAcceptor): void {
