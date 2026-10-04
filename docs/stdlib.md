@@ -129,7 +129,7 @@ compute the value in a repository `find`, an aggregate `derived`, or a
 | op | signature |
 | --- | --- |
 | `count` | `int` |
-| `sum` | `(λ): decimal` |
+| `sum` | `(λ?): U` |
 | `all` | `(λ): bool` |
 | `any` | `(λ): bool` |
 | `where` | `(λ): T[]` |
