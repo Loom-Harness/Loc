@@ -51,6 +51,7 @@ const CORPUS = [
   "test/language/print/print-roundtrip.test.ts",
   "test/system/emitted-unbound-identifiers.test.ts",
   "test/system/openapi-component-uniqueness-census.test.ts",
+  "test/system/ir-language-type-agreement-census.test.ts",
   "test/cli/new.test.ts",
 ];
 
