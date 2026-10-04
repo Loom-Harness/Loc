@@ -1,7 +1,7 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
-import { upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
 import {
   collectCsExprUsings,
   collectCsTypeUsings,
@@ -15,7 +15,9 @@ import { collectCsStmtUsings, renderCsStatements } from "../render-stmt.js";
 // skip the invariant block).
 
 export function renderEnum(e: EnumIR, ns: string): string {
-  const valueLines = e.values.map((v, i) => `    ${v}${i < e.values.length - 1 ? "," : ""}`);
+  const valueLines = e.values.map(
+    (v, i) => `    ${escapeCsharpIdent(v)}${i < e.values.length - 1 ? "," : ""}`,
+  );
   return (
     lines(
       "// Auto-generated.",

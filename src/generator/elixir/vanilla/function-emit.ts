@@ -7,7 +7,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { exprUsesParam, exprUsesReceiver } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "../render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./denial.js";
@@ -179,7 +179,7 @@ function renderFunction(
   // struct.  Underscore-prefix a param the body never reads so an unused binding
   // never trips `mix compile --warnings-as-errors`.
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? elixirLocal(p.name) : `_${snake(p.name)}`,
   );
   // Underscore-prefix the receiver when the body never reads it (e.g.
   // `function noop()`), else the struct-guarded clause head trips

@@ -766,7 +766,7 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
       // shared `<Wf>Functions` class.
       return `${upperFirst(e.wfScope!)}Functions.${upperFirst(e.name)}`;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     case "current-user":
       // Magic identifier for the system's `user { ... }` shape.  The
       // emitter for each per-request context (operation, workflow)

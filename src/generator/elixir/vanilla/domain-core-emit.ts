@@ -6,7 +6,7 @@ import type {
   OperationIR,
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { isVanillaDocAgg } from "./document-emit.js";
@@ -198,7 +198,7 @@ function renderPureFunction(facadeMod: string, fn: FunctionIR): string[] {
   const fnSnake = snake(fn.name);
   const rc: RenderCtx = { thisName: "record", contextModule: facadeMod };
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? elixirLocal(p.name) : `_${snake(p.name)}`,
   );
   // Same rule the facade copy applies to its receiver: a body that never reads
   // the struct (`function inList(q: int): int { let xs = [q, 2, 3] … }`) must
@@ -238,7 +238,7 @@ function renderPureOp(
   const paramsArg = usedParams.length > 0 ? "params" : "_params";
   const guard = usedParams.length > 0 ? " when is_map(params)" : "";
   const paramBinds = usedParams.map(
-    (p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   const bodyLines = stmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
   // A void op returns the mutated struct; a value-returning op's `return`

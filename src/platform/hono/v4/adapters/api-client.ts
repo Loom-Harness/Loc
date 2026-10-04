@@ -35,6 +35,7 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../../../ir/util/api-surface.js";
+import { escapeTsIdent } from "../../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../../util/resource-env.js";
 
 /** The aggregate an operation answers with, looked up ACROSS the system — the
@@ -197,7 +198,7 @@ export function emitApiClientModule(
       // which a naive `JSON.stringify(bodyParams[0])` does — silently drops
       // every argument after the first.
       const wholeShapeBody = bodyParams.length === 1 && bodyParams[0]?.type.kind === "entity";
-      const params = op.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+      const params = op.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
       // The parsed shape and the declared return move together: whichever
       // schema the body is parsed against is the one the signature names.
       const parseSchema = createName ?? pagedName ?? schemaName;

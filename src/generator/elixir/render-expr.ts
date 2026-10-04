@@ -12,6 +12,7 @@ import {
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
+  elixirLocal,
   elixirRegexBody,
   elixirString,
   escapeElixirIdent,
@@ -440,9 +441,9 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // param is a bare local.  (`let`/`lambda` are always locals.)
       if (ctx.filterArgs) {
         // Ecto query filter — pin the bound local.
-        return `^${snake(e.name)}`;
+        return `^${elixirLocal(e.name)}`;
       }
-      return snake(e.name);
+      return elixirLocal(e.name);
     case "let":
     case "lambda":
       // Locals introduced inside the body; escape keyword collisions so the

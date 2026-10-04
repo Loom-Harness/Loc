@@ -72,7 +72,14 @@ import {
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+  workflowFnCamel,
+} from "../../../util/naming.js";
 import { emitWireSchema, wireToDomainExpr, zodFor, zodForResponse } from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted workflow function signature —
@@ -776,7 +783,9 @@ function hasAuditedOpCall(ctx: BoundedContextIR, sts: WorkflowStmtIR[]): boolean
 function emitWorkflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const name = workflowFnCamel(wf.name, fn.name);
     const head = `function ${name}(${params}): ${renderTsType(fn.returnType)}`;
     if ("expr" in fn.body) {

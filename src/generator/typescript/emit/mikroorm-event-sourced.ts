@@ -14,7 +14,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   deserializeField,
@@ -77,7 +77,7 @@ export function renderMikroEventSourcedRepository(
   const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map(
     (find) => {
       const usesUser = findUsesCurrentUser(find);
-      const baseParams = find.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+      const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
       const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
       const pred = findPredicate(agg, find, ctx);
       const isArray = find.returnType.kind === "array";

@@ -24,7 +24,7 @@ import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { joinColumnName } from "../emit.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -641,7 +641,7 @@ export function renderMikroRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     let filter: string;
     try {
@@ -758,7 +758,7 @@ export function renderMikroRepository(
     )
     .map((r) => {
       const methodName = `run${upperFirst(r.name)}`;
-      const baseParams = r.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+      const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
       const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
       let filter: string;
       try {
