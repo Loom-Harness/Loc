@@ -1,13 +1,9 @@
 import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import {
-  collectJavaExprImports,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { J } from "../java-symbols.js";
+import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
@@ -51,7 +47,7 @@ export function renderJavaEventSourcedRepositoryImpl(
   const idJava = javaValueTypeForId(agg.idValueType);
   const parseId =
     idJava === "UUID"
-      ? "UUID.fromString(sid)"
+      ? `${J.UUID}.fromString(sid)`
       : idJava === "int"
         ? "Integer.parseInt(sid)"
         : idJava === "long"
@@ -61,15 +57,8 @@ export function renderJavaEventSourcedRepositoryImpl(
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
 
-  // Expression imports the in-memory find / retrieval predicates need
-  // (notably `java.util.Objects` for `==`, `java.util.Comparator` for a
-  // sorted retrieval).  The retrieval helper appends its own below.
-  const exprImports = new Set<string>();
-  for (const f of finds) if (f.filter) collectJavaExprImports(f.filter, exprImports);
-  // The command load's in-app write-scope guard renders from the
-  // DESUGARED IR, so its imports come from that same tree.
-  if (agg.writeScopeFilter)
-    collectJavaExprImports(desugarAuthzFilterInApp(agg.writeScopeFilter, agg.name), exprImports);
+  const paged = javaRef(`${ctx.basePkg}.domain.common`, "Paged");
+  const accessorType = javaRef(`${ctx.basePkg}.auth`, "CurrentUserAccessor");
 
   // find_executed (debug) per declared find — `rows` is an integer count
   // (paged → total, list → size, single → 0/1).  Mirrors the relational repo +
@@ -85,7 +74,7 @@ export function renderJavaEventSourcedRepositoryImpl(
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
       return [
         `    @Override`,
-        `    public Paged<${agg.name}> ${f.name}(${sig}) {`,
+        `    public ${paged}<${agg.name}> ${f.name}(${sig}) {`,
         `        var all = findAll().stream()${filter}.toList();`,
         ...inMemoryPagedSortLines(agg),
         `        var items = all.stream().sorted(__cmp).skip((long) (page - 1) * pageSize).limit(pageSize).toList();`,
@@ -118,9 +107,8 @@ export function renderJavaEventSourcedRepositoryImpl(
   });
   // Retrievals can't query the event log, so each `run<Name>` folds every
   // stream via findAll() then evaluates its `where` + `sort` in memory
-  // (the .NET `_LoadAllAsync` shape).  The helper adds its predicate
-  // imports (and Comparator for sorted retrievals) to `exprImports`.
-  const retrievalLines = inMemoryRetrievalLines(agg, ctx.retrievals ?? [], exprImports);
+  // (the .NET `_LoadAllAsync` shape).
+  const retrievalLines = inMemoryRetrievalLines(agg, ctx.retrievals ?? []);
 
   // aggregate_loaded (debug) — shared by the plain and the write-scoped command
   // load so the two emissions stay one log line, not two spellings.
@@ -135,22 +123,16 @@ export function renderJavaEventSourcedRepositoryImpl(
     `package ${ctx.infraPkg};`,
     ``,
     `import java.util.ArrayList;`,
-    exprImports.has("java.util.Comparator") ? `import java.util.Comparator;` : null,
     `import java.util.LinkedHashMap;`,
     `import java.util.List;`,
-    exprImports.has("java.util.Objects") ? `import java.util.Objects;` : null,
     `import java.util.Optional;`,
-    idJava === "UUID" ? `import java.util.UUID;` : null,
     ``,
     `import tools.jackson.databind.ObjectMapper;`,
     `import tools.jackson.databind.json.JsonMapper;`,
     `import org.springframework.jdbc.core.JdbcTemplate;`,
     `import org.springframework.stereotype.Repository;`,
     ``,
-    ctx.entityPkg !== ctx.infraPkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
-    ctx.domainPkg !== ctx.infraPkg ? `import ${ctx.domainPkg}.${agg.name}Repository;` : null,
     `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;`,
-    finds.some(isPagedFind) ? `import ${ctx.basePkg}.domain.common.Paged;` : null,
     // DomainEvent rides the events wildcard (it lives in domain.events).
     `import ${ctx.basePkg}.domain.events.*;`,
     `import ${ctx.basePkg}.domain.ids.*;`,
@@ -159,13 +141,12 @@ export function renderJavaEventSourcedRepositoryImpl(
     // `renderJavaType`, which spells an enum param as the bare enum name, so
     // this file had the same "cannot find symbol" hole the document store did.
     `import ${ctx.basePkg}.domain.enums.*;`,
-    needsAccessor ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${ctx.basePkg}.config.CatalogLog;`,
     ``,
     `/** Event-sourced repository — appends to ${table}, folds on load`,
     ` *  via ${agg.name}._fromEvents (the appliers). */`,
     `@Repository`,
-    `public class ${agg.name}RepositoryImpl implements ${agg.name}Repository {`,
+    `public class ${agg.name}RepositoryImpl implements ${javaRef(ctx.domainPkg, `${agg.name}Repository`)} {`,
     `    private static final ObjectMapper JSON = JsonMapper.builder().findAndAddModules().build();`,
     ``,
     `    private final JdbcTemplate jdbc;`,
@@ -173,17 +154,17 @@ export function renderJavaEventSourcedRepositoryImpl(
     // impl injects the same CurrentUserAccessor bean the relational path uses.
     // Only wired when the write scope references it — otherwise no field, no
     // ctor param, no import (byte-identical emission).
-    needsAccessor ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+    needsAccessor ? `    private final ${accessorType} currentUserAccessor;` : null,
     ``,
     needsAccessor
-      ? `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc, CurrentUserAccessor currentUserAccessor) {`
+      ? `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc, ${accessorType} currentUserAccessor) {`
       : `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc) {`,
     `        this.jdbc = jdbc;`,
     needsAccessor ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
     `    @Override`,
-    `    public ${agg.name} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
     `        var pending = aggregate.pullEvents();`,
     `        if (!pending.isEmpty()) {`,
     `            var sid = String.valueOf(aggregate.id().value());`,

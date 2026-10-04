@@ -23,6 +23,7 @@ import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -30,16 +31,13 @@ import { promotedFilters, sqlRestrictionFilters } from "../capability-filter.js"
 import { jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
-  collectJavaExprImports,
   collectJavaRegexLiterals,
-  collectJavaTypeImports,
   type JavaRenderContext,
   renderJavaExpr,
   renderJavaType,
 } from "../render-expr.js";
 import { renderSqlRestriction } from "../render-sql-restriction.js";
 import {
-  collectJavaStmtImports,
   declarationSubRegion,
   renderJavaStatementChunks,
   renderJavaStatements,
@@ -54,8 +52,18 @@ import {
   jpaParentIdAnnotations,
   jpaSingleContainmentAnnotations,
   jpaSingleContainmentParentAnnotations,
-  needsHibernateTypes,
 } from "./jpa-annotations.js";
+
+const ARRAY_LIST = javaRef("java.util", "ArrayList");
+const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
+const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
+const SQL_RESTRICTION = javaRef("org.hibernate.annotations", "SQLRestriction");
+const FILTER = javaRef("org.hibernate.annotations", "Filter");
+const FILTER_DEF = javaRef("org.hibernate.annotations", "FilterDef");
+const AUDITING_ENTITY_LISTENER = javaRef(
+  "org.springframework.data.jpa.domain.support",
+  "AuditingEntityListener",
+);
 
 /** True for a field type that is a collection of references
  * (`Id<T>[]`) — persisted via a join table, not a column. */
@@ -265,66 +273,13 @@ export function renderJavaEntity(
     // `List.of()` would be shorter but is immutable, and Hibernate manages
     // these fields after construction — an `@ElementCollection` it tries to
     // add into would throw `UnsupportedOperationException` at flush.
-    if (omission.kind === "empty-collection") {
-      javaImports.add("java.util.ArrayList");
-      return "new ArrayList<>()";
-    }
+    if (omission.kind === "empty-collection") return `new ${ARRAY_LIST}<>()`;
     return undefined; // plain optional — already nullable
   };
   const eventSourced = isAgg(entity) && entity.persistedAs === "eventLog";
   const appliers = isAgg(entity) ? (entity.appliers ?? []) : [];
   const esCreate = isAgg(entity) ? entity.creates?.[0] : undefined;
   const hasExtern = operations.some((o) => o.extern);
-
-  const javaImports = new Set<string>(["java.util.List"]);
-  for (const f of entity.fields) {
-    collectJavaTypeImports(f.type, javaImports);
-    // A field DEFAULT is rendered into the `create` factory
-    // (`total != null ? total : new Money(new BigDecimal("0"), "USD")`), so it
-    // pulls imports exactly like a derived expression or an invariant does.
-    // It was the one expression on the entity that nothing scanned — invisible
-    // while the only defaults reaching here were scalars whose rendering needs
-    // no import, and a `cannot find symbol` on `BigDecimal` the moment a
-    // value-object or decimal default did.
-    if (f.default) collectJavaExprImports(f.default, javaImports);
-  }
-  for (const d of entity.derived) {
-    collectJavaExprImports(d.expr, javaImports);
-    collectJavaTypeImports(d.type, javaImports);
-  }
-  for (const fn of entity.functions) {
-    if ("expr" in fn.body) collectJavaExprImports(fn.body.expr, javaImports);
-    else collectJavaStmtImports(fn.body.stmts, javaImports);
-    collectJavaTypeImports(fn.returnType, javaImports);
-    for (const p of fn.params) collectJavaTypeImports(p.type, javaImports);
-  }
-  for (const inv of entity.invariants) {
-    collectJavaExprImports(inv.expr, javaImports);
-    if (inv.guard) collectJavaExprImports(inv.guard, javaImports);
-  }
-  for (const op of operations) {
-    collectJavaStmtImports(op.statements, javaImports);
-    // The `when` state gate renders a predicate at the DOMAIN method entry
-    // (see `whenGate` below) — an expression like any other, so it pulls
-    // `Objects` / `Pattern` / `Instant` exactly like an invariant does.  It was
-    // the one expression on the entity nothing scanned (audit A17).
-    if (op.when) collectJavaExprImports(op.when, javaImports);
-    for (const p of op.params) collectJavaTypeImports(p.type, javaImports);
-    if (op.returnType) collectJavaTypeImports(op.returnType, javaImports);
-  }
-  for (const ap of appliers) collectJavaStmtImports(ap.statements, javaImports);
-  if (esCreate) {
-    collectJavaStmtImports(esCreate.statements, javaImports);
-    for (const p of esCreate.params) collectJavaTypeImports(p.type, javaImports);
-  }
-  // Containment collections + the root's event list need ArrayList.
-  if (
-    isRoot ||
-    entity.contains.some((c) => c.collection) ||
-    entity.fields.some((f) => isRefCollection(f.type))
-  ) {
-    javaImports.add("java.util.ArrayList");
-  }
 
   // Hoist `string.matches("…")` regex literals (invariants / derived / pure
   // expr-functions — the per-create/update hot path) into reusable
@@ -352,7 +307,8 @@ export function renderJavaEntity(
     eventFields: options.eventFields,
     regexFields: regex.fields,
   };
-  const anyOpUsesCurrentUser = operations.some(operationBodyUsesCurrentUser);
+  const userType = javaRef(`${basePkg}.auth`, "User");
+  const currentUserAccessor = javaRef(`${basePkg}.auth`, "CurrentUserAccessor");
   // A body that calls a domain service (`Pricing.quote(...)`) needs the
   // `domain.services.*` import so the generated static class resolves.
   const callsDomainService =
@@ -420,10 +376,7 @@ export function renderJavaEntity(
   const persistence = options.persistence;
   const fieldLines: string[] = [];
   // Hoisted regex patterns first (static finals, compiled once).
-  if (regex.decls.length > 0) {
-    javaImports.add("java.util.regex.Pattern");
-    for (const d of regex.decls) fieldLines.push(`    ${d}`);
-  }
+  for (const d of regex.decls) fieldLines.push(`    ${d}`);
   if (!superType?.sharesIdentity) {
     if (persistence) fieldLines.push(...jpaIdAnnotations());
     fieldLines.push(`    ${idClass} id;`);
@@ -446,7 +399,7 @@ export function renderJavaEntity(
       // drives the value; the @Column keeps the explicit snake_case binding
       // against the Flyway-owned schema (`updatable = false` on create-event
       // columns, which are set once on INSERT).
-      fieldLines.push(`    @${audit.annotation}`);
+      fieldLines.push(`    @${javaRef("org.springframework.data.annotation", audit.annotation)}`);
       if (persistence) {
         fieldLines.push(
           `    @Column(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
@@ -481,7 +434,7 @@ export function renderJavaEntity(
     // repository save (guarded `where version = :expected`) instead.
     if (persistence) fieldLines.push(...jpaFieldAnnotations(f, entity, persistence));
     if (isRefCollection(f.type)) {
-      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)} = new ArrayList<>();`);
+      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)} = new ${ARRAY_LIST}<>();`);
     } else {
       fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
     }
@@ -491,12 +444,12 @@ export function renderJavaEntity(
     // the parts serialize inline (no part table, no relation).
     if (persistence?.embedded) {
       fieldLines.push(
-        `    @JdbcTypeCode(SqlTypes.JSON)`,
+        `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
         `    @Column(name = "${hbIdent(snake(c.name))}", nullable = false)`,
       );
       fieldLines.push(
         c.collection
-          ? `    List<${c.partName}> ${jid(c.name)} = new ArrayList<>();`
+          ? `    List<${c.partName}> ${jid(c.name)} = new ${ARRAY_LIST}<>();`
           : `    ${c.partName} ${jid(c.name)};`,
       );
       continue;
@@ -507,7 +460,7 @@ export function renderJavaEntity(
           ...jpaContainmentAnnotations(persistence.containmentOwnerName ?? entity.name),
         );
       }
-      fieldLines.push(`    List<${c.partName}> ${jid(c.name)} = new ArrayList<>();`);
+      fieldLines.push(`    List<${c.partName}> ${jid(c.name)} = new ${ARRAY_LIST}<>();`);
     } else {
       // Inverse side of the part's hidden owning `_parent` @OneToOne — emitted
       // for the declaring entity whether it's the root or a sibling part (a
@@ -528,19 +481,19 @@ export function renderJavaEntity(
     fieldLines.push("");
     for (const f of provFields) {
       if (persistence) {
-        fieldLines.push(`    @JdbcTypeCode(SqlTypes.JSON)`);
+        fieldLines.push(`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`);
         fieldLines.push(`    @Column(name = "${snake(f.name)}_provenance")`);
       }
       fieldLines.push(`    ProvLineage ${jid(f.name)}Provenance;`);
     }
     fieldLines.push(
-      `    private final transient List<ProvLineage> _provTraces = new ArrayList<>();`,
+      `    private final transient List<ProvLineage> _provTraces = new ${ARRAY_LIST}<>();`,
     );
   }
   if (isRoot) {
     fieldLines.push("");
     fieldLines.push(
-      `    private final transient List<DomainEvent> _domainEvents = new ArrayList<>();`,
+      `    private final transient List<DomainEvent> _domainEvents = new ${ARRAY_LIST}<>();`,
     );
   }
 
@@ -634,7 +587,9 @@ export function renderJavaEntity(
     // (op-gates.ts) — the entity renders only what remains.
     const opBody = operationBody(op);
     const baseParams = op.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
-    const params = [baseParams, usesUser ? "User currentUser" : ""].filter(Boolean).join(", ");
+    const params = [baseParams, usesUser ? `${userType} currentUser` : ""]
+      .filter(Boolean)
+      .join(", ");
     const traceCtx = {
       emitTrace,
       aggregate: entity.name,
@@ -999,7 +954,7 @@ export function renderJavaEntity(
     claimStampHookLines.push(
       ...(plainStampHooks ? [] : [`    @PrePersist`]),
       `    void _stampOnCreate() {`,
-      `        var currentUser = CurrentUserAccessor.currentOrNull();`,
+      `        var currentUser = ${currentUserAccessor}.currentOrNull();`,
       `        if (currentUser == null) return;`,
       ...claimGuards("create"),
       ...claimStamps.map(claimAssign),
@@ -1010,7 +965,7 @@ export function renderJavaEntity(
       claimStampHookLines.push(
         ...(plainStampHooks ? [] : [`    @PreUpdate`]),
         `    void _stampOnUpdate() {`,
-        `        var currentUser = CurrentUserAccessor.currentOrNull();`,
+        `        var currentUser = ${currentUserAccessor}.currentOrNull();`,
         `        if (currentUser == null) return;`,
         ...claimGuards("update"),
         ...updateClaims.map(claimAssign),
@@ -1038,12 +993,6 @@ export function renderJavaEntity(
   ];
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
 
-  const usesHibernateTypes =
-    persistence &&
-    (needsHibernateTypes(entity.fields) ||
-      provFields.length > 0 ||
-      (persistence.embedded &&
-        (entity.contains.length > 0 || entity.fields.some((f) => isRefCollection(f.type)))));
   // Non-principal capability filters (relational soft-delete et al.) ride
   // Hibernate's @SQLRestriction: one static WHERE fragment appended to every
   // SELECT (the HasQueryFilter analog).  PRINCIPAL (tenancy) filters can't —
@@ -1068,7 +1017,7 @@ export function renderJavaEntity(
   // the EF adapter's discriminator-guarded root filter).
   const sqlRestriction =
     persistence && contextFilters.length > 0 && !superType?.sharesIdentity
-      ? `@SQLRestriction(${JSON.stringify(contextFilters.map(renderSqlRestriction).join(" and "))})`
+      ? `@${SQL_RESTRICTION}(${JSON.stringify(contextFilters.map(renderSqlRestriction).join(" and "))})`
       : null;
   // Promoted capabilities → bypassable Hibernate named filters.  `autoEnabled`
   // reproduces @SQLRestriction's always-on semantics with no interceptor;
@@ -1082,34 +1031,19 @@ export function renderJavaEntity(
   const filterAnnotations: string[] = [];
   for (const p of promoted) {
     filterDefAnnotations.push(
-      `@FilterDef(name = ${JSON.stringify(p.cap)}, autoEnabled = true, applyToLoadByKey = true)`,
+      `@${FILTER_DEF}(name = ${JSON.stringify(p.cap)}, autoEnabled = true, applyToLoadByKey = true)`,
     );
     filterAnnotations.push(
-      `@Filter(name = ${JSON.stringify(p.cap)}, condition = ${JSON.stringify(p.condition)})`,
+      `@${FILTER}(name = ${JSON.stringify(p.cap)}, condition = ${JSON.stringify(p.condition)})`,
     );
   }
-  const hasNamedFilters = promoted.length > 0;
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
+    `import java.util.List;`,
     ``,
+    // An on-demand import — the JPA annotations stay simple-named under it.
     persistence ? `import jakarta.persistence.*;` : null,
-    usesHibernateTypes ? `import org.hibernate.annotations.JdbcTypeCode;` : null,
-    sqlRestriction ? `import org.hibernate.annotations.SQLRestriction;` : null,
-    hasNamedFilters ? `import org.hibernate.annotations.Filter;` : null,
-    hasNamedFilters ? `import org.hibernate.annotations.FilterDef;` : null,
-    usesHibernateTypes ? `import org.hibernate.type.SqlTypes;` : null,
-    // Spring Data JPA auditing: the @Created*/@LastModified* field annotations
-    // + the listener that fills them at persist time (§5b).
-    ...(isAuditable
-      ? [
-          ...[...new Set([...auditAnnotationFor.values()].map((a) => a.annotation))]
-            .sort()
-            .map((a) => `import org.springframework.data.annotation.${a};`),
-          `import org.springframework.data.jpa.domain.support.AuditingEntityListener;`,
-        ]
-      : []),
     persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
@@ -1117,11 +1051,6 @@ export function renderJavaEntity(
     `import ${basePkg}.domain.ids.*;`,
     `import ${basePkg}.domain.valueobjects.*;`,
     callsDomainService ? `import ${basePkg}.domain.services.*;` : null,
-    anyOpUsesCurrentUser ? `import ${basePkg}.auth.User;` : null,
-    // Claim-valued stamps read the ambient principal statically off the
-    // request-scoped holder (the same one the SpEL principal filter uses).
-    claimStampHookLines.length > 0 ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
-    superType?.pkg && superType.pkg !== pkg ? `import ${superType.pkg}.${superType.name};` : null,
     ``,
     // TPH concretes (sharesIdentity) inherit the base's shared @Table —
     // they carry only @Entity + their @DiscriminatorValue (= the kind
@@ -1139,9 +1068,9 @@ export function renderJavaEntity(
     ...filterAnnotations,
     // Compose the auditing listener (it stacks with inheritance — no
     // @MappedSuperclass needed, so it doesn't collide with `extends`).
-    isAuditable ? `@EntityListeners(AuditingEntityListener.class)` : null,
+    isAuditable ? `@EntityListeners(${AUDITING_ENTITY_LISTENER}.class)` : null,
     jmolecules,
-    `public class ${entity.name}${superType ? ` extends ${superType.name}` : ""}${
+    `public class ${entity.name}${superType ? ` extends ${javaRef(superType.pkg ?? pkg, superType.name)}` : ""}${
       isAuditable ? ` implements Auditable` : ""
     } {`,
     ...fieldLines,
@@ -1185,17 +1114,11 @@ export function renderJavaAbstractBaseEntity(
   const subtypeRestrictions = options.tph ? (options.subtypeRestrictions ?? []) : [];
   const hoistedRestriction =
     options.persistence && subtypeRestrictions.length > 0
-      ? `@SQLRestriction(${JSON.stringify(
+      ? `@${SQL_RESTRICTION}(${JSON.stringify(
           subtypeRestrictions.map((r) => `(kind <> '${r.kind}' or (${r.condition}))`).join(" and "),
         )})`
       : null;
   const persistence = options.persistence;
-  const javaImports = new Set<string>();
-  for (const f of base.fields) collectJavaTypeImports(f.type, javaImports);
-  for (const d of base.derived) {
-    collectJavaExprImports(d.expr, javaImports);
-    collectJavaTypeImports(d.type, javaImports);
-  }
   // `protected` — concretes may live in a different package (byLayer)
   // and their factories / operations write through these fields.
   const idLines = options.tph
@@ -1273,14 +1196,8 @@ export function renderJavaAbstractBaseEntity(
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
+    // An on-demand import — the JPA annotations stay simple-named under it.
     persistence ? `import jakarta.persistence.*;` : null,
-    persistence && needsHibernateTypes(base.fields)
-      ? `import org.hibernate.annotations.JdbcTypeCode;`
-      : null,
-    hoistedRestriction ? `import org.hibernate.annotations.SQLRestriction;` : null,
-    persistence && needsHibernateTypes(base.fields) ? `import org.hibernate.type.SqlTypes;` : null,
     persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,

@@ -1,6 +1,7 @@
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { lines } from "../../../util/code-builder.js";
+import { J } from "../java-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Per-operation audit runtime — Java / Spring counterpart of the Hono
@@ -176,8 +177,6 @@ export function renderAuditRecordRepository(basePkg: string, withHistory = false
   return lines(
     `package ${basePkg}.infrastructure.persistence;`,
     ``,
-    withHistory ? `import java.util.List;` : null,
-    withHistory ? `` : null,
     `import org.springframework.data.jpa.repository.JpaRepository;`,
     ``,
     `/** The append-only audit history port.  The application service persists`,
@@ -187,7 +186,7 @@ export function renderAuditRecordRepository(basePkg: string, withHistory = false
     ...(withHistory
       ? [
           `    /** One entity's trail, oldest first (\`GET /<agg>/{id}/history\`). */`,
-          `    List<AuditRecord> findByTargetTypeAndTargetIdOrderByAtAsc(String targetType, String targetId);`,
+          `    ${J.List}<AuditRecord> findByTargetTypeAndTargetIdOrderByAtAsc(String targetType, String targetId);`,
         ]
       : []),
     `}`,

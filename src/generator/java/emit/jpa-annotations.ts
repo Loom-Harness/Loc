@@ -7,8 +7,12 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
 import { hbIdent } from "../sql-ident.js";
+
+const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
+const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
 
 // ---------------------------------------------------------------------------
 // JPA annotation lines for the generated domain classes.  The mapping is
@@ -165,7 +169,7 @@ export function jpaFieldAnnotations(
       // FormatMapper serialises `["v1","v2"]` — the cross-backend jsonb shape.
       return [
         `    @Convert(converter = ${assoc.targetAgg}IdJsonListConverter.class)`,
-        `    @JdbcTypeCode(SqlTypes.JSON)`,
+        `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
         `    @Column(name = "${hbIdent(col)}"${f.optional ? "" : ", nullable = false"})`,
       ];
     }
@@ -198,7 +202,7 @@ export function jpaFieldAnnotations(
 
   // Primitive / enum array → a native Postgres array column.
   if (t.kind === "array") {
-    return [`    @JdbcTypeCode(SqlTypes.ARRAY)`, `    @Column(name = "${hbIdent(col)}")`];
+    return [`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.ARRAY)`, `    @Column(name = "${hbIdent(col)}")`];
   }
 
   // `X id` reference → embedded id record over one column.
@@ -230,7 +234,7 @@ export function jpaFieldAnnotations(
   if (t.kind === "primitive" && (t.name === "json" || t.name === "File")) {
     // A `File` field's FileRef persists as jsonb, exactly like `json` (M-T1.2);
     // Hibernate maps the `FileRef` record ⇄ JSON via @JdbcTypeCode.
-    return [`    @JdbcTypeCode(SqlTypes.JSON)`, `    @Column(name = "${hbIdent(col)}")`];
+    return [`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`, `    @Column(name = "${hbIdent(col)}")`];
   }
 
   // Scalars (string / int / long / decimal / money / bool / datetime / guid).
@@ -243,14 +247,4 @@ function associationFor(
 ): AssociationIR | undefined {
   const withAssocs = owner as Partial<EnrichedAggregateIR>;
   return withAssocs.associations?.find((a) => a.fieldName === fieldName);
-}
-
-/** True when any stored field needs the Hibernate type annotations
- *  (`@JdbcTypeCode` / `SqlTypes`) — json columns and primitive arrays. */
-export function needsHibernateTypes(fields: readonly FieldIR[]): boolean {
-  return fields.some((f) => {
-    const t = unwrap(f.type);
-    if (t.kind === "primitive" && (t.name === "json" || t.name === "File")) return true;
-    return t.kind === "array" && t.element.kind !== "id" && t.element.kind !== "valueobject";
-  });
 }

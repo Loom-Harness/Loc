@@ -13,6 +13,7 @@ import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
   bypassDrops,
@@ -21,15 +22,36 @@ import {
   wrapWithFilterBypass,
 } from "../capability-filter.js";
 import { isMangled, jid } from "../java-ident.js";
-import {
-  boxedJavaType,
-  collectJavaExprImports,
-  collectJavaTypeImports,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { J } from "../java-symbols.js";
+import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
 import { javaNotFoundThrow } from "./common.js";
+
+const OPTIONAL = javaRef("java.util", "Optional");
+const COMPARATOR = javaRef("java.util", "Comparator");
+const PAGE = javaRef("org.springframework.data.domain", "Page");
+const PAGEABLE = javaRef("org.springframework.data.domain", "Pageable");
+const PAGE_REQUEST = javaRef("org.springframework.data.domain", "PageRequest");
+const SORT = javaRef("org.springframework.data.domain", "Sort");
+const QUERY = javaRef("org.springframework.data.jpa.repository", "Query");
+const MODIFYING = javaRef("org.springframework.data.jpa.repository", "Modifying");
+const JPA_SPECIFICATION_EXECUTOR = javaRef(
+  "org.springframework.data.jpa.repository",
+  "JpaSpecificationExecutor",
+);
+const PARAM = javaRef("org.springframework.data.repository.query", "Param");
+const ENTITY_MANAGER = javaRef("jakarta.persistence", "EntityManager");
+const PERSISTENCE_CONTEXT = javaRef("jakarta.persistence", "PersistenceContext");
+const TRANSACTIONAL = javaRef("org.springframework.transaction.annotation", "Transactional");
+const OPTIMISTIC_LOCK_FAILURE = javaRef(
+  "org.springframework.orm",
+  "ObjectOptimisticLockingFailureException",
+);
+
+/** The cross-backend `Paged<T>` carrier (`domain.common`). */
+function pagedRef(basePkg: string): string {
+  return javaRef(`${basePkg}.domain.common`, "Paged");
+}
 
 // ---------------------------------------------------------------------------
 // Repository emission — three artifacts per aggregate:
@@ -85,9 +107,11 @@ const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name))
 
 /** `Sort.by(Sort.Order.asc("a.b"), …)` for the Specification path. */
 function springSort(sort: readonly SortTermIR[]): string {
-  if (sort.length === 0) return "Sort.unsorted()";
-  const orders = sort.map((t) => `Sort.Order.${t.direction}(${JSON.stringify(dottedSortPath(t))})`);
-  return `Sort.by(${orders.join(", ")})`;
+  if (sort.length === 0) return `${SORT}.unsorted()`;
+  const orders = sort.map(
+    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(dottedSortPath(t))})`,
+  );
+  return `${SORT}.by(${orders.join(", ")})`;
 }
 
 /** ` order by e.a.b asc, …` for the JPQL path. */
@@ -108,7 +132,7 @@ function inMemorySortKey(t: SortTermIR): string {
 function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | null {
   if (sort.length === 0) return null;
   const term = (t: SortTermIR): string => {
-    const base = `Comparator.<${agg}, Comparable>comparing(${inMemorySortKey(t)})`;
+    const base = `${COMPARATOR}.<${agg}, Comparable>comparing(${inMemorySortKey(t)})`;
     return t.direction === "desc" ? `${base}.reversed()` : base;
   };
   return sort
@@ -123,12 +147,11 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | 
  *  Java expression renderer, applies the `sort:` as a `Comparator`, and —
  *  for the paged overload — offset/limits the result (null offset → 0,
  *  null limit → unbounded).  The .NET document/event repos take the same
- *  hydrate-then-filter shape.  Returns the method lines plus the extra
- *  imports they need (`java.util.Comparator` when any retrieval sorts). */
+ *  hydrate-then-filter shape.  Returns the method lines (their types —
+ *  `Comparator` for a sorted retrieval — are referenced as markers). */
 export function inMemoryRetrievalLines(
   agg: EnrichedAggregateIR,
   retrievals: readonly RetrievalIR[],
-  exprImports: Set<string>,
   /** §11.6: the promoted-cap `.filter(...)` clause to re-apply for a retrieval's
    *  `run<Name>` (minus the caps the retrieval's inline `Repo.run` call-sites
    *  `ignoring`).  `findAll()` applies only the always-on caps here, so a
@@ -147,13 +170,8 @@ export function inMemoryRetrievalLines(
   preludeFor?: (retrievalName: string) => readonly string[],
 ): string[] {
   if (retrievals.length === 0) return [];
-  if (retrievals.some((r) => r.sort.length > 0)) exprImports.add("java.util.Comparator");
   return retrievals.flatMap((r) => {
-    const declared = r.params.map((p) => {
-      collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
-    });
-    collectJavaExprImports(r.where, exprImports);
+    const declared = r.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`);
     const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
     const cmp = inMemoryComparator(r.sort, agg.name);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
@@ -164,13 +182,13 @@ export function inMemoryRetrievalLines(
     const pagedParams = [bareParams, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${bareParams}) {`,
+      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${bareParams}) {`,
       ...prelude,
       `        return ${sorted}.toList();`,
       `    }`,
       ``,
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
       ...prelude,
       `        return ${sorted}`,
       `            .skip(offset == null ? 0L : offset.longValue())`,
@@ -262,25 +280,21 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
 /** Finds keep their DSL name; a find returning `T[]` → `List<T>`,
  *  a single `T` → `T` (nullable); `T paged` → `Paged<T>` with trailing
  *  `int page, int pageSize` parameters (1-based, cross-backend). */
-function findSignature(find: FindIR, imports: Set<string>): string {
+function findSignature(find: FindIR, basePkg: string): string {
   const params = [
-    ...find.params.map((p) => {
-      collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
-    }),
+    ...find.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
-  const ret = findReturn(find.returnType, imports);
+  const ret = findReturn(find.returnType, basePkg);
   return `${ret} ${jid(find.name)}(${params})`;
 }
 
-function findReturn(t: TypeIR, imports: Set<string>): string {
+function findReturn(t: TypeIR, basePkg: string): string {
   if (t.kind === "array") {
-    imports.add("java.util.List");
-    return `List<${boxedJavaType(t.element)}>`;
+    return `${J.List}<${boxedJavaType(t.element)}>`;
   }
   if (t.kind === "genericInstance" && t.ctor === "paged") {
-    return `Paged<${boxedJavaType(t.arg)}>`;
+    return `${pagedRef(basePkg)}<${boxedJavaType(t.arg)}>`;
   }
   // `T envelope` is a SINGLE-ROW find (M-T6.57): the carrier carries no wire
   // shape, so the repository answers the carried `T` — the same signature
@@ -290,8 +304,7 @@ function findReturn(t: TypeIR, imports: Set<string>): string {
   // `OrderResponse.from(...)` was called on it, and `@Query(…) Envelope<Order>`
   // is not a Spring-Data-mappable return in the first place.
   const carried = envelopeReturn(t);
-  if (carried) return findReturn(carried, imports);
-  collectJavaTypeImports(t, imports);
+  if (carried) return findReturn(carried, basePkg);
   return renderJavaType(t);
 }
 
@@ -301,20 +314,14 @@ export function renderJavaRepositoryInterface(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const imports = new Set<string>(["java.util.List", "java.util.Optional"]);
   const findLines = declaredFinds(repo).map(
-    (f) => `    ${findSignature(unionFindAsOptionalTwin(f, agg.name), imports)};`,
+    (f) => `    ${findSignature(unionFindAsOptionalTwin(f, agg.name), ctx.basePkg)};`,
   );
   // Two overloads per retrieval, mirroring .NET's optional call-site
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
   // (either may be null — partial pages are legal in the DSL).
   const retrievalLines = (ctx.retrievals ?? []).flatMap((r) => {
-    const params = r.params
-      .map((p) => {
-        collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
-      })
-      .join(", ");
+    const params = r.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
       `    List<${agg.name}> run${upperFirst(r.name)}(${params});`,
@@ -323,13 +330,12 @@ export function renderJavaRepositoryInterface(
     ];
   });
   const pagedAll = isPagedAutoAll(repo);
-  const anyPaged = declaredFinds(repo).some(isPagedFind) || pagedAll;
   return lines(
     `package ${ctx.domainPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
+    `import java.util.List;`,
+    `import java.util.Optional;`,
     ``,
-    anyPaged ? `import ${ctx.basePkg}.domain.common.Paged;` : null,
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.enums.*;`,
     ``,
@@ -348,7 +354,7 @@ export function renderJavaRepositoryInterface(
     // server-side sorted.  The plain `List findAll()` above stays for the
     // internal retrieval / in-memory readers.
     pagedAll
-      ? `    Paged<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
+      ? `    ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
       : null,
     `    void delete(${agg.name} aggregate);`,
     findLines.length > 0 ? `` : null,
@@ -373,13 +379,9 @@ export function renderJavaSpringDataRepository(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const imports = new Set<string>(["org.springframework.data.jpa.repository.JpaRepository"]);
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
-  if (anyReified) {
-    imports.add("org.springframework.data.jpa.repository.JpaSpecificationExecutor");
-  }
   const enumsPkg = `${ctx.basePkg}.domain.enums`;
   // A principal (tenancy) `filter` (`this.tenantId == currentUser.tenantId`)
   // renders to JPQL with a SpEL accessor for the ambient request principal —
@@ -400,32 +402,27 @@ export function renderJavaSpringDataRepository(
     return combined ? ` where ${combined}` : "";
   };
   const methodLines = finds.flatMap((f) => {
-    if (f.params.length > 0) imports.add("org.springframework.data.repository.query.Param");
-    imports.add("org.springframework.data.jpa.repository.Query");
     const where = jpqlWhere(
       f.filter
         ? renderJpqlWhere(f.filter, { alias: "e", enumsPkg, mode: "jpql-spring-data" })
         : null,
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
-    const declaredParams = f.params.map((p) => {
-      collectJavaTypeImports(p.type, imports);
-      return `@Param("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`;
-    });
+    const declaredParams = f.params.map(
+      (p) => `@${PARAM}("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`,
+    );
     if (isPagedFind(f)) {
       // Spring Data derives the count query from the @Query + Pageable.
-      imports.add("org.springframework.data.domain.Page");
-      imports.add("org.springframework.data.domain.Pageable");
       const arg = f.returnType.kind === "genericInstance" ? f.returnType.arg : f.returnType;
       return [
-        `    @Query("select e from ${agg.name} e${where}")`,
-        `    Page<${boxedJavaType(arg)}> ${jid(f.name)}(${[...declaredParams, "Pageable pageable"].join(", ")});`,
+        `    @${QUERY}("select e from ${agg.name} e${where}")`,
+        `    ${PAGE}<${boxedJavaType(arg)}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
     }
-    const ret = findReturn(f.returnType, imports);
+    const ret = findReturn(f.returnType, ctx.basePkg);
     return [
-      `    @Query("select e from ${agg.name} e${where}")`,
+      `    @${QUERY}("select e from ${agg.name} e${where}")`,
       `    ${ret} ${jid(f.name)}(${declaredParams.join(", ")});`,
       ``,
     ];
@@ -435,27 +432,20 @@ export function renderJavaSpringDataRepository(
   const retrievalLines = retrievals
     .filter((r) => !ctx.isReified?.(r))
     .flatMap((r) => {
-      imports.add("org.springframework.data.jpa.repository.Query");
-      if (r.params.length > 0) imports.add("org.springframework.data.repository.query.Param");
-      imports.add("java.util.List");
       // Trailing Pageable carries the call-site offset/limit page; the
       // impl passes Pageable.unpaged() for the bare run.  The `order by`
       // is baked into the JPQL (an unsorted Pageable leaves it alone).
-      imports.add("org.springframework.data.domain.Pageable");
       const where = jpqlWhere(
         renderJpqlWhere(r.where, { alias: "e", enumsPkg, mode: "jpql-spring-data" }),
         ctx.bypassByRetrieval?.get(r.name),
       );
       const params = r.params
-        .map((p) => {
-          collectJavaTypeImports(p.type, imports);
-          return `@Param("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`;
-        })
+        .map((p) => `@${PARAM}("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`)
         .join(", ");
-      const sigParams = [params, "Pageable pageable"].filter(Boolean).join(", ");
+      const sigParams = [params, `${PAGEABLE} pageable`].filter(Boolean).join(", ");
       return [
-        `    @Query("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort)}")`,
-        `    List<${agg.name}> run${upperFirst(r.name)}(${sigParams});`,
+        `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort)}")`,
+        `    ${J.List}<${agg.name}> run${upperFirst(r.name)}(${sigParams});`,
         ``,
       ];
     });
@@ -465,16 +455,12 @@ export function renderJavaSpringDataRepository(
   // the runtime principal).
   const principalOverrides: string[] = [];
   if (principalClause) {
-    imports.add("org.springframework.data.jpa.repository.Query");
-    imports.add("org.springframework.data.repository.query.Param");
-    imports.add("java.util.List");
-    imports.add("java.util.Optional");
     principalOverrides.push(
-      `    @Query("select e from ${agg.name} e where ${principalClause}")`,
-      `    List<${agg.name}> findAll();`,
+      `    @${QUERY}("select e from ${agg.name} e where ${principalClause}")`,
+      `    ${J.List}<${agg.name}> findAll();`,
       ``,
-      `    @Query("select e from ${agg.name} e where e.id = :id and ${principalClause}")`,
-      `    Optional<${agg.name}> findById(@Param("id") ${idClass} id);`,
+      `    @${QUERY}("select e from ${agg.name} e where e.id = :id and ${principalClause}")`,
+      `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
       ``,
     );
   }
@@ -485,17 +471,14 @@ export function renderJavaSpringDataRepository(
   // may READ but not WRITE reads as empty → 404 (no existence leak).
   const writeOverride: string[] = [];
   if (agg.writeScopeFilter) {
-    imports.add("org.springframework.data.jpa.repository.Query");
-    imports.add("org.springframework.data.repository.query.Param");
-    imports.add("java.util.Optional");
     const writeClause = renderJpqlWhere(agg.writeScopeFilter, {
       alias: "e",
       enumsPkg,
       mode: "jpql-spring-data",
     });
     writeOverride.push(
-      `    @Query("select e from ${agg.name} e where e.id = :id and ${writeClause}")`,
-      `    Optional<${agg.name}> findByIdForWrite(@Param("id") ${idClass} id);`,
+      `    @${QUERY}("select e from ${agg.name} e where e.id = :id and ${writeClause}")`,
+      `    ${OPTIONAL}<${agg.name}> findByIdForWrite(@${PARAM}("id") ${idClass} id);`,
       ``,
     );
   }
@@ -506,13 +489,10 @@ export function renderJavaSpringDataRepository(
   // still subject to the entity's static @SQLRestriction.
   const pagedAllLines: string[] = [];
   if (isPagedAutoAll(repo)) {
-    imports.add("org.springframework.data.domain.Page");
-    imports.add("org.springframework.data.domain.Pageable");
-    imports.add("org.springframework.data.jpa.repository.Query");
     const where = principalClause ? ` where ${principalClause}` : "";
     pagedAllLines.push(
-      `    @Query("select e from ${agg.name} e${where}")`,
-      `    Page<${agg.name}> findAllPaged(Pageable pageable);`,
+      `    @${QUERY}("select e from ${agg.name} e${where}")`,
+      `    ${PAGE}<${agg.name}> findAllPaged(${PAGEABLE} pageable);`,
       ``,
     );
   }
@@ -527,17 +507,14 @@ export function renderJavaSpringDataRepository(
   const versionBump: string[] = [];
   if (aggregateIsVersioned(agg)) {
     const vf = versionFieldName(agg);
-    imports.add("org.springframework.data.jpa.repository.Modifying");
-    imports.add("org.springframework.data.jpa.repository.Query");
-    imports.add("org.springframework.data.repository.query.Param");
     versionBump.push(
       // `flushAutomatically` writes the command's pending field/child changes
       // BEFORE the bump (so they carry the pre-bump version, matching the row);
       // `clearAutomatically = false` keeps the persistence context — the impl
       // reflects the new counter onto the live instance right after.
-      `    @Modifying(flushAutomatically = true, clearAutomatically = false)`,
-      `    @Query("update ${agg.name} e set e.${vf} = e.${vf} + 1 where e.id = :id and e.${vf} = :expected")`,
-      `    int bumpVersion(@Param("id") ${idClass} id, @Param("expected") int expected);`,
+      `    @${MODIFYING}(flushAutomatically = true, clearAutomatically = false)`,
+      `    @${QUERY}("update ${agg.name} e set e.${vf} = e.${vf} + 1 where e.id = :id and e.${vf} = :expected")`,
+      `    int bumpVersion(@${PARAM}("id") ${idClass} id, @${PARAM}("expected") int expected);`,
       ``,
     );
   }
@@ -554,13 +531,12 @@ export function renderJavaSpringDataRepository(
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
+    `import org.springframework.data.jpa.repository.JpaRepository;`,
     ``,
-    ctx.entityPkg !== ctx.infraPkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.enums.*;`,
     ``,
-    `public interface ${agg.name}JpaRepository extends JpaRepository<${agg.name}, ${idClass}>${anyReified ? `, JpaSpecificationExecutor<${agg.name}>` : ""} {`,
+    `public interface ${agg.name}JpaRepository extends JpaRepository<${javaRef(ctx.entityPkg, agg.name)}, ${idClass}>${anyReified ? `, ${JPA_SPECIFICATION_EXECUTOR}<${agg.name}>` : ""} {`,
     ...allMethodLines,
     `}`,
     ``,
@@ -607,10 +583,15 @@ export function renderJavaRepositoryImpl(
   ctx: JavaRepoCtx,
   idClass: string,
 ): string {
-  const imports = new Set<string>(["java.util.List", "java.util.Optional"]);
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
+  // Same-package types (the default layouts) resolve without an import line.
+  const persistencePkg = ctx.persistencePkg ?? ctx.infraPkg;
+  const criteria = javaRef(ctx.criteriaPkg ?? ctx.infraPkg, `${agg.name}Criteria`);
+  const offsetLimitPageRequest = javaRef(persistencePkg, "OffsetLimitPageRequest");
+  const accessorType = javaRef(`${ctx.basePkg}.auth`, "CurrentUserAccessor");
+  const requestContext = javaRef(`${ctx.basePkg}.config`, "RequestContext");
   // A reified retrieval reads via JpaSpecificationExecutor.findAll(spec), which
   // bypasses the scoped findAll/findById @Query overrides — so a PRINCIPAL
   // (tenancy) filter must be AND-ed in as a `tenantScope(User)` Specification,
@@ -641,7 +622,7 @@ export function renderJavaRepositoryImpl(
     });
   const tenantScopeAndFor = (bypass: FilterBypass | undefined): string =>
     injectAccessor && !dropsEveryPrincipalCap(bypass)
-      ? `.and(${agg.name}Criteria.tenantScope(currentUserAccessor.user()))`
+      ? `.and(${criteria}.tenantScope(currentUserAccessor.user()))`
       : "";
   // §11.6 selective bypass: a find / retrieval read that `ignoring`s a
   // PROMOTED capability runs with that cap's Hibernate named @Filter DISABLED.
@@ -658,12 +639,7 @@ export function renderJavaRepositoryImpl(
   };
   const retrievalDelegates = retrievals.flatMap((r) => {
     const retrievalBypass = ctx.bypassByRetrieval?.get(r.name);
-    const params = r.params
-      .map((p) => {
-        collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
-      })
-      .join(", ");
+    const params = r.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     const bareArgs = r.params.map((p) => p.name).join(", ");
     if (ctx.isReified?.(r) && r.criterionRef) {
@@ -672,12 +648,8 @@ export function renderJavaRepositoryImpl(
       // @Query overrides don't apply, so a principal (tenancy) filter is AND-ed
       // in via `<Agg>Criteria.tenantScope(currentUserAccessor.user())`
       // (`tenantScopeAnd`).  The non-reified path below is scoped via `jpqlWhere`.
-      imports.add("org.springframework.data.domain.Sort");
-      const args = r.criterionRef.args.map((a) => {
-        collectJavaExprImports(a, imports);
-        return renderJavaExpr(a);
-      });
-      const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
+      const args = r.criterionRef.args.map((a) => renderJavaExpr(a));
+      const spec = `${criteria}.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
       return [
         `    @Override`,
         `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
@@ -689,27 +661,25 @@ export function renderJavaRepositoryImpl(
         `    @Override`,
         `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
         ...wrapBypass(retrievalBypass, [
-          `        return jpa.findAll(${spec}, new OffsetLimitPageRequest(offset, limit, ${springSort(r.sort)})).getContent();`,
+          `        return jpa.findAll(${spec}, new ${offsetLimitPageRequest}(offset, limit, ${springSort(r.sort)})).getContent();`,
         ]),
         `    }`,
         ``,
       ];
     }
-    imports.add("org.springframework.data.domain.Pageable");
-    imports.add("org.springframework.data.domain.Sort");
     const jpaArgs = (pageable: string): string => [bareArgs, pageable].filter(Boolean).join(", ");
     return [
       `    @Override`,
       `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
       ...wrapBypass(retrievalBypass, [
-        `        return jpa.run${upperFirst(r.name)}(${jpaArgs("Pageable.unpaged()")});`,
+        `        return jpa.run${upperFirst(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)});`,
       ]),
       `    }`,
       ``,
       `    @Override`,
       `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
       ...wrapBypass(retrievalBypass, [
-        `        return jpa.run${upperFirst(r.name)}(${jpaArgs("new OffsetLimitPageRequest(offset, limit, Sort.unsorted())")});`,
+        `        return jpa.run${upperFirst(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)});`,
       ]),
       `    }`,
       ``,
@@ -722,14 +692,12 @@ export function renderJavaRepositoryImpl(
   const findExecutedLog = (f: FindIR, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${f.name}", "rows", ${rowsExpr});`;
   const delegateLines = finds.flatMap((f) => {
-    const sig = findSignature(f, imports);
+    const sig = findSignature(f, ctx.basePkg);
     const findBypass: FilterBypass = { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps };
     if (isPagedFind(f)) {
-      imports.add("org.springframework.data.domain.PageRequest");
-      imports.add("org.springframework.data.domain.Sort");
       const args = [
         ...f.params.map((p) => jid(p.name)),
-        "PageRequest.of(page - 1, pageSize, __sort)",
+        `${PAGE_REQUEST}.of(page - 1, pageSize, __sort)`,
       ].join(", ");
       // Server-side sort (M-T2.6): whitelist the wire key against the sortable
       // columns (unknown → `id`, the stable default) so the derived query can't
@@ -743,7 +711,7 @@ export function renderJavaRepositoryImpl(
         ...wrapBypass(findBypass, [
           `        String __sortField = java.util.List.of(${sortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
+          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
           `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
@@ -772,77 +740,52 @@ export function renderJavaRepositoryImpl(
   // tenancy), the provenance-records repo, and (§11.6) the EntityManager when a
   // read bypasses a promoted @Filter (the impl unwraps it to a Hibernate Session
   // to disableFilter/enableFilter).
-  if (needsEntityManager) imports.add("jakarta.persistence.EntityManager");
-  if (needsEntityManager) imports.add("jakarta.persistence.PersistenceContext");
   const pagedAll = isPagedAutoAll(repo);
   const pagedAllSortWhitelist = pagedAll
     ? sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
         .join(", ")
     : "";
-  if (pagedAll) {
-    imports.add("org.springframework.data.domain.PageRequest");
-    imports.add("org.springframework.data.domain.Sort");
-  }
   const ctorParams = [`${agg.name}JpaRepository jpa`];
   const ctorAssigns = [`        this.jpa = jpa;`];
   if (injectAccessor) {
-    ctorParams.push("CurrentUserAccessor currentUserAccessor");
+    ctorParams.push(`${accessorType} currentUserAccessor`);
     ctorAssigns.push("        this.currentUserAccessor = currentUserAccessor;");
   }
   if (provenance) {
-    ctorParams.push("ProvenanceRecordRepository provenanceRecords");
+    ctorParams.push(`${javaRef(persistencePkg, "ProvenanceRecordRepository")} provenanceRecords`);
     ctorAssigns.push("        this.provenanceRecords = provenanceRecords;");
   }
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
+    `import java.util.List;`,
+    `import java.util.Optional;`,
     ``,
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
-    ctx.entityPkg !== ctx.infraPkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
-    ctx.domainPkg !== ctx.infraPkg ? `import ${ctx.domainPkg}.${agg.name}Repository;` : null,
     `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;`,
-    finds.some(isPagedFind) || pagedAll ? `import ${ctx.basePkg}.domain.common.Paged;` : null,
-    anyReified && ctx.criteriaPkg && ctx.criteriaPkg !== ctx.infraPkg
-      ? `import ${ctx.criteriaPkg}.${agg.name}Criteria;`
-      : null,
-    injectAccessor ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
-    provenance ? `import java.time.Instant;` : null,
-    provenance || versioned
-      ? `import org.springframework.transaction.annotation.Transactional;`
-      : null,
-    versioned ? `import org.springframework.orm.ObjectOptimisticLockingFailureException;` : null,
-    retrievals.length > 0 && ctx.persistencePkg && ctx.persistencePkg !== ctx.infraPkg
-      ? `import ${ctx.persistencePkg}.OffsetLimitPageRequest;`
-      : null,
-    provenance && ctx.persistencePkg && ctx.persistencePkg !== ctx.infraPkg
-      ? `import ${ctx.persistencePkg}.ProvenanceRecord;`
-      : null,
-    provenance && ctx.persistencePkg && ctx.persistencePkg !== ctx.infraPkg
-      ? `import ${ctx.persistencePkg}.ProvenanceRecordRepository;`
-      : null,
-    provenance ? `import ${ctx.basePkg}.config.RequestContext;` : null,
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.enums.*;`,
     ``,
     `@Repository`,
-    `public class ${agg.name}RepositoryImpl implements ${agg.name}Repository {`,
+    `public class ${agg.name}RepositoryImpl implements ${javaRef(ctx.domainPkg, `${agg.name}Repository`)} {`,
     `    private final ${agg.name}JpaRepository jpa;`,
-    injectAccessor ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
-    provenance ? `    private final ProvenanceRecordRepository provenanceRecords;` : null,
-    needsEntityManager ? `    @PersistenceContext` : null,
-    needsEntityManager ? `    private EntityManager em;` : null,
+    injectAccessor ? `    private final ${accessorType} currentUserAccessor;` : null,
+    provenance
+      ? `    private final ${javaRef(persistencePkg, "ProvenanceRecordRepository")} provenanceRecords;`
+      : null,
+    needsEntityManager ? `    @${PERSISTENCE_CONTEXT}` : null,
+    needsEntityManager ? `    private ${ENTITY_MANAGER} em;` : null,
     ``,
     `    public ${agg.name}RepositoryImpl(${ctorParams.join(", ")}) {`,
     ...ctorAssigns,
     `    }`,
     ``,
-    provenance || versioned ? `    @Transactional` : null,
+    provenance || versioned ? `    @${TRANSACTIONAL}` : null,
     `    @Override`,
-    `    public ${agg.name} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
     // Optimistic concurrency (`versioned`): the counter is COMMAND-driven, not
     // Hibernate-dirtiness-driven (RS-20).  Every persisted command bumps it
     // exactly once — including one that only mutates a contained child, and one
@@ -859,7 +802,7 @@ export function renderJavaRepositoryImpl(
           `        if (jpa.bumpVersion(aggregate.id(), __expectedVersion) == 1) {`,
           `            aggregate._applyVersion(__expectedVersion + 1);`,
           `        } else if (jpa.existsById(aggregate.id())) {`,
-          `            throw new ObjectOptimisticLockingFailureException(${agg.name}.class, aggregate.id().value());`,
+          `            throw new ${OPTIMISTIC_LOCK_FAILURE}(${agg.name}.class, aggregate.id().value());`,
           `        }`,
         ]
       : []),
@@ -870,10 +813,10 @@ export function renderJavaRepositoryImpl(
     // Java mirror of the Hono/.NET transactional `drainProv()` insert).
     ...(provenance
       ? [
-          `        var __now = Instant.now();`,
+          `        var __now = ${J.Instant}.now();`,
           `        var __prov = aggregate.drainProv();`,
           `        for (var __lin : __prov) {`,
-          `            provenanceRecords.save(new ProvenanceRecord(`,
+          `            provenanceRecords.save(new ${javaRef(persistencePkg, "ProvenanceRecord")}(`,
           `                java.util.UUID.randomUUID().toString(),`,
           `                __lin.snapshotId(),`,
           `                __lin.target().type(),`,
@@ -881,10 +824,10 @@ export function renderJavaRepositoryImpl(
           `                __lin.inputs(),`,
           `                __lin.computedValue(),`,
           `                __now,`,
-          `                RequestContext.correlationId(),`,
-          `                RequestContext.scopeId(),`,
-          `                RequestContext.actorId(),`,
-          `                RequestContext.parentId()));`,
+          `                ${requestContext}.correlationId(),`,
+          `                ${requestContext}.scopeId(),`,
+          `                ${requestContext}.actorId(),`,
+          `                ${requestContext}.parentId()));`,
           `        }`,
           `        if (!__prov.isEmpty()) {`,
           `            CatalogLog.event(${javaLogEvent("provenanceRecorded")}, "aggregate", "${agg.name}", "count", __prov.size());`,
@@ -929,11 +872,11 @@ export function renderJavaRepositoryImpl(
     ...(pagedAll
       ? [
           `    @Override`,
-          `    public Paged<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
+          `    public ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
-          `        var result = jpa.findAllPaged(PageRequest.of(page - 1, pageSize, __sort));`,
+          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
+          `        var result = jpa.findAllPaged(${PAGE_REQUEST}.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
           `    }`,

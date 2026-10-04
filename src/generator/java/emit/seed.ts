@@ -6,6 +6,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
   type Entry,
@@ -15,7 +16,9 @@ import {
   usedAggregates,
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
-import { collectJavaExprImports, renderJavaExpr } from "../render-expr.js";
+import { renderJavaExpr } from "../render-expr.js";
+
+const INSTANT = javaRef("java.time", "Instant");
 
 // ---------------------------------------------------------------------------
 // First-boot database seeding (database-seeding.md) — one
@@ -58,27 +61,25 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
   // javac "cannot be applied") — this is what fixes it.
   const aggByName = seederAggregates(ctx);
 
-  const imports = new Set<string>();
   const fnBlocks: string[] = [];
   const callLines: string[] = [];
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => aggByName.has(e.row.aggregate));
     if (entries.length === 0) continue;
-    fnBlocks.push(...renderDatasetFn(ds.name, entries, aggByName, sctx, imports));
+    fnBlocks.push(...renderDatasetFn(ds.name, entries, aggByName, sctx));
     callLines.push(`        seed${upperFirst(ds.name)}(requested);`);
   }
   if (callLines.length === 0) return null;
 
   const repoFields = usedAggregates(datasets, new Set(aggByName.keys()));
+  const repoType = (a: string): string => javaRef(sctx.repoPkgOf(a), `${a}Repository`);
   const ctorParams = [
     "JdbcTemplate jdbc",
-    ...repoFields.map((a) => `${a}Repository ${repoField(a)}`),
+    ...repoFields.map((a) => `${repoType(a)} ${repoField(a)}`),
   ].join(", ");
   return lines(
     `package ${sctx.pkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
-    imports.size > 0 ? `` : null,
     `import java.util.HashSet;`,
     `import java.util.Set;`,
     ``,
@@ -87,14 +88,6 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     `import org.springframework.jdbc.core.JdbcTemplate;`,
     `import org.springframework.stereotype.Component;`,
     ``,
-    ...repoFields.flatMap((a) => {
-      const entityPkg = sctx.entityPkgOf(a);
-      const repoPkg = sctx.repoPkgOf(a);
-      return [
-        entityPkg !== sctx.pkg ? `import ${entityPkg}.${a};` : null,
-        repoPkg !== sctx.pkg ? `import ${repoPkg}.${a}Repository;` : null,
-      ].filter((l): l is string => l !== null);
-    }),
     `import ${sctx.basePkg}.domain.enums.*;`,
     `import ${sctx.basePkg}.domain.ids.*;`,
     `import ${sctx.basePkg}.domain.valueobjects.*;`,
@@ -106,7 +99,7 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     `@Component`,
     `public class ${ctx.name}SeedRunner implements ApplicationRunner {`,
     `    private final JdbcTemplate jdbc;`,
-    ...repoFields.map((a) => `    private final ${a}Repository ${repoField(a)};`),
+    ...repoFields.map((a) => `    private final ${repoType(a)} ${repoField(a)};`),
     ``,
     `    public ${ctx.name}SeedRunner(${ctorParams}) {`,
     `        this.jdbc = jdbc;`,
@@ -146,7 +139,6 @@ function renderDatasetFn(
   entries: Entry[],
   aggByName: Map<string, SeederAggregate>,
   sctx: SeedCtx,
-  imports: Set<string>,
 ): string[] {
   const rowLines = entries.map((e) => {
     if (e.raw) {
@@ -158,7 +150,8 @@ function renderDatasetFn(
       return `        jdbc.execute(${JSON.stringify(sql)});`;
     }
     const agg = aggByName.get(e.row.aggregate)!;
-    return `        ${repoField(e.row.aggregate)}.save(${e.row.aggregate}.create(${renderArgs(e.row, agg, imports)}));`;
+    const entity = javaRef(sctx.entityPkgOf(e.row.aggregate), e.row.aggregate);
+    return `        ${repoField(e.row.aggregate)}.save(${entity}.create(${renderArgs(e.row, agg)}));`;
   });
   return [
     `    private void seed${upperFirst(dataset)}(Set<String> requested) {`,
@@ -182,14 +175,13 @@ function renderDatasetFn(
  *  than the `create` factory's own params: `Account.create("seeded-alice",
  *  null)` positionally against `create(String owner)` (javac "cannot be
  *  applied", the wrong-arg-count half of M-T6.52). */
-function renderArgs(row: SeedRowIR, agg: SeederAggregate, imports: Set<string>): string {
+function renderArgs(row: SeedRowIR, agg: SeederAggregate): string {
   const byName = new Map(row.fields.map((f) => [f.name, f.value]));
   return agg.createParams
     .map((p) => {
       const v = byName.get(p.name);
       if (!v) return "null";
-      collectJavaExprImports(v, imports);
-      return renderSeedValue(v, p.type, imports);
+      return renderSeedValue(v, p.type);
     })
     .join(", ");
 }
@@ -197,12 +189,11 @@ function renderArgs(row: SeedRowIR, agg: SeederAggregate, imports: Set<string>):
 /** A provided seed value, coerced where the DSL literal and the Java type
  *  diverge: a STRING literal for a `datetime` field parses to an `Instant`
  *  (the factory takes `Instant`, not the wire string). */
-function renderSeedValue(value: ExprIR, fieldType: TypeIR, imports: Set<string>): string {
+function renderSeedValue(value: ExprIR, fieldType: TypeIR): string {
   let t = fieldType;
   while (t.kind === "optional") t = t.inner;
   if (t.kind === "primitive" && t.name === "datetime" && value.kind === "literal") {
-    imports.add("java.time.Instant");
-    return `Instant.parse(${renderJavaExpr(value)})`;
+    return `${INSTANT}.parse(${renderJavaExpr(value)})`;
   }
   return renderJavaExpr(value);
 }

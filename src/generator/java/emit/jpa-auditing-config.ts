@@ -1,6 +1,12 @@
 import type { FieldIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { javaRef } from "../../_imports/java.js";
+import { J } from "../java-symbols.js";
 import { renderJavaType } from "../render-expr.js";
+
+const OPTIONAL = javaRef("java.util", "Optional");
+const BEAN = javaRef("org.springframework.context.annotation", "Bean");
+const AUDITOR_AWARE = javaRef("org.springframework.data.domain", "AuditorAware");
 
 // ---------------------------------------------------------------------------
 // JpaAuditingConfig — the once-per-app Spring Data JPA auditing wiring
@@ -36,21 +42,14 @@ export function renderJpaAuditingConfig(
   const idField = principalIdField(userFields);
   // The principal id scalar (UUID for `guid`); the AuditorAware<T> type
   // parameter matches the @CreatedBy / @LastModifiedBy field types.
-  const idType = idField ? renderJavaType(idField.type) : "UUID";
+  const idType = idField ? renderJavaType(idField.type) : J.UUID;
   const idAccessor = idField ? idField.name : "id";
-  const needsUuid = withAuditor && idType === "UUID";
+  const accessor = javaRef(`${basePkg}.auth`, "CurrentUserAccessor");
   return lines(
     `package ${basePkg}.config;`,
     ``,
-    withAuditor ? `import java.util.Optional;` : null,
-    needsUuid ? `import java.util.UUID;` : null,
-    withAuditor ? `` : null,
-    withAuditor ? `import org.springframework.context.annotation.Bean;` : null,
     `import org.springframework.context.annotation.Configuration;`,
-    withAuditor ? `import org.springframework.data.domain.AuditorAware;` : null,
     `import org.springframework.data.jpa.repository.config.EnableJpaAuditing;`,
-    withAuditor ? `` : null,
-    withAuditor ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     ``,
     `/** Spring Data JPA auditing wiring (§5d).  @CreatedDate / @LastModifiedDate`,
     withAuditor
@@ -64,9 +63,9 @@ export function renderJpaAuditingConfig(
     `public class JpaAuditingConfig {`,
     ...(withAuditor
       ? [
-          `    @Bean`,
-          `    public AuditorAware<${idType}> auditorProvider(CurrentUserAccessor accessor) {`,
-          `        return () -> Optional.ofNullable(accessor.user()).map(u -> u.${idAccessor}());`,
+          `    @${BEAN}`,
+          `    public ${AUDITOR_AWARE}<${idType}> auditorProvider(${accessor} accessor) {`,
+          `        return () -> ${OPTIONAL}.ofNullable(accessor.user()).map(u -> u.${idAccessor}());`,
           `    }`,
         ]
       : []),

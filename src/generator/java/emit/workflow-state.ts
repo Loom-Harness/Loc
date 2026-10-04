@@ -8,13 +8,9 @@ import { durableEventTypes } from "../../../ir/util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
-import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
+import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
-import {
-  jpaClassAnnotations,
-  jpaFieldAnnotations,
-  needsHibernateTypes,
-} from "./jpa-annotations.js";
+import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 
 // ---------------------------------------------------------------------------
 // Persisted workflow-correlation state (Java / JPA) — the saga-instance row
@@ -96,9 +92,6 @@ export function renderWorkflowStateEntity(
   // touches `associations` — a bare owner satisfies the type.
   const owner = { name: wf.name, associations: [] } as unknown as EnrichedAggregateIR;
 
-  const javaImports = new Set<string>();
-  for (const f of fields) collectJavaTypeImports(f.type, javaImports);
-
   const fieldLines: string[] = [
     `    @EmbeddedId`,
     `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
@@ -165,14 +158,9 @@ export function renderWorkflowStateEntity(
     ...(durable ? [...accessor("String", "lastEventId"), ...setter("String", "lastEventId")] : []),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
-    usesHibernateTypes ? `import org.hibernate.annotations.JdbcTypeCode;` : null,
-    usesHibernateTypes ? `import org.hibernate.type.SqlTypes;` : null,
     `import jakarta.persistence.*;`,
     ``,
     `import ${basePkg}.domain.enums.*;`,
