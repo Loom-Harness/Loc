@@ -147,8 +147,14 @@ export function renderAngularAction(
     hasLoading: false,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
-    // Action button's visible text (the humanised op) is its accessible name.
-    a11yAttr: "",
+    // Action button's visible text (the humanised op) is its accessible name;
+    // a `when`-gated op adds the disabled reason as its title.
+    a11yAttr: gate
+      ? ctx.target.renderAttrBinding(
+          "attr.title",
+          `(${gate.disabledExpr}) ? ${gate.reasonExpr} : null`,
+        )
+      : "",
   });
 
   // Action-button gating (D-AUTH-OIDC, the action-level mirror of the page

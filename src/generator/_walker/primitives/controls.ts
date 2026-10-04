@@ -292,8 +292,14 @@ export function emitAction(
     hasLoading: true,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
-    // Action button's visible text (the humanised op) is its accessible name.
-    a11yAttr: "",
+    // Action button's visible text (the humanised op) is its accessible name;
+    // a `when`-gated op adds the disabled reason as its title.
+    a11yAttr: gate
+      ? ctx.target.renderAttrBinding(
+          "title",
+          `(${gate.disabledExpr}) ? ${gate.reasonExpr} : undefined`,
+        )
+      : "",
   });
   // Action-button gating (D-AUTH-OIDC, the action-level mirror of the page
   // `requires` guard).  On an `auth: ui` frontend, hide the button at runtime

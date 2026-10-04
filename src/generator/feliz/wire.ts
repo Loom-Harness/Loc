@@ -530,7 +530,7 @@ export function canProbeFieldName(aggregate: string, op: string): string {
 
 /** Build the `FelizRead` for the `can_<op>` probe of a `when`-gated op, hosted
  *  by the `Page` case `pageCase` (see `FelizRead.gateProbe`). */
-export function felizCanRead(aggregate: string, op: OperationIR, pageCase: string): FelizRead {
+function felizCanRead(aggregate: string, op: OperationIR, pageCase: string): FelizRead {
   const field = canProbeFieldName(aggregate, op.name);
   return {
     field,
