@@ -110,6 +110,31 @@ describe("reactor binds the system principal (ruling D1)", () => {
     expect(d).toContain("from app.domain.errors import ForbiddenError");
   });
 
+  it("python, hierarchical tenancy: `system_principal()` assigns its User before setting org_path", async () => {
+    // A `tenantRegistry` TREE makes `org_path` a resolved slot, so the factory
+    // builds the User, sets the slot, then returns it.  It rendered
+    // `user User(` — a SyntaxError in every hierarchical python project.
+    const files = await generateSystemFiles(`
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D {
+    context Acc {
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Acc, kind: state, use: primary }
+  deployable api { platform: python, contexts: [Acc], dataSources: [st], port: 3000, auth: required }
+}`);
+    const u = files.get("api/app/auth/user.py") ?? "";
+    expect(u).toContain("    user = User(");
+    expect(u).toContain('    object.__setattr__(user, "org_path", org_path)');
+  });
+
   it("elixir: binds `system_principal/0` and threads it to the gated context fn", async () => {
     const s = await file("elixir", "close_order/start_shipped.ex");
     expect(s).toContain("current_user = ApiWeb.Auth.system_principal()");
