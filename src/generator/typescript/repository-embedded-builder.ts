@@ -18,6 +18,7 @@ import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
+import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import {
   docTypeAlias,
@@ -367,10 +368,24 @@ function embeddedFindMethod(
     const sortCols = sortableFields(agg)
       .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
       .join(", ");
+    // The paged-only locals step aside for a same-named find param.
+    const L = pagedLocalNames(
+      [
+        "offset",
+        "sortColumns",
+        "sortColumn",
+        "orderBy",
+        "countRows",
+        "total",
+        "totalPages",
+        "items",
+      ] as const,
+      findParamBindings(find.params),
+    );
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
-      `    const offset = (page - 1) * pageSize;`,
-      `    const sortColumns: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.offset} = (page - 1) * pageSize;`,
+      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the
@@ -379,15 +394,15 @@ function embeddedFindMethod(
       // it only guards null/undefined, and an inherited member is neither.
       // The route's zod enum is the outer boundary; this is the one that holds
       // for every OTHER caller of the repository.
-      `    const sortColumn = Object.hasOwn(sortColumns, sort) ? sortColumns[sort]! : schema.${tableName}.id;`,
-      `    const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);`,
-      `    const countRows = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
-      `    const total = Number(countRows[0]?.value ?? 0);`,
-      `    const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;`,
-      `    const rows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(orderBy).limit(pageSize).offset(offset);`,
-      `    const items = rows.map(${mapRow});`,
-      `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: total`)}`,
-      `    return { items, page, pageSize, total, totalPages };`,
+      `    const ${L.sortColumn} = Object.hasOwn(${L.sortColumns}, sort) ? ${L.sortColumns}[sort]! : schema.${tableName}.id;`,
+      `    const ${L.orderBy} = dir === "desc" ? desc(${L.sortColumn}) : asc(${L.sortColumn});`,
+      `    const ${L.countRows} = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
+      `    const ${L.total} = Number(${L.countRows}[0]?.value ?? 0);`,
+      `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
+      `    const rows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${L.orderBy}).limit(pageSize).offset(${L.offset});`,
+      `    const ${L.items} = rows.map(${mapRow});`,
+      `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${L.total}`)}`,
+      `    return ${pagedEnvelopeLiteral(L)};`,
       `  }`,
     );
   }

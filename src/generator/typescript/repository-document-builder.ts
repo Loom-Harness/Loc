@@ -27,6 +27,7 @@ import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited } from "./emit/audit-stamp.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
+import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import { renderTsExpr } from "./render-expr.js";
 import type { FilterBypass } from "./repository-find-predicate.js";
@@ -420,9 +421,10 @@ export function pagedReturnType(aggName: string): string {
  *  not match the route built for it). */
 export function inMemoryPagedTailLines(
   agg: EnrichedAggregateIR,
-  matchedVar: string,
+  L: InMemoryPagedLocals,
   findName: string,
 ): string[] {
+  const matchedVar = L.matched;
   const cmpEntries = sortableFields(agg).map((f) => {
     const t = wireFieldsForAggregate(agg).find((w) => w.name === f)?.type;
     const prim = t?.kind === "optional" ? t.inner : t;
@@ -445,16 +447,27 @@ export function inMemoryPagedTailLines(
     return `${JSON.stringify(f)}: (a, b) => (${cmp})`;
   });
   return [
-    `    const __cmps: Record<string, (a: ${agg.name}, b: ${agg.name}) => number> = { ${cmpEntries.join(", ")} };`,
-    `    const __base = __cmps[sort] ?? __cmps["id"]!;`,
-    `    const __cmp = dir === "desc" ? (a: ${agg.name}, b: ${agg.name}) => -__base(a, b) : __base;`,
-    `    const total = ${matchedVar}.length;`,
-    `    const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;`,
-    `    const offset = (page - 1) * pageSize;`,
-    `    const items = [...${matchedVar}].sort(__cmp).slice(offset, offset + pageSize);`,
-    `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${findName}", rows: total`)}`,
-    `    return { items, page, pageSize, total, totalPages };`,
+    `    const ${L.__cmps}: Record<string, (a: ${agg.name}, b: ${agg.name}) => number> = { ${cmpEntries.join(", ")} };`,
+    `    const ${L.__base} = ${L.__cmps}[sort] ?? ${L.__cmps}["id"]!;`,
+    `    const ${L.__cmp} = dir === "desc" ? (a: ${agg.name}, b: ${agg.name}) => -${L.__base}(a, b) : ${L.__base};`,
+    `    const ${L.total} = ${matchedVar}.length;`,
+    `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
+    `    const ${L.offset} = (page - 1) * pageSize;`,
+    `    const ${L.items} = [...${matchedVar}].sort(${L.__cmp}).slice(${L.offset}, ${L.offset} + pageSize);`,
+    `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${findName}", rows: ${L.total}`)}`,
+    `    return ${pagedEnvelopeLiteral(L)};`,
   ];
+}
+
+/** The locals an in-memory paged find declares (the caller's `matched` list
+ *  plus {@link inMemoryPagedTailLines}' own), renamed off any same-named find
+ *  param — see `paged-locals.ts`. */
+export type InMemoryPagedLocals = ReturnType<typeof inMemoryPagedLocals>;
+export function inMemoryPagedLocals(params: readonly { name: string }[]) {
+  return pagedLocalNames(
+    ["matched", "__cmps", "__base", "__cmp", "total", "totalPages", "offset", "items"] as const,
+    findParamBindings(params),
+  );
 }
 
 function documentFindMethod(
@@ -514,11 +527,12 @@ function documentFindMethod(
   if (pagedReturn(find.returnType)) {
     const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
     const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+    const L = inMemoryPagedLocals(find.params);
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       ...loadLines,
-      `    const matched = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-      ...inMemoryPagedTailLines(agg, "matched", find.name),
+      `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
+      ...inMemoryPagedTailLines(agg, L, find.name),
       `  }`,
     );
   }
