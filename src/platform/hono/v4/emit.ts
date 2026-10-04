@@ -2102,7 +2102,10 @@ COPY --from=build /app/db/migrations ./db/migrations
 
 /** The generated Dockerfile; `copyMigrations` mirrors `hasMigrations`. */
 function renderDockerfileTs(copyMigrations: boolean): string {
-  return DOCKERFILE_TS_TEMPLATE.replace("__MIGRATIONS_COPY__", copyMigrations ? MIGRATIONS_COPY : "");
+  return DOCKERFILE_TS_TEMPLATE.replace(
+    "__MIGRATIONS_COPY__",
+    copyMigrations ? MIGRATIONS_COPY : "",
+  );
 }
 
 const DOCKERFILE_TS_TEMPLATE = `# syntax=docker/dockerfile:1
