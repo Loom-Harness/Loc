@@ -239,8 +239,9 @@ const RESERVED: Record<IdentTarget, ReadonlySet<string>> = {
     "sealed",
     "permits",
   ]),
-  /** Python: `keyword.kwlist`, the soft keywords `match` / `case`, the method
-   *  receivers `self` / `cls` (every generated method binds one, so a member of
+  /** Python: the HARD keywords (`keyword.kwlist`; the soft keywords `match` /
+   *  `case` / `type` stay legal identifiers per PEP 634/695, so `case: string`
+   *  stays `case` as on node/elixir — #3102), the method receivers `self` / `cls` (every generated method binds one, so a member of
    *  that name is a duplicate parameter), and the builtin / `BaseModel` names a
    *  generated class body would shadow. */
   python: new Set([
@@ -296,8 +297,6 @@ const RESERVED: Record<IdentTarget, ReadonlySet<string>> = {
     "while",
     "with",
     "yield",
-    "match",
-    "case",
   ]),
   /** Elixir: reserved words plus the special forms / Kernel macros that are
    *  unsafe as a plain variable binding. */

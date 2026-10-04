@@ -47,14 +47,17 @@ const KNOWN_GAPS: Record<"field" | "enum" | "op" | "param", Record<string, strin
 };
 
 describe("coverage against authoritative keyword lists", () => {
-  it("python: every `keyword.kwlist` entry and the `match`/`case` soft keywords are reserved", () => {
+  it("python: every hard keyword (`keyword.kwlist`) is reserved; the soft keywords are not", () => {
     const out = execFileSync(
       "python3",
-      ["-c", "import keyword, json; print(json.dumps(keyword.kwlist + ['match', 'case']))"],
+      ["-c", "import keyword, json; print(json.dumps([keyword.kwlist, keyword.softkwlist]))"],
       { encoding: "utf8" },
     );
-    const missing = (JSON.parse(out) as string[]).filter((k) => !isReserved("python", k));
-    expect(missing).toEqual([]);
+    const [hard, soft] = JSON.parse(out) as [string[], string[]];
+    expect(hard.filter((k) => !isReserved("python", k))).toEqual([]);
+    // PEP 634/695 keep `match` / `case` / `type` / `_` legal identifiers, so a
+    // `case: string` member stays `case` on python (#3102).
+    expect(soft.filter((k) => isReserved("python", k))).toEqual([]);
   });
 
   it("ts: every reserved and strict-mode future-reserved word of the TS scanner, plus arguments/eval", () => {
