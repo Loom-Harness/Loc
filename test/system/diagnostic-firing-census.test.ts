@@ -3161,6 +3161,25 @@ system S {
   "loom.money-in-text-slot": uiPage(
     `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.price } } }`,
   ),
+  // --- M-T5.42 (packet L1-V2) ---------------------------------------------
+  // V7 — a value-object field read straight into a text slot.
+  "loom.valueobject-in-text-slot": uiPage(
+    `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.place } } }`,
+  ).replace("price: money }", "price: money  place: Spot }\n    valueobject Spot { city: string }"),
+  // V8 — a `Button { icon: }` name the builtin registry lacks.
+  "loom.button-icon-unknown": uiPage(`Button { "Delete", icon: "trash" }`),
+  // V9 — a storage type that binds to no kind.
+  "loom.storage-type-unbound": `
+system S {
+  subdomain Sub { context C { } }
+  storage bus { type: nats }
+}`,
+  // V2 — a default on a callable site whose lowerer drops it.
+  "loom.param-default-unsupported": repoOnly(`    aggregate Thing with crudish { n: int }
+    repository Things for Thing { }
+    domainService Calc {
+      operation twice(x: int = 3): int { return x * 2 }
+    }`),
   // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../_helpers/generate.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** `loom.locator-matcher-receiver` messages — an IR-phase gate since M-T5.42
@@ -110,7 +110,9 @@ describe("ui e2e — a create result is a readable row", () => {
   it("accepts a field read on a create-result row, negated or not", async () => {
     expect(
       await locatorErrors(
-        src(`    expect(ord.status).toHaveText("Draft")\n    expect(ord.status).not.toHaveText("x")`),
+        src(
+          `    expect(ord.status).toHaveText("Draft")\n    expect(ord.status).not.toHaveText("x")`,
+        ),
       ),
     ).toEqual([]);
   });

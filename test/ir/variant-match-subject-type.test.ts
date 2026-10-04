@@ -87,15 +87,15 @@ describe("variant-match subjectType (F56, M-T5.43 V14)", () => {
   });
 
   it("rejects an arm naming a type outside the union (loom.match-unknown-variant)", async () => {
-    expect(await matchDiags(`${CANONICAL_ARMS}\n            Unrelated u => { message := u.why }`)).toEqual(
-      [{ code: "loom.match-unknown-variant", severity: "error" }],
-    );
+    expect(
+      await matchDiags(`${CANONICAL_ARMS}\n            Unrelated u => { message := u.why }`),
+    ).toEqual([{ code: "loom.match-unknown-variant", severity: "error" }]);
   });
 
   it("rejects a variant matched twice (loom.match-duplicate-variant)", async () => {
-    expect(await matchDiags(`${CANONICAL_ARMS}\n            Order p => { message := p.code }`)).toEqual([
-      { code: "loom.match-duplicate-variant", severity: "error" },
-    ]);
+    expect(
+      await matchDiags(`${CANONICAL_ARMS}\n            Order p => { message := p.code }`),
+    ).toEqual([{ code: "loom.match-duplicate-variant", severity: "error" }]);
   });
 
   it("warns on an uncovered variant with no else, and stands down with one", async () => {
@@ -103,7 +103,9 @@ describe("variant-match subjectType (F56, M-T5.43 V14)", () => {
       { code: "loom.match-non-exhaustive", severity: "warning" },
     ]);
     expect(
-      await matchDiags(`\n            Order o => { message := o.code }\n            else => { message := "x" }`),
+      await matchDiags(
+        `\n            Order o => { message := o.code }\n            else => { message := "x" }`,
+      ),
     ).toEqual([]);
   });
 });
