@@ -1249,7 +1249,25 @@ function collectionElementType(t: TypeIR): TypeIR | undefined {
  *  cache; see docs/old/plans/source-map-debug-kickoff.md. */
 export function lowerExpr(expr: Expression | undefined, env: Env): ExprIR {
   const lowered = lowerExprInner(expr, env);
-  return { ...lowered, origin: lowered.origin ?? originFor(expr) };
+  const out = { ...lowered, origin: lowered.origin ?? originFor(expr) };
+  if (lowerExprObserver && expr) lowerExprObserver(expr, env, out);
+  return out;
+}
+
+/** Shadow-mode observer (M-T5.44): sees every expression `lowerExpr` lowers,
+ *  with the lowering `Env` it was lowered in, so the typing differential can
+ *  ask `inferExprType` the same question at the same point. Unset (and so
+ *  free) outside that test; it never changes what is lowered. */
+let lowerExprObserver: ((expr: Expression, env: Env, ir: ExprIR) => void) | undefined;
+
+/** Install (or clear, with `undefined`) the shadow-mode observer; returns the
+ *  previous one so a caller can restore it. */
+export function setLowerExprObserver(
+  observer: ((expr: Expression, env: Env, ir: ExprIR) => void) | undefined,
+): ((expr: Expression, env: Env, ir: ExprIR) => void) | undefined {
+  const prev = lowerExprObserver;
+  lowerExprObserver = observer;
+  return prev;
 }
 
 function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
