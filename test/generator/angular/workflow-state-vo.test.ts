@@ -38,7 +38,10 @@ function source(claimFields: string): string {
 async function workflowsModule(claimFields: string): Promise<string> {
   const files = await generateSystemFiles(source(claimFields));
   const mod = files.get("web/src/api/workflows.ts");
-  if (!mod) throw new Error(`no workflows.ts; files: ${[...files.keys()].filter((k) => k.startsWith("web/src/api")).join(", ")}`);
+  if (!mod)
+    throw new Error(
+      `no workflows.ts; files: ${[...files.keys()].filter((k) => k.startsWith("web/src/api")).join(", ")}`,
+    );
   return mod;
 }
 
@@ -49,7 +52,9 @@ describe("Angular workflow instance row: value-object state fields (F3)", () => 
     expect(mod).toContain("  region: Region;");
     expect(mod).toContain('export type Region = "North" | "South";');
     expect(mod).toContain("export interface NoteResponse {");
-    expect(mod).toMatch(/export interface ReviewInstanceRow \{[^}]*address: AddressResponse \| null;/);
+    expect(mod).toMatch(
+      /export interface ReviewInstanceRow \{[^}]*address: AddressResponse \| null;/,
+    );
     expect(mod).toMatch(/export interface ReviewInstanceRow \{[^}]*notes: NoteResponse\[\];/);
     expect(mod).not.toMatch(/address: unknown/);
   });

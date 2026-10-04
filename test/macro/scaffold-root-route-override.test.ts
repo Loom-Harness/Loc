@@ -52,7 +52,9 @@ describe("scaffold Home yields to a user page routed at `/` (F2)", () => {
   });
 
   it("a root page inside an area also owns `/`", async () => {
-    const router = (await generateSystemFiles(source("vue", AREA_WELCOME))).get("web/src/router.ts")!;
+    const router = (await generateSystemFiles(source("vue", AREA_WELCOME))).get(
+      "web/src/router.ts",
+    )!;
     expect(router.match(/path: "\/",/g)).toHaveLength(1);
   });
 

@@ -1575,7 +1575,10 @@ function buildDerivedLines(
     // so in script position it needs the same `.value` deref — else the
     // derived holds the ref itself, not the number.
     for (const local of storeFieldLocals(usedStores, stores, reserved)) {
-      exprStr = exprStr.replace(new RegExp(`(?<![.\\w$])${local}\\b(?!\\.value)`, "g"), `${local}.value`);
+      exprStr = exprStr.replace(
+        new RegExp(`(?<![.\\w$])${local}\\b(?!\\.value)`, "g"),
+        `${local}.value`,
+      );
     }
     lines.push(`const ${d.name} = computed(() => ${exprStr});`);
     seenDerived.add(d.name);

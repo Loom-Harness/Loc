@@ -1,6 +1,6 @@
 import { type Area, isArea, isPage, isRouteProp } from "../../../language/generated/ast.js";
 import type { Aggregate, BoundedContext, Subdomain, Ui, Workflow } from "../../api/index.js";
-import { aggregatesIn, defineMacro, workflowsIn } from "../../api/index.js";
+import { aggregatesIn, defineMacro, originOf, workflowsIn } from "../../api/index.js";
 import { homePage, workflowIsEventTriggeredOnly, workflowsIndexPage } from "./_pages.js";
 
 /** Top of the scaffold-macro family: takes any combination of
@@ -112,11 +112,16 @@ export default defineMacro({
 });
 
 /** True when a user-declared page (top level or inside any `area`) routes at
- *  `/`.  Routes are absolute, so an area does not re-prefix them. */
-function declaresRootPage(members: readonly (Ui["members"][number] | Area["members"][number])[]): boolean {
+ *  `/`.  Routes are absolute, so an area does not re-prefix them.  A
+ *  macro-synthesised page (it carries an origin token — e.g. this macro's own
+ *  `Home`, already spliced in by an earlier expansion pass) is not a user
+ *  declaration and never suppresses the landing page. */
+function declaresRootPage(
+  members: readonly (Ui["members"][number] | Area["members"][number])[],
+): boolean {
   return members.some((m) => {
     if (isArea(m)) return declaresRootPage(m.members);
-    if (!isPage(m)) return false;
+    if (!isPage(m) || originOf(m)) return false;
     return m.props.some((p) => isRouteProp(p) && (p.value === "/" || p.value === ""));
   });
 }

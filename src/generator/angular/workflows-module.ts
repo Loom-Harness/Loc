@@ -4,7 +4,11 @@ import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { allWorkflows } from "../_frontend/workflows-module.js";
-import { collectResponseTypes, emitVoResponseInterface, exportedResponseTypes } from "./api-module.js";
+import {
+  collectResponseTypes,
+  emitVoResponseInterface,
+  exportedResponseTypes,
+} from "./api-module.js";
 
 // ---------------------------------------------------------------------------
 // Angular workflows API module (`src/api/workflows.ts`).
@@ -100,14 +104,17 @@ function instanceTypeDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContext
   const locals: string[] = [];
   const seen = new Set<string>();
   for (const { wf, ctx } of workflows) {
-    const fieldTypes = (wf.instanceWireShape ?? []).filter((f) => f.source !== "id").map((f) => f.type);
+    const fieldTypes = (wf.instanceWireShape ?? [])
+      .filter((f) => f.source !== "id")
+      .map((f) => f.type);
     const { vos, enums } = collectResponseTypes(fieldTypes, ctx);
     const exported = ctx.aggregates.map((a) => ({ a, types: exportedResponseTypes(a, ctx) }));
     for (const vo of vos) {
       if (seen.has(`vo:${vo.name}`)) continue;
       seen.add(`vo:${vo.name}`);
       const owner = exported.find(({ types }) => types.vos.some((v) => v.name === vo.name));
-      if (owner) imports.push(`import type { ${vo.name}Response } from "./${lowerFirst(owner.a.name)}";`);
+      if (owner)
+        imports.push(`import type { ${vo.name}Response } from "./${lowerFirst(owner.a.name)}";`);
       else locals.push(...emitVoResponseInterface(vo));
     }
     for (const e of enums) {
@@ -115,12 +122,16 @@ function instanceTypeDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContext
       seen.add(`enum:${e.name}`);
       const owner = exported.find(({ types }) => types.enums.some((x) => x.name === e.name));
       if (owner) imports.push(`import type { ${e.name} } from "./${lowerFirst(owner.a.name)}";`);
-      else locals.push(`export type ${e.name} = ${e.values.map((v) => JSON.stringify(v)).join(" | ")};`);
+      else
+        locals.push(
+          `export type ${e.name} = ${e.values.map((v) => JSON.stringify(v)).join(" | ")};`,
+        );
     }
   }
   // A locally declared `<Vo>Response` with a `File` field names the api
   // client's `FileRef`, exactly as the aggregate module's copy does.
-  if (locals.some((l) => /\bFileRef\b/.test(l))) imports.push('import type { FileRef } from "./client";');
+  if (locals.some((l) => /\bFileRef\b/.test(l)))
+    imports.push('import type { FileRef } from "./client";');
   return { imports, locals };
 }
 

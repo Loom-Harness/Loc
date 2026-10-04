@@ -21,7 +21,13 @@ import { parseRawResult } from "../_helpers/index.js";
 import { parseString } from "../_helpers/parse.js";
 
 // A plain-text column — the common case in the print/re-parse checks below.
-const text = (name: string): ScaffoldColumn => ({ name, kind: { tag: "text" } });
+// `serverSortable` — a plain required string is on the server's `?sort=`
+// whitelist, so the server-paged list marks it `sortable:` (M-T1.36 F4).
+const text = (name: string): ScaffoldColumn => ({
+  name,
+  kind: { tag: "text" },
+  serverSortable: true,
+});
 
 /** Collapse the printer's wrapped argument lists back to their one-line form.
  *  These assertions are about WHAT a builder emits, not where the line happened
@@ -120,18 +126,18 @@ describe("scaffold body-builders — AST → printable source", () => {
 
   it("dispatches each column cell by its resolved type", () => {
     const cols: ScaffoldColumn[] = [
+      // A reference / File column is off the server's `?sort=` whitelist
+      // (`sortableFields`), so the server-paged list renders it unsortable.
       { name: "ref", kind: { tag: "id", targetName: "Customer" } },
-      { name: "createdAt", kind: { tag: "datetime" } },
-      { name: "active", kind: { tag: "bool" } },
-      { name: "total", kind: { tag: "numeric" } },
-      { name: "status", kind: { tag: "enum" } },
-      { name: "note", kind: { tag: "text" } },
+      { name: "createdAt", kind: { tag: "datetime" }, serverSortable: true },
+      { name: "active", kind: { tag: "bool" }, serverSortable: true },
+      { name: "total", kind: { tag: "numeric" }, serverSortable: true },
+      { name: "status", kind: { tag: "enum" }, serverSortable: true },
+      { name: "note", kind: { tag: "text" }, serverSortable: true },
       { name: "blob", kind: { tag: "file" } },
     ];
     const src = printExpr(scaffoldList("Order", cols));
-    expect(src).toContain(
-      'Column("Ref", o => IdLink(o.ref, of: Customer), sortable: true, field: "ref")',
-    );
+    expect(src).toContain('Column("Ref", o => IdLink(o.ref, of: Customer))');
     expect(src).toContain(
       'Column("Created At", o => DateDisplay(o.createdAt), sortable: true, field: "createdAt")',
     );
@@ -145,7 +151,7 @@ describe("scaffold body-builders — AST → printable source", () => {
     expect(src).toContain('Column("Note", o => Text(o.note), sortable: true, field: "note")');
     // A `File` column renders a `FileLink` download anchor (the FileRef object
     // is not a ReactNode) — see `typedCell` "file".
-    expect(src).toContain('Column("Blob", o => FileLink(o.blob), sortable: true, field: "blob")');
+    expect(src).toContain('Column("Blob", o => FileLink(o.blob))');
     expect(
       parseRawResult(inPage(src))
         .parserErrors.map((e) => e.message)
@@ -738,13 +744,20 @@ describe("scalarColumnsForAggregate — resolves columns from the aggregate AST"
     // `provenanced` is false on every column here — none of these fields carry
     // the modifier, so no cell reads through the wire carrier (M-T6.12).
     expect(cols).toEqual([
-      { name: "buyer", kind: { tag: "id", targetName: "Customer" }, provenanced: false },
-      { name: "createdAt", kind: { tag: "datetime" }, provenanced: false },
-      { name: "active", kind: { tag: "bool" }, provenanced: false },
-      { name: "status", kind: { tag: "enum" }, provenanced: false },
-      { name: "note", kind: { tag: "text" }, provenanced: false },
+      // `serverSortable` mirrors the server `?sort=` whitelist (M-T1.36 F4):
+      // a reference and the `version` token are off it.
+      {
+        name: "buyer",
+        kind: { tag: "id", targetName: "Customer" },
+        provenanced: false,
+        serverSortable: false,
+      },
+      { name: "createdAt", kind: { tag: "datetime" }, provenanced: false, serverSortable: true },
+      { name: "active", kind: { tag: "bool" }, provenanced: false, serverSortable: true },
+      { name: "status", kind: { tag: "enum" }, provenanced: false, serverSortable: true },
+      { name: "note", kind: { tag: "text" }, provenanced: false, serverSortable: true },
       // default-on optimistic-concurrency token (M-T3.4)
-      { name: "version", kind: { tag: "numeric" }, provenanced: false },
+      { name: "version", kind: { tag: "numeric" }, provenanced: false, serverSortable: false },
     ]);
   });
 });
