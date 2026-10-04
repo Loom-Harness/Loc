@@ -538,7 +538,12 @@ describe("IR ⇄ language let-type agreement census", () => {
   it("no NEW type disagreement between the IR and the language layer", () => {
     const live = tally(
       census.rows
-        .filter((r) => r.klass && r.klass !== "agree" && !(r.container in TOTAL_GAP_CONTAINERS))
+        .filter(
+          (r) =>
+            r.klass &&
+            r.klass !== "agree" &&
+            !(r.container !== undefined && r.container in TOTAL_GAP_CONTAINERS),
+        )
         .map((r) => `${cellOf(r)}/${r.klass}`),
     );
     const grown = Object.entries(live)
@@ -578,7 +583,12 @@ describe("IR ⇄ language let-type agreement census", () => {
   it("anti-slack: a drained disagreement lowers its baseline row in the same change", () => {
     const live = tally(
       census.rows
-        .filter((r) => r.klass && r.klass !== "agree" && !(r.container in TOTAL_GAP_CONTAINERS))
+        .filter(
+          (r) =>
+            r.klass &&
+            r.klass !== "agree" &&
+            !(r.container !== undefined && r.container in TOTAL_GAP_CONTAINERS),
+        )
         .map((r) => `${cellOf(r)}/${r.klass}`),
     );
     const stale = Object.entries(DISAGREEMENT_BASELINE)
