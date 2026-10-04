@@ -90,7 +90,7 @@ const CEILINGS: Record<string, number> = {
   feliz: 1400,
   flutter: 1100,
   frontend: 100,
-  hono: 500,
+  hono: 400,
   i18n: 100,
   java: 1900,
   python: 1800,

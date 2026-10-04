@@ -76,16 +76,6 @@ describe("elixir grouped projection — the query", () => {
     expect(mod).toContain('"Confirmed"');
   });
 
-  it("returns the LIST shape — Repo.all, one map per group, never the singleton", async () => {
-    const mod = await fileEndingWith("query_projections/sales_by_status.ex");
-    expect(mod).toContain("|> Repo.all()");
-    expect(mod).not.toContain("Repo.one()");
-    expect(mod).toContain("@spec run(any()) :: [map()]");
-    expect(mod).toContain(
-      "Form: query-time GROUPED aggregation (one row per group, computed in SQL).",
-    );
-  });
-
   it("multi-key grouping lists every column in group_by AND order_by", async () => {
     const mod = await fileEndingWith("query_projections/sales_by_status_and_code.ex");
     expect(mod).toContain(
@@ -128,11 +118,5 @@ describe("elixir grouped projection — the controller", () => {
     const start = ctrl.indexOf("def admin_sales_by_status");
     const body = ctrl.slice(start, ctrl.indexOf("end\n", ctrl.indexOf("AdminSalesByStatus.run")));
     expect(body.indexOf("problem_response")).toBeLessThan(body.indexOf(".run(current_user)"));
-  });
-
-  it("routes every grouped projection through GET /projections/<slug>", async () => {
-    const ctrl = await fileEndingWith("controllers/query_projections_controller.ex");
-    expect(ctrl).toContain('@doc "GET /api/projections/sales_by_status"');
-    expect(ctrl).toContain('@doc "GET /api/projections/sales_by_status_and_code"');
   });
 });

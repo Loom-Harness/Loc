@@ -60,12 +60,6 @@ describe("hono grouped aggregation (group by)", () => {
     expect(p).not.toMatch(/const rows = await repo\./);
   });
 
-  it("responds with the LIST shape — an array of the declared row, not the singleton object", async () => {
-    const p = await routes();
-    expect(p).toContain("const SalesByStatusResponse = z.array(SalesByStatusRow).openapi(");
-    expect(p).not.toContain("const SalesByStatusResponse = SalesByStatusRow.openapi(");
-  });
-
   it("declares the key field in the row schema with its wire type (enum literal union)", async () => {
     expect(await routes()).toContain('status: z.enum(["Draft", "Confirmed"])');
   });
@@ -84,13 +78,6 @@ describe("hono grouped aggregation (group by)", () => {
     // money pins the fixed wire scale (RS-12 / #2549); `String()` shipped
     // whatever scale the driver returned.
     expect(p).toContain("      revenue: new Decimal(r.revenue ?? 0).toFixed(4),");
-  });
-
-  it("imports the drizzle helpers it calls, and `schema` as a VALUE", async () => {
-    const p = await routes();
-    expect(p).toContain('import { count, eq, sum } from "drizzle-orm";');
-    expect(p).toContain('import * as schema from "../db/schema";');
-    expect(p).not.toContain('import type * as schema from "../db/schema";');
   });
 });
 

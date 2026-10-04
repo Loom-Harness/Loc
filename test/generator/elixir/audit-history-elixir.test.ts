@@ -65,15 +65,9 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("entity history — elixir route surface", () => {
-  it("serves GET /<plural>/:id/history off the derived find", async () => {
-    const files = await emit(MASKED);
-    const router = fileEndingWith(files, "lib/api_web/router.ex");
-    expect(router).toContain('get "/employees/:id/history", EmployeeController, :history');
-    const controller = fileEndingWith(files, "controllers/employee_controller.ex");
-    expect(controller).toContain('def history(conn, %{"id" => id}) do');
-    expect(controller).toContain('Api.Audit.History.for_target(Api.Repo, "Employee", id)');
-  });
-
+  // The route/action/`for_target` wiring itself is watched by the corpus
+  // `audit-history` behavioral leg (wire-golden seq 2/7); what stays here is
+  // what that golden cannot see.
   it("queries audit_records on the indexed (target_type, target_id) pair, oldest first", async () => {
     const mod = fileEndingWith(await emit(MASKED), "lib/api/audit/history.ex");
     expect(mod).toContain("r.target_type == ^target_type and r.target_id == ^target_id");

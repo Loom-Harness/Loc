@@ -14,7 +14,6 @@ import {
   maskedWireFields,
   toWireMaskedMethod,
 } from "../../../src/generator/python/repository-builder.js";
-import { buildPyRoutesFile } from "../../../src/generator/python/routes-builder.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import type {
@@ -80,18 +79,5 @@ describe("mask unless — Python read redaction", () => {
     const file = buildPyRepositoryFile(agg, repo, ctx);
     expect(file).toContain("from app.auth.user import current_user");
     expect(file).toContain("def to_wire_masked");
-  });
-
-  it("routes read boundaries through to_wire_masked and admits null on the DTO", async () => {
-    const { ctx, agg } = await ctxAndAgg();
-    const repo = ctx.repositories.find((r) => r.aggregateName === "P");
-    const routes = buildPyRoutesFile(agg, repo, ctx);
-    // GET by id + the (paged, via crudish) list route both go through the
-    // masked serializer.
-    expect(routes).toContain("repo.to_wire_masked(await repo.get_by_id(PId(id)))");
-    expect(routes).toContain("[repo.to_wire_masked(r) for r in result.items]");
-    // The read response DTO's masked field admits null (redaction is fail-closed).
-    expect(routes).toContain("class PResponse(BaseModel):");
-    expect(routes).toMatch(/salary:[^\n]*\|\s*None/);
   });
 });

@@ -118,9 +118,12 @@ describe("mask unless — .NET read redaction", () => {
 // It no longer renders ANY wrap: M-T3.9 made the audit snapshots project
 // UNMASKED, because a trail whose content depends on the writer's read
 // permission is not a trail.  The scope-collision invariant is unchanged and
-// still live wherever one body renders two wraps (the read handler below), so
-// the audited case now pins the OPPOSITE fact — that the snapshots carry the
-// real value.  Reading the trail back still redacts (the history query).
+// still live wherever one body renders two wraps (the read handler), and is
+// watched there by the corpus `field-mask` fixture's `dotnet build /warnaserror`
+// leg (CS0128/CS0136) plus its wire golden (both masked fields null on every
+// read) — so the audited case here pins only the OPPOSITE fact the corpus
+// cannot see: that the snapshots carry the real value.  Reading the trail back
+// still redacts (the history query).
 // ---------------------------------------------------------------------------
 describe("mask unless × audited — no duplicate pattern variable in one scope", () => {
   it("the audited operation's before/after snapshots are UNMASKED (M-T3.9)", async () => {
@@ -138,28 +141,5 @@ describe("mask unless × audited — no duplicate pattern variable in one scope"
     expect(handler).toContain(
       "var __before = System.Text.Json.JsonSerializer.SerializeToNode(new PResponse(",
     );
-  });
-
-  it("two masked fields in ONE projection bind distinct mask variables", async () => {
-    const out = await filesFrom(AUDITED_SRC);
-    const handler = [...out.entries()].find(([k]) => k.endsWith("GetPByIdHandler.cs"))?.[1] ?? "";
-    const vars = maskPatternVars(handler);
-    expect(vars.length).toBe(2);
-    expect(new Set(vars).size, `duplicate mask pattern variables: ${vars.join(", ")}`).toBe(
-      vars.length,
-    );
-  });
-
-  it("no emitted C# file redeclares a mask pattern variable in one scope", async () => {
-    const out = await filesFrom(AUDITED_SRC);
-    const offenders = [...out.entries()]
-      .filter(([k]) => k.endsWith(".cs"))
-      .map(([k, v]) => [k, maskPatternVars(v)] as const)
-      .filter(([, vars]) => new Set(vars).size !== vars.length)
-      .map(([k, vars]) => `${k}: ${vars.join(", ")}`);
-    expect(
-      offenders,
-      `files redeclaring a mask pattern variable: ${offenders.join(" | ")}`,
-    ).toEqual([]);
   });
 });

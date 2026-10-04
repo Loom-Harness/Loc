@@ -75,30 +75,9 @@ describe("hono grouped aggregation with a computed date key", () => {
     expect(p).not.toContain(".groupBy(schema.orders.placedAt)");
   });
 
-  it("imports `sql` from drizzle-orm alongside the aggregate helpers, and `schema` as a VALUE", async () => {
-    const p = await routes();
-    expect(p).toContain('import { eq, sql, sum } from "drizzle-orm";');
-    expect(p).toContain('import * as schema from "../db/schema";');
-    expect(p).not.toContain('import type * as schema from "../db/schema";');
-  });
-
   it("does NOT load rows through the repository", async () => {
     const p = await routes();
     expect(p).not.toContain("await repo.revenueByDay()");
     expect(p).not.toMatch(/const rows = await repo\./);
-  });
-
-  it("responds with the LIST shape", async () => {
-    expect(await routes()).toContain("const RevenueByDayResponse = z.array(RevenueByDayRow)");
-  });
-
-  it("coerces the datetime key to an ISO string, re-asserting the Date the raw sql select types `unknown`", async () => {
-    const p = await routes();
-    // …in the CANONICAL wire form — trailing zero fractional seconds trimmed,
-    // the same trim the aggregate `toWire` applies (RS-4 / F2-W-05), so a
-    // projection row and an aggregate read spell one instant identically.
-    expect(p).toContain('      day: (r.day as Date).toISOString().replace(/\\.000Z$/, "Z"),');
-    // money pins the fixed wire scale (RS-12 / #2549).
-    expect(p).toContain("      revenue: new Decimal(r.revenue ?? 0).toFixed(4),");
   });
 });

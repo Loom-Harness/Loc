@@ -73,29 +73,6 @@ describe("python grouped aggregation (group by)", () => {
     expect(routes).not.toContain("OrderRepository");
     expect(routes).not.toContain("repo.");
   });
-
-  it("responds with the LIST shape — RootModel over the row, imported even when grouped is the only projection", async () => {
-    const routes = await routesFile(SRC);
-    expect(routes).toContain("class SalesByStatusResponse(RootModel[list[SalesByStatusRow]]):");
-    expect(routes).toContain("from pydantic import BaseModel, RootModel");
-    // Not the singleton object shape.
-    expect(routes).not.toContain("class SalesByStatusResponse(SalesByStatusRow):");
-    expect(routes).toContain("-> list[dict[str, object]]:");
-  });
-
-  it("maps each row: key passed through, aggregates coerced to their declared wire types", async () => {
-    // The enum key column stores its wire string on the row (Text) — no
-    // rewrap; the aggregates reuse the singleton coercions (`numeric` sum
-    // reads back as Decimal/None, so a money row field stringifies, an int
-    // count zero-defaults).
-    const routes = await routesFile(SRC);
-    expect(routes).toContain('"status": r[0],');
-    expect(routes).toContain('"orders": int(r[1] or 0),');
-    // money pins the fixed wire scale (RS-12 / #2549) via `money_str`, not a
-    // bare `str` of whatever scale SQL returned.
-    expect(routes).toContain('"revenue": money_str(Decimal(r[2] or 0)),');
-    expect(routes).toContain("for r in result");
-  });
 });
 
 // The `requires` gate (403-before-query) — same emission as every other

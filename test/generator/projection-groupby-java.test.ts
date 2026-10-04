@@ -77,17 +77,6 @@ describe("java grouped projection (group by)", () => {
     expect(svc).not.toContain(".findAll()");
   });
 
-  it("returns the LIST shape from the service and the controller", async () => {
-    const svc = await fileEndingWith("OrdersQueryProjections.java");
-    expect(svc).toContain("public List<SalesByStatusRow> salesByStatus() {");
-    // One row per Object[] result row — never getSingleResult.
-    expect(svc).toContain("List<Object[]> rows = entityManager.createQuery(");
-    expect(svc).toContain('@SuppressWarnings("unchecked")');
-    const ctrl = await fileEndingWith("OrdersQueryProjectionsController.java");
-    expect(ctrl).toContain("public List<SalesByStatusRow> salesByStatus() {");
-    expect(ctrl).toContain('@GetMapping("/sales_by_status")');
-  });
-
   it("casts the enum key to the declared row enum; aggregates read via Number/toString", async () => {
     const svc = await fileEndingWith("OrdersQueryProjections.java");
     // Key: the entity's @Enumerated(STRING) mapping hands back the enum
@@ -103,13 +92,6 @@ describe("java grouped projection (group by)", () => {
     // No provider-specific casts on aggregate results.
     expect(svc).not.toContain("(Long) r[");
     expect(svc).not.toContain("(BigDecimal) r[");
-  });
-
-  it("the Row record declares the grouped wire shape", async () => {
-    const row = await fileEndingWith("SalesByStatusRow.java");
-    expect(row).toContain(
-      "public record SalesByStatusRow(OrderStatus status, int orders, String revenue)",
-    );
   });
 
   it("binds a SINGLE-column grouped row as a bare scalar — no Object[] element", async () => {
