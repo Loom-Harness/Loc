@@ -484,7 +484,9 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return jid(e.member);
+    // The flat param may have been collision-renamed (`javaLocals`); the
+    // handler's `paramExpr` knows the local it was declared under.
+    return ctx.paramExpr?.(e.member) ?? jid(e.member);
   }
   // Collections lower to `List<T>` (`.size()`); the DSL admits both
   // `.count` and `.length` on arrays.

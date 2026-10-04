@@ -61,7 +61,8 @@ import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mou
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { JAVA_PAGED_QUERY_PARAMS } from "./emit/common.js";
 import { domainToWire } from "./emit/wire.js";
-import { javaWorkflowStmtTarget, repoField } from "./emit/workflow.js";
+import { javaWorkflowStmtTarget, repoField, workflowBodyDerefNames } from "./emit/workflow.js";
+import { javaLocals, localOf } from "./java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -387,12 +388,43 @@ function renderHandlerClass(
   const handlerName = `${h.name}Handler`;
   const imports = new Set<string>();
 
+  // Domain services this body calls (domain-services.md rev. 4).  A READING
+  // service is a `@Service` bean, so the handler constructor-injects it exactly
+  // as `<Ctx>Workflows` does; a PURE service is a static utility class, so only
+  // its import is needed.  BOTH were missing before — the pure call had no
+  // import either, so `FeeQuote.forAmount(amount)` was "cannot find symbol" in a
+  // handler while the identical call compiled in a workflow.
+  const calledServices = domainServicesCalled(h.statements, ctx.domainServices ?? [], [
+    h.returnValue,
+  ]);
+  const repoAggs = reposUsed(h);
+
+  // The (flattened) params are `handle(...)`'s own parameters, in a method
+  // whose body dereferences the injected repository / service fields — a param
+  // named like one of them shadows it (`ordersRepository.getById(…)` on an
+  // `int`).  `javaLocals` moves only a colliding name to `<name>_`; body refs
+  // (and a collapsed `cmd.<field>` read) follow it through `paramExpr`.
+  const flat = flatHandlerParams(h, ctx);
+  const locals = javaLocals(
+    flat.map((p) => p.name),
+    new Set([
+      ...workflowBodyDerefNames([h.statements], h.savesAtExit, ctx),
+      ...repoAggs.flatMap((a) => [repoField(a), a]),
+      ...calledServices.reading.map((s) => lowerFirst(s)),
+      ...calledServices.reading,
+      ...calledServices.pure,
+    ]),
+  );
+
   // Body — the shared workflow statement spine, rendered at 8-space indent
   // (method-body depth).  The render context carries the handler's `command`/
   // `query` record params (M-T5.10) so a `cmd.<field>` access collapses to the
   // flattened flat param; a flat-param handler reuses the base context, so its
   // output stays byte-identical.
-  const renderCtx = handlerRenderCtx(h, ctx, resources?.classes);
+  const renderCtx: JavaRenderContext = {
+    ...handlerRenderCtx(h, ctx, resources?.classes),
+    paramExpr: (n) => locals.get(n),
+  };
   const bodyLines = renderWorkflowStmtChunks(
     h.statements,
     javaWorkflowStmtTarget(ctx, imports, renderCtx, undefined, collectUnionFindLets(h.statements)),
@@ -414,23 +446,13 @@ function renderHandlerClass(
   const internalRet = normalizeHandlerReturn(h.returnType, ctx);
   const retType = internalRet ? renderJavaType(internalRet) : "void";
   if (internalRet) collectJavaTypeImports(internalRet, imports);
-  const params = flatHandlerParams(h, ctx)
+  const params = flat
     .map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     })
     .join(", ");
 
-  // Domain services this body calls (domain-services.md rev. 4).  A READING
-  // service is a `@Service` bean, so the handler constructor-injects it exactly
-  // as `<Ctx>Workflows` does; a PURE service is a static utility class, so only
-  // its import is needed.  BOTH were missing before — the pure call had no
-  // import either, so `FeeQuote.forAmount(amount)` was "cannot find symbol" in a
-  // handler while the identical call compiled in a workflow.
-  const calledServices = domainServicesCalled(h.statements, ctx.domainServices ?? [], [
-    h.returnValue,
-  ]);
-  const repoAggs = reposUsed(h);
   const fields = [
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
     ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),

@@ -16,10 +16,21 @@ import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
-import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { javaLocals, localOf } from "../java-ident.js";
+import {
+  collectJavaExprImports,
+  type JavaRenderContext,
+  renderJavaExpr,
+  renderJavaType,
+} from "../render-expr.js";
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
-import { javaWorkflowStmtTarget, reactorReposUsed, repoField } from "./workflow.js";
+import {
+  javaWorkflowStmtTarget,
+  reactorReposUsed,
+  repoField,
+  workflowBodyDerefNames,
+} from "./workflow.js";
 import { esEventLogTable, esWorkflowStateClass } from "./workflow-eventsourced.js";
 import { workflowStateClass } from "./workflow-state.js";
 
@@ -87,6 +98,66 @@ function stateRepoField(wf: WorkflowIR): string {
   return `${lowerFirst(wf.name)}StateRepository`;
 }
 
+/** Names an `@EventListener` reactor METHOD spells itself: the routing key, the
+ *  loaded saga row, the idempotency marker, the emit sink, the injected
+ *  publisher, and — for an event-sourced saga — the JdbcTemplate stream load /
+ *  fold / append temporaries. */
+const REACTOR_METHOD_NAMES: readonly string[] = [
+  "__key",
+  "state",
+  "__eventId",
+  "__events",
+  "events",
+  "OutboxDelivery",
+  "ArrayList",
+  "DomainEvent",
+];
+const ES_REACTOR_METHOD_NAMES: readonly string[] = [
+  "jdbc",
+  "__sid",
+  "__rows",
+  "__loaded",
+  "__r",
+  "__max",
+  "__v",
+  "Integer",
+  "String",
+];
+
+/** The reserved set for a saga reactor method rendering `bodies` — the fixed
+ *  names above plus every bean field / class name the bodies dereference and
+ *  the saga-state repository / fold class.  The event param is the one
+ *  `.ddd`-named local such a method binds (as its own parameter), so it is
+ *  renamed off this set by `javaLocals`. */
+function reactorReserved(
+  wf: WorkflowIR,
+  bodies: readonly ResolvedHandler[],
+  ctx: EnrichedBoundedContextIR,
+): Set<string> {
+  return new Set([
+    ...REACTOR_METHOD_NAMES,
+    ...(wf.eventSourced ? [...ES_REACTOR_METHOD_NAMES, esWorkflowStateClass(wf)] : []),
+    stateRepoField(wf),
+    workflowStateClass(wf),
+    ...workflowBodyDerefNames(
+      bodies.map((b) => b.statements),
+      bodies.flatMap((b) => b.saves),
+      ctx,
+    ),
+  ]);
+}
+
+/** The Java local for a reactor's event param under `reserved` (identity unless
+ *  it collides). */
+function eventParamLocal(param: string, reserved: ReadonlySet<string>): string {
+  return localOf(javaLocals([param], reserved), param);
+}
+
+/** A render context whose `param` refs to the event binding read `local`. */
+function withEventParam(base: JavaRenderContext, param: string, local: string): JavaRenderContext {
+  return { ...base, paramExpr: (n) => (n === param ? local : undefined) };
+}
+
 /** The projection read-model row repository field name (`orderBookRowRepository`). */
 function projRepoField(proj: ProjectionIR): string {
   return `${lowerFirst(proj.name)}RowRepository`;
@@ -105,10 +176,14 @@ function renderProjectionFold(
   imports: Set<string>,
 ): string[] {
   const corr = proj.correlationField as string;
-  const param = sub.param;
+  const cls = projectionRowClass(proj);
+  const repo = projRepoField(proj);
+  // The event param is the method's own parameter — moved off `__key` /
+  // `state` / the row repository it shares the method with.
+  const param = eventParamLocal(sub.param, new Set(["__key", "state", repo, cls]));
   // this-prop refs resolve through the row's record-style accessors
   // (`state.status()`); writes go through the JavaBean setter (spelled below).
-  const renderCtx = { thisName: "state", accessorProps: true };
+  const renderCtx = withEventParam({ thisName: "state", accessorProps: true }, sub.param, param);
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule) — an id-typed accessor, so `findById`
   // gets the `<Corr>Id` it expects.
@@ -117,8 +192,6 @@ function renderProjectionFold(
     : `${param}.${lowerFirst(corr)}()`;
   if (on.correlation) collectJavaExprImports(on.correlation, imports);
 
-  const cls = projectionRowClass(proj);
-  const repo = projRepoField(proj);
   const body: string[] = [
     `        var __key = ${keyExpr};`,
     `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
@@ -573,7 +646,9 @@ function renderHandler(
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = sub.param;
+  // The event param is the method's own parameter, alongside `__key`, `state`,
+  // the injected repositories, … — moved to `<name>_` only on a collision.
+  const param = eventParamLocal(sub.param, reactorReserved(wf, [resolved], ctx));
   // The persisted correlation row exposes its fields via record-style accessors
   // (`state.attempts()`), not public fields — so own-state READS in the body
   // (e.g. the `state.attempts() + 1` RHS of a compound `attempts += 1`) must go
@@ -581,7 +656,7 @@ function renderHandler(
   // arm spells `state.setAttempts(...)` directly).  `accessorProps` only affects
   // `this-prop` refs, so the `by <expr>` correlation key (an event-param member)
   // is unchanged.
-  const renderCtx = { thisName: "state", accessorProps: true };
+  const renderCtx = withEventParam({ thisName: "state", accessorProps: true }, sub.param, param);
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule).
   const keyExpr = resolved.correlation
@@ -705,14 +780,14 @@ function renderEsHandler(
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = sub.param;
+  const param = eventParamLocal(sub.param, reactorReserved(wf, [resolved], ctx));
   // The event-sourced fold class lives in the dispatcher's OWN package and
   // exposes package-private fields, so a same-package own-state READ
   // (`state.total`) compiles as a bare field — no accessor redirect needed
   // (unlike the cross-package mutable saga row in `renderHandler`).  Event-
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
-  const renderCtx = { thisName: "state" };
+  const renderCtx = withEventParam({ thisName: "state" }, sub.param, param);
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
@@ -850,8 +925,12 @@ function esMergedBranchLines(
   wf: WorkflowIR,
   resolved: ResolvedHandler,
   imports: Set<string>,
+  /** The merged method's (collision-safe) event-param local. */
   methodParam: string,
+  /** This branch's `.ddd` event binding name … */
   branchParam: string,
+  /** … and the Java local it renders as (aliased to `methodParam` below). */
+  branchLocal: string,
   schema: string | undefined,
   construct: string,
   /** Source-map — this branch's own `OpFragment`, pushed here so
@@ -873,7 +952,7 @@ function esMergedBranchLines(
     javaWorkflowStmtTarget(
       ctx,
       imports,
-      { thisName: "state" },
+      withEventParam({ thisName: "state" }, branchParam, branchLocal),
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
     ),
@@ -893,8 +972,8 @@ function esMergedBranchLines(
   const out: string[] = [];
   // The two triggers may name their event binding differently; alias so this
   // branch's body references resolve against the single merged method param.
-  if (branchParam !== methodParam) {
-    out.push(`        var ${branchParam} = ${methodParam};`);
+  if (branchLocal !== methodParam) {
+    out.push(`        var ${branchLocal} = ${methodParam};`);
   }
   if (hasEmit) out.push(`        var __events = new ArrayList<DomainEvent>();`);
   out.push(...bodyLines);
@@ -939,11 +1018,19 @@ function renderEsMergedHandler(
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = createSub.param;
+  // Both event bindings are locals of the ONE merged method (the create
+  // binding as its parameter, the on binding as the else-branch alias) — each
+  // moved off the method's own names, and the alias off the parameter.
+  const reserved = reactorReserved(wf, [createResolved, onResolved], ctx);
+  const param = eventParamLocal(createSub.param, reserved);
+  const onLocal =
+    onSub.param === createSub.param
+      ? param
+      : eventParamLocal(onSub.param, new Set([...reserved, param]));
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
-  const renderCtx = { thisName: "state" };
+  const renderCtx = withEventParam({ thisName: "state" }, createSub.param, param);
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
@@ -955,6 +1042,7 @@ function renderEsMergedHandler(
     createResolved,
     imports,
     param,
+    createSub.param,
     param,
     schema,
     construct,
@@ -967,6 +1055,7 @@ function renderEsMergedHandler(
     imports,
     param,
     onSub.param,
+    onLocal,
     schema,
     construct,
     opFragments,

@@ -30,7 +30,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
-import { jid } from "../java-ident.js";
+import { javaLocals, jid, localOf } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -505,6 +505,46 @@ export function javaWorkflowStmtTarget(
   };
 }
 
+/** Names every generated workflow / reactor / handler METHOD body may spell
+ *  itself regardless of its shape: the per-dispatch child frame, the emit and
+ *  catch temporaries, and the class names a body dereferences by SIMPLE name
+ *  (a local of the same name would win JLS §6.5.2 name classification and turn
+ *  `CatalogLog.event(…)` into a member access on the local). */
+export const WORKFLOW_BODY_FIXED_NAMES: readonly string[] = [
+  "__frame",
+  "__e",
+  "__ev",
+  "CatalogLog",
+  "RequestContext",
+  "DomainException",
+  "ForbiddenException",
+];
+
+/** The bean fields + class names a workflow statement BODY dereferences: the
+ *  `<agg>Repository` field (and `<Agg>` class, for `<Agg>.create(...)`) of every
+ *  repository the bodies touch, plus every domain service the bodies call
+ *  (the injected reading-tier bean field and the static service class).  A
+ *  `.ddd` param bound to a local of one of these names shadows it — the
+ *  collision `javaLocals` steers the param local off. */
+export function workflowBodyDerefNames(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  saves: readonly { aggName: string }[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  const out = [...WORKFLOW_BODY_FIXED_NAMES];
+  for (const a of reposInBodies(bodies, saves, ctx)) out.push(repoField(a), a);
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtExprsDeep(top, (e) => {
+        if (e.kind === "call" && e.callKind === "domain-service" && e.serviceRef) {
+          out.push(e.serviceRef.service, lowerFirst(e.serviceRef.service));
+        }
+      });
+    }
+  }
+  return out;
+}
+
 export function repoField(aggName: string): string {
   return `${lowerFirst(plural(aggName))}Repository`;
 }
@@ -824,9 +864,29 @@ export function renderJavaWorkflows(
         ),
       });
     }
+    // Each param binds a method local named after it — inside a method that
+    // also spells `request`, the saga row `state` / `__key`, the injected
+    // repository / service fields its body dereferences, …  A param whose
+    // host identifier lands in that set moves to a `_`-suffixed local
+    // (`javaLocals`); the wire accessor `request.<name>()` and the Request
+    // record component keep the `.ddd` spelling, and body refs follow the
+    // local through `paramExpr`.  Identity for every non-colliding name.
+    const paramLocals = javaLocals(
+      wf.params.map((p) => p.name),
+      new Set([
+        "request",
+        ...workflowBodyDerefNames([wf.statements], wf.savesAtExit, ctx),
+        ...(corrParam ? ["__key", "state", stateRepoField(wf)] : []),
+        ...(usesUser && authed ? ["currentUser", "currentUserAccessor"] : []),
+      ]),
+    );
+    const bodyRenderCtx: JavaRenderContext = {
+      ...wfRenderCtx,
+      paramExpr: (n) => paramLocals.get(n),
+    };
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
-      return `            var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
+      return `            var ${localOf(paramLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way
@@ -841,7 +901,7 @@ export function renderJavaWorkflows(
       javaWorkflowStmtTarget(
         ctx,
         imports,
-        wfRenderCtx,
+        bodyRenderCtx,
         undefined,
         collectUnionFindLets(wf.statements),
         corrParam ? wf.correlationField : undefined,
@@ -863,7 +923,7 @@ export function renderJavaWorkflows(
     // already bound above, so the key is the domain-typed local itself.
     const stateLoad = corrParam
       ? [
-          `            var __key = ${corrParam.name};`,
+          `            var __key = ${localOf(paramLocals, corrParam.name)};`,
           `            var state = ${stateRepoField(wf)}.findById(__key).orElseGet(() -> ${workflowStateClass(wf)}._allocate(__key));`,
         ]
       : [];
