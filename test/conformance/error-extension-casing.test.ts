@@ -127,10 +127,12 @@ describe("RS-30 — declared-error extension members are camelCase on the wire",
     const files = await generateSystemFiles(SOURCE("elixir"));
     const body = [...files.entries()].find(([k]) => k.endsWith("/s.ex"))?.[1];
     const schema = [...files.entries()].find(([k]) =>
-      k.includes("schemas/string_or_price_too_low"),
+      // The error arm's fields are published on its problem body (M-FT.24),
+      // not on the 200 union, which carries the success arms only.
+      k.includes("schemas/price_too_low_problem"),
     )?.[1];
     expect(body, "elixir emitted no context module").toBeDefined();
-    expect(schema, "elixir emitted no union schema").toBeDefined();
+    expect(schema, "elixir emitted no error-arm problem schema").toBeDefined();
     for (const c of CAMEL) {
       expect(body!, `elixir's runtime error map does not carry ${c}`).toContain(`${c}:`);
       expect(schema!, `elixir's published schema does not carry ${c}`).toContain(c);

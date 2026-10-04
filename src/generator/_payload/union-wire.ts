@@ -163,20 +163,13 @@ export function discriminatedUnionZod(memberObjects: string[]): string {
   return `z.discriminatedUnion("type", [${memberObjects.join(", ")}])`;
 }
 
-/** Raw JSON-schema for a tagged union — one `oneOf` arm per variant: the
- *  `type` discriminator literal plus the variant's wire fields.  Consumed by
- *  the backends whose OpenAPI layer can't express the union through its
- *  native response-model types without publishing extra per-variant
- *  components (FastAPI's install_openapi post-processor, the springdoc
- *  customizer's baked union components).  Structural kinds only — the parity
- *  diff folds formats and does not descend into oneOf arms. */
-export function unionJsonSchema(variants: TypeIR[], ctx: BoundedContextIR): unknown {
-  return unionMembersJsonSchema(unionMembers(variants, ctx));
-}
-
 /** Raw JSON schema of a tagged-union member list — one `oneOf` arm per
- *  member.  The member-list form of `unionJsonSchema`, so a subset of a
- *  union's arms (`OpUnionResponses.success`) renders the same way. */
+ *  member: the `type` discriminator literal plus the member's wire fields.
+ *  Consumed by the backends whose OpenAPI layer can't express the union
+ *  through its native response-model types without publishing extra
+ *  per-variant components (FastAPI's install_openapi post-processor, the
+ *  springdoc customizer's baked components, the .NET document filter).
+ *  Structural kinds only — the parity diff folds formats. */
 export function unionMembersJsonSchema(members: readonly UnionMember[]): unknown {
   return { oneOf: members.map(memberJsonSchema) };
 }
@@ -258,11 +251,6 @@ export interface OpUnionResponses {
   errorStatuses: { status: number; arms: OpUnionErrorArm[] }[];
 }
 
-/** The component name of an error arm's problem body. */
-export function errorArmProblemName(tag: string): string {
-  return `${tag}Problem`;
-}
-
 /** Split an operation-return union into the arms that answer 200 and the
  *  `error`-kind arms that answer a problem at their own status.  A union with
  *  no error arm, or no success arm, comes back unsplit (`errors: []`,
@@ -285,7 +273,7 @@ export function opUnionResponses(variants: TypeIR[], ctx: BoundedContextIR): OpU
     errors.push({
       tag: m.tag,
       status: resolveErrorStatus(m.tag, ctx.errorStatusOverrides),
-      problemName: errorArmProblemName(m.tag),
+      problemName: `${m.tag}Problem`,
       fields: m.shape === "record" ? m.fields.filter((f) => !RFC7807_MEMBERS.has(f.name)) : [],
     });
   });
