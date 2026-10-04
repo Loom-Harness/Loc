@@ -1127,6 +1127,12 @@ function wireFieldsToProps(
   return fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional }));
 }
 
+/** Property keys that break the `Jason.Encoder` derive `OpenApiSpex.schema`
+ *  performs (a `key: key` match pattern — see `renderSchemaModule`).  Probed
+ *  against Elixir 1.18 over every Elixir keyword / special form a `.ddd`
+ *  field can be named: only `fn` fails. */
+const JASON_DERIVE_UNSAFE_KEYS: ReadonlySet<string> = new Set(["fn"]);
+
 function renderSchemaModule(
   moduleName: string,
   schemaTitle: string,
@@ -1137,6 +1143,16 @@ function renderSchemaModule(
   const { propsLines, requiredAtoms } = renderProperties(fields, schemasModule, slot);
   const propsBlock = propsLines.length > 0 ? propsLines.join(",\n") : "      # no properties";
   const requiredBlock = requiredAtoms.length > 0 ? `[${requiredAtoms.join(", ")}]` : "[]";
+  // `OpenApiSpex.schema` defines a struct over the property keys and, by
+  // default, `@derive`s `Jason.Encoder` for it — and Jason's deriving builds a
+  // match pattern binding each key to a same-named VARIABLE.  A property named
+  // `fn` (a legal `.ddd` field) makes that pattern `fn: fn`, which Elixir
+  // rejects ("fn is not allowed in matches").  These schema structs are spec
+  // documentation only (never instantiated or encoded), so the derive is
+  // dropped for exactly those modules; every other module stays byte-identical.
+  const deriveOpt = fields.some((f) => JASON_DERIVE_UNSAFE_KEYS.has(f.name))
+    ? ", derive?: false"
+    : "";
 
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -1151,7 +1167,7 @@ defmodule ${moduleName} do
 ${propsBlock}
     },
     required: ${requiredBlock}
-  })
+  }${deriveOpt})
 end
 `;
 }

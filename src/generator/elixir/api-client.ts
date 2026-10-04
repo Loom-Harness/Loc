@@ -36,7 +36,7 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../ir/util/api-surface.js";
-import { snake } from "../../util/naming.js";
+import { escapeElixirIdent, snake } from "../../util/naming.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 
 /** The module the render layer calls into. */
@@ -64,7 +64,7 @@ function pathExpr(op: ApiOperationIR): string {
     const at = rest.indexOf(token);
     if (at < 0) continue;
     parts.push(JSON.stringify(rest.slice(0, at)));
-    parts.push(`URI.encode_www_form(to_string(${snake(p.name)}))`);
+    parts.push(`URI.encode_www_form(to_string(${escapeElixirIdent(snake(p.name))}))`);
     rest = rest.slice(at + token.length);
   }
   parts.push(JSON.stringify(rest));
@@ -136,7 +136,7 @@ export function emitElixirApiClients(
         // the first silently drops every argument after it.
         const wholeShapeBody = bodyParams.length === 1 && bodyParams[0]?.type.kind === "entity";
         const query = op.params.filter((p) => p.location === "query");
-        const params = op.params.map((p) => snake(p.name));
+        const params = op.params.map((p) => escapeElixirIdent(snake(p.name)));
 
         out.push(
           `  def ${res}_${snake(op.id)}(${params.join(", ")}) do`,
@@ -148,15 +148,17 @@ export function emitElixirApiClients(
             "      path <>",
             '        "?" <>',
             "        URI.encode_query(%{",
-            ...query.map((q) => `          ${JSON.stringify(q.name)} => ${snake(q.name)},`),
+            ...query.map(
+              (q) => `          ${JSON.stringify(q.name)} => ${escapeElixirIdent(snake(q.name))},`,
+            ),
             "        })",
           );
         }
         const reqOpts = [`url: ${res}_base_url() <> path`, `method: :${op.method.toLowerCase()}`];
         if (bodyParams.length > 0) {
           const payload = wholeShapeBody
-            ? snake(bodyParams[0]?.name ?? "body")
-            : `%{${bodyParams.map((p) => `${JSON.stringify(p.name)} => ${snake(p.name)}`).join(", ")}}`;
+            ? escapeElixirIdent(snake(bodyParams[0]?.name ?? "body"))
+            : `%{${bodyParams.map((p) => `${JSON.stringify(p.name)} => ${escapeElixirIdent(snake(p.name))}`).join(", ")}}`;
           reqOpts.push(`json: ${payload}`);
         }
         out.push(

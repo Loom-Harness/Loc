@@ -695,7 +695,7 @@ export function renderReturningOpFunction(
   // so it never trips the unused-variable check even when the op has no params
   // (an underscore-prefixed name used in a guard would itself warn).
   const paramReads = op.params.map(
-    (p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   // The `before` wire snapshot — taken from the ORIGINAL `record` before the
   // body rebinds any field (parity with the non-returning path + the other

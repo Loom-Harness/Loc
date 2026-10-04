@@ -40,7 +40,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ActionIR, ExprIR, StateFieldIR, StmtIR } from "../../ir/types/loom-ir.js";
-import { elixirString, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { defaultInitFor } from "./heex-walker.js";
 
 /** Render one `StoreIR` as its `lib/<app>_web/stores/<snake>.ex` content.
@@ -83,7 +83,7 @@ function storeFieldDefault(f: StateFieldIR): string {
  *  one-liner. */
 function renderStoreAction(action: ActionIR, fieldNames: ReadonlySet<string>): string {
   const fn = snake(action.name);
-  const params = action.params.map((p) => snake(p.name));
+  const params = action.params.map((p) => escapeElixirIdent(snake(p.name)));
   const head = ["%__MODULE__{} = state", ...params].join(", ");
 
   const stmtForms = action.body.map((s) => renderStoreStmt(s, fieldNames));
@@ -178,7 +178,7 @@ function renderStoreExpr(expr: ExprIR, fieldNames: ReadonlySet<string>): string 
       // local during lowering, so it arrives as a bare ref).
       if (fieldNames.has(nm)) return `state.${nm}`;
       if (expr.refKind === "enum-value") return `:${nm}`;
-      return nm;
+      return escapeElixirIdent(nm);
     }
     case "member":
       return `${renderStoreExpr(expr.receiver, fieldNames)}.${snake(expr.member)}`;
