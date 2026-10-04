@@ -162,10 +162,7 @@ function scalarMethodRenderable(e: Extract<ExprIR, { kind: "method-call" }>): bo
  *  browser JS for the whole expression?  Mirrors `renderRefineExpr`'s arms —
  *  every `false` here corresponds to a node the renderer would otherwise have
  *  to guess at. */
-export function refineRenderable(
-  e: ExprIR,
-  decimal: RefineDecimalMode = "server-only",
-): boolean {
+export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server-only"): boolean {
   const ok = (x: ExprIR): boolean => refineRenderable(x, decimal);
   switch (e.kind) {
     case "literal":
