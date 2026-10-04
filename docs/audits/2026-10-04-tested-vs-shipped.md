@@ -47,7 +47,7 @@ app is broken:
 | `java-build` / corpus java | none | `gradle testClasses bootJar` | **no** | – | ⚠️ W-as-E |
 | `python-build` / corpus python | none | `uv sync`, ruff, `mypy --strict`, pytest | lint as errors | – | ✅ stricter |
 | `elixir-vanilla-build` | none | `mix deps.get --only prod && mix compile --warnings-as-errors` | yes. But `_build` is cache-restored, so an unrecompiled module's warning is not re-emitted | – | ⚠️ cache |
-| `corpus-elixir-build` → `corpus-elixir-build.test.ts` | **none: migrations compiled, never applied** (#3060) | `mix compile --warnings-as-errors` | yes | – | ❌ (family B) |
+| `corpus-elixir-build` → `corpus-elixir-build.test.ts` | **was none: migrations compiled, never applied** (#3060). Now applied (#3147) | `mix compile --warnings-as-errors` | yes | – | ❌ → ✅ |
 | `generated-react-build` | none | `tsc --noEmit` + `vite build`, the pack `build` script's two halves (#2749) | – | `tsconfig.json`. `tsconfig.node.json` (vite.config) unchecked | ✅ |
 | `generated-vue-build` | none | `vue-tsc --noEmit` + `vite build`, as the script does | – | tsconfig.json | ✅ |
 | `generated-svelte-build` | none | `svelte-check --fail-on-warnings` + `vite build` | stricter | tsconfig.json | ✅ |
@@ -64,7 +64,7 @@ app is broken:
   - The cause is the Dockerfile emitter (`src/platform/hono/v4/emit.ts`, `DOCKERFILE_TS`). It is emitted unconditionally and ends with `COPY --from=build /app/db/migrations ./db/migrations`.
   - MikroORM applies its schema with `updateSchema()` and emits no `db/migrations`, so `docker build` fails with `"/app/db/migrations": not found`. Reproduced on `core-domain` with `persistence: mikroorm`.
   - It stayed green because the only gate that boots MikroORM runs `npm run dev` (tsx), and no gate builds its image.
-  - Fixed in the family-D PR.
+  - Fixed in #3146.
 - **The node behavioural leg on the emitted migrations: 141 passed, 0 failed, 0 wire divergences across 68 cases.** That is identical to the `synthDDL` baseline. No live node defect hid behind the synthesised schema on today's corpus.
   - The switch is mutation-proved. With a migration CHECK missing an enum member, the old harness passes `state-gate` and the new one fails it.
   - It now gates every future migration-only defect (FKs, uniques, CHECKs, composite PKs, the enum representation).
@@ -73,8 +73,8 @@ app is broken:
 
 | family | status |
 |---|---|
-| A — harness DB from the emitted migrations | **this PR**: `run.mjs`, `ui-stack.mjs`, `run-schemathesis.mjs`, `pagination.mjs` via `test/behavioral/emitted-schema.mjs`; ratchet `test/system/harness-schema-source.test.ts`. `synthDDL` stays the playground's (browser) DDL, the only path that ships it |
-| B — elixir migrations applied in the compile tier | follow-up PR (`corpus-elixir-build`: `ecto.migrate` against a Postgres sidecar after compile) |
-| C — warnings fatal on every compile/boot leg | follow-up: the elixir behavioural leg (#2994); java has no `-Werror` anywhere; flutter is explicitly non-fatal |
-| D — the shipped build path type-checks and builds | node Dockerfile typecheck = #3085 (in flight; v4 and v5 share the emitter). Frontend `build` scripts already type-check on every pack. **MikroORM image build (D-1)**: follow-up PR |
-| ratchet — every `LOOM_*` gate is reachable | already pinned by `test/system/skip-gate-reachability.test.ts` (from #3075). The residual "selected nothing" shape is `corpus-elixir-build`'s `--passWithNoTests` with an unknown `CASE`, closed with family B |
+| A — harness DB from the emitted migrations | **#3136**: `run.mjs`, `ui-stack.mjs`, `run-schemathesis.mjs`, `pagination.mjs` via `test/behavioral/emitted-schema.mjs`; ratchet `test/system/harness-schema-source.test.ts`. `synthDDL` stays the playground's (browser) DDL, the only path that ships it |
+| B — elixir migrations applied in the compile tier | **#3147**: `corpus-elixir-build` runs `mix ecto.create && mix ecto.migrate` (`MIX_ENV=prod`) on a Postgres sidecar after the compile; mutation-proved on #3060's index defect (`column "berth_ship" does not exist`). Sweep: all 93 vanilla projects apply on `main` |
+| C — warnings fatal on the boot legs | **#3150**: `run-dotnet`/`run-dapper` build with `/warnaserror` and `run-elixir` with `--warnings-as-errors`, each as the case's FIRST compile (an incremental rebuild re-emits no warning, measured). The five shared `systems/*.ddd` were the models only these legs compiled; all 15 cells are clean. **Open, owner's call:** java has no `-Werror` anywhere; flutter is `--no-fatal-warnings` by documented choice |
+| D — the shipped build path type-checks and builds | node Dockerfile typecheck = #3085 (v4 and v5 share the emitter). Frontend `build` scripts already type-check on every pack. **D-1, the MikroORM image build: #3146** (fix + `dockerfile-copy-sources.test.ts`; image built and booted) |
+| ratchet — every `LOOM_*` gate is reachable | already pinned by `test/system/skip-gate-reachability.test.ts` (from #3075). The residual "selected nothing" shape (an unknown `LOOM_CORPUS_ELIXIR_CASE` under `--passWithNoTests` reported green) fails loudly since #3147 |
