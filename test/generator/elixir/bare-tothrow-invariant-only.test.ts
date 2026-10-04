@@ -75,7 +75,7 @@ describe("elixir domain test — bare toThrow() over an invariant-only op (E8)",
   it("keeps the assert_raise when the op carries a precondition", async () => {
     const b = block(await testFile(), "precondition rejection");
     expect(b).not.toContain("@tag :skip");
-    expect(b).toContain("assert_raise E.GuardError, fn -> E.C.Counter.bump(c, %{\"n\" => -1}) end");
+    expect(b).toContain('assert_raise E.GuardError, fn -> E.C.Counter.bump(c, %{"n" => -1}) end');
   });
 
   it("keeps the assert_raise when the guard is reached through a private op", async () => {

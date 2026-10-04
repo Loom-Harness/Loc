@@ -336,7 +336,9 @@ describe("vanilla OpenAPI spec — workflow instance routes", () => {
     const files = await generateSystemFiles(SAGA_SOURCE);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    expect(spec).toContain('"/api/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{');
+    expect(spec).toContain(
+      '"/api/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{',
+    );
     expect(spec).toContain('operationId: "allOrderFulfillmentInstances"');
     expect(spec).toContain(
       '"/api/workflows/order_fulfillment/instances/{id}" => %OpenApiSpex.PathItem{',

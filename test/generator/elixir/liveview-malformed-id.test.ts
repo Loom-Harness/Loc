@@ -41,7 +41,10 @@ async function detailLive(): Promise<string> {
 describe("LiveView detail page — a malformed route id (M-T6.71)", () => {
   it("casts the id before the by-id fetch and renders not-found on a malformed one", async () => {
     const live = await detailLive();
-    const handle = live.slice(live.indexOf("def handle_params"), live.indexOf("{:noreply, socket}"));
+    const handle = live.slice(
+      live.indexOf("def handle_params"),
+      live.indexOf("{:noreply, socket}"),
+    );
     const cast = handle.indexOf("case Ecto.UUID.cast(socket.assigns.id) do");
     const fetch = handle.indexOf("get_employee(socket.assigns.id)");
     expect(cast, "the by-id load is not guarded by a UUID cast").toBeGreaterThanOrEqual(0);
@@ -55,7 +58,9 @@ describe("LiveView detail page — a malformed route id (M-T6.71)", () => {
     expect(at, "no history loader emitted — the fixture is not exercising this").toBeGreaterThan(0);
     const loader = live.slice(at);
     const cast = loader.indexOf("with {:ok, _} <- Ecto.UUID.cast(id),");
-    expect(cast, "the history loader's get is not guarded by a UUID cast").toBeGreaterThanOrEqual(0);
+    expect(cast, "the history loader's get is not guarded by a UUID cast").toBeGreaterThanOrEqual(
+      0,
+    );
     expect(loader.indexOf("get_employee(id)")).toBeGreaterThan(cast);
   });
 });

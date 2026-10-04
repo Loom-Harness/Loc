@@ -9,11 +9,11 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
 import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
-import { walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
 import { pureDerivedAccessorNames } from "./domain-core-emit.js";

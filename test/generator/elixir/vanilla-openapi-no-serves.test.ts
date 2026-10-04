@@ -89,7 +89,9 @@ describe("vanilla OpenAPI spec — a deployable without `serves:` (F15)", () => 
     // dropping `/api` from every request (M-T6.70: Schemathesis fuzzed the
     // LiveView routes instead of the API).
     expect(spec).not.toContain("servers:");
-    const keys = [...spec.matchAll(/^ {6}"([^"]+)" => %OpenApiSpex\.PathItem\{/gm)].map((m) => m[1]!);
+    const keys = [...spec.matchAll(/^ {6}"([^"]+)" => %OpenApiSpex\.PathItem\{/gm)].map(
+      (m) => m[1]!,
+    );
     expect(keys.length).toBeGreaterThan(0);
     for (const k of keys) expect(k, `path key ${k} lacks the /api base`).toMatch(/^\/api\//);
     // … and every route the `scope "/api"` block mounts has a matching path item.
