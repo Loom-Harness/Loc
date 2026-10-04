@@ -1,4 +1,5 @@
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 
 // ---------------------------------------------------------------------------
@@ -10,6 +11,16 @@ import { snake, upperFirst } from "../../util/naming.js";
 //   - scalar / enum collections map to native Postgres arrays
 //   - enums store their value text
 //   - money is NUMERIC(19,4); ids are TEXT
+//
+// A value-object name resolves through `findValueObjectInScope` (own
+// `valueObjects` ∪ `siblingValueObjects`), never a bare `ctx.valueObjects.find`:
+// an unresolved VO does not fail, it FALLS BACK to one opaque column named
+// after the field — a column that exists in neither the DDL nor the row model.
+// The schema emitter calls these on the MERGED context, where a sibling VO is an
+// own one, so it never missed; the repository builder (`tphAssertNarrow`) and
+// `find-predicate` call them PER CONTEXT, where a VO declared in another context
+// is only a sibling.  Own names shadow, so this is a no-op wherever the bare
+// lookup already hit.  (F-008; the repository-builder half closed in #3060.)
 // ---------------------------------------------------------------------------
 
 export interface PyColumn {
@@ -90,7 +101,7 @@ export function valueCollectionChildColumns(
   ctx: BoundedContextIR,
   prefix = "",
 ): PyColumn[] {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return [];
   return vo.fields.flatMap((vf) => {
     const name = prefix ? `${prefix}_${snake(vf.name)}` : snake(vf.name);
@@ -164,7 +175,7 @@ export function columnsFor(
       // Stored as the value text (parity with pgEnum's stored form).
       return [{ attr, pyType: "str", saType: "Text", optional: opt }];
     case "valueobject": {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       if (!vo) return [{ attr, pyType: "str", saType: "Text", optional: opt }];
       return vo.fields.flatMap((vf) => columnsFor(`${fieldName}_${vf.name}`, vf.type, opt, ctx));
     }
