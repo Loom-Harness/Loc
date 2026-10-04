@@ -359,8 +359,16 @@ function renderSchema(
         .join("\n")
     : "";
   // The bundled Ecto `timestamps()` (→ `inserted_at`/`updated_at`) is dropped
-  // when an explicit `updated_at` audit field is present (it would collide).
-  const timestampsLine = hasUpdatedAt ? "" : "    timestamps(type: :utc_datetime)";
+  // when an explicit `updated_at` audit field is present (it would collide) —
+  // and likewise when a DECLARED field already owns one of those columns
+  // (`inserted_at` / `insertedAt` / `updated_at`): Ecto would define the field
+  // twice ("field/association :inserted_at already exists on schema").  The
+  // declared field keeps its wire key and its column; the migration drops its
+  // `timestamps()` by the same column test (`migrations-emit.ts`).
+  const timestampsLine =
+    hasUpdatedAt || ownsEctoTimestampColumn(agg.fields)
+      ? ""
+      : "    timestamps(type: :utc_datetime)";
   const refCollBlock = refCollLines.join("\n");
   const schemaBody = [
     kindLine,
@@ -394,6 +402,19 @@ ${schemaBody}
   end
 ${pureCoreBlock}end
 `;
+}
+
+/** The two columns Ecto's bundled `timestamps()` macro defines. */
+const ECTO_TIMESTAMP_COLUMNS: ReadonlySet<string> = new Set(["inserted_at", "updated_at"]);
+
+/** Does a declared field already own one of the `timestamps()` columns?  The
+ *  camelCase `createdAt`/`updatedAt` audit names are NOT counted — they keep
+ *  their own explicit-field handling (`auditTsLines` / `renderFieldLine`). */
+export function ownsEctoTimestampColumn(fields: readonly { name: string }[]): boolean {
+  return fields.some(
+    (f) =>
+      f.name !== "createdAt" && f.name !== "updatedAt" && ECTO_TIMESTAMP_COLUMNS.has(snake(f.name)),
+  );
 }
 
 interface AggField {

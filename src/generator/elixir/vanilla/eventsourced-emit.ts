@@ -222,7 +222,7 @@ function renderFoldModule(appModule: string, ctxModule: string, agg: AggregateIR
 
   const clauses = (agg.appliers ?? []).map((ap) => {
     const usesParam = foldStmtsUseParam(ap.statements, ap.param, renderCtx, foldOpts);
-    const bind = usesParam ? snake(ap.param) : `_${snake(ap.param)}`;
+    const bind = usesParam ? escapeElixirIdent(snake(ap.param)) : `_${snake(ap.param)}`;
     const body = ap.statements.map((s) => renderFoldStatement(s, renderCtx, foldOpts)).join("\n");
     return `  def apply_event(state, %${eventsModule}.${upperFirst(ap.event)}{} = ${bind}) do
 ${body}

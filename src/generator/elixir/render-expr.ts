@@ -539,7 +539,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return snake(e.member);
+    return escapeElixirIdent(snake(e.member));
   }
   // PRINCIPAL CLAIM INSIDE AN ECTO QUERY (`ctx.filterArgs`).  `current_user` is
   // an ordinary Elixir local, and Ecto's `where:` admits no unbound locals — a

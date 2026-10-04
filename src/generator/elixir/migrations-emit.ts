@@ -162,8 +162,14 @@ function timestampsMacro(table: TableShape): string | null {
   // because the flush rides the save transaction, it would roll the aggregate
   // write back with it.
   if (table.name === "provenance_records") return null;
-  const hasUpdatedAt = table.columns.some((c) => c.name === "updated_at");
-  return hasUpdatedAt ? null : "timestamps()";
+  // A declared `inserted_at` / `insertedAt` field owns the other bundled
+  // column the same way (`ownsEctoTimestampColumn` in `vanilla/schema-emit.ts`
+  // drops the schema's `timestamps()` in lockstep) — a second `inserted_at`
+  // would fail `ecto.migrate` with "column specified more than once".
+  const ownsTimestamp = table.columns.some(
+    (c) => c.name === "updated_at" || c.name === "inserted_at",
+  );
+  return ownsTimestamp ? null : "timestamps()";
 }
 
 export function emitMigrations(

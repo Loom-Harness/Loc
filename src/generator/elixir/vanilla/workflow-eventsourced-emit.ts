@@ -29,7 +29,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -134,7 +134,7 @@ function renderFoldModule(contextModule: string, wf: WorkflowIR): string {
 
   const clauses = (wf.appliers ?? []).map((ap) => {
     const bind = foldStmtsUseParam(ap.statements, ap.param, renderCtx)
-      ? snake(ap.param)
+      ? escapeElixirIdent(snake(ap.param))
       : `_${snake(ap.param)}`;
     const body = ap.statements.map((s) => renderFoldStatement(s, renderCtx)).join("\n");
     return `  def apply_event(state, %${eventsModule}.${upperFirst(ap.event)}{} = ${bind}) do
@@ -430,7 +430,7 @@ export function renderEsWorkflowHandler(
         break;
       }
       case "expr-let": {
-        const text = `${snake(st.name)} = ${renderExpr(st.expr, renderCtx)}`;
+        const text = `${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, renderCtx)}`;
         lets.push(`      ${text}`);
         regions.push({ text, origin: st.origin });
         break;

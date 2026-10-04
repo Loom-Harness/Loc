@@ -40,6 +40,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ActionIR, ExprIR, StateFieldIR, StmtIR } from "../../ir/types/loom-ir.js";
+import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { defaultInitFor } from "./heex-walker.js";
 
@@ -83,7 +84,20 @@ function storeFieldDefault(f: StateFieldIR): string {
  *  one-liner. */
 function renderStoreAction(action: ActionIR, fieldNames: ReadonlySet<string>): string {
   const fn = snake(action.name);
-  const params = action.params.map((p) => escapeElixirIdent(snake(p.name)));
+  // A param the body never reads is bound `_<name>` — Elixir warns on an
+  // unused variable, and the generated project compiles with
+  // `--warnings-as-errors` (an `action push(sku: string) { count += 1 }` is
+  // valid `.ddd`; the SPA twins simply ignore the argument).
+  const read = new Set<string>();
+  for (const s of action.body) {
+    walkStmtExprsDeep(s, (e) => {
+      if (e.kind === "ref") read.add(snake(e.name));
+    });
+  }
+  const params = action.params.map((p) => {
+    const nm = snake(p.name);
+    return read.has(nm) ? escapeElixirIdent(nm) : `_${nm}`;
+  });
   const head = ["%__MODULE__{} = state", ...params].join(", ");
 
   const stmtForms = action.body.map((s) => renderStoreStmt(s, fieldNames));
