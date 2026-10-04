@@ -560,7 +560,7 @@ function emitParts(
       { name: "event_type", valueExpr: `"${upperFirst(s.eventName)}"` },
       ...(rc.agg ? [{ name: "aggregate", valueExpr: `"${upperFirst(rc.agg.name)}"` }] : []),
     ]);
-    const dispatchCall = elixirDispatchCall(evVar, rc.contextModule, hasDispatcher, channels);
+    const dispatchCall = elixirDispatchCall(evVar, rc.contextModule, hasDispatcher, channels, true);
     out.push({
       bind: [`${indents.bind}${evVar} = ${struct}`, `${indents.bind}${logCall}`],
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],

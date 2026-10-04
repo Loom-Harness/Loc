@@ -433,6 +433,35 @@ ${clauses.join("\n\n")}
   # Events with no in-process subscriber are a no-op.
   def dispatch(_event), do: :ok
 end
+
+defmodule ${contextModule}.Dispatcher.AfterCommit do
+  @moduledoc """
+  The request path's dispatcher (workflow.md § Reactor failures): it runs
+  after the command's write committed, so a reactor failure is logged
+  \`reactor_failed\` and swallowed instead of failing that committed command.
+  The outbox relay, broker consumers and the scheduler call
+  \`${contextModule}.Dispatcher\` directly — their retry rides the raise.
+  """
+  require Logger
+
+  def dispatch(event) do
+    ${contextModule}.Dispatcher.dispatch(event)
+  rescue
+    e -> reactor_failed(event, Exception.message(e))
+  catch
+    kind, reason -> reactor_failed(event, inspect({kind, reason}))
+  end
+
+  defp reactor_failed(event, error) do
+    ${renderPhoenixLogCall("reactorFailed", [
+      { name: "handler", valueExpr: `"dispatch"` },
+      { name: "event_type", valueExpr: "event.__struct__ |> Module.split() |> List.last()" },
+      { name: "event_id", valueExpr: "Ecto.UUID.generate()" },
+      { name: "error", valueExpr: "error" },
+    ])}
+    :ok
+  end
+end
 `;
 }
 
@@ -521,9 +550,13 @@ defmodule ${handlerModule(contextModule, sub)} do
 ${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? contextModule}.Events.${upperFirst(sub.event)}{} = event) do
     # A reactor is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the dispatching request's scope) so its audit / provenance
-    # rows record their call-structure position.
+    # rows record their call-structure position.  The reaction is ATOMIC
+    # (workflow.md § Reactor failures): a raise / throw part-way rolls back
+    # the saga-state row and every write before it, then propagates.
     ${appModule}.RequestContext.with_child_frame(fn ->
+    ${appModule}.Repo.transaction(fn ->
 ${inner}
+    end)
     end)
   end
 end
