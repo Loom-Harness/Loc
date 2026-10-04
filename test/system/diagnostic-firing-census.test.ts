@@ -507,7 +507,60 @@ ${opts.e2eTest}
 }`;
 }
 
+/** A bank context whose `workflow` members are the defect under test — the
+ *  `create(…): T { … return x }` pairing rules (`loom.workflow-return-*`). */
+const workflowResult = (members: string, header = "") => `
+system S {
+  subdomain D { context Bank {
+    aggregate Account with crudish { number: string  balance: int }
+    repository Accounts for Account { }
+    event Opened { account: Account id }
+    workflow w${header} {
+      ${members}
+    }
+  } }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // `create(…): T` — a result needs a caller.  An event-triggered starter has
+  // none (the in-process dispatcher drops whatever it would return).
+  "loom.workflow-return-no-caller": workflowResult(`
+      create(e: Opened): int by e.account {
+        let a = Accounts.getById(e.account)
+        return a.balance
+      }`),
+  // A `return` before the last statement would be lowered apart from the body
+  // and silently answered AFTER the steps that follow it.
+  "loom.workflow-return-not-last": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+        let b = Account.create({ number: n, balance: 1 })
+      }`),
+  // A `return` with no `: T` — the route would answer a body its contract
+  // never published.
+  "loom.workflow-return-untyped": workflowResult(`
+      create(n: string) {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+      }`),
+  // A `: T` with no `return` — nothing to answer the declared 200 with.
+  "loom.workflow-return-missing": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+      }`),
+  // The returned value disagrees with the declared type.
+  "loom.workflow-return-type-mismatch": workflowResult(`
+      create(n: string): int {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.number
+      }`),
+  // An aggregate result has no workflow-route wire projection yet.
+  "loom.workflow-return-type-unsupported": workflowResult(`
+      create(n: string): Account {
+        let a = Account.create({ number: n, balance: 0 })
+        return a
+      }`),
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:

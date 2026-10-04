@@ -1022,7 +1022,7 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
  *  answers the bare value (`create(…): T`), not a record. */
 function isWorkflowResultCall(e: ExprIR, ctx: RenderCtx): boolean {
   const call = matchApiCall(e);
-  if (!call || call.method !== "run") return false;
+  if (call?.method !== "run") return false;
   if (findAggregateBySlug(call.aggregateSlug, ctx.contexts)) return false;
   const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
   return !!wf && !!commandCreateResult(wf);
