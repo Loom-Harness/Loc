@@ -1025,7 +1025,7 @@ export function checkOfReadBinds(
       // walker binds it through its own scope lookups, which run ahead of the
       // fallback.  Only an `"unknown"` root can reach the fallback at all.
       const rootRef = rootRefOf(of);
-      if (!rootRef || rootRef.refKind !== "unknown") return;
+      if (rootRef?.refKind !== "unknown") return;
       if (ofReadBinds(of, apiParamNames, aggNames, workflowNames, projectionNames)) return;
       // One verdict per SPELLING: the same unbound name read by a `Chart` and a
       // `QueryView` on one page is one mistake, not two.

@@ -518,7 +518,7 @@ export function fieldInput(
   // combobox page-object locator (`page-objects-builder.ts`).
   const idTarget = idTargetForField(t, bc, ctx);
   if (idTarget) {
-    const { hookVar, optionsExpr } = idTarget;
+    const { optionsExpr } = idTarget;
     const optionTestid = `${testidBase}-option`;
     if (style === "material") {
       addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
