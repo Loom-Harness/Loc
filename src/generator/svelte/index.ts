@@ -67,6 +67,7 @@ import {
 } from "./emit-templates.js";
 import { emitSvelteNamedLayouts } from "./layouts-emitter.js";
 import { buildSvelteRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { SVELTE_REF_LABEL, SVELTE_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import {
   defaultNavSections,
   emitSveltePageObjectsForUi,
@@ -471,6 +472,12 @@ export function generateSvelteForContexts(
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
 
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<LoomRefLabel"))) {
+    out.set(SVELTE_REF_LABEL_PATH, SVELTE_REF_LABEL);
+  }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
 

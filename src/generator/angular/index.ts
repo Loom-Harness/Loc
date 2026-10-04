@@ -69,6 +69,7 @@ import {
   buildAngularRealtimeHandlers,
   buildAngularToastService,
 } from "./realtime-handlers-builder.js";
+import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
 import { angularTargetFor } from "./walker/angular-target.js";
@@ -757,6 +758,12 @@ export function generateAngularForContexts(
   out.set("Dockerfile", pack.render("dockerfile", {}));
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
+    out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
+  }
 
   // Fullstack embed: relocate the whole project under the host's prefix
   // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.

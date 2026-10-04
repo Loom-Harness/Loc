@@ -1047,6 +1047,15 @@ export const flutterTarget: WalkerTarget = {
   // placeholder never varies.
   renderOptionalSplit: ({ value, bound, present }) =>
     `(switch (${value}) { final ${bound}? => ${present}, _ => const Text(${dartString("—")}) })`,
+  // `LoomRefLabel` (`lib/ref_label.dart`, `flutter/ref-label-runtime.ts`) — the
+  // pack's id `Text` becomes its `fallback`.  The page imports the library off
+  // this call (the `LoomChart(` marker discipline).
+  // The path INTERPOLATES the id (a `+` concat is a `prefer_interpolation_to_
+  // compose_strings` info on every wrapped cell).
+  renderRefLabelWrap: ({ apiPath, idExpr }) => ({
+    open: `LoomRefLabel(path: ${dartString(apiPath).slice(0, -1)}\${${idExpr}}', fallback: `,
+    close: ")",
+  }),
   // Flutter has no CSS `style` attribute — styling is per-widget.  Empty, like
   // Feliz.
   renderStyleAttr: () => "",

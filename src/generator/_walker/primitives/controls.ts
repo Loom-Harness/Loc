@@ -3,7 +3,7 @@
 // detection (via emitExpr), navigation, lambda handlers, and aggregate
 // lookups, so they pull the core walk/expr/stmt helpers.
 
-import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { tryRenderGate } from "../../_frontend/gate-expr.js";
@@ -71,12 +71,36 @@ export function emitIdLink(
   const agg = ctx.aggregatesByName.get(aggName);
   const slug = agg ? plural(snake(agg.name)) : plural(snake(aggName));
   ctx.usesRouterLink = true;
+  // The link LABEL is the referenced record's `display` when it has one, read
+  // by a per-cell child the target wraps around the pack's truncated-id label
+  // (which stays as the loading / error / no-display fallback).  Not for a
+  // row's link to ITSELF (`IdLink(row.id, of: <own aggregate>)`, the scaffold's
+  // id column): that column is the id by name, and the row already holds the
+  // display, so a by-id read there would be a pure N+1.
+  const wrap =
+    agg && id && carriesDisplay(agg) && !isSelfIdRead(id)
+      ? ctx.target.renderRefLabelWrap?.({ apiPath: `/${snake(plural(agg.name))}/`, idExpr }, ctx)
+      : undefined;
   return renderPrimitive(ctx, "primitive-id-link", {
     idExpr,
     pathPrefix: `/${slug}/`,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
+    refOpen: wrap?.open ?? "",
+    refClose: wrap?.close ?? "",
   });
+}
+
+/** Whether the aggregate ships a `display` member on the wire — the
+ *  `derived display` the scaffold and the id-select picker label by, or a
+ *  plain field of that name. */
+function carriesDisplay(agg: AggregateIR): boolean {
+  return agg.displayDerived !== undefined || agg.fields.some((f) => f.name === "display");
+}
+
+/** `<receiver>.id` — the row's own identity, not a cross-aggregate reference. */
+function isSelfIdRead(e: ExprIR): boolean {
+  return e.kind === "member" && e.member === "id";
 }
 
 export function emitButton(

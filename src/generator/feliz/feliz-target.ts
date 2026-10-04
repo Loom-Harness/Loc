@@ -999,6 +999,12 @@ export const felizTarget: WalkerTarget = {
   // `data-grid-child.ts` for the whole rationale.
   dataGridRowVar: FELIZ_GRID_ROW_VAR,
   renderDataGridChild: (spec, ctx) => renderFelizDataGridChild(spec, ctx),
+  // The `LoomRefLabel` module App.fs carries when a view calls it
+  // (`feliz/ref-label-runtime.ts`); the id text becomes its fallback element.
+  renderRefLabelWrap: (spec) => ({
+    open: `LoomRefLabel.view ${fsString(spec.apiPath)} (${spec.idExpr}) (`,
+    close: ")",
+  }),
 
   // --- Table control seams (M-T1.1) --------------------------------------
   //
