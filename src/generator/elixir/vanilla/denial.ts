@@ -377,7 +377,7 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
  *  frontend ACL's `applyServerErrors` bound nothing.  The entries carry no
  *  `code` (a structural error, like zod's), and go through the same
  *  `validation_errors_response/2` sender the wire-rung precondition uses. */
-export function missingParamsResponse(problemModule = "ProblemDetails"): string {
+function missingParamsResponse(problemModule = "ProblemDetails"): string {
   return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))`;
 }
 

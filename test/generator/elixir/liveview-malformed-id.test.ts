@@ -10,8 +10,7 @@
 // calls the same `get_<agg>` and gets the same cast first.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `system S {
   subdomain M {
@@ -32,8 +31,7 @@ const SRC = `system S {
 }`;
 
 async function detailLive(): Promise<string> {
-  const { model } = await parseString(SRC);
-  const files = generateSystems(model).files;
+  const files = await generateSystemFiles(SRC);
   for (const [p, c] of files) if (p.endsWith("live/employee_detail_live.ex")) return c;
   throw new Error("no employee_detail_live.ex emitted");
 }
