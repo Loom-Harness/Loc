@@ -82,6 +82,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setTopLevelFnIndex` before lowering any body (lower.ts:293).",
   },
+  "src/ir/lower/lower-expr.ts:lowerExprObserver": {
+    discipline: "scoped-restore",
+    reason:
+      "M-T5.44 shadow-mode observer: unset outside the typing differential, which installs it per document and clears it in a `finally`.",
+  },
   "src/ir/lower/lower-expr.ts:uiEnumIndexByRoot": {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the AST root node.",

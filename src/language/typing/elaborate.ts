@@ -1314,14 +1314,14 @@ function ownerChain(
   return out;
 }
 
-export function elementOf(t: Ty): Ty | undefined {
+function elementOf(t: Ty): Ty | undefined {
   const bare = t.kind === "optional" ? t.inner : t;
   return bare.kind === "array" ? bare.element : undefined;
 }
 
 /** The more general of two types (`int`/`long` → `long`, `T`/`null` → `T?`),
  *  or undefined when they share no supertype. */
-export function join(a: Ty, b: Ty): Ty | undefined {
+function join(a: Ty, b: Ty): Ty | undefined {
   if (a.kind === "unknown") return a;
   if (b.kind === "unknown") return b;
   if (a.kind === "never") return b;
@@ -1369,7 +1369,7 @@ function sameType(a: Ty, b: Ty): boolean {
 /** Binary arithmetic / concatenation — the language layer's closed rules
  *  (money and temporal algebras, numeric widening, `/` widens to decimal,
  *  implicit stringification). Anything else is `ill-typed-operands`. */
-export function arithmetic(a: Ty, b: Ty, op: string): Ty {
+function arithmetic(a: Ty, b: Ty, op: string): Ty {
   const tags = mergeTags(a.sensitivity, b.sensitivity);
   const r = arithmeticBare(a, b, op);
   return withTags(r, tags);

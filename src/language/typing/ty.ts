@@ -111,17 +111,15 @@ export const Ty = {
   },
 };
 
-export const isUnknown = (t: Ty): t is Ty & { kind: "unknown" } => t.kind === "unknown";
-
 export function isPrim(t: Ty, ...names: PrimitiveName[]): boolean {
   return t.kind === "primitive" && (names.length === 0 || names.includes(t.name));
 }
 
 /** The name a record shape carries in the IR's `entity{name}` marker. */
-export const PRINCIPAL_SHAPE_NAME = "__User__";
-export const RESOURCE_HANDLE_SHAPE_NAME = "__ResourceHandle";
+const PRINCIPAL_SHAPE_NAME = "__User__";
+const RESOURCE_HANDLE_SHAPE_NAME = "__ResourceHandle";
 
-export function recordName(shape: RecordShape): string {
+function recordName(shape: RecordShape): string {
   switch (shape.of) {
     case "principal":
       return PRINCIPAL_SHAPE_NAME;
