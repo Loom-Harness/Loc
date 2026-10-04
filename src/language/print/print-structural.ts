@@ -1247,7 +1247,8 @@ function printMigration(node: import("../generated/ast.js").Migration): string {
   return block(`migration ${JSON.stringify(node.name)}`, () =>
     node.steps.map((s) => {
       if (s.$type === "TableRename") return `${s.fromTable} -> ${s.toAggregate.$refText}`;
-      if (s.$type === "SqlStep") return `sql ${JSON.stringify(s.sql)}`;
+      if (s.$type === "SqlStep")
+        return `sql ${s.before ? "before " : ""}${JSON.stringify(s.sql)}`;
       // ColumnStep — rename (`renamedTo`) or backfill (`value`), M-T2.3.
       return s.value !== undefined
         ? `${s.aggregate.$refText}.${s.field} = ${printExpr(s.value)}`

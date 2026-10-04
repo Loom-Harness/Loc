@@ -2098,7 +2098,12 @@ export function buildMigrations(
     );
     // Raw sql steps + ledgered data fix-ups (M-T2.3): emitted exactly once —
     // the baseline's `appliedDataMigrations` records each emitted key — after
-    // the generation's structural steps, in declaration order.
+    // the generation's structural steps, in declaration order.  A
+    // `sql before "…"` step (B-20) is emitted AHEAD of the structural steps
+    // instead — the dedupe a new `unique (…)` index needs to run first.  On a
+    // module's Initial generation there is nothing to precede (none of its
+    // tables exist yet), so `before` keeps the trailing position there — one
+    // rule for every backend, including Ecto's per-table initial layout.
     const applied = new Set(baseline?.appliedDataMigrations ?? []);
     const sqlForModule = (options.sqlSteps ?? []).filter((step) => {
       const mods = blockModules.get(step.migration);
@@ -2109,14 +2114,20 @@ export function buildMigrations(
       if (ownerModules.length === 1) return ownerModules[0] === m.name;
       throw new MigrationSqlScopeError(step.migration, []);
     });
-    const newData = [
-      ...sqlForModule.map((step) => ({ key: `${step.migration}#${step.index}`, sql: step.sql })),
+    const newData: { key: string; sql: string; before?: boolean }[] = [
+      ...sqlForModule.map((step) => ({
+        key: `${step.migration}#${step.index}`,
+        sql: step.sql,
+        before: step.before === true && baseline !== null,
+      })),
       ...tableRenamePlan.dataFixups,
     ].filter((d) => !applied.has(d.key));
+    const toExec = (d: { sql: string }): MigrationStep => ({ op: "sqlExec", sql: d.sql });
     const steps: MigrationStep[] = [
+      ...newData.filter((d) => d.before).map(toExec),
       ...structuralSteps,
       ...reshapeComments,
-      ...newData.map((d): MigrationStep => ({ op: "sqlExec", sql: d.sql })),
+      ...newData.filter((d) => !d.before).map(toExec),
     ];
     const storageName = findPrimaryStorageBinding(sys, m, m.migrationsOwner) ?? "";
     // Version allocation is per-module BLOCK (fleet-bug-hunt I1).  A module's

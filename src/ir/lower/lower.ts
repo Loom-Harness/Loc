@@ -484,6 +484,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             migration: m.name,
             index,
             sql: step.sql,
+            ...(step.before ? { before: true } : {}),
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
