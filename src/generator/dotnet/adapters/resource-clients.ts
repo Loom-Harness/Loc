@@ -11,7 +11,6 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
-import { supportsSurfaceKind } from "../../../util/source-types.js";
 
 export interface DotnetResourceAdapter {
   readonly name: string;
@@ -550,11 +549,6 @@ const ADAPTERS: readonly DotnetResourceAdapter[] = [
  *  when the registry agrees it supports the kind. */
 export function dotnetResourceAdapterFor(sourceType: string): DotnetResourceAdapter | undefined {
   return ADAPTERS.find((a) => a.name === sourceType);
-}
-
-/** Does any .NET adapter support `(sourceType, kind)`? */
-export function dotnetSupportsResource(sourceType: string, kind: DataSourceIR["kind"]): boolean {
-  return !!dotnetResourceAdapterFor(sourceType) && supportsSurfaceKind(sourceType, kind);
 }
 
 /** Emit `Resources/<SourceType>.cs` helper classes for every consumable

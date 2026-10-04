@@ -66,26 +66,6 @@ export function workflowParamPayloads(ctx: BoundedContextIR): PayloadIR[] {
   return ctx.payloads.filter((p) => named.has(p.name) && !p.variants && !p.synthesized);
 }
 
-/** The same collector over a single workflow — used by the emitters that build
- *  one file per workflow (java's request DTO, .NET's command record) and need
- *  to know whether THIS workflow pulls a payload in. */
-export function workflowParamPayloadsOf(wf: WorkflowIR, ctx: BoundedContextIR): PayloadIR[] {
-  const named = new Set<string>();
-  for (const p of wf.params) {
-    const n = leafName(p.type);
-    if (n !== undefined) named.add(n);
-  }
-  return ctx.payloads.filter((p) => named.has(p.name) && !p.variants && !p.synthesized);
-}
-
-/** True iff `t`'s leaf is a declared record payload in `ctx` — the predicate
- *  each backend's wire-type / materialization arm uses to tell a payload
- *  reference apart from the containment part that shares the `entity` kind. */
-export function isRecordPayloadType(t: TypeIR, ctx: BoundedContextIR): boolean {
-  const n = leafName(t);
-  return n !== undefined && recordPayload(ctx, n) !== undefined;
-}
-
 /** The declared record payload `t`'s leaf names, or `undefined` when the leaf
  *  is not one (a containment part, or a primitive). */
 export function recordPayloadOf(t: TypeIR, ctx: BoundedContextIR): PayloadIR | undefined {

@@ -174,6 +174,11 @@ function renderCsOmission(v: SeederCreateParam["omission"]): string {
       return renderCsExpr(v.expr);
     case "false":
       return "false";
+    // A C# collection expression: the target type (the `Create(...)`
+    // parameter's `List<T>`) infers the element type, so this needs no
+    // `new List<T>()` spelling and stays correct if that type changes.
+    case "empty-collection":
+      return "[]";
     case "null":
       return "null";
   }

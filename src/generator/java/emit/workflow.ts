@@ -10,7 +10,7 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import {
   operationBodyUsesCurrentUser,
@@ -52,7 +52,6 @@ import {
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
-  wireToDomainGuards,
 } from "./wire.js";
 import { setterName, workflowStateClass } from "./workflow-state.js";
 

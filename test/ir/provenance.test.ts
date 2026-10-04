@@ -257,7 +257,13 @@ describe("provenanced — TypeScript emission", () => {
       expect(mig).toBeDefined();
       // Schema-qualified: the deployable binds a `resource` for context C, so
       // its tables live in the `c` Postgres schema — the shape a real user gets.
-      expect(mig).toContain('ALTER TABLE "c"."carts" ADD COLUMN "total_provenance" JSONB');
+      // `IF NOT EXISTS`: this late migration is re-derived from scratch each
+      // generation and re-homed above the newest history entry, so it can be
+      // re-applied against a database that already carries some of its columns
+      // (F-012 — it used to crash the boot on "already exists").
+      expect(mig).toContain(
+        'ALTER TABLE "c"."carts" ADD COLUMN IF NOT EXISTS "total_provenance" JSONB',
+      );
       // The history table is a shared MigrationsIR companion table
       // (`provenanceTableShape`) now, so it lands in the ordinary module
       // migration rather than being hand-written into this late one.
@@ -309,8 +315,8 @@ describe("provenanced — TypeScript emission", () => {
         "api/db/migrations/29991231000000_provenance.sql",
       )!;
       expect(migBefore).not.toContain("discount_provenance");
-      expect(migAfter).toContain('ADD COLUMN "discount_provenance" JSONB');
-      expect(migAfter).toContain('ADD COLUMN "total_provenance" JSONB');
+      expect(migAfter).toContain('ADD COLUMN IF NOT EXISTS "discount_provenance" JSONB');
+      expect(migAfter).toContain('ADD COLUMN IF NOT EXISTS "total_provenance" JSONB');
     });
 
     it("emits no provenance migration when nothing is provenanced", async () => {

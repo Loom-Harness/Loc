@@ -10,12 +10,14 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_GATE_SVELTE, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
+import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_SVELTE,
@@ -27,7 +29,12 @@ import {
 // the Svelte generator reuses the React module verbatim (same sharing pattern
 // as Vue).  Runtime files land under `src/lib/` and the body-walker seam's
 // `../i18n` import is rewritten to the depth-agnostic `$lib/i18n` specifier.
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
@@ -100,6 +107,12 @@ export interface GenerateSvelteOptions {
    *  shared page-emit context so pages/components record whole-file
    *  regions alongside their `out.set(...)`. */
   sourcemap?: import("../_trace/sourcemap.js").SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/lib/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 export function generateSvelteForContexts(
@@ -158,8 +171,21 @@ export function generateSvelteForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
-    out.set("src/lib/i18n.ts", renderI18nModule());
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+    );
+    for (const [locale, content] of translated) {
+      out.set(`src/lib/locales/${locale}.json`, content);
+    }
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
   }
 
   // Per-aggregate api modules.
@@ -306,6 +332,12 @@ export function generateSvelteForContexts(
   if (uiUsesChart(ui)) {
     out.set("src/lib/components/LoomChart.svelte", renderSvelteChartRuntime());
   }
+  // `CodeBlock { ... }` pulls in the VENDORED highlighter — the `highlight.js`
+  // dependency plus `src/lib/highlight.ts`, armed by a side-effect import from
+  // the root layout.  SvelteKit owns `src/app.html`, so unlike React/Vue there
+  // is no `index-html` shell to inject into: the layout IS the injection point.
+  const usesCodeBlock = uiUsesCodeBlock(ui, options.topLevelComponents ?? []);
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
   const usesMoney = contexts.some(contextUsesMoney) || uiUsesMoney(ui);
   // Provenance surfaces the co-located lineage sibling on the wire so the
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
@@ -420,6 +452,9 @@ export function generateSvelteForContexts(
       // renders); raw string when i18n is off, so that output is unchanged.
       i18nEnabled,
       errorTitleText: shellChromeText("rootErrorTitle", i18nEnabled),
+      // Side-effect import of the vendored highlighter; the module self-arms a
+      // MutationObserver over every `pre code` the app renders.
+      usesCodeBlock,
     }),
   );
   out.set("src/routes/+layout.ts", SVELTE_LAYOUT_TS);
@@ -428,7 +463,7 @@ export function generateSvelteForContexts(
   out.set("src/app.html", pack.render("main", { title: humanize(sys.name) }));
   out.set("src/app.d.ts", SVELTE_APP_DTS);
   out.set("src/theme.css", pack.render("theme", themeVM(sys)));
-  out.set("package.json", pack.render("package-json", { usesMoney }));
+  out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));
   out.set("tsconfig.json", pack.render("tsconfig", {}));
   out.set("svelte.config.js", pack.render("svelte-config", { base }));
   out.set("vite.config.ts", pack.render("vite-config", { apiProxyTarget }));

@@ -419,6 +419,32 @@ OpenApiSpex.schema(%{title: "Currency", type: :string, enum: ["USD", "EUR", "GBP
 
 Member names are kept verbatim on every backend (`USD` on the wire everywhere; the shared DDL stores the column as `TEXT`).
 
+### Bare values across two enums
+
+A bare value is resolved from the **site's** expected type — a field or parameter default, a `:=` target, or either side of a comparison. Two enums may therefore share a member name, and each use picks the enum its site asks for. Where no site supplies a type, Loom refuses rather than guessing: `loom.ambiguous-enum-value`. Write the value qualified, or rename one member.
+
+```ddd
+context Billing {
+  enum OrderStatus   { Draft, Confirmed }
+  enum InvoiceStatus { Draft, Issued, Paid }
+  aggregate Invoice with crudish {
+    status: InvoiceStatus = Draft                       // OK — the field's type picks InvoiceStatus
+    derived isDraft: bool = status == Draft             // OK — the comparison's left side picks it
+    operation touch() { let x = Draft  label := "x" }   // refused — an untyped `let` supplies nothing
+  }
+}
+```
+
+```
+error  loom.ambiguous-enum-value
+bare enum value 'Draft' is declared by more than one enum in scope
+('OrderStatus', 'InvoiceStatus'), and this use has no expected type to choose
+between them. Write it qualified — 'OrderStatus.Draft' or 'InvoiceStatus.Draft'
+— or rename one of the values.
+```
+
+Guessing here is not a cosmetic difference: a first-wins pick lowers to a comparison between two *different* enums, which `tsc` accepts (string-literal unions), `mypy` flags as a non-overlapping equality check, and `javac`/`csc` refuse to build — four answers from one mis-resolved IR node.
+
 ## Fields (`Property`)
 
 A field is `name: Type [provenanced | sensitive(...) | access]* [= default] [check Expr [message "…"]] [mask unless Expr]` — the three flag-like modifiers parse in any order; the default, the check, and the mask stay after them, in that order. A `= default` value seeds the field when the client omits it; `check Expr` is a per-field validation predicate lowered to an invariant. (`provenanced` is covered in [`../provenance.md`](../provenance.md); `mask unless` — the read-side redaction gate — in [Auth](17-auth.md).)
@@ -648,6 +674,40 @@ defp serialize(record) do
 end
 ```
 ::: end
+
+### A server-owned field must have a value
+
+`managed` / `internal` / `token` take a field off the create input, so the server owns it — but "the server owns it" is only half a contract: something has to WRITE it. A non-optional server-owned field is constructible when the language has an absent value for its type, or when the model supplies one:
+
+| the field is | constructible because |
+|---|---|
+| `datetime` / `int` / `long` / `decimal` / `bool` / `string` / `guid` | the type has a language-defined absent value (`now`, `0`, `false`, `""`) that every backend's create factory seeds |
+| a collection | absent is the empty collection |
+| `= <default>` | the declared default is materialized at construction |
+| written by a `stamp onCreate` / `stamp onUpdate` | persist-time supplies it |
+| `T?` | absent is `null`, declared |
+
+Everything else is refused as `loom.unconstructible-server-field` — `money`, `json`, an enum (no member is privileged), a value object, an `X id`. There is no input anywhere that gives the field a value, so the aggregate cannot be created:
+
+```ddd
+context Billing {
+  aggregate Invoice with crudish {
+    reference: string
+    total: money managed      // refused — no client param, no default, no stamp
+  }
+}
+```
+
+```
+error  loom.unconstructible-server-field
+aggregate 'Invoice' cannot be created: field 'total' is 'managed', so it is not
+on the create input, but nothing writes it — it has no '= <default>' and no
+lifecycle stamp. Every create would leave it unset (a null into a NOT NULL
+column). Give it a default ('total: … = <expr>'), stamp it
+('stamp onCreate { total := … }'), or make it optional ('total: …?').
+```
+
+Seeding a value in the emitters instead would make the model compile while leaving the value **fabricated**, which is worse than a refusal: on node the create factory emitted `total: null` into a non-nullable `Decimal`, .NET persisted a silent `0`, and java/elixir/python failed the insert against a `NOT NULL` column — four answers to one model.
 
 ## `unique (…)` — the set-level invariant
 

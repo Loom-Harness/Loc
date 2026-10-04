@@ -177,12 +177,17 @@ system PS {
 `;
     const files = generateSystems(await build(twoCaps)).files;
     const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
+    // The block's extent is anchored on the OPENING brace's indentation and a
+    // backreference to it, not on the first `\n<ws>}`.  The arm legitimately
+    // contains NESTED blocks now — the F-018 missing-claim guard is one — and a
+    // non-greedy match ended at the guard's closing brace, reporting every
+    // stamp below it as "dropped" when all four were emitted.
     const addedBlock =
-      /case Thing e:\s*\n\s*if \(entry\.State == EntityState\.Added\)\s*\n\s*\{([\s\S]*?)\n\s*\}/.exec(
+      /case Thing e:\s*\n\s*if \(entry\.State == EntityState\.Added\)\s*\n( +)\{([\s\S]*?)\n\1\}/.exec(
         src,
       );
     expect(addedBlock, "no EntityState.Added block emitted for Thing").not.toBeNull();
-    const added = addedBlock![1]!;
+    const added = addedBlock![2]!;
     // tenantOwned's two stamps AND auditable's two — not just whichever came first.
     for (const prop of ["TenantId", "DataKey", "CreatedAt", "CreatedBy"]) {
       expect(added, `create stamp for ${prop} was dropped`).toContain(`x => x.${prop}`);

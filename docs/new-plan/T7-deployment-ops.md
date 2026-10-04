@@ -45,3 +45,13 @@ Then: (a) compose env derivation in `src/system/index.ts`; (b) `src/system/kuber
 `literal("postgres://user:pass@…")` deserves its own decision when the wiring lands: a plaintext credential in `.ddd` source is a smell the current warning already calls out, and the wiring is the moment to decide whether it stays legal.
 
 Sources: [connection-secret-wiring](../old/proposals/connection-secret-wiring.md); the 2026-08-30 targets ledger row `connection-secret-wiring` (P0 there on the strength of "no gate", which was stale — M-T5.9a had landed the gate; the wiring is the live half).
+
+## M-T7.10 — The generated compose has no `restart:` and no backend retries the database at boot — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
+
+Item **P14** (#2946). `docker compose up` on a generated system races the backends against Postgres: none carries a `restart:` policy, and none retries its first DB connection, so a cold start where the database is slower than the app leaves a dead container and a green `depends_on`. The healthcheck-gated `depends_on` covers the common case, not a restart of the database under a running app.
+
+**The fix:** `restart: unless-stopped` on every service the compose composes, plus a bounded connect-retry in each backend's boot path.
+
+**Verification.** Boot the stack with the database delayed (the `generated-stack-verifier` skill's recipe) on each backend; the k8s/compose gates unchanged.

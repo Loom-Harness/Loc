@@ -6525,3 +6525,57 @@ on the required case, so both halves fail at runtime. None of those surfaced
 from reading code. Every one surfaced from generating a project and looking at
 what came out.
 
+
+## 118. A gate that boots twice against a populated database was still blind — its FIXTURE decided what it reached (2026-09-28)
+
+F-012: the drizzle migration journal keyed each entry by
+`epochMillis(version) + arrayIndex`, so inserting a migration renumbered every
+later entry. The first deploy was fine; the *second* — the first real evolution,
+against a database with data in it — silently skipped its own migration, and
+crashed the boot outright if any field was `provenanced`.
+
+`migration-evolution-e2e` already existed, already booted a generated stack
+**twice against a populated Postgres**, and already asserted that a seeded row
+survives the forward migration. It passed throughout. The mechanism it exercises
+is exactly the one that was broken.
+
+What made it blind was its **fixture**: one subdomain, nothing `provenanced`.
+With a single module there is no second entry to renumber, and with no late
+provenance migration there is no year-2999 sentinel to poison the watermark — so
+the positional key came out monotonic *by luck*. Reaching the defect needed two
+model properties, not a different mechanism:
+
+| fixture property | what it makes reachable |
+|---|---|
+| ≥2 subdomains | disjoint per-module version BLOCKS, so a delta in block 0 (`20260101500001`) sorts BELOW block 1's initial (`20260102000000`) |
+| one `provenanced` field | the late `29991231000000_provenance` entry — always last, so always the entry the positional index renumbered, so it re-ran every boot |
+
+So the question to ask of an existing gate is not "does it run the right
+mechanism" but **"does its fixture have the shape the defect needs?"** A gate
+whose fixture is the simplest model that exercises the code path will keep
+passing over every defect that needs a second module, a second tenant, a second
+anything. The new leg asserts its own fixture still has both properties, so it
+cannot silently degrade back into the one that passed.
+
+### The plausible fix is stable but not ascending
+
+Drizzle's migrator is a watermark (`lastApplied.created_at < entry.when`), which
+needs three things from the key: strictly increasing, never changing for an
+applied entry (STABILITY), and higher for a newly appended one than for anything
+already applied (ASCENT). The obvious fix — read the version slug as an integer
+instead of through `Date.UTC` — fixes the ordering *and satisfies STABILITY*,
+which is the property that is easy to think of and easy to test. It still leaves
+the second migration skipped, because per-module version blocks are not
+chronological. **Generating the model twice and reading the journal** cost a
+minute and killed the wrong design before any of it was written; reasoning about
+it would not have.
+
+### …and a mutation proof can be vacuous in the same way
+
+Seeding "renumber the legacy backfill from 1 instead of above the recorded
+ordinals" **passed all six new tests**. The mixed-snapshot case retained the
+module holding the *highest* ordinal, so restarting the backfill reproduced the
+original numbering and nothing collided. Retaining the *lowest* makes it fail
+with `got 1,1,2`. Same lesson as §59/§63 one level up: a mutation proof is
+itself a check that can fail to reach what it names, so read which assertion
+fired — and when a seeded defect passes, the test is the suspect, not the seed.
