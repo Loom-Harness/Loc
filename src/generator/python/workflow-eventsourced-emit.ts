@@ -47,7 +47,7 @@ export function eventSourcedWorkflows(workflows: readonly WorkflowIR[]): Workflo
  *  reference the merge name instead of the row class the schema + repository
  *  emit.  `resolveStreamContext` maps the workflow back to its owner; absent →
  *  `ctx.name`, byte-identical for single-context systems. */
-export function esEventRow(
+function esEventRow(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
   resolveStreamContext?: (name: string) => string | undefined,
