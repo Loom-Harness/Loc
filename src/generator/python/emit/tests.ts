@@ -110,6 +110,18 @@ function renderPySubjectTests(
 
   const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
   const subjectNames = subjectImport ? subjectImport.symbols.filter(refs) : [];
+  // …and every OTHER aggregate in the context the body names.  A test body may
+  // legally reach for a sibling aggregate — the validator admits it, and it is
+  // the only way to exercise a value object holding a CROSS-aggregate reference
+  // (`Berth { ship: Ship id }` needs a `Ship` to get an id from).  Scoping the
+  // import to the subject alone emitted `Ship.create(...)` with no `Ship`
+  // bound: ruff `F821`, and a `NameError` when the test runs.  Each sibling
+  // has its own module, so this is one `from … import` each, narrowed by the
+  // same body scan as everything else here.  Freight audit D3 follow-up.
+  const siblingAggs = ctx.aggregates
+    .filter((a) => a.name !== describeName && refs(a.name))
+    .map((a) => a.name)
+    .sort();
   const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refs)
     .sort();
@@ -158,6 +170,9 @@ function renderPySubjectTests(
   if (usesActor) out.push("from app.auth.user import User");
   if (subjectImport && subjectNames.length > 0) {
     out.push(`from ${subjectImport.module} import ${subjectNames.join(", ")}`);
+  }
+  for (const name of siblingAggs) {
+    out.push(`from app.domain.${snake(name)} import ${name}`);
   }
   if (idNames.length > 0) {
     out.push(`from app.domain.ids import ${idNames.join(", ")}`);

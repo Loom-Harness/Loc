@@ -162,3 +162,13 @@ widens (D-DAPPER-ALTER, Consequences).
 
 Relates to [M-T2.1](#m-t21) (rename intent), M-T6.35 (the per-adapter capability
 gates), and the phase-⑨ derivation in `src/system/migrations-builder.ts`.
+
+## M-T2.18 — A TPH base with no children still owns an orphan table — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-PERSIST (leftover-waves-2026-09-28).**
+
+Item **P17** (pairwise F17, #2975). An abstract TPH root whose subtypes were all removed (or never declared) still gets its own table emitted and migrated, which no read or write ever touches; on a later `extends` addition the derivation treats it as pre-existing state.
+
+**The fix:** decide the shape (refuse a childless TPH base, or emit it as a concrete single table) and make the migration derivation follow; either way `MigrationsIR` must not carry a table no emitter reads.
+
+**Verification.** A migration-evolution case (add → remove the last child) and the pairwise oracle row flipped from pinned to passing.
