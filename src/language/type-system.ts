@@ -10,6 +10,10 @@ import {
 } from "../util/intrinsics.js";
 import { ORG_CONTEXT_ACCESSOR, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
+import {
+  VALUE_OBJECT_EQUALS,
+  valueObjectEqualsSignature,
+} from "../util/value-object-intrinsics.js";
 import type {
   Aggregate,
   BaseType,
@@ -1188,6 +1192,10 @@ export function typeAfterSuffix(recvType: DddType, suffix: PostfixSuffix, env: E
     case "aggregate":
       return lookupEntityMember(recvType.ref, memberName);
     case "valueobject":
+      // `<vo>.equals(other)` — the value-equality intrinsic every value object
+      // answers (src/util/value-object-intrinsics.ts).  Call form only; a bare
+      // `.equals` stays `unknown` and `checkIntrinsicCalls` reports it.
+      if (ms.call && isValueObjectEqualsIntrinsic(recvType.ref, memberName)) return T.prim("bool");
       return lookupValueObjectMember(recvType.ref, memberName);
     case "payload":
       return lookupPayloadMember(recvType.ref, memberName);
@@ -1259,6 +1267,16 @@ function lookupEntityMember(target: Aggregate | EntityPart, name: string): DddTy
     }
   }
   return T.unknown;
+}
+
+/** True iff `name` is the `equals` value-equality intrinsic on `vo` — i.e. the
+ *  name is `equals` and the value object declares no member of its own by that
+ *  name (a declared member always wins). */
+export function isValueObjectEqualsIntrinsic(vo: ValueObject, name: string): boolean {
+  return (
+    name === VALUE_OBJECT_EQUALS &&
+    !vo.members.some((m) => (m as { name?: string }).name === VALUE_OBJECT_EQUALS)
+  );
 }
 
 function lookupValueObjectMember(target: ValueObject, name: string): DddType {
@@ -1461,6 +1479,9 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
     }
     case "valueobject": {
       const has = t.ref.members.some((m) => (m as { name?: string }).name === name);
+      // `equals` is the value-equality intrinsic, not an absent member — its
+      // call shape is judged by `checkIntrinsicCalls`.
+      if (!has && name === VALUE_OBJECT_EQUALS) return undefined;
       return has ? undefined : t.ref.name;
     }
     case "payload": {
@@ -2275,8 +2296,19 @@ export function membersOfType(t: DddType): MemberCompletion[] {
     case "aggregate":
     case "entity":
       return entityMemberCompletions(t.ref, true);
-    case "valueobject":
-      return entityMemberCompletions(t.ref, false);
+    case "valueobject": {
+      const own = entityMemberCompletions(t.ref, false);
+      return isValueObjectEqualsIntrinsic(t.ref, VALUE_OBJECT_EQUALS)
+        ? [
+            ...own,
+            {
+              name: VALUE_OBJECT_EQUALS,
+              kind: "method",
+              detail: valueObjectEqualsSignature(t.ref.name),
+            },
+          ]
+        : own;
+    }
     case "id":
       // `X id.member` follows the typed reference into X's schema.
       return entityMemberCompletions(t.target, true);
