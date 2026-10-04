@@ -15,7 +15,7 @@
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
-import { humanize, plural, snake } from "../../util/naming.js";
+import { elixirString, humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -288,7 +288,7 @@ ${heading}${childrenHeex}
   // tooltip.  Un-gated ops render byte-identically.
   const canAssign = `@can_${opSnake}`;
   const disabledAttr = gated
-    ? ` disabled={!${canAssign}} title={unless ${canAssign}, do: ${JSON.stringify(
+    ? ` disabled={!${canAssign}} title={unless ${canAssign}, do: ${elixirString(
         `${humanize(opName)} is not available in the current state`,
       )}}`
     : "";
