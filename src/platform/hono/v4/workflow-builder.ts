@@ -80,7 +80,13 @@ import {
   upperFirst,
   workflowFnCamel,
 } from "../../../util/naming.js";
-import { emitWireSchema, wireToDomainExpr, zodFor, zodForResponse } from "./routes-builder.js";
+import {
+  emitWireSchema,
+  txWrapperCall,
+  wireToDomainExpr,
+  zodFor,
+  zodForResponse,
+} from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted workflow function signature —
  *  `EntityManager` under the MikroORM adapter (`persistence: mikroorm`), the
@@ -591,8 +597,14 @@ export function buildWorkflowsFile(
   // the EntityManager over the generated Row entities (db/entities.ts) instead
   // of Drizzle.  Both imports are body-scan-gated so a drizzle build never sees
   // them (byte-identical) and a mikro build with no state store drops them.
-  if (/(?<!\.)\bEntityManager\b/.test(bodyStr))
-    imports.push(`import { EntityManager } from "@mikro-orm/postgresql";`);
+  // `IsolationLevel` rides the same import when a transactional workflow pins
+  // an isolation level under mikroorm (see `mikroIsolationLevel`).
+  const mikroNames = [
+    /(?<!\.)\bEntityManager\b/.test(bodyStr) ? "EntityManager" : "",
+    /(?<!\.)\bIsolationLevel\./.test(bodyStr) ? "IsolationLevel" : "",
+  ].filter((n) => n !== "");
+  if (mikroNames.length > 0)
+    imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
   const workflowRowsReferenced = ctx.workflows
     .filter((w) => !w.eventSourced && !!w.correlationField)
     .map(mikroWorkflowRowClass)
@@ -1034,8 +1046,17 @@ function emitWorkflowRoute(
   const stateSave = (handle: string, ind: string): string[] =>
     corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
   if (wf.transactional) {
-    const txOpts = wf.isolation ? `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }` : ``;
-    out.push(`${bi}await db.transaction(async (tx) => {${""}`);
+    // The adapter's transaction seam (shared with the audited / provenanced
+    // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
+    // EntityManager has no `transaction` (TS2551).  The isolation option is
+    // spelled per adapter too: drizzle takes the space-cased string, MikroORM
+    // its `IsolationLevel` enum (a bare string literal is not assignable).
+    const txOpts = wf.isolation
+      ? usingMikro
+        ? `, { isolationLevel: ${mikroIsolationLevel(wf.isolation)} }`
+        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`
+      : ``;
+    out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
     for (const r of reposNeeded) {
       out.push(`${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, events);`);
     }
@@ -2452,6 +2473,22 @@ export function collectReposForWorkflow(wf: {
 
 /** Drizzle-postgres `isolationLevel` enum values are space-cased
  *  lowercase strings.  Map DSL camelCase tokens onto them. */
+/** MikroORM's `IsolationLevel` enum member for an IR isolation level — the
+ *  mikroorm twin of `pgIsolationLevel` (`transactional`'s option is typed by
+ *  the enum, so the string spelling does not type-check). */
+function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+  switch (level) {
+    case "readUncommitted":
+      return "IsolationLevel.READ_UNCOMMITTED";
+    case "readCommitted":
+      return "IsolationLevel.READ_COMMITTED";
+    case "repeatableRead":
+      return "IsolationLevel.REPEATABLE_READ";
+    case "serializable":
+      return "IsolationLevel.SERIALIZABLE";
+  }
+}
+
 function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
   switch (level) {
     case "readUncommitted":

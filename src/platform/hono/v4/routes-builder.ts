@@ -193,8 +193,9 @@ const NOT_IMPLEMENTED_STATUS = 501;
  *  `db.transaction`; mikroorm: the EntityManager's `db.transactional` (which
  *  opens a real DB transaction and threads its async context to the forked
  *  repo em — see the mikro repos' `keepTransactionContext` fork).  The callback
- *  var stays `tx` on both, so the repo construction + close line are shared. */
-function txWrapperCall(usingMikro: boolean): string {
+ *  var stays `tx` on both, so the repo construction + close line are shared.
+ *  Also the transactional-workflow wrapper (`workflow-builder`). */
+export function txWrapperCall(usingMikro: boolean): string {
   return usingMikro ? `db.transactional(async (tx) => {` : `db.transaction(async (tx) => {`;
 }
 
