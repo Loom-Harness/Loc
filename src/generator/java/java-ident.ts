@@ -35,7 +35,7 @@ import { escapeJavaIdent } from "../../util/naming.js";
 // ---------------------------------------------------------------------------
 
 /** The Jackson annotation type every mangled wire site imports. */
-export const JSON_PROPERTY_IMPORT = "com.fasterxml.jackson.annotation.JsonProperty";
+const JSON_PROPERTY_IMPORT = "com.fasterxml.jackson.annotation.JsonProperty";
 
 /** Host identifier for a `.ddd`-authored member / parameter name: identity
  *  unless the name is a Java reserved word, which mangles to `<name>_`. */
