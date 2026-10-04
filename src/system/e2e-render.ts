@@ -33,7 +33,7 @@ import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
-import { lowerFirst, plural, snake } from "../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake } from "../util/naming.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import { TEST_RESET_PATH } from "../util/test-reset.js";
 import { renderExpectStmt } from "./expect-stmt.js";
@@ -461,7 +461,7 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
     if (!ctx.usedLetNames.has(s.name)) {
       return `${renderE2EExpr(s.expr, ctx)};`;
     }
-    return `const ${s.name} = ${renderE2EExpr(s.expr, ctx)};`;
+    return `const ${escapeTsIdent(s.name)} = ${renderE2EExpr(s.expr, ctx)};`;
   }
   if (s.kind === "expression") {
     return `${renderE2EExpr(s.expr, ctx)};`;
@@ -492,7 +492,9 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
     case "literal":
       return renderLiteral(e.lit, e.value);
     case "ref":
-      return e.name;
+      // Escaped exactly like the `let` binding (and lambda param) it names —
+      // `let class = …` binds `class_`, so every reference must read `class_`.
+      return escapeTsIdent(e.name);
     case "this":
       return "this";
     case "id":
@@ -514,8 +516,8 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
       // form — so assert and render.  If a future change introduces a
       // block lambda in test bodies, this branch needs the `block`
       // alternative.
-      if (e.body) return `(${e.param}) => ${renderE2EExpr(e.body, ctx)}`;
-      return `(${e.param}) => { /* block-body lambdas not supported in e2e tests */ }`;
+      if (e.body) return `(${escapeTsIdent(e.param)}) => ${renderE2EExpr(e.body, ctx)}`;
+      return `(${escapeTsIdent(e.param)}) => { /* block-body lambdas not supported in e2e tests */ }`;
     case "member": {
       const recv = parenAwaited(renderE2EExpr(e.receiver, ctx));
       // Property-style collection ops (`lines.count`, `lines.distinct`) lower to
