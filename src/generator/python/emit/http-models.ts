@@ -263,35 +263,6 @@ const PY_WIRE_STR_DEF = [
   `${PY_WIRE_STR} = ${ANNOTATED}[str, ${AFTER_VALIDATOR}(_reject_nul)]`,
 ];
 
-/** LEGACY (M-T9.84): kept only for `projections-builder.ts` /
- *  `query-projections-builder.ts`, which still assemble their own import
- *  block — the wire types `requestPyType` / `responsePyType` / `paramPyType`
- *  return are `ref()` markers now, so a migrated caller needs no line.
- *
- *  The `from app.http.wire_models import …` line a routes-shaped module needs:
- *  its aliased value-object models plus `UuidStr` when the module annotates a
- *  reference-typed request field.  One import line (ruff F401 forbids the
- *  unused half, so both sides stay demand-driven). */
-export function wireModelImport(
-  voModelNames: readonly string[],
-  refersTo: (n: string) => boolean,
-): string | null {
-  const names = [
-    ...voModelNames.map((n) => `${n} as ${n}Model`),
-    // The `Provenanced[T]` wire carrier, when this module annotates a
-    // provenanced response field (M-T6.12).
-    ...(refersTo(PY_PROVENANCED) ? [PY_PROVENANCED] : []),
-    ...(refersTo(PY_UUID_STR) ? [PY_UUID_STR] : []),
-    ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
-    ...(refersTo(PY_INT32) ? [PY_INT32] : []),
-    ...(refersTo(PY_INT32_PARAM) ? [PY_INT32_PARAM] : []),
-    ...(refersTo(PY_WIRE_STR) ? [PY_WIRE_STR] : []),
-    ...(refersTo(PY_WIRE_NUM) ? [PY_WIRE_NUM] : []),
-    ...(refersTo(PY_WIRE_INT) ? [PY_WIRE_INT] : []),
-  ];
-  return names.length > 0 ? `from app.http.wire_models import ${names.join(", ")}` : null;
-}
-
 /** Pydantic field type for one wire-side value (REQUEST direction —
  *  money stays Decimal so the domain receives precise values). */
 export function requestPyType(t: TypeIR, ctx: BoundedContextIR): string {

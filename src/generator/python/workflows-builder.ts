@@ -219,17 +219,11 @@ export function buildPyWorkflowsFile(
   // at class-definition time.
   const body = `${payloadModels}${models}${instanceModels}${loadersBlock}${helpersBlock}router = ${H.APIRouter}(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
 
-  // `money_str` (the shared numeric codec) and `required` are still spelled
-  // bare by helpers outside this module — their import stays a body scan.
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const wireHelpers = ["money_str", "required"].filter((n) => new RegExp(`\\b${n}\\b`).test(scan));
-
   return lines(
     `"""Workflow routes.  Auto-generated."""`,
     "",
     PY_IMPORTS,
     ...resourceImports,
-    wireHelpers.length > 0 ? `from app.db.wire import ${wireHelpers.join(", ")}` : null,
     "",
     PY_SESSION_DEP,
     "",

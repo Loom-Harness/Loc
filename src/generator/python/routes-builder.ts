@@ -292,17 +292,11 @@ export function buildPyRoutesFile(
   );
 
   const body = `${models}\n\n\n${routes}`;
-  // `money_str` is spelled by the shared numeric codec (`numeric-codec.ts`),
-  // which still writes the bare name — its import stays a body scan until that
-  // codec writes a marker.
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const usesMoneyStr = /\bmoney_str\b/.test(scan);
 
   return lines(
     `"""${agg.name} HTTP routes + wire DTOs.  Auto-generated."""`,
     "",
     PY_IMPORTS,
-    usesMoneyStr ? "from app.db.wire import money_str" : null,
     "",
     PY_SESSION_DEP,
     "",

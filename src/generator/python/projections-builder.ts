@@ -4,9 +4,8 @@ import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
-import { responsePyType, wireModelImport } from "./emit/http-models.js";
+import { responsePyType } from "./emit/http-models.js";
 import { PY } from "./py-symbols.js";
-import { wireHelperImport } from "./py-type-imports.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
 import { errorResponsesKwarg } from "./routes-builder.js";
 import { instanceFieldValue } from "./workflows-builder.js";
@@ -37,8 +36,6 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
   const routes = routeBlocks.join("\n\n\n");
   const body = `${models}router = APIRouter(prefix="/projections", tags=["projections"])\n\n\n${routes}`;
 
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
   // FOLDED projections only.  A query-time projection has no `<Proj>Row` table
   // — it is computed per read — so listing it here emitted
   // `from app.db.schema import OpenOrdersRow` for a name `db/schema.py` never
@@ -59,17 +56,6 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
     "from app.db.engine import get_session",
     `from app.db.schema import ${projRows.join(", ")}`,
     "from app.domain.errors import AggregateNotFoundError",
-    // The names below are still spelled bare by helpers this module shares
-    // (`errorResponsesKwarg`, `responsePyType`, `instanceFieldValue`), so
-    // their imports stay scanned until those helpers write markers.
-    refersTo("ProblemDetails") ? "from app.http.problem import ProblemDetails" : null,
-    // A read-model field is annotated through `responsePyType`, which returns the
-    // SHARED wire aliases for the primitives that carry a guard or a published
-    // format (`Int32`, `WireNum`, `WireInt`, `MoneyStr`, `UuidStr`).  Without
-    // this line those names are undefined here — ruff F821 on the generated
-    // project, which only the corpus tier sees.
-    wireModelImport([], refersTo),
-    wireHelperImport(refersTo),
     "",
     "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
     "",

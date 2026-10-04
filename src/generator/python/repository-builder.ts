@@ -116,14 +116,6 @@ export const R = {
   scope_id: obsLog("scope_id"),
 } as const;
 
-/** The one import a repository module cannot yet derive: `history()`
- *  (`renderPyHistoryRepoMethod`, emit/audit-history.ts — outside this
- *  migration slice) spells `Sequence` bare.  Retire this once that emitter
- *  writes `ref()` markers. */
-export function historySequenceImport(repo: RepositoryIR | undefined): string | null {
-  return repo?.historyFind ? "from collections.abc import Sequence" : null;
-}
-
 /** `from app.db.schema import <Row>` — a SQLAlchemy row class. */
 export const schemaRow = (name: string): string => pyRef("app.db.schema", name);
 
@@ -159,26 +151,6 @@ export const partRef = (agg: { name: string }, part: string): string =>
  *  dedicated method/route pair; paged + union returns land in S12. */
 export function emittableFinds(repo: RepositoryIR | undefined): FindIR[] {
   return (repo?.finds ?? []).filter((f) => f.name !== "all");
-}
-
-/** The `from app.auth.user import …` line for a repository module, or null when
- *  it references no symbol.  `User` is needed for a per-find currentUser param;
- *  `require_current_user` is the ambient accessor a principal capability filter
- *  weaves into every root read (DEBT-02); `current_user` is the non-raising
- *  (`User | None`) getter the read-mask projection reads to fail closed. */
-export function authUserImport(
-  needsUser: boolean,
-  needsAccessor: boolean,
-  needsGetter = false,
-): string | null {
-  const names = [
-    needsUser ? "User" : null,
-    needsGetter ? "current_user" : null,
-    needsAccessor ? "require_current_user" : null,
-  ]
-    .filter((n): n is string => n != null)
-    .sort();
-  return names.length > 0 ? `from app.auth.user import ${names.join(", ")}` : null;
 }
 
 /** How a read whose predicate references `currentUser` must render it.
@@ -424,16 +396,7 @@ export function buildPyRepositoryFile(
     repo?.historyFind ? ["", renderPyHistoryRepoMethod(agg)] : null,
   );
 
-  return lines(
-    `"""${agg.name} repository.  Auto-generated."""`,
-    "",
-    PY_IMPORTS,
-    historySequenceImport(repo),
-    "",
-    "",
-    body,
-    "",
-  );
+  return lines(`"""${agg.name} repository.  Auto-generated."""`, "", PY_IMPORTS, "", "", body, "");
 }
 
 // --- finds -------------------------------------------------------------------

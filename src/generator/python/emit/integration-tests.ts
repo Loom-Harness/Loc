@@ -212,16 +212,20 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
 
   const out: string[] = [];
   out.push(`"""Integration tests for ${ctx.name}.  Auto-generated."""`);
-  out.push("");
-  out.push("import os");
-  out.push("from collections.abc import AsyncIterator");
-  out.push("");
-  out.push("import pytest");
   out.push(
-    "from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine",
+    "",
+    // Unconditional — every integration module uses all of these; anything
+    // the body names beyond them rides a marker (M-T9.84).
+    ...[
+      "import os",
+      "from collections.abc import AsyncIterator",
+      "",
+      "import pytest",
+      "from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine",
+      "",
+      "from app.db.migrate import run_migrations",
+    ],
   );
-  out.push("");
-  out.push("from app.db.migrate import run_migrations");
   for (const a of usedAggs) {
     out.push(`from app.domain.${snake(a.name)} import ${a.name}`);
   }

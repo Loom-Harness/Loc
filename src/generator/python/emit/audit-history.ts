@@ -27,6 +27,7 @@ import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/aud
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
+import { pyIdType } from "../py-symbols.js";
 import { renderPyExpr } from "../render-expr.js";
 
 // What the per-aggregate mapper references, as `ref()` markers (the routes
@@ -167,15 +168,16 @@ export function renderPyHistoryMapper(agg: EnrichedAggregateIR): string {
 /** The `history(id)` repository query — filtered on the `(target_type,
  *  target_id)` pair the write side indexes, oldest first. */
 export function renderPyHistoryRepoMethod(agg: EnrichedAggregateIR): string {
+  const row = pyRef("app.db.audit", "AuditRecordRow");
   return lines(
-    `    async def history(self, id: ${agg.name}Id) -> Sequence[AuditRecordRow]:`,
+    `    async def history(self, id: ${pyIdType(agg.name)}) -> ${pyRef("collections.abc", "Sequence")}[${row}]:`,
     `        __stmt = (`,
-    `            select(AuditRecordRow)`,
+    `            ${pyRef("sqlalchemy", "select")}(${row})`,
     `            .where(`,
-    `                AuditRecordRow.target_type == ${JSON.stringify(agg.name)},`,
-    `                AuditRecordRow.target_id == str(id),`,
+    `                ${row}.target_type == ${JSON.stringify(agg.name)},`,
+    `                ${row}.target_id == str(id),`,
     `            )`,
-    `            .order_by(AuditRecordRow.at)`,
+    `            .order_by(${row}.at)`,
     `        )`,
     `        return (await self._session.execute(__stmt)).scalars().all()`,
   );

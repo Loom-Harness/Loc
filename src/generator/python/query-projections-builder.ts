@@ -26,7 +26,7 @@ import { pyRef } from "../_imports/python.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
-import { paramPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
+import { paramPyType, responsePyType } from "./emit/http-models.js";
 import {
   contextFilterPredicate,
   lowerProjectionFilterToSqlAlchemy,
@@ -39,7 +39,7 @@ import { PY_NUMERIC } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
 import { PY } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
-import { authUserImport, wireValue } from "./repository-builder.js";
+import { wireValue } from "./repository-builder.js";
 import { pyWireToDomain } from "./routes-builder.js";
 
 /** Conjoin a projection's own `where` with the source aggregate's capability
@@ -48,7 +48,7 @@ function conjoinPy(own: PyPredicate | null, caps: PyPredicate | null): PyPredica
   if (!own) return caps;
   if (!caps) return own;
   return {
-    expr: `and_(${own.expr}, ${caps.expr})`,
+    expr: `${pyRef("sqlalchemy", "and_")}(${own.expr}, ${caps.expr})`,
     ops: new Set<string>([...own.ops, ...caps.ops, "and_"]),
   };
 }
@@ -179,28 +179,11 @@ export function buildPyQueryProjectionsFile(
   });
   const body = `${models}router = APIRouter(prefix="/projections", tags=["projections"])\n\n\n${routeBlocks.join("\n\n\n")}`;
 
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-
-  // Row-sourced and aggregating routes call `select` (and `func`) — written
-  // as markers below; the SQLAlchemy helpers a lowered filter or a computed
-  // grouping key spells (`and_` / `or_` / `not_` / `func` / `literal_column`)
-  // come from the shared lowerers, which still spell them bare.
-  const saOps = new Set<string>();
-  // A computed grouping key renders `literal_column("'day'")` (see
-  // SQLALCHEMY_INTRINSIC_SQL); `refersTo` drops the import when unused.
-  saOps.add("literal_column");
-  for (const pred of rowLowered.values()) for (const op of pred?.ops ?? []) saOps.add(op);
-  for (const pred of aggLowered.values()) for (const op of pred?.ops ?? []) saOps.add(op);
-  const saNames = [...saOps].filter(refersTo).sort();
-  const wireHelpers = ["iso", "money_str"].filter(refersTo);
-
   return lines(
     `"""Query-time projection routes.  Auto-generated."""`,
     "",
     "from fastapi import APIRouter, Depends",
     "from pydantic import BaseModel",
-    saNames.length > 0 ? `from sqlalchemy import ${saNames.join(", ")}` : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "from typing import Annotated",
     "",
@@ -211,19 +194,11 @@ export function buildPyQueryProjectionsFile(
     // `require_current_user()` accessor into the query (the repository path's
     // rule), so the import is gated on ACTUAL usage — an unused one is ruff
     // F401 on the generated project.
-    authUserImport(false, refersTo("require_current_user")),
     "from app.db.engine import get_session",
     // `iso()` — a `datetime` grouping key crosses the wire as its ISO-8601
     // string (see `pyKeyCoerce`).  `money_str()` — the RS-12 money scale a
     // money aggregate is pinned to (`pyCoerce`).  `refersTo` drops each name
     // when unused (an unused import is `F401` under the emitted ruff config).
-    wireHelpers.length > 0 ? `from app.db.wire import ${wireHelpers.join(", ")}` : null,
-    // A projection row field is annotated through `responsePyType`, which returns
-    // the SHARED wire aliases for the primitives carrying a guard or a published
-    // format (`Int32`, `WireNum`, `WireInt`, `MoneyStr`, `UuidStr`).  Without
-    // this line those names are undefined here — ruff F821 on the generated
-    // project, which only the corpus tier sees.
-    wireModelImport([], refersTo),
     "",
     "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
     "",
@@ -591,7 +566,7 @@ function pyKeyCoerce(k: GroupKeySelect, expr: string): string {
       ? // The FIXED money scale (RS-12), not a bare `str`: a grouping KEY reads
         // the stored column, so it shipped whatever scale the row was written
         // at — the group-key twin of the aggregate fix in #2549.
-        "money_str"
+        pyRef("app.db.wire", "money_str")
       : inner.kind === "primitive" && inner.name === "decimal"
         ? "float"
         : // A `datetime` key reads back as an aware `datetime` off the driver,
@@ -600,7 +575,7 @@ function pyKeyCoerce(k: GroupKeySelect, expr: string): string {
           // bucket serialises `2026-08-01T00:00:00Z` like the four other
           // backends instead of failing FastAPI's response validation.
           inner.kind === "primitive" && inner.name === "datetime"
-          ? "iso"
+          ? pyRef("app.db.wire", "iso")
           : null;
   if (!conv) return expr;
   return optional ? `None if ${expr} is None else ${conv}(${expr})` : `${conv}(${expr})`;

@@ -1,27 +1,18 @@
-// One `authUserImport(...)` call per python repository builder.
+// No python repository builder hand-assembles an `app.auth.user` import.
 //
-// `authUserImport(needsUser, needsAccessor, needsGetter)` owns BOTH the module
-// path and the sorted name list, and returns one whole `from app.auth.user
-// import …` line.  So every reason a builder needs a principal symbol has to
-// flow into a SINGLE call: two calls emit two import lines from the same
-// module, and ruff fails the generated project on the redefinition.
+// This file used to pin "one `authUserImport(...)` call per builder": the
+// helper returned a whole `from app.auth.user import …` line, so two reasons
+// for a principal symbol flowing into two calls emitted two import lines from
+// one module, and ruff failed the generated project on the redefinition (it ran
+// red for real when #2694 and pairwise F6 each added a call to the
+// event-sourced builder).
 //
-// WHY A SOURCE SCAN, not an output assertion.  The defect is structural — a
-// second call site appearing beside an existing one — and it is invisible to
-// every other check in the repo: it typechecks cleanly, and reproducing it
-// through emitted output needs an aggregate that simultaneously carries a read
-// mask AND a narrowed write scope, which in turn needs the whole `tenancy by` +
-// `tenantOwned` + `policy { allow deep }` scaffold.  A grep over the four
-// builders states the invariant directly, at the layer where it breaks.  Same
-// pattern as pipeline-layering / diagnostic-catalog / walker-stdlib-completeness.
-//
-// This ran red for real.  Merging #2694 (in-app write guard, wants
-// `require_current_user`) into the branch adding pairwise F6's read-mask
-// projection (wants `current_user`) put both calls in the event-sourced
-// builder — each side had added one next to where the other's would land, and
-// git kept both.  `tsc` only objected to an unrelated stale import two lines
-// away; without that coincidence the duplicate ships and surfaces as a ruff
-// error inside a generated project, three layers from the cause.
+// M-T9.84 closed the class structurally: a builder now writes the principal
+// accessors (`current_user`, `require_current_user`, `User`) through `ref()`
+// markers at the use site, and the module finalizer derives ONE de-duplicated
+// import block from them, so two reasons can no longer become two lines.  The
+// helper is deleted.  What is left to pin is that the hand-assembled shape does
+// not come back: no builder spells an `app.auth.user` import literal.
 
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
@@ -36,19 +27,16 @@ const BUILDERS = [
 
 const dir = path.resolve(__dirname, "../../../src/generator/python");
 
-describe("each python repository builder calls authUserImport at most once", () => {
+describe("no python repository builder hand-assembles an app.auth.user import", () => {
   for (const file of BUILDERS) {
     it(file, () => {
       const src = readFileSync(path.join(dir, file), "utf8");
-      // Call sites only — the `export function authUserImport(` definition and
-      // any doc-comment mention are excluded by requiring a non-word char that
-      // is not part of a declaration before the name.
-      const calls = [...src.matchAll(/(?<!function\s)\bauthUserImport\(/g)];
+      const literals = [...src.matchAll(/["'`]from app\.auth\.user import/g)];
       expect(
-        calls.length,
-        `${file} has ${calls.length} authUserImport call sites; fold every reason ` +
-          `into ONE call (the helper sorts and joins the names itself).`,
-      ).toBeLessThanOrEqual(1);
+        literals.length,
+        `${file} spells an \`app.auth.user\` import by hand; write the symbol through ` +
+          `pyRef("app.auth.user", …) at its use site instead (M-T9.84).`,
+      ).toBe(0);
     });
   }
 });

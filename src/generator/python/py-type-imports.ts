@@ -7,16 +7,6 @@ import type { TypeIR } from "../../ir/types/loom-ir.js";
 // `collectPyExprImports` (which covers expression-triggered imports).
 // ---------------------------------------------------------------------------
 
-/** The `from app.db.wire import …` line for a module's `to_wire` projection,
- *  covering both shared helpers (`iso` for datetimes, `money_str` for money) —
- *  emitted only for the helpers the module body actually references. */
-export function wireHelperImport(refersTo: (n: string) => boolean): string | null {
-  // `required` unwraps the flattened leaf columns of an OPTIONAL value-object
-  // field on hydrate (see `hydrateField`), so it rides the same line.
-  const names = ["iso", "money_str", "required"].filter(refersTo);
-  return names.length > 0 ? `from app.db.wire import ${names.join(", ")}` : null;
-}
-
 export interface PyTypeImports {
   usesDecimal: boolean;
   usesDatetime: boolean;
