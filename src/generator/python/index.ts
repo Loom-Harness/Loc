@@ -44,7 +44,7 @@ import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { pyModule, pyRef } from "../_imports/python.js";
-import { ref } from "../_imports/symbol.js";
+import { ref, spellMarkers } from "../_imports/symbol.js";
 import { unionJsonSchema } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -645,7 +645,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         sourcemap.fragment(
           "app/dispatch.py",
           out.get("app/dispatch.py")!,
-          frag.fragmentText,
+          spellMarkers(frag.fragmentText),
           frag.subRegions,
         );
       }
@@ -713,7 +713,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         sourcemap.fragment(
           "app/http/workflows_routes.py",
           out.get("app/http/workflows_routes.py")!,
-          frag.fragmentText,
+          spellMarkers(frag.fragmentText),
           frag.subRegions,
         );
       }
@@ -795,7 +795,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // exact-text search against this SAME final content.
       if (sourcemap && opFragments) {
         for (const frag of opFragments) {
-          sourcemap.fragment(domainPath, out.get(domainPath)!, frag.fragmentText, frag.subRegions);
+          sourcemap.fragment(
+            domainPath,
+            out.get(domainPath)!,
+            spellMarkers(frag.fragmentText),
+            frag.subRegions,
+          );
         }
       }
       // Extern (b) (docs/extern.md): the scaffold-once, user-owned hook
