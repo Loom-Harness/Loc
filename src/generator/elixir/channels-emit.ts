@@ -1,6 +1,6 @@
 import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import type { BrokerBinding } from "../_channels/bindings.js";
+import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
@@ -1002,18 +1002,22 @@ end
     // Kafka: one brod group subscriber per wired binding — the group id
     // realises broadcast ACROSS deployables and competition WITHIN one
     // (design §4); each gets its own subscriber-side brod client.
-    const kafkaEnvBindings = new Map<string, { address: string; group: string }[]>();
+    const kafkaEnvBindings = new Map<
+      string,
+      { address: string; group: string; earliest: boolean }[]
+    >();
     for (const b of unique) {
       if (b.transport !== "kafka") continue;
       const list = kafkaEnvBindings.get(b.envVar) ?? [];
-      if (!list.some((x) => x.group === b.group)) list.push({ address: b.address, group: b.group });
+      if (!list.some((x) => x.group === b.group))
+        list.push({ address: b.address, group: b.group, earliest: kafkaStartsAtEarliest(b) });
       kafkaEnvBindings.set(b.envVar, list);
     }
     let kafkaSub = 0;
     const kafkaConsumeLines = [...kafkaEnvBindings.entries()].flatMap(([envVar, bs]) =>
       bs.map(
         (x) =>
-          `    {:ok, _} = ${appModule}.KafkaConsumer.start(${JSON.stringify(envVar)}, :loom_kafka_sub_${kafkaSub++}, ${JSON.stringify(x.address)}, ${JSON.stringify(x.group)})`,
+          `    {:ok, _} = ${appModule}.KafkaConsumer.start(${JSON.stringify(envVar)}, :loom_kafka_sub_${kafkaSub++}, ${JSON.stringify(x.address)}, ${JSON.stringify(x.group)}, ${x.earliest ? ":earliest" : ":latest"})`,
       ),
     );
     const hasRabbitConsumer = rabbitEnvBindings.size > 0;
@@ -1237,8 +1241,12 @@ ${
         `# Auto-generated.  Kafka group subscriber (channels.md) — one brod
 # group subscriber per wired kafka binding.  The group id
 # (\`<address>.<deployable>\`) realises broadcast ACROSS deployables (each
-# group replays the whole log) and competition WITHIN one (replicas share
-# it).  Offsets commit after the handler resolves.  Dead-letter v1: a
+# group reads the whole stream independently) and competition WITHIN one
+# (replicas share it).  A NEW group starts at \`begin_offset\` (D3):
+# :earliest on a work-queue channel, so events published before the group's
+# first join are not lost; :latest on a log channel.  A group with committed
+# offsets resumes from them either way.  Offsets commit after the handler
+# resolves.  Dead-letter v1: a
 # failed or malformed record parks onto \`<address>.dlq\` and the offset
 # advances — logged and kept, never a hot-loop.
 defmodule ${appModule}.KafkaConsumer do
@@ -1252,7 +1260,7 @@ defmodule ${appModule}.KafkaConsumer do
     Record.extract(:kafka_message, from_lib: "brod/include/brod.hrl")
   )
 
-  def start(env_var, client, address, group) do
+  def start(env_var, client, address, group, begin_offset) do
     {endpoints, conn_config} = ${appModule}.KafkaBroker.parse(System.fetch_env!(env_var))
     :ok = :brod.start_client(endpoints, client, [auto_start_producers: true] ++ conn_config)
 
@@ -1294,7 +1302,7 @@ defmodule ${appModule}.KafkaConsumer do
       # Single-message delivery: the default message_set shape would hand
       # handle_message/2 a batch record instead of a kafka_message.
       message_type: :message,
-      consumer_config: [begin_offset: :latest],
+      consumer_config: [begin_offset: begin_offset],
       # Dynamic membership (broker-assigned member ids), matching every
       # other backend's driver.  brod's default derives a STATIC
       # group_instance_id from node()/pid — un-named nodes
