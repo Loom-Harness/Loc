@@ -514,4 +514,3 @@ const RESERVED_MEMBERS: Partial<Record<IdentTarget, ReadonlySet<string>>> = {
 export function escapeTargetMember(target: IdentTarget, name: string): string {
   return RESERVED_MEMBERS[target]?.has(name) ? `${name}_` : name;
 }
-
