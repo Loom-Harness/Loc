@@ -273,8 +273,15 @@ export function generateDotnetForContexts(
     /** `.ddd` source text keyed by `OriginRef` source path —
      *  forwarded verbatim into the root `renderEntity` call so the REGULAR
      *  named-operation body loop can weave `#line` directives.  Gated on
-     *  `sourcemap` also being present (same honest-skip convention as the
-     *  v3 sidecars): no text → no directives, never guessed. */
+     *  `sourceTexts` ALONE — `sourcemap` is NOT consulted (`renderEntity`
+     *  weaves whenever this map is present; a statement whose file has no
+     *  text gets no directive, never a guessed one).  Unlike the v3/SMAP
+     *  sidecars (`recorder && sourceTexts` in src/system/index.ts), the CLI's
+     *  `generate system` always supplies this map, so its .NET output carries
+     *  `#line` with or without `--sourcemap` — which docs/debugging.md's
+     *  "with the flag off, generated output is byte-for-byte unchanged" does
+     *  not describe.  Tracked as leftover-waves C5 (fix: gate on `sourcemap && sourceTexts`), not
+     *  settled here. */
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
