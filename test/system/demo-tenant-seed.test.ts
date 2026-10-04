@@ -75,6 +75,18 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     });
   }
 
+  it("elixir: a raw-only seeds module emits no unused `insert!/3` (mix --warnings-as-errors)", async () => {
+    // The demo-tenant row is the context's ONLY seed row and it is `raw`, so
+    // nothing calls the domain `insert!/3` guard; emitting it anyway is an
+    // unused-function warning that fails the vanilla compile gate
+    // (vanilla-tenancy-{hierarchy,registry}).
+    const files = await generateSystemFiles(system("elixir", KEYCLOAK));
+    const seeds = [...files].find(([p]) => p.endsWith("/invoicing/seeds.ex"))?.[1];
+    expect(seeds).toBeDefined();
+    expect(seeds).toContain(ROW);
+    expect(seeds).not.toContain("insert!(");
+  });
+
   it("no bundled Keycloak (dev stub) ⇒ no demo tenant row and no LOOM_SEED", async () => {
     const files = await generateSystemFiles(system("node", ""));
     const all = [...files.values()].join("\n");
