@@ -195,6 +195,39 @@
       "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/tickets/{id}/take",
+      "status": 401,
+      "body": {
+        "detail": "no valid credentials for POST /api/tickets/{id}/take",
+        "instance": "/api/tickets/{id}/take",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/tickets/{id}/take",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: currentUser.agentId != null",
+        "instance": "/api/tickets/{id}/take",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/tickets/{id}/take",
+      "status": 204,
+      "body": ""
     }
   ]
 }

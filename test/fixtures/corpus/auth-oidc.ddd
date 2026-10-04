@@ -6,6 +6,9 @@ system Helpdesk {
     role: string
     email: string
     permissions: string[]
+    // OPTIONAL: a principal may simply not carry it.  A token WITHOUT the claim
+    // must read as null — `take()` below is gated on it (H-10).
+    agentId: string?
   }
   auth {
     enforcement: opt
@@ -25,6 +28,14 @@ system Helpdesk {
         operation close() {
           requires currentUser.role == "agent"
           open := false
+        }
+        // H-10: node projected an ABSENT optional claim as `undefined`, and
+        // `!= null` lowers to `!== null` — so a token without `agentId` passed
+        // this gate (204 where 403 was due).  The ladder's `unauthorized` token
+        // carries no `agentId` at all; the authorized one does.
+        operation take() {
+          requires currentUser.agentId != null
+          open := true
         }
       }
       repository Tickets for Ticket { }

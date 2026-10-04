@@ -1086,6 +1086,41 @@ When an aggregate operation references `currentUser`, the route
 handler reads `c.get("currentUser") as User` at the top and passes
 it as the trailing argument to the aggregate method.
 
+### Absent claims (generated OIDC verifier)
+
+A claim the verified token does not carry becomes the field's **null**, never
+`undefined` or a stub default. Every backend lowers `currentUser.x != null` to a
+plain null test, so the value an absent claim maps to decides the gate.
+
+```ddd
+user { id: string  role: string  permissions: string[]  agentId: string? }
+// …
+operation take() { requires currentUser.agentId != null }
+```
+
+```ts
+// node — auth/oidc.ts
+const REQUIRED_CLAIMS: readonly string[] = ["sub", "realm_access.roles"];
+function toUser(payload: JWTPayload): UserClaims | null {
+  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null; // → 401
+  return {
+    id: claim(payload, "sub") as string,
+    // …
+    agentId: (claim(payload, "agentId") ?? null) as string | null, // absent → null → 403
+  };
+}
+```
+
+- **Optional claim, absent** → `null` / `None` / `nil` on all five backends. A
+  `!= null` gate denies (403). The token still verifies.
+- **Required scalar claim, absent** → node rejects the token (401). The other
+  backends map it to `""` (.NET, Java) or `None`/`nil` (Python, Elixir).
+- **Required array claim, absent** → the empty list. An IdP routinely omits an
+  empty `permissions`, so this is not a reason to reject.
+- **Unread claims.** .NET and Java read optional claims only when the type is
+  `string`. Any other optional type (for example `Customer id?`) is always
+  null there.
+
 ## Dev-stub verifier (`x-loom-dev-claims`)
 
 Until you register a real verifier, every backend ships an **accept-all dev
