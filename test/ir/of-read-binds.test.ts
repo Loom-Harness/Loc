@@ -58,7 +58,9 @@ system Demo {
 async function codes(uiBody: string): Promise<string[]> {
   const { model, errors } = await parseString(wrap(uiBody));
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
-  return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code);
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).flatMap((d) =>
+    d.code ? [d.code] : [],
+  );
 }
 
 const page = (body: string) => `page X { route: "/x"  body: ${body} }`;
