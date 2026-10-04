@@ -1,4 +1,5 @@
 import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import type { BrokerBinding } from "../_channels/bindings.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -225,6 +226,66 @@ export interface ElixirConsumerRoute {
  *
  *  Emitted only when hosted durable events ride NO broker; the broker path owns
  *  the `channels:`-wired case (one relay drains `__loom_outbox`). */
+/** The `<App>.Channels` helpers carrying the EVENT ORIGIN (ruling D1) — the
+ *  outbox payload stamp (`with_origin/1`), the relay's origin split, and the
+ *  envelope extension attributes.  Empty without auth. */
+function originHelpers(webModule: string, outbox: boolean, envelope: boolean): string {
+  return `${
+    outbox
+      ? `
+  # The raising process's event origin (ruling D1) rides the outbox row under
+  # the reserved key, so the relay delivers it as that tenant's system principal.
+  defp with_origin(data) do
+    case ${webModule}.Auth.current_event_origin() do
+      nil -> data
+      origin -> Map.put(data, "${LOOM_OUTBOX_ORIGIN_KEY}", origin)
+    end
+  end
+
+  # Split a drained row's payload into its origin and the event's own data.
+  defp pop_origin(data) when is_map(data), do: Map.pop(data, "${LOOM_OUTBOX_ORIGIN_KEY}")
+`
+      : ""
+  }${
+    envelope
+      ? `
+  # The ambient event origin as CloudEvents extension attributes (absent slot ⇒
+  # attribute omitted).
+  defp put_origin(envelope) do
+    case ${webModule}.Auth.current_event_origin() do
+      nil ->
+        envelope
+
+      origin ->
+        envelope
+        |> put_present("tenantid", origin["tenant"])
+        |> put_present("loomorgpath", origin["orgPath"])
+        |> put_present("loomcausedby", origin["causedBy"])
+    end
+  end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  @doc """
+  Run \`fun\` as the system principal of the event origin a received envelope
+  names (ruling D1) — the consuming reactor runs in the tenant that raised it.
+  """
+  def as_envelope_origin(envelope, fun) do
+    origin = %{
+      "tenant" => envelope["tenantid"],
+      "orgPath" => envelope["loomorgpath"],
+      "causedBy" => envelope["loomcausedby"]
+    }
+
+    origin = if Enum.all?(Map.values(origin), &is_nil/1), do: nil, else: origin
+    ${webModule}.Auth.with_event_origin(origin, fun)
+  end
+`
+      : ""
+  }`;
+}
+
 export function emitElixirStandaloneOutbox(
   appName: string,
   appModule: string,
@@ -234,8 +295,12 @@ export function emitElixirStandaloneOutbox(
   /** Hosted context Dispatcher modules the relay broadcasts a decoded event to
    *  (each no-ops on a non-matching struct). */
   dispatchers: string[],
+  /** The deployable carries auth: rows record the EVENT ORIGIN and the relay
+   *  delivers each as its system principal (ruling D1). */
+  carriesOrigin = false,
 ): ElixirChannelFiles {
   const files = new Map<string, string>();
+  const webModule = `${appModule}Web`;
   const children: string[] = [];
   const durableNames = [...new Set(durable.map((d) => d.ev.name))].sort();
   const encodeClauses = durable.map(({ ev, ctxModule }) => {
@@ -274,27 +339,40 @@ defmodule ${appModule}.Channels do
   defp record_durable(type, ev) do
     %${appModule}.LoomOutbox{
       type: type,
-      payload: encode_data(ev),
+      payload: ${carriesOrigin ? "with_origin(encode_data(ev))" : "encode_data(ev)"},
       occurred_at: DateTime.utc_now()
     }
     |> ${appModule}.Repo.insert!()
 
     :ok
   end
-
+${originHelpers(webModule, carriesOrigin, false)}
   @doc """
   A drained durable outbox row is decoded and delivered to the LOCAL context
   dispatchers here (the row id already parked on the process dictionary by the
   relay, so a redelivery no-ops via the saga marker).  Every hosted dispatcher
   is tried — the subscriber handles it, the rest no-op (catch-all clause).
   """
-  def dispatch_from_relay(type, data) do
+  def dispatch_from_relay(type, data) do${
+    carriesOrigin
+      ? `
+    {origin, data} = pop_origin(data)
+`
+      : ""
+  }
     case decode(type, data) do
       nil ->
         :unrouted
 
       ev ->
-        Enum.each([${dispatchers.join(", ")}], fn dispatcher -> dispatcher.dispatch(ev) end)
+        ${
+          carriesOrigin
+            ? `${webModule}.Auth.with_event_origin(origin, fn ->
+          Enum.each([${dispatchers.join(", ")}], fn dispatcher -> dispatcher.dispatch(ev) end)
+        end)`
+            : `Enum.each([${dispatchers.join(", ")}], fn dispatcher -> dispatcher.dispatch(ev) end)`
+        }
+
         :ok
     end
   end
@@ -423,8 +501,17 @@ export function emitElixirChannelFiles(
    *  site opens around persist + dispatch) and the OutboxRelay publishes
    *  on drain with the row id as the envelope id (design §5).  False on
    *  consumers that don't host the durable channel's context. */
-  opts: { durableBroker: boolean } = { durableBroker: false },
+  opts: { durableBroker: boolean; carriesOrigin?: boolean } = { durableBroker: false },
 ): ElixirChannelFiles {
+  // `carriesOrigin`: the deployable carries auth — envelopes and outbox rows
+  // carry the raising process's EVENT ORIGIN and the consumer / relay deliver
+  // as its system principal (ruling D1).
+  const carriesOrigin = opts.carriesOrigin ?? false;
+  const webModule = `${appModule}Web`;
+  const asOrigin = (inner: string): string =>
+    carriesOrigin
+      ? `${appModule}.Channels.as_envelope_origin(envelope, fn -> ${inner} end)`
+      : inner;
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -562,7 +649,7 @@ ${
   defp record_durable(type, ev) do
     %${appModule}.LoomOutbox{
       type: type,
-      payload: encode_data(ev),
+      payload: ${carriesOrigin ? "with_origin(encode_data(ev))" : "encode_data(ev)"},
       occurred_at: DateTime.utc_now()
     }
     |> ${appModule}.Repo.insert!()
@@ -575,10 +662,19 @@ ${
   row publishes here, carrying its row id as the envelope id — the stable
   consumer-side idempotency key across broker redeliveries.
   """
-  def publish_from_relay(type, data, event_id) do
+  def publish_from_relay(type, data, event_id) do${
+    carriesOrigin
+      ? `
+    {origin, data} = pop_origin(data)
+    ${webModule}.Auth.with_event_origin(origin, fn -> publish_relayed(type, data, event_id) end)
+  end
+
+  defp publish_relayed(type, data, event_id) do`
+      : ""
+  }
     case Map.fetch(@durable_routing, type) do
       {:ok, {address, context, conn, transport}} ->
-        envelope = envelope_for(address, context, type, event_id, data)
+        envelope = envelope_for(address, context, type, event_id, data)${carriesOrigin ? " |> put_origin()" : ""}
         ${transmitCall("event_id")}
         id = event_id
         ${publishedLog}
@@ -596,12 +692,13 @@ ${
       Integer.to_string(System.system_time(:millisecond), 16) <>
         "-" <> Integer.to_string(:erlang.unique_integer([:positive]), 16)
 
-    envelope = envelope_for(address, context, type, id, encode_data(ev))
+    envelope = envelope_for(address, context, type, id, encode_data(ev))${carriesOrigin ? " |> put_origin()" : ""}
     ${transmitCall("id")}
     ${publishedLog}
     :ok
   end
 
+${originHelpers(webModule, carriesOrigin && opts.durableBroker, carriesOrigin)}
   defp envelope_for(address, context, type, id, data) do
     ${hasKafka ? "envelope = " : ""}%{
       "specversion" => "1.0",
@@ -1050,7 +1147,7 @@ end
     with {:ok, envelope} <- Jason.decode(payload),
          bare = envelope["type"] |> String.split(".") |> List.last(),
          ev when not is_nil(ev) <- ${appModule}.Channels.decode(bare, envelope["data"] || %{}) do
-${markEvLine(6)}      route(ev)
+${markEvLine(6)}      ${asOrigin("route(ev)")}
       ${consumedLog}
     end
 
@@ -1140,7 +1237,7 @@ ${markEvLine(6)}      route(ev)
   end
 
   defp deliver(envelope, ev, meta, address, queue, chan, payload) do
-${markEvLine(4)}    route(ev)
+${markEvLine(4)}    ${asOrigin("route(ev)")}
     ${consumedLog}
     :ok = AMQP.Basic.ack(chan, meta.delivery_tag)
   rescue
@@ -1366,7 +1463,7 @@ defmodule ${appModule}.KafkaConsumer do
     case decode_payload(raw) do
       {:ok, envelope, ev} ->
         try do
-${markEvLine(10)}          ${appModule}.ChannelConsumer.route_decoded(ev)
+${markEvLine(10)}          ${asOrigin(`${appModule}.ChannelConsumer.route_decoded(ev)`)}
           ${kafkaConsumedLog}
         rescue
           error ->

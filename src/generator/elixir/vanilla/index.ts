@@ -742,7 +742,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       channelBindings,
       carriedEventIrs,
       [...routeMap.values()],
-      { durableBroker: durableBrokerEvents.size > 0 },
+      {
+        durableBroker: durableBrokerEvents.size > 0,
+        carriesOrigin: deployable.auth?.required === true && !!sys.user,
+      },
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
@@ -763,6 +766,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       appModule,
       durableEventIrs,
       hostedDispatchers,
+      deployable.auth?.required === true && !!sys.user,
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;

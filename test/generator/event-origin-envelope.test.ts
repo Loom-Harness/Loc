@@ -252,6 +252,48 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     });
   });
 
+  describe("elixir", () => {
+    it("auth.ex: origin snapshot, origin → system principal, the delivery frame", async () => {
+      const auth = get(await gen("elixir"), "ship_api/lib/ship_api_web/auth.ex");
+      expect(auth).toContain("  def current_event_origin do");
+      expect(auth).toContain('"tenant" => blank_to_nil(origin_claim(user, :tenant_id)),');
+      expect(auth).toContain(
+        "  def system_principal, do: system_principal_for(current_event_origin())",
+      );
+      expect(auth).toContain('      tenant_id: if(tenant in [nil, ""], do: "", else: tenant),');
+      expect(auth).toContain("    Process.put(:loom_current_user, system_principal_for(origin))");
+    });
+
+    it("producer: the outbox row records the origin; the relay publishes inside it", async () => {
+      const ch = get(await gen("elixir"), "sales_api/lib/sales_api/channels.ex");
+      expect(ch).toContain("      payload: with_origin(encode_data(ev)),");
+      expect(ch).toContain(
+        "    SalesApiWeb.Auth.with_event_origin(origin, fn -> publish_relayed(type, data, event_id) end)",
+      );
+      expect(ch).toContain(
+        "        envelope = envelope_for(address, context, type, event_id, data) |> put_origin()",
+      );
+    });
+
+    it("envelope carries the origin attributes; the consumer routes inside it", async () => {
+      const files = await gen("elixir");
+      expect(get(files, "ship_api/lib/ship_api/channels.ex")).toContain(
+        '        |> put_present("tenantid", origin["tenant"])',
+      );
+      expect(get(files, "ship_api/lib/ship_api/channel_consumer.ex")).toContain(
+        "ShipApi.Channels.as_envelope_origin(envelope, fn -> route(ev) end)",
+      );
+    });
+
+    it("an auth-less deployable keeps the bare row and envelope", async () => {
+      const files = await gen("elixir", false);
+      expect(get(files, "sales_api/lib/sales_api/channels.ex")).toContain(
+        "      payload: encode_data(ev),",
+      );
+      expect(get(files, "ship_api/lib/ship_api/channels.ex")).not.toContain("tenantid");
+    });
+  });
+
   describe("dotnet", () => {
     it("Auth: EventOrigin record + payload codec; User origin snapshot, factory and frame", async () => {
       const files = await gen("dotnet");
