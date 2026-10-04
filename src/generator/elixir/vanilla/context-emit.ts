@@ -70,7 +70,7 @@ import {
   renderEsContextBlock,
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
-import { renderAggregateFunctions } from "./function-emit.js";
+import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import {
@@ -420,6 +420,14 @@ function renderContextModule(
   extraChannels: ChannelIR[] = [],
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
+  // Same-`name/arity` aggregate `function`s across the aggregates whose façade
+  // block renders them (the event-sourced and abstract-base blocks below return
+  // early) — emitted as one grouped definition, see `collidingFacadeFunctions`.
+  const collidingFns = collidingFacadeFunctions(
+    ctx.aggregates
+      .filter((a) => !isEventSourced(a) && !isAbstractBase(a))
+      .map((a) => ({ agg: a, doc: isVanillaDocAgg(a, ctx, sys) })),
+  );
   const blocks = ctx.aggregates.map((agg) => {
     // Event-sourced aggregates expose create/get/list + per-op command
     // runners (emit→append→fold) instead of the CRUD defdelegates.
@@ -698,7 +706,7 @@ ${body}
     // op / precondition / derived bodies emitted above.  Each renders as a
     // struct-guarded `def <fn>(%Agg{} = record, …)` so the lowered call site
     // (`<fn>(record, …)`) resolves in THIS module.
-    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc);
+    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc, collidingFns);
     const functionBlock = fnLines.length > 0 ? `${fnLines.join("\n")}\n` : "";
     // The CRUD `delete_<agg>` defdelegate is emitted only when the aggregate
     // exposes a REST delete surface (a reachable `destroy`).  Without it the

@@ -128,7 +128,8 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
 // context-facade module (`<App>.<Ctx>`), where `<op>_<agg>(record, params)`
 // lives.  A struct-guarded clause head (`def passed(%Agg{} = record, …)`) lets
 // two aggregates in one context that both declare a same-named function coexist
-// (Elixir dispatches by the struct guard) without redefining each other.  The
+// (Elixir dispatches by the struct guard) without redefining each other — once
+// the clauses sit together (`collidingFacadeFunctions` below).  The
 // body renders through `ELIXIR_TARGET` with `thisName: "record"` — exactly the
 // receiver the call site binds.
 // ---------------------------------------------------------------------------
@@ -136,6 +137,45 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
 /** True when the aggregate declares at least one `function` member. */
 export function aggHasFunctions(agg: AggregateIR): boolean {
   return (agg.functions?.length ?? 0) > 0;
+}
+
+/** One aggregate `function` placed in a context-facade module, with the
+ *  carrier flag its clause head needs (`doc` → the `%<Agg>.Data{}` embed). */
+export interface FacadeFunction {
+  agg: AggregateIR;
+  fn: FunctionIR;
+  doc: boolean;
+}
+
+/** Elixir identifies a function by name AND arity — the receiver is the first
+ *  positional argument, so the arity is `params + 1`. */
+function functionKey(fn: FunctionIR): string {
+  return `${snake(fn.name)}/${fn.params.length + 1}`;
+}
+
+/** The facade functions whose `name/arity` more than one aggregate of the same
+ *  context declares, keyed by `name/arity`, members in declaration order.
+ *
+ *  Each renders as a struct-guarded clause, so the clauses dispatch correctly —
+ *  but emitted inside their own aggregate's block they are SEPARATED by the
+ *  other aggregate's façade functions, which `mix compile --warnings-as-errors`
+ *  rejects ("clauses with the same name and arity (number of arguments) must
+ *  be grouped together", plus "redefining @doc attribute previously set" for
+ *  the second clause's `@doc`).  {@link renderAggregateFunctions} renders each
+ *  such group once, together, at its first declaring aggregate. */
+export function collidingFacadeFunctions(
+  members: readonly { agg: AggregateIR; doc: boolean }[],
+): ReadonlyMap<string, readonly FacadeFunction[]> {
+  const byKey = new Map<string, FacadeFunction[]>();
+  for (const { agg, doc } of members) {
+    for (const fn of agg.functions ?? []) {
+      const key = functionKey(fn);
+      const list = byKey.get(key) ?? [];
+      list.push({ agg, fn, doc });
+      byKey.set(key, list);
+    }
+  }
+  return new Map([...byKey].filter(([, list]) => new Set(list.map((m) => m.agg)).size > 1));
 }
 
 /** Render every `function` member of an aggregate as a module-level Elixir
@@ -147,33 +187,52 @@ export function aggHasFunctions(agg: AggregateIR): boolean {
  *  a `%<Agg>.Data{}` embedded struct, so its functions take THAT struct (guarded
  *  `%<Agg>.Data{} = record`) and read fields off it (`record.<field>`) in struct
  *  mode — same relational renderer, no `docMap` fork.  The op bodies call them as
- *  `<fn>(record, …)` where `record` is the embed. */
+ *  `<fn>(record, …)` where `record` is the embed.
+ *
+ *  `colliding` ({@link collidingFacadeFunctions}): a function another aggregate
+ *  of the context also declares is emitted as ONE grouped definition — a single
+ *  `@doc`, every clause's `@spec`, then the clauses back to back — at the first
+ *  declaring aggregate, and skipped at the others. */
 export function renderAggregateFunctions(
   facadeMod: string,
   agg: AggregateIR,
   doc = false,
+  colliding: ReadonlyMap<string, readonly FacadeFunction[]> = new Map(),
 ): string[] {
   if (!aggHasFunctions(agg)) return [];
-  const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
-  const rc: RenderCtx = {
-    thisName: "record",
-    contextModule: facadeMod,
-    ...(doc ? { docStruct: true } : {}),
-  };
   const out: string[] = [];
   for (const fn of agg.functions) {
-    out.push("", ...renderFunction(facadeMod, aggModule, fn, rc, doc));
+    const group = colliding.get(functionKey(fn));
+    if (!group) {
+      const c = renderFunction(facadeMod, agg, fn, doc);
+      out.push("", c.doc, c.spec, ...c.def);
+      continue;
+    }
+    if (group[0]!.agg !== agg) continue;
+    const clauses = group.map((m) => renderFunction(facadeMod, m.agg, m.fn, m.doc));
+    const on = group.map((m) => `\`${upperFirst(m.agg.name)}\``).join(", ");
+    out.push(
+      "",
+      `  @doc "Pure domain function \`${fn.name}\` on ${on}."`,
+      ...clauses.map((c) => c.spec),
+      ...clauses.flatMap((c, i) => (i === 0 ? c.def : ["", ...c.def])),
+    );
   }
   return out;
 }
 
 function renderFunction(
   facadeMod: string,
-  aggModule: string,
+  agg: AggregateIR,
   fn: FunctionIR,
-  rc: RenderCtx,
-  doc = false,
-): string[] {
+  doc: boolean,
+): { doc: string; spec: string; def: string[] } {
+  const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
+  const rc: RenderCtx = {
+    thisName: "record",
+    contextModule: facadeMod,
+    ...(doc ? { docStruct: true } : {}),
+  };
   const fnSnake = snake(fn.name);
   // The call site renders `passed(record, arg1, …)` — positional args after the
   // struct.  Underscore-prefix a param the body never reads so an unused binding
@@ -200,11 +259,9 @@ function renderFunction(
   // Expression form keeps its single trailing-value line (byte-identical);
   // block form (rev. 4) renders its pure statements.
   const bodyLines = renderFunctionBodyLines(fn.body, rc);
-  return [
-    `  @doc "Pure domain function \`${fn.name}\` on \`${aggLeaf}\`."`,
-    `  @spec ${fnSnake}(${specArgs}) :: ${ret}`,
-    `  def ${fnSnake}(${sig}) do`,
-    ...bodyLines,
-    "  end",
-  ];
+  return {
+    doc: `  @doc "Pure domain function \`${fn.name}\` on \`${aggLeaf}\`."`,
+    spec: `  @spec ${fnSnake}(${specArgs}) :: ${ret}`,
+    def: [`  def ${fnSnake}(${sig}) do`, ...bodyLines, "  end"],
+  };
 }
