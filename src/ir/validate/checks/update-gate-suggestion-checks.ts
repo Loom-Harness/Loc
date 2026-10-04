@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// Update-gate advisory lint (audit D3, `docs/audits/2026-09-10-claimshub-dev-
-// experience.md`).
+// Update-gate bypass lint (audit D3, `docs/audits/2026-09-10-claimshub-dev-
+// experience.md`; helpdesk eval H-01 for the `when` / `precondition` gates).
 //
 // THE SHAPE.  `crudish` synthesises a generic `update(...)` that assigns every
 // writable update field.  When the author then grows a guarded state-machine
@@ -43,30 +43,53 @@
 // can no longer touch it, and `approve()` still assigns it server-side.
 //
 // D3 is therefore a DISCOVERABILITY gap — nothing pointed at `immutable` —
-// which is what this advisory fixes.  It is advice, not a verdict: there are
-// legitimate models where the author really does want the field editable.
+// which is what this warning fixes.  The field is never silently made
+// non-editable; the author picks the modifier.
 //
-// SCOPE — `requires`-gated operations only.  A field assigned by an operation
-// carrying only a `precondition` has the same state-machine bypass, but
-// triggering on that would fire on a large fraction of real models (every
-// scaffolded aggregate that grows any state transition).  Deferred as a
-// deliberate second axis rather than silently included or silently dropped.
+// SCOPE — an operation that GATES the field.  Three gate shapes count, each
+// a declared claim by the author that the field moves only under a condition:
 //
-// Delivery: the advisory channel `loom.index-suggestion` already uses — a
-// WARNING-severity diagnostic on the normal `validateLoomModel` output, kept
-// out of the warning count and printed under `ddd parse`'s `Suggestions:`
-// footer (`isAdvisoryCode`, `src/diagnostics/advisory.ts`).  Never gates.
+//   * `requires …`            — an authorization gate on the operation;
+//   * `when …`                — the canCommand state gate (the canonical state
+//                               machine, `operation close() when status ==
+//                               Resolved { status := Closed }`, helpdesk eval
+//                               H-01);
+//   * `precondition …` that READS the field it assigns and no operation
+//                               parameter — the same state-machine shape spelled
+//                               in the body (`precondition status == Open;
+//                               status := Resolved`), i.e. exactly what a `when`
+//                               may say.
+//
+// A `precondition` over OTHER fields only, or one that compares the field with
+// an argument (`precondition stockLevel >= qty`), validates the call's inputs
+// rather than gating the field's state, so it does not count.
+// A field the generic update alone writes — no gated operation touches it — is
+// ordinary editable data and never fires.
+//
+// CREATE.  The field is on the create input too (every update-writable field
+// is), so a client can also seed any state at `POST /<plural>`.  `immutable`
+// does not close that half; when the field declares a default, `managed` does
+// (off both inputs, initialised from the default, still assignable by the
+// operation), and the message says so.  Advice, not an auto-fix: an aggregate
+// whose clients legitimately pick the initial state keeps `immutable`.
+//
+// SEVERITY — a counted WARNING, not an advisory hint.  Each trigger is a
+// real bypass of a gate the author wrote, and none has a legitimate reading
+// (a transition gated on its own route but open on another is a hole, not a
+// design).  Warnings never affect an exit code, and the code name stays
+// `…-suggestion` for stability of anything keyed on it.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type {
   EnrichedAggregateIR,
   EnrichedSystemIR,
+  ExprIR,
   OperationIR,
   StmtIR,
 } from "../../types/loom-ir.js";
 import { operationIsGuarded } from "../../types/loom-ir.js";
-import { walkStmtsDeep } from "../../util/walk.js";
+import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** The `update` operation `crudish` synthesised on this aggregate, if any.
@@ -97,6 +120,34 @@ function assignedFieldNames(statements: readonly StmtIR[]): Set<string> {
   return out;
 }
 
+/** True when `e` is a pure state predicate over the field `fName` — it reads
+ *  that field and no operation parameter (the shape `when` itself requires). */
+function isStateGateOn(e: ExprIR, fName: string): boolean {
+  let readsField = false;
+  let readsParam = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind !== "ref") return;
+    if (x.refKind === "this-prop" && x.name === fName) readsField = true;
+    if (x.refKind === "param") readsParam = true;
+  });
+  return readsField && !readsParam;
+}
+
+type Gate = "requires" | "when" | "precondition";
+
+/** Which gate on `op` guards the transition of `fName`, if any — see SCOPE. */
+function gateKind(op: OperationIR, fName: string): Gate | undefined {
+  if (operationIsGuarded(op)) return "requires";
+  if (op.when) return "when";
+  let pre = false;
+  for (const s of op.statements) {
+    walkStmtsDeep(s, (x) => {
+      if (x.kind === "precondition" && isStateGateOn(x.expr, fName)) pre = true;
+    });
+  }
+  return pre ? "precondition" : undefined;
+}
+
 export function validateUpdateGateSuggestions(
   sys: EnrichedSystemIR,
   diags: LoomDiagnostic[],
@@ -115,21 +166,26 @@ export function validateUpdateGateSuggestions(
         // order, so a multi-hit aggregate reports stably.
         for (const f of agg.fields) {
           if (!massAssigned.has(f.name)) continue;
-          const gated = agg.operations.find(
-            (op) =>
-              op !== update &&
-              op.visibility !== "private" &&
-              operationIsGuarded(op) &&
-              assignedFieldNames(op.statements).has(f.name),
-          );
-          if (!gated) continue;
+          let hit: { op: OperationIR; gate: Gate } | undefined;
+          for (const op of agg.operations) {
+            if (op === update || op.visibility === "private") continue;
+            if (!assignedFieldNames(op.statements).has(f.name)) continue;
+            const gate = gateKind(op, f.name);
+            if (gate) {
+              hit = { op, gate };
+              break;
+            }
+          }
+          if (!hit) continue;
           diags.push({
             severity: "warning",
             code: "loom.update-gate-suggestion",
             message: diagMessage("loom.update-gate-suggestion", {
               name: agg.name,
               fName: f.name,
-              opName: gated.name,
+              opName: hit.op.name,
+              gate: hit.gate,
+              hasDefault: f.default !== undefined,
             }),
             source: `${ctx.name}/${agg.name}`,
           });

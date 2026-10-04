@@ -262,9 +262,12 @@ operation: a `requires`-gated `approve()` that writes `status` guards only
 column at whatever gate the *update* carries.  `immutable` on the field is the
 fix — it drops the field from the update surface while leaving the operation
 free to assign it (see [`auth.md`](auth.md) → "Guarded state transitions").
-Loom raises the advisory `loom.update-gate-suggestion` when it sees the shape;
-it is a `Suggestions:` hint, not an error, because some models really do want
-the field editable both ways.
+The same holds for a `when`-gated transition (`operation close() when status ==
+Resolved { status := Closed }`) and for a `precondition` that reads the field it
+assigns (and no operation parameter).  Loom raises the warning `loom.update-gate-suggestion` when it sees any
+of these shapes (a counted warning, never an error); `managed = <default>`
+additionally keeps the field off `create` (see [`language.md`](language.md) →
+"Field access modifiers").
 
 Pass `with crudish(updateOnly: true)` to emit only `update` — no
 canonical `create`/`destroy`.  Use it when another macro owns the
