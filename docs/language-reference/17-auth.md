@@ -598,8 +598,8 @@ An event reactor — a workflow's event-triggered `create(e) by …` starter or 
 |---|---|
 | `currentUser.isSystem` | `true` (it is `false` on every request principal) |
 | every `user { }` claim | EMPTY — `""`, `0`, `false`, `[]`, `null`, the zero id — never a grant |
-| the tenancy claim / `orgPath` | the triggering event's tenant — copied from the principal of the request that raised it |
-| `causedBy` | that request's user id (audit and logs only — not a language member, no gate can read it) |
+| the tenancy claim / `orgPath` | the triggering event's tenant — the raising request's in-process; across the outbox relay or a broker, the **event origin** the outbox row / envelope carried (`tenantid` / `loomorgpath`, [`channels.md` § Event origin](../channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)) |
+| `causedBy` | the originating user's id, kept across hops (`loomcausedby`) — audit and logs only, not a language member, no gate can read it |
 
 Gates are evaluated against it **normally**. A gate that should admit a reactor says so:
 

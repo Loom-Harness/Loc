@@ -4594,10 +4594,43 @@ dictionary. A reactor binds it only when its body — or an operation it calls,
 hoisted gate included — reads `currentUser`
 (`src/ir/util/system-principal.ts` `reactorNeedsPrincipal`).
 
-**Not yet (tracked in PR #3103's body).** The channel envelope / outbox row
-does not yet carry the tenant and `causedBy`, so a reactor fed by the outbox
-relay or a broker consumer has no origin and runs tenant-less (fail-closed:
-tenant-scoped reads match nothing) until the envelope slice lands.
+**The event origin crosses the outbox and the broker (item 3 d).** In-process
+the reactor's tenant is read off the dispatching request, but the outbox relay
+and a broker consumer run long after that request is gone. So every backend
+snapshots the raising frame's **event origin** — `{tenant, orgPath, causedBy}`
+— where the event leaves it:
+
+- **Outbox row:** under the reserved payload key `__loomOrigin`
+  (`LOOM_OUTBOX_ORIGIN_KEY`, `src/util/channels.ts`) — inside the existing JSON
+  `payload`, so the `__loom_outbox` schema does not change; every relay strips
+  it before decoding the event.
+- **Envelope:** the CloudEvents extension attributes `tenantid` (already in
+  the optional set), `loomorgpath` and `loomcausedby` — each omitted when
+  absent.
+- **Delivery:** the relay (per drained row) and the channel consumer (per
+  received envelope) open an ambient frame whose principal IS the system
+  principal of that origin, so the reactor's gates, tenant filters and stamps —
+  everything reading the ambient principal — see the event's tenant. No origin
+  (an auth-less producer, a timer-raised event) ⇒ the frame is not opened and
+  the reactor runs tenant-less, exactly as before (fail-closed).
+
+A system principal propagates its own origin, so an event a reactor raises
+keeps the FIRST user as `causedBy` through any number of hops. Per backend:
+node `currentEventOrigin` / `systemPrincipalFor` / `runAsEventOrigin`
+(`auth/middleware.ts`); .NET `User.CurrentEventOrigin` / `SystemPrincipalFor` /
+`EnterEventOrigin` + `Auth/EventOrigin.cs` (and `RequestContext.ActorId`
+answers a system principal's `CausedBy`); java `User.currentEventOrigin` /
+`systemPrincipalFor`, `CurrentUserAccessor.runAsEventOrigin`,
+`auth/EventOrigin.java`; python `current_event_origin` /
+`system_principal_for` / `event_origin_frame` (`app/auth/user.py`); elixir
+`current_event_origin/0` / `system_principal_for/1` / `with_event_origin/2`
+(web `Auth`). Emitted only on a deployable with `auth: required`; an auth-less
+one keeps the bare row and envelope byte-for-byte.
+
+**Trust.** `tenantid` on the wire selects the tenant a consuming reactor runs
+in. That is the same trust the broker already carries for the event itself: a
+party that can publish onto a Loom channel can already forge any event; broker
+auth (`channels.md` § Broker auth) is the boundary, not the attribute.
 
 **Affects.** `docs/language-reference/17-auth.md` § Reactors; `docs/auth.md`;
 `docs/tenancy.md`; `docs/workflow.md`; `docs/channels.md`;

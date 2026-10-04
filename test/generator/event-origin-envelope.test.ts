@@ -89,6 +89,17 @@ async function gen(platform: string, auth = true): Promise<Map<string, string>> 
   return generateSystemFiles(auth ? fixture(platform) : authless(platform));
 }
 
+/** Hierarchical tenancy: the registry is a `tenantRegistry` TREE, so the
+ *  system principal's materialized path is the origin's `orgPath`. */
+async function genHierarchy(platform: string): Promise<Map<string, string>> {
+  return generateSystemFiles(
+    fixture(platform).replace(
+      "aggregate Organization with crudish { name: string }",
+      "aggregate Organization with crudish {\n        name: string\n        implements tenantRegistry\n      }",
+    ),
+  );
+}
+
 function get(files: Map<string, string>, suffix: string): string {
   const hit = [...files.entries()].find(([k]) => k.endsWith(suffix));
   expect(hit, `${suffix} not emitted; got:\n${[...files.keys()].join("\n")}`).toBeDefined();
@@ -166,6 +177,12 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       expect(u).toContain('        tenant_id="" if tenant is None else tenant,');
       expect(u).toContain("    return system_principal_for(current_event_origin())");
       expect(u).toContain("    token = current_user_var.set(system_principal_for(origin))");
+    });
+
+    it("hierarchy: the principal takes the origin's orgPath (and is assigned, not a SyntaxError)", async () => {
+      const u = get(await genHierarchy("python"), "sales_api/app/auth/user.py");
+      expect(u).toContain("    user = User(");
+      expect(u).toContain('    object.__setattr__(user, "org_path", org_path)');
     });
 
     it("producer: the outbox row records the origin; the relay publishes inside it", async () => {
