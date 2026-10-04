@@ -1,4 +1,6 @@
-// The `loom.*` codes with NO language-reference anchor yet (M-T8.18).
+// The `loom.*` codes with NO language-reference anchor yet (minted by M-T8.18,
+// now done; the drain of this list is owned by M-T8.26 —
+// docs/new-plan/T8-dx-tooling-ai.md).
 //
 // A RATCHET, pinned by `test/system/diagnostic-docs-anchors.test.ts`: the
 // list may only shrink.  Documenting a code means adding it to
