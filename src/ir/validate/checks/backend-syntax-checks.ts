@@ -15,12 +15,22 @@ import type {
   DerivedIR,
   ExprIR,
   FieldIR,
+  InvariantIR,
   OperationIR,
   StmtIR,
   SystemIR,
   TypeIR,
 } from "../../types/loom-ir.js";
-import { walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
+import {
+  unreadableCollections,
+  unrenderableInvariants,
+} from "../../util/changeset-invariant-carrier.js";
+import {
+  walkExprDeep,
+  walkStmtChildren,
+  walkStmtExprsDeep,
+  walkStmtsDeep,
+} from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -48,28 +58,117 @@ function isOperationSelfCall(e: ExprIR): e is ExprIR & { kind: "call" } {
   return e.kind === "call" && e.callKind === "private-operation";
 }
 
-/** Visit every expression a statement roots — the value-bearing arms only
- *  (mirrors the lowering's statement shapes); a bare `call` statement is itself
- *  a no-op op-call on vanilla and is handled there, so its receiver is not an
- *  expression to flag. */
+/** Visit every expression ONE statement roots (deeply into the expressions, but
+ *  not into the statements a branch nests — the caller enumerates those itself,
+ *  because the tail-`return` carve-out is decided per statement).
+ *
+ *  Rides the sanctioned shallow walker.  Hand-rolled, this listed nine of the
+ *  twelve `StmtIR` kinds and had NO arm for `if` — so a sibling-operation
+ *  self-call inside a branch (`if x { let y = this.bump() }`) was never
+ *  rejected, and the vanilla emitter then rendered a `{:ok, _} | {:error, _}`
+ *  tuple into a non-tail position: the exact shape
+ *  `loom.vanilla-op-call-position` exists to refuse.  A bare `call` STATEMENT is
+ *  still not itself an expression (it is handled by the actor gate below), so
+ *  the carve-out the old comment named is unaffected — but its ARGUMENTS are
+ *  expressions and are now visited. */
 
 function eachStmtExpr(s: StmtIR, visit: (e: ExprIR) => void): void {
-  switch (s.kind) {
-    case "precondition":
-    case "requires":
-    case "let":
-    case "expression":
-      walkExpr(s.expr, visit);
-      break;
-    case "return":
-    case "assign":
-    case "add":
-    case "remove":
-      walkExpr(s.value, visit);
-      break;
-    case "emit":
-      for (const f of s.fields) walkExpr(f.value, visit);
-      break;
+  walkStmtChildren(s, (e) => walkExpr(e, visit));
+}
+
+// ---------------------------------------------------------------------------
+// Invariant COVERAGE on elixir (#3023) — the complement of the emitter's
+// question.
+//
+// The Ecto changeset has two carriers for an aggregate invariant: a native
+// `validate_number`/`validate_length`/`validate_format` line (single-field
+// rules), and the custom `validate_invariants/1` seam (everything the applied
+// struct can evaluate).  A rule matching NEITHER used to fall through both in
+// silence, so it was enforced on node/.NET/python/java and nowhere on elixir,
+// while `generate system` reported `0 error(s), 0 warning(s)`.  Measured: an
+// aggregate with five invariants enforced 2 on elixir and 5 on every other
+// backend.
+//
+// This gate closes the silence rather than the capability: after it, an
+// invariant on elixir is either ENFORCED or REPORTED. It is a WARNING, not an
+// error — the model is legal and every other backend runs it, so refusing to
+// build would punish a correct model for a backend limitation; the author needs
+// to KNOW, not to be blocked.
+//
+// The judgement is shared with the emitter (`ir/util/changeset-invariant-
+// carrier.ts`), so the two cannot disagree about what is covered.
+// ---------------------------------------------------------------------------
+
+/** Why this particular rule is beyond the changeset carrier — the concrete
+ *  reason, not a generic "unsupported". The author cannot act on "no".
+ *
+ *  Only the arms below are REACHABLE, each verified by probing the shapes an
+ *  invariant can actually carry after the #3023 widening.  Deliberately absent:
+ *
+ *    • a `currentUser` read — already a hard error anywhere in an invariant
+ *      (`loom.currentuser-not-in-request-scope`), so it can never arrive here;
+ *      an arm for it would be a clause a reader has to disprove.
+ *    • a top-level `function` call — those INLINE at lowering, so no `call`
+ *      node survives and the rule is simply enforced.
+ *
+ *  What does arrive: a reference-collection read, and a domainService /
+ *  resource call. The fallback covers a shape nobody enumerated, which is the
+ *  point of gating on the judgement rather than on a list of known-bad kinds. */
+function unenforceableReason(inv: InvariantIR, opaque: ReadonlySet<string>): string {
+  let call = false;
+  let assoc = "";
+  const look = (e: ExprIR): void => {
+    if (e.kind === "call" || (e.kind === "ref" && e.refKind === "resource")) call = true;
+    if (e.kind === "ref" && e.refKind === "this-prop" && opaque.has(e.name)) assoc = e.name;
+  };
+  walkExprDeep(inv.expr, look);
+  walkExprDeep(inv.guard, look);
+  if (assoc) {
+    return (
+      `it reads '${assoc}', a reference collection ('X id[]') whose join rows the ` +
+      "repository writes AFTER the changeset, so the changeset would see an empty " +
+      "list and the rule would pass for every input"
+    );
+  }
+  if (call) {
+    return "it calls a domainService or a resource, which a changeset validator cannot " + "invoke";
+  }
+  return "its predicate cannot be evaluated against the proposed row";
+}
+
+export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const ctxByName = new Map<string, BoundedContextIR>();
+  for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
+  // One diagnostic per (aggregate, invariant) even when several elixir
+  // deployables host the same context — the rule is what is unenforced, not the
+  // deployment.
+  const seen = new Set<string>();
+
+  for (const dep of sys.deployables) {
+    if (dep.platform !== "elixir") continue;
+    for (const ctxName of dep.contextNames) {
+      const ctx = ctxByName.get(ctxName);
+      if (!ctx) continue;
+      for (const agg of ctx.aggregates) {
+        const opaque = unreadableCollections(agg);
+        for (const inv of unrenderableInvariants(agg)) {
+          const key = `${ctxName}/${agg.name}/${inv.source}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          diags.push({
+            severity: "warning",
+            code: "loom.elixir-invariant-unenforced",
+            message: diagMessage("loom.elixir-invariant-unenforced", {
+              ctxName,
+              name: agg.name,
+              source: inv.source,
+              reason: unenforceableReason(inv, opaque),
+            }),
+            source: `${sys.name}/${dep.name}`,
+          });
+        }
+      }
+    }
   }
 }
 
@@ -84,9 +183,15 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
       if (!ctx) continue;
       for (const agg of ctx.aggregates) {
         for (const op of agg.operations as OperationIR[]) {
-          for (const s of op.statements) {
+          // Every statement the body reaches, branch bodies included —
+          // `walkStmtsDeep`, not a top-level `for`, because a self-call inside an
+          // `if` branch renders in exactly the same non-tail position.
+          const bodyStmts: StmtIR[] = [];
+          for (const top of op.statements) walkStmtsDeep(top, (n) => bodyStmts.push(n));
+          for (const s of bodyStmts) {
             // The single allowed site: an op-call that IS the whole value of a
-            // `return` (tail passthrough).  Every other occurrence is rejected.
+            // `return` (tail passthrough).  Decided per STATEMENT, so a branch's
+            // own `return this.<op>()` keeps the carve-out.
             const allowed =
               s.kind === "return" && isOperationSelfCall(s.value) ? s.value : undefined;
             eachStmtExpr(s, (e) => {
@@ -120,7 +225,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
             walkStmtsDeep(s, (inner) => {
               if (inner.kind !== "call" || inner.target !== "private-operation") return;
               const callee = (agg.operations as OperationIR[]).find((o) => o.name === inner.name);
-              if (!callee || !callee.statements.some(stmtReadsCurrentUser)) return;
+              if (!callee?.statements.some(stmtReadsCurrentUser)) return;
               diags.push({
                 severity: "error",
                 code: "loom.vanilla-op-call-actor",

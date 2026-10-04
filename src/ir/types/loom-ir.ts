@@ -3568,6 +3568,21 @@ export type ExprIR =
       name: string;
       refKind: RefKind;
       enumName?: string;
+      /** Populated when `refKind === "enum-value"` and MORE THAN ONE enum in
+       *  scope declares this value name (`enum OrderStatus { Draft, ... }` +
+       *  `enum InvoiceStatus { Draft, ... }`).  Holds every candidate enum
+       *  name in resolution order; `enumName` carries the provisional
+       *  first-wins pick so nothing downstream sees an unqualified value.
+       *
+       *  Lowering resolves the ambiguity CONTEXTUALLY -- `lowerExprInContext`
+       *  (field / param default, `:=` RHS, `emit` field) and the binary-chain
+       *  cross-typing in `lower-expr.ts` retarget the ref to the enum the SITE
+       *  expects and clear this field.  A ref that still carries candidates
+       *  when it reaches phase (7) had no contextual type at all, and
+       *  `loom.ambiguous-enum-value` reports it rather than letting the
+       *  first-declared enum win silently (F-022).  Backends never see it: the
+       *  IR is resolved, or the build failed. */
+      enumCandidates?: readonly string[];
       type?: TypeIR;
       /** Populated when `refKind === "resource"` — the resource's
        *  declared name and infra kind, so a `.verb(...)` call on it can
@@ -4061,25 +4076,6 @@ export function exprUsesCurrentUser(e: ExprIR | undefined): boolean {
   return found;
 }
 
-/** True when a `currentUser`-valued stamp RHS is the bare principal or its
- *  `id` member — the "who" identity that a backend may collapse onto the
- *  ambient actor id (Hono `ctx.actorId`, Java `@CreatedBy`/AuditorAware).  A
- *  member access on any OTHER claim (`currentUser.role`, `currentUser.tenantId`)
- *  returns false: those must persist the DECLARED attribute so a read filter
- *  comparing the same claim (`this.createdByRole == currentUser.role`) matches
- *  the stamped row. */
-export function currentUserRefIsActorId(e: ExprIR): boolean {
-  if (e.kind === "ref" && e.refKind === "current-user") return true;
-  if (
-    e.kind === "member" &&
-    e.member === "id" &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "current-user"
-  )
-    return true;
-  return false;
-}
-
 /** True when the operation's body — preconditions, assignments,
  *  emits, calls — references `currentUser` anywhere. */
 export function operationUsesCurrentUser(op: OperationIR): boolean {
@@ -4173,7 +4169,7 @@ export function workflowCanAnswerNotFound(
     walkWorkflowStmtExprsDeep(top, (e) => {
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
-      if (!read || read.readKind !== "named") return;
+      if (read?.readKind !== "named") return;
       if (readThrows(read.repo, read.method)) canNotFound = true;
     });
   }
@@ -4248,18 +4244,6 @@ export function queryProjectionUsesCurrentUser(proj: ProjectionIR): boolean {
  *  closure-captured `HasQueryFilter`.) */
 export function aggregateUsesPrincipalContextFilter(agg: { contextFilters?: ExprIR[] }): boolean {
   return (agg.contextFilters ?? []).some(exprUsesCurrentUser);
-}
-
-/** True when any of the aggregate's lifecycle stamps (`contextStamps`, from
- *  `with audit`/`auditable` or `stamp onCreate`/`onUpdate`) assigns a value
- *  that reads `currentUser` (e.g. `createdBy := currentUser`).  Such a stamp
- *  needs the request principal threaded onto the create /
- *  update call so the stamp can read the current actor — the
- *  stamp-side analogue of `aggregateUsesPrincipalContextFilter`. */
-export function aggregateStampUsesPrincipal(agg: { contextStamps?: ContextStampIR[] }): boolean {
-  return (agg.contextStamps ?? []).some((r) =>
-    r.assignments.some((a) => exprUsesCurrentUser(a.value)),
-  );
 }
 
 export function stmtUsesCurrentUser(s: StmtIR): boolean {

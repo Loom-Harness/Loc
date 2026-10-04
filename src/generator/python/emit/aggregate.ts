@@ -22,6 +22,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
@@ -225,11 +226,18 @@ export function renderPyAggregate(
     shapes.some((s) =>
       s.operations.some((op) => op.statements.some((st) => st.kind === "precondition")),
     );
-  const usesForbidden = shapes.some((s) =>
-    // Only NON-leading `requires` statements still render here — the leading
-    // run is hoisted to the calling handler, which owns the 403 (op-gates.ts).
-    s.operations.some((op) => operationBody(op).some((st) => st.kind === "requires")),
-  );
+  const usesForbidden =
+    shapes.some((s) =>
+      // Only NON-leading `requires` statements still render here — the leading
+      // run is hoisted to the calling handler, which owns the 403 (op-gates.ts).
+      s.operations.some((op) => operationBody(op).some((st) => st.kind === "requires")),
+    ) ||
+    // …and the F-018 missing-claim guard in `_stamp_on_{create,update}`, which
+    // raises the same error from the stamp site rather than from an operation.
+    shapes.some(
+      (s) =>
+        requiredClaimStamps(s, "create").length > 0 || requiredClaimStamps(s, "update").length > 0,
+    );
   // DisallowedError — the `when` state gate.  Emitted at the DOMAIN-METHOD
   // entry, not only at the route layer: the in-process workflow dispatcher
   // (`dispatch.py`) and extern handlers call the domain method directly, and
@@ -659,9 +667,19 @@ function renderEntity(
     const rules = stampRules(event);
     if (rules.length === 0) return [];
     const usesUser = rules.some((a) => exprUsesCurrentUser(a.value));
+    // F-018 — refuse a principal whose claim is absent BEFORE assigning, or the
+    // null is already on the aggregate and the NOT NULL violation is the
+    // database's to report as an opaque 500.  An OPTIONAL target is left alone:
+    // null is legal there, and guarding it would refuse the claim-less signup
+    // bootstrap.
+    const guards = requiredClaimStamps(e, event).flatMap((stamp) => [
+      `        if not current_user.${snake(stamp.claim)}:`,
+      `            raise ForbiddenError(${JSON.stringify(missingClaimMessage(stamp))})`,
+    ]);
     return [
       "",
       `    def _stamp_on_${event}(self${usesUser ? ", current_user: User" : ""}) -> None:`,
+      ...guards,
       ...rules.map((a) => `        self._${snake(a.field)} = ${renderStampValue(a.value)}`),
     ];
   };
@@ -719,12 +737,27 @@ function renderEntity(
   // containment's type is already `| None`.  Byte-identical for a part with no
   // containments (`createParams`/`createArgs` fall back to the shared state
   // lists); `__init__`/`_rehydrate` keep the full required state contract.
+  //
+  // An OPTIONAL field (`tag: Tag id?`) is defaulted the same way, and for the
+  // same reason (F-010): `new NoteLine { text: text }` is legal `.ddd`, but
+  // `renderNew` emits only the fields the construction literal spells, so a
+  // keyword-only `tag: TagId | None` with NO default raised `TypeError:
+  // _create() missing 1 required keyword-only argument: 'tag'` the first time
+  // the operation ran.  `None` is what an omitted optional MEANS, and the
+  // annotation already admits it, so the default needs no in-body coercion.
+  // `T?` only — a field with a `= default` stays required here — and
+  // `_rehydrate` keeps the full contract, since the store has every column.
   const hasContains = e.contains.length > 0;
-  const createParams = hasContains
+  const hasOptionalField = e.fields.some((f) => f.type.kind === "optional");
+  const relaxCreate = hasContains || hasOptionalField;
+  const createParams = relaxCreate
     ? [
         `id: ${e.name}Id`,
         parentIdParam(isNested),
-        ...e.fields.map((f) => `${snake(f.name)}: ${renderPyType(f.type)}`),
+        ...e.fields.map(
+          (f) =>
+            `${snake(f.name)}: ${renderPyType(f.type)}${f.type.kind === "optional" ? " = None" : ""}`,
+        ),
         ...e.contains.map((c) =>
           c.collection
             ? `${snake(c.name)}: ${containsType(c)} | None = None`
@@ -732,7 +765,7 @@ function renderEntity(
         ),
       ].filter((s): s is string => s != null)
     : stateParams;
-  const createArgs = hasContains
+  const createArgs = relaxCreate
     ? [
         "id=id",
         !e.isRoot ? "parent_id=parent_id" : null,
@@ -834,6 +867,10 @@ function renderEntity(
         return isServerSourcedDefault(omission.expr) ? undefined : renderPyExpr(omission.expr);
       }
       if (omission.kind === "false") return "False";
+      // A non-nullable collection materializes as the empty list.  Safe as a
+      // rendered default because the caller emits it in the BODY (the `| None
+      // = None` param above), never as a shared mutable default argument.
+      if (omission.kind === "empty-collection") return "[]";
       return undefined; // plain optional — already `= None`
     };
     const factoryParams = inputs.map((f) => {

@@ -14,6 +14,7 @@ import type {
 import { contextUsesMoney, uiUsesMoney } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
@@ -21,6 +22,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
+import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
@@ -32,7 +34,12 @@ import { renderGateExpr } from "../_frontend/gate-expr.js";
 // the Vue generator reuses the React module verbatim (same sharing pattern as
 // the page objects / emit-templates above; a candidate for a later `_frontend/`
 // move alongside them).
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import {
   deriveSidebarFromUi,
@@ -125,6 +132,12 @@ export interface GenerateVueOptions {
    *  `PlatformSurface.emitProject`'s doc comment.  Records whole-file
    *  regions for pages + components alongside their `out.set(...)`. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 export function generateVueForContexts(
@@ -180,8 +193,21 @@ export function generateVueForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
-    out.set("src/i18n.ts", renderI18nModule());
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+    );
+    for (const [locale, content] of translated) {
+      out.set(`src/locales/${locale}.json`, content);
+    }
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
   }
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
@@ -689,7 +715,15 @@ export function generateVueForContexts(
     }
     out.set("src/lib/schemas.ts", schemas);
   }
-  out.set("package.json", renderShell(pack, "package-json", { usesMoney }));
+  // `CodeBlock { ... }` pulls in the VENDORED highlighter — the `highlight.js`
+  // dependency plus the `src/lib/highlight.ts` module that arms it — under one
+  // per-deployable flag, exactly as `decimal.js` rides `usesMoney`.  Vue used
+  // to hardcode this `false` (and its `index.html` gate with it), so a Vue app
+  // rendering CodeBlock emitted `<pre><code class="language-…">` with no
+  // highlighter anywhere.
+  const usesCodeBlock = uiUsesCodeBlock(ui, options.topLevelComponents ?? []);
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
+  out.set("package.json", renderShell(pack, "package-json", { usesMoney, usesCodeBlock }));
   out.set("tsconfig.json", renderShell(pack, "tsconfig", {}));
   out.set("tsconfig.node.json", renderShell(pack, "tsconfig-node", {}));
   out.set("vite.config.ts", renderShell(pack, "vite-config", { base: viteBase, apiProxyTarget }));
@@ -698,7 +732,13 @@ export function generateVueForContexts(
   // `import "./globals.css"`.  `vite/client` declares the `*.css`
   // side-effect module (mirrors the React generator).
   out.set("src/vite-env.d.ts", '/// <reference types="vite/client" />\n');
-  out.set("index.html", renderShell(pack, "index-html", prepareIndexHtmlVM(sys, deployable, ui)));
+  out.set(
+    "index.html",
+    renderShell(pack, "index-html", {
+      ...prepareIndexHtmlVM(sys, deployable, ui),
+      usesCodeBlock,
+    }),
+  );
   out.set("Dockerfile", renderShell(pack, "dockerfile", {}));
   out.set(".dockerignore", renderShell(pack, "dockerignore", {}));
   out.set("certs/.gitkeep", "");
@@ -967,7 +1007,6 @@ function prepareIndexHtmlVM(
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,
     favicon: deployable.favicon,
-    usesCodeBlock: false,
     usesFileUpload: false,
   };
 }

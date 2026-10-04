@@ -50,6 +50,7 @@ import {
   isDecLit,
   isDerivedProp,
   isDomainService,
+  isDomainServiceOperation,
   isEntityPart,
   isEnumDecl,
   isEventDecl,
@@ -1419,6 +1420,26 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
   // Member access transparently unwraps a single optional level.
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   switch (t.kind) {
+    // An ARRAY's member surface is exactly the collection-op catalogue
+    // (`COLLECTION_OP_SIGNATURES`) — which is already what `membersOfType`
+    // offers for completion on an array receiver, so this arm only makes
+    // VALIDATION agree with what completion has always claimed.
+    //
+    // Without it `collectionOpType`'s `default` returned `T.unknown` for an
+    // absent member, and `unknown` is the value every downstream check
+    // suppresses on — so a typo'd or invented collection op on an array
+    // receiver was reported NOWHERE and reached the emitters verbatim
+    // (testability audit F1's residue; the same shape in an aggregate
+    // `operation` and in a `domainService` body alike).
+    //
+    // `sum`/`avg`/`min`/`max` in their BARE form are collection ops, so they
+    // pass here and are refused by `loom.bare-collection-accessor` instead —
+    // its message names the lambda form, which is the actionable fix.
+    case "array":
+      // `length` is an alias `collectionOpType` types as `int` (see there); it
+      // is legal on an array but absent from the catalogue, so `isCollectionOp`
+      // alone would reject it.
+      return isCollectionOp(name) || name === "length" ? undefined : typeToString(t);
     case "aggregate": {
       if (name === "id") return undefined;
       return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;
@@ -1480,6 +1501,19 @@ function collectionOpType(
 ): DddType {
   switch (name) {
     case "count":
+    // `<array>.length` — an ALIAS for `count`, not a catalogue op.  The IR has
+    // typed it as `int` all along (`lower-expr.ts`, the `array` arm), and its
+    // comment there claims this is "exactly as the language type-system already
+    // reports it" — which was NOT true: `collectionOpType` had no `length` case,
+    // so the language layer returned `T.unknown` while the IR and every emitter
+    // handled it (java renders `.size()`, and the corpus relies on it).  That is
+    // the same IR/language disagreement shape as F1, found by this PR's own gate
+    // turning a valid fixture red.
+    //
+    // It is deliberately NOT added to COLLECTION_OP_SIGNATURES: that catalogue
+    // drives `collection-op-completeness`, which requires every backend to
+    // RENDER each entry, and `length` is spelled `count` there.
+    case "length":
       return T.prim("int");
     case "sum": {
       // sum returns the lambda's body type when one is given;
@@ -1726,23 +1760,6 @@ function lookupValueObjectByName(name: string, env: Env): ValueObject | undefine
 // and src/util/collection-ops.ts — pure data catalogues that all layers
 // can import without back-edges into language/.
 
-export function lambdaTakesElementOf(t: DddType): DddType {
-  if (t.kind === "array") return t.element;
-  return T.unknown;
-}
-
-// ---------------------------------------------------------------------------
-// Pure-expression check for `function` bodies
-// ---------------------------------------------------------------------------
-
-export function isPureExpression(_expr: Expression): boolean {
-  // Expressions are inherently pure in this DSL — they cannot mutate or
-  // emit.  Purity violations live in statements (`:=`, `+=`, `-=`, `emit`),
-  // which can never appear inside a `function` body because the grammar
-  // only accepts an Expression there.
-  return true;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers for collecting parameters / let-bindings into an Env
 // ---------------------------------------------------------------------------
@@ -1759,17 +1776,6 @@ function typeRefAggregate(t: TypeRef | undefined): Aggregate | undefined {
   const dt = resolveTypeRef(t);
   return dt.kind === "aggregate" ? dt.ref : undefined;
 }
-
-export type SymbolOrigin =
-  | Parameter
-  | { letBinding: import("./generated/ast.js").LetStmt }
-  | FunctionDecl
-  | Operation
-  | ValueObject
-  | EntityPart
-  | Aggregate
-  | EnumDecl
-  | { lambdaParam: Lambda };
 
 export function makeEnv(
   outer: Env | undefined,
@@ -1950,10 +1956,10 @@ export function findOperation(agg: Aggregate, name: string): Operation | undefin
 // ---------------------------------------------------------------------------
 // envForNode — builds a `typeOf`-ready Env for any node in the AST.
 //
-// Walks up to the closest scope-bearing container (operation, function,
-// invariant, derived prop, value object, part, aggregate) and assembles
-// bindings + scope context.  The validator constructs equivalent envs
-// inline; LSP services (hover, completion) need the same data without
+// Walks up to the closest scope-bearing container (operation, domain-service
+// operation, function, invariant, derived prop, value object, part, aggregate)
+// and assembles bindings + scope context.  The validator constructs equivalent
+// envs inline; LSP services (hover, completion) need the same data without
 // having to recreate the walk per provider.
 //
 // Bindings come from (in increasing precedence):
@@ -1971,6 +1977,13 @@ export function envForNode(node: AstNode): Env {
   const vo = AstUtils.getContainerOfType(node, isValueObject);
   const fn = AstUtils.getContainerOfType(node, isFunctionDecl);
   const op = AstUtils.getContainerOfType(node, isOperation);
+  // A `domainService` operation is its OWN grammar rule (`DomainServiceOperation`,
+  // `stmts+=Statement*`), NOT an `Operation` — so `isOperation` never matches one and
+  // without this arm a service body bound no params and typed no lets.  Every receiver
+  // in it came back `unknown`, and because each type-based validator suppresses on
+  // `unknown` (the deliberate anti-double-reporting rule), EVERY type gate failed open
+  // inside `domainService` bodies (testability audit F1, language half).
+  const dsop = AstUtils.getContainerOfType(node, isDomainServiceOperation);
   const find = AstUtils.getContainerOfType(node, isFindDecl);
   const _wf = AstUtils.getContainerOfType(node, isWorkflow);
   // UI-side containers — pages and components carry typed params
@@ -2028,6 +2041,7 @@ export function envForNode(node: AstNode): Env {
   const params =
     fn?.params ??
     op?.params ??
+    dsop?.params ??
     find?.params ??
     create?.params ??
     handle?.params ??
@@ -2054,6 +2068,9 @@ export function envForNode(node: AstNode): Env {
   };
   if (op) {
     addTypedLets(bindings, op.body, letCtx);
+  } else if (dsop) {
+    // `stmts`, not `body` — the rule spells its statement list differently.
+    addTypedLets(bindings, dsop.stmts, letCtx);
   } else if (create) {
     addTypedLets(bindings, create.body, letCtx);
   } else if (handle) {

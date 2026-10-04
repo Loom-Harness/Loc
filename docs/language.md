@@ -1106,15 +1106,17 @@ for high-magnitude / high-precision values).
 
 | Aspect | `decimal` | `money` |
 |---|---|---|
-| JSON wire | `number` (lossy) | `string` with `format: decimal` |
-| TS host type | `number` | `decimal.js` `Decimal` |
-| .NET host type | `System.Decimal` (lossy through JSON-number boundary) | `System.Decimal` (precise, string-on-wire) |
-| Phoenix host type | Elixir `Decimal` (lossy through Jason float) | Elixir `Decimal` (precise — Jason's default) |
-| Python host type | `float` (lossy through JSON-number boundary) | `Decimal` (precise, string-on-wire) |
-| Java host type | `double` (lossy through JSON-number boundary) | `BigDecimal` (precise, string-on-wire) |
+| JSON wire | `number` — the **same** IEEE-754 double on every backend; a backend whose domain type is wider narrows at the response boundary ([RS-24](conformance-semantics.md#rs-24--a-plain-decimal-is-a-json-number-only-money-is-a-string)) | `string`, fixed scale 4 (`"12.5000"` — [RS-12](conformance-semantics.md#rs-12--money-wire-scale-is-consistent-across-backends)) |
+| Arithmetic | **exact** on every backend ([RS-37](conformance-semantics.md#rs-37--decimal-arithmetic-is-exact--01--02-is-03-on-the-wire-and-in-storage)): `0.1 + 0.2` is `0.3`, narrowed to the wire double once, at the root of a chain | exact (closed — see below) |
+| Storage (Postgres) | unbounded `DECIMAL` | `NUMERIC(19,4)` |
+| TS host type | `number`; arithmetic lifted into `decimal.js` and narrowed with `.toNumber()` once | `decimal.js` `Decimal` |
+| .NET host type | `System.Decimal`; a response DTO field is a `double` (#2563 / #2575) | `System.Decimal`, string-on-wire via `[JsonNumberHandling]` |
+| Phoenix host type | Elixir `Decimal` (Ecto `:decimal`); serialized through `Decimal.to_float/1` so it ships as a number, not Jason's default string | Elixir `Decimal`, string-on-wire |
+| Python host type | `float`; arithmetic lifted through `Decimal(str(x))` and narrowed with `float(...)` once | `decimal.Decimal`, string-on-wire |
+| Java host type | `BigDecimal`; a response record component is a `double` (`.doubleValue()`, M-T6.46) | `BigDecimal`, string-on-wire |
 | OpenAPI | `{ type: number }` | `{ type: string, format: decimal }` (PayPal/Coinbase/ISO 20022 convention) |
 | Source-level literal | `10.50` | `money("10.50")` |
-| Arithmetic | participates in `int < long < decimal` widening | **closed**: see below |
+| Widening | participates in `int < long < decimal` widening | **closed**: see below |
 
 **Closed arithmetic.**  `money` does NOT participate in the
 `int → long → decimal` widening chain.  Permitted:
