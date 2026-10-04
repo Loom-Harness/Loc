@@ -23,6 +23,7 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { brokerChannelBindings } from "../../_channels/bindings.js";
@@ -105,7 +106,7 @@ import { emitVanillaWorkflowInstances } from "./workflow-instances-emit.js";
 
 export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): Map<string, string> {
   const { contexts, deployable, sys, sourcemap, pack } = args;
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/elixir/vanilla/index");
   const appName = toSnakeApp(deployable.name);
   const appModule = toModulePrefix(appName);
 

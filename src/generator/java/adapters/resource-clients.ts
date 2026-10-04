@@ -1,5 +1,6 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
 
@@ -607,7 +608,7 @@ export function emitJavaResourceFiles(
   wiredNames: ReadonlySet<string>,
   pkg: string,
 ): { files: Map<string, string>; deps: Record<string, string>; classes: Map<string, string> } {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/java/adapters/resource-clients");
   const deps: Record<string, string> = {};
   const classes = new Map<string, string>();
   if (!sys) return { files, deps, classes };

@@ -34,6 +34,7 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
 import { resetTableDiscoverySql, TEST_RESET_ENV, TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -148,7 +149,7 @@ export interface GeneratePythonArgs {
 }
 
 export function generatePythonForContexts(args: GeneratePythonArgs): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/python/index");
   const slug = pythonProjectName(args.deployable.name);
   const mergedBase = mergeContexts(args.contexts);
   const sourcemap = args.sourcemap;

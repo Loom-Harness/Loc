@@ -45,6 +45,7 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -282,7 +283,7 @@ export function generateJavaForContexts(
   system?: SystemArgs,
   options: { emitTrace?: boolean; sourcemap?: SourceMapRecorder } = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/index");
   emitProjectFromContexts(contexts, ns, out, system, !!options.emitTrace, options.sourcemap);
   return out;
 }

@@ -17,6 +17,7 @@ import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_TSX, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
@@ -128,7 +129,7 @@ export function generateReactForContexts(
   deployable: DeployableIR,
   options: GenerateReactOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/react/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Standalone react fetches the API same-origin via the relative
@@ -592,7 +593,7 @@ export function generateReactForContexts(
   // ClientApp/ directory.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/react/index");
   for (const [path, content] of out) {
     prefixed.set(`${pathPrefix}${path}`, content);
   }

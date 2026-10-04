@@ -59,6 +59,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import {
@@ -147,7 +148,7 @@ export interface OpenApiEmitResult {
 
 export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   const { contexts, deployable, appName, appModule } = args;
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/elixir/vanilla/openapi-emit");
   const routes: ApiRoute[] = [];
 
   const webModule = `${appModule}Web`;

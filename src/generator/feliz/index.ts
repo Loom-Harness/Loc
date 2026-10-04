@@ -35,6 +35,7 @@ import {
 } from "../../ir/util/realtime-rooms.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
@@ -2003,7 +2004,7 @@ export function generateFelizForContexts(
   // reaches the host backend without a baked base.  `basePath` (Phoenix `/app`)
   // threads into vite's `base`; `pathPrefix` relocates the whole project.
   const basePath = options.basePath ?? "";
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/feliz/index");
   if (!deployable.uiName) {
     throw new Error(
       `Feliz deployable '${deployable.name}' has no ui binding (uiName). A frontend deployable must target a ui.`,
@@ -2142,7 +2143,7 @@ export function generateFelizForContexts(
   // (`ClientApp/` or Phoenix `assets/`).  Mirrors react/angular's post-pass.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/feliz/index");
   for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
   return prefixed;
 }

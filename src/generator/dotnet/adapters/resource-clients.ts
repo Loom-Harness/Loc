@@ -9,6 +9,7 @@
 // → C# emission.  `supports()` delegates to the sourceType registry.
 
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
 
@@ -538,7 +539,7 @@ export function emitDotnetResourceFiles(
   sys: { dataSources: readonly DataSourceIR[]; storages: readonly StorageIR[] } | undefined,
   ns: string,
 ): { files: Map<string, string>; nugetDeps: Record<string, string> } {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/dotnet/adapters/resource-clients");
   const nugetDeps: Record<string, string> = {};
   if (!sys) return { files, nugetDeps };
   const storeType = new Map(sys.storages.map((s) => [s.name, s.type] as const));

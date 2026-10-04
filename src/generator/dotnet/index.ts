@@ -47,6 +47,7 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -285,7 +286,7 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/dotnet/index");
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.

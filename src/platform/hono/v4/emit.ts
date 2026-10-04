@@ -7,7 +7,6 @@
 // only the framework-neutral helpers (render-expr/stmt, templates,
 // zod-refine) in core.
 
-// Hono-framework builders now live in this package (P2b) — siblings.
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
@@ -123,6 +122,8 @@ import { hasValueObjectInvariants } from "../../../ir/util/value-object-invarian
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
+// Hono-framework builders now live in this package (P2b) — siblings.
+import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -657,7 +658,7 @@ export function generateTypeScriptForContexts(
 ): Map<string, string> {
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
-  const out = new Map<string, string>();
+  const out = emissionSink("platform/hono/v4/emit");
   const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the

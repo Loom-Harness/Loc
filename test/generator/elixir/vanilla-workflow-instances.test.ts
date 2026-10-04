@@ -12,6 +12,7 @@
 // as the visibility proposal promised for the vanilla path.
 
 import { describe, expect, it } from "vitest";
+import { emitWorkflowStateSchemas } from "../../../src/generator/elixir/dispatch-emit.js";
 import { emitVanillaWorkflowInstances } from "../../../src/generator/elixir/vanilla/workflow-instances-emit.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../src/ir/types/loom-ir.js";
 import { generateSystems } from "../../../src/system/index.js";
@@ -54,8 +55,16 @@ function emit(workflows: WorkflowIR[]): {
 }
 
 describe("vanilla foundation — workflow-instance read endpoints", () => {
-  it("emits the saga-state Ecto schema (plain Ecto, no Ash)", () => {
+  it("leaves the saga-state schema to the orchestrator (one writer per path)", () => {
+    // It used to re-emit `<wf>_state.ex` WITHOUT the context's `@schema_prefix`
+    // — a second, different file at the path the orchestrator writes with it.
     const { out } = emit([wf]);
+    expect(out.has("lib/acme/fulfillment/workflows/order_fulfillment_state.ex")).toBe(false);
+  });
+
+  it("emits the saga-state Ecto schema (plain Ecto, no Ash)", () => {
+    const out = new Map<string, string>();
+    emitWorkflowStateSchemas("acme", ctxWith([wf]), "Acme", out);
     const schema = out.get("lib/acme/fulfillment/workflows/order_fulfillment_state.ex");
     expect(schema, "saga-state schema not emitted").toBeDefined();
     expect(schema!).toContain("defmodule Acme.Fulfillment.Workflows.OrderFulfillmentState do");
