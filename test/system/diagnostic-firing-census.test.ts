@@ -3035,6 +3035,39 @@ system S {
   deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
 }`,
 
+  // Eval item 22 / ruling D5: the list read served by the injected `find all`.
+  "loom.default-deny-list-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // Eval item 39 / ruling D9: a policy called from a context that does not declare it.
+  "loom.policy-out-of-scope": `
+system S {
+  user { id: guid  role: string }
+  subdomain D {
+    context A {
+      policy IsAdmin(): bool = currentUser.role == "admin"
+      aggregate Foo { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+    context B {
+      aggregate Bar { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: A, kind: state, use: pg }
+  resource st2 { for: B, kind: state, use: pg }
+  deployable api { platform: node contexts: [A, B] dataSources: [st, st2] port: 3000 auth: required }
+}`,
+
   "loom.default-deny-by-id-ungated": `
 system S {
   user { id: guid  role: string }

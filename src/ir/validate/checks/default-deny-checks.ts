@@ -9,7 +9,7 @@ import { descriptorFor } from "../../../platform/metadata.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
-import { deriveContextOperations } from "../../util/api-surface.js";
+import { deriveContextOperations, isAllFind } from "../../util/api-surface.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -216,6 +216,32 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // today; when the surface lands, the check gains its `if (gated)
       // continue;` and can be promoted to an error under the same code.
       for (const op of deriveContextOperations(c)) {
+        // The aggregate LIST read, `GET /api/<aggs>` (eval item 22, ruling
+        // D5).  It is backed by the repository find named `all` — usually the
+        // one enrichment injects, which carries no gate, so under
+        // denyByDefault it serves every row to any authenticated caller.
+        // Unlike the by-id read the author HAS recourse here: an explicit
+        // `find all(): T[] requires <expr>` overrides the injected one and is
+        // enforced on all five backends (`listReadGate`).  Ruled a WARNING,
+        // the same tier as the by-id read, so existing models keep building;
+        // the message names the line that silences it.  An author-declared
+        // ungated `find all` reports here too — the declared-find loop below
+        // skips `all`, so it is this warning or nothing.
+        if (isAllFind(op)) {
+          if (op.find?.requires) continue;
+          const repo = c.repositories.find((r) => r.aggregateName === op.aggregate);
+          diags.push({
+            severity: "warning",
+            code: "loom.default-deny-list-ungated",
+            message: diagMessage("loom.default-deny-list-ungated", {
+              name: op.aggregate,
+              path: op.path,
+              repo: repo?.name ?? `${op.aggregate}s`,
+            }),
+            source: `${c.name}/${op.aggregate}/all`,
+          });
+          continue;
+        }
         if (op.kind !== "getById") continue;
         diags.push({
           severity: "warning",
@@ -228,11 +254,10 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         });
       }
       // Repository finds: each author-declared named find is its own GET route
-      // and carries the same optional `requires <expr>` gate.  The aggregate
-      // list-all endpoint (the auto-injected `find all`) is out of scope — it is
-      // compiler-synthesized and has no author source line to attach a gate to;
-      // gating it needs an aggregate-level default-read surface (follow-up).
-      // Internal synthesized finds (paged-run helpers) are never their own route.
+      // and carries the same optional `requires <expr>` gate.  The list read
+      // (`find all`, injected or declared) is reported by the
+      // `loom.default-deny-list-ungated` warning above, not here.  Internal
+      // synthesized finds (paged-run helpers) are never their own route.
       for (const repo of c.repositories) {
         for (const find of repo.finds) {
           if (find.synthesized || find.name === "all") continue;
