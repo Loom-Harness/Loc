@@ -149,7 +149,10 @@ describe("the undocumented-codes ratchet", () => {
 // as a language rule. Its remedy lives in docs/migrations.md § Rename
 // detection, where the rest of the migration-policy prose is; this baseline is
 // raised deliberately for that reason.
-const UNDOCUMENTED_BASELINE = 366;
+//
+// 366 -> 355: eleven undocumented backend-support codes deleted with their
+// five-of-five gates (a support set naming every backend gated nothing).
+const UNDOCUMENTED_BASELINE = 355;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

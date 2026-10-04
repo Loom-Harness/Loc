@@ -8,8 +8,7 @@
 // Vanilla's natural carrier is a tagged tuple — the context function returns
 // `{:ok, value} | {:error, <tag>, data_map}`, and the controller `case`s on it.
 // No per-variant struct module is needed (the data rides as a plain map, the
-// same RFC-7807 §3.2 extension shape the other backends emit).  The elixir
-// backend emits these un-gated (`validateOperationReturnsUnimplemented`).
+// same RFC-7807 §3.2 extension shape the other backends emit).
 // ---------------------------------------------------------------------------
 
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";

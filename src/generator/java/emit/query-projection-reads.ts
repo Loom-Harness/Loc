@@ -75,9 +75,8 @@ import { workflowStateClass } from "./workflow-state.js";
 // One `<Ctx>QueryProjections` @Service + a `<Ctx>QueryProjectionsController`
 // exposing `GET /projections/<slug>` per projection (sibling of the folded
 // `<Ctx>ProjectionsController` at the same prefix; distinct projection names ⇒
-// distinct slugs ⇒ no route collision).  Only backends in
-// `PROJECTION_QT_SUPPORTED` are permitted a query-time projection by the IR
-// validator; java joins node/python/elixir here.
+// distinct slugs ⇒ no route collision).  Every backend emits query-time
+// projections; java joined after node/python/elixir.
 // ---------------------------------------------------------------------------
 
 /** Query-time projections sourced from `agg`, as synthesized parameterless

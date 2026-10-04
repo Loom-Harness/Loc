@@ -1,9 +1,8 @@
 // Tier-0 honest-gate guard.  Per-operation audit-record emission (`operation …
 // audited`) AND audited LIFECYCLE actions (audited create / destroy) are
-// implemented on the Hono (node), .NET (dotnet), Java (java) and Python (python)
-// backends; on phoenix the modifier is inert, so an `audited` operation or
-// lifecycle action hosted there silently records nothing.  The validator rejects
-// that mismatch with loom.audited-backend-unsupported.
+// implemented on every backend, so every backend accepts them; the validator's
+// loom.audited-backend-unsupported fires only for a context no backend
+// deployable hosts.
 //
 // Note: this gates the per-operation `audited` flag only — the `with audit`
 // capability macro (context stamps) is a separate concern and is NOT gated here.
@@ -69,11 +68,9 @@ describe("audited-operation capability validation", () => {
 });
 
 // Audited LIFECYCLE actions (`create(...) audited` / `destroy audited`) ship on
-// node / dotnet / java / python — each backend's create/destroy handler stages
-// the lifecycle audit row (before:null/after=wire on create; before=wire/
-// after:null on destroy) in the lifecycle transaction.  Phoenix (elixir) stays
-// uninstrumented, so AUDIT_LIFECYCLE_BACKENDS = {node,dotnet,java,python} rejects
-// exactly an audited lifecycle action hosted on elixir.
+// every backend — each backend's create/destroy handler stages the lifecycle
+// audit row (before:null/after=wire on create; before=wire/after:null on
+// destroy) in the lifecycle transaction.
 function lifecycleSys(platform: string): string {
   return `
 system Shop {
