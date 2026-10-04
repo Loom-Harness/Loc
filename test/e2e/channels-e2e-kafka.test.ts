@@ -382,8 +382,8 @@ const LATE_FIXTURE = FIXTURE.replace("channel Lifecycle {", "channel Backlog {")
   .replaceAll("channels: [lifecycleBus]", "channels: [backlogBus]");
 const LATE_SALES_PORT = 3227;
 const LATE_SHIP_PORT = 3228;
-const LATE_PG_PORT = 55446;
-const LATE_KAFKA_PORT = 55678;
+const LATE_PG_PORT = 55451; // unique across the channels-e2e suites
+const LATE_KAFKA_PORT = 55685;
 const LATE_ORDERS = 4;
 
 describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earliest (D3)", () => {
@@ -406,7 +406,15 @@ describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earl
       stdio: ["ignore", "pipe", "pipe"],
     });
     const log = join(dir, `${app}-${port}.log`);
-    const sink = (d: Buffer): void => appendFileSync(log, d);
+    // Output still buffered when afterAll removes `dir` must not crash the
+    // run (an unhandled ENOENT fails vitest even with every test green).
+    const sink = (d: Buffer): void => {
+      try {
+        appendFileSync(log, d);
+      } catch {
+        /* dir already removed during teardown */
+      }
+    };
     child.stdout?.on("data", sink);
     child.stderr?.on("data", sink);
     apps.push(child);
@@ -498,6 +506,7 @@ describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earl
   }, 60_000);
 
   it("delivers events published before the consumer's group first joined", async () => {
+    const lateIds: string[] = [];
     for (let i = 0; i < LATE_ORDERS; i++) {
       const createRes = await fetch(`http://localhost:${LATE_SALES_PORT}/api/orders`, {
         method: "POST",
@@ -506,6 +515,7 @@ describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earl
       });
       expect(createRes.status).toBe(201);
       const { id } = (await createRes.json()) as { id: string };
+      lateIds.push(id);
       const res = await fetch(`http://localhost:${LATE_SALES_PORT}/api/orders/${id}/place`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -528,18 +538,22 @@ describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earl
     // Now the consumer boots for the first time — a brand-new group.
     boot("ship_api", LATE_SHIP_PORT, "ship_api");
     await waitFor(ready(LATE_SHIP_PORT), 120_000, "shipApi /ready");
+    // Count ONLY this scenario's shipments: under LOOM_CHANNELS_PG_URL (CI)
+    // both describes share the `ship_api` database, so the log scenario's
+    // shipments are already in the table.
+    const lateShipments = async (): Promise<string[]> => {
+      const res = await fetch(`http://localhost:${LATE_SHIP_PORT}/api/shipments?pageSize=100`);
+      if (!res.ok) return [];
+      const body = (await res.json()) as { items: { orderRef: string }[] };
+      return body.items.map((s) => s.orderRef).filter((ref) => lateIds.includes(ref));
+    };
     await waitFor(
-      async () => {
-        const res = await fetch(`http://localhost:${LATE_SHIP_PORT}/api/shipments?pageSize=50`);
-        if (!res.ok) return false;
-        return ((await res.json()) as { total: number }).total >= LATE_ORDERS;
-      },
+      async () => (await lateShipments()).length >= LATE_ORDERS,
       30_000,
       `all ${LATE_ORDERS} backlog shipments created by the late-joining group`,
     );
-    const body = (await (
-      await fetch(`http://localhost:${LATE_SHIP_PORT}/api/shipments?pageSize=50`)
-    ).json()) as { total: number };
-    expect(body.total).toBe(LATE_ORDERS);
+    const refs = await lateShipments();
+    expect(refs.length).toBe(LATE_ORDERS);
+    expect(new Set(refs)).toEqual(new Set(lateIds));
   }, 240_000);
 });
