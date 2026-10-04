@@ -56,7 +56,7 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
 
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
-  python: 258,
+  python: 204,
   typescript: 230,
   dotnet: 26,
   java: 51,
