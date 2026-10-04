@@ -8,6 +8,7 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -376,7 +377,7 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       continue;
     }
     if (inner.kind === "valueobject") {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       if (vo) {
         const fields = vo.fields
           .map((vf) => `"${vf.name}": ${access}.${snake(vf.name)}`)
