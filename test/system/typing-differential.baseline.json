@@ -4,14 +4,14 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 107439,
+    "agree": 107440,
     "conflict": 3147,
     "declaration-name": 52834,
     "new-differs": 145,
     "new-only": 77325,
     "new=ir": 13001,
     "new=lang": 766,
-    "nobody-knows": 7389,
+    "nobody-knows": 7388,
     "not-lowered-agree": 2052,
     "not-lowered-differ": 465,
     "unreached": 0
