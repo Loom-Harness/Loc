@@ -508,6 +508,18 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
+  // domain code, where every backend renders the hole as its bare value — the
+  // branch text ("items") is dropped.  The warning says so where it happens.
+  "loom.interp-format-dropped-in-domain": `
+system IcuDrop {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      qty: int
+      derived label: string = \`{qty, plural, one {# item} other {# items}}\`
+    }
+  } }
+}`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:
