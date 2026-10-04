@@ -19,7 +19,8 @@ the native database tooling (Drizzle Kit and EF Core migrations).
 
 The `ddd` binary lives at `bin/cli.js` and exposes these sub-commands.
 
-**Spell it `node bin/cli.js …` (or `npx ddd …`).**  A clone's `npm install`
+**Spell it `node bin/cli.js …` (or `npx ddd …` inside the clone — outside it,
+`npx ddd` fetches an unrelated npm package named `ddd`).**  A clone's `npm install`
 does NOT put a `ddd` on your PATH — `which ddd` exits 1 — so the bare `ddd`
 below is shorthand for one of those two.  (`alias ddd='node "$PWD/bin/cli.js"'`
 makes the shorthand real for a shell session.)
