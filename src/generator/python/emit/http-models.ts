@@ -10,6 +10,7 @@ import {
 } from "../../money-scale.js";
 import {
   createFieldConstraints,
+  createFieldMessageValidator,
   createModelValidator,
   withFieldConstraint,
 } from "./wire-constraints.js";
@@ -479,6 +480,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // through to the domain constructor's `DomainError` → 400.
     const available = new Set(vo.fields.map((f) => f.name));
     const constraints = createFieldConstraints(vo.invariants, available);
+    const messages = createFieldMessageValidator(vo.invariants, available);
     const validator = createModelValidator(vo.invariants, available, vo.name);
     return lines(
       "",
@@ -503,6 +505,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
             : `${base} | None = None`;
         return withFieldConstraint(f.name, decl, constraints.get(f.name));
       }),
+      messages,
       validator,
     );
   });
@@ -539,7 +542,12 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // A messaged single-field rule raises through `ValidationError.
     // from_exception_data` so the error carries the field's `loc` (M-T1.11).
     uses("ValidationError") ? "ValidationError" : null,
+    // A message-less single-field rule re-words its `Field(...)` violation
+    // through a wrap `field_validator` (ruling D10, #15d).
+    uses("ValidationInfo") ? "ValidationInfo" : null,
+    uses("ValidatorFunctionWrapHandler") ? "ValidatorFunctionWrapHandler" : null,
     "WithJsonSchema",
+    uses("field_validator") ? "field_validator" : null,
     uses("model_validator") ? "model_validator" : null,
   ].filter((n): n is string => n != null);
   return lines(

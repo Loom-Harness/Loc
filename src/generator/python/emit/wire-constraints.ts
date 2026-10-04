@@ -16,10 +16,19 @@ import {
   pickErrorPath,
   type SingleFieldPattern,
   singleFieldConstraints,
+  singleFieldShape,
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
+import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
+
+/** One `Field(...)` kwarg plus the wire message its violation answers — the
+ *  one node sends for the rule that produced it. */
+interface FieldKwarg {
+  kw: string;
+  message: string;
+}
 
 /** Map of `field → Field(...)` constraint string for every single-field,
  *  message-less invariant over one of `available`.  Multiple constraints
@@ -29,7 +38,90 @@ export function createFieldConstraints(
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
 ): Map<string, string> {
-  const byField = new Map<string, SingleFieldPattern[]>();
+  const out = new Map<string, string>();
+  for (const [field, kwargs] of fieldKwargs(invariants, available)) {
+    out.set(field, `Field(${kwargs.map((k) => k.kw).join(", ")})`);
+  }
+  return out;
+}
+
+/** The Pydantic error `type`s a `Field(...)` kwarg denies with.  `min_length` /
+ *  `max_length` answer `string_too_*` on a string and `too_*` on a sequence. */
+const KWARG_ERROR_TYPES: Readonly<Record<string, readonly string[]>> = {
+  ge: ["greater_than_equal"],
+  gt: ["greater_than"],
+  le: ["less_than_equal"],
+  lt: ["less_than"],
+  min_length: ["string_too_short", "too_short"],
+  max_length: ["string_too_long", "too_long"],
+  pattern: ["string_pattern_mismatch"],
+};
+
+/** A `@field_validator(..., mode="wrap")` that re-words the `Field(...)`
+ *  constraint violations `createFieldConstraints` arms with the SAME
+ *  sentence node's zod schema denies with — the synthesized
+ *  `singleFieldMessage` (e.g. "Billing Email is not in the expected format")
+ *  for a shape node chains natively, else node's refine default — ruling D10
+ *  (#15d).
+ *  Before it a message-less rule answered Pydantic's default text, which for a
+ *  `pattern=` leaked the regex onto the wire (`String should match pattern
+ *  '^[^@]+@…'`) and diverged from node for every other shape too.
+ *
+ *  The table is per MODEL (one field name can carry different bounds on two
+ *  request DTOs) and keyed by `(field, pydantic error type)`, so only the
+ *  constraint errors this table arms are re-worded: a type error
+ *  (`string_type`, `int_parsing`) or a nested model's own error (non-empty
+ *  relative `loc`) re-raises untouched.  The re-raise keeps the Pydantic
+ *  `type` — no `msg.` prefix — so the 422 handler still omits `errors[].code`,
+ *  exactly as node omits it for a message-less rule.  `null` when no field
+ *  carries a constraint. */
+export function createFieldMessageValidator(
+  invariants: InvariantIR[],
+  available: ReadonlySet<string>,
+): string | null {
+  const table = fieldKwargs(invariants, available);
+  if (table.size === 0) return null;
+  const entries: string[] = [];
+  for (const [field, kwargs] of table) {
+    for (const { kw, message } of kwargs) {
+      for (const type of KWARG_ERROR_TYPES[kw.slice(0, kw.indexOf("="))] ?? []) {
+        entries.push(
+          `                (${JSON.stringify(field)}, ${JSON.stringify(type)}): ${JSON.stringify(message)},`,
+        );
+      }
+    }
+  }
+  const fields = [...table.keys()].map((f) => JSON.stringify(f)).join(", ");
+  return lines(
+    "",
+    `    @field_validator(${fields}, mode="wrap")`,
+    "    @classmethod",
+    "    def _wire_messages(",
+    "        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo",
+    "    ) -> object:",
+    "        try:",
+    "            return handler(value)",
+    "        except ValidationError as err:",
+    "            messages: dict[tuple[str, str], str] = {",
+    ...entries,
+    "            }",
+    "            for e in err.errors():",
+    '                hit = messages.get((info.field_name or "", e["type"]))',
+    '                if hit is not None and not e["loc"]:',
+    '                    raise PydanticCustomError(e["type"], hit) from None',
+    "            raise",
+  );
+}
+
+/** Per field, the `Field(...)` kwargs every single-field, message-less
+ *  invariant over one of `available` contributes — the one source both
+ *  `createFieldConstraints` (the check) and `createFieldMessageValidator` (its
+ *  wire message) read, so the two cannot disagree on which bound applies. */
+function fieldKwargs(
+  invariants: InvariantIR[],
+  available: ReadonlySet<string>,
+): Map<string, FieldKwarg[]> {
+  const byField = new Map<string, Array<{ pattern: SingleFieldPattern; message: string }>>();
   for (const inv of invariants) {
     if (!classifyForWire(inv, { available })) continue;
     // A messaged rule carries author text, so it routes through the
@@ -39,24 +131,34 @@ export function createFieldConstraints(
     if (inv.message) continue;
     const cons = singleFieldConstraints(inv);
     if (!cons) continue;
+    // The message node sends for this rule.  Node classifies the WHOLE
+    // invariant (`singleFieldShape`, as `takeSingleFieldChain` does): a
+    // recognised compound like `seats >= 1 && seats <= 500` is ONE `between`
+    // with one sentence, even though Pydantic needs it as two kwargs.  A
+    // conjunction node does not recognise (`email.matches(r) && email.length
+    // <= 120`) is a zod `.refine` carrying the derived default instead.
+    const shape = singleFieldShape(inv);
+    const message = shape
+      ? singleFieldMessage(shape.field, shape.pattern)
+      : `Invariant violated: ${inv.source}`;
     for (const { field, pattern } of cons) {
       if (!available.has(field)) continue;
-      byField.set(field, [...(byField.get(field) ?? []), pattern]);
+      byField.set(field, [...(byField.get(field) ?? []), { pattern, message }]);
     }
   }
-  const out = new Map<string, string>();
+  const out = new Map<string, FieldKwarg[]>();
   for (const [field, patterns] of byField) {
-    const kwargs: string[] = [];
+    const kwargs: FieldKwarg[] = [];
     const seen = new Set<string>();
-    for (const p of patterns) {
-      for (const kw of pydanticKwargs(p)) {
+    for (const { pattern, message } of patterns) {
+      for (const kw of pydanticKwargs(pattern)) {
         const key = kw.slice(0, kw.indexOf("="));
         if (seen.has(key)) continue; // first constraint wins on a duplicate key
         seen.add(key);
-        kwargs.push(kw);
+        kwargs.push({ kw, message });
       }
     }
-    if (kwargs.length > 0) out.set(field, `Field(${kwargs.join(", ")})`);
+    if (kwargs.length > 0) out.set(field, kwargs);
   }
   return out;
 }

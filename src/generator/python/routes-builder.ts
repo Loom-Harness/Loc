@@ -76,6 +76,7 @@ import { domainServiceImportLinesForExprs } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
 import {
   createFieldConstraints,
+  createFieldMessageValidator,
   createModelValidator,
   withFieldConstraint,
 } from "./emit/wire-constraints.js";
@@ -285,7 +286,7 @@ export function buildPyRoutesFile(
     refersTo("math") || refersTo("datetime") || refersTo("Decimal") ? "" : null,
     `from fastapi import ${["APIRouter", "Depends", refersTo("Path") ? "Path" : null, refersTo("Query") ? "Query" : null, refersTo("Request") ? "Request" : null, refersTo("Response") ? "Response" : null].filter(Boolean).join(", ")}`,
     refersTo("JSONResponse") ? "from fastapi.responses import JSONResponse" : null,
-    `from pydantic import ${["BaseModel", refersTo("Field") ? "Field" : null, refersTo("RootModel") ? "RootModel" : null, refersTo("ValidationError") ? "ValidationError" : null, refersTo("model_validator") ? "model_validator" : null].filter(Boolean).join(", ")}`,
+    `from pydantic import ${["BaseModel", refersTo("Field") ? "Field" : null, refersTo("RootModel") ? "RootModel" : null, refersTo("ValidationError") ? "ValidationError" : null, refersTo("ValidationInfo") ? "ValidationInfo" : null, refersTo("ValidatorFunctionWrapHandler") ? "ValidatorFunctionWrapHandler" : null, refersTo("field_validator") ? "field_validator" : null, refersTo("model_validator") ? "model_validator" : null].filter(Boolean).join(", ")}`,
     refersTo("PydanticCustomError")
       ? `from pydantic_core import ${refersTo("InitErrorDetails") ? "InitErrorDetails, PydanticCustomError" : "PydanticCustomError"}`
       : null,
@@ -668,6 +669,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
           ),
         )
       : ["    pass"],
+    createFieldMessageValidator(agg.invariants, available),
     createModelValidator(agg.invariants, available, `Create${agg.name}Request`),
     "",
     "",
@@ -703,6 +705,7 @@ function opRequestModel(
           ),
         )
       : ["    pass"],
+    createFieldMessageValidator(invariants, available),
     createModelValidator(invariants, available, cls),
     "",
     "",

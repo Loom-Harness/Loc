@@ -67,6 +67,15 @@ system MessagedRules {
           name := label
         }
 
+        // A message-LESS `matches` rule (#15d, ruling D10).  Its denial must
+        // carry the SAME synthesized sentence node's zod chain sends ("Code is
+        // not in the expected format") — python once answered pydantic's raw
+        // `String should match pattern '^[A-Z]{3}$'`, leaking the regex.
+        operation retag(code: string) {
+          precondition code.matches("^[A-Z]{3}$")
+          sku := Sku { code: code }
+        }
+
         test "restock adds to quantity" {
           let p = Product.create({ name: "Widget", sku: Sku { code: "WID" }, quantity: 2, reorderLevel: 1 })
           p.restock(3)
@@ -130,5 +139,14 @@ system MessagedRules {
     api.products.rename(p, { label: "😀😀😀😀😀😀😀😀😀" })
     let renamed = api.products.getById(p)
     expect(renamed.name).toBe("😀😀😀😀😀😀😀😀😀")
+
+    // #15d (ruling D10) — a MESSAGE-LESS single-field rule's 422 carries the
+    // synthesized per-field sentence, identical across backends, never the
+    // framework default (which for a regex leaks the pattern).  One numeric
+    // bound (`ship`'s `amount >= 1`) and one regex (`retag`), then the
+    // regex's admitting twin so the route has a passing caller too.
+    expect(api.products.ship(p, { amount: 0 })).toThrow(422)
+    expect(api.products.retag(p, { code: "abc" })).toThrow(422)
+    api.products.retag(p, { code: "XYZ" })
   }
 }
