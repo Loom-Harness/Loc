@@ -11,6 +11,7 @@ import {
   workflowUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -1786,7 +1787,7 @@ export function csWorkflowStmtTarget(
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st)});`,
       ];
     },
     requires: (st, indent) => {

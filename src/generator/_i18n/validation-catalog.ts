@@ -35,7 +35,9 @@
 //   * every messaged operation `precondition` — at the domain floor, and at the
 //     wire when it reads only the operation's params (SYS-1);
 //   * every messaged value-object `invariant` — at the wire (`<Vo>Request`) and
-//     inside a body that builds the value (M-T5.1).
+//     inside a body that builds the value (M-T5.1);
+//   * every messaged workflow / command- / query-handler `precondition` — at
+//     the domain floor (banking eval B-02).
 // ---------------------------------------------------------------------------
 
 import type {
@@ -46,6 +48,7 @@ import type {
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
 import { messageCode } from "../../util/message-code.js";
+import { workflowPreconditionMessages } from "./domain-floor.js";
 
 /** One catalog entry — the stable wire `code` and its source-language text. */
 export interface ValidationMessage {
@@ -97,6 +100,9 @@ export function collectWireValidationMessages(
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) takeAggregate(agg, byCode);
     for (const vo of ctx.valueObjects) takeValueObject(vo, byCode);
+    // A messaged workflow / handler precondition throws the same coded
+    // domain-floor error (banking eval B-02).
+    for (const m of workflowPreconditionMessages(ctx)) byCode.set(messageCode(m.text), m.text);
   }
   return [...byCode.keys()].sort().map((code) => ({ code, text: byCode.get(code)! }));
 }

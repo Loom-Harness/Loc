@@ -12,6 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import {
   coerceTestArgs,
@@ -318,7 +319,87 @@ export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): stri
   const actual = renderTestExpr(inner, ctx);
   const args = expr.args.map((a) => renderTestExpr(a, ctx)).join(", ");
   const tail = negate ? `not.${expr.member}` : expr.member;
+  // The asserted subject's resolved type, `.not.` peeled (the negated form's
+  // receiver is the synthetic `.not` member).
+  const subjectType =
+    expr.receiver.kind === "member" && expr.receiver.member === "not"
+      ? expr.receiver.receiverType
+      : expr.receiverType;
+  const typed = renderTypedValueMatcher(
+    expr.member,
+    tail,
+    subjectType,
+    inner,
+    expr.args[0],
+    actual,
+    args,
+  );
+  if (typed !== null) return typed;
   return `  expect(${actual}).${tail}(${args});`;
+}
+
+const ORDERING_MATCHERS = new Set([
+  "toBeGreaterThan",
+  "toBeGreaterThanOrEqual",
+  "toBeLessThan",
+  "toBeLessThanOrEqual",
+]);
+
+/** The subject-type-aware lowering of a value matcher (banking eval B-01), or
+ *  null for the native 1:1 spelling.  On this backend `money` is a decimal.js
+ *  `Decimal` and `datetime` a JS `Date` — both OBJECTS — so vitest's `toBe`
+ *  (`Object.is`) is reference equality and always failed
+ *  (`expect(Decimal).toBe(new Decimal("15"))`), and the ordering matchers
+ *  reject anything but `number | bigint`.  Java routes the same matchers
+ *  through `compareTo`; python's `Decimal`/`datetime` already compare by value.
+ *
+ *    money    toBe   → canonical decimal strings (`"15"` both for `15.00`)
+ *             order  → `new Decimal(a).comparedTo(e)` against `0`
+ *    datetime toBe / order → epoch milliseconds (`getTime()`)
+ *
+ *  The subject type is the matcher's resolved `receiverType`, then the
+ *  actual's own node type (`bodyTypeOf`), then the expected argument's. */
+function renderTypedValueMatcher(
+  member: string,
+  tail: string,
+  subjectType: TypeIR,
+  inner: ExprIR,
+  expectedExpr: ExprIR | undefined,
+  actual: string,
+  expected: string,
+): string | null {
+  if (member !== "toBe" && !ORDERING_MATCHERS.has(member)) return null;
+  // `toBe(null)` stays the native null check.
+  if (
+    expectedExpr === undefined ||
+    (expectedExpr.kind === "literal" && expectedExpr.lit === "null")
+  ) {
+    return null;
+  }
+  const kind =
+    temporalOrMoney(subjectType) ?? matcherSubjectKind(inner) ?? matcherSubjectKind(expectedExpr);
+  if (kind === "money") {
+    if (member === "toBe") {
+      return `  expect(String(${actual})).${tail}(new Decimal(${expected}).toString());`;
+    }
+    return `  expect(new Decimal(${actual}).comparedTo(${expected})).${tail}(0);`;
+  }
+  if (kind === "datetime") {
+    return `  expect((${actual})?.getTime()).${tail}(new Date(${expected}).getTime());`;
+  }
+  return null;
+}
+
+function matcherSubjectKind(e: ExprIR): "money" | "datetime" | null {
+  if (e.kind === "literal" && e.lit === "now") return "datetime";
+  return temporalOrMoney(bodyTypeOf(e));
+}
+
+function temporalOrMoney(type: TypeIR | undefined): "money" | "datetime" | null {
+  let t = type;
+  if (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "primitive") return null;
+  return t.name === "money" ? "money" : t.name === "datetime" ? "datetime" : null;
 }
 
 function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {

@@ -1,4 +1,7 @@
-import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import {
+  hasDomainFloorAnswer,
+  workflowPreconditionThrowArgs,
+} from "../../../generator/_i18n/domain-floor.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
@@ -2120,7 +2123,7 @@ export function honoWorkflowStmtTarget(
   return {
     indentUnit: "  ",
     precondition: (st, indent) => [
-      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st)});`,
     ],
     requires: (st, indent) => [
       `${indent}if (!(${renderArg(st.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)});`,

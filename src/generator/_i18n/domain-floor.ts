@@ -29,9 +29,15 @@
 // member.  5c's ruling for the value-object entry is the `""` half of this.
 // ---------------------------------------------------------------------------
 
-import type { BoundedContextIR, InvariantIR, MessageIR, StmtIR } from "../../ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  InvariantIR,
+  MessageIR,
+  StmtIR,
+  WorkflowStmtIR,
+} from "../../ir/types/loom-ir.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
-import { walkStmtsDeep } from "../../ir/util/walk.js";
+import { walkStmtsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { singleFieldShape } from "../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../util/message-code.js";
 
@@ -39,15 +45,64 @@ import { messageCode } from "../../util/message-code.js";
  *  trip at the domain floor — an `invariant` / field `check` (both checked after
  *  every operation body) or an operation `precondition`.  Gates every backend's
  *  domain-floor code carriage, so a project without one emits byte-identically. */
-export function hasDomainFloorMessages(ctx: Pick<BoundedContextIR, "aggregates">): boolean {
+export function hasDomainFloorMessages(ctx: DomainFloorHost): boolean {
   const messaged = (invs: readonly InvariantIR[]): boolean =>
     invs.some((i) => i.message !== undefined);
-  return ctx.aggregates.some(
-    (a) =>
-      messaged(a.invariants) ||
-      a.parts.some((p) => messaged(p.invariants)) ||
-      a.operations.some((o) => o.statements.some(hasMessagedPrecondition)),
+  return (
+    ctx.aggregates.some(
+      (a) =>
+        messaged(a.invariants) ||
+        a.parts.some((p) => messaged(p.invariants)) ||
+        a.operations.some((o) => o.statements.some(hasMessagedPrecondition)),
+    ) || workflowPreconditionMessages(ctx).length > 0
   );
+}
+
+/** The context slice the domain-floor gate reads.  The workflow / handler
+ *  members are optional so a narrowed aggregate-only view still type-checks. */
+export type DomainFloorHost = Pick<BoundedContextIR, "aggregates"> &
+  Partial<Pick<BoundedContextIR, "workflows" | "commandHandlers" | "queryHandlers">>;
+
+/** Every authored `message` on a `precondition` in an orchestration body — a
+ *  workflow `create` / `on` reactor / `handle`, a `commandHandler`, a
+ *  `queryHandler` — at any depth (banking eval B-02).  A tripped one throws the
+ *  same domain-floor error an operation precondition does, so it carries the
+ *  same `msg.<hash>` code and needs the same catalog entry. */
+export function workflowPreconditionMessages(ctx: DomainFloorHost): MessageIR[] {
+  const bodies: (readonly WorkflowStmtIR[])[] = [];
+  for (const w of ctx.workflows ?? []) {
+    for (const c of w.creates) bodies.push(c.statements);
+    for (const o of w.subscriptions ?? []) bodies.push(o.statements);
+    for (const h of w.handlers ?? []) bodies.push(h.statements);
+  }
+  for (const h of ctx.commandHandlers ?? []) bodies.push(h.statements);
+  for (const h of ctx.queryHandlers ?? []) bodies.push(h.statements);
+  const out: MessageIR[] = [];
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtsDeep(top, (n) => {
+        if (n.kind === "precondition" && n.message !== undefined) out.push(n.message);
+      });
+    }
+  }
+  return out;
+}
+
+/** The `throw`/`raise` arguments a WORKFLOW-body precondition hands its
+ *  backend's domain error: the authored message (else the derived
+ *  `Precondition failed: <src>` default) and — for a messaged one — the
+ *  `msg.<hash>` code + pointer an operation precondition carries (M-T1.11 (c)).
+ *  A messaged workflow precondition switches the backend-wide code carriage
+ *  on (`hasDomainFloorMessages`), so the coded constructor always exists when
+ *  `code` is set.  Rendered as JSON string literals, valid in TS / C# / Java /
+ *  Python alike. */
+export function workflowPreconditionThrowArgs(
+  st: Pick<InvariantIR, "expr" | "source" | "message">,
+): string {
+  const detail = JSON.stringify(st.message ? st.message.text : `Precondition failed: ${st.source}`);
+  const code = domainFloorCode(st.message);
+  if (code === undefined) return detail;
+  return `${detail}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(st))}`;
 }
 
 /** A messaged `precondition` anywhere under `s` (an `if` branch included). */
@@ -64,7 +119,7 @@ function hasMessagedPrecondition(s: StmtIR): boolean {
  *  messaged domain-floor rule (this module).  The one gate every router's
  *  domain-floor arm takes. */
 export function hasDomainFloorAnswer(
-  ctx: Pick<BoundedContextIR, "aggregates" | "valueObjects">,
+  ctx: DomainFloorHost & Pick<BoundedContextIR, "valueObjects">,
 ): boolean {
   return hasValueObjectInvariants(ctx) || hasDomainFloorMessages(ctx);
 }
