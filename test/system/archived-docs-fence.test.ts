@@ -3,13 +3,11 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error - docs/build.mjs is a plain ESM script outside the TS project graph.
-import {
-  ARCHIVED,
-  archivedNotice,
-  RENDERED_SUBDIRS,
-  UNPUBLISHED,
-  unpublishedSourceUrl,
-} from "../../docs/build.mjs";
+import * as docsBuild from "../../docs/build.mjs";
+
+// One namespace import, so the directive above sits on the line the error is
+// reported on — a named-import list long enough to wrap moves it off that line.
+const { ARCHIVED, archivedNotice, RENDERED_SUBDIRS, UNPUBLISHED, unpublishedSourceUrl } = docsBuild;
 
 // ---------------------------------------------------------------------------
 // The archived-corpus fence.
