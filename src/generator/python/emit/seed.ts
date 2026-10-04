@@ -4,17 +4,18 @@ import type {
   SeedRowIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
+import { pyRef } from "../../_imports/python.js";
 import {
   type Entry,
   groupByDataset,
   type SeederAggregate,
   seederAggregates,
-  usedAggregates,
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
+import { PY } from "../py-symbols.js";
 import { renderPyExpr } from "../render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -57,25 +58,27 @@ export function buildPySeedFile(
   const aggByName = seederAggs;
   const fnBlocks: string[] = [];
   const callLines: string[] = [];
+  // The shared expression renderer spells an enum value bare (`Tier.Free`),
+  // so the enums a domain-path row names are collected from the IR.
+  const enumNames = new Set<string>();
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => seedable.has(e.row.aggregate));
     if (entries.length === 0) continue;
     fnBlocks.push(renderDatasetFn(ds.name, entries, schemaFor, aggByName));
+    for (const e of entries.filter((x) => !x.raw)) {
+      for (const f of e.row.fields) {
+        walkExprDeep(f.value, (x) => {
+          if (x.kind === "ref" && x.refKind === "enum-value" && x.enumName) {
+            enumNames.add(x.enumName);
+          }
+        });
+      }
+    }
     callLines.push(`        await _seed_${snake(ds.name)}(session, requested)`);
   }
   if (callLines.length === 0) return null;
 
   const body = lines(...fnBlocks);
-  const domainAggs = usedAggregates(datasets, seedable);
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
-  const idNames = ctx.aggregates
-    .map((a) => `${a.name}Id`)
-    .filter(refersTo)
-    .sort();
 
   return lines(
     `"""First-boot database seeding (database-seeding.md).  Auto-generated.`,
@@ -85,26 +88,14 @@ export function buildPySeedFile(
     `"""`,
     "",
     "import asyncio",
-    refersTo("math") ? "import math" : null,
     "import os",
-    // Seed rows coerce a datetime field via `datetime.fromisoformat(...)`; they
-    // never construct `datetime.now(UTC)`, so importing `UTC` here trips ruff
-    // F401 (imported but unused).
-    refersTo("datetime") ? "from datetime import datetime" : null,
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
     "",
     "from sqlalchemy import text",
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
     "from app.db.engine import session_factory",
-    ...domainAggs.map(
-      (a) => `from app.db.repositories.${snake(a)}_repository import ${a}Repository`,
-    ),
-    domainAggs.length > 0 ? "from app.domain.events import NoopDomainEventDispatcher" : null,
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    ...domainAggs.map((a) => `from app.domain.${snake(a)} import ${a}`),
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
+    enumNames.size > 0
+      ? `from app.domain.value_objects import ${[...enumNames].sort().join(", ")}`
       : null,
     "",
     "",
@@ -146,6 +137,8 @@ export function buildPySeedFile(
   );
 }
 
+const NOOP_DISPATCHER = pyRef("app.domain.events", "NoopDomainEventDispatcher");
+
 function renderDatasetFn(
   dataset: string,
   entries: Entry[],
@@ -154,14 +147,15 @@ function renderDatasetFn(
 ): string {
   const domainAggs = [...new Set(entries.filter((e) => !e.raw).map((e) => e.row.aggregate))];
   const repoDecls = domainAggs.map(
-    (a) => `    ${snake(a)}_repo = ${a}Repository(session, NoopDomainEventDispatcher())`,
+    (a) =>
+      `    ${snake(a)}_repo = ${pyRef(`app.db.repositories.${snake(a)}_repository`, `${a}Repository`)}(session, ${NOOP_DISPATCHER}())`,
   );
   const saveLines = entries.map((e) =>
     e.raw
       ? // raw path (D-SEED-XREF): driver-level INSERT with explicit ids,
         // schema-qualified to match the dataSource-routed table.
         `    await (await session.connection()).exec_driver_sql(${pyStr(qualifiedInsert(e.row, schemaFor(e.row.aggregate)))})`
-      : `    await ${snake(e.row.aggregate)}_repo.save(${e.row.aggregate}.create(${renderInput(e.row, aggByName.get(e.row.aggregate)!)}))`,
+      : `    await ${snake(e.row.aggregate)}_repo.save(${pyRef(`app.domain.${snake(e.row.aggregate)}`, e.row.aggregate)}.create(${renderInput(e.row, aggByName.get(e.row.aggregate)!)}))`,
   );
   return lines(
     `async def _seed_${snake(dataset)}(session: AsyncSession, requested: set[str]) -> None:`,
@@ -206,7 +200,7 @@ function renderField(value: ExprIR, type: TypeIR | undefined): string {
 function coerceSeedValue(type: TypeIR | undefined, rendered: string): string {
   const leaf = type?.kind === "optional" ? type.inner : type;
   if (leaf?.kind === "primitive" && leaf.name === "datetime") {
-    return `datetime.fromisoformat(${rendered})`;
+    return `${PY.datetime}.fromisoformat(${rendered})`;
   }
   return rendered;
 }

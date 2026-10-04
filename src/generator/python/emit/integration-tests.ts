@@ -25,6 +25,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
+import { pyRef } from "../../_imports/python.js";
 import { renderPyExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, renderTestExpr, testFnName } from "./tests.js";
 
@@ -89,6 +90,9 @@ function findCallOf(
 
 const repoVar = (aggName: string): string => `${snake(aggName)}_repo`;
 
+/** The aggregate class, imported from its domain module. */
+const aggClass = (aggName: string): string => pyRef(`app.domain.${snake(aggName)}`, aggName);
+
 /** Render the RHS of a repository read, folding `findAll`'s paged result down to
  *  the `.items` list so the binding is a `list[<Agg>]` (node's `<Agg>[]`). */
 function renderReadCall(find: { aggName: string; method: string; args: ExprIR[] }): string {
@@ -110,7 +114,7 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, lets: Map<string, stri
       if (create && s.expr.kind === "method-call" && s.expr.args[0]?.kind === "object") {
         const input = renderCreateInput(s.expr.args[0], create.agg, ctx);
         return [
-          `    ${snake(s.name)} = ${create.agg.name}.${create.method === "create" ? "create" : snake(create.method)}(${input})`,
+          `    ${snake(s.name)} = ${aggClass(create.agg.name)}.${create.method === "create" ? "create" : snake(create.method)}(${input})`,
           `    await ${repoVar(create.agg.name)}.save(${snake(s.name)})`,
           `    await session.flush()`,
         ];
@@ -169,11 +173,13 @@ function renderTest(
   const out: string[] = [`async def ${testFnName(t.name, used)}(session: AsyncSession) -> None:`];
   out.push(
     cascade
-      ? "    events = InProcessDispatcher(session)"
-      : "    events = NoopDomainEventDispatcher()",
+      ? `    events = ${pyRef("app.dispatch", "InProcessDispatcher")}(session)`
+      : `    events = ${pyRef("app.domain.events", "NoopDomainEventDispatcher")}()`,
   );
   for (const a of usedAggs) {
-    out.push(`    ${repoVar(a.name)} = ${a.name}Repository(session, events)`);
+    out.push(
+      `    ${repoVar(a.name)} = ${pyRef(`app.db.repositories.${snake(a.name)}_repository`, `${a.name}Repository`)}(session, events)`,
+    );
   }
   const body = t.statements.flatMap((s) => renderStmt(s, ctx, lets));
   out.push(...(body.length > 0 ? body : ["    pass"]));
@@ -205,13 +211,9 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   }
   const bodyStr = testBlocks.join("\n");
 
-  const idNames = [
-    ...new Set(
-      ctx.aggregates.flatMap((a) => [a.name, ...a.parts.map((p) => p.name)]).map((n) => `${n}Id`),
-    ),
-  ]
-    .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
-    .sort();
+  // An enum value (`Tier.Free`), a value-object constructor call and an
+  // aggregate named as a type are still spelled bare by the shared renderers,
+  // so those stay scanned; every other symbol the body names is a marker.
   const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
     .sort();
@@ -228,16 +230,9 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   );
   out.push("");
   out.push("from app.db.migrate import run_migrations");
-  if (cascade) {
-    out.push("from app.dispatch import InProcessDispatcher");
-  } else {
-    out.push("from app.domain.events import NoopDomainEventDispatcher");
-  }
   for (const a of usedAggs) {
     out.push(`from app.domain.${snake(a.name)} import ${a.name}`);
-    out.push(`from app.db.repositories.${snake(a.name)}_repository import ${a.name}Repository`);
   }
-  if (idNames.length > 0) out.push(`from app.domain.ids import ${idNames.join(", ")}`);
   if (voEnumNames.length > 0) {
     out.push(`from app.domain.value_objects import ${voEnumNames.join(", ")}`);
   }

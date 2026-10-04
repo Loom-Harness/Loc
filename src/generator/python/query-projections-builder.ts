@@ -23,6 +23,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { pyRef } from "../_imports/python.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
@@ -37,6 +38,7 @@ import {
 } from "./find-predicate.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
+import { PY } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { authUserImport, wireValue } from "./repository-builder.js";
 import { pyWireToDomain } from "./routes-builder.js";
@@ -80,6 +82,15 @@ function requireLowered(proj: ProjectionIR, pred: PyPredicate | null): PyPredica
   );
 }
 
+const REQUEST = pyRef("fastapi", "Request");
+const USER = pyRef("app.auth.user", "User");
+const SELECT = pyRef("sqlalchemy", "select");
+const ROOT_MODEL = pyRef("pydantic", "RootModel");
+const FUNC = pyRef("sqlalchemy", "func");
+const schemaRow = (name: string): string => pyRef("app.db.schema", name);
+const repoClass = (agg: string): string =>
+  pyRef(`app.db.repositories.${snake(agg)}_repository`, `${agg}Repository`);
+
 export function buildPyQueryProjectionsFile(
   ctx: EnrichedBoundedContextIR,
   hasDispatch = false,
@@ -87,7 +98,9 @@ export function buildPyQueryProjectionsFile(
   const projections = (ctx.projections ?? []).filter(isQueryTimeProjection);
   if (projections.length === 0) return null;
 
-  const dispatcherExpr = hasDispatch ? "make_dispatcher(session)" : "NoopDomainEventDispatcher()";
+  const dispatcherExpr = hasDispatch
+    ? `${pyRef("app.dispatch", "make_dispatcher")}(session)`
+    : `${pyRef("app.domain.events", "NoopDomainEventDispatcher")}()`;
 
   // A `from <Workflow>` projection reads the workflow's persisted saga-state
   // table (`<Wf>Row`) directly — workflows have no repository — applying the
@@ -158,7 +171,11 @@ export function buildPyQueryProjectionsFile(
       : wholeTableAggregates(p)
         ? aggregateProjectionRoute(p, ctx, aggLowered.get(p.name) ?? null)
         : isWorkflowSourced(p) || isProjectionSourced(p)
-          ? rowSourcedProjectionRoute(p, `${p.query!.source!}Row`, rowLowered.get(p.name) ?? null)
+          ? rowSourcedProjectionRoute(
+              p,
+              schemaRow(`${p.query!.source!}Row`),
+              rowLowered.get(p.name) ?? null,
+            )
           : projectionRoute(p, dispatcherExpr, ctx);
   });
   const body = `${models}router = APIRouter(prefix="/projections", tags=["projections"])\n\n\n${routeBlocks.join("\n\n\n")}`;
@@ -166,56 +183,11 @@ export function buildPyQueryProjectionsFile(
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
 
-  // Repos touched: the query source + every join follow target.  A WORKFLOW or
-  // PROJECTION source reads its persisted row table directly (no repository), so
-  // it never contributes a repository import.
-  const repoAggs = [
-    ...new Set(
-      projections.flatMap((p) => [
-        // An AGGREGATION (singleton or grouped) queries the table directly —
-        // no repository — so it must not drag in a repo import ruff would flag
-        // as unused (F401).
-        ...(p.query?.source &&
-        !isWorkflowSourced(p) &&
-        !isProjectionSourced(p) &&
-        !wholeTableAggregates(p) &&
-        !groupedAggregates(p)
-          ? [p.query.source]
-          : []),
-        ...(p.query?.auxiliaries ?? []).map((a) => a.aggName),
-      ]),
-    ),
-  ].sort();
-  // Persisted row classes read from `app.db.schema` (one per workflow saga-state
-  // source and one per folded-projection read-model source), plus the SQLAlchemy
-  // helpers a row-sourced projection route calls: `select` for the row read + any
-  // `and_`/`or_`/`not_`/`func` its lowered filter needs.
-  const rowSourcedProjections = projections.filter(
-    (p) => isWorkflowSourced(p) || isProjectionSourced(p),
-  );
-  const aggregatingProjections = projections.filter(
-    (p) => wholeTableAggregates(p) !== null || groupedAggregates(p) !== null,
-  );
-  const schemaRows = [
-    ...new Set([
-      ...rowSourcedProjections.map((p) => `${p.query!.source!}Row`),
-      // An aggregation names the SOURCE aggregate's ORM row class as a value
-      // (`select(func.count()).select_from(OrderRow)`), so it needs the same
-      // `app.db.schema` import a raw-table source does.  TPH concretes query
-      // the base's shared table (same owner rule the routes use), so the
-      // import must name the owner row, not the concrete.
-      ...aggregatingProjections.map((p) => {
-        const agg = ctx.aggregates.find((a) => a.name === p.query!.source);
-        return rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : p.query!.source!);
-      }),
-    ]),
-  ]
-    .filter(refersTo)
-    .sort();
-  const saOps = new Set<string>(
-    rowSourcedProjections.length + aggregatingProjections.length > 0 ? ["select"] : [],
-  );
-  if (aggregatingProjections.length > 0) saOps.add("func");
+  // Row-sourced and aggregating routes call `select` (and `func`) — written
+  // as markers below; the SQLAlchemy helpers a lowered filter or a computed
+  // grouping key spells (`and_` / `or_` / `not_` / `func` / `literal_column`)
+  // come from the shared lowerers, which still spell them bare.
+  const saOps = new Set<string>();
   // A computed grouping key renders `literal_column("'day'")` (see
   // SQLALCHEMY_INTRINSIC_SQL); `refersTo` drops the import when unused.
   saOps.add("literal_column");
@@ -230,17 +202,10 @@ export function buildPyQueryProjectionsFile(
   return lines(
     `"""Query-time projection routes.  Auto-generated."""`,
     "",
-    `from fastapi import ${["APIRouter", "Depends", refersTo("Request") ? "Request" : null].filter(Boolean).join(", ")}`,
-    // `RootModel` wraps a LIST response; a singleton aggregation's response is
-    // the row itself, so a file of only aggregations must not import it (F401).
-    projections.some((p) => wholeTableAggregates(p) === null)
-      ? "from pydantic import BaseModel, RootModel"
-      : "from pydantic import BaseModel",
+    "from fastapi import APIRouter, Depends",
+    "from pydantic import BaseModel",
     saNames.length > 0 ? `from sqlalchemy import ${saNames.join(", ")}` : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
-    // `Decimal` — the money aggregate's zero-default over an empty table
-    // (`pyCoerce`), fed to `money_str` so it reads at the canonical scale.
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
     "from typing import Annotated",
     "",
     // A `requires` auth gate (or a currentUser-scoped where/select) binds the
@@ -250,26 +215,19 @@ export function buildPyQueryProjectionsFile(
     // `require_current_user()` accessor into the query (the repository path's
     // rule), so the import is gated on ACTUAL usage — an unused one is ruff
     // F401 on the generated project.
-    authUserImport(refersTo("User"), refersTo("require_current_user")),
+    authUserImport(false, refersTo("require_current_user")),
     "from app.db.engine import get_session",
     // `iso()` — a `datetime` grouping key crosses the wire as its ISO-8601
     // string (see `pyKeyCoerce`).  `money_str()` — the RS-12 money scale a
     // money aggregate is pinned to (`pyCoerce`).  `refersTo` drops each name
     // when unused (an unused import is `F401` under the emitted ruff config).
     wireHelpers.length > 0 ? `from app.db.wire import ${wireHelpers.join(", ")}` : null,
-    ...repoAggs.map((n) => `from app.db.repositories.${snake(n)}_repository import ${n}Repository`),
-    schemaRows.length > 0 ? `from app.db.schema import ${schemaRows.join(", ")}` : null,
     // A projection row field is annotated through `responsePyType`, which returns
     // the SHARED wire aliases for the primitives carrying a guard or a published
     // format (`Int32`, `WireNum`, `WireInt`, `MoneyStr`, `UuidStr`).  Without
     // this line those names are undefined here — ruff F821 on the generated
     // project, which only the corpus tier sees.
     wireModelImport([], refersTo),
-    refersTo("ForbiddenError") ? "from app.domain.errors import ForbiddenError" : null,
-    hasDispatch && refersTo("make_dispatcher") ? "from app.dispatch import make_dispatcher" : null,
-    !hasDispatch && refersTo("NoopDomainEventDispatcher")
-      ? "from app.domain.events import NoopDomainEventDispatcher"
-      : null,
     voEnumNames.length > 0
       ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
       : null,
@@ -310,7 +268,7 @@ function projectionRowModels(proj: ProjectionIR, ctx: EnrichedBoundedContextIR):
     "",
     singleton
       ? `class ${proj.name}Response(${proj.name}Row):`
-      : `class ${proj.name}Response(RootModel[list[${proj.name}Row]]):`,
+      : `class ${proj.name}Response(${ROOT_MODEL}[list[${proj.name}Row]]):`,
     "    pass",
     "",
     "",
@@ -347,23 +305,23 @@ function projectionRoute(
   const projParams = proj.params.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`);
   const sig = [
     ...projParams,
-    ...(needsUser ? ["request: Request"] : []),
+    ...(needsUser ? [`request: ${REQUEST}`] : []),
     "session: SessionDep",
   ].join(", ");
   const projArgs = proj.params.map((p) => pyWireToDomain(snake(p.name), p.type, ctx)).join(", ");
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
-    needsUser ? "    current_user: User = request.state.current_user" : null,
+    needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
       ? [
           // renderPyNegatedGuard: a `.contains(...)` membership gate emits
           // `x not in y`, not `not (x in y)` (ruff E713).
           `    if ${renderPyNegatedGuard(gate)}:`,
-          `        raise ForbiddenError(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
+          `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
         ]
       : []),
-    `    repo = ${source}Repository(session, ${dispatcherExpr})`,
+    `    repo = ${repoClass(source)}(session, ${dispatcherExpr})`,
     `    rows = await repo.${fn}(${projArgs})`,
   ].filter((l): l is string => l != null);
   // join alias → { mapVar, idRow } and the bulk-load lines (dependency order).
@@ -375,7 +333,7 @@ function projectionRoute(
     const join = joins[i];
     const mapVar = snake(aux.mapVar);
     const repoVar = `${snake(aux.aggName)}_repo`;
-    out.push(`    ${repoVar} = ${aux.aggName}Repository(session, ${dispatcherExpr})`);
+    out.push(`    ${repoVar} = ${repoClass(aux.aggName)}(session, ${dispatcherExpr})`);
     // First hop reads the source aggregate rows (proper id types); later hops
     // read hydrated aggregates from the prior map.
     const idsSource =
@@ -466,24 +424,24 @@ function aggregateProjectionRoute(
   const agg = ctx.aggregates.find((a) => a.name === source);
   // TPH concretes query the base's shared table — the same owner rule the
   // filter lowering uses, so the `where` and the `select_from` can't disagree.
-  const row = rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : source);
+  const row = schemaRow(rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : source));
   const fn = snake(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(", ");
+  const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
   const cols = aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)).join(", ");
   const where = pred ? `.where(${pred.expr})` : "";
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> dict[str, object]:`,
-    needsUser ? "    current_user: User = request.state.current_user" : null,
+    needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
       ? [
           `    if ${renderPyNegatedGuard(gate)}:`,
-          `        raise ForbiddenError(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
+          `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
         ]
       : []),
-    `    row = (await session.execute(select(${cols}).select_from(${row})${where})).one()`,
+    `    row = (await session.execute(${SELECT}(${cols}).select_from(${row})${where})).one()`,
     "    return {",
     ...aggregates.map((s, i) => `        "${s.field}": ${pyCoerce(s, `row[${i}]`)},`),
     "    }",
@@ -500,12 +458,12 @@ function pyAggregate(
   src: AggregateIR | undefined,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  if (agg.op === "count" || !agg.arg) return "func.count()";
+  if (agg.op === "count" || !agg.arg) return `${FUNC}.count()`;
   // A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) is ONE flattened column on the
   // row class — `amount_amount`, which is what `mapped_column` declared — not
   // the outermost member.  Emitting `arg.member` named an attribute the row
   // class does not have.
-  return `func.${agg.op}(${row}.${sqlColumnName(aggregateArgColumn(agg.arg, src, ctx))})`;
+  return `${FUNC}.${agg.op}(${row}.${sqlColumnName(aggregateArgColumn(agg.arg, src, ctx))})`;
 }
 
 /** Coerce one aggregate result to the projection row's declared wire type.
@@ -524,7 +482,7 @@ function pyCoerce(s: AggregateSelect, expr: string): string {
   if (c.isMoney) {
     return c.optional
       ? `None if ${expr} is None else ${numericEncode(PY_NUMERIC, "money", "projection-read", expr)}`
-      : numericEncode(PY_NUMERIC, "money", "projection-read", `Decimal(${expr} or 0)`);
+      : numericEncode(PY_NUMERIC, "money", "projection-read", `${PY.Decimal}(${expr} or 0)`);
   }
   // An INTEGRAL declared field (`int` / `long`) is an integer on the wire
   // (NUMERIC_WIRE_CODEC), and `float(...)` is not an integer: past 2^53 it
@@ -558,11 +516,11 @@ function groupedProjectionRoute(
   const agg = ctx.aggregates.find((a) => a.name === source);
   // TPH concretes query the base's shared table — the same owner rule the
   // filter lowering uses, so the `where` and the `select_from` can't disagree.
-  const row = rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : source);
+  const row = schemaRow(rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : source));
   const fn = snake(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(", ");
+  const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
   // ONE renderer for every key position (the `select`, the `group_by` and the
   // `order_by` below) so the three can never disagree — Postgres matches a
   // grouped select against the GROUP BY expression syntactically, so a bare
@@ -596,18 +554,18 @@ function groupedProjectionRoute(
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
-    needsUser ? "    current_user: User = request.state.current_user" : null,
+    needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
       ? [
           // renderPyNegatedGuard: a `.contains(...)` membership gate emits
           // `x not in y`, not `not (x in y)` (ruff E713).
           `    if ${renderPyNegatedGuard(gate)}:`,
-          `        raise ForbiddenError(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
+          `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
         ]
       : []),
     "    result = (",
     "        await session.execute(",
-    `            select(${cols})`,
+    `            ${SELECT}(${cols})`,
     `            .select_from(${row})${where}`,
     `            .group_by(${byCols})`,
     `            .order_by(${byCols})`,
@@ -674,20 +632,20 @@ function rowSourcedProjectionRoute(
   // (→ 403) BEFORE the saga read runs.
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(", ");
+  const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
-    needsUser ? "    current_user: User = request.state.current_user" : null,
+    needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
       ? [
           // renderPyNegatedGuard: a `.contains(...)` membership gate emits
           // `x not in y`, not `not (x in y)` (ruff E713).
           `    if ${renderPyNegatedGuard(gate)}:`,
-          `        raise ForbiddenError(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
+          `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
         ]
       : []),
-    `    rows = (await session.execute(select(${row})${where})).scalars().all()`,
+    `    rows = (await session.execute(${SELECT}(${row})${where})).scalars().all()`,
     "    return [",
     "        {",
     ...(proj.query!.selects ?? []).map(

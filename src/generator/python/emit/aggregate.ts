@@ -27,7 +27,8 @@ import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
-import { PY_IMPORTS } from "../../_imports/python.js";
+import { PY_IMPORTS, pyFrom, pyRef } from "../../_imports/python.js";
+import { ref } from "../../_imports/symbol.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { provColumn, provenancedFieldsOf } from "../emit/provenance.js";
 import { externHookCall, externHookModuleName } from "../extern-builder.js";
@@ -142,38 +143,11 @@ export function renderPyAggregate(
   const body = rendered.join("\n\n\n");
 
   // --- import resolution -------------------------------------------------
-  // Types, expressions, statements, ids, seeds and value objects are written
-  // through `PY` markers, so their imports are derived from the body
-  // (M-T9.84).  The lines below are the predicates that remain to migrate.
-  const usesDomainError =
-    shapes.some((s) => s.invariants.length > 0) ||
-    shapes.some((s) =>
-      s.operations.some((op) => op.statements.some((st) => st.kind === "precondition")),
-    );
-  const usesForbidden =
-    shapes.some((s) =>
-      // Only NON-leading `requires` statements still render here — the leading
-      // run is hoisted to the calling handler, which owns the 403 (op-gates.ts).
-      s.operations.some((op) => operationBody(op).some((st) => st.kind === "requires")),
-    ) ||
-    // …and the F-018 missing-claim guard in `_stamp_on_{create,update}`, which
-    // raises the same error from the stamp site rather than from an operation.
-    shapes.some(
-      (s) =>
-        requiredClaimStamps(s, "create").length > 0 || requiredClaimStamps(s, "update").length > 0,
-    );
-  // DisallowedError — the `when` state gate.  Emitted at the DOMAIN-METHOD
-  // entry, not only at the route layer: the in-process workflow dispatcher
-  // (`dispatch.py`) and extern handlers call the domain method directly, and
-  // would otherwise slip past the gate and land the refused write silently.
-  // So the import follows any `when`-carrying operation.
-  const usesDisallowed = shapes.some((s) => s.operations.some((op) => !!op.when));
-  const errorNames = [
-    usesDisallowed ? "DisallowedError" : null,
-    usesDomainError ? "DomainError" : null,
-    usesForbidden ? "ForbiddenError" : null,
-  ].filter((n): n is string => n != null);
-
+  // Every symbol this module spells is written through a `ref()` marker, so
+  // its import is derived from the body (M-T9.84) — except the ones the
+  // shared renderers still spell bare: event classes (`emit`), the provenance
+  // capture (`ProvInput` / `ProvTarget` / `record`) and the `cast` of a
+  // struct-member read (render-expr).
   const emittedEvents = [
     ...new Set(
       shapes.flatMap((s) => [
@@ -189,35 +163,32 @@ export function renderPyAggregate(
   ].sort();
   const eventImports = ["DomainEvent", ...emittedEvents];
 
-  const usesCurrentUser =
-    shapes.some((s) => s.operations.some(operationBodyUsesCurrentUser)) ||
-    shapes.some((s) =>
-      (s.contextStamps ?? []).some((r) => r.assignments.some((a) => exprUsesCurrentUser(a.value))),
-    );
   const bodyUsesCast = /\bcast\(/.test(body);
   return lines(
     `"""${agg.name} aggregate.  Auto-generated."""`,
     "",
     PY_IMPORTS,
     bodyUsesCast ? "from typing import cast" : null,
-    usesCurrentUser ? "from app.auth.user import User" : null,
-    errorNames.length > 0 ? `from app.domain.errors import ${errorNames.join(", ")}` : null,
     `from app.domain.events import ${eventImports.join(", ")}`,
     emitProvenance
       ? "from app.domain.provenance import ProvInput, ProvLineage, ProvTarget, record"
       : null,
-    // The user-owned extern hook module (docs/extern.md) — the op bodies call
-    // `<agg>_extern.<op>(self, …)`.  Its own aggregate import is TYPE_CHECKING-
-    // only, so this module-level import never cycles.
-    agg.operations.some((op) => op.extern && op.visibility === "public")
-      ? `from app.domain.extern import ${externHookModuleName(agg.name)}`
-      : null,
-    emitTrace && /\blog\("trace"/.test(body) ? "from app.obs.log import log" : null,
     "",
     "",
     body,
     "",
   );
+}
+
+const USER = pyRef("app.auth.user", "User");
+
+/** `<agg>_extern.<op>(self, …)` — the call into the user-owned extern hook
+ *  module (docs/extern.md), its module written as a marker so the
+ *  `from app.domain.extern import <agg>_extern` line is derived.  That module's
+ *  own aggregate import is TYPE_CHECKING-only, so this never cycles. */
+function externHookRef(aggName: string, op: OperationIR): string {
+  const mod = externHookModuleName(aggName);
+  return `${ref(pyFrom("app.domain.extern", mod))}${externHookCall(aggName, op).slice(mod.length)}`;
 }
 
 /** The provenanced fields on an entity shape (root only — provenance targets
@@ -427,7 +398,7 @@ function renderEntity(
     op.when
       ? [
           `        if ${renderPyNegatedGuard(op.when)}:`,
-          `            raise DisallowedError(${JSON.stringify(
+          `            raise ${PY.DisallowedError}(${JSON.stringify(
             `operation '${op.name}' is not allowed in the current state of ${e.name}.`,
           )})`,
         ]
@@ -436,7 +407,7 @@ function renderEntity(
     const params = ["self", ...op.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`)];
     // currentUser-gated ops pick up a trailing actor parameter — the
     // route threads `request.state.current_user` into it.
-    if (operationBodyUsesCurrentUser(op)) params.push("current_user: User");
+    if (operationBodyUsesCurrentUser(op)) params.push(`current_user: ${USER}`);
     const trace = emitTrace ? { aggregate: e.name, op: op.name } : undefined;
     // An extern op (extern (b), docs/extern.md) is a REAL method whose
     // DSL body carries only its preconditions: run them, delegate the mutation
@@ -452,7 +423,7 @@ function renderEntity(
         domainFloorCodes: true,
       });
       const retType = op.returnType ? renderPyOperationReturnType(op.returnType) : "None";
-      const hook = `        ${op.returnType ? "return " : ""}${externHookCall(e.name, op)}`;
+      const hook = `        ${op.returnType ? "return " : ""}${externHookRef(e.name, op)}`;
       return [
         "",
         `    def ${snake(op.name)}(${params.join(", ")}) -> ${retType}:`,
@@ -548,11 +519,11 @@ function renderEntity(
     // bootstrap.
     const guards = requiredClaimStamps(e, event).flatMap((stamp) => [
       `        if not current_user.${snake(stamp.claim)}:`,
-      `            raise ForbiddenError(${JSON.stringify(missingClaimMessage(stamp))})`,
+      `            raise ${PY.ForbiddenError}(${JSON.stringify(missingClaimMessage(stamp))})`,
     ]);
     return [
       "",
-      `    def _stamp_on_${event}(self${usesUser ? ", current_user: User" : ""}) -> None:`,
+      `    def _stamp_on_${event}(self${usesUser ? `, current_user: ${USER}` : ""}) -> None:`,
       ...guards,
       ...rules.map((a) => `        self._${snake(a.field)} = ${renderStampValue(a.value)}`),
     ];
@@ -576,9 +547,9 @@ function renderEntity(
       const traceArgs = `aggregate=${JSON.stringify(e.name)}, op=__op, expr=${JSON.stringify(inv.source)}, passed=${ok}`;
       const evalCheck = (pad: string): string[] => [
         `${pad}${ok} = (${renderPyExpr(inv.expr)})`,
-        `${pad}log("trace", "invariant_evaluated", ${traceArgs})`,
+        `${pad}${PY.log}("trace", "invariant_evaluated", ${traceArgs})`,
         `${pad}if not ${ok}:`,
-        `${pad}    raise DomainError(${msg})`,
+        `${pad}    raise ${PY.DomainError}(${msg})`,
       ];
       if (inv.guard) {
         return [`        if ${renderPyExpr(inv.guard)}:`, ...evalCheck("            ")];
@@ -588,12 +559,12 @@ function renderEntity(
     if (inv.guard) {
       return [
         `        if (${renderPyExpr(inv.guard)}) and ${renderPyNegatedGuard(inv.expr)}:`,
-        `            raise DomainError(${msg})`,
+        `            raise ${PY.DomainError}(${msg})`,
       ];
     }
     return [
       `        if ${renderPyNegatedGuard(inv.expr)}:`,
-      `            raise DomainError(${msg})`,
+      `            raise ${PY.DomainError}(${msg})`,
     ];
   });
   const assertInvariants = [
@@ -839,7 +810,7 @@ function shellSeed(f: FieldIR): string {
     }
   }
   if (t.kind === "array") return "[]";
-  return `cast(${renderPyType(f.type)}, None)`;
+  return `${PY.cast}(${renderPyType(f.type)}, None)`;
 }
 
 /** Exception-less `or`-union returns get their proper variant classes in
