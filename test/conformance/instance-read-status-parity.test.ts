@@ -124,7 +124,7 @@ const DECLARED: Record<Platform, (files: Map<string, string>) => number[]> = {
   },
   elixir: (files) => {
     const src = pick(files, /\/api\/.*_spec\.ex$/);
-    const marker = '"/workflows/tracker/instances/{id}" => %OpenApiSpex.PathItem{';
+    const marker = '"/api/workflows/tracker/instances/{id}" => %OpenApiSpex.PathItem{';
     const at = src.indexOf(marker);
     expect(at, "elixir instance-by-id path item").toBeGreaterThan(-1);
     // Start the next-path search PAST this path item's own opening token —

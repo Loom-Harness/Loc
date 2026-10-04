@@ -99,7 +99,7 @@ describe("entity history — elixir route surface", () => {
     // the PathItem ride ONE predicate (`servesHistory`); this pins that.
     const files = await emit(MASKED);
     const spec = fileEndingWith(files, "lib/api_web/api/a_spec.ex");
-    expect(spec).toContain('"/employees/{id}/history" => %OpenApiSpex.PathItem{');
+    expect(spec).toContain('"/api/employees/{id}/history" => %OpenApiSpex.PathItem{');
     // Same operationId helper the node port uses — one name across backends.
     expect(spec).toContain('operationId: "historyEmployee"');
     // The gate exists, so the 403 it produces is declared.

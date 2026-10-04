@@ -56,7 +56,7 @@ describe("vanilla OpenAPI spec (§11f)", () => {
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     expect(specKey, "spec module not emitted").toBeDefined();
     const spec = files.get(specKey!)!;
-    expect(spec).toContain("alias OpenApiSpex.{Info, OpenApi, Server}");
+    expect(spec).toContain("alias OpenApiSpex.{Info, OpenApi}");
     expect(spec).toContain("@behaviour OpenApi");
     expect(spec).toContain("def spec do");
     expect(spec).toContain("%OpenApi{");
@@ -129,7 +129,7 @@ system Shop {
     const files = await generateSystemFiles(src);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    const start = spec.indexOf('"/orders/{id}/reserve"');
+    const start = spec.indexOf('"/api/orders/{id}/reserve"');
     expect(start, "reserve path present").toBeGreaterThanOrEqual(0);
     const reserve = spec.slice(start, start + 1200);
     expect(reserve).toContain("200 => %OpenApiSpex.Response{");
@@ -230,7 +230,7 @@ system Shop {
     const spec = files.get(specKey!)!;
 
     // Scalar `string` return → 200 with the plain string schema, NOT 204.
-    const dStart = spec.indexOf('"/orders/{id}/describe"');
+    const dStart = spec.indexOf('"/api/orders/{id}/describe"');
     expect(dStart, "describe path present").toBeGreaterThanOrEqual(0);
     const describe_ = spec.slice(dStart, dStart + 900);
     expect(describe_).toContain("200 => %OpenApiSpex.Response{");
@@ -241,7 +241,7 @@ system Shop {
 
     // Scalar `money` return → 200 with the money wire schema (string/decimal —
     // Jason serialises the Decimal to a string, matching a money FIELD), NOT 204.
-    const tStart = spec.indexOf('"/orders/{id}/total"');
+    const tStart = spec.indexOf('"/api/orders/{id}/total"');
     expect(tStart, "total path present").toBeGreaterThanOrEqual(0);
     const total = spec.slice(tStart, tStart + 900);
     expect(total).toContain("200 => %OpenApiSpex.Response{");
@@ -251,7 +251,7 @@ system Shop {
     expect(total).not.toContain("204 =>");
 
     // A VOID op (no return type) is unchanged — still 204 No Content.
-    const uStart = spec.indexOf('"/orders/{id}/touch"');
+    const uStart = spec.indexOf('"/api/orders/{id}/touch"');
     expect(uStart, "touch path present").toBeGreaterThanOrEqual(0);
     const touch = spec.slice(uStart, uStart + 900);
     expect(touch).toContain('204 => %OpenApiSpex.Response{description: "No Content"}');
@@ -292,7 +292,7 @@ system Shop {
     const files = await generateSystemFiles(src);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    const start = spec.indexOf('"/orders/locate"');
+    const start = spec.indexOf('"/api/orders/locate"');
     expect(start, "locate path present").toBeGreaterThanOrEqual(0);
     const locate = spec.slice(start, start + 1200);
     expect(locate).toContain("Schemas.OrderResponse");
@@ -336,10 +336,10 @@ describe("vanilla OpenAPI spec — workflow instance routes", () => {
     const files = await generateSystemFiles(SAGA_SOURCE);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    expect(spec).toContain('"/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{');
+    expect(spec).toContain('"/api/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{');
     expect(spec).toContain('operationId: "allOrderFulfillmentInstances"');
     expect(spec).toContain(
-      '"/workflows/order_fulfillment/instances/{id}" => %OpenApiSpex.PathItem{',
+      '"/api/workflows/order_fulfillment/instances/{id}" => %OpenApiSpex.PathItem{',
     );
     expect(spec).toContain('operationId: "getOrderFulfillmentInstanceById"');
     // Correlation-id param carries the uuid format every backend declares.

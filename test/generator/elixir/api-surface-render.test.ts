@@ -87,7 +87,7 @@ function scrapeRouter(files: Map<string, string>): Route[] {
 function scrapeSpec(files: Map<string, string>): Map<string, number[]> {
   const src = [...files].find(([p]) => p.endsWith("_api_spec.ex"))?.[1] ?? "";
   const out = new Map<string, number[]>();
-  // Split on PathItem boundaries; the spec serves under `url: "/api"`.
+  // Split on PathItem boundaries; each key path-embeds the `/api` base.
   const items = src.split(/"((?:\/[^"]+))" => %OpenApiSpex\.PathItem\{/).slice(1);
   for (let i = 0; i < items.length; i += 2) {
     const rel = items[i]!;
@@ -99,7 +99,7 @@ function scrapeSpec(files: Map<string, string>): Map<string, number[]> {
         .map((c) => Number(c[1]))
         .filter((c) => c >= 400)
         .sort((a, b) => a - b);
-      out.set(key({ method: m[1]!, path: normalisePath(`/api${rel}`) }), statuses);
+      out.set(key({ method: m[1]!, path: normalisePath(rel) }), statuses);
     }
   }
   return out;

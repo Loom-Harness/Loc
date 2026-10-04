@@ -84,8 +84,14 @@ describe("vanilla OpenAPI spec — a deployable without `serves:` (F15)", () => 
     const files = await generateSystemFiles(f15Source({ serves: false }));
     const router = file(files, "/router.ex");
     const spec = files.get("api/lib/api_web/api/api_spec.ex")!;
-    // The document is served relative to /api …
-    expect(spec).toContain('servers: [%Server{url: "/api"}]');
+    // Every path key path-embeds the `/api` mount, like node/dotnet/java/python
+    // — no `servers` base a client given an explicit `--url` would replace,
+    // dropping `/api` from every request (M-T6.70: Schemathesis fuzzed the
+    // LiveView routes instead of the API).
+    expect(spec).not.toContain("servers:");
+    const keys = [...spec.matchAll(/^ {6}"([^"]+)" => %OpenApiSpex\.PathItem\{/gm)].map((m) => m[1]!);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) expect(k, `path key ${k} lacks the /api base`).toMatch(/^\/api\//);
     // … and every route the `scope "/api"` block mounts has a matching path item.
     const apiScope = router.slice(router.indexOf('scope "/api"'), router.lastIndexOf('scope "/"'));
     const mounted = [...apiScope.matchAll(/^\s+(get|post|put|patch|delete) "([^"]+)"/gm)].map(
@@ -96,7 +102,7 @@ describe("vanilla OpenAPI spec — a deployable without `serves:` (F15)", () => 
       "no /api routes mounted — the fixture is not exercising this",
     ).toBeGreaterThan(0);
     for (const [verb, path] of mounted) {
-      const at = spec.indexOf(`"${path}" => %OpenApiSpex.PathItem{`);
+      const at = spec.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
       expect(
         at,
         `spec is missing a path item for ${verb.toUpperCase()} ${path}`,
