@@ -1,0 +1,501 @@
+{
+  "schemaVersion": 1,
+  "tables": [
+    {
+      "name": "accounts",
+      "ownerModule": "Retail",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "number",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "owner",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_type",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "currency",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "balance",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "interest_rate",
+          "type": {
+            "kind": "decimal"
+          },
+          "nullable": false
+        },
+        {
+          "name": "daily_limit",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "withdrawn_today",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "limit_day",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "opened_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "owner",
+          "refTable": "customers",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "accounts_number_uq",
+          "table": "accounts",
+          "columns": [
+            "number"
+          ],
+          "unique": true
+        },
+        {
+          "name": "accounts_owner_idx",
+          "table": "accounts",
+          "columns": [
+            "owner"
+          ],
+          "unique": false
+        }
+      ],
+      "checks": [
+        {
+          "name": "accounts_account_type_enum",
+          "table": "accounts",
+          "expression": "\"account_type\" IN ('Checking', 'Savings')",
+          "kind": "enumValues"
+        },
+        {
+          "name": "accounts_status_enum",
+          "table": "accounts",
+          "expression": "\"status\" IN ('Active', 'Frozen', 'Closed')",
+          "kind": "enumValues"
+        }
+      ],
+      "schema": "banking",
+      "savingShape": "relational"
+    },
+    {
+      "name": "customers",
+      "ownerModule": "Retail",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "first_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "last_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "banking",
+      "savingShape": "relational"
+    },
+    {
+      "name": "interest_runs",
+      "ownerModule": "Retail",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "started_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "banking",
+      "savingShape": "relational"
+    },
+    {
+      "name": "ledger_entries",
+      "ownerModule": "Retail",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "balance_after",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "memo",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "account_id",
+          "refTable": "accounts",
+          "onDelete": "cascade"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ledger_entries_account_id_idx",
+          "table": "ledger_entries",
+          "columns": [
+            "account_id"
+          ],
+          "unique": false
+        }
+      ],
+      "checks": [
+        {
+          "name": "ledger_entries_kind_enum",
+          "table": "ledger_entries",
+          "expression": "\"kind\" IN ('Deposit', 'Withdrawal', 'TransferIn', 'TransferOut')",
+          "kind": "enumValues"
+        }
+      ],
+      "schema": "banking"
+    },
+    {
+      "name": "monthly_interests",
+      "ownerModule": "Retail",
+      "columns": [
+        {
+          "name": "run",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "run"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "banking"
+    },
+    {
+      "name": "transfers",
+      "ownerModule": "Retail",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "reference",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "target",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "requested_by",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "requested_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "decided_by",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "source",
+          "refTable": "accounts",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "target",
+          "refTable": "accounts",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "transfers_reference_uq",
+          "table": "transfers",
+          "columns": [
+            "reference"
+          ],
+          "unique": true
+        },
+        {
+          "name": "transfers_source_idx",
+          "table": "transfers",
+          "columns": [
+            "source"
+          ],
+          "unique": false
+        },
+        {
+          "name": "transfers_target_idx",
+          "table": "transfers",
+          "columns": [
+            "target"
+          ],
+          "unique": false
+        }
+      ],
+      "checks": [
+        {
+          "name": "transfers_status_enum",
+          "table": "transfers",
+          "expression": "\"status\" IN ('Pending', 'Completed', 'Rejected')",
+          "kind": "enumValues"
+        }
+      ],
+      "schema": "banking",
+      "savingShape": "relational"
+    }
+  ],
+  "lastVersion": "20260101500003",
+  "migrationHistory": [
+    {
+      "version": "20260101000000",
+      "name": "Initial",
+      "seq": 1
+    },
+    {
+      "version": "20260101500001",
+      "name": "Migrate",
+      "seq": 2
+    },
+    {
+      "version": "20260101500002",
+      "name": "DataMigration",
+      "seq": 3
+    },
+    {
+      "version": "20260101500003",
+      "name": "Migrate",
+      "seq": 4
+    }
+  ],
+  "versionBlock": 0,
+  "appliedDataMigrations": [
+    "v2-daily-limits#3"
+  ]
+}

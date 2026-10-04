@@ -1,0 +1,380 @@
+// NorthBank — iteration 3
+// Feedback after 3 months in production (v2 → v3):
+//  * Product: rename Account.kind → accountType (the API name confuses partners).
+//  * Treasury: accounts carry a currency; cross-currency transfers are refused.
+//  * Customers want a notification for every completed transfer — handled by a
+//    separate Notifications service (python team) fed over a message bus.
+//  * Savings accounts earn monthly interest (scheduled job).
+//  * Ops: the daily limit wasn't enforced (B-13) — work around with ordering compare.
+//  * Management wants a dashboard of balances.
+//
+// NorthBank — iteration 2
+// Pilot feedback (v1 → v2):
+//  * Tellers / compliance / customers need logins; customers may only see their own accounts.
+//  * Every balance change must leave an append-only ledger entry (statement view).
+//  * Account numbers must be unique.
+//  * Daily withdrawal limit per account.
+//  * Transfers above 10 000 need a second person (compliance) to approve.
+//  * Transfer should give the caller a reference they can track.
+
+migration "v2-daily-limits" {
+  Account.dailyLimit = money("1000")
+  Account.withdrawnToday = money("0")
+  Account.limitDay = openedAt
+  sql "UPDATE banking.accounts SET number = lpad((9000000000 + floor(random()*999999999))::bigint::text, 10, $$0$$) WHERE id IN (SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY number ORDER BY opened_at) rn FROM banking.accounts) x WHERE rn > 1)"
+}
+
+migration "v3-currency-and-rename" {
+  Account.kind -> accountType
+  Account.currency = "EUR"
+  Account.interestRate = accountType == Savings ? 0.02 : 0.0
+}
+
+system NorthBank {
+
+  user {
+    id: string
+    role: string
+    customerId: Customer id?
+    permissions: string[]
+  }
+
+  auth {
+    enforcement: denyByDefault
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") }
+  }
+
+  subdomain Retail {
+    permissions {
+      accountsRead,
+      accountsOperate implies accountsRead,
+      accountsFreeze implies accountsRead,
+      accountsUnfreeze implies accountsFreeze,
+      transfersApprove implies accountsRead,
+      customersManage
+    }
+
+    context Banking {
+
+      enum AccountStatus { Active, Frozen, Closed }
+      enum AccountType { Checking, Savings }
+      enum EntryKind { Deposit, Withdrawal, TransferIn, TransferOut }
+      enum TransferStatus { Pending, Completed, Rejected }
+
+      event MoneyDeposited  { account: Account id, amount: money, at: datetime }
+      event MoneyWithdrawn  { account: Account id, amount: money, at: datetime }
+      event TransferCompleted { transfer: Transfer id, at: datetime }
+      event TransferRejected  { transfer: Transfer id, reason: string, at: datetime }
+
+      policy IsStaff(): bool = currentUser.role == "teller" || currentUser.role == "compliance"
+      policy OwnsAccount(owner: Customer id): bool = currentUser.customerId == owner
+
+      aggregate Customer {
+        firstName: string
+        lastName: string
+        email: string
+        derived display: string = "${firstName} ${lastName}"
+        invariant email.contains("@")
+
+        create(firstName: string, lastName: string, email: string) {
+          requires currentUser.role == "teller" || currentUser.role == "compliance"
+          this.firstName := firstName
+          this.lastName := lastName
+          this.email := email
+        }
+
+        operation changeEmail(newEmail: string) {
+          requires IsStaff() || currentUser.customerId == id
+          precondition newEmail.contains("@")
+          email := newEmail
+        }
+      }
+
+      aggregate Account {
+        number: string
+        owner: Customer id
+        accountType: AccountType
+        currency: string
+        status: AccountStatus
+        balance: money
+        interestRate: decimal
+        dailyLimit: money
+        withdrawnToday: money
+        limitDay: datetime
+        openedAt: datetime
+        contains entries: LedgerEntry[]
+        derived display: string = number
+
+        unique (number)
+        invariant balance >= money("0")
+        invariant number.length == 10
+        invariant currency.length == 3
+        invariant dailyLimit >= money("0")
+
+        entity LedgerEntry {
+          kind: EntryKind
+          amount: money
+          balanceAfter: money
+          at: datetime
+          memo: string
+        }
+
+        // `==` on datetimes never matches on node (B-13); limitDay <= now always, so >= is equivalent.
+        function sameDay(a: datetime, b: datetime): bool = a.startOfDay() >= b.startOfDay()
+
+        operation deposit(amount: money, memo: string) {
+          requires IsStaff() || OwnsAccount(owner)
+          precondition status == Active message "Account is not active"
+          precondition amount > money("0") message "Amount must be positive"
+          balance := balance + amount
+          entries += LedgerEntry { kind: Deposit, amount: amount, balanceAfter: balance, at: now(), memo: memo }
+          emit MoneyDeposited { account: id, amount: amount, at: now() }
+        }
+
+        operation withdraw(amount: money, memo: string) {
+          requires IsStaff() || OwnsAccount(owner)
+          precondition status == Active message "Account is not active"
+          precondition amount > money("0") message "Amount must be positive"
+          precondition balance >= amount message "Insufficient funds"
+          let used = sameDay(limitDay, now()) ? withdrawnToday : money("0")
+          precondition used + amount <= dailyLimit message "Daily withdrawal limit exceeded"
+          withdrawnToday := used + amount
+          limitDay := now()
+          balance := balance - amount
+          entries += LedgerEntry { kind: Withdrawal, amount: amount, balanceAfter: balance, at: now(), memo: memo }
+          emit MoneyWithdrawn { account: id, amount: amount, at: now() }
+        }
+
+        // Internal legs used by the transfer workflow — no daily limit for
+        // transfers between own accounts? (business said: limit applies to cash only)
+        operation debitForTransfer(amount: money, ref: string) {
+          requires IsStaff() || OwnsAccount(owner)
+          precondition status == Active message "Source account is not active"
+          precondition balance >= amount message "Insufficient funds"
+          balance := balance - amount
+          entries += LedgerEntry { kind: TransferOut, amount: amount, balanceAfter: balance, at: now(), memo: ref }
+        }
+
+        operation creditForTransfer(amount: money, ref: string) {
+          requires true
+          precondition status == Active message "Target account is not active"
+          balance := balance + amount
+          entries += LedgerEntry { kind: TransferIn, amount: amount, balanceAfter: balance, at: now(), memo: ref }
+        }
+
+        operation accrueInterest(asOf: datetime) {
+          requires true
+          precondition accountType == Savings
+          let interest = balance * interestRate / 12
+          balance := balance + interest
+          entries += LedgerEntry { kind: Deposit, amount: interest, balanceAfter: balance, at: asOf, memo: "Monthly interest" }
+        }
+
+        operation freeze() {
+          requires currentUser.permissions.contains(permissions.accountsFreeze)
+          precondition status == Active
+          status := Frozen
+        }
+
+        operation unfreeze() {
+          requires currentUser.permissions.contains(permissions.accountsUnfreeze)
+          precondition status == Frozen
+          status := Active
+        }
+
+        operation close() {
+          requires IsStaff()
+          precondition balance == money("0") message "Balance must be zero to close"
+          status := Closed
+        }
+
+        test "deposit increases balance" {
+          let a = Account.create({ number: "1234567890", owner: "c1", accountType: Checking, currency: "EUR", interestRate: 0.0, status: Active, balance: money("10"), dailyLimit: money("1000"), withdrawnToday: money("0"), limitDay: now(), openedAt: now() })
+          expect(a.balance > money("5")).toBe(true)
+        }
+      }
+
+      aggregate Transfer {
+        reference: string
+        source: Account id
+        target: Account id
+        amount: money
+        status: TransferStatus
+        requestedBy: string
+        requestedAt: datetime
+        decidedBy: string?
+        derived display: string = reference
+        unique (reference)
+
+        operation markCompleted() {
+          requires true
+          precondition status == Pending
+          status := Completed
+        }
+
+        operation reject(reason: string) {
+          requires currentUser.permissions.contains(permissions.transfersApprove)
+          precondition status == Pending
+          status := Rejected
+          decidedBy := currentUser.id
+          emit TransferRejected { transfer: id, reason: reason, at: now() }
+        }
+      }
+
+      criterion SavingsAccount() of Account = accountType == Savings && status == Active
+      retrieval ActiveSavings() of Account { where: SavingsAccount() }
+
+      // A tick needs an id to correlate a saga instance by (timers.ddd pattern),
+      // so a do-nothing aggregate exists only to type that id.
+      aggregate InterestRun {
+        startedAt: datetime
+      }
+      repository InterestRuns for InterestRun { find all(): InterestRun[] requires currentUser.role == "compliance" }
+      event MonthEnd { run: InterestRun id, at: datetime }
+      channel Clock { carries: MonthEnd }
+      channel TransferEvents { carries: TransferCompleted }
+
+      workflow monthlyInterest requires currentUser.role == "compliance" {
+        run: InterestRun id
+        create(e: MonthEnd) by e.run {
+          let accts = Accounts.run(ActiveSavings())
+          for a in accts {
+            a.accrueInterest(e.at)
+          }
+        }
+      }
+
+      repository Customers for Customer {
+        find all(): Customer[] requires currentUser.role == "teller" || currentUser.role == "compliance"
+      }
+      repository Accounts for Account {
+        find all(): Account[] requires currentUser.role == "teller" || currentUser.role == "compliance"
+        find byNumber(number: string): Account? requires currentUser.role == "teller" || currentUser.role == "compliance"
+        find mine(): Account[] requires true where owner == currentUser.customerId
+      }
+      repository Transfers for Transfer {
+        find all(): Transfer[] requires currentUser.role == "teller" || currentUser.role == "compliance"
+        find pending(): Transfer[] requires currentUser.permissions.contains(permissions.transfersApprove) where status == Pending
+      }
+
+      workflow openAccount {
+        create(owner: Customer id, number: string, accountType: AccountType, currency: string) {
+          requires IsStaff()
+          let customer = Customers.getById(owner)
+          let account = Account.create({
+            number: number, owner: owner, accountType: accountType, currency: currency,
+            interestRate: accountType == Savings ? 0.02 : 0.0, status: Active,
+            balance: money("0"), dailyLimit: money("1000"), withdrawnToday: money("0"),
+            limitDay: now(), openedAt: now()
+          })
+        }
+      }
+
+      // Small transfers execute immediately; large ones wait for approval.
+      // (Loom has no `if` in workflow bodies, so this is two workflows.)
+      workflow transfer transactional {
+        create(sourceAccount: Account id, targetAccount: Account id, amount: money, reference: string) {
+          requires IsStaff() || currentUser.customerId != null
+          precondition sourceAccount != targetAccount message "Cannot transfer to the same account"
+          precondition amount > money("0") message "Amount must be positive"
+          precondition amount <= money("10000") message "Transfers above 10 000 need approval — use requestLargeTransfer"
+          let source = Accounts.getById(sourceAccount)
+          let target = Accounts.getById(targetAccount)
+          precondition source.currency == target.currency message "Cross-currency transfers are not supported"
+          let t = Transfer.create({
+            reference: reference, source: sourceAccount, target: targetAccount, amount: amount,
+            status: Completed, requestedBy: currentUser.id, requestedAt: now(), decidedBy: null
+          })
+          source.debitForTransfer(amount, reference)
+          target.creditForTransfer(amount, reference)
+          emit TransferCompleted { transfer: t.id, at: now() }
+        }
+      }
+
+      workflow requestLargeTransfer {
+        create(sourceAccount: Account id, targetAccount: Account id, amount: money, reference: string) {
+          requires IsStaff() || currentUser.customerId != null
+          precondition sourceAccount != targetAccount message "Cannot transfer to the same account"
+          precondition amount > money("10000") message "Use transfer for amounts up to 10 000"
+          let source = Accounts.getById(sourceAccount)
+          let target = Accounts.getById(targetAccount)
+          precondition source.currency == target.currency message "Cross-currency transfers are not supported"
+          let t = Transfer.create({
+            reference: reference, source: sourceAccount, target: targetAccount, amount: amount,
+            status: Pending, requestedBy: currentUser.id, requestedAt: now(), decidedBy: null
+          })
+        }
+      }
+
+      workflow approveTransfer transactional {
+        create(transferId: Transfer id) {
+          requires currentUser.permissions.contains(permissions.transfersApprove)
+          let t = Transfers.getById(transferId)
+          precondition t.requestedBy != currentUser.id message "Four-eyes: you cannot approve your own transfer"
+          let source = Accounts.getById(t.source)
+          let target = Accounts.getById(t.target)
+          source.debitForTransfer(t.amount, t.reference)
+          target.creditForTransfer(t.amount, t.reference)
+          t.markCompleted()
+          emit TransferCompleted { transfer: t.id, at: now() }
+        }
+      }
+    }
+  }
+
+  subdomain Engagement {
+    context Notifications {
+      enum Channel { Email, Push }
+      aggregate Notification {
+        recipient: Transfer id
+        text: string
+        sentAt: datetime
+        via: Channel
+      }
+      repository Notifications for Notification {
+        find all(): Notification[] requires true
+      }
+      workflow notifyTransfer requires true {
+        transferRef: Transfer id
+        create(e: TransferCompleted) by e.transfer {
+          let n = Notification.create({ recipient: e.transfer, text: "Your transfer completed", sentAt: e.at, via: Email })
+        }
+      }
+    }
+  }
+
+  ui BankApp with scaffold(subdomains: [Retail]) { }
+
+  storage primary { type: postgres }
+  storage bus { type: redis }
+  resource notifyState { for: Notifications, kind: state, use: primary }
+  channelSource transferBus { for: TransferEvents, use: bus }
+  timerSource monthEnd { for: MonthEnd, cron: "0 2 1 * *" }
+  resource bankState { for: Banking, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Banking],
+    dataSources: [bankState],
+    port: 3000,
+    channels: [transferBus],
+    auth: required
+  }
+
+  deployable notify {
+    platform: python,
+    contexts: [Notifications],
+    dataSources: [notifyState],
+    channels: [transferBus],
+    port: 3002
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: BankApp,
+    port: 3001,
+    design: mantine,
+    auth: ui
+  }
+}

@@ -1,0 +1,16 @@
+// B-14: an explicit gated `find all` turns the list route into a bare array,
+// but the scaffolded workflow form's id-picker reads `.items` → React tsc fails.
+system R {
+  user { id: string  role: string }
+  auth { enforcement: opt  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") } }
+  subdomain S { context C {
+    aggregate Acct with crudish { name: string  balance: money  derived display: string = name }
+    repository Accts for Acct { find all(): Acct[] requires currentUser.role == "teller" }
+    workflow touch { create(a: Acct id) { let x = Accts.getById(a) } }
+  } }
+  ui App with scaffold(subdomains: [S]) { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000, auth: required }
+  deployable web { platform: react, targets: api, ui: App, port: 3001, design: mantine, auth: ui }
+}
