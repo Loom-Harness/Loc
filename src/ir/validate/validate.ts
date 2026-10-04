@@ -118,6 +118,7 @@ import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
   validateAggregateTestBodies,
   validateContextIntegrationTests,
+  validateTestStatementVocabulary,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
@@ -288,6 +289,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFindNameCollisions(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
+    validateTestStatementVocabulary(c, diags);
     validateContextIntegrationTests(c, diags);
     // The cross-context-repository gate needs the sibling contexts, so this
     // check takes the model's full context list (like `validateWorkflows`

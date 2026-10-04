@@ -4166,6 +4166,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' test '${p.testName}': ${p.reason} ` +
     `Aggregate-level tests are bound to a value-object / pure-function context — they don't have a 'this' aggregate to mutate.  ` +
     `Move the operation invocation inside an aggregate operation or rewrite the test to assert via 'expect' / 'expect-throws'.`,
+  "loom.test-statement-invalid": (p: {
+    owner: unknown;
+    testName: unknown;
+    reason: unknown;
+    tier: unknown;
+    allowed: unknown;
+  }) =>
+    `${p.owner} test '${p.testName}': ${p.reason} ` +
+    `A ${p.tier} test body may only contain ${p.allowed} statements — it has no operation to guard and no aggregate to mutate. ` +
+    `Exercise the behaviour through an operation call and assert on the result with 'expect' / 'expect-throws'.`,
   "loom.integration-find-must-bind": (p: { name: unknown; testName: unknown }) =>
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +

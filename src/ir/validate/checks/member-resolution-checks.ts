@@ -60,11 +60,18 @@ function add(index: ShapeIndex, name: string, members: Iterable<string>): void {
 const names = (xs: readonly { name: string }[] | undefined): string[] =>
   (xs ?? []).map((x) => x.name);
 
-/** Every named shape a member read can land on, keyed by name. */
+/** Every named shape a member read can land on, keyed by name.
+ *
+ *  An aggregate's operations / creates / destroys / functions count as members
+ *  too: a page names an operation as `order.confirm` (an `Action` /
+ *  `OperationForm` target), and that lowers to a `member` node. A projection's
+ *  row is its enriched `wireShape`, because a query-time projection declares no
+ *  `stateFields`. */
 function buildShapeIndex(loom: EnrichedLoomModel): ShapeIndex {
   const index: ShapeIndex = new Map();
-  for (const vo of loom.rootValueObjects)
-    add(index, vo.name, [...names(vo.fields), ...names(vo.derived)]);
+  for (const vo of loom.rootValueObjects) {
+    add(index, vo.name, [...names(vo.fields), ...names(vo.derived), ...names(vo.functions)]);
+  }
   for (const ctx of allContexts(loom)) {
     for (const agg of ctx.aggregates) {
       add(index, agg.name, [
@@ -72,6 +79,10 @@ function buildShapeIndex(loom: EnrichedLoomModel): ShapeIndex {
         ...names(agg.fields),
         ...names(agg.contains),
         ...names(agg.derived),
+        ...names(agg.functions),
+        ...names(agg.operations),
+        ...names(agg.creates),
+        ...names(agg.destroys),
       ]);
       for (const part of agg.parts) {
         add(index, part.name, [
@@ -79,15 +90,19 @@ function buildShapeIndex(loom: EnrichedLoomModel): ShapeIndex {
           ...names(part.fields),
           ...names(part.contains),
           ...names(part.derived),
+          ...names(part.functions),
         ]);
       }
     }
-    for (const vo of ctx.valueObjects)
-      add(index, vo.name, [...names(vo.fields), ...names(vo.derived)]);
+    for (const vo of ctx.valueObjects) {
+      add(index, vo.name, [...names(vo.fields), ...names(vo.derived), ...names(vo.functions)]);
+    }
     for (const ev of ctx.events) add(index, ev.name, names(ev.fields));
     for (const p of ctx.payloads) add(index, p.name, names(p.fields));
     for (const wf of ctx.workflows) add(index, wf.name, names(wf.stateFields));
-    for (const proj of ctx.projections) add(index, proj.name, names(proj.stateFields));
+    for (const proj of ctx.projections) {
+      add(index, proj.name, [...names(proj.stateFields), ...names(proj.wireShape)]);
+    }
   }
   return index;
 }

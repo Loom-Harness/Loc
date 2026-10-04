@@ -508,6 +508,33 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An invented member on a receiver the LANGUAGE layer types as `unknown`
+  // (a `let` bound from a list literal), so the AST member check stands down
+  // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
+  "loom.member-unresolved": `
+system MemberBackstop {
+  subdomain S { context C {
+    valueobject Addr { street: string }
+    aggregate Task with crudish {
+      title: string
+      addr: Addr
+      operation probe() {
+        let xs = [this.addr]
+        title := xs.first().nope
+      }
+    }
+  } }
+}`,
+  // An `emit` in a CONTEXT integration test: no backend's integration-test
+  // renderer has an arm for it, and before #3133 every one crashed generate.
+  "loom.test-statement-invalid": `
+system TestVocab {
+  subdomain S { context C {
+    event Pinged { n: int }
+    aggregate Task with crudish { title: string }
+    test "t" { emit Pinged { n: 1 } }
+  } }
+}`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:

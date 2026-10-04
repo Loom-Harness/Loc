@@ -180,11 +180,7 @@ const DELIBERATELY_INVALID = [
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
   // they belong here rather than being fixed or untracked.  Only the seven
-  // that fail at the AST layer are listed, plus `b05` — see below; `b09` (a
-  // typo'd field in a page body) still validates CLEAN and is a finding in its
-  // own right (F-041), so it stays in the positive population
-  // above — the day either starts being refused, its pin is what should be
-  // added, not this comment.
+  // that fail at the AST layer are listed, plus `b05` and `b09` — see below.
   //
   // Listing them here also puts them under the negative control below, which
   // turns the corpus into a standing ratchet: a gate that stops firing fails
@@ -202,6 +198,11 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b05-cyclic-containment.ddd",
   "eval/repro/broken/b06-duplicate-names.ddd",
   "eval/repro/broken/b07-bad-enum-value.ddd",
+  // `b09` (F-041, a typo'd field in a page body) is now REFUSED. The page
+  // lambda's param is still untyped in the language layer, but the lowered
+  // `member` node knows its receiver, and the IR backstop
+  // `loom.member-unresolved` (`member-resolution-checks.ts`) checks it there.
+  "eval/repro/broken/b09-page-wrong-aggregate.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",
 ] as const;
 

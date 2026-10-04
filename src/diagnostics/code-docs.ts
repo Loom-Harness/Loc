@@ -380,6 +380,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.async-effect-subject-unsupported":
     "15-ui-pages-structure.md#effect-markers-and-match-await",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
+  "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
