@@ -45,7 +45,6 @@ export default function CustomerList() {
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "username") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("username"); setSortDir("asc"); } }}>{t("page.List.columnHeader.7s11ax", "Username")}{sortKey === "username" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "email") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("email"); setSortDir("asc"); } }}>{t("page.List.columnHeader.inbfc7", "Email")}{sortKey === "email" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "age") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("age"); setSortDir("asc"); } }}>{t("page.List.columnHeader.3mcq4c", "Age")}{sortKey === "age" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "version") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("version"); setSortDir("asc"); } }}>{t("page.List.columnHeader.q0zd4n", "Version")}{sortKey === "version" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -55,7 +54,6 @@ export default function CustomerList() {
                     <Table.Td><Text>{row.username}</Text></Table.Td>
                     <Table.Td><Text>{row.email}</Text></Table.Td>
                     <Table.Td><Text>{row.age}</Text></Table.Td>
-                    <Table.Td><Text>{row.version}</Text></Table.Td>
                   </Table.Tr>
                 )) }
               </Table.Tbody>

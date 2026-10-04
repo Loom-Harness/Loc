@@ -178,7 +178,8 @@ describe("HEEx client table controls — the rows expression", () => {
       // The react header's own sort binding: `onClick={… setSortKey("code") …}`.
       for (const m of c.matchAll(/setSortKey\("(\w+)"\)/g)) reactFields.add(m[1]!);
     }
-    expect([...reactFields].sort()).toEqual(["code", "id", "total", "version"]);
+    // no `version`: the optimistic-concurrency counter is not a scaffold column.
+    expect([...reactFields].sort()).toEqual(["code", "id", "total"]);
     const live = await one(CLIENT_SRC, "/order_list_live.ex");
     for (const f of reactFields) expect(live).toContain(`{"${f}", `);
   });
