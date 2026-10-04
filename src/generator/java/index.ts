@@ -51,6 +51,7 @@ import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import {
   type RequestComponentOwner,
   requestComponentNamerFor,
@@ -237,6 +238,7 @@ import {
 } from "./emit/workflow-state.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
 import { collectMangledNames, mangledEnumNames } from "./java-ident.js";
+import { JavaOutputMap } from "./java-output.js";
 import { basePackageFor, javaPackageSegment, mainSourcePath } from "./naming.js";
 import { API_CLIENT_CLASS as JAVA_API_CLIENT_CLASS } from "./render-expr.js";
 import { renderSqlRestriction } from "./render-sql-restriction.js";
@@ -282,9 +284,9 @@ export function generateJavaForContexts(
   system?: SystemArgs,
   options: { emitTrace?: boolean; sourcemap?: SourceMapRecorder } = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = new JavaOutputMap();
   emitProjectFromContexts(contexts, ns, out, system, !!options.emitTrace, options.sourcemap);
-  return out;
+  return out.assertFinal();
 }
 
 function emitProjectFromContexts(
@@ -327,13 +329,13 @@ function emitProjectFromContexts(
     const artifact = { name, content, category, aggregateName } as JavaArtifact;
     const path = layout.pathFor(artifact, emitCtx);
     out.set(path, content);
-    sourcemap?.file(path, content, origin, construct);
+    sourcemap?.file(path, out.get(path)!, origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(path, out.get(path)!, spellMarkers(frag.fragmentText), frag.subRegions);
       }
     }
   };
