@@ -624,7 +624,13 @@ export class Elaborator {
     if ((f.ctx || f.ui) && !f.e2e) {
       const enums = this.index.enumsDeclaringValue(name, node);
       const e = enums[0];
-      if (e) return { kind: "enum", ref: e, name: e.name, ...(enums.length > 1 ? { candidates: enums } : {}) };
+      if (e)
+        return {
+          kind: "enum",
+          ref: e,
+          name: e.name,
+          ...(enums.length > 1 ? { candidates: enums } : {}),
+        };
     }
     if (name === "currentUser" || name === ORG_CONTEXT_ACCESSOR)
       return Ty.record({ of: "principal", ref: user });
@@ -1463,7 +1469,12 @@ function joinEnums(a: Ty & { kind: "enum" }, b: Ty & { kind: "enum" }): Ty | und
   const shared = ca.filter((e) => cb.includes(e));
   if (shared.length === 0) return a.name === b.name ? a : undefined;
   const first = shared[0]!;
-  return { kind: "enum", ref: first, name: first.name, ...(shared.length > 1 ? { candidates: shared } : {}) };
+  return {
+    kind: "enum",
+    ref: first,
+    name: first.name,
+    ...(shared.length > 1 ? { candidates: shared } : {}),
+  };
 }
 
 function declOf(t: Ty): unknown {

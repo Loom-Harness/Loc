@@ -23,7 +23,9 @@ export function toDddType(t: Ty, opts: { generic?: "arg" | "unknown" } = {}): Dd
         ? { kind: "id", target: t.target as never, ...s }
         : { kind: "unknown", ...s };
     case "enum":
-      return t.ref && !t.candidates ? { kind: "enum", ref: t.ref, ...s } : { kind: "unknown", ...s };
+      return t.ref && !t.candidates
+        ? { kind: "enum", ref: t.ref, ...s }
+        : { kind: "unknown", ...s };
     case "valueobject":
       return t.ref ? { kind: "valueobject", ref: t.ref, ...s } : { kind: "unknown", ...s };
     case "record":
