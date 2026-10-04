@@ -284,6 +284,13 @@ function renderDartToastMessage(e: ExprIR, bind: string): string {
     }
     case "paren":
       return `(${renderDartToastMessage(e.inner, bind)})`;
+    // An implicit string conversion adds nothing: every part above already
+    // renders as a String.
+    case "convert":
+      if (e.target === "string") return renderDartToastMessage(e.value, bind);
+      throw new Error(
+        "Flutter realtime: only a conversion to string is supported in a toast message.",
+      );
     case "binary":
       return `${renderDartToastMessage(e.left, bind)} ${e.op} ${renderDartToastMessage(e.right, bind)}`;
     default:

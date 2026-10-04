@@ -98,7 +98,7 @@ export class DeclIndex {
   readonly resources: Resource[] = [];
 
   constructor(readonly models: readonly Model[]) {
-    for (const m of models) this.collect(m.members);
+    for (const m of models) this.collect(m.members ?? []);
   }
 
   private add(name: string | undefined, node: AstNode): void {

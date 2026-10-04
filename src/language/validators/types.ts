@@ -53,7 +53,6 @@ import { isWellFormedMoneyLiteral, moneyLiteralText } from "../money-literal.js"
 import {
   absentRecordMember,
   absentUserClaim,
-  arithmeticResult,
   comparable,
   type DddType,
   type Env,
@@ -67,14 +66,14 @@ import {
   typeOf,
   typeToString,
 } from "../type-system.js";
+import { toDddType } from "../typing/adapt.js";
+import { typingFor } from "../typing/shared.js";
 import {
-  canPromoteAstLitTo,
   canPromoteLiteralTo,
   checkBlankMessage,
   envForAggregate,
   envForPart,
   isInfallibleConversion,
-  literalPromotionAnchor,
   warnSensitivityDrop,
 } from "./_shared.js";
 import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
@@ -495,33 +494,23 @@ function shadowingDeclKind(node: AstNode, name: string): string {
  *  Diagnostics attach with `property: "rest"` and the rhs index so
  *  the editor underlines the offending right-hand operand. */
 export function checkSingleBinaryOperands(chain: BinaryChain, accept: ValidationAcceptor): void {
-  const env = envForNode(chain);
-  // Track the left-side type as we fold; the lhs starts as the head's
-  // type, then becomes the result of the previous step.  When a
-  // boolean-result op fires the chain's result is bool — that
-  // doesn't change downstream validity (a chain at this precedence
-  // band stays homogeneous-op).
-  let lt = typeOf(chain.head, env);
+  // The single typing pass folds the chain (M-T5.44): each step's operand
+  // types are already ELABORATED — a bare literal beside money / long /
+  // decimal promoted, an ambiguous enum value retargeted — exactly as
+  // lowering stamps them, so the check and the emitted code read one answer.
+  const folds = typingFor(chain).foldsAt(chain) ?? [];
   let leftExprForPromotion: Expression | undefined = chain.head;
   for (let i = 0; i < chain.ops.length; i++) {
     const op = chain.ops[i]!;
     const rhsExpr = chain.rest[i]!;
-    let rt = typeOf(rhsExpr, env);
+    const fold = folds[i];
+    if (!fold) continue;
+    const lt = toDddType(fold.left);
+    const rt = toDddType(fold.right);
     // Cascade suppression — broken upstream already reports.
     if (lt.kind === "unknown" || rt.kind === "unknown") {
-      // Update lt for next step using best-effort arithmeticResult.
-      lt = arithmeticResult(lt, rt, op);
       leftExprForPromotion = undefined;
       continue;
-    }
-    // Literal promotion at this fold-step — mirrors lowerExpr.
-    const lAnchor = literalPromotionAnchor(lt, op);
-    const rAnchor = literalPromotionAnchor(rt, op);
-    if (lAnchor && canPromoteAstLitTo(rhsExpr, lAnchor)) {
-      rt = T.prim(lAnchor);
-    }
-    if (rAnchor && leftExprForPromotion && canPromoteAstLitTo(leftExprForPromotion, rAnchor)) {
-      lt = T.prim(rAnchor);
     }
     const info = { node: chain, property: "rest" as const, index: i };
     if (op === "??") {
@@ -530,7 +519,6 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       // is no operand rule to enforce beyond the join the type-system already
       // computes.  Strip the optional off the left as the operator does, so a
       // later fold-step (`a ?? b ?? c`) sees the bare type.
-      lt = ternaryJoin(lt.kind === "optional" ? lt.inner : lt, rt) ?? rt;
       leftExprForPromotion = undefined;
       continue;
     }
@@ -548,7 +536,6 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
           { ...info, code: "loom.operator-non-bool-operands" },
         );
       }
-      lt = T.prim("bool");
       leftExprForPromotion = undefined;
       continue;
     }
@@ -580,12 +567,11 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
           { ...info, code: "loom.compare-type-mismatch" },
         );
       }
-      lt = T.prim("bool");
       leftExprForPromotion = undefined;
       continue;
     }
-    // Arithmetic: arithmeticResult returns unknown for invalid combos.
-    const result = arithmeticResult(lt, rt, op);
+    // Arithmetic: the fold's result is `unknown` for an invalid combination.
+    const result = toDddType(fold.result);
     if (result.kind === "unknown") {
       const isMoney = (t: typeof lt) => t.kind === "primitive" && t.name === "money";
       const moneyHint =
@@ -606,7 +592,6 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
         { ...info, code: "loom.operator-operand-mismatch" },
       );
     }
-    lt = result;
     leftExprForPromotion = undefined;
   }
 }

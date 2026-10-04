@@ -93,6 +93,8 @@ import {
   isWorkflowCreateDecl,
 } from "./generated/ast.js";
 import { stdFunction } from "./stdlib.js";
+import { toDddType } from "./typing/adapt.js";
+import { typingFor } from "./typing/shared.js";
 
 // ---------------------------------------------------------------------------
 // Type representation
@@ -654,16 +656,24 @@ export function typeOf(expr: Expression | undefined, env: Env): DddType {
 
 function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
   if (!expr) return T.unknown;
-  if (isStringLit(expr)) return T.prim("string");
-  // A6 string interpolation — a template always types as `string`; its holes
-  // are checked separately by `checkTemplateHoles` (`loom.interp-hole-type`).
-  if (isTemplateStr(expr)) return T.prim("string");
-  if (isIntLit(expr)) return T.prim("int");
-  if (isDecLit(expr)) return T.prim("decimal");
-  if (isPrimitiveConversion(expr)) return T.prim(expr.target as PrimitiveName);
-  if (isBoolLit(expr)) return T.prim("bool");
-  if (isNullLit(expr)) return T.opt(T.never);
-  if (isNowExpr(expr)) return T.prim("datetime");
+  // Literals and operators are typed by the single typing pass (M-T5.44,
+  // cutover family 3a) — the same answer lowering reads.
+  if (
+    isStringLit(expr) ||
+    isTemplateStr(expr) ||
+    isIntLit(expr) ||
+    isDecLit(expr) ||
+    isPrimitiveConversion(expr) ||
+    isBoolLit(expr) ||
+    isNullLit(expr) ||
+    isNowExpr(expr) ||
+    isUnaryExpr(expr) ||
+    isBinaryChain(expr) ||
+    isTernaryExpr(expr)
+  ) {
+    const t = typingFor(expr).synthAt(expr);
+    return t ? toDddType(t) : T.unknown;
+  }
   if (isThisRef(expr)) {
     if (env.part) return { kind: "entity", ref: env.part };
     if (env.aggregate) return { kind: "aggregate", ref: env.aggregate };
@@ -686,50 +696,6 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
     return T.unknown;
   }
   if (isParenExpr(expr)) return typeOf(expr.inner, env);
-  if (isUnaryExpr(expr)) {
-    const t = typeOf(expr.operand, env);
-    // `!x` is a fresh bool — comparison-class result, no propagation.
-    if (expr.op === "!") return T.prim("bool");
-    return t;
-  }
-  if (isBinaryChain(expr)) {
-    // Left-fold: comparison / logical ops produce bool (short-circuit
-    // the chain — the chain is homogeneous-op per precedence level, so
-    // a single bool-result op makes the entire chain bool).
-    // `??` is its own band, so a chain carrying it carries nothing else: the
-    // result is the head's type with the `optional` stripped (the whole point
-    // of the operator), joined with the fallback so `x ?? 0` on an `int?`
-    // still types `int`.  Mirrors `lowerCoalesceChain` / `inferExprType`.
-    if (expr.ops[0] === "??") {
-      const head = typeOf(expr.head, env);
-      const bare = head.kind === "optional" ? head.inner : head;
-      const fallback = typeOf(expr.rest[expr.rest.length - 1]!, env);
-      return ternaryJoin(bare, fallback) ?? bare;
-    }
-    let acc = typeOf(expr.head, env);
-    for (let i = 0; i < expr.ops.length; i++) {
-      const op = expr.ops[i]!;
-      if (op === "&&" || op === "||") return T.prim("bool");
-      if (op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
-        return T.prim("bool");
-      }
-      const rt = typeOf(expr.rest[i]!, env);
-      acc = arithmeticResult(acc, rt, op);
-    }
-    return acc;
-  }
-  if (isTernaryExpr(expr)) {
-    // The value is the JOIN of the two branches (the more general of the
-    // two) — `cond ? int : long` is `long`, `cond ? T : null` is `T?`.
-    // When the branches share no supertype the join falls back to the
-    // then-branch (the validator reports the mismatch separately).
-    // Sensitivity is unioned either way — the chosen value could come from
-    // either branch, so the result is as tainted as either branch is.
-    const thenT = typeOf(expr.thenExpr, env);
-    const elseT = typeOf(expr.elseExpr, env);
-    const join = ternaryJoin(thenT, elseT) ?? thenT;
-    return withTags(join, mergeTags(thenT.sensitivity, elseT.sensitivity));
-  }
   if (isLambda(expr)) {
     // Lambda type is contextual; without a target type it's unknown.
     return T.unknown;

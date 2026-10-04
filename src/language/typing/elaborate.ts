@@ -196,6 +196,11 @@ export class Elaborator {
   /** The synthesized type of every expression (and of each postfix suffix:
    *  the receiver type AFTER that suffix). */
   readonly types = new WeakMap<AstNode, Ty>();
+  /** The ELABORATED type of a node whose context coerced it (a promoted
+   *  literal, a retargeted enum value) — `typeAt` reads this before `types`. */
+  readonly elaborated = new WeakMap<AstNode, Ty>();
+  /** Each binary chain's fold steps, elaborated (see `synthBinary`). */
+  readonly folds = new WeakMap<BinaryChain, Fold[]>();
   /** The scope in force at each statement / expression root. */
   readonly scopes = new WeakMap<AstNode, Scope>();
 
@@ -681,21 +686,71 @@ export class Elaborator {
 
   // ---- operators ------------------------------------------------------------
 
+  /** A binary chain, folded left to right (`a + b + c` is `(a + b) + c`).
+   *  Each fold step is ELABORATED before it is typed — the D6 expected-type
+   *  facts a parent supplies to an operand:
+   *    - a bare numeric literal beside a `money` / `long` / `decimal` operand
+   *      promotes to that type (money only under `+ - ` and comparisons —
+   *      money is not closed under scaling);
+   *    - an enum value named bare beside an enum operand retargets to that
+   *      enum when several enums declare the name.
+   *  The elaborated operand types and each step's result are recorded in
+   *  `folds`, which is what lowering stamps on its `binary` nodes and what
+   *  the operand validator checks. */
   private synthBinary(e: BinaryChain, scope: Scope): Ty {
     const head = this.synth(e.head, scope);
     const rest = e.rest.map((r) => this.synth(r, scope));
-    if (e.ops[0] === "??") {
-      const bare = head.kind === "optional" ? head.inner : head;
-      const fallback = rest[rest.length - 1]!;
-      return join(bare, fallback) ?? bare;
-    }
+    const folds: Fold[] = [];
     let acc = head;
+    let leftNode: Expression | undefined = e.head;
     for (let i = 0; i < e.ops.length; i++) {
       const op = e.ops[i]!;
-      if (["&&", "||", "==", "!=", "<", "<=", ">", ">="].includes(op)) return Ty.prim("bool");
-      acc = arithmetic(acc, rest[i]!, op);
+      const rhsNode = e.rest[i];
+      if (!rhsNode) break; // a parse-broken chain: an operator with no operand
+      let lt = acc;
+      let rt = rest[i] ?? Ty.unknown("parse-broken");
+      if (op === "??") {
+        const result = join(lt.kind === "optional" ? lt.inner : lt, rt) ?? rt;
+        folds.push({ op, left: lt, right: rt, result });
+        acc = result;
+        leftNode = undefined;
+        continue;
+      }
+      const lAnchor = promotionAnchor(lt, op);
+      const rAnchor = promotionAnchor(rt, op);
+      if (lAnchor && canPromoteLiteral(rhsNode, lAnchor)) {
+        rt = Ty.prim(lAnchor);
+        this.elaborated.set(rhsNode, rt);
+      }
+      if (rAnchor && leftNode && canPromoteLiteral(leftNode, rAnchor)) {
+        lt = Ty.prim(rAnchor);
+        this.elaborated.set(leftNode, lt);
+      }
+      if (COMPARISON_OPS.has(op)) {
+        const r = this.retargetEnum(rhsNode, rt, lt);
+        const l = leftNode ? this.retargetEnum(leftNode, lt, rt) : lt;
+        rt = r;
+        lt = l;
+      }
+      const result = BOOL_OPS.has(op) ? Ty.prim("bool") : arithmetic(lt, rt, op);
+      folds.push({ op, left: lt, right: rt, result });
+      acc = result;
+      leftNode = undefined;
     }
+    this.folds.set(e, folds);
     return acc;
+  }
+
+  /** `t` (the type of `node`) retargeted against an expected enum: a bare
+   *  enum value several enums declare resolves to the one the other operand
+   *  has, when that enum declares it. Recorded as the node's elaborated type. */
+  private retargetEnum(node: Expression, t: Ty, expected: Ty): Ty {
+    if (t.kind !== "enum" || expected.kind !== "enum" || t.name === expected.name) return t;
+    const bare = node && isParenExpr(node) ? node.inner : node;
+    if (!bare || !isNameRef(bare)) return t;
+    if (!expected.ref?.values.some((v) => v.name === bare.name)) return t;
+    this.elaborated.set(node, expected);
+    return expected;
   }
 
   // ---- builders -------------------------------------------------------------
@@ -1276,6 +1331,32 @@ function genericMember(ctor: string, arg: Ty, name: string): Ty | undefined {
     if (name === "lineage") return Ty.opt(Ty.prim("json"));
   }
   return undefined;
+}
+
+/** One elaborated fold step of a binary chain. */
+export interface Fold {
+  op: string;
+  left: Ty;
+  right: Ty;
+  result: Ty;
+}
+
+const COMPARISON_OPS: ReadonlySet<string> = new Set(["==", "!=", "<", "<=", ">", ">="]);
+const BOOL_OPS: ReadonlySet<string> = new Set(["&&", "||", ...COMPARISON_OPS]);
+
+/** The type a bare numeric literal on the OTHER side of `op` promotes to. */
+function promotionAnchor(t: Ty, op: string): "long" | "decimal" | "money" | undefined {
+  if (t.kind !== "primitive") return undefined;
+  if (t.name === "money") return op === "*" || op === "/" ? undefined : "money";
+  if (t.name === "long" || t.name === "decimal") return t.name;
+  return undefined;
+}
+
+/** Can `expr` — a bare literal — be promoted to `target`? */
+function canPromoteLiteral(expr: AstNode | undefined, target: string): boolean {
+  if (!expr) return false;
+  if (target === "money") return isIntLit(expr) || isDecLit(expr);
+  return isIntLit(expr);
 }
 
 /** The collection argument of each row-shaped walker primitive. */

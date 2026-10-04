@@ -67,6 +67,8 @@ import {
   type TemplateStr,
 } from "../../language/generated/ast.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
+import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
+import { typingFor } from "../../language/typing/shared.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
@@ -203,74 +205,19 @@ function verbResultType(verbDef: ResourceVerbDef | undefined): TypeIR {
 // Expressions
 // ---------------------------------------------------------------------------
 
-/** Per-fold-step money / literal promotion for a binary chain.  When one
- *  operand is typed as long / decimal / money, the other operand's bare
- *  numeric literal is rewritten to that operand's literal IR kind so the
- *  binary node's IR metadata stays type-honest and backends emit the
- *  right form.  Promotions are one-sided: a typed VALUE never promotes —
- *  the strict gate (#506) governs that. */
-function promoteMoneyOperands(
-  op: string,
-  leftIR: ExprIR,
-  leftType: TypeIR,
-  rightIR: ExprIR,
-  rightType: TypeIR,
-  rightExpr: Expression,
-  leftExprForPromotion: Expression | undefined,
-  env: Env,
-): { leftIR: ExprIR; leftType: TypeIR; rightIR: ExprIR; rightType: TypeIR } {
-  let outLeft = leftIR;
-  let outLeftT = leftType;
-  let outRight = rightIR;
-  let outRightT = rightType;
-  const lAnchor = literalPromotionAnchor(leftType, op);
-  const rAnchor = literalPromotionAnchor(rightType, op);
-  if (lAnchor) {
-    const promoted = tryPromoteNumericLit(rightExpr, lAnchor);
-    if (promoted) {
-      outRight = promoted;
-      outRightT = { kind: "primitive", name: lAnchor };
-    }
-  }
-  if (rAnchor && leftExprForPromotion) {
-    const promoted = tryPromoteNumericLit(leftExprForPromotion, rAnchor);
-    if (promoted) {
-      outLeft = promoted;
-      outLeftT = { kind: "primitive", name: rAnchor };
-    }
-  }
-  // Implicit `string + X` concat: wrap the non-string operand in a
-  // `convert` IR so backends emit `String(x)` / `x.ToString()` /
-  // `to_string(x)` per their existing renderConvert dispatch —
-  // identical to what the explicit `string(x)` form would produce.
-  if (op === "+") {
-    const lStr = outLeftT.kind === "primitive" && outLeftT.name === "string";
-    const rStr = outRightT.kind === "primitive" && outRightT.name === "string";
-    if (lStr && !rStr && isImplicitlyStringifiableIR(outRightT, env)) {
-      outRight = wrapForStringConcat(outRight, outRightT);
-      outRightT = { kind: "primitive", name: "string" };
-    } else if (rStr && !lStr && isImplicitlyStringifiableIR(outLeftT, env)) {
-      outLeft = wrapForStringConcat(outLeft, outLeftT);
-      outLeftT = { kind: "primitive", name: "string" };
-    }
-  }
-  return { leftIR: outLeft, leftType: outLeftT, rightIR: outRight, rightType: outRightT };
-}
-
-/** Pure left-fold of a flat BinaryChain.  Each fold-step applies the
- *  money / literal promotion (mirrors the validator) and produces a
- *  binary IR node with its metadata fully populated. */
 function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
   // `??` is its own precedence band (`CoalesceExpr`), so a chain carrying it
   // carries NOTHING else — desugar the whole chain before the arithmetic fold.
   if (chain.ops[0] === "??") return lowerCoalesceChain(chain, env);
-  let acc = lowerExpr(chain.head, env);
-  let accType = inferExprType(chain.head, env);
-  // Only the head operand corresponds to a single AST node usable for
-  // literal-promotion lookup against a right-side anchor.  After the
-  // first fold-step `acc` is a synthetic binary IR node — no
-  // backing AST literal — so subsequent steps only promote the rhs.
-  let headExprForPromotion: Expression | undefined = chain.head;
+  // The fold's types are the single typing pass's (M-T5.44): each step's
+  // operand and result types, ELABORATED — a bare literal beside a money /
+  // long / decimal operand already promoted, an ambiguous enum value already
+  // retargeted against the other side.  Lowering only applies the matching
+  // IR rewrites (the promoted literal kind, the `convert` a concat operand
+  // needs, the retargeted enum ref) and stamps the types; it decides none.
+  const typing = typingFor(chain);
+  const folds = typing.foldsAt(chain) ?? [];
+  let acc = promoteLiteral(chain.head, lowerExpr(chain.head, env), typing);
   for (let i = 0; i < chain.ops.length; i++) {
     // Narrowing, not widening: `??` is the one grammar operator with no `BinOp`
     // counterpart, and `lowerCoalesceChain` above has already claimed every
@@ -278,22 +225,25 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
     // fold can be `??`.
     const op = chain.ops[i]! as BinOp;
     const rhsExpr = chain.rest[i]!;
-    let rhsIR = lowerExpr(rhsExpr, env);
-    let rhsType = inferExprType(rhsExpr, env);
-    const promoted = promoteMoneyOperands(
-      op,
-      acc,
-      accType,
-      rhsIR,
-      rhsType,
-      rhsExpr,
-      headExprForPromotion,
-      env,
-    );
-    acc = promoted.leftIR;
-    accType = promoted.leftType;
-    rhsIR = promoted.rightIR;
-    rhsType = promoted.rightType;
+    const fold = folds[i];
+    let accType = fold ? irType(fold.left) : inferExprType(chain.head, env);
+    let rhsType = fold ? irType(fold.right) : inferExprType(rhsExpr, env);
+    let rhsIR = promoteLiteral(rhsExpr, lowerExpr(rhsExpr, env), typing);
+    // Implicit `string + X` concat: wrap the non-string operand in a
+    // `convert` IR so backends emit `String(x)` / `x.ToString()` /
+    // `to_string(x)` per their existing renderConvert dispatch —
+    // identical to what the explicit `string(x)` form would produce.
+    if (op === "+") {
+      const lStr = accType.kind === "primitive" && accType.name === "string";
+      const rStr = rhsType.kind === "primitive" && rhsType.name === "string";
+      if (lStr && !rStr && isImplicitlyStringifiableIR(rhsType, env)) {
+        rhsIR = wrapForStringConcat(rhsIR, rhsType);
+        rhsType = { kind: "primitive", name: "string" };
+      } else if (rStr && !lStr && isImplicitlyStringifiableIR(accType, env)) {
+        acc = wrapForStringConcat(acc, accType);
+        accType = { kind: "primitive", name: "string" };
+      }
+    }
     // Cross-type the operands: a comparison is the one contextual site with no
     // declared slot to read, so each side supplies the other's expected type.
     // `status == Draft` / `when status == Draft` resolve the bare value against
@@ -302,12 +252,9 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
     const leftRetargeted = retargetEnumValue(acc, rhsType);
     rhsIR = retargetEnumValue(rhsIR, accType);
     acc = leftRetargeted;
-    // `inferExprType` resolves the operand independently of `lowerExpr`, so it
-    // carries the same provisional pick — re-read the type off the resolved IR
-    // rather than leaving `leftType` / `rightType` naming the losing enum.
     accType = enumTypeOfRef(acc) ?? accType;
     rhsType = enumTypeOfRef(rhsIR) ?? rhsType;
-    const resultType = binaryResultType(op, accType, rhsType);
+    const resultType = fold ? irType(fold.result) : rhsType;
     acc = {
       kind: "binary",
       op,
@@ -317,12 +264,26 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
       rightType: rhsType,
       resultType,
     };
-    accType = resultType;
-    // After the first fold-step the lhs is a synthetic node — no AST
-    // literal to promote on the next step.
-    headExprForPromotion = undefined;
   }
   return acc;
+}
+
+/** `ir` — the lowering of `expr` — rewritten to the literal kind the typing
+ *  pass ELABORATED it to (a bare `1` beside a money operand is `lit money`). */
+function promoteLiteral(expr: Expression, ir: ExprIR, typing: TypingSession): ExprIR {
+  if (!isIntLit(expr) && !isDecLit(expr)) return ir;
+  const t = typing.typeAt(expr);
+  if (t?.kind !== "primitive" || t.name === (isIntLit(expr) ? "int" : "decimal")) return ir;
+  return tryPromoteNumericLit(expr, t.name) ?? ir;
+}
+
+/** A node type from the single pass, in IR vocabulary — with the one
+ *  REPRESENTATION rule the IR has always applied: a bare `null` (the pass's
+ *  `never?`) carries the `string` placeholder, as every emitter expects. */
+export function irType(t: Ty): TypeIR {
+  if (t.kind === "optional" && t.inner.kind === "never")
+    return { kind: "primitive", name: "string" };
+  return toTypeIR(t);
 }
 
 /**
@@ -2623,15 +2584,24 @@ function resolveCallKind(
 
 export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   if (!expr) return { kind: "primitive", name: "string" };
-  if (isStringLit(expr)) return { kind: "primitive", name: "string" };
-  if (isTemplateStr(expr)) return { kind: "primitive", name: "string" };
-  if (isIntLit(expr)) return { kind: "primitive", name: "int" };
-  if (isDecLit(expr)) return { kind: "primitive", name: "decimal" };
-  if (isPrimitiveConversion(expr)) {
-    return { kind: "primitive", name: expr.target as PrimitiveName };
+  // Literals and operators are typed by the single typing pass (M-T5.44,
+  // cutover family 3a) — the one answer the validators read too.
+  if (
+    isStringLit(expr) ||
+    isTemplateStr(expr) ||
+    isIntLit(expr) ||
+    isDecLit(expr) ||
+    isPrimitiveConversion(expr) ||
+    isBoolLit(expr) ||
+    isNullLit(expr) ||
+    isNowExpr(expr) ||
+    isUnaryExpr(expr) ||
+    isBinaryChain(expr) ||
+    isTernaryExpr(expr)
+  ) {
+    const t = typingFor(expr).synthAt(expr);
+    return t ? irType(t) : { kind: "primitive", name: "string" };
   }
-  if (isBoolLit(expr)) return { kind: "primitive", name: "bool" };
-  if (isNullLit(expr)) return { kind: "primitive", name: "string" };
   if (isListLit(expr)) {
     // Best-effort element-type inference: use the first element's type
     // as the array's element type.  Empty list / heterogeneous lists
@@ -2644,7 +2614,6 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
       : { kind: "primitive", name: "string" };
     return { kind: "array", element: elementType };
   }
-  if (isNowExpr(expr)) return { kind: "primitive", name: "datetime" };
   if (isThisRef(expr)) return thisTypeOf(env);
   if (isIdRef(expr)) {
     // A binding named `id` shadows the implicit identity — type it as the
@@ -2670,46 +2639,6 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   }
   if (isParenExpr(expr)) return inferExprType(expr.inner, env);
   if (isAwaitExpr(expr)) return inferExprType(expr.inner, env);
-  if (isUnaryExpr(expr)) {
-    if (expr.op === "!") return { kind: "primitive", name: "bool" };
-    return inferExprType(expr.operand, env);
-  }
-  if (isBinaryChain(expr)) {
-    // `??` short-circuits the fold: the value is the LAST operand's type when
-    // every earlier one is optional, so take the first operand type with its
-    // `optional` wrapper stripped — `due ?? fallback` on a `datetime?` is a
-    // `datetime`.  Mirrors `lowerCoalesceChain`, which produces exactly that
-    // ternary.
-    if (expr.ops[0] === "??") {
-      const head = inferExprType(expr.head, env);
-      return head.kind === "optional" ? head.inner : head;
-    }
-    // Left-fold the chain's operator types, mirroring lowerBinaryChain.
-    // Any boolean-typed op short-circuits the whole chain — once you
-    // see a logical / comparison op the result is bool regardless of
-    // subsequent ops (the chain is homogeneous-op per precedence
-    // level, so this is just an early exit).
-    let acc = inferExprType(expr.head, env);
-    for (let i = 0; i < expr.ops.length; i++) {
-      const op = expr.ops[i]!;
-      if (
-        op === "&&" ||
-        op === "||" ||
-        op === "==" ||
-        op === "!=" ||
-        op === "<" ||
-        op === "<=" ||
-        op === ">" ||
-        op === ">="
-      ) {
-        return { kind: "primitive", name: "bool" };
-      }
-      const rhs = inferExprType(expr.rest[i]!, env);
-      acc = binaryResultType(op, acc, rhs);
-    }
-    return acc;
-  }
-  if (isTernaryExpr(expr)) return inferExprType(expr.thenExpr, env);
   if (isMatchExpr(expr)) {
     // Match expressions return one arm's value (or the `else`).
     // Same posture as ternary — inspect the first arm's value type;
@@ -3035,12 +2964,6 @@ export function lowerEmitFields(
  *  byte-for-byte in step with the validator mirror
  *  (`src/language/validators/_shared.ts`) — the two disagreeing is what
  *  made `price / 2` a self-contradicting diagnostic. */
-function literalPromotionAnchor(t: TypeIR, op: string): "long" | "decimal" | "money" | null {
-  if (t.kind !== "primitive") return null;
-  if (t.name === "money") return op === "*" || op === "/" ? null : "money";
-  if (t.name === "long" || t.name === "decimal") return t.name;
-  return null;
-}
 
 function tryPromoteNumericLit(expr: Expression, target: PrimitiveName): ExprIR | null {
   if (target === "money") {
@@ -3198,95 +3121,6 @@ function entityHasDisplay(name: string, env: Env): boolean {
   const agg = env.ctx?.members.find((m): m is Aggregate => isAggregate(m) && m.name === name);
   if (!agg) return false;
   return agg.members.some((m) => isDerivedProp(m) && m.name === "display");
-}
-
-function binaryResultType(op: string, a: TypeIR, b: TypeIR): TypeIR {
-  if (op === "&&" || op === "||") return { kind: "primitive", name: "bool" };
-  if (op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
-    return { kind: "primitive", name: "bool" };
-  }
-  // Implicit string concatenation: `string + X` where X is
-  // stringifiable returns string.  Mirrors `arithmeticResult` in
-  // `type-system.ts` — the lowering wraps the non-string operand in
-  // a `convert` IR node so backends emit identical code to the
-  // explicit `string(x)` form.
-  if (op === "+") {
-    const aStr = a.kind === "primitive" && a.name === "string";
-    const bStr = b.kind === "primitive" && b.name === "string";
-    if (aStr || bStr) {
-      const other = aStr ? b : a;
-      // Note: `binaryResultType` lives outside of lowering's env-aware
-      // path; for aggregate-with-display admission we'd need the env,
-      // which the caller has but doesn't thread here.  The lowering
-      // binary handler computes the result type itself afterwards via
-      // `binaryResultType(op, leftType, rightType)`; if we miss
-      // admission here for an `entity` operand, the result type just
-      // falls through to the type-system rule (string + aggregate
-      // already admitted at AST-level via `arithmeticResult`).
-      if ((aStr && bStr) || isImplicitlyStringifiablePrimitiveOrEnum(other)) {
-        return { kind: "primitive", name: "string" };
-      }
-    }
-  }
-  const aIsMoney = a.kind === "primitive" && a.name === "money";
-  const bIsMoney = b.kind === "primitive" && b.name === "money";
-  if (aIsMoney || bIsMoney) {
-    if (aIsMoney && bIsMoney) {
-      return op === "+" || op === "-" ? { kind: "primitive", name: "money" } : a;
-    }
-    const other = aIsMoney ? b : a;
-    if (other.kind !== "primitive") return a;
-    const isScalar = other.name === "int" || other.name === "long" || other.name === "decimal";
-    if (!isScalar) return a;
-    if (op === "*") return { kind: "primitive", name: "money" };
-    if (op === "/" && aIsMoney) return { kind: "primitive", name: "money" };
-    return a;
-  }
-  // A5 temporal — the env-free mirror of the type-system's
-  // `temporalArithmetic` (src/language/type-system.ts), so the lowered
-  // binary node's `resultType` stamp agrees with what `typeOf` reported
-  // and the backends' operand-type dispatch (datetime ± duration vs
-  // dt − dt) never re-infers.  Ill-typed combinations fall through to
-  // the left type (validator already reported them).
-  {
-    const an = a.kind === "primitive" ? a.name : undefined;
-    const bn = b.kind === "primitive" ? b.name : undefined;
-    if (an === "datetime" && bn === "duration" && (op === "+" || op === "-")) {
-      return { kind: "primitive", name: "datetime" };
-    }
-    if (an === "duration" && bn === "datetime" && op === "+") {
-      return { kind: "primitive", name: "datetime" };
-    }
-    if (an === "datetime" && bn === "datetime" && op === "-") {
-      return { kind: "primitive", name: "duration" };
-    }
-    if (an === "duration" && bn === "duration" && (op === "+" || op === "-")) {
-      return { kind: "primitive", name: "duration" };
-    }
-    if (
-      op === "*" &&
-      ((an === "duration" && bn === "int") || (an === "int" && bn === "duration"))
-    ) {
-      return { kind: "primitive", name: "duration" };
-    }
-  }
-  if (a.kind === "primitive" && b.kind === "primitive") {
-    const order = ["int", "long", "decimal"] as const;
-    type NumericName = (typeof order)[number];
-    const ai = (order as readonly string[]).indexOf(a.name);
-    const bi = (order as readonly string[]).indexOf(b.name);
-    if (ai >= 0 && bi >= 0) {
-      const widened = order[Math.max(ai, bi)] as NumericName;
-      // Division widens to `decimal` — the lowering mirror of the type-system's
-      // `arithmeticResult` rule, so the lowered binary's `resultType` stamp
-      // agrees.  `int / int` → decimal (fractional); `+ - * %` int-preserving.
-      if (op === "/" && (widened === "int" || widened === "long")) {
-        return { kind: "primitive", name: "decimal" };
-      }
-      return { kind: "primitive", name: widened };
-    }
-  }
-  return a;
 }
 
 function memberType(t: TypeIR, name: string, env: Env): TypeIR {

@@ -229,7 +229,7 @@ async function differential(): Promise<Tally> {
       } catch {
         lang = "(throws)";
       }
-      const nt = session.typeAt(node);
+      const nt = session.synthAt(node);
       const neu = nt ? tyKey(nt) : "(unreached)";
       if (nt?.kind === "unknown") {
         bump(tally.newUnknownByCause, nt.cause);

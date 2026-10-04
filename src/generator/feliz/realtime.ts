@@ -292,6 +292,13 @@ function renderFsToastMessage(e: ExprIR, bind: string): string {
     }
     case "paren":
       return `(${renderFsToastMessage(e.inner, bind)})`;
+    // An implicit string conversion adds nothing: every part above already
+    // renders as a string.
+    case "convert":
+      if (e.target === "string") return renderFsToastMessage(e.value, bind);
+      throw new Error(
+        "Feliz realtime: only a conversion to string is supported in a toast message.",
+      );
     case "binary":
       return `${renderFsToastMessage(e.left, bind)} ${e.op} ${renderFsToastMessage(e.right, bind)}`;
     default:
