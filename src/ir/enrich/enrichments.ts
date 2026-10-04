@@ -1375,8 +1375,29 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
       return stmt.returnType.kind === "optional" ? stmt.returnType.inner : stmt.returnType;
     case "expr-let":
       return stmt.type;
-    default:
+    // The kinds that bind no tail value.  `undefined` here means "this
+    // statement contributes no return shape", which is what the workflow's
+    // return-shape derivation wants for a guard, a write, a delete, a bare
+    // call or a nesting statement.  Named rather than left to a `default:` so
+    // a new BINDING `WorkflowStmtIR` kind is a `tsc` error here instead of
+    // silently producing a workflow whose declared return type is `undefined`.
+    case "assign":
+    case "domain-service-call":
+    case "emit":
+    case "for-each":
+    case "if-let":
+    case "op-call":
+    case "precondition":
+    case "repo-delete":
+    case "repo-run":
+    case "requires":
+    case "resource-call":
       return undefined;
+    default: {
+      const _exhaustive: never = stmt;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }
 

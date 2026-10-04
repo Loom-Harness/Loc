@@ -91,8 +91,3 @@ export const Metrics = {
     labels: ["kind"],
   },
 } as const satisfies Record<string, MetricDef>;
-
-/** Lookup key for any catalog entry — used by per-backend renderers so a
- *  typo at a generator call site is a typecheck error, not a runtime
- *  missing-metric surprise. */
-export type MetricKey = keyof typeof Metrics;

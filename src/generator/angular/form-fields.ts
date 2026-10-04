@@ -129,13 +129,6 @@ export function formStyle(ctx: WalkContext): AngularFormStyle {
   return "plain";
 }
 
-/** True only for the Angular Material pack — the seams that fork Material-vs.
- *  other markup branch on this; PrimeNG and `spartanNg` both answer `false`
- *  and branch on {@link formStyle} for their own markup. */
-export function isMaterialPack(ctx: WalkContext): boolean {
-  return formStyle(ctx) === "material";
-}
-
 /** Render one form submit/cancel/action button, Material- or plain-styled per
  *  the active pack.  Material registers `MatButtonModule`; plain packs use the
  *  `.loom-button` classes from their theme (no module to register). */

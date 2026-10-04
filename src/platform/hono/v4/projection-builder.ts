@@ -1,4 +1,10 @@
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
+import {
+  RAW_INSTANT_FN,
+  rawInstantFields,
+  rawRowWireExpr,
+  renderRawInstantHelper,
+} from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import type {
   EnrichedBoundedContextIR,
@@ -145,6 +151,10 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       enumValueImportLine,
       "",
       ...(enumSchemaDecls.length > 0 ? [...enumSchemaDecls, ""] : []),
+      // The raw-row canonical-instant helper, only when a route actually calls it
+      // — an unused function is an error under the generated-project Biome config
+      // (the same rule that gates every import line above).
+      ...(bodyText.includes(`${RAW_INSTANT_FN}(`) ? [...renderRawInstantHelper(), ""] : []),
       bodyText,
     ]
       .filter((l) => l !== null)
@@ -288,13 +298,28 @@ function renderFoldStatement(stmt: StmtIR, p: ProjectionIR, h: ProjectionOnIR): 
         ? `  state.${field} = (state.${field} ?? []).filter((__e) => __e !== ${toColumn(stmt.elementType, value)});`
         : `  state.${field} = ${accumulate(stmt.elementType, field, "-", value)};`;
     }
-    default:
+    // The impure remainder — refused, and enumerated rather than swept into a
+    // bare `default` so a NEW `StmtIR` kind is a compile error here (the
+    // `never` below) and gets classified deliberately.  This mirrors the
+    // elixir twin, `generator/elixir/dispatch-emit.ts#renderStmt`.
+    case "expression":
+    case "return":
+    case "precondition":
+    case "requires":
+    case "emit":
+    case "call":
+    case "variant-match":
+    case "if":
       throw new Error(
         `hono projection fold: unsupported fold statement '${stmt.kind}' in ` +
           `projection '${p.name}' on(${h.param}: ${h.event}) — a fold applies pure ` +
           `assignments / collection mutations / let bindings only; ` +
           `'loom.projection-fold-impure' should have rejected this.`,
       );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 
@@ -445,6 +470,9 @@ function emitProjectionRoutes(
     const rowClass = mikroProjectionRowClass(p);
     const corr = p.correlationField;
     const gated = !!p.query?.requires;
+    // The row props whose value arrives as a JS `Date` and must be canonicalised
+    // on the way out (see `raw-row-wire.ts`).
+    const instants = rawInstantFields(p.wireShape);
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
       problemTitle(forbiddenStatus),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
@@ -477,8 +505,14 @@ function emitProjectionRoutes(
         ? `      const rows = await db.find(${rowClass}, {});`
         : `      const rows = await db.select().from(${table});`,
     );
+    // RS-4 — the rows go out RAW (no repository `toWire` on this path), so a
+    // `datetime` column would reach `JSON.stringify` as a `Date` and serialise
+    // through `toJSON`'s padded `.000` fraction.  A datetime-free projection
+    // keeps the verbatim `rows` expression.
+    const rowsExpr =
+      instants.length === 0 ? "rows" : `rows.map((r) => (${rawRowWireExpr("r", instants)}))`;
     out.push(
-      `      return httpCtx.json(rows as unknown as z.infer<typeof ${T}ListResponse>, 200);`,
+      `      return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}ListResponse>, 200);`,
     );
     out.push(`    },`);
     out.push(`  );`);
@@ -518,7 +552,9 @@ function emitProjectionRoutes(
     // RS-27 extends here — a projection row read by its correlation KEY is a
     // by-id read.
     out.push(`      if (!row) throw new AggregateNotFoundError(\`${T} \${key} not found\`);`);
-    out.push(`      return httpCtx.json(row as unknown as z.infer<typeof ${T}Response>, 200);`);
+    out.push(
+      `      return httpCtx.json(${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}Response>, 200);`,
+    );
     out.push(`    },`);
     out.push(`  );`);
     out.push("");
