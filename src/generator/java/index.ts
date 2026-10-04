@@ -1506,8 +1506,9 @@ function emitProjectFromContexts(
   );
   // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
   // Beside the probes because it is the same class of surface: infra, not part
-  // of the domain contract.  It answers 404 unless LOOM_TEST_RESET=1, which the
-  // generated compose file sets, so it does nothing in a deployment.
+  // of the domain contract.  It answers 404 unless LOOM_TEST_RESET=1 AND
+  // LOOM_TEST_RESET_TOKEN are set (the generated compose file sets neither),
+  // and 403 to a request without that token.
   //
   // Seed runners are injected so the reset can re-apply declared seed data
   // after truncating — a reset restores the just-migrated-AND-seeded state,

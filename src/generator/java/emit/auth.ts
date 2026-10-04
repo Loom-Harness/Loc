@@ -385,8 +385,9 @@ export function renderAuthFiles(
       `        "/swagger",`,
       // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
       // surface, so an auth-bearing system's e2e suite need not mint a
-      // principal just to empty a table.  The handler itself answers 404
-      // unless the switch is on, so bypassing the filter exposes nothing.
+      // principal just to empty a table.  Not an auth bypass: the handler
+      // answers 404 unless LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN are
+      // set, and 403 to a request without that secret.
       `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable
       // without a verified principal; /auth/me stays protected (it is the

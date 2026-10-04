@@ -372,8 +372,10 @@ function renderAuthMiddleware(
   // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
   // same reason as the probes: it is infra, not domain surface, and an
   // auth-bearing system's e2e suite would otherwise have to mint a principal
-  // just to empty a table.  It costs nothing — the route is not DEFINED unless
-  // the switch is on, so there is no handler behind the bypassed path.
+  // just to empty a table.  Bypassing the middleware is not bypassing
+  // authentication: the route is defined only with an explicit
+  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-loom-test-reset` header does not match that secret.
   const bypass = oidc
     ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
     : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
