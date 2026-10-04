@@ -315,8 +315,8 @@ export function checkAssignOrCall(
   if (stmt.op === ":=") {
     const valueType = typeOf(stmt.value, env);
     if (
-      targetType.kind !== "unknown" &&
-      valueType.kind !== "unknown" &&
+      !partlyUnknown(targetType) &&
+      !partlyUnknown(valueType) &&
       !isAssignable(valueType, targetType) &&
       !canPromoteLiteralTo(stmt.value, targetType)
     ) {
@@ -1103,5 +1103,18 @@ export function lvalueIsDerived(lv: LValue, agg: Aggregate): boolean {
       if (isDerivedProp(m) && m.name === lastSegment) return true;
     }
   }
+  return false;
+}
+
+/** `unknown`, or a collection/optional whose element is — the value every
+ *  downstream check suppresses on.  A macro-emitted parameter can type as
+ *  `unknown[]` (crudish's `update(items: LineItem[])` over a value-object
+ *  array), and since a bare assignment head now resolves to the MEMBER
+ *  (M-T5.42 V4) that parameter meets a fully-typed target — reporting
+ *  `unknown[]` vs `LineItem[]` would blame the author for an unresolved type. */
+function partlyUnknown(t: DddType): boolean {
+  if (t.kind === "unknown") return true;
+  if (t.kind === "array") return partlyUnknown(t.element);
+  if (t.kind === "optional") return partlyUnknown(t.inner);
   return false;
 }
