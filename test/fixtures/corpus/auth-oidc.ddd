@@ -68,6 +68,13 @@ system Helpdesk {
     let read = api.tickets.getById(t)
     expect(read.open).toBe(false)
 
+    // The agent token CARRIES the optional `agentId` claim, so `take()`'s
+    // `!= null` gate admits it — the present-claim half of H-10 (the ladder's
+    // unauthorized token, which omits the claim, proves the 403 half).
+    api.tickets.take(t)
+    let taken = api.tickets.getById(t)
+    expect(taken.open).toBe(true)
+
     // The canonical `update` is UNGUARDED — no `requires` clause — but it still
     // sits behind `auth: required`, so it exercises the other half of the
     // authenticated surface: a route the verified principal reaches without any

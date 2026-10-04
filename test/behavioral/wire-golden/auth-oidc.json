@@ -33,7 +33,7 @@
     {
       "seq": 3,
       "method": "POST",
-      "path": "/api/tickets/{id}/update",
+      "path": "/api/tickets/{id}/take",
       "status": 204,
       "body": ""
     },
@@ -45,12 +45,31 @@
       "body": {
         "id": "<volatile:key>",
         "open": true,
-        "subject": "SSO fixed",
+        "subject": "SSO broken",
         "version": 3
       }
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "open": true,
+        "subject": "SSO fixed",
+        "version": 4
+      }
+    },
+    {
+      "seq": 7,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -60,7 +79,7 @@
             "id": "<volatile:key>",
             "open": true,
             "subject": "SSO fixed",
-            "version": 3
+            "version": 4
           }
         ],
         "page": 1,
@@ -70,14 +89,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "DELETE",
       "path": "/api/tickets/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 404,
@@ -90,7 +109,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -103,7 +122,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -116,7 +135,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -129,7 +148,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -142,7 +161,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 401,
@@ -155,7 +174,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -164,7 +183,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 401,
@@ -177,7 +196,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -190,14 +209,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 401,
@@ -210,7 +229,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 403,
@@ -223,7 +242,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 204,
