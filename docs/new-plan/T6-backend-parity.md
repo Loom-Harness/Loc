@@ -676,3 +676,13 @@ Item **P15** (#2736). An `invariant` without an explicit message surfaces the ra
 Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-floor shape). The same precondition inside a domain-service operation, a top-level `function` or a workflow step still answers a 422 whose body carries only the message, with no stable `code` — so a client cannot branch on it and the LiveView flash (see [M-T6.77](#m-t677) E5) cannot either.
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
+
+## M-T6.85 — `with scaffoldApi` + `with scaffoldHandlers` registers every scaffolded route twice; on node and python the explicit handler is dead code — `open` · **M** · P2
+
+*Minted 2026-10-04 by the generated-name uniqueness census (`test/system/generated-name-uniqueness.test.ts`, #3152), which reports exactly this set and nothing else on the tracked corpus.* Re-verify on fresh `main` before building (RUNBOOK §1).
+
+`scaffoldApi` synthesises one explicit `route` per create / operation / find / get-by-id / destroy, which is a 1:1 duplicate of the always-on auto-derived REST surface (`deriveContextOperations`). Node and python mount BOTH under `/api`, auto router first, so the first registration wins silently: the scaffolded explicit handler is unreachable, and on python each duplicate also re-mints its operationId (`createOrder` ×2), which is invalid OpenAPI. .NET / java / elixir avoid the build break only because `src/generator/_api/explicit-route-mount.ts` keeps a colliding explicit route at the ROOT (a documented stop-gap, not a fix).
+
+**The fix:** decide ONE owner per slot. Either the auto surface yields a slot an explicit route claims (the explicit layer is the declared, authoritative one), or `scaffoldApi` stops emitting routes the auto surface already serves. Then delete the root-mount exception in `explicit-route-mount.ts`.
+
+**Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
