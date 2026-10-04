@@ -25,6 +25,7 @@ import {
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { jid } from "./java-ident.js";
+import { J } from "./java-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Java / Spring backend.
@@ -247,7 +248,9 @@ export function buildJavaRegexFields(patterns: Iterable<string>): {
     if (fields.has(p)) continue;
     const name = `MATCHES_PATTERN_${fields.size}`;
     fields.set(p, name);
-    decls.push(`private static final Pattern ${name} = Pattern.compile(${JSON.stringify(p)});`);
+    decls.push(
+      `private static final ${J.Pattern} ${name} = ${J.Pattern}.compile(${JSON.stringify(p)});`,
+    );
   }
   return { fields, decls };
 }
@@ -339,7 +342,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // Bare object literals only appear in e2e / walker contexts; keep total
   // with a Map literal so unexpected uses still compile.
   object: (fields) =>
-    `Map.of(${fields.map((f) => `${JSON.stringify(f.name)}, ${f.value}`).join(", ")})`,
+    `${J.Map}.of(${fields.map((f) => `${JSON.stringify(f.name)}, ${f.value}`).join(", ")})`,
   unary: (op, operand, e) =>
     // money/decimal are `java.math.BigDecimal` here, which has no unary-minus
     // operator — `-this.price` is "bad operand type for unary operator '-'".
@@ -360,11 +363,11 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   duration: (unit, amount) => {
     switch (unit) {
       case "days":
-        return `Duration.ofDays(${amount})`;
+        return `${J.Duration}.ofDays(${amount})`;
       case "hours":
-        return `Duration.ofHours(${amount})`;
+        return `${J.Duration}.ofHours(${amount})`;
       case "minutes":
-        return `Duration.ofMinutes(${amount})`;
+        return `${J.Duration}.ofMinutes(${amount})`;
     }
   },
   match(arms, otherwise) {
@@ -413,7 +416,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   bindingRefText: (binding) => binding,
   // Union-find repos return a nullable aggregate (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != null`,
-  list: (elements) => `List.of(${elements.join(", ")})`,
+  list: (elements) => `${J.List}.of(${elements.join(", ")})`,
 };
 
 export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): string {
@@ -422,11 +425,11 @@ export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): str
 
 function renderLiteral(lit: string, value: string): string {
   if (lit === "string") return JSON.stringify(value);
-  if (lit === "now") return "Instant.now()";
+  if (lit === "now") return `${J.Instant}.now()`;
   if (lit === "null") return "null";
   // money / decimal are BigDecimal — string-sourced construction keeps
   // the literal's precision exactly (BigDecimal("10.50") ≠ valueOf(10.5)).
-  if (lit === "decimal" || lit === "money") return `new BigDecimal("${value}")`;
+  if (lit === "decimal" || lit === "money") return `new ${J.BigDecimal}("${value}")`;
   if (lit === "long") return `${value}L`;
   return value;
 }
@@ -601,7 +604,7 @@ function renderMethodCall(
         : undefined;
     return field
       ? `${field}.matcher(${recv}).find()`
-      : `Pattern.compile(${args[0]}).matcher(${recv}).find()`;
+      : `${J.Pattern}.compile(${args[0]}).matcher(${recv}).find()`;
   }
   if (e.receiverType.kind === "primitive") {
     const intrinsic = JAVA_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
@@ -645,7 +648,7 @@ export const JAVA_COLLECTION_RENDERERS: Record<
     const elem = e ? unwrapOptional(sumElementType(e)) : undefined;
     const stream = args.length === 1 ? `${recv}.stream().map(${args[0]})` : `${recv}.stream()`;
     if (isMoneyLike(elem)) {
-      return `${stream}.reduce(BigDecimal.ZERO, BigDecimal::add)`;
+      return `${stream}.reduce(${J.BigDecimal}.ZERO, ${J.BigDecimal}::add)`;
     }
     if (elem?.kind === "primitive" && elem.name === "long") {
       return args.length === 1
@@ -861,7 +864,7 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (e.op === "==" || e.op === "!=") {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
     if (needsObjectsEquals(lt, e)) {
-      return e.op === "==" ? `Objects.equals(${l}, ${r})` : `!Objects.equals(${l}, ${r})`;
+      return e.op === "==" ? `${J.Objects}.equals(${l}, ${r})` : `!${J.Objects}.equals(${l}, ${r})`;
     }
     return `${l} ${e.op} ${r}`;
   }
@@ -902,7 +905,7 @@ function renderTemporalBinary(l: string, r: string, e: BinaryExpr): string | nul
     if (lt === "datetime") {
       // datetime − datetime → Duration (Loom `a - b` = a minus b, and
       // `Duration.between(start, end)` = end − start).
-      if (e.op === "-" && rt === "duration") return `Duration.between(${r}, ${l})`;
+      if (e.op === "-" && rt === "duration") return `${J.Duration}.between(${r}, ${l})`;
       if (rt === "datetime") {
         return `${l}.${e.op === "+" ? "plus" : "minus"}(${r})`;
       }
@@ -935,7 +938,7 @@ function renderMoneyBinary(op: BinaryExpr["op"], l: string, r: string): string {
     case "/":
       // DECIMAL128 mirrors C# decimal's ~28-digit precision; a bare
       // BigDecimal.divide throws on non-terminating expansions.
-      return `${l}.divide(${r}, MathContext.DECIMAL128)`;
+      return `${l}.divide(${r}, ${J.MathContext}.DECIMAL128)`;
     case "==":
       return `${l}.compareTo(${r}) == 0`;
     case "!=":
@@ -982,7 +985,7 @@ function renderJavaConvert(target: string, from: string | undefined, v: string):
   }
   if (target === "decimal" || target === "money") {
     if (from === "money" || from === "decimal") return v;
-    return `BigDecimal.valueOf(${v})`;
+    return `${J.BigDecimal}.valueOf(${v})`;
   }
   return v;
 }
@@ -1008,17 +1011,17 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         // BigDecimal is the precise type; money differs from decimal
         // only at the JSON wire boundary (string encoding), handled
         // by the DTO emitter's Jackson config.
-        return "BigDecimal";
+        return J.BigDecimal;
       case "string":
         return "String";
       case "bool":
         return mode === "reference" ? "Boolean" : "boolean";
       case "datetime":
-        return "Instant";
+        return J.Instant;
       case "guid":
-        return "UUID";
+        return J.UUID;
       case "json":
-        return "JsonNode";
+        return J.JsonNode;
       case "File":
         // Passive wire-only leaf — the shared FileRef reference record
         // (emitted once per project; see the wire emitter).
@@ -1026,11 +1029,11 @@ const JAVA_TYPE_TARGET: TypeTarget = {
       case "duration":
         // A5 temporal — absolute duration as java.time.Duration.
         // Expression-only (never a field / wire type).
-        return "Duration";
+        return J.Duration;
     }
   },
   id: (targetName) => `${targetName}Id`,
-  array: (element) => `List<${element}>`,
+  array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.
   optional: (inner) => inner,

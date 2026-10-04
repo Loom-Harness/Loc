@@ -208,7 +208,8 @@ const BACKENDS: BackendCensus[] = [
       },
       {
         file: "src/generator/java/render-expr.ts",
-        contains: 'if (lit === "decimal" || lit === "money") return `new BigDecimal("${value}")`;',
+        contains:
+          'if (lit === "decimal" || lit === "money") return `new ${J.BigDecimal}("${value}")`;',
         reason: "ExprTarget decimal/money LITERAL constructor, not a read boundary",
       },
     ],

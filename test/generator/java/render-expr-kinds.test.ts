@@ -10,12 +10,21 @@
 // and record-style accessor members (`recv.member()`).
 
 import { describe, expect, it } from "vitest";
-import {
-  boxedJavaType,
-  renderJavaExpr,
-  renderJavaType,
-} from "../../../src/generator/java/render-expr.js";
-import { renderJavaStatements } from "../../../src/generator/java/render-stmt.js";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
+import * as JR from "../../../src/generator/java/render-expr.js";
+import * as JS from "../../../src/generator/java/render-stmt.js";
+
+// The renderers write importable types as `ref()` markers (M-T9.86); these
+// pins read the SPELLED text.
+const renderJavaExpr = (...a: Parameters<typeof JR.renderJavaExpr>): string =>
+  spellMarkers(JR.renderJavaExpr(...a));
+const renderJavaType = (t: Parameters<typeof JR.renderJavaType>[0]): string =>
+  spellMarkers(JR.renderJavaType(t));
+const boxedJavaType = (t: Parameters<typeof JR.boxedJavaType>[0]): string =>
+  spellMarkers(JR.boxedJavaType(t));
+const renderJavaStatements = (...a: Parameters<typeof JS.renderJavaStatements>): string =>
+  spellMarkers(JS.renderJavaStatements(...a));
+
 import type { ExprIR, StmtIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
 

@@ -23,6 +23,7 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { jid, jsonProp } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
 import {
@@ -392,9 +393,9 @@ export function renderDtoFiles(
  *  String>`, which is why the constraint also targets `TYPE_USE`) validates
  *  each element instead, which is what the guard meant all along. */
 function nulGuarded(javaType: string): string {
-  return javaType.startsWith("List<")
-    ? javaType.replace("List<", "List<@NoNulChar ")
-    : `@NoNulChar ${javaType}`;
+  // `List` arrives as an import marker from the type renderer (M-T9.86).
+  const list = [`${J.List}<`, "List<"].find((p) => javaType.startsWith(p));
+  return list ? javaType.replace(list, `${list}@NoNulChar `) : `@NoNulChar ${javaType}`;
 }
 
 function bearsWireString(t: TypeIR): boolean {

@@ -13,6 +13,7 @@ import type {
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
@@ -240,7 +241,8 @@ function renderProjectionFoldStmt(
  *  nullable while a primitive one cannot be. */
 function accumulateJava(proj: ProjectionIR, field: string, op: "+" | "-", value: string): string {
   const t = proj.stateFields.find((f) => f.name === field)?.type;
-  const spelling = t ? renderJavaType(t) : "int";
+  // Compared as SPELLED text: the type renderer writes import markers (M-T9.86).
+  const spelling = t ? spellMarkers(renderJavaType(t)) : "int";
   const cur = `state.${field}()`;
   if (spelling === "BigDecimal") {
     const verb = op === "+" ? "add" : "subtract";
