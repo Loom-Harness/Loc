@@ -932,7 +932,7 @@ interface VoLeaf {
  *  recursing through nested value objects — the repository-side mirror of
  *  `py-columns.columnsFor`'s `valueobject` arm. */
 function voLeafPaths(voName: string, prefix: string, ctx: EnrichedBoundedContextIR): VoLeaf[] {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return [];
   return vo.fields.flatMap((vf) => {
     const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
@@ -966,7 +966,7 @@ function hydrateVo(
    *  field. */
   nullableGroup: boolean = optional,
 ): string | undefined {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return undefined;
   const args = vo.fields
     .map((vf) => {
@@ -1391,7 +1391,7 @@ function persistVoLeaves(
   guards: readonly string[],
   ctx: EnrichedBoundedContextIR,
 ): Array<[string, string]> | undefined {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return undefined;
   return vo.fields.flatMap((vf): Array<[string, string]> => {
     const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;

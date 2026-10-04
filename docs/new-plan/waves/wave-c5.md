@@ -2,7 +2,7 @@
 
 Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 "Wave C5". Rules: §3 there and §3/§3a of [`../improvement-waves-2026-09.md`](../improvement-waves-2026-09.md). The wave lands as **one docs PR (the rulings) followed by one PR per moment**, each on `claude/loom-review-planning-adz0n4` restarted from `main` after the previous one merges — the plan's "sequenced so their fixture re-baselines never overlap" is enforced by the branch, not by discipline.
 
-## Status: **5.0 MERGED — #3053 → `main` 2026-09-28 06:00Z. 5d MERGED — #3054 → `main` @ `d16aed8f2` 2026-09-28 08:32Z (one post-fold fix: the flutter heredoc fixture). 5a (M-T5.22) + 5c (M-T5.1) MERGED — #3055 → `main` @ `8202fb632` 2026-09-28 09:32Z (first queue attempt, 16 min in the queue). 5e MERGED — #3056 → `main` @ `525df5152` 2026-09-28 11:41Z (first queue attempt, 22 min in the queue). 5b folded → the wave's LAST PR, on the branch fast-forwarded onto that merge.**
+## Status: **5.0 MERGED — #3053 → `main` 2026-09-28 06:00Z. 5d MERGED — #3054 → `main` @ `d16aed8f2` 2026-09-28 08:32Z (one post-fold fix: the flutter heredoc fixture). 5a (M-T5.22) + 5c (M-T5.1) MERGED — #3055 → `main` @ `8202fb632` 2026-09-28 09:32Z (first queue attempt, 16 min in the queue). 5e MERGED — #3056 → `main` @ `525df5152` 2026-09-28 11:41Z (first queue attempt, 22 min in the queue). 5b MERGED — #3057 → `main` @ `d2a0bc02` 2026-09-28 12:34Z. **Wave C5 is fully merged** (5.0, 5a–5e); its residue is carried by [`../leftover-waves-2026-09-28.md`](../leftover-waves-2026-09-28.md).**
 
 ## Why C5 is the next moment, and what it is not
 
