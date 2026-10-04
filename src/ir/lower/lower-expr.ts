@@ -244,10 +244,20 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
       const rStr = rhsType.kind === "primitive" && rhsType.name === "string";
       if (fold?.textConcat) {
         // left as written
-      } else if (lStr && !rStr && !noConvert(rhsType) && isImplicitlyStringifiableIR(rhsType, env)) {
+      } else if (
+        lStr &&
+        !rStr &&
+        !noConvert(rhsType) &&
+        isImplicitlyStringifiableIR(rhsType, env)
+      ) {
         rhsIR = wrapForStringConcat(rhsIR, rhsType);
         rhsType = { kind: "primitive", name: "string" };
-      } else if (rStr && !lStr && !noConvert(accType) && isImplicitlyStringifiableIR(accType, env)) {
+      } else if (
+        rStr &&
+        !lStr &&
+        !noConvert(accType) &&
+        isImplicitlyStringifiableIR(accType, env)
+      ) {
         acc = wrapForStringConcat(acc, accType);
         accType = { kind: "primitive", name: "string" };
       }
