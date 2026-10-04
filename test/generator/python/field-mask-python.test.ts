@@ -8,6 +8,7 @@
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
+import { finalizePyModule } from "../../../src/generator/_imports/python.js";
 import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import {
   aggHasFieldMask,
@@ -58,7 +59,7 @@ describe("mask unless — Python read redaction", () => {
 
   it("emits a fail-closed to_wire_masked that redacts the field unless the predicate holds", async () => {
     const { agg } = await ctxAndAgg();
-    const method = toWireMaskedMethod(agg);
+    const method = spellMarkers(toWireMaskedMethod(agg));
     expect(method).toContain("def to_wire_masked(self, root: P) -> dict[str, object]:");
     expect(method).toContain("_mask_user = current_user()");
     // fail-closed: unauthenticated OR failed predicate → redact to None.
@@ -78,7 +79,9 @@ describe("mask unless — Python read redaction", () => {
   it("the repository imports the non-raising current_user getter", async () => {
     const { ctx, agg } = await ctxAndAgg();
     const repo = ctx.repositories.find((r) => r.aggregateName === "P");
-    const file = buildPyRepositoryFile(agg, repo, ctx);
+    const file = finalizePyModule(buildPyRepositoryFile(agg, repo, ctx), {
+      path: "app/db/repositories/p_repository.py",
+    });
     expect(file).toContain("from app.auth.user import current_user");
     expect(file).toContain("def to_wire_masked");
   });
