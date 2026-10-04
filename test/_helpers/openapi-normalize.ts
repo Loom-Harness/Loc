@@ -321,9 +321,19 @@ export function normalisePath(p: string): string {
  * backends.
  */
 function schemaRefName(
-  schema: { $ref?: string; type?: string; items?: { $ref?: string } } | undefined,
+  schema:
+    | { $ref?: string; type?: string; items?: { $ref?: string }; anyOf?: { $ref?: string }[] }
+    | undefined,
 ): string | null {
   if (!schema) return null;
+  // A union of named components: the error-arm status of an operation
+  // returning `T or <Error>` declares `anyOf: [ProblemDetails, <Tag>Problem]`
+  // (M-FT.24).  Compared as the sorted `A|B` set, so the error dimension still
+  // sees which problem bodies each backend offers instead of `(none)`.
+  if (Array.isArray(schema.anyOf) && schema.anyOf.every((m) => m.$ref)) {
+    const names = schema.anyOf.map((m) => schemaRefName(m));
+    if (names.every((n) => n !== null)) return [...names].sort().join("|");
+  }
   // Direct ref: response body schema points at a named component.
   if (schema.$ref) {
     const m = schema.$ref.match(/^#\/components\/schemas\/(.+)$/);
