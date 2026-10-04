@@ -161,6 +161,34 @@ describe("dotnet — one-character string literal → char overload (CA1865)", (
     expect(csproj).toMatch(/<NoWarn>[^<]*\bCA1866\b[^<]*<\/NoWarn>/);
     expect(csproj).not.toMatch(/<NoWarn>[^<]*\bCA1865\b[^<]*<\/NoWarn>/);
   });
+
+  // A reified criterion renders ONE body for both faces (criteria-emit.ts:
+  // `efQuery: true`), so the in-memory `IsSatisfiedBy` carries the EF spelling
+  // too.  That needs no split for /warnaserror: the two analyzers key on the
+  // CALL SHAPE, not on the position —
+  //   CA1865  StartsWith("x", StringComparison.Ordinal)  → domain renderer;
+  //           avoided there by the char overload, never emitted by a criterion.
+  //   CA1866  StartsWith("x")  (bare string overload)    → BOTH criterion faces
+  //           (measured: CodeXCriterion.cs lines 14 + 16 under sdk:10.0, EF and
+  //           Dapper, once CA1866 is removed from NoWarn) — suppressed.
+  // So the shared body builds clean; splitting would only change the in-memory
+  // semantics from culture-default to ordinal (the caveat render-expr.ts's
+  // CS_INTRINSIC_QUERY_RENDERERS comment records), not the build verdict.
+  for (const persistence of ["ef", "dapper"] as const) {
+    it(`criterion faces share the bare StartsWith("q") — CA1866-suppressed, never CA1865 (${persistence})`, async () => {
+      const files = await generateSystemFiles(MODEL(persistence));
+      const crit = files.get("api/Domain/Criteria/XItemCriterion.cs")!;
+      expect(crit).toContain(
+        '    public override bool IsSatisfiedBy(Item candidate) => candidate.Name.StartsWith("q");',
+      );
+      expect(crit).toContain(
+        '    public Expression<Func<Item, bool>> ToExpression() => candidate => candidate.Name.StartsWith("q");',
+      );
+      expect(crit).not.toContain("StringComparison");
+      const csproj = files.get("api/Api.csproj")!;
+      expect(csproj).toMatch(/<NoWarn>[^<]*\bCA1866\b[^<]*<\/NoWarn>/);
+    });
+  }
 });
 
 describe("dotnet — the `this.id == <string>` lift honours the member scope", () => {
