@@ -606,6 +606,10 @@ function systemValueFor(f: FieldIR): string {
   if (f.optional) return "null";
   const t = f.type;
   if (t.kind === "primitive" && t.name === "string") return `""`;
+  // An id claim is a branded string: the empty id, cast to the claim's own
+  // type — `middleware.ts` has no `Ids` import, and the dev stub's zero GUID
+  // would be a real-looking id rather than "no claim".
+  if (t.kind === "id") return `"" as UserClaims["${snakeToCamel(f.name)}"]`;
   return stubValueForType(t);
 }
 
