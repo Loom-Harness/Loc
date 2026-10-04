@@ -4,20 +4,15 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
-import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
+import { claimPathFor } from "../_auth/claim-types.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
+import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
 
-/** The branded id NewTypes an auth module must import from `app.domain.ids`
- *  because the claim shape names them (`customerId: Customer id?` annotates
- *  as `CustomerId | None`).  Both the `User` dataclass and the OIDC verifier
- *  name them — and the verifier's annotation sits INSIDE `cast(...)` in a
- *  function body, so a missing import there is not a lint nit but a
- *  `NameError` raised on every token verification (D6/P2). */
-function pyIdClaimImports(user: UserIR): string[] {
-  return claimIdTargets(user.fields).map((t) => `${t}Id`);
-}
+const TEXT = pyRef("sqlalchemy", "text");
+const SESSION_FACTORY = pyRef("app.db.engine", "session_factory");
 
 // ---------------------------------------------------------------------------
 // Python-side auth scaffolding emitted per deployable when
@@ -115,11 +110,11 @@ function stubValueForType(t: TypeIR): string {
         case "decimal":
           return "0.0";
         case "money":
-          return 'Decimal("0")';
+          return `${PY.Decimal}("0")`;
         case "bool":
           return "False";
         case "datetime":
-          return "datetime.fromtimestamp(0, tz=UTC)";
+          return `${PY.datetime}.fromtimestamp(0, tz=${PY.UTC})`;
         case "guid":
           return '"00000000-0000-0000-0000-000000000000"';
         default:
@@ -128,8 +123,10 @@ function stubValueForType(t: TypeIR): string {
     // Already constructed through the NewType factory — the only one of the
     // five stub tables that did.  Routed through the shared arm so it stays
     // that way (and widens with the id's value type).
+    // The leading `<T>Id` is written as the id-type marker so its import is
+    // derived from use.
     case "id":
-      return devStubIdExpr(t, "python");
+      return pyIdType(t.targetName) + devStubIdExpr(t, "python").slice(`${t.targetName}Id`.length);
     case "array":
       return "[]";
     default:
@@ -233,8 +230,6 @@ function renderUserModule(
     "        except ValueError:",
     "            return None",
   ];
-  // Id-typed claims (`Customer id?`) reference the branded NewTypes.
-  const idNames = pyIdClaimImports(user);
   return lines(
     '"""User-claim shape decoded from the inbound JWT.  Auto-generated.',
     "",
@@ -255,8 +250,6 @@ function renderUserModule(
     "from contextvars import ContextVar",
     "from dataclasses import dataclass",
     "",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    idNames.length > 0 ? "" : null,
     "",
     "@dataclass(frozen=True)",
     "class User:",
@@ -394,9 +387,9 @@ function renderAuthMiddleware(
         "    if not claim:",
         "        return claim",
         "    try:",
-        "        async with session_factory() as session:",
+        `        async with ${SESSION_FACTORY}() as session:`,
         "            result = await session.execute(",
-        `                text("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
+        `                ${TEXT}("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
         '                {"claim": claim},',
         "            )",
         "            data_key = result.scalar_one_or_none()",
@@ -417,15 +410,11 @@ function renderAuthMiddleware(
     "",
     "from fastapi import Request, Response",
     "from fastapi.responses import JSONResponse",
-    hierarchy ? "from sqlalchemy import text" : null,
     "from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint",
     "",
     "from app.auth.user import current_user_var",
     "from app.auth.verifier import verify_user_or_throw",
-    hierarchy ? "from app.db.engine import session_factory" : null,
-    orgContext
-      ? "from app.obs.log import log, set_actor_id"
-      : "from app.obs.log import set_actor_id",
+    "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,
     ...resolver,
@@ -481,7 +470,7 @@ function renderAuthMiddleware(
           "                requested_org_context == scope",
           '                or requested_org_context.startswith(scope + ".")',
           "            ):",
-          "                log(",
+          `                ${PY.log}(`,
           `                    "${LogEvents.orgContextDenied.level}",`,
           `                    "${LogEvents.orgContextDenied.event}",`,
           "                    org_context=requested_org_context,",
@@ -625,12 +614,6 @@ function renderOidcModule(user: UserIR, auth: AuthIR): string {
   if (!scopeList.includes("offline_access")) scopeList.push("offline_access");
   const scopes = scopeList.join(" ");
   const buildUser = renderBuildUserKwargs(user, auth);
-  // `_build_user` annotates each id-typed claim inside `cast(...)`, which
-  // Python EVALUATES on every call — so this import is load-bearing at
-  // runtime, not just for the type checker (D6/P2).
-  const oidcIds = pyIdClaimImports(user);
-  const oidcIdImport =
-    oidcIds.length > 0 ? `from app.domain.ids import ${oidcIds.join(", ")}\n` : "";
   return `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
 
 Validates the inbound JWT against the issuer's JWKS and maps the configured
@@ -654,7 +637,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
-${oidcIdImport}
+
 _SCOPES = ${JSON.stringify(scopes)}
 _AUDIENCE = ${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}
 

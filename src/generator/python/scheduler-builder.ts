@@ -28,6 +28,12 @@
 
 import type { EventIR, FieldIR, TimerSourceIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { pyModule, pyRef } from "../_imports/python.js";
+import { ref } from "../_imports/symbol.js";
+import { PY, pyNewId } from "./py-symbols.js";
+
+const PROCRASTINATE = ref(pyModule("procrastinate"));
+
 import { snake } from "../../util/naming.js";
 
 /** Does any owned timer use a real cron expression (vs a bare-interval
@@ -56,20 +62,20 @@ function everyTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
  *  mypy-clean so the emitted struct always typechecks under `--strict`. */
 function tickFieldValue(field: FieldIR): { text: string; typeIgnore?: boolean } {
   const t = field.type;
-  if (t.kind === "id") return { text: `new_${snake(t.targetName)}_id()` };
+  if (t.kind === "id") return { text: `${pyNewId(t.targetName)}()` };
   if (t.kind === "optional") return { text: "None" };
   if (t.kind === "array") return { text: "[]" };
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
-        return { text: "datetime.now(UTC)" };
+        return { text: `${PY.datetime}.now(${PY.UTC})` };
       case "int":
       case "long":
         return { text: "0" };
       case "decimal":
         return { text: "0.0" };
       case "money":
-        return { text: 'Decimal("0")' };
+        return { text: `${PY.Decimal}("0")` };
       case "bool":
         return { text: "False" };
       case "string":
@@ -78,7 +84,7 @@ function tickFieldValue(field: FieldIR): { text: string; typeIgnore?: boolean } 
       case "json":
         return { text: "{}" };
       case "duration":
-        return { text: "timedelta()" };
+        return { text: `${PY.timedelta}()` };
     }
   }
   // enum / value-object / union / etc.: not a meaningful tick field — a
@@ -96,44 +102,9 @@ function tickBuild(event: EventIR): string {
   return `${event.name}(${kwargs.join(", ")})`;
 }
 
-/** Which stdlib / domain imports the synthesised tick structs require. */
-interface TickImports {
-  idFactories: string[];
-  eventNames: string[];
-  usesDatetime: boolean;
-  usesDecimal: boolean;
-  usesTimedelta: boolean;
-}
-
-function collectTickImports(
-  timers: readonly TimerSourceIR[],
-  eventByName: Map<string, EventIR>,
-): TickImports {
-  const idFactories = new Set<string>();
-  const eventNames = new Set<string>();
-  let usesDatetime = false;
-  let usesDecimal = false;
-  let usesTimedelta = false;
-  for (const ts of timers) {
-    eventNames.add(ts.event);
-    const event = eventByName.get(ts.event);
-    for (const f of event?.fields ?? []) {
-      const t = f.type;
-      if (t.kind === "id") idFactories.add(`new_${snake(t.targetName)}_id`);
-      if (t.kind === "primitive") {
-        if (t.name === "datetime") usesDatetime = true;
-        if (t.name === "money") usesDecimal = true;
-        if (t.name === "duration") usesTimedelta = true;
-      }
-    }
-  }
-  return {
-    idFactories: [...idFactories].sort(),
-    eventNames: [...eventNames].sort(),
-    usesDatetime,
-    usesDecimal,
-    usesTimedelta,
-  };
+/** The tick events the owned timers fire (the scheduler module imports them). */
+function tickEventNames(timers: readonly TimerSourceIR[]): string[] {
+  return [...new Set(timers.map((ts) => ts.event))].sort();
 }
 
 /**
@@ -152,10 +123,12 @@ export function renderPyTimerScheduler(
   const everies = everyTimers(timers);
   const hasCron = crons.length > 0;
   const hasEvery = everies.length > 0;
-  const imp = collectTickImports(timers, eventByName);
+  const eventNames = tickEventNames(timers);
   // The dispatcher construction — the in-process router the sagas use when a
   // channel carries a subscribed event, else the no-op default.
-  const dispatchExpr = hasDispatch ? "make_dispatcher(session)" : "NoopDomainEventDispatcher()";
+  const dispatchExpr = hasDispatch
+    ? `${pyRef("app.dispatch", "make_dispatcher")}(session)`
+    : `${pyRef("app.domain.events", "NoopDomainEventDispatcher")}()`;
 
   // ── Durable `cron:` timers: one procrastinate periodic task each ──────────
   // The task body opens its own session (it runs on the procrastinate worker,
@@ -176,7 +149,7 @@ export function renderPyTimerScheduler(
       // previous fire is still running — the overlap-skip semantics.  Retries
       // ride on the store: three attempts with exponential backoff.
       `    queueing_lock=${JSON.stringify(`timer:${ts.name}`)},`,
-      "    retry=RetryStrategy(max_attempts=3, exponential_wait=2),",
+      `    retry=${pyRef("procrastinate", "RetryStrategy")}(max_attempts=3, exponential_wait=2),`,
       ")",
       `async def ${fn}(timestamp: int) -> None:`,
       `    """Durable tick for timerSource ${ts.name} (cron ${JSON.stringify(cron)}).`,
@@ -231,23 +204,10 @@ export function renderPyTimerScheduler(
     "import asyncio",
     "import contextlib",
     "from collections.abc import Callable",
-    imp.usesDatetime ? "from datetime import UTC, datetime" : null,
-    imp.usesTimedelta ? "from datetime import timedelta" : null,
-    imp.usesDecimal ? "from decimal import Decimal" : null,
-    "",
-    hasCron ? "import procrastinate" : null,
-    hasCron ? "from procrastinate import RetryStrategy" : null,
-    hasEvery ? "from sqlalchemy import text" : null,
     "",
     "from app.db.engine import session_factory",
-    hasDispatch ? "from app.dispatch import make_dispatcher" : null,
-    `from app.domain.events import ${["DomainEvent", ...imp.eventNames]
-      .concat(hasDispatch ? [] : ["NoopDomainEventDispatcher"])
-      .sort()
-      .join(", ")}`,
-    imp.idFactories.length > 0 ? `from app.domain.ids import ${imp.idFactories.join(", ")}` : null,
+    `from app.domain.events import ${["DomainEvent", ...eventNames].join(", ")}`,
     "from app.obs.log import log",
-    hasCron ? "from app.settings import DATABASE_URL" : null,
     "",
     "",
     ...(hasCron
@@ -255,10 +215,10 @@ export function renderPyTimerScheduler(
           "# procrastinate speaks libpq (psycopg 3); strip SQLAlchemy's async-driver",
           "# suffix off DATABASE_URL to get a plain conninfo.  The durable job store",
           "# shares the app's Postgres database but owns its own connection pool.",
-          '_CONNINFO = DATABASE_URL.replace("+asyncpg", "").replace("+psycopg", "")',
+          `_CONNINFO = ${pyRef("app.settings", "DATABASE_URL")}.replace("+asyncpg", "").replace("+psycopg", "")`,
           "",
-          "timer_app = procrastinate.App(",
-          "    connector=procrastinate.PsycopgConnector(conninfo=_CONNINFO),",
+          `timer_app = ${PROCRASTINATE}.App(`,
+          `    connector=${PROCRASTINATE}.PsycopgConnector(conninfo=_CONNINFO),`,
           ")",
           ...cronTasks,
           "",
@@ -289,7 +249,7 @@ export function renderPyTimerScheduler(
           "        async with session_factory() as session, session.begin():",
           "            locked = (",
           "                await session.execute(",
-          '                    text("SELECT pg_try_advisory_xact_lock(:key) AS locked"),',
+          `                    ${pyRef("sqlalchemy", "text")}("SELECT pg_try_advisory_xact_lock(:key) AS locked"),`,
           '                    {"key": lock_key},',
           "                )",
           "            ).scalar()",
