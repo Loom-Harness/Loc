@@ -230,7 +230,17 @@ function lowerWorkflowCreate(
   const statements: WorkflowStmtIR[] = c.gate
     ? [{ kind: "requires", expr: lowerExpr(c.gate, gateEnv), source: cstText(c.gate) }]
     : [];
+  // A terminal `return <expr>` (the `create(…): T` result) is held apart as
+  // `returnValue`, exactly as `lowerHandlerBody` does for a commandHandler —
+  // the workflow statement vocabulary has no `return` arm.  Placement (last,
+  // top-level) and the annotation pairing are AST-validator rules
+  // (`loom.workflow-return-*`), so a return is captured wherever it sits.
+  let returnValue: ExprIR | undefined;
   for (const s of c.body) {
+    if (isReturnStmt(s)) {
+      returnValue = lowerExpr(s.value, inner);
+      continue;
+    }
     const lowered = lowerWorkflowStatement(
       s,
       inner,
@@ -251,6 +261,8 @@ function lowerWorkflowCreate(
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(eventBinding ? { eventBinding } : {}),
     ...(eventRef ? { eventRef } : {}),
+    ...(c.returnType ? { returnType: lowerType(c.returnType, baseEnv) } : {}),
+    ...(returnValue ? { returnValue } : {}),
   };
 }
 

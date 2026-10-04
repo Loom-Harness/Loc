@@ -1091,6 +1091,48 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.transactional-with-continuations": (p: { name: unknown }) =>
     `Workflow '${p.name}' is 'transactional' but declares a continuation handler. ` +
     `A reactor / handle runs in its own transaction — drop 'transactional', or remove the continuation.`,
+  // `create(…): T { … return <expr> }` — a command starter's result (B-03).
+  "loom.workflow-return-no-caller": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' is event-triggered ('by …'), so nothing calls it and ` +
+    `there is no one to receive a result. Drop the ': T' and the 'return' — only a command-triggered ` +
+    `'create(…)' answers its caller.`,
+  "loom.workflow-return-no-caller#unrouted": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': 'create ${p.create}(…)' declares a result, but it is not the create ` +
+    `the workflow's POST route serves (that is the unnamed command-triggered 'create(…)'), so no ` +
+    `caller receives it. Move the ': T' and 'return' to the unnamed create, or drop them.`,
+  "loom.workflow-return-not-last": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': 'return' in '${p.create}' must be the last top-level statement of the ` +
+    `body. The result is answered after every step (and the transaction) completes, so an earlier or ` +
+    `nested 'return' would not stop the steps after it.`,
+  "loom.workflow-return-untyped": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' ends in 'return' but declares no result type. ` +
+    `Annotate it — 'create(…): T { … return <expr> }' — so the route publishes what it answers.`,
+  "loom.workflow-return-missing": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' declares a result type but its body does not end in ` +
+    `'return <expr>'. Add the return, or drop the ': T' to keep the 204 No Content answer.`,
+  "loom.workflow-return-type-mismatch": (p: {
+    workflow: unknown;
+    create: unknown;
+    actual: unknown;
+    declared: unknown;
+  }) =>
+    `Workflow '${p.workflow}': '${p.create}' returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.workflow-return-type-unsupported": (p: {
+    workflow: unknown;
+    create: unknown;
+    declared: unknown;
+  }) =>
+    `Workflow '${p.workflow}': '${p.create}' declares result type '${p.declared}', which a workflow ` +
+    `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool'. Return the ` +
+    `new aggregate's id and read it back through its own GET route, or use a 'commandHandler', ` +
+    `whose result projects through the aggregate's wire shape.`,
+  "loom.workflow-return-type-unsupported#event-sourced": (p: {
+    workflow: unknown;
+    create: unknown;
+  }) =>
+    `Workflow '${p.workflow}' is 'eventSourced', so '${p.create}' may only emit events and cannot ` +
+    `declare a result. Drop the ': T' and the 'return', or read the outcome back through the ` +
+    `workflow's instance endpoint.`,
   "loom.workflow-applier-on-non-event-sourced": (p: { name: unknown }) =>
     `Workflow '${p.name}' declares apply(...) but is not event-sourced. ` +
     `Add 'eventSourced' to the workflow header, or remove the applier.`,

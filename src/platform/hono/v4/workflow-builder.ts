@@ -69,7 +69,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
-import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
+import { commandCreateResult, emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
@@ -819,8 +819,17 @@ function emitWorkflowRoute(
   out.push(`    request: {`);
   out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
+  // `create(…): T { … return <expr> }` — the route answers 200 with the value
+  // (the commandHandler twin); no declared result keeps the 204, byte-identical.
+  const result = commandCreateResult(wf);
   out.push(`    responses: {`);
-  out.push(`      204: { description: "No content" },`);
+  if (result) {
+    out.push(
+      `      200: { description: "OK", content: { "application/json": { schema: ${zodForResponse(result.type, false)} } } },`,
+    );
+  } else {
+    out.push(`      204: { description: "No content" },`);
+  }
   // workflow → 400 (domain) + 422 (validation, ProblemDetails with §3.2
   // `errors[]` extension emitted by the shared defaultHook), per the
   // openapi-errors matrix.  See
@@ -980,6 +989,19 @@ function emitWorkflowRoute(
   // the before/after wire snapshots through the repo (`repo.toWire(agg)`).
   const repoVarByAgg = new Map(reposNeeded.map((r) => [r.aggName, lowerFirst(r.repoName)]));
   const bi = wrapsFrame ? "      " : "    ";
+  // The result is computed where the body's lets are in scope (inside the
+  // transaction / child frame callbacks) and answered after they complete — so
+  // a transactional workflow's value is read inside the tx and sent after
+  // commit.  `!`: assigned in a callback TS's flow analysis cannot see into.
+  if (result) {
+    out.push(`    let workflowResult!: ${workflowResultTsType(result.type)};`);
+  }
+  const resultAssign = (ind: string): string[] =>
+    result
+      ? [
+          `${ind}workflowResult = ${renderExprWithParams(result.value, paramExprs, wfThis, readPortResolver(ctx))};`,
+        ]
+      : [];
   if (wrapsFrame) {
     out.push(`    await runInChildContext(async () => {`);
   }
@@ -1043,6 +1065,7 @@ function emitWorkflowRoute(
     }
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
+    out.push(...resultAssign(`${bi}  `));
     out.push(`${bi}}${txOpts});`);
   } else {
     for (const r of reposNeeded) {
@@ -1061,6 +1084,7 @@ function emitWorkflowRoute(
     }
     out.push(...stateSave("db", bi));
     out.push(...renderProvFlush(provSaves, bi, "db"));
+    out.push(...resultAssign(bi));
   }
   if (wrapsFrame) {
     out.push(`    });`);
@@ -1072,10 +1096,28 @@ function emitWorkflowRoute(
   // error short-circuit before reaching here, so the line fires only when the
   // body ran to its terminal 204.
   out.push(`    ${renderHonoStoreLogCall("workflowCompleted", `workflow: "${wf.name}"`)}`);
-  out.push(`    return httpCtx.body(null, 204);`);
+  out.push(
+    result
+      ? `    return httpCtx.json(workflowResult, 200);`
+      : `    return httpCtx.body(null, 204);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;
+}
+
+/** The TS type of a workflow route's declared result local — the WIRE type the
+ *  200 schema publishes (a branded id is a `string`/`number` subtype, so the
+ *  domain value assigns to it directly).  Only the result kinds phase ④ admits
+ *  (`loom.workflow-return-type-unsupported`) reach here. */
+function workflowResultTsType(t: TypeIR): string {
+  if (t.kind === "id") return t.valueType === "int" || t.valueType === "long" ? "number" : "string";
+  if (t.kind === "primitive") {
+    if (t.name === "int" || t.name === "long") return "number";
+    if (t.name === "bool") return "boolean";
+    return "string";
+  }
+  throw new Error(`internal: unsupported workflow result type '${t.kind}'. Please file a bug.`);
 }
 
 /** The instance-response Zod DTO + its list carrier for an observable

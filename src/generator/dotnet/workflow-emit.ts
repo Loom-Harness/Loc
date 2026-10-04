@@ -38,6 +38,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
+import { commandCreateResult } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -1269,6 +1270,10 @@ public sealed record ${upperFirst(wf.name)}Request(${params});
 
 function renderCommand(wf: WorkflowIR, ns: string): string {
   const params = wf.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`).join(", ");
+  // `create(…): T` — the command carries its result type (`ICommand<T>`), the
+  // commandHandler shape; a result-less workflow keeps the unit `ICommand`.
+  const result = commandCreateResult(wf);
+  const iface = result ? `ICommand<${renderCsType(result.type)}>` : "ICommand";
   return `// Auto-generated.
 using Mediator;
 using ${ns}.Domain.Ids;
@@ -1277,7 +1282,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${upperFirst(wf.name)}Command(${params}) : ICommand;
+public sealed record ${upperFirst(wf.name)}Command(${params}) : ${iface};
 `;
 }
 
@@ -1345,6 +1350,10 @@ function renderHandler(
   const cmdName = `${upperFirst(wf.name)}Command`;
   const handlerName = `${upperFirst(wf.name)}Handler`;
   const usesUser = workflowUsesCurrentUser(wf);
+  // `create(…): T { … return <expr> }` — the handler returns the value instead
+  // of `Unit` (the route answers 200 with it).
+  const result = commandCreateResult(wf);
+  const resultCs = result ? renderCsType(result.type) : "Unit";
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1581,6 +1590,10 @@ function renderHandler(
   }
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write).
   if (corrParam) stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
+  // The result is read where the body's locals are in scope — inside the `try`
+  // of a transactional workflow, so it is the value the commit made durable —
+  // and returned after the commit and the event drain.
+  if (result) stmtLines.push(`        workflowResult = ${renderArg(result.value)};`);
 
   // `workflow_started` at handler entry (before any tx begins); `workflow_completed`
   // on the success tail (after emits dispatch, before returning Unit) — a thrown
@@ -1598,6 +1611,7 @@ function renderHandler(
   // it.  Emitted for both paths, keeping the non-transactional output
   // byte-identical to where the declaration used to lead `stmtLines`.
   if (usage.hasEmit) body += "        var _workflowEvents = new List<IDomainEvent>();\n";
+  if (result) body += `        ${resultCs} workflowResult = default!;\n`;
   if (wf.transactional) {
     const beginCall = effectiveIsolation
       ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
@@ -1624,7 +1638,7 @@ function renderHandler(
       `            await _events.DispatchAsync(ev, cancellationToken);\n`;
   }
   body += completedLog;
-  body += "        return Unit.Value;\n";
+  body += result ? "        return workflowResult;\n" : "        return Unit.Value;\n";
 
   const ctor =
     ctorParamPairs.length === 0
@@ -1663,12 +1677,12 @@ ${aggUsings.join("\n")}${externUsings.length > 0 ? "\n" + externUsings.join("\n"
 
 namespace ${ns}.Application.Workflows;
 
-public sealed class ${handlerName} : ICommandHandler<${cmdName}, Unit>
+public sealed class ${handlerName} : ICommandHandler<${cmdName}, ${resultCs}>
 {
 ${fields.join("\n")}
 ${ctor}
 
-    public async ValueTask<Unit> Handle(${cmdName} command, CancellationToken cancellationToken)
+    public async ValueTask<${resultCs}> Handle(${cmdName} command, CancellationToken cancellationToken)
     {
 ${body}    }
 }
@@ -2191,6 +2205,13 @@ export function renderExprWithEventParam(
   return renderCsExpr(rewritten, { thisName, resourceClasses });
 }
 
+/** The CLR type a workflow route's declared result crosses the wire as — an
+ *  id's raw value type, else the scalar itself.  Only the kinds phase ④ admits
+ *  (`loom.workflow-return-type-unsupported`) reach here. */
+function workflowResultWireCs(t: import("../../ir/types/loom-ir.js").TypeIR): string {
+  return t.kind === "id" ? csIdValueClrType(t.valueType) : renderCsType(t);
+}
+
 // ---------------------------------------------------------------------------
 // Controller — one class per context exposing every workflow as a POST.
 // ---------------------------------------------------------------------------
@@ -2236,17 +2257,27 @@ function renderController(
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
       .join("");
+    // `create(…): T` — 200 with the value.  An id answers its raw value
+    // (`.Value`, a Guid/int/long/string), the same JSON token the aggregate's
+    // own `id` field carries on the wire, not the strongly-typed id record.
+    const result = commandCreateResult(wf);
+    const success = result
+      ? `    [ProducesResponseType(typeof(${workflowResultWireCs(result.type)}), 200)]\n`
+      : // Explicit success (NoContent → 204) so the added error
+        // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
+        `    [ProducesResponseType(204)]\n`;
+    const send = result
+      ? `        var result = await _mediator.Send(cmd);\n` +
+        `        return Ok(result${result.type.kind === "id" ? ".Value" : ""});\n`
+      : `        await _mediator.Send(cmd);\n` + `        return NoContent();\n`;
     blocks.push(
       `    [HttpPost("${snake(wf.name)}")]\n` +
-        // Explicit success (NoContent → 204) so the added error
-        // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
-        `    [ProducesResponseType(204)]\n` +
+        success +
         errorAttrs +
         `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflow(wf.name)))}([FromBody] ${upperFirst(wf.name)}Request request)\n` +
         `    {\n` +
         `        var cmd = new ${upperFirst(wf.name)}Command(\n            ${cmdArgs});\n` +
-        `        await _mediator.Send(cmd);\n` +
-        `        return NoContent();\n` +
+        send +
         `    }\n`,
     );
   }

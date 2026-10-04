@@ -1501,10 +1501,15 @@ WorkflowMember:
 //   create(p1: T1, p2: T2, …)   → implicit command sugar (legacy paren-body lands here)
 // `by` reuses CorrelationExpr (the restricted name/postfix grammar `on` uses, so a
 // BuilderCall can't swallow the body block).
+// `: T` — the optional RESULT of a command-triggered starter (mirrors
+// `commandHandler name(params): T`): the body ends in `return <expr>` and the
+// command route answers 200 with that value instead of 204.  An
+// event-triggered starter has no caller to answer, so it may not declare one
+// (`loom.workflow-return-no-caller`).
 WorkflowCreateDecl:
     CallableLeadModifiers 'create' (name=ID)?
         '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-        CallableSigModifiers
+        CallableSigModifiers (':' returnType=TypeRef)?
         ('by' correlation=CorrelationExpr)?
         CallableGates
     '{'

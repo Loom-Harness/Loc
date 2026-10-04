@@ -1473,6 +1473,17 @@ export interface CreateIR {
   /** Event-triggered only: the bound event-param name and its event type. */
   eventBinding?: string;
   eventRef?: string;
+  /** The declared `: T` result of a command-triggered starter (`create(…): T
+   *  { … return <expr> }`) — the commandHandler twin.  When set, the command
+   *  route answers 200 with `returnValue` as its JSON body instead of 204.
+   *  Read through `commandCreateResult` (src/ir/util/workflow-command-route.ts),
+   *  which also decides that this create is the one the route serves. */
+  returnType?: TypeIR;
+  /** The lowered terminal `return <expr>`, held apart from `statements` (the
+   *  shared workflow statement vocabulary has no `return` arm — see
+   *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
+   *  return, annotated or not, so the validator can refuse the unannotated one. */
+  returnValue?: ExprIR;
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic

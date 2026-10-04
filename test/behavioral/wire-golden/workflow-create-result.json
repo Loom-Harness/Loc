@@ -1,0 +1,147 @@
+{
+  "case": "workflow-create-result",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/customers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/open_account",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/open_account",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 100,
+        "id": "<volatile:key>",
+        "number": "A-1",
+        "owner": "<uuid>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/workflows/transfer",
+      "status": 200,
+      "body": 70
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 35,
+        "id": "<volatile:key>",
+        "number": "B-1",
+        "owner": "<uuid>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/workflows/top_up",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 36,
+        "id": "<volatile:key>",
+        "number": "B-1",
+        "owner": "<uuid>",
+        "version": 3
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/workflows/transfer",
+      "status": 422,
+      "body": {
+        "detail": "Precondition failed: balance >= amount",
+        "instance": "/api/workflows/transfer",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 70,
+        "id": "<volatile:key>",
+        "number": "A-1",
+        "owner": "<uuid>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 10,
+      "method": "PATCH",
+      "path": "/api/customers",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/customers",
+        "instance": "/api/customers",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/customers",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/customers",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
