@@ -26,7 +26,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields } from "../../construction-default.js";
-import { csMemberScope, csProjectType, typeMemberNames } from "../bcl-collision.js";
+import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -473,10 +473,11 @@ export function renderEntity(
   if (isRoot && entity.derived.some((d) => d.name === "inspect")) {
     derivedLines.push("    public override string ToString() => Inspect;");
   }
+  // A param spelled like a member of this class (`Guid` beside a `Guid`
+  // field) is renamed so it cannot hide the member (bcl-collision.ts).
+  const paramIdent = (name: string): string => csParamIdent(name, renderCtx.memberScope);
   const fnLines = entity.functions.flatMap((fn) => {
-    const params = fn.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
-      .join(", ");
+    const params = fn.params.map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`).join(", ");
     // PUBLIC, like the operations below — see the matching note in the node
     // emitter.  The generated code calls a `function` from outside the class
     // (`CloseHandler`, `CanCloseHandler`, a workflow handler's hoisted
@@ -523,7 +524,7 @@ export function renderEntity(
     const opBody = operationBody(op);
     const userParam = usesUser ? "User currentUser" : "";
     const baseParams = op.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`)
       .join(", ");
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -541,7 +542,7 @@ export function renderEntity(
       // (`renderExternHookImpl`).
       const hookName = `${upperFirst(op.name)}Core`;
       const callArgs = [
-        ...op.params.map((p) => escapeCsharpIdent(p.name)),
+        ...op.params.map((p) => paramIdent(p.name)),
         ...(usesUser ? ["currentUser"] : []),
       ].join(", ");
       const retType = op.returnType ? renderCsType(op.returnType) : "void";
@@ -569,7 +570,16 @@ export function renderEntity(
         );
       }
       opLines.push("    }");
-      partialHookLines.push(`    private partial ${retType} ${hookName}(${params});`);
+      // The partial DECLARATION keeps the declared parameter spelling: it must
+      // match the scaffold-once implementation (extern.ts `hookParams`) — a
+      // differing name is CS8826 — and, body-less, it hides nothing.
+      const hookParams = [
+        op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`).join(", "),
+        userParam,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      partialHookLines.push(`    private partial ${retType} ${hookName}(${hookParams});`);
       opLines.push("");
       continue;
     }
@@ -658,7 +668,7 @@ export function renderEntity(
   const applierLines: string[] = [];
   if (isRoot && eventSourced && appliers.length > 0) {
     for (const ap of appliers) {
-      applierLines.push(`    private void _Apply${ap.event}(${ap.event} ${ap.param})`);
+      applierLines.push(`    private void _Apply${ap.event}(${ap.event} ${paramIdent(ap.param)})`);
       applierLines.push("    {");
       const body = renderCsStatements(ap.statements, renderCtx, {
         emitTrace,
@@ -714,7 +724,7 @@ export function renderEntity(
           "    }",
           "",
           `    private void _Init(${esCreate.params
-            .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+            .map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`)
             .join(", ")})`,
           "    {",
           renderCsStatements(esCreate.statements, renderCtx, {

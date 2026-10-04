@@ -113,9 +113,9 @@ describe("dotnet — a member spelled like a static receiver shadows it", () => 
     ],
     [
       "string.startsWith",
-      call(strRef("label"), "startsWith", [lit("string", "x")], "string"),
-      'this.Label.StartsWith("x", StringComparison.Ordinal)',
-      'this.Label.StartsWith("x", global::System.StringComparison.Ordinal)',
+      call(strRef("label"), "startsWith", [lit("string", "xy")], "string"),
+      'this.Label.StartsWith("xy", StringComparison.Ordinal)',
+      'this.Label.StartsWith("xy", global::System.StringComparison.Ordinal)',
     ],
     [
       "string.substring",
@@ -176,7 +176,7 @@ system S {
         derived a: decimal = cost.round(2)
         derived b: int = math.abs()
         derived c: bool = label.matches("^[a-z]+$")
-        derived d: bool = label.startsWith("x")
+        derived d: bool = label.startsWith("xy")
       }
       aggregate Probe with crudish {
         math: int
@@ -197,7 +197,7 @@ system S {
         derived a: decimal = cost.round(2)
         derived b: int = n.abs()
         derived c: bool = label.matches("^[a-z]+$")
-        derived d: bool = label.startsWith("x")
+        derived d: bool = label.startsWith("xy")
         derived e: string = label.substring(1, 2)
         derived h: datetime = seenAt + days(1)
         derived i: int = Pricing.quote(n)

@@ -165,7 +165,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   newPart(fields: RenderedField[], e: NewExpr, ctx: Ctx): string;
   object(fields: RenderedField[]): string;
   unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
-  binary(left: string, right: string, e: BinaryExpr): string;
+  /** `ctx` lets a leaf qualify a framework reference it writes (.NET: the
+   *  `Guid.Parse` of a `this.id == <string>` lift, `global::`-qualified when a
+   *  member named `Guid` shadows it — see `CsRenderContext.memberScope`). */
+  binary(left: string, right: string, e: BinaryExpr, ctx: Ctx): string;
   ternary(cond: string, then: string, otherwise: string): string;
   /** `ctx` lets a leaf qualify a framework reference against its emission
    *  scope (.NET: `global::System` when a member named `System` shadows the
@@ -262,7 +265,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "unary":
       return t.unary(e.op, r(e.operand), e);
     case "binary":
-      return t.binary(r(e.left), r(e.right), e);
+      return t.binary(r(e.left), r(e.right), e, ctx);
     case "ternary":
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise));
     case "convert":
@@ -750,7 +753,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     case "binary": {
       const left = rm(e.left);
       const right = rm(e.right);
-      return compose(t.binary(left.text, right.text, e), [left, right]);
+      return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
     case "ternary": {
       const cond = rm(e.cond);

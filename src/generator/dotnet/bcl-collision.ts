@@ -35,7 +35,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR } from "../../ir/types/loom-ir.js";
-import { upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../util/naming.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
  *  same-named domain type is ambiguous rather than merely shadowed.
@@ -261,4 +261,36 @@ export function csProjectType(
   scope: CsMemberScope | undefined,
 ): string {
   return scope?.members.has(name) ? `global::${scope.ns}.${nsSuffix}.${name}` : name;
+}
+
+// ---------------------------------------------------------------------------
+// A PARAMETER spelled exactly like a member of its class.
+//
+// `.ddd` field names are not case-restricted, so `Guid: string` / `Total: int`
+// are legal, and the emitter writes parameters verbatim.  A parameter named
+// after a field then IS the member's C# name, and inside the method it hides
+// the member — the write `Guid = Guid;` assigns the parameter to itself
+// (measured under `dotnet build /warnaserror`, sdk:10.0):
+//
+//     public Tag(string Guid, int Total, string label) { Guid = Guid; … }
+//     error CS1717: Assignment made to same variable; did you mean to assign
+//                   something else?
+//     (and CS8618 on the never-initialised non-nullable property)
+//
+// The value-object constructor and the `with crudish` `update(...)` operation
+// (whose params are named after the fields it writes) both hit it.  The fix
+// renames the PARAMETER — never the member, which is wire surface — to its
+// lower-first spelling (`guid`), on a collision only, so every lowercase
+// parameter stays byte-identical.  Uses of the parameter follow the same rule
+// (`renderRef`'s `param` arm reads `CsRenderContext.memberScope`).
+// ---------------------------------------------------------------------------
+
+/** The C# identifier for a `.ddd` parameter declared inside a class whose
+ *  members are `scope`: `escapeCsharpIdent(name)` normally (byte-identical),
+ *  the lower-first spelling when `name` IS a member's C# name (`Guid` beside a
+ *  `Guid` field → `guid`; a name with no case to lower gets a trailing `_`). */
+export function csParamIdent(name: string, scope: CsMemberScope | undefined): string {
+  if (!scope?.members.has(name)) return escapeCsharpIdent(name);
+  const lowered = lowerFirst(name);
+  return escapeCsharpIdent(lowered !== name ? lowered : `${name}_`);
 }

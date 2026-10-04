@@ -33,6 +33,7 @@ import {
   type CsBclReceiver,
   type CsMemberScope,
   csBcl,
+  csParamIdent,
   csProjectType,
   csSystemRoot,
 } from "./bcl-collision.js";
@@ -312,7 +313,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   object: (fields) =>
     `new { ${fields.map((f) => `${upperFirst(f.name)} = ${f.value}`).join(", ")} }`,
   unary: (op, operand) => `${op}${operand}`,
-  binary: (left, right, e) => renderCsBinary(left, right, e, false),
+  binary: (left, right, e, ctx) => renderCsBinary(left, right, e, false, ctx.memberScope),
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
   convert: (value, e, ctx) =>
     renderCsConvert(
@@ -415,15 +416,15 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
 };
 
 /** EF-translated-position twin of `CS_TARGET` (find `Where`,
- *  `HasQueryFilter`, criteria Specifications — `ctx.efQuery`).  The `binary`
- *  leaf has no ctx parameter on the `ExprTarget` contract, so the efQuery
- *  flag rides on the target table instead: `renderCsExpr` picks this table
+ *  `HasQueryFilter`, criteria Specifications — `ctx.efQuery`).  The efQuery
+ *  flag rides on the target table (the `binary` leaf's ctx is read only for
+ *  the member-scope qualification): `renderCsExpr` picks this table
  *  whenever the render context is an EF query, and the only divergence is
  *  the temporal-binary arm (`DateTime.Add{Days,…}` instead of native
  *  `DateTime ± TimeSpan` operators — see `renderCsTemporalBinary`). */
 const CS_TARGET_EF: ExprTarget<CsRenderContext> = {
   ...CS_TARGET,
-  binary: (left, right, e) => renderCsBinary(left, right, e, true),
+  binary: (left, right, e, ctx) => renderCsBinary(left, right, e, true, ctx.memberScope),
 };
 
 export function renderCsExpr(e: ExprIR, ctx: CsRenderContext = DEFAULT): string {
@@ -514,7 +515,13 @@ function renderCsAuthzFilter(
   }
 }
 
-function renderCsBinary(left: string, right: string, e: BinaryExpr, efQuery: boolean): string {
+function renderCsBinary(
+  left: string,
+  right: string,
+  e: BinaryExpr,
+  efQuery: boolean,
+  scope: CsMemberScope | undefined,
+): string {
   // A5 temporal — the datetime-involving `+`/`-` arms.  `duration ± duration`
   // and `duration * int` stay native TimeSpan operator arithmetic and fall
   // through to the default operator path below.
@@ -534,9 +541,9 @@ function renderCsBinary(left: string, right: string, e: BinaryExpr, efQuery: boo
   // to the aggregate's OWN key (`this.id`) so `<Agg>Id` is guaranteed to
   // exist; id-typed reference FIELDS are untouched.
   if (e.op === "==" || e.op === "!=") {
-    const liftedRight = liftScalarToSelfId(e.left, e.right, right);
+    const liftedRight = liftScalarToSelfId(e.left, e.right, right, scope);
     if (liftedRight) return `${left} ${e.op} ${liftedRight}`;
-    const liftedLeft = liftScalarToSelfId(e.right, e.left, left);
+    const liftedLeft = liftScalarToSelfId(e.right, e.left, left, scope);
     if (liftedLeft) return `${liftedLeft} ${e.op} ${right}`;
   }
   // Integer division widened to decimal (`int / int` → decimal): C# `int / int`
@@ -614,6 +621,7 @@ function liftScalarToSelfId(
   idSide: ExprIR,
   scalarSide: ExprIR,
   renderedScalar: string,
+  scope: CsMemberScope | undefined,
 ): string | null {
   const idType = selfIdTypeOf(idSide);
   if (!idType) return null;
@@ -621,7 +629,7 @@ function liftScalarToSelfId(
   if (!scalarType) return null;
   if (scalarType === idType.valueType) return `new ${idType.targetName}Id(${renderedScalar})`;
   if (idType.valueType === "guid" && scalarType === "string")
-    return `new ${idType.targetName}Id(Guid.Parse(${renderedScalar}))`;
+    return `new ${idType.targetName}Id(${csBcl("Guid", scope)}.Parse(${renderedScalar}))`;
   return null;
 }
 
@@ -779,7 +787,9 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
       // Same rule as `let`/`lambda`: a `.ddd` param named after a C# keyword
       // (`case`, `do`, `lock`, …) reaches the generated signature as a
       // verbatim identifier, so its USES have to match it (F2-ADP-7).
-      return ctx.paramExpr?.(e.name) ?? escapeCsharpIdent(e.name);
+      // A param spelled like a member of the enclosing class is renamed at
+      // its declaration (`csParamIdent`, bcl-collision.ts) — follow it here.
+      return ctx.paramExpr?.(e.name) ?? csParamIdent(e.name, ctx.memberScope);
     case "this-prop":
     case "this-vo-prop":
     case "this-derived":
@@ -861,6 +871,25 @@ function csWorkflowFunctions(wfScope: string, ctx: CsRenderContext): string {
   return csProjectType(`${upperFirst(wfScope)}Functions`, "Application.Workflows", ctx.memberScope);
 }
 
+/** The C# `char` literal for a RENDERED string literal of exactly one UTF-16
+ *  code unit (`"x"` → `'x'`, `"'"` → `'\''`); null for anything else — a
+ *  longer or empty literal, a surrogate pair, or a non-literal argument.  The
+ *  string leaf renders through `JSON.stringify` (`escapeStringLiteral`), so a
+ *  literal argument is recognisable from its text alone. */
+export function csSingleCharLiteral(rendered: string): string | null {
+  if (!/^"(?:[^"\\]|\\.)*"$/.test(rendered)) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(rendered);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "string" || value.length !== 1) return null;
+  // JSON's escapes (\n, \t, \", \\, \uXXXX) are all valid C# char escapes;
+  // only the single quote needs one in a char literal.
+  return `'${JSON.stringify(value).slice(1, -1).replace(/'/g, "\\'")}'`;
+}
+
 // Scalar-intrinsic snippet table (src/util/intrinsics.ts) — one arm per
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a C# arm.
@@ -893,10 +922,23 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
     args.length > 1
       ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, ${q("Math")}.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
       : `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}))`,
-  "string.startsWith": (recv, args, q = bareCsBcl) =>
-    `${recv}.StartsWith(${args[0]}, ${q("StringComparison")}.Ordinal)`,
-  "string.endsWith": (recv, args, q = bareCsBcl) =>
-    `${recv}.EndsWith(${args[0]}, ${q("StringComparison")}.Ordinal)`,
+  // A ONE-character literal argument takes the `char` overload instead: Roslyn's
+  // CA1865 rejects `StartsWith("x", StringComparison.Ordinal)` under the
+  // generated project's /warnaserror, and `StartsWith(char)` IS an ordinal
+  // test, so the catalogue contract is unchanged.  (Not `contains`: CA1865
+  // does not cover it, and CA1847 — its char-overload twin — is NoWarn'd.)
+  "string.startsWith": (recv, args, q = bareCsBcl) => {
+    const ch = csSingleCharLiteral(args[0]!);
+    return ch
+      ? `${recv}.StartsWith(${ch})`
+      : `${recv}.StartsWith(${args[0]}, ${q("StringComparison")}.Ordinal)`;
+  },
+  "string.endsWith": (recv, args, q = bareCsBcl) => {
+    const ch = csSingleCharLiteral(args[0]!);
+    return ch
+      ? `${recv}.EndsWith(${ch})`
+      : `${recv}.EndsWith(${args[0]}, ${q("StringComparison")}.Ordinal)`;
+  },
   "string.contains": (recv, args, q = bareCsBcl) =>
     `${recv}.Contains(${args[0]}, ${q("StringComparison")}.Ordinal)`,
   "string.replace": (recv, args) => `${recv}.Replace(${args[0]}, ${args[1]})`,

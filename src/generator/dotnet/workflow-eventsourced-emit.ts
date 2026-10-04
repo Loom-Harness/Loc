@@ -1,7 +1,7 @@
 import type { WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
-import { csMemberScope, csSystemRoot } from "./bcl-collision.js";
+import { csMemberScope, csParamIdent, csSystemRoot } from "./bcl-collision.js";
 import { eventDbSetName, eventRecordClass } from "./emit/event-store.js";
 import { renderCsType } from "./render-expr.js";
 import { renderCsStatements } from "./render-stmt.js";
@@ -108,7 +108,9 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
   // exactly like the aggregate's appliers.
   const applierMethods: string[] = [];
   for (const ap of wf.appliers ?? []) {
-    applierMethods.push(`    private void _Apply${ap.event}(${ap.event} ${ap.param})`);
+    applierMethods.push(
+      `    private void _Apply${ap.event}(${ap.event} ${csParamIdent(ap.param, memberScope)})`,
+    );
     applierMethods.push("    {");
     const body = renderCsStatements(
       ap.statements,
