@@ -6,7 +6,16 @@
   "POST": [],
   "PUT": [],
   "Self": [],
-  "abstract": [],
+  "abstract": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "action": [
     "fieldName",
     "fieldNameAfterField",
@@ -17,13 +26,26 @@
     "paramName",
     "stateField"
   ],
-  "against": [],
-  "aggregate": [],
-  "aggregates": [
+  "against": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
+  ],
+  "aggregate": [],
+  "aggregates": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "allow": [
     "fieldName",
@@ -35,16 +57,47 @@
     "paramName",
     "stateField"
   ],
-  "angular": [],
-  "angularMaterial": [],
-  "api": [
+  "angular": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
+  ],
+  "angularMaterial": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "api": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "apply": [],
-  "area": [],
+  "area": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "as": [],
   "asc": [
     "fieldName",
@@ -56,19 +109,61 @@
     "paramName",
     "stateField"
   ],
-  "audience": [],
-  "audited": [],
-  "auth": [],
+  "audience": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "audited": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "auth": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "await": [
     "fieldName",
     "fieldNameAfterField",
     "migrationField",
     "paramName"
   ],
-  "bigquery": [],
-  "bind": [
+  "bigquery": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
+  ],
+  "bind": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "body": [
     "fieldName",
@@ -81,7 +176,16 @@
     "stateField"
   ],
   "bool": [],
-  "broadcast": [],
+  "broadcast": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "by": [
     "fieldName",
     "fieldNameAfterField",
@@ -93,8 +197,14 @@
     "stateField"
   ],
   "cache": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "canonical": [
     "fieldName",
@@ -106,11 +216,56 @@
     "paramName",
     "stateField"
   ],
-  "capability": [],
-  "carries": [],
-  "chakra": [],
-  "channel": [],
-  "channelSource": [],
+  "capability": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "carries": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "chakra": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "channel": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "channelSource": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "channels": [
     "fieldName",
     "fieldNameAfterField",
@@ -121,11 +276,56 @@
     "paramName",
     "stateField"
   ],
-  "check": [],
-  "claims": [],
-  "clickhouse": [],
-  "clientId": [],
-  "clientSecret": [],
+  "check": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "claims": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "clickhouse": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "clientId": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "clientSecret": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "command": [
     "fieldName",
     "fieldNameAfterField",
@@ -136,10 +336,25 @@
     "paramName",
     "stateField"
   ],
-  "commandHandler": [],
-  "component": [
+  "commandHandler": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
+  ],
+  "component": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "config": [
     "fieldName",
@@ -167,23 +382,81 @@
     "nameRef",
     "paramName"
   ],
-  "context": [],
-  "contexts": [
+  "context": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
-  "cookie": [],
-  "coreComponents": [],
-  "covers": [],
+  "contexts": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "cookie": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "coreComponents": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "covers": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "create": [
     "lValue",
     "memberAccess",
     "nameRef"
   ],
-  "criterion": [],
-  "cron": [],
+  "criterion": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "cron": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "crossTenant": [
     "fieldName",
     "fieldNameAfterField",
@@ -194,7 +467,16 @@
     "paramName",
     "stateField"
   ],
-  "daisyui": [],
+  "daisyui": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "dataSources": [
     "fieldName",
     "fieldNameAfterField",
@@ -217,7 +499,16 @@
     "paramName",
     "stateField"
   ],
-  "delivery": [],
+  "delivery": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "deny": [
     "fieldName",
     "fieldNameAfterField",
@@ -228,8 +519,26 @@
     "paramName",
     "stateField"
   ],
-  "denyByDefault": [],
-  "deployable": [],
+  "denyByDefault": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "deployable": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "derived": [],
   "desc": [
     "fieldName",
@@ -252,8 +561,14 @@
     "stateField"
   ],
   "design": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "destroy": [
     "lValue",
@@ -261,19 +576,107 @@
     "nameRef"
   ],
   "directoryLayout": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
-  "document": [],
-  "domainService": [],
-  "dotnet": [],
-  "e2e": [],
-  "elastic": [],
-  "elixir": [],
+  "document": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "domainService": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "dotnet": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "e2e": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "elastic": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "elixir": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "else": [],
-  "embedded": [],
+  "embedded": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "emit": [],
-  "enforcement": [],
-  "entitles": [],
+  "enforcement": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "entitles": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "entity": [],
   "enum": [],
   "env": [
@@ -296,7 +699,16 @@
     "paramName",
     "stateField"
   ],
-  "ephemeral": [],
+  "ephemeral": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "error": [
     "fieldName",
     "fieldNameAfterField",
@@ -307,7 +719,16 @@
     "paramName",
     "stateField"
   ],
-  "event": [],
+  "event": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "eventLog": [
     "fieldName",
     "fieldNameAfterField",
@@ -318,7 +739,16 @@
     "paramName",
     "stateField"
   ],
-  "eventSourced": [],
+  "eventSourced": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "every": [
     "fieldName",
     "fieldNameAfterField",
@@ -331,7 +761,16 @@
   ],
   "expect": [],
   "extends": [],
-  "extern": [],
+  "extern": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "false": [
     "nameRef"
   ],
@@ -345,7 +784,16 @@
     "paramName",
     "stateField"
   ],
-  "feliz": [],
+  "feliz": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "filter": [
     "fieldName",
     "fieldNameAfterField",
@@ -359,13 +807,46 @@
   "find": [
     "memberAccess"
   ],
-  "flowbite": [],
-  "flutter": [],
-  "footer": [],
+  "flowbite": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "flutter": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "footer": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "for": [],
   "framework": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "from": [
     "paramName"
@@ -402,9 +883,36 @@
     "paramName",
     "stateField"
   ],
-  "header": [],
-  "hosts": [],
-  "httpStatus": [],
+  "header": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "hosts": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "httpStatus": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "id": [
     "lValue",
     "memberAccess",
@@ -440,10 +948,28 @@
     "paramName",
     "stateField"
   ],
-  "implies": [],
+  "implies": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "import": [],
   "in": [],
-  "inMemory": [],
+  "inMemory": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "index": [
     "fieldName",
     "fieldNameAfterField",
@@ -454,7 +980,16 @@
     "paramName",
     "stateField"
   ],
-  "inheritanceUsing": [],
+  "inheritanceUsing": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "instance": [
     "fieldName",
     "fieldNameAfterField",
@@ -487,8 +1022,26 @@
     "paramName",
     "stateField"
   ],
-  "issuer": [],
-  "java": [],
+  "issuer": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "java": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "join": [
     "fieldName",
     "fieldNameAfterField",
@@ -500,8 +1053,26 @@
     "stateField"
   ],
   "json": [],
-  "jwt": [],
-  "kafka": [],
+  "jwt": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "kafka": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "key": [
     "fieldName",
     "fieldNameAfterField",
@@ -522,7 +1093,16 @@
     "paramName",
     "stateField"
   ],
-  "keyed": [],
+  "keyed": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "kind": [
     "fieldName",
     "fieldNameAfterField",
@@ -533,7 +1113,16 @@
     "paramName",
     "stateField"
   ],
-  "layout": [],
+  "layout": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "let": [],
   "link": [
     "fieldName",
@@ -575,8 +1164,26 @@
     "paramName",
     "stateField"
   ],
-  "localDisk": [],
-  "log": [],
+  "localDisk": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "log": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "long": [],
   "mailer": [
     "fieldName",
@@ -588,7 +1195,16 @@
     "paramName",
     "stateField"
   ],
-  "main": [],
+  "main": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "managed": [
     "fieldName",
     "fieldNameAfterField",
@@ -599,13 +1215,46 @@
     "paramName",
     "stateField"
   ],
-  "mantine": [],
-  "mask": [],
-  "match": [],
-  "meilisearch": [],
-  "menu": [
+  "mantine": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
+  ],
+  "mask": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "match": [],
+  "meilisearch": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "menu": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "message": [
     "fieldName",
@@ -628,10 +1277,14 @@
     "stateField"
   ],
   "modules": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "money": [
     "fieldName",
@@ -643,10 +1296,46 @@
     "paramName",
     "stateField"
   ],
-  "mui": [],
-  "mysql": [],
-  "nats": [],
-  "node": [],
+  "mui": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "mysql": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "nats": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "node": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "now": [],
   "null": [
     "nameRef"
@@ -681,12 +1370,48 @@
     "paramName",
     "stateField"
   ],
-  "oidc": [],
+  "oidc": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "on": [],
-  "onCreate": [],
-  "onUpdate": [],
+  "onCreate": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "onUpdate": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "operation": [],
-  "opt": [],
+  "opt": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "option": [
     "fieldName",
     "fieldNameAfterField",
@@ -707,8 +1432,26 @@
     "paramName",
     "stateField"
   ],
-  "overlap": [],
-  "ownTable": [],
+  "overlap": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "ownTable": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "page": [
     "fieldName",
     "fieldNameAfterField",
@@ -750,13 +1493,26 @@
     "stateField"
   ],
   "permissions": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "persist": [],
-  "persistedAs": [],
+  "persistedAs": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "persistence": [
     "fieldName",
     "fieldNameAfterField",
@@ -767,8 +1523,26 @@
     "paramName",
     "stateField"
   ],
-  "phoenixLiveView": [],
-  "platform": [],
+  "phoenixLiveView": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "platform": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "policy": [
     "fieldName",
     "fieldNameAfterField",
@@ -779,15 +1553,87 @@
     "paramName",
     "stateField"
   ],
-  "port": [],
-  "postgres": [],
-  "precondition": [],
-  "primeng": [],
+  "port": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "postgres": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "precondition": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "primeng": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "private": [],
-  "projection": [],
-  "provenanced": [],
-  "provider": [],
-  "python": [],
+  "projection": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "provenanced": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "provider": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "python": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "query": [
     "fieldName",
     "fieldNameAfterField",
@@ -798,7 +1644,16 @@
     "paramName",
     "stateField"
   ],
-  "queryHandler": [],
+  "queryHandler": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "queue": [
     "fieldName",
     "fieldNameAfterField",
@@ -809,11 +1664,56 @@
     "paramName",
     "stateField"
   ],
-  "rabbitmq": [],
-  "raw": [],
-  "react": [],
-  "readCommitted": [],
-  "readUncommitted": [],
+  "rabbitmq": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "raw": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "react": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "readCommitted": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "readUncommitted": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "readonly": [
     "fieldName",
     "fieldNameAfterField",
@@ -824,9 +1724,36 @@
     "paramName",
     "stateField"
   ],
-  "redis": [],
-  "relational": [],
-  "repeatableRead": [],
+  "redis": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "relational": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "repeatableRead": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "replica": [
     "fieldName",
     "fieldNameAfterField",
@@ -838,9 +1765,36 @@
     "stateField"
   ],
   "repository": [],
-  "required": [],
-  "requirement": [],
-  "requires": [],
+  "required": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "requirement": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "requires": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "resource": [
     "fieldName",
     "fieldNameAfterField",
@@ -861,7 +1815,16 @@
     "paramName",
     "stateField"
   ],
-  "restApi": [],
+  "restApi": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "retain": [
     "fieldName",
     "fieldNameAfterField",
@@ -872,7 +1835,16 @@
     "paramName",
     "stateField"
   ],
-  "retention": [],
+  "retention": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "retrieval": [
     "fieldName",
     "fieldNameAfterField",
@@ -894,7 +1866,16 @@
     "paramName",
     "stateField"
   ],
-  "s3": [],
+  "s3": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "schema": [
     "fieldName",
     "fieldNameAfterField",
@@ -905,7 +1886,16 @@
     "paramName",
     "stateField"
   ],
-  "scopes": [],
+  "scopes": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "secret": [
     "fieldName",
     "fieldNameAfterField",
@@ -917,10 +1907,25 @@
     "stateField"
   ],
   "section": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
-  "seed": [],
+  "seed": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "select": [
     "fieldName",
     "fieldNameAfterField",
@@ -931,10 +1936,46 @@
     "paramName",
     "stateField"
   ],
-  "sendgrid": [],
-  "sensitive": [],
-  "serializable": [],
-  "serves": [],
+  "sendgrid": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "sensitive": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "serializable": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "serves": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "service": [
     "fieldName",
     "fieldNameAfterField",
@@ -945,14 +1986,86 @@
     "paramName",
     "stateField"
   ],
-  "ses": [],
-  "sessions": [],
-  "shadcn": [],
-  "shadcnSvelte": [],
-  "shadcnVue": [],
-  "shape": [],
-  "sharedTable": [],
-  "sidebar": [],
+  "ses": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "sessions": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "shadcn": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "shadcnSvelte": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "shadcnVue": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "shape": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "sharedTable": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "sidebar": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "slot": [
     "fieldName",
     "fieldNameAfterField",
@@ -963,7 +2076,16 @@
     "paramName",
     "stateField"
   ],
-  "smtp": [],
+  "smtp": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "snapshot": [
     "fieldName",
     "fieldNameAfterField",
@@ -974,7 +2096,16 @@
     "paramName",
     "stateField"
   ],
-  "solution": [],
+  "solution": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "sort": [
     "fieldName",
     "fieldNameAfterField",
@@ -985,7 +2116,16 @@
     "paramName",
     "stateField"
   ],
-  "spartanNg": [],
+  "spartanNg": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "sql": [
     "fieldName",
     "fieldNameAfterField",
@@ -996,7 +2136,16 @@
     "paramName",
     "stateField"
   ],
-  "sqlite": [],
+  "sqlite": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "stamp": [
     "fieldName",
     "fieldNameAfterField",
@@ -1017,11 +2166,17 @@
     "paramName",
     "stateField"
   ],
-  "static": [
+  "static": [],
+  "storage": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
-  "storage": [],
   "store": [
     "fieldName",
     "fieldNameAfterField",
@@ -1033,8 +2188,26 @@
     "stateField"
   ],
   "string": [],
-  "subdomain": [],
-  "svelte": [],
+  "subdomain": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "svelte": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "system": [],
   "tablePrefix": [
     "fieldName",
@@ -1047,8 +2220,14 @@
     "stateField"
   ],
   "targets": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "tenancy": [
     "fieldName",
@@ -1061,12 +2240,39 @@
     "stateField"
   ],
   "test": [],
-  "testCase": [],
-  "theme": [],
+  "testCase": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "theme": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "this": [
     "nameRef"
   ],
-  "timerSource": [],
+  "timerSource": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "title": [
     "fieldName",
     "fieldNameAfterField",
@@ -1088,7 +2294,14 @@
     "stateField"
   ],
   "transactional": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "true": [
     "nameRef"
@@ -1114,16 +2327,26 @@
     "stateField"
   ],
   "ui": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "unique": [],
   "unless": [],
   "urlStyle": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
   "use": [
     "fieldName",
@@ -1145,28 +2368,90 @@
     "paramName",
     "stateField"
   ],
-  "valueobject": [],
-  "verifies": [],
-  "views": [
+  "valueobject": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
   ],
-  "vue": [],
-  "vuetify": [],
+  "verifies": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "views": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "vue": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "vuetify": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "when": [],
   "where": [
     "memberAccess"
   ],
   "with": [],
-  "work": [],
-  "workflow": [],
-  "workflows": [
+  "work": [
+    "fieldName",
+    "fieldNameAfterField",
     "lValue",
     "memberAccess",
+    "migrationField",
     "nameRef",
-    "paramName"
+    "paramName",
+    "stateField"
+  ],
+  "workflow": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "workflows": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "write": [
     "fieldName",

@@ -89,3 +89,38 @@ const DECLARE_ONLY: readonly string[] = (() => {
 })();
 
 const DECLARE_ONLY_SET: ReadonlySet<string> = new Set(DECLARE_ONLY);
+
+/** True when `word` is admissible as a declared FIELD name (`PropertyName`).
+ *  A keyword that is NOT is reserved in that position, so a `word:` written
+ *  where a field was being declared is the reserved-name mistake — never a
+ *  missing brace or a typo, which is what the parser's own wording implies. */
+export function isFieldNameKeyword(word: string): boolean {
+  return FIELD_NAME_SET.has(word);
+}
+
+const FIELD_NAME_SET: ReadonlySet<string> = keywordsOf(DddGrammar(), "PropertyName");
+
+/** True when `word` is one of the grammar's word-shaped keyword literals. */
+export function isGrammarKeyword(word: string): boolean {
+  return GRAMMAR_KEYWORDS.has(word);
+}
+
+const GRAMMAR_KEYWORDS: ReadonlySet<string> = new Set(
+  AstUtils.streamAllContents(DddGrammar())
+    .filter(GrammarAST.isKeyword)
+    .map((k) => k.value)
+    .filter((v) => /^[A-Za-z_]\w*$/.test(v)),
+);
+
+/** The word keywords that CANNOT be a declared field name — the short hard
+ *  list the reserved-keyword sweep left (every other keyword is soft by
+ *  default; the reasons are in the comment above `CommonSoftKeywords` in
+ *  `ddd.langium`).  Sorted, so the doc that lists them and the test that pins
+ *  that doc are stable. */
+export function reservedFieldNameKeywords(): readonly string[] {
+  return RESERVED_FIELD_NAMES;
+}
+
+const RESERVED_FIELD_NAMES: readonly string[] = [...GRAMMAR_KEYWORDS]
+  .filter((k) => !FIELD_NAME_SET.has(k))
+  .sort((a, b) => a.localeCompare(b));

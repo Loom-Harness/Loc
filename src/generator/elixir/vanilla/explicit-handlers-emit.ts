@@ -38,11 +38,17 @@ import type {
   QueryHandlerIR,
   RouteIR,
   SystemIR,
+  TypeIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
+import {
+  derivedRouteSlots,
+  pathParamNames,
+  routeMountsUnderApiBase,
+} from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
@@ -500,6 +506,54 @@ function resolveRoute(
   return handler ? { ctx, handler } : undefined;
 }
 
+/** Phoenix delivers every PATH segment as a BINARY, and a handler's `run/1`
+ *  destructures the params map raw — so a `queryHandler Sum(a: int, b: int)`
+ *  bound to `route GET "/sum/{a}/{b}"` evaluated `"2" + "3"` and answered a 500
+ *  (`** (ArithmeticError) :erlang.+("2", "3")`), measured on a booted app.
+ *
+ *  This is elixir's alone: every other backend gets the coercion from its
+ *  framework — hono declares `z.coerce.number().int()`, FastAPI reads the
+ *  annotation, Spring binds `@PathVariable int`, ASP.NET binds a typed action
+ *  param.  Phoenix has no such layer, so the controller does it before calling
+ *  `run/1`.  It stays a PATH-param concern: a body param arrives through JSON
+ *  already typed, and re-parsing it would be wrong.
+ *
+ *  A path value is unconditionally a binary, so no `is_binary/1` guard is
+ *  needed.  `datetime` and `guid` are deliberately absent: a guid IS its string
+ *  form here (the id types are string-backed), and a `datetime` path param stays
+ *  a binary — an exotic shape this fixture does not reach, and parsing it is a
+ *  separate decision rather than something to guess at inside a route emitter. */
+function coerceExpr(name: string, t: TypeIR): string | undefined {
+  if (t.kind !== "primitive") return undefined;
+  switch (t.name) {
+    case "int":
+    case "long":
+      return `String.to_integer(params[${JSON.stringify(name)}])`;
+    case "decimal":
+    case "money":
+      return `Decimal.new(params[${JSON.stringify(name)}])`;
+    case "bool":
+      return `params[${JSON.stringify(name)}] == "true"`;
+    default:
+      return undefined;
+  }
+}
+
+/** The `params = %{params | "k" => <coerced>}` line for a route's path params
+ *  that need one, or "" when none do (keeping every other action's emitted body
+ *  byte-identical). */
+function pathParamCoercions(r: RouteIR, h: Handler): string {
+  const pathNames = pathParamNames(r.path);
+  const parts: string[] = [];
+  for (const p of h.params) {
+    if (!pathNames.has(p.name)) continue;
+    const key = snake(p.name);
+    const expr = coerceExpr(key, p.type);
+    if (expr) parts.push(`${JSON.stringify(key)} => ${expr}`);
+  }
+  return parts.length > 0 ? `    params = %{params | ${parts.join(", ")}}\n` : "";
+}
+
 /** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
  *  snake-casing each param so it matches the handler's `run/1` destructure key
  *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
@@ -510,10 +564,11 @@ function phoenixPath(path: string): string {
 /** Emit one `<Api>RoutesController` per served api whose route list is
  *  non-empty: each `route` becomes a `def <snake(handler)>(conn, params)` that
  *  runs the target handler's `run/1` through the shared `respond/2`.  Returns
- *  the `ApiRoute`s to splice into the router root `scope "/"` (each carries the
- *  `!root:` sentinel — see `renderVanillaRouter`) so they serve at their
- *  absolute declared path, clear of the auto-CRUD `/api` routes.  A no-op (empty
- *  route list) for an api that declares no explicit `route`s. */
+ *  the `ApiRoute`s to splice into the router: ordinarily into `scope "/api"` as
+ *  `first` entries (a domain route serves under the api base — M-T6.73), and,
+ *  for a route whose `/api` slot an auto-derived aggregate route already
+ *  occupies, at the router root behind the `!root:` sentinel it has always used.
+ *  A no-op (empty route list) for an api that declares no explicit `route`s. */
 export function emitExplicitRoutesController(
   appName: string,
   appModule: string,
@@ -525,8 +580,31 @@ export function emitExplicitRoutesController(
 ): ApiRoute[] {
   if (routes.length === 0) return [];
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
+  const derivedSlots = derivedRouteSlots(contexts);
   const webModule = `${appModule}Web`;
   const controller = `${upperFirst(apiName)}RoutesController`;
+  // Where each route lands in router.ex.  An ordinary explicit route is a DOMAIN
+  // route, so it is spliced into `scope "/api"` (as `first`, ahead of the
+  // derived aggregate routes it may out-specify).  A route that would COLLIDE
+  // with an auto-derived route there keeps the `!root:` mounting it has always
+  // had — see `_api/explicit-route-mount.ts`; on this backend the collision is
+  // not a 500 but a `mix compile --warnings-as-errors` failure, because the
+  // second `do_match` clause is unreachable.
+  const routeEntry = (r: RouteIR, action: string): ApiRoute =>
+    routeMountsUnderApiBase(r, derivedSlots)
+      ? {
+          method: r.method.toLowerCase() as ApiRoute["method"],
+          path: phoenixPath(r.path),
+          controller,
+          action: `:${action}`,
+          first: true,
+        }
+      : {
+          method: r.method.toLowerCase() as ApiRoute["method"],
+          path: `!root:${phoenixPath(r.path)}`,
+          controller,
+          action: `:${action}`,
+        };
   const apiRoutes: ApiRoute[] = [];
   const actions: string[] = [];
   // Set when any route is a paged-run queryHandler — the controller then carries
@@ -566,32 +644,15 @@ export function emitExplicitRoutesController(
 ${pagingElseArm("ProblemDetails", "    ")}
     end
   end`);
-      apiRoutes.push({
-        method: r.method.toLowerCase() as ApiRoute["method"],
-        path: `!root:${phoenixPath(r.path)}`,
-        controller,
-        action: `:${action}`,
-      });
+      apiRoutes.push(routeEntry(r, action));
       continue;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
+    const coercions = pathParamCoercions(r, handler);
     actions.push(`  def ${action}(conn, params) do
-    respond(conn, ${handlerMod}.run(params))
+${coercions}    respond(conn, ${handlerMod}.run(params))
   end`);
-    apiRoutes.push({
-      method: r.method.toLowerCase() as ApiRoute["method"],
-      // `!root:` splices the route into the router's root `scope "/"` (served at
-      // its absolute declared path) rather than nesting it under `scope "/api"`.
-      // The explicit `route "<path>" -> ...` path is already absolute (e.g.
-      // `/orders/{id}`), so `/api` nesting both mis-served it (`/api/orders/...`)
-      // AND collided with the always-on auto-CRUD routes (`/api/orders/:id`) —
-      // Phoenix ignores param names, so the shadowed clause fails
-      // `mix compile --warnings-as-errors`.  Root-scoping matches every other
-      // backend (scaffold routes at `/orders/...`, auto-CRUD at `/api/orders/...`).
-      path: `!root:${phoenixPath(r.path)}`,
-      controller,
-      action: `:${action}`,
-    });
+    apiRoutes.push(routeEntry(r, action));
   }
   if (actions.length === 0) return [];
 
@@ -632,10 +693,15 @@ ${actions.join("\n\n")}
   # inlined per action) keeps Elixir 1.18's type checker from narrowing the
   # scrutinee to a single handler's exact result shape and flagging the error
   # branches that handler can't produce.
+  # The handler's value crosses the wire UNWRAPPED (M-T6.73).  This used to send
+  # \`%{result: ...}\`, so \`POST /api/echo/hi\` answered \`{"result":"hi"}\` where node
+  # — the oracle the behavioural goldens are captured from — answers \`"hi"\`.  It
+  # was invisible until the route moved under \`/api\`: before that every request
+  # to it 404'd, so no caller ever saw the body.
   def respond(conn, {:ok, result}) do
     conn
     |> put_status(200)
-    |> json(%{result: serialize(result)})
+    |> json(serialize(result))
   end
 
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),

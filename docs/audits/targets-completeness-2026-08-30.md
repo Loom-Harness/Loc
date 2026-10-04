@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **115** |
+| open rows | **113** |
 | P0 | 0 |
 | P1 | 0 |
 | P2 | 1 |
 | P3 | 30 |
 | P4 | 76 |
-| P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 1 / 30 / 19 / 57 / 8 |
-| confidence: proven / likely / suspected | 19 / 95 / 1 |
+| P5 | 6 |
+| kind: silent / honest / breadth / mission / stale-prose | 1 / 30 / 19 / 57 / 6 |
+| confidence: proven / likely / suspected | 19 / 93 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 29 / 46 / 40 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 107 / 7 / 1 |
+| size S / M / L | 27 / 46 / 40 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 105 / 7 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 174 |
+| done / merged | 176 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -277,8 +277,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P5 | `coverage-fleet-bug-hunt-13-live-stale` | stale-prose | prov | docs | S | coverage.md still says the fleet bug-hunt has 13 LIVE rows — the register is fully drained (M-T9.24 `done` is the true line) |
 | P5 | `mikroorm-rename-rationale-stale` | stale-prose | prov | node | S | The mikroorm half of the self-provisioning-adapter gate rationale is factually wrong on today's emitter (`safe: true`) |
 | P5 | `register-rows-closed-missions` | stale-prose | like | node, dotnet, java, python, elixir | S | Six register `gap` rows are still owned by missions the track has CLOSED as premise-overturned (M-T6.32, M-T6.34) |
-| P5 | `register-rows-unowned-workflow-load` | stale-prose | like | register | S | `loom.workflow-load-array-unsupported` / `-nullable-unsupported` are register rows with no `mission:` link, though M-T4.7 explicitly owns them |
-| P5 | `register-site-pointers-stale` | stale-prose | like | dotnet, elixir, java, node, python, register | S | Four register rows still cite a stale `file:line` emission site (down from 36 of 46) — the gate only checks the string SHAPE, so nothing catches the drift |
 | P5 | `surface-dangling-emit-hooks` | stale-prose | like | node, dotnet, java, python, elixir | S | `PlatformSurface` doc comments still reference `emitAuditInit` / `emitI18nAdapter`, hooks that do not exist |
 | P5 | `t6-duplicate-heading-M-T6.43` | stale-prose | like | node, dotnet, java, python, elixir | S | T6 carries TWO `## M-T6.60` headings — the sixth dup-ID incident (the M-T6.43 instance this row was filed against was fixed; the class was not) |
 | P3 | `G2646-open-node-mounts-ui-false` | honest | like | node | M | #2646 documented, NOT fixed: node is the only backend with mountsUi: false |
