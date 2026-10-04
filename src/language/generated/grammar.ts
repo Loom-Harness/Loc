@@ -446,6 +446,16 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Assignment",
+            "feature": "before",
+            "operator": "?=",
+            "terminal": {
+              "$type": "Keyword",
+              "value": "before"
+            },
+            "cardinality": "?"
+          },
+          {
+            "$type": "Assignment",
             "feature": "sql",
             "operator": "=",
             "terminal": {
@@ -14573,6 +14583,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "auth"
+          },
+          {
+            "$type": "Keyword",
+            "value": "before"
           },
           {
             "$type": "Keyword",
