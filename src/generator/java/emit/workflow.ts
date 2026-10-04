@@ -30,7 +30,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
-import { javaLocals, jid, localOf } from "../java-ident.js";
+import { javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -292,6 +292,11 @@ export function javaWorkflowStmtTarget(
    *  of `state.setOrderId(order)` (javac: cannot find symbol). */
   fixedKeyField?: string,
 ): WorkflowStmtTarget {
+  // The Java local a body binding (`let` / repo / factory / for-each / if-let
+  // name) is declared under: the `.ddd` spelling, unless the caller's
+  // `withLetLocals` moved it off a name the enclosing method spells itself.
+  // Use sites follow through the same `letExpr` hook in `renderRef`.
+  const bound = (name: string): string => renderCtx.letExpr?.(name) ?? name;
   return {
     indentUnit: "    ",
     precondition: (s, indent) => {
@@ -319,7 +324,7 @@ export function javaWorkflowStmtTarget(
         collectJavaExprImports(v, imports);
         return renderJavaExpr(v, renderCtx);
       });
-      return [`${indent}var ${s.name} = ${s.aggName}.create(${args.join(", ")});`];
+      return [`${indent}var ${bound(s.name)} = ${s.aggName}.create(${args.join(", ")});`];
     },
     repoLet: (s, indent) => {
       for (const a of s.args) collectJavaExprImports(a, imports);
@@ -335,7 +340,7 @@ export function javaWorkflowStmtTarget(
       // and the wrap re-wraps an argument that is ALREADY an `<Agg>Id` whenever
       // the caller passes an `Agg id` param — `getById(new OrderId(orderId))`
       // where `orderId` is an `OrderId`, which does not compile.
-      return [`${indent}var ${s.name} = ${repoField(s.aggName)}.${s.method}(${args});`];
+      return [`${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.${s.method}(${args});`];
     },
     exprLet: (s, indent) => {
       collectJavaExprImports(s.expr, imports);
@@ -347,9 +352,11 @@ export function javaWorkflowStmtTarget(
         s.expr.subject?.kind === "ref" &&
         unionFindLets.has(s.expr.subject.name)
       ) {
-        return [`${indent}var ${s.name} = ${renderJavaOptionalTwinMatch(s.expr, renderCtx)};`];
+        return [
+          `${indent}var ${bound(s.name)} = ${renderJavaOptionalTwinMatch(s.expr, renderCtx)};`,
+        ];
       }
-      return [`${indent}var ${s.name} = ${renderJavaExpr(s.expr, renderCtx)};`];
+      return [`${indent}var ${bound(s.name)} = ${renderJavaExpr(s.expr, renderCtx)};`];
     },
     // `field := value` — own-state mutation.  The persisted correlation row's
     // fields are package-private, so the cross-package dispatcher writes through
@@ -388,7 +395,7 @@ export function javaWorkflowStmtTarget(
         collectJavaExprImports(g.expr, imports);
         const pred = renderJavaExpr(g.expr, {
           ...renderCtx,
-          thisName: s.target,
+          thisName: bound(s.target),
           accessorProps: true,
           paramExpr: (name) => {
             const i = targetOp!.params.findIndex((q) => q.name === name);
@@ -399,7 +406,7 @@ export function javaWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      return [...gateLines, `${indent}${s.target}.${s.op}(${callArgs.join(", ")});`];
+      return [...gateLines, `${indent}${bound(s.target)}.${s.op}(${callArgs.join(", ")});`];
     },
     repoDelete: (s, indent) => {
       // `<Repo>.delete(o)` → `<repo>.delete(<entity>)`.  The Spring Data
@@ -440,7 +447,7 @@ export function javaWorkflowStmtTarget(
         );
       }
       return [
-        `${indent}var ${s.name} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")});`,
+        `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (s, indent, body) => {
@@ -449,10 +456,10 @@ export function javaWorkflowStmtTarget(
       // saves sit at the same depth.
       const inner = `${indent}    `;
       const saves = s.savesPerIteration.map(
-        (save) => `${inner}${repoField(save.aggName)}.save(${save.name});`,
+        (save) => `${inner}${repoField(save.aggName)}.save(${bound(save.name)});`,
       );
       return [
-        `${indent}for (var ${s.var} : ${renderJavaExpr(s.iterable, renderCtx)}) {`,
+        `${indent}for (var ${bound(s.var)} : ${renderJavaExpr(s.iterable, renderCtx)}) {`,
         ...body,
         ...saves,
         `${indent}}`,
@@ -468,14 +475,14 @@ export function javaWorkflowStmtTarget(
       args.push("null", "1"); // offset null, limit 1 — single result
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.map(
-        (sv) => `${inner}${repoField(sv.aggName)}.save(${sv.name});`,
+        (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
       );
       const elseSaves = s.savesInElse.map(
-        (sv) => `${inner}${repoField(sv.aggName)}.save(${sv.name});`,
+        (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
       );
       const out = [
-        `${indent}var ${s.var} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")}).stream().findFirst().orElse(null);`,
-        `${indent}if (${s.var} != null) {`,
+        `${indent}var ${bound(s.var)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")}).stream().findFirst().orElse(null);`,
+        `${indent}if (${bound(s.var)} != null) {`,
         ...thenLines,
         ...thenSaves,
       ];
@@ -543,6 +550,70 @@ export function workflowBodyDerefNames(
     }
   }
   return out;
+}
+
+/** Every name a workflow statement body binds as a Java method local — `let`
+ *  (expr / repo / factory / run), `for-each` and `if-let` variables — in
+ *  first-seen order.  Exhaustive over `WorkflowStmtIR` so a new binding kind is
+ *  a compile error here rather than a binding `withLetLocals` never sees. */
+export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[]): string[] {
+  const out = new Set<string>();
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtsDeep(top, (s) => {
+        switch (s.kind) {
+          case "factory-let":
+          case "repo-let":
+          case "repo-run":
+          case "expr-let":
+            out.add(s.name);
+            break;
+          case "for-each":
+          case "if-let":
+            out.add(s.var);
+            break;
+          case "repo-delete":
+          case "op-call":
+          case "precondition":
+          case "requires":
+          case "emit":
+          case "assign":
+          case "resource-call":
+          case "domain-service-call":
+            break;
+          default: {
+            const _exhaustive: never = s;
+            void _exhaustive;
+          }
+        }
+      });
+    }
+  }
+  return [...out];
+}
+
+/** `base` extended with a `letExpr` that moves each of `names` (a body's
+ *  `let`-style bindings) off `reserved` — the names the enclosing generated
+ *  METHOD spells itself (its parameters, `request`, the saga row `state` /
+ *  `__key`, the bean fields the body dereferences, …).  A `let request = …`
+ *  inside `letW(LetWRequest request)` redeclared the parameter; a
+ *  `let ordersRepository = …` shadowed the field the exit save dereferences.
+ *  Returns `base` UNCHANGED when nothing collides, so a non-colliding body is
+ *  byte-identical. */
+export function withLetLocals(
+  base: JavaRenderContext,
+  names: readonly string[],
+  reserved: ReadonlySet<string>,
+): JavaRenderContext {
+  const locals = javaLocals(names, reserved);
+  if (!names.some((n) => movedLocalOrUndefined(locals, n) !== undefined)) return base;
+  return { ...base, letExpr: (n) => movedLocalOrUndefined(locals, n) ?? base.letExpr?.(n) };
+}
+
+/** A render context's local for a body binding (`withLetLocals`), else the
+ *  `.ddd` spelling — for the exit saves a caller renders outside the spine. */
+export function boundLocal(renderCtx: JavaRenderContext, name: string): string {
+  return renderCtx.letExpr?.(name) ?? name;
 }
 
 export function repoField(aggName: string): string {
@@ -871,19 +942,28 @@ export function renderJavaWorkflows(
     // (`javaLocals`); the wire accessor `request.<name>()` and the Request
     // record component keep the `.ddd` spelling, and body refs follow the
     // local through `paramExpr`.  Identity for every non-colliding name.
+    const methodNames = [
+      ...workflowBodyDerefNames([wf.statements], wf.savesAtExit, ctx),
+      ...(corrParam ? ["__key", "state", stateRepoField(wf)] : []),
+      ...(usesUser && authed ? ["currentUser", "currentUserAccessor"] : []),
+    ];
     const paramLocals = javaLocals(
       wf.params.map((p) => p.name),
+      new Set(["request", ...methodNames]),
+    );
+    // The body's own `let` / repo / for-each bindings are locals of the SAME
+    // method: moved off its names — the `request` parameter (when the method
+    // takes one), the param locals bound above, and everything else in
+    // `methodNames` — by `withLetLocals` (identity when nothing collides).
+    const bodyRenderCtx: JavaRenderContext = withLetLocals(
+      { ...wfRenderCtx, paramExpr: (n) => paramLocals.get(n) },
+      workflowBoundNames([wf.statements]),
       new Set([
-        "request",
-        ...workflowBodyDerefNames([wf.statements], wf.savesAtExit, ctx),
-        ...(corrParam ? ["__key", "state", stateRepoField(wf)] : []),
-        ...(usesUser && authed ? ["currentUser", "currentUserAccessor"] : []),
+        ...(wf.params.length > 0 ? ["request"] : []),
+        ...methodNames,
+        ...paramLocals.values(),
       ]),
     );
-    const bodyRenderCtx: JavaRenderContext = {
-      ...wfRenderCtx,
-      paramExpr: (n) => paramLocals.get(n),
-    };
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
       return `            var ${localOf(paramLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
@@ -927,7 +1007,9 @@ export function renderJavaWorkflows(
           `            var state = ${stateRepoField(wf)}.findById(__key).orElseGet(() -> ${workflowStateClass(wf)}._allocate(__key));`,
         ]
       : [];
-    const saves = wf.savesAtExit.map((s) => `            ${repoField(s.aggName)}.save(${s.name});`);
+    const saves = wf.savesAtExit.map(
+      (s) => `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
+    );
     // Persist the row (a fresh allocation, or a `this.<stateField>` write) so a
     // later `on` reactor for the same key routes instead of dropping the event.
     const stateSave = corrParam ? [`            ${stateRepoField(wf)}.save(state);`] : [];

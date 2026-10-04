@@ -63,6 +63,15 @@ export interface JavaRenderContext {
    *  aggregate SERVICE needs no mapping: it already binds each param as a
    *  `var <name> = …` local above the call.)  Unset everywhere else. */
   paramExpr?: (name: string) => string | undefined;
+  /** The Java local a `let`-bound name (`refKind: "let"`) renders as, when
+   *  the binding had to be moved off a name the enclosing generated METHOD
+   *  spells itself (`javaLocals`, java-ident.ts).  The binding sites (the
+   *  statement renderers' `var <name> = …`, the workflow spine's
+   *  repo/factory/for-each/if-let bindings and exit saves) consult the same
+   *  hook, so declaration and use cannot disagree.  Unset — or `undefined` for
+   *  a name — leaves the default spelling, so a model with no collision is
+   *  byte-identical. */
+  letExpr?: (name: string) => string | undefined;
   /** Aggregate whose bodies we're lowering — used by `new <Part>` to
    *  order the part's constructor arguments by declared field order. */
   agg?: EnrichedAggregateIR;
@@ -439,9 +448,11 @@ function renderLiteral(lit: string, value: string): string {
 function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
   switch (e.refKind) {
     case "let":
+      // A body-introduced local; escape keyword collisions so the use matches
+      // the (also-escaped) binding (`let class` → `class_`) — or the
+      // collision-renamed local the binding site declared (`letExpr`).
+      return ctx.letExpr?.(e.name) ?? escapeJavaIdent(e.name);
     case "lambda":
-      // Locals introduced inside the body; escape keyword collisions so the
-      // use matches the (also-escaped) binding (`let class` → `class_`).
       return escapeJavaIdent(e.name);
     case "param":
       return ctx.paramExpr?.(e.name) ?? jid(e.name);

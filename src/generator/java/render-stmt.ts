@@ -105,7 +105,8 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
     let: (s) =>
       // `let`-names may collide with a Java keyword; escape consistently with
       // the matching `refKind: "let"` use sites (`let class` → `class_`).
-      `${INDENT}var ${escapeJavaIdent(s.name)} = ${renderJavaExpr(s.expr, ctx)};`,
+      // (or the collision-safe local the caller's `letExpr` assigned).
+      `${INDENT}var ${ctx.letExpr?.(s.name) ?? escapeJavaIdent(s.name)} = ${renderJavaExpr(s.expr, ctx)};`,
 
     assign: (s, ix) => {
       const base = `${INDENT}${renderPath(s.target)} = ${renderJavaExpr(s.value, ctx)};`;

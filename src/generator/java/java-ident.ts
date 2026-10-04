@@ -183,6 +183,24 @@ export function localOf(locals: ReadonlyMap<string, string>, name: string): stri
   return locals.get(name) ?? jid(name);
 }
 
+/** The local a `javaLocals` map MOVED `name` to (a collision rename), else
+ *  `undefined` — for render hooks (`paramExpr` / `letExpr`) whose fallback
+ *  must stay the site's existing spelling. */
+export function movedLocalOrUndefined(
+  locals: ReadonlyMap<string, string>,
+  name: string,
+): string | undefined {
+  const local = locals.get(name);
+  return local !== undefined && local !== jid(name) ? local : undefined;
+}
+
+/** The collision-renamed local for `name`, else `name` VERBATIM — for the
+ *  emitter sites that have always spelled a `.ddd` name raw (no `jid`), so
+ *  adopting `javaLocals` there moves only an actual collision. */
+export function movedLocal(locals: ReadonlyMap<string, string>, name: string): string {
+  return movedLocalOrUndefined(locals, name) ?? name;
+}
+
 /** Enum names in a context with at least one Java-reserved-word value — the
  *  enums whose java constants are mangled and whose columns therefore persist
  *  through the generated `<Enum>.Codec` converter (M-T6.36).  Empty for every

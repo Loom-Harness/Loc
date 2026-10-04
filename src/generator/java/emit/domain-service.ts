@@ -64,10 +64,11 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
-import { walkExprDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
+import { javaLocals, movedLocal, movedLocalOrUndefined } from "../java-ident.js";
 import {
   collectJavaTypeImports,
   type JavaRenderContext,
@@ -256,8 +257,16 @@ function renderReadingService(
   repoPkgOf?: (aggName: string) => string,
 ): string {
   const javaImports = new Set<string>();
+  // One injected repository per DISTINCT read-port aggregate (first-read order,
+  // deduped) — drives the fields, the ctor, and the repository-interface
+  // imports.  Sorted by aggregate for stable output.
+  const readAggs = [...new Set(distinctReadAggregates(svc))].sort();
+  // The names every instance method may dereference — the injected repository
+  // fields (and their aggregate classes).  A param / `let` named like one
+  // shadowed it (`ordersRepository.byRegion(ordersRepository)` on a String).
+  const fieldNames = new Set(readAggs.flatMap((a) => [javaRepoField(a), a]));
   const methodBlocks = svc.operations.map((op) =>
-    renderReadingOperation(op, ctx, unions, javaImports),
+    renderReadingOperation(op, ctx, unions, javaImports, fieldNames),
   );
   const body = methodBlocks.flat();
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
@@ -274,10 +283,6 @@ function renderReadingService(
     .sort((x, y) => x.a.localeCompare(y.a))
     .map((e) => `import ${e.pkg}.${e.a};`);
 
-  // One injected repository per DISTINCT read-port aggregate (first-read order,
-  // deduped) — drives the fields, the ctor, and the repository-interface
-  // imports.  Sorted by aggregate for stable output.
-  const readAggs = [...new Set(distinctReadAggregates(svc))].sort();
   const repoImports = readAggs
     .map((a) => ({ a, pkg: repoPkgOf?.(a) }))
     .filter((e): e is { a: string; pkg: string } => !!e.pkg && e.pkg !== pkg)
@@ -325,10 +330,26 @@ function renderReadingOperation(
   ctx: EnrichedBoundedContextIR,
   unions: ReadonlyMap<string, JavaReturnUnionSpec>,
   javaImports: Set<string>,
+  /** The bean's injected field names (`renderReadingService`). */
+  fieldNames: ReadonlySet<string>,
 ): string[] {
   for (const p of op.params) collectJavaTypeImports(p.type, javaImports);
   if (op.returnType) collectJavaTypeImports(op.returnType, javaImports);
   collectJavaStmtImports(op.body, javaImports);
+
+  // Params and body `let`s are locals of a method that dereferences the
+  // injected repository fields — only a colliding name moves to `<name>_`.
+  const paramLocals = javaLocals(
+    op.params.map((p) => p.name),
+    fieldNames,
+  );
+  const letNames: string[] = [];
+  for (const s of op.body) {
+    walkStmtsDeep(s, (st) => {
+      if (st.kind === "let") letNames.push(st.name);
+    });
+  }
+  const letLocals = javaLocals(letNames, new Set([...fieldNames, ...paramLocals.values()]));
 
   const spec = op.returnType ? unions.get(unionKeyOf(op, ctx)) : undefined;
   // `serviceReading` lets a nested service-to-service call (a reading op calling
@@ -342,9 +363,13 @@ function renderReadingOperation(
       return o ? readPortsForOperation(o).length > 0 : false;
     },
     ...(spec ? { returnUnion: unionRenderCtx(spec) } : {}),
+    paramExpr: (n) => movedLocalOrUndefined(paramLocals, n),
+    letExpr: (n) => movedLocalOrUndefined(letLocals, n),
   };
 
-  const params = op.params.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", ");
+  const params = op.params
+    .map((p) => `${renderJavaType(p.type)} ${movedLocal(paramLocals, p.name)}`)
+    .join(", ");
   const retType = op.returnType ? (spec ? spec.name : renderJavaType(op.returnType)) : "void";
   const bodyText = renderJavaStatements(op.body, renderCtx);
   const reading = readPortsForOperation(op).length > 0;

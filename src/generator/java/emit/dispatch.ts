@@ -26,10 +26,13 @@ import {
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
 import {
+  boundLocal,
   javaWorkflowStmtTarget,
   reactorReposUsed,
   repoField,
+  withLetLocals,
   workflowBodyDerefNames,
+  workflowBoundNames,
 } from "./workflow.js";
 import { esEventLogTable, esWorkflowStateClass } from "./workflow-eventsourced.js";
 import { workflowStateClass } from "./workflow-state.js";
@@ -180,10 +183,18 @@ function renderProjectionFold(
   const repo = projRepoField(proj);
   // The event param is the method's own parameter — moved off `__key` /
   // `state` / the row repository it shares the method with.
-  const param = eventParamLocal(sub.param, new Set(["__key", "state", repo, cls]));
+  const foldNames = ["__key", "state", repo, cls];
+  const param = eventParamLocal(sub.param, new Set(foldNames));
   // this-prop refs resolve through the row's record-style accessors
   // (`state.status()`); writes go through the JavaBean setter (spelled below).
-  const renderCtx = withEventParam({ thisName: "state", accessorProps: true }, sub.param, param);
+  // A fold `let` is a local of the same method — moved off those names and the
+  // event param (`let boardRowRepository = …` shadowed the row repository the
+  // closing save dereferences).
+  const renderCtx = withLetLocals(
+    withEventParam({ thisName: "state", accessorProps: true }, sub.param, param),
+    on.statements.flatMap((st) => (st.kind === "let" ? [st.name] : [])),
+    new Set([...foldNames, param]),
+  );
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule) — an id-typed accessor, so `findById`
   // gets the `<Corr>Id` it expects.
@@ -257,7 +268,9 @@ function renderProjectionFoldStmt(
     case "let":
       // `let`-names may collide with a Java keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
-      return [`        var ${escapeJavaIdent(stmt.name)} = ${expr(stmt.expr)};`];
+      return [
+        `        var ${renderCtx?.letExpr?.(stmt.name) ?? escapeJavaIdent(stmt.name)} = ${expr(stmt.expr)};`,
+      ];
     case "add": {
       const f = field();
       const value = expr(stmt.value);
@@ -648,7 +661,8 @@ function renderHandler(
   const corr = wf.correlationField as string;
   // The event param is the method's own parameter, alongside `__key`, `state`,
   // the injected repositories, … — moved to `<name>_` only on a collision.
-  const param = eventParamLocal(sub.param, reactorReserved(wf, [resolved], ctx));
+  const reserved = reactorReserved(wf, [resolved], ctx);
+  const param = eventParamLocal(sub.param, reserved);
   // The persisted correlation row exposes its fields via record-style accessors
   // (`state.attempts()`), not public fields — so own-state READS in the body
   // (e.g. the `state.attempts() + 1` RHS of a compound `attempts += 1`) must go
@@ -656,7 +670,13 @@ function renderHandler(
   // arm spells `state.setAttempts(...)` directly).  `accessorProps` only affects
   // `this-prop` refs, so the `by <expr>` correlation key (an event-param member)
   // is unchanged.
-  const renderCtx = withEventParam({ thisName: "state", accessorProps: true }, sub.param, param);
+  // The body's own bindings are locals of the same method — moved off the
+  // reserved names and the event param (`withLetLocals`; identity otherwise).
+  const renderCtx = withLetLocals(
+    withEventParam({ thisName: "state", accessorProps: true }, sub.param, param),
+    workflowBoundNames([resolved.statements]),
+    new Set([...reserved, param]),
+  );
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule).
   const keyExpr = resolved.correlation
@@ -739,8 +759,9 @@ function renderHandler(
   // Saves: persist each dirty aggregate, then re-publish its own domain events
   // (aggregate-level choreography re-entry).
   for (const s of resolved.saves) {
-    body.push(`        ${repoField(s.aggName)}.save(${s.name});`);
-    body.push(`        for (var __e : ${s.name}.pullEvents()) events.publishEvent(__e);`);
+    const local = boundLocal(renderCtx, s.name);
+    body.push(`        ${repoField(s.aggName)}.save(${local});`);
+    body.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
   }
   // Stamp the processed marker before the state save (same tx window as the
   // saga mutation) so a redelivery of this id short-circuits above.
@@ -780,14 +801,19 @@ function renderEsHandler(
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = eventParamLocal(sub.param, reactorReserved(wf, [resolved], ctx));
+  const reserved = reactorReserved(wf, [resolved], ctx);
+  const param = eventParamLocal(sub.param, reserved);
   // The event-sourced fold class lives in the dispatcher's OWN package and
   // exposes package-private fields, so a same-package own-state READ
   // (`state.total`) compiles as a bare field — no accessor redirect needed
   // (unlike the cross-package mutable saga row in `renderHandler`).  Event-
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
-  const renderCtx = withEventParam({ thisName: "state" }, sub.param, param);
+  const renderCtx = withLetLocals(
+    withEventParam({ thisName: "state" }, sub.param, param),
+    workflowBoundNames([resolved.statements]),
+    new Set([...reserved, param]),
+  );
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
@@ -882,8 +908,9 @@ function renderEsHandler(
   }
   // Aggregate saves still re-publish their own events (choreography re-entry).
   for (const s of resolved.saves) {
-    body.push(`        ${repoField(s.aggName)}.save(${s.name});`);
-    body.push(`        for (var __e : ${s.name}.pullEvents()) events.publishEvent(__e);`);
+    const local = boundLocal(renderCtx, s.name);
+    body.push(`        ${repoField(s.aggName)}.save(${local});`);
+    body.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
   }
   // Every emit in an ES workflow has an applier (A1 discipline), so the emitted
   // events ARE the workflow's own stream — append them gap-free, then publish.
@@ -931,6 +958,9 @@ function esMergedBranchLines(
   branchParam: string,
   /** … and the Java local it renders as (aliased to `methodParam` below). */
   branchLocal: string,
+  /** The merged method's own names (`reactorReserved` over both branches) —
+   *  this branch's body bindings are moved off them. */
+  reserved: ReadonlySet<string>,
   schema: string | undefined,
   construct: string,
   /** Source-map — this branch's own `OpFragment`, pushed here so
@@ -947,12 +977,17 @@ function esMergedBranchLines(
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
   const hasEmit = bodyHasEmit(resolved.statements);
+  const branchCtx = withLetLocals(
+    withEventParam({ thisName: "state" }, branchParam, branchLocal),
+    workflowBoundNames([resolved.statements]),
+    new Set([...reserved, methodParam, branchLocal]),
+  );
   const stmtChunks = renderWorkflowStmtChunks(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
       imports,
-      withEventParam({ thisName: "state" }, branchParam, branchLocal),
+      branchCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
     ),
@@ -978,8 +1013,9 @@ function esMergedBranchLines(
   if (hasEmit) out.push(`        var __events = new ArrayList<DomainEvent>();`);
   out.push(...bodyLines);
   for (const s of resolved.saves) {
-    out.push(`        ${repoField(s.aggName)}.save(${s.name});`);
-    out.push(`        for (var __e : ${s.name}.pullEvents()) events.publishEvent(__e);`);
+    const local = boundLocal(branchCtx, s.name);
+    out.push(`        ${repoField(s.aggName)}.save(${local});`);
+    out.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
   }
   if (hasEmit) {
     out.push(
@@ -1044,6 +1080,7 @@ function renderEsMergedHandler(
     param,
     createSub.param,
     param,
+    reserved,
     schema,
     construct,
     opFragments,
@@ -1056,6 +1093,7 @@ function renderEsMergedHandler(
     param,
     onSub.param,
     onLocal,
+    reserved,
     schema,
     construct,
     opFragments,
