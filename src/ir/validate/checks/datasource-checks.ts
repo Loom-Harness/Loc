@@ -15,6 +15,7 @@ import {
   platformSavingShapes,
 } from "../../../language/validators/data/platform-rules.js";
 import { lowerFirst, snake } from "../../../util/naming.js";
+import { sourceTypeFor } from "../../../util/source-types.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -670,5 +671,25 @@ export function validateDataSourceUnwiredKnobs(sys: SystemIR, diags: LoomDiagnos
         source: `${sys.name}/${ds.name}`,
       });
     }
+  }
+}
+
+// A declared `storage` whose `type:` binds to NO kind in the sourceType
+// registry (`src/util/source-types.ts` — `elastic` / `meilisearch` /
+// `clickhouse` / `bigquery` register with empty `supports`; `nats` parses but
+// is not registered at all).  No dataSource, channelSource or resource can use
+// such a storage and no backend emits anything for it, yet it validated with
+// `0 warning(s)` (M-T5.42, V9).  A warning, not an error: an unused
+// declaration breaks nothing — a USE of it is refused by the consuming gate.
+export function validateStorageTypeBinding(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const st of sys.storages) {
+    const descriptor = sourceTypeFor(st.type);
+    if (descriptor && Object.keys(descriptor.supports).length > 0) continue;
+    diags.push({
+      severity: "warning",
+      code: "loom.storage-type-unbound",
+      message: diagMessage("loom.storage-type-unbound", { name: st.name, type: st.type }),
+      source: `${sys.name}/${st.name}`,
+    });
   }
 }

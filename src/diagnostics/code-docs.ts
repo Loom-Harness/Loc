@@ -56,6 +56,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",
   "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
   "loom.duplicate-storage": "14-apis-storage-resources-channels.md#storage",
+  "loom.storage-type-unbound": "14-apis-storage-resources-channels.md#storage",
   "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",

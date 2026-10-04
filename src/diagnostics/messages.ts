@@ -3435,6 +3435,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `audit-record emission for ${p.kind}s is implemented for the ${p.capable} backend(s) only — ${p.hostNote}. ` +
     `Host the context on a capable deployable, or drop the 'audited' modifier (all backends). ` +
     `Tracked in audit-and-logging.md.`,
+  // M-T5.42, V9 — a storage type the sourceType registry binds to no kind.
+  "loom.storage-type-unbound": (p: { name: unknown; type: unknown }) =>
+    `storage '${p.name}' has 'type: ${p.type}', which binds to no kind today — no dataSource, ` +
+    `channelSource or resource can use it, and no backend emits anything for it.  The declaration ` +
+    `is a no-op.  Use a supported type (postgres / inMemory for state, redis for a cache, ` +
+    `rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / ` +
+    `sendgrid), or drop the declaration.`,
   "loom.datasource-knob-unwired": (p: { name: unknown; property: unknown; description: unknown }) =>
     `resource '${p.name}' sets '${p.property}', but ${p.description}.  ` +
     `The value is accepted by validation and persisted in the IR but no current ` +

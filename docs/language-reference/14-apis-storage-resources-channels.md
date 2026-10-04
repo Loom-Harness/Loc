@@ -195,7 +195,7 @@ volumes:
   blobs-data: {}
 ```
 
-> **Generator support is narrower than the grammar.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring; `nats`, `elastic`, `meilisearch`, `clickhouse` and `bigquery` parse and validate but bind no kind and emit nothing — an honest forward-compat gap. (`nats` is *not* a channel transport: `CHANNEL_COMPATIBILITY` in `src/util/channels.ts` lists only `inMemory` / `redis` / `rabbitmq` / `kafka`.)
+> **Generator support is narrower than the grammar.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring; `nats`, `elastic`, `meilisearch`, `clickhouse` and `bigquery` parse but bind no kind and emit nothing — declaring one is a warning, `loom.storage-type-unbound`, and any use of it is refused by the consuming gate. (`nats` is *not* a channel transport: `CHANNEL_COMPATIBILITY` in `src/util/channels.ts` lists only `inMemory` / `redis` / `rabbitmq` / `kafka`.)
 
 ### Connection sources
 
