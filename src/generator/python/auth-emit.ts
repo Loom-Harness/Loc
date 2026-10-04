@@ -371,7 +371,7 @@ function renderPySystemPrincipal(
           '    org_path = raw_org_path if isinstance(raw_org_path, str) else (tenant or "")',
         ]
       : []),
-    `    ${hierarchy ? "user" : "return"} User(`,
+    `    ${hierarchy ? "user =" : "return"} User(`,
     ...kwargs,
     "        is_system=True,",
     "        caused_by=raw_caused_by if isinstance(raw_caused_by, str) else None,",
