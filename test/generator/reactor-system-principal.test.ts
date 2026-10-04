@@ -146,6 +146,29 @@ system S {
     expect(auth).toContain("Process.put(:loom_current_user, user)");
   });
 
+  it("node: a NON-optional id claim is the empty id, cast — no unbound `Ids`", async () => {
+    // corpus `auth-id-claim-stub.ddd`: the dev-stub zero-id arm emitted
+    // `Ids.CustomerId(...)` into middleware.ts, which imports no `Ids` (TS2304).
+    const files = await generateSystemFiles(`
+system S {
+  user { id: string  permissions: string[]  customerId: Customer id }
+  subdomain D {
+    context Shop {
+      aggregate Customer with crudish { name: string }
+      repository Customers for Customer { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Shop, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Shop], dataSources: [st], port: 3000, auth: required }
+}`);
+    const mw = files.get("api/auth/middleware.ts") ?? "";
+    const sp = mw.slice(mw.indexOf("export function systemPrincipal"));
+    expect(sp).toContain('    customerId: "" as UserClaims["customerId"],');
+    expect(sp).not.toContain("Ids.");
+    for (const dir of honoProjectDirs(files)) expect(unboundSymbols(files, dir)).toEqual([]);
+  });
+
   it("a reactor that never reads the principal binds nothing", async () => {
     const files = await generateSystemFiles(system("node", 'this.code != ""'));
     expect(files.get("api/http/workflows.ts") ?? "").not.toContain("systemPrincipal");
