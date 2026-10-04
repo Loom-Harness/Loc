@@ -333,14 +333,26 @@ lifecycleLog.LogInformation("{Event} port={Port} env={Env}", "server_starting", 
         lifecycleLog.LogInformation("{Event}", "server_drained"));
 }
 
-// Dev-only state reset for the emitted e2e suite.  Mapped ONLY outside a
-// production profile (or with LOOM_TEST_RESET=1), so this surface does not
-// exist in a real deployment.  See docs/tools.md.
-var loomTestReset = System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET");
-if (loomTestReset == "1" || (loomTestReset != "0" && !app.Environment.IsProduction()))
+// Dev-only state reset for the emitted e2e suite.  Mapped ONLY with an
+// explicit LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, so this surface
+// does not exist in a real deployment.  See docs/tools.md.
+var loomTestResetToken = System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET_TOKEN") ?? "";
+if (System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET") == "1" && loomTestResetToken.Length == 0)
 {
-    app.MapPost("/__loom/test-reset", async (AppDbContext db, IServiceProvider sp, CancellationToken cancellationToken) =>
+    app.Logger.LogWarning("LOOM_TEST_RESET=1 but LOOM_TEST_RESET_TOKEN is unset; /__loom/test-reset is NOT mapped.");
+}
+if (System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET") == "1" && loomTestResetToken.Length > 0)
+{
+    app.MapPost("/__loom/test-reset", async (HttpRequest request, AppDbContext db, IServiceProvider sp, CancellationToken cancellationToken) =>
     {
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(request.Headers["x-loom-test-reset"].ToString()),
+                System.Text.Encoding.UTF8.GetBytes(loomTestResetToken)))
+        {
+            return Results.Json(
+                new { status = "forbidden", detail = "missing or wrong reset token" },
+                statusCode: 403);
+        }
         var conn = db.Database.GetDbConnection();
         if (conn.State != System.Data.ConnectionState.Open)
         {
