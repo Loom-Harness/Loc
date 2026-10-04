@@ -19,7 +19,6 @@ import {
   wholeTableAggregates,
 } from "../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
@@ -194,9 +193,6 @@ export function buildPyQueryProjectionsFile(
   for (const pred of rowLowered.values()) for (const op of pred?.ops ?? []) saOps.add(op);
   for (const pred of aggLowered.values()) for (const op of pred?.ops ?? []) saOps.add(op);
   const saNames = [...saOps].filter(refersTo).sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
   const wireHelpers = ["iso", "money_str"].filter(refersTo);
 
   return lines(
@@ -228,9 +224,6 @@ export function buildPyQueryProjectionsFile(
     // this line those names are undefined here — ruff F821 on the generated
     // project, which only the corpus tier sees.
     wireModelImport([], refersTo),
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
     "",
     "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
     "",

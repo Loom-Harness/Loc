@@ -23,7 +23,6 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
 import { renderPyExpr } from "../render-expr.js";
@@ -211,13 +210,6 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   }
   const bodyStr = testBlocks.join("\n");
 
-  // An enum value (`Tier.Free`), a value-object constructor call and an
-  // aggregate named as a type are still spelled bare by the shared renderers,
-  // so those stay scanned; every other symbol the body names is a marker.
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
-    .sort();
-
   const out: string[] = [];
   out.push(`"""Integration tests for ${ctx.name}.  Auto-generated."""`);
   out.push("");
@@ -232,9 +224,6 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   out.push("from app.db.migrate import run_migrations");
   for (const a of usedAggs) {
     out.push(`from app.domain.${snake(a.name)} import ${a.name}`);
-  }
-  if (voEnumNames.length > 0) {
-    out.push(`from app.domain.value_objects import ${voEnumNames.join(", ")}`);
   }
   out.push("");
   out.push("");

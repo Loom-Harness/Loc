@@ -46,9 +46,6 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
   // app.db.schema has no attribute OpenOrdersRow".  Any context declaring one of
   // each kind failed to compile on python; no fixture had that combination.
   const projRows = folded.map((p) => `${p.name}Row`).sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
 
   return lines(
     `"""Projection read-model routes.  Auto-generated."""`,
@@ -73,9 +70,6 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
     // project, which only the corpus tier sees.
     wireModelImport([], refersTo),
     wireHelperImport(refersTo),
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
     "",
     "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
     "",

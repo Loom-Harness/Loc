@@ -163,12 +163,10 @@ export function renderPyAggregate(
   ].sort();
   const eventImports = ["DomainEvent", ...emittedEvents];
 
-  const bodyUsesCast = /\bcast\(/.test(body);
   return lines(
     `"""${agg.name} aggregate.  Auto-generated."""`,
     "",
     PY_IMPORTS,
-    bodyUsesCast ? "from typing import cast" : null,
     `from app.domain.events import ${eventImports.join(", ")}`,
     emitProvenance
       ? "from app.domain.provenance import ProvInput, ProvLineage, ProvTarget, record"

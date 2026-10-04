@@ -146,30 +146,8 @@ export function buildPyChannelsFile(
     ...fromArms,
     `    raise ValueError(f"unknown carried event type: {event_type}")`,
   );
-  const scan = codec.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
 
   const eventNames = carried.map((e) => e.name).sort();
-  const idNames = [
-    ...new Set(
-      carried.flatMap((e) =>
-        e.fields
-          .map((f) => (f.type.kind === "optional" ? f.type.inner : f.type))
-          .filter((t): t is Extract<typeof t, { kind: "id" }> => t.kind === "id")
-          .map((t) => t.targetName),
-      ),
-    ),
-  ].sort();
-  const enumNames = [
-    ...new Set(
-      carried.flatMap((e) =>
-        e.fields
-          .map((f) => (f.type.kind === "optional" ? f.type.inner : f.type))
-          .filter((t): t is Extract<typeof t, { kind: "enum" }> => t.kind === "enum")
-          .map((t) => t.name),
-      ),
-    ),
-  ].sort();
 
   const transportNames = [
     ...(hasRedis ? ["RedisChannelTransport"] : []),
@@ -200,7 +178,6 @@ export function buildPyChannelsFile(
     "import json",
     "import os",
     "from datetime import UTC, datetime",
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
     // `get_message` narrows redis-py's Any-typed pubsub surface with `cast`
     // in every shape; the consumer block adds the envelope-field narrows.
     "from typing import cast",
@@ -208,10 +185,6 @@ export function buildPyChannelsFile(
     "from uuid6 import uuid7",
     "",
     `from app.domain.events import ${["DomainEvent", ...eventNames].join(", ")}`,
-    idNames.length > 0
-      ? `from app.domain.ids import ${idNames.map((n) => `${n}Id`).join(", ")}`
-      : null,
-    enumNames.length > 0 ? `from app.domain.value_objects import ${enumNames.join(", ")}` : null,
     "from app.obs.log import log",
     "",
     "# The deployable's wired bindings: broker address per channelSource, with",

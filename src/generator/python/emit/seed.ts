@@ -4,7 +4,6 @@ import type {
   SeedRowIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
@@ -58,22 +57,10 @@ export function buildPySeedFile(
   const aggByName = seederAggs;
   const fnBlocks: string[] = [];
   const callLines: string[] = [];
-  // The shared expression renderer spells an enum value bare (`Tier.Free`),
-  // so the enums a domain-path row names are collected from the IR.
-  const enumNames = new Set<string>();
   for (const ds of datasets) {
     const entries = ds.entries.filter((e) => seedable.has(e.row.aggregate));
     if (entries.length === 0) continue;
     fnBlocks.push(renderDatasetFn(ds.name, entries, schemaFor, aggByName));
-    for (const e of entries.filter((x) => !x.raw)) {
-      for (const f of e.row.fields) {
-        walkExprDeep(f.value, (x) => {
-          if (x.kind === "ref" && x.refKind === "enum-value" && x.enumName) {
-            enumNames.add(x.enumName);
-          }
-        });
-      }
-    }
     callLines.push(`        await _seed_${snake(ds.name)}(session, requested)`);
   }
   if (callLines.length === 0) return null;
@@ -94,9 +81,6 @@ export function buildPySeedFile(
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
     "from app.db.engine import session_factory",
-    enumNames.size > 0
-      ? `from app.domain.value_objects import ${[...enumNames].sort().join(", ")}`
-      : null,
     "",
     "",
     "def _dataset_enabled(dataset: str, requested: set[str]) -> bool:",

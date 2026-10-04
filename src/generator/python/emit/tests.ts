@@ -11,7 +11,7 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, snake } from "../../../util/naming.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../../_imports/python.js";
 import { ref, spellMarkers } from "../../_imports/symbol.js";
@@ -127,12 +127,6 @@ function renderPySubjectTests(
     .filter((a) => a.name !== describeName && refs(a.name))
     .map((a) => a.name)
     .sort();
-  // Everything else the body names is written through a marker; an enum value
-  // (`Tier.Free`) and a value-object constructor call are still spelled bare
-  // by the shared expression renderer, so those stay narrowed by the scan.
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refs)
-    .sort();
   // The module has always set a lone `from typing import cast` flush against
   // the docstring (no blank line) — kept for byte-identity.
   const spelled = spellMarkers(bodyStr);
@@ -149,9 +143,6 @@ function renderPySubjectTests(
   }
   for (const name of siblingAggs) {
     out.push(`from app.domain.${snake(name)} import ${name}`);
-  }
-  if (voEnumNames.length > 0) {
-    out.push(`from app.domain.value_objects import ${voEnumNames.join(", ")}`);
   }
   return `${out.join("\n")}\n${bodyStr}\n`;
 }

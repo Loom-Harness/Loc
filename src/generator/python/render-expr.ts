@@ -297,7 +297,7 @@ function renderRef(e: RefExpr, ctx: PyRenderContext): string {
       // Bare reference to a workflow helper — the module-scoped `def` name.
       return workflowFnSnake(e.wfScope!, e.name);
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName ? pyVoOrEnum(e.enumName) : e.enumName}.${e.name}`;
     case "match-binding":
       // Variant-`match` binding (variant-match.md): Python has no
       // expression-level pattern binding, so the bound name is an alias of the
@@ -334,7 +334,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: PyRenderContext): string
   // subscripting yields `object`, so cast to the resolved member type to keep
   // `mypy --strict` happy.
   if (e.receiver.kind === "ref" && e.receiver.refKind === "match-binding") {
-    return `cast(${renderPyType(e.memberType)}, ${recv}[${JSON.stringify(e.member)}])`;
+    return `${PY.cast}(${renderPyType(e.memberType)}, ${recv}[${JSON.stringify(e.member)}])`;
   }
   // Collection / string sizes go through the `len` builtin.
   if (e.receiverType.kind === "array" && (e.member === "count" || e.member === "length")) {
@@ -563,7 +563,7 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
   const argList = args.join(", ");
   switch (e.callKind) {
     case "value-object-ctor":
-      return `${e.name}(${argList})`;
+      return `${pyVoOrEnum(e.name)}(${argList})`;
     case "function":
       // Public, like the `def` site (`def is_draft`) and like a VO function.
       return `${ctx.thisName}.${snake(e.name)}(${argList})`;

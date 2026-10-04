@@ -13,7 +13,6 @@ import type {
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -365,9 +364,6 @@ export function buildPyDispatchFile(
     .map((a) => `${a.name}Id`)
     .filter((n) => refersTo(n))
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
 
   return lines(
     `"""In-process event dispatch (channels.md).  Auto-generated."""`,
@@ -389,9 +385,6 @@ export function buildPyDispatchFile(
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
     ...resourceImports,
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
     // Domain-service calls render as bare functions (`quote(...)`) — import
     // them by name from app.domain.services.* (domain-services.md).  A saga
     // `on(…)` handler's own body was the one caller that never wired this
