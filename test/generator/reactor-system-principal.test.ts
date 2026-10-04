@@ -115,7 +115,9 @@ describe("reactor binds the system principal (ruling D1)", () => {
     expect(s).toContain("current_user = ApiWeb.Auth.system_principal()");
     expect(s).toContain("Api.Ord.finish_order(o, %{}, current_user)");
     const auth = await file("elixir", "api_web/auth.ex");
-    expect(auth).toContain("def system_principal do");
+    expect(auth).toContain(
+      "  def system_principal, do: system_principal_for(current_event_origin())",
+    );
     expect(auth).toContain("Process.put(:loom_current_user, user)");
   });
 
