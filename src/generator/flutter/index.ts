@@ -1007,6 +1007,11 @@ function renderStatelessPage(
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
+  // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
+  // (this page has no `ref` of its own).
+  if (bodyWidget.includes("Consumer(builder:")) {
+    imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
+  }
   if (opts.hostsForm) imports.push("import '../forms.dart';");
   // The controlled-Modal bridge, imported only where a page actually opens one
   // (an unused Dart import is an analyzer warning, and `flutter analyze` is a

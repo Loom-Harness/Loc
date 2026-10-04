@@ -89,6 +89,9 @@ export const CHROME_MESSAGES: Record<string, string> = {
   [chromeKey("deleteEntity")]: "Delete {entity}",
   [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
+  // The accessible reason on a `when`-gated operation trigger while its
+  // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
+  [chromeKey("opNotAllowed")]: "Not available in the current state",
 };
 
 /** The source-language text for a chrome key, for an emitter building the
@@ -224,6 +227,9 @@ export const FORM_CHROME: Record<string, string> = {
   [chromeKey("deleteEntity")]: "Delete {entity}",
   [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
+  // The accessible reason on a `when`-gated operation trigger while its
+  // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
+  [chromeKey("opNotAllowed")]: "Not available in the current state",
 };
 
 /** Chrome a `Table`'s CONTROLS render — the pager's "Prev" / "Next" / position

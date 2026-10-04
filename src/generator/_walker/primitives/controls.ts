@@ -12,6 +12,7 @@ import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
 import { localizedAriaLabelAttr, localizedNamedValue, localizedText } from "../i18n-emit.js";
 import { lookupBuiltinIcon } from "../icons.js";
+import { opGateFor } from "../op-gate.js";
 import { queryShape } from "../paged-query.js";
 import { renderPrimitive } from "../render-primitive.js";
 import {
@@ -263,6 +264,18 @@ export function emitAction(
       idExpr,
     });
   }
+  // `when`-gated op: hoist its `can_<op>` probe the same way (every shell
+  // already declares a hook-time-id hook with its own decoration — Vue's
+  // `reactive`, Svelte's accessor thunk) and disable the button on it.
+  const gate = opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
+  if (gate && !ctx.actionMutations.some((m) => m.localVar === gate.local)) {
+    ctx.actionMutations.push({
+      localVar: gate.local,
+      hookName: gate.hook,
+      aggCamel: lowerFirst(agg.name),
+      idExpr,
+    });
+  }
   const thenArg = namedArgValue(call, "then");
   const thenJs = thenArg ? emitActionThen(thenArg, ctx) : undefined;
   const mutateCall = `${localVar}.mutateAsync({})`;
@@ -273,8 +286,8 @@ export function emitAction(
     label: humanize(op.name),
     onClick,
     hasOnClick: true,
-    disabled: undefined,
-    hasDisabled: false,
+    disabled: gate?.disabledExpr,
+    hasDisabled: gate !== undefined,
     loading: `${localVar}.isPending`,
     hasLoading: true,
     testidAttr: testidAttr(call, ctx),

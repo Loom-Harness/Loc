@@ -287,8 +287,17 @@ function renderFormOpWiring(
     fieldHtmls,
     triggerLabel: state.triggerLabel,
     triggerPrimary: state.triggerPrimary,
+    // `when`-gated op: the page-scope snippet's trigger binds the `can_<op>`
+    // probe directly (both undefined for an ungated op).
+    gateDisabled: state.gate?.disabledExpr,
+    gateReason: state.gate?.reasonExpr,
   };
-  const decls = pack.render("form-op-decls", tplCtx);
+  const rendered = pack.render("form-op-decls", tplCtx);
+  // The `can_<op>` probe rides beside the mutation hook, against the same id —
+  // pack-independent, so the shell owns it.
+  const decls = state.gate
+    ? `${rendered.endsWith("\n") ? rendered : `${rendered}\n`}  const ${state.gate.local} = ${state.gate.hook}(() => ${idExpr});`
+    : rendered;
   const snippet = pack.render("form-op-module", tplCtx);
   return {
     decls: decls.endsWith("\n") ? decls : `${decls}\n`,

@@ -486,6 +486,13 @@ export function renderVuePage(input: VuePageShellInput): string {
       opFormLines.push(`const ${opCamel} = reactive(${hookName}(${state.idExpr}));`);
       vueImports.add("reactive");
       names.add(hookName);
+      // `when`-gated op: its `can_<op>` probe, against the same id.
+      if (state.gate) {
+        opFormLines.push(
+          `const ${state.gate.local} = reactive(${state.gate.hook}(${state.idExpr}));`,
+        );
+        names.add(state.gate.hook);
+      }
     }
     const openFn = `open${opPascal}Modal`;
     if (seenVars.has(openFn)) {
@@ -1279,6 +1286,13 @@ export function renderVueComponentFile(
       formLines.push(`const ${opCamel} = reactive(${hookName}(${rewriteScript(st.idExpr)}));`);
       vueImports.add("reactive");
       names.add(hookName);
+      // `when`-gated op: its `can_<op>` probe, against the same id.
+      if (st.gate) {
+        formLines.push(
+          `const ${st.gate.local} = reactive(${st.gate.hook}(${rewriteScript(st.idExpr)}));`,
+        );
+        names.add(st.gate.hook);
+      }
     }
     const openFn = `open${opPascal}Modal`;
     if (seenVars.has(openFn)) {

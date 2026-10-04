@@ -2,6 +2,7 @@ import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { giveUp } from "../_walker/give-up.js";
+import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { renderPrimitive } from "../_walker/render-primitive.js";
 import { namedArgValue, positionalArgs } from "../_walker/shared/args.js";
@@ -39,6 +40,9 @@ export interface AngularActionSpec {
   /** The component method the `(click)` calls — reads the id, guards, mutates,
    *  then runs the optional `then:` effect. */
   method: { name: string; idAccess: string; thenJs?: string };
+  /** A `when`-gated op's `can_<op>` probe, hoisted as
+   *  `readonly <local> = <hook>(() => <idAccess> ?? "")`.  Absent when ungated. */
+  gate?: { local: string; hook: string };
 }
 
 /** Prefix bare class-field identifiers with `this.` for a method-body context,
@@ -122,11 +126,13 @@ export function renderAngularAction(
   const thenArg = namedArgValue(call, "then");
   const thenJs = thenArg ? prefixThis(emitActionThen(thenArg, ctx), fieldNames) : undefined;
 
+  const gate = opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
   const spec: AngularActionSpec = {
     localVar,
     hookName,
     importFrom,
     method: { name: methodName, idAccess, thenJs },
+    ...(gate ? { gate: { local: gate.local, hook: gate.hook } } : {}),
   };
   const specs = angularSink(ctx).actions;
   if (!specs.some((s) => s.localVar === localVar)) specs.push(spec);
@@ -135,7 +141,7 @@ export function renderAngularAction(
     label: humanize(op.name),
     onClick: `${methodName}()`,
     hasOnClick: true,
-    disabled: `${localVar}.isPending()`,
+    disabled: gate ? `${localVar}.isPending() || ${gate.disabledExpr}` : `${localVar}.isPending()`,
     hasDisabled: true,
     loading: undefined,
     hasLoading: false,

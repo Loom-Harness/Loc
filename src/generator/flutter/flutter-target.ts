@@ -42,6 +42,7 @@ import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/nami
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import { opGateFor } from "../_walker/op-gate.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
@@ -58,6 +59,7 @@ import {
   renderDartIntrinsic,
 } from "./dart-expr.js";
 import {
+  canProbeProviderName,
   createFormWidgetName,
   destroyFormWidgetName,
   operationFormWidgetName,
@@ -146,7 +148,44 @@ function instanceOpFormWidget(
   ctx: WalkContext,
 ): string | undefined {
   const r = instanceOperation(call, ctx);
-  return r ? `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr})` : undefined;
+  return r ? gatedOpFormWidget(r.agg, r.op, r.idExpr, ctx) : undefined;
+}
+
+/** `<Op><Agg>Form(id: …)`, or — for a `when`-gated op — the same widget inside
+ *  a `Consumer` that watches its `can_<op>` probe and passes `blocked:` (the
+ *  page may be a plain `StatelessWidget` with no `ref` of its own). */
+function gatedOpFormWidget(
+  agg: AggregateIR,
+  op: AggregateIR["operations"][number],
+  idExpr: string,
+  ctx: WalkContext,
+): string {
+  const widget = operationFormWidgetName(agg.name, op.name);
+  if (!opGateFor(ctx, agg, op)) return `${widget}(id: ${idExpr})`;
+  const provider = canProbeProviderName(agg.name, op.name);
+  return `Consumer(builder: (context, ref, _) => ${widget}(id: ${idExpr}, blocked: ref.watch(${provider}(${idExpr})).valueOrNull == false))`;
+}
+
+/** A `when`-gated op's dialog trigger: watches the `can_<op>` probe, disables
+ *  (with the reason as a tooltip) while it answers false, and re-queries it once
+ *  the dialog closes — the op form pops it on success. */
+function gatedOpTrigger(
+  agg: AggregateIR,
+  op: AggregateIR["operations"][number],
+  idExpr: string,
+  openDialog: string,
+  labelExpr: string,
+  ctx: WalkContext,
+): string | undefined {
+  const gate = opGateFor(ctx, agg, op);
+  if (!gate) return undefined;
+  const provider = canProbeProviderName(agg.name, op.name);
+  return (
+    `Consumer(builder: (context, ref, _) { ` +
+    `final __blocked = ref.watch(${provider}(${idExpr})).valueOrNull == false; ` +
+    `final __button = ElevatedButton(onPressed: __blocked ? null : () async { await ${openDialog}; if (context.mounted) ref.invalidate(${provider}(${idExpr})); }, child: Text(${labelExpr})); ` +
+    `return __blocked ? Tooltip(message: ${gate.reasonExpr}, child: __button) : __button; })`
+  );
 }
 
 /** A route template (`/products/:id`) → a Dart string with `:param` segments
@@ -619,7 +658,7 @@ export const flutterTarget: WalkerTarget = {
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return null;
     ctx.usesRouteId = true;
-    return `${operationFormWidgetName(agg.name, op.name)}(id: id)`;
+    return gatedOpFormWidget(agg, op, "id", ctx);
   },
   // `DestroyForm(of: <Agg>)` → `DeleteAggForm(id: id)` (a confirm→DELETE button).
   renderDestroyForm: (call, ctx) => {
@@ -759,11 +798,13 @@ export const flutterTarget: WalkerTarget = {
     // Dart EXPRESSION either way, so it drops straight into `Text(…)`.
     const title =
       localizedNamedValue(call, ctx, "modalTitle", "title") ?? dartString(humanize(op.name));
-    return (
-      `ElevatedButton(onPressed: () => showDialog(context: context, ` +
+    const openDialog =
+      `showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
-      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${widget}(id: ${resolved.idExpr}))))), ` +
-      `child: Text(${labelExpr}))`
+      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${widget}(id: ${resolved.idExpr})))))`;
+    return (
+      gatedOpTrigger(agg, op, resolved.idExpr, openDialog, labelExpr, ctx) ??
+      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`
     );
   },
 

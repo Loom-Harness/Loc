@@ -1300,6 +1300,16 @@ export interface WalkerTarget {
   renderOperationForm?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
   renderModal?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
+  /** OPTIONAL — the boolean expression that DISABLES a `when`-gated operation's
+   *  trigger, given the page-scope local bound to its `can_<op>` probe query
+   *  (`canComplete`).  True only once the probe has answered `allowed: false`
+   *  — a pending or failed probe leaves the trigger enabled, so the server's
+   *  409 stays the backstop.  Absent ⇒ the TanStack-object spelling
+   *  `<local>.data?.allowed === false` (React, Vue's `reactive(…)` wrap,
+   *  Svelte's runes query); a target whose query handle reads differently
+   *  (Angular's signal `data()`) overrides it. */
+  renderOpGateDisabled?(local: string): string;
+
   /** OPTIONAL — whole-primitive override for `WorkflowForm(runs: <Wf>)`.  The
    *  shared `emitWorkflowForm` delegates here first; a non-null return is used
    *  verbatim and the RHF `emitFormRuns` path (which records a `formOfs` sink)
