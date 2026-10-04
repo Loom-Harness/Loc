@@ -89,13 +89,19 @@ function decode(lang: string, module: string, name: string, alias: string): Impo
 }
 
 /** Resolve every marker in `text` to its spelling and return the distinct
- *  symbols that were referenced (in first-use order). */
-export function resolveMarkers(text: string): { text: string; used: ImportSymbol[] } {
+ *  symbols that were referenced (in first-use order).  A symbol `isLocal`
+ *  says the module defines itself (it is emitted INTO the symbol's own
+ *  module) spells as its bare name and is not reported as used. */
+export function resolveMarkers(
+  text: string,
+  isLocal: (sym: ImportSymbol) => boolean = () => false,
+): { text: string; used: ImportSymbol[] } {
   const seen = new Map<string, ImportSymbol>();
   const out = text.replace(
     MARKER_RE,
     (_m, lang: string, mod: string, name: string, alias: string) => {
       const sym = decode(lang, mod, name, alias);
+      if (sym.name !== undefined && isLocal(sym)) return sym.name;
       const key = symbolKey(sym);
       if (!seen.has(key)) seen.set(key, sym);
       return spelling(sym);

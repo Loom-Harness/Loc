@@ -40,7 +40,6 @@ import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
-import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { responsePyType, wireModelImport } from "./emit/http-models.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { wireHelperImport } from "./py-type-imports.js";
@@ -318,7 +317,6 @@ export function buildPyWorkflowsFile(
       : null,
     // Domain-service calls render as bare functions (`quote(...)`) — import
     // them by name from app.domain.services.* (domain-services.md).
-    ...domainServiceImportLinesForWorkflow(wfs.flatMap((wf) => wf.statements)),
     refersTo("ProblemDetails") ? "from app.http.problem import ProblemDetails" : null,
     wireModelImport(voModelImports, refersTo),
     "",

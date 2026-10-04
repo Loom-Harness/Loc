@@ -1,28 +1,11 @@
-import type { BoundedContextIR, EnumIR, StmtIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
-import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import type { BoundedContextIR, EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { snake } from "../../../util/naming.js";
-import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
-import {
-  addPyExprImport,
-  collectPyExprImports,
-  renderPyExpr,
-  renderPyNegatedGuard,
-  renderPyType,
-} from "../render-expr.js";
+import { PY_IMPORTS } from "../../_imports/python.js";
+import { PY } from "../py-symbols.js";
+import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
-
-/** Import collection over a pure block-body function statement's expressions
- *  (a block `function` only ever carries let / precondition / requires /
- *  return / expression / call — the impure kinds are rejected by the IR
- *  purity gate).  Rides `walkStmtExprsDeep` (wave-2 packet 2.3 / M-T6.50
- *  class) rather than a hand-enumerated switch, so a `variant-match` nested
- *  in a pure body — the exact shape wave 1 found missing in the sibling
- *  collectors — is not a silent gap here either. */
-function collectBlockStmtExprImports(st: StmtIR, into: Set<string>): void {
-  walkStmtExprsDeep(st, (e) => addPyExprImport(e, into));
-}
 
 // ---------------------------------------------------------------------------
 // `app/domain/value_objects.py` — enums as `StrEnum` subclasses (member
@@ -37,75 +20,21 @@ function collectBlockStmtExprImports(st: StmtIR, into: Set<string>): void {
 const VO_CTX = { thisName: "self" };
 
 export function renderPyEnumsAndValueObjects(ctx: BoundedContextIR): string {
-  const types = emptyPyTypeImports();
-  const exprImports = new Set<string>();
-  for (const v of ctx.valueObjects) {
-    for (const f of v.fields) visitPyTypeImports(f.type, types);
-    for (const d of v.derived) {
-      visitPyTypeImports(d.type, types);
-      collectPyExprImports(d.expr, exprImports);
-    }
-    for (const fn of v.functions) {
-      visitPyTypeImports(fn.returnType, types);
-      for (const p of fn.params) visitPyTypeImports(p.type, types);
-      if ("expr" in fn.body) collectPyExprImports(fn.body.expr, exprImports);
-      else for (const st of fn.body.stmts) collectBlockStmtExprImports(st, exprImports);
-    }
-    for (const inv of v.invariants) {
-      collectPyExprImports(inv.expr, exprImports);
-      if (inv.guard) collectPyExprImports(inv.guard, exprImports);
-    }
-  }
-  const hasInvariants = ctx.valueObjects.some((v) => v.invariants.length > 0);
-  const usesDecimal = types.usesDecimal || exprImports.has("decimal");
-  const usesDatetime = types.usesDatetime || exprImports.has("datetime");
-  const idNames = [...types.idNames].sort();
-
-  const bodyParts = [
-    ...ctx.enums.flatMap(renderPyEnum),
-    ...ctx.valueObjects.flatMap(renderPyValueObject),
-  ];
-  // `UTC` is only reached when a body actually stamps `datetime.now(UTC)`; a
-  // plain `datetime` FIELD uses the type and never the constant, so importing
-  // it alongside `datetime` is a stale F401 that fails the emitted project's
-  // ruff gate.  Same string-stripped body probe the aggregate emitter uses.
-  const scan = bodyParts.join("\n").replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const usesUtc = /\bUTC\b/.test(scan);
-
+  // Every import is derived from the body (M-T9.84): the type / expression /
+  // statement renderers and the templates below spell their symbols through
+  // `PY` markers, which the module finalizer turns into this module's block.
   return lines(
     `"""Enums + value objects with constructor-enforced invariants.  Auto-generated."""`,
     "",
-    exprImports.has("math") ? "import math" : null,
-    exprImports.has("re") ? "import re" : null,
-    ctx.valueObjects.length > 0 ? "from dataclasses import dataclass" : null,
-    usesDatetime || exprImports.has("timedelta")
-      ? `from datetime import ${[
-          ...(usesUtc ? ["UTC"] : []),
-          ...(usesDatetime ? ["datetime"] : []),
-          ...(exprImports.has("timedelta") ? ["timedelta"] : []),
-        ].join(", ")}`
-      : null,
-    usesDecimal ? "from decimal import Decimal" : null,
-    ctx.enums.length > 0 ? "from enum import StrEnum" : null,
-    hasInvariants || /\bDomainError\(/.test(scan) ? "" : null,
-    // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1); a
-    // plain `DomainError` import survives only where a body still spells one.
-    hasInvariants || /\bDomainError\(/.test(scan)
-      ? `from app.domain.errors import ${[
-          ...(/\bDomainError\(/.test(scan) ? ["DomainError"] : []),
-          ...(hasInvariants ? ["ValueObjectInvariantError"] : []),
-        ].join(", ")}`
-      : null,
-    idNames.length > 0
-      ? `from app.domain.ids import ${idNames.map((n) => `${n}Id`).join(", ")}`
-      : null,
-    ...bodyParts,
+    PY_IMPORTS,
+    ...ctx.enums.flatMap(renderPyEnum),
+    ...ctx.valueObjects.flatMap(renderPyValueObject),
     "",
   );
 }
 
 function renderPyEnum(e: EnumIR): string[] {
-  return ["", "", `class ${e.name}(StrEnum):`, ...e.values.map((v) => `    ${v} = "${v}"`)];
+  return ["", "", `class ${e.name}(${PY.StrEnum}):`, ...e.values.map((v) => `    ${v} = "${v}"`)];
 }
 
 function renderPyValueObject(v: ValueObjectIR): string[] {
@@ -127,7 +56,7 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
     const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
     return [
       `        if ${cond}:`,
-      `            raise ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code})`,
+      `            raise ${PY.ValueObjectInvariantError}(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code})`,
     ];
   });
   const derived = v.derived.flatMap((d) => [
@@ -148,7 +77,7 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
   return [
     "",
     "",
-    "@dataclass(frozen=True)",
+    `@${PY.dataclass}(frozen=True)`,
     `class ${v.name}:`,
     ...fields,
     ...(invariants.length > 0 ? ["", "    def __post_init__(self) -> None:", ...invariants] : []),

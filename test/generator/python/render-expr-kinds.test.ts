@@ -4,14 +4,21 @@
 // `test/generator/typescript/render-expr-kinds.test.ts`.
 
 import { describe, expect, it } from "vitest";
-import {
-  collectPyExprImports,
-  renderPyExpr,
-  renderPyType,
-} from "../../../src/generator/python/render-expr.js";
-import { renderPyStatements } from "../../../src/generator/python/render-stmt.js";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
+import * as R from "../../../src/generator/python/render-expr.js";
+import * as S from "../../../src/generator/python/render-stmt.js";
 import type { ExprIR, StmtIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
+import { pyDerivedImports } from "../../_helpers/py-imports.js";
+
+// The renderers write importable symbols as `ref()` markers (M-T9.84); these
+// pins read the SPELLED text, and the import pins read the derived set.
+const renderPyExpr = (...a: Parameters<typeof R.renderPyExpr>): string =>
+  spellMarkers(R.renderPyExpr(...a));
+const renderPyType = (t: TypeIR): string => spellMarkers(R.renderPyType(t));
+const renderPyStatements = (...a: Parameters<typeof S.renderPyStatements>): string =>
+  spellMarkers(S.renderPyStatements(...a));
+const importsOf = (e: ExprIR): string[] => pyDerivedImports(R.renderPyExpr(e));
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
@@ -669,11 +676,12 @@ describe("py renderPyStatements", () => {
   });
 });
 
-describe("py collectPyExprImports", () => {
-  it("collects decimal / datetime / re triggers", () => {
-    expect([...collectPyExprImports(litMoney("1"))]).toEqual(["decimal"]);
-    expect([...collectPyExprImports({ kind: "literal", lit: "now", value: "" })]).toEqual([
-      "datetime",
+describe("py derived imports (the rendered text carries its own)", () => {
+  it("a money literal / now() / matches() reference Decimal / datetime+UTC / re", () => {
+    expect(importsOf(litMoney("1"))).toEqual(["decimal.Decimal"]);
+    expect(importsOf({ kind: "literal", lit: "now", value: "" })).toEqual([
+      "datetime.UTC",
+      "datetime.datetime",
     ]);
     const matches: ExprIR = {
       kind: "method-call",
@@ -683,7 +691,7 @@ describe("py collectPyExprImports", () => {
       receiverType: STRING,
       isCollectionOp: false,
     };
-    expect([...collectPyExprImports(matches)]).toEqual(["re"]);
+    expect(importsOf(matches)).toEqual(["re"]);
   });
 });
 
@@ -793,13 +801,13 @@ describe("py renderPyExpr — money × decimal lifts the float operand (M-T6.45)
     );
   });
 
-  // The import mirror: without it a `price * rate` off two refs emits an
-  // undefined `Decimal` — an import-time NameError / ruff F821.
-  it("collectPyExprImports mirrors the lift's `Decimal` need", () => {
-    expect([...collectPyExprImports(scale("*", money, rate, MONEY, DECIMAL))]).toEqual(["decimal"]);
-    expect([...collectPyExprImports(scale("*", rate, money, DECIMAL, MONEY))]).toEqual(["decimal"]);
-    expect([...collectPyExprImports(scale("/", money, rate, MONEY, DECIMAL))]).toEqual(["decimal"]);
+  // A `price * rate` off two refs must import the `Decimal` its lift writes —
+  // otherwise an import-time NameError / ruff F821.  Derived from the text.
+  it("the lift's `Decimal` brings its own import", () => {
+    expect(importsOf(scale("*", money, rate, MONEY, DECIMAL))).toEqual(["decimal.Decimal"]);
+    expect(importsOf(scale("*", rate, money, DECIMAL, MONEY))).toEqual(["decimal.Decimal"]);
+    expect(importsOf(scale("/", money, rate, MONEY, DECIMAL))).toEqual(["decimal.Decimal"]);
     // No lift, no import — `money * int` off two refs reaches for nothing.
-    expect([...collectPyExprImports(scale("*", money, thisProp("seats"), MONEY, INT))]).toEqual([]);
+    expect(importsOf(scale("*", money, thisProp("seats"), MONEY, INT))).toEqual([]);
   });
 });

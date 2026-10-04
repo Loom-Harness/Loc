@@ -21,7 +21,6 @@ import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import type { OpFragment } from "./emit/aggregate.js";
-import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -459,7 +458,6 @@ export function buildPyDispatchFile(
     // them by name from app.domain.services.* (domain-services.md).  A saga
     // `on(…)` handler's own body was the one caller that never wired this
     // (M-T6.50); mirrors the identical splice in workflows-builder.ts.
-    ...domainServiceImportLinesForWorkflow(handlerStmts),
     "",
     body,
     "",

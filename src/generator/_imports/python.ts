@@ -53,7 +53,8 @@ export interface FinalizePyOptions {
   /** Names the module defines at top level — a referenced symbol spelled
    *  the same is a collision (it would shadow or be shadowed). */
   readonly declares?: Iterable<string>;
-  /** Where the module is emitted — named in errors. */
+  /** Where the module is emitted (project-relative) — named in errors, and
+   *  the module whose own symbols are spelled bare with no import. */
   readonly path?: string;
 }
 
@@ -66,14 +67,18 @@ const IMPORT_START = /^(import|from)\s/;
 /** Index of the first line after the module docstring / leading comments, or
  *  the docstring-less start. */
 function preambleEnd(lines: readonly string[]): number {
-  let i = 0;
-  while (i < lines.length && lines[i]!.trim() === "") i++;
+  const skipTrivia = (from: number): number => {
+    let k = from;
+    while (k < lines.length && (lines[k]!.trim() === "" || lines[k]!.startsWith("#"))) k++;
+    return k;
+  };
+  // Comments may precede the docstring (a scaffold-once banner does).
+  let i = skipTrivia(0);
   const first = lines[i]?.trimStart() ?? "";
   const q = /^[rRbBuU]?("""|''')/.exec(first);
   if (q) {
     const delim = q[1]!;
-    const rest = first.slice(q[0].length);
-    if (rest.includes(delim)) {
+    if (first.slice(q[0].length).includes(delim)) {
       i++;
     } else {
       i++;
@@ -81,8 +86,7 @@ function preambleEnd(lines: readonly string[]): number {
       i++;
     }
   }
-  while (i < lines.length && (lines[i]!.trim() === "" || lines[i]!.startsWith("#"))) i++;
-  return i;
+  return skipTrivia(i);
 }
 
 interface Region {
@@ -249,6 +253,16 @@ function renderBlock(symbols: readonly ImportSymbol[]): string[] {
   return out;
 }
 
+/** The dotted module a project-relative path defines (`app/domain/ids.py`
+ *  → `app.domain.ids`, `app/x/__init__.py` → `app.x`). */
+function moduleOfPath(path: string): string {
+  return path
+    .replace(/\.py$/, "")
+    .replace(/\/__init__$/, "")
+    .split("/")
+    .join(".");
+}
+
 // ---------------------------------------------------------------------------
 // The finalizer
 // ---------------------------------------------------------------------------
@@ -263,7 +277,8 @@ const DEF_START = /^(def |async def |class |@)/;
  */
 export function finalizePyModule(text: string, opts: FinalizePyOptions = {}): string {
   const where = opts.path ?? "<python module>";
-  const { text: spelled, used } = resolveMarkers(text);
+  const own = opts.path === undefined ? undefined : moduleOfPath(opts.path);
+  const { text: spelled, used } = resolveMarkers(text, (s) => s.module === own);
   const lines = spelled.split("\n");
   const region = leadingRegion(lines);
   if (region === null) {

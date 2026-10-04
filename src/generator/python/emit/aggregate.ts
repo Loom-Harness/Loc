@@ -23,30 +23,22 @@ import {
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { PY_IMPORTS } from "../../_imports/python.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { provColumn, provenancedFieldsOf } from "../emit/provenance.js";
 import { externHookCall, externHookModuleName } from "../extern-builder.js";
-import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
-import {
-  addPyExprImport,
-  collectPyExprImports,
-  renderPyExpr,
-  renderPyNegatedGuard,
-  renderPyType,
-} from "../render-expr.js";
+import { PY, pyIdType, pyNewId } from "../py-symbols.js";
+import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
 import {
   declarationSubRegion,
   renderPyStatementChunks,
   renderPyStatements,
   statementSubRegions,
 } from "../render-stmt.js";
-import { domainServiceImportLines } from "./domain-service.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderPyAggregate` (when `opFragments` is
@@ -150,77 +142,9 @@ export function renderPyAggregate(
   const body = rendered.join("\n\n\n");
 
   // --- import resolution -------------------------------------------------
-  // Type-graph walk for Decimal / datetime / id-type needs…
-  const types = emptyPyTypeImports();
-  for (const s of shapes) {
-    for (const f of s.fields) visitPyTypeImports(f.type, types);
-    for (const d of s.derived) visitPyTypeImports(d.type, types);
-    for (const fn of s.functions) {
-      visitPyTypeImports(fn.returnType, types);
-      for (const p of fn.params) visitPyTypeImports(p.type, types);
-    }
-    for (const op of s.operations) {
-      for (const p of op.params) visitPyTypeImports(p.type, types);
-      if (op.returnType) visitPyTypeImports(op.returnType, types);
-    }
-  }
-  // …plus the expression-triggered ones (re / Decimal / datetime).
-  const exprImports = new Set<string>();
-  for (const s of shapes) {
-    for (const d of s.derived) collectPyExprImports(d.expr, exprImports);
-    for (const fn of s.functions) {
-      if ("expr" in fn.body) collectPyExprImports(fn.body.expr, exprImports);
-      else for (const st of fn.body.stmts) collectStmtExprImports(st, exprImports);
-    }
-    for (const inv of s.invariants) {
-      collectPyExprImports(inv.expr, exprImports);
-      if (inv.guard) collectPyExprImports(inv.guard, exprImports);
-    }
-    for (const op of s.operations) {
-      for (const st of op.statements) {
-        collectStmtExprImports(st, exprImports);
-      }
-    }
-    for (const ap of s.appliers ?? []) {
-      for (const st of ap.statements) collectStmtExprImports(st, exprImports);
-    }
-    for (const st of s.esCreate?.statements ?? []) collectStmtExprImports(st, exprImports);
-    // Lifecycle-stamp values (e.g. `now()`) need their own import triggers.
-    for (const rule of s.contextStamps ?? []) {
-      for (const a of rule.assignments) collectPyExprImports(a.value, exprImports);
-    }
-  }
-  // Server-init seeds in the create factory can stamp `datetime.now(UTC)`.
-  const root = rootShape(agg);
-  const createSeedsDatetime =
-    root.hasCreate &&
-    root.fields.some(
-      (f) =>
-        !forCreateInput(root.fields).includes(f) &&
-        !f.optional &&
-        f.type.kind === "primitive" &&
-        f.type.name === "datetime",
-    );
-  const usesDatetime =
-    types.usesDatetime || exprImports.has("datetime") || createSeedsDatetime === true;
-  const usesDecimal = types.usesDecimal || exprImports.has("decimal");
-  const usesFile = types.usesFile;
-
-  // Symbol-reference scan over the rendered body (string literals
-  // stripped, the TS emitter's trick) for VO / enum / id-factory needs.
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(scan);
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
-  const ownIdNames = [agg.name, ...agg.parts.map((p) => p.name)];
-  const idTypeNames = [...new Set([...ownIdNames, ...types.idNames])].sort();
-  const idFactoryNames = ownIdNames
-    .map((n) => `new_${snake(n)}_id`)
-    .filter(refersTo)
-    .sort();
-  const idImports = [...idTypeNames.map((n) => `${n}Id`), ...idFactoryNames];
-
+  // Types, expressions, statements, ids, seeds and value objects are written
+  // through `PY` markers, so their imports are derived from the body
+  // (M-T9.84).  The lines below are the predicates that remain to migrate.
   const usesDomainError =
     shapes.some((s) => s.invariants.length > 0) ||
     shapes.some((s) =>
@@ -271,54 +195,16 @@ export function renderPyAggregate(
       (s.contextStamps ?? []).some((r) => r.assignments.some((a) => exprUsesCurrentUser(a.value))),
     );
   const bodyUsesCast = /\bcast\(/.test(body);
-  // Domain-service calls render as bare functions (`quote(...)`), so the
-  // aggregate module imports them by name from app.domain.services.* —
-  // collected from every operation / applier / es-create body.  The BODY, not
-  // `op.statements`: an operation's LEADING `requires` run is hoisted to the
-  // calling route (op-gates.ts), which imports what the gate needs itself
-  // (`domainServiceImportLinesForExprs`, ledger row F2-CB-C7) — collecting it
-  // here too left `from app.domain.services.… import …` unused in the
-  // aggregate module (ruff F401 under the corpus python leg).
-  const serviceImports = domainServiceImportLines([
-    ...shapes.flatMap((s) => s.operations.flatMap((op) => operationBody(op))),
-    ...shapes.flatMap((s) => (s.appliers ?? []).flatMap((ap) => ap.statements)),
-    ...shapes.flatMap((s) => s.esCreate?.statements ?? []),
-  ]);
   return lines(
     `"""${agg.name} aggregate.  Auto-generated."""`,
     "",
-    exprImports.has("math") ? "import math" : null,
-    exprImports.has("re") ? "import re" : null,
+    PY_IMPORTS,
     bodyUsesCast ? "from typing import cast" : null,
-    usesDatetime || exprImports.has("timedelta")
-      ? `from datetime import ${[
-          // `UTC` only when the body actually stamps `datetime.now(UTC)` (a
-          // server-init seed / fold-from-zero) — a plain datetime FIELD uses
-          // the type but never `UTC`, so importing it unconditionally is a stale
-          // F401 (ruff --warnings-as-errors).  `usesDatetime` gates the type.
-          ...(refersTo("UTC") ? ["UTC"] : []),
-          ...(usesDatetime ? ["datetime"] : []),
-          ...(exprImports.has("timedelta") ? ["timedelta"] : []),
-        ].join(", ")}`
-      : null,
-    usesDecimal ? "from decimal import Decimal" : null,
-    exprImports.has("math") ||
-      exprImports.has("re") ||
-      exprImports.has("timedelta") ||
-      usesDatetime ||
-      usesDecimal
-      ? ""
-      : null,
     usesCurrentUser ? "from app.auth.user import User" : null,
     errorNames.length > 0 ? `from app.domain.errors import ${errorNames.join(", ")}` : null,
-    usesFile ? "from app.domain.file_ref import FileRef" : null,
     `from app.domain.events import ${eventImports.join(", ")}`,
-    `from app.domain.ids import ${idImports.join(", ")}`,
     emitProvenance
       ? "from app.domain.provenance import ProvInput, ProvLineage, ProvTarget, record"
-      : null,
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
       : null,
     // The user-owned extern hook module (docs/extern.md) — the op bodies call
     // `<agg>_extern.<op>(self, …)`.  Its own aggregate import is TYPE_CHECKING-
@@ -326,26 +212,12 @@ export function renderPyAggregate(
     agg.operations.some((op) => op.extern && op.visibility === "public")
       ? `from app.domain.extern import ${externHookModuleName(agg.name)}`
       : null,
-    ...serviceImports,
     emitTrace && /\blog\("trace"/.test(body) ? "from app.obs.log import log" : null,
     "",
     "",
     body,
     "",
   );
-}
-
-/** Import collection over a statement's expressions.
- *
- *  Rides `walkStmtExprsDeep` (M-T6.50 class, wave-2 packet 2.3): the switch
- *  it replaced had no `variant-match` arm — the same gap wave 1 found and
- *  fixed in the near-identical, separately-named `collectStmtExprImports`
- *  in `emit/domain-service.ts` (M-T6.50 (c)) — so an import-triggering
- *  expression nested inside a `variant-match` arm/else body never reached
- *  `collectPyExprImports` from an operation body (this copy is aggregate
- *  operations; the domain-service one is workflow `on()` handlers). */
-function collectStmtExprImports(st: OperationIR["statements"][number], into: Set<string>): void {
-  walkStmtExprsDeep(st, (e) => addPyExprImport(e, into));
 }
 
 /** The provenanced fields on an entity shape (root only — provenance targets
@@ -394,7 +266,7 @@ function serverInitSeed(t: TypeIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
-        return "datetime.now(UTC)";
+        return `${PY.datetime}.now(${PY.UTC})`;
       case "int":
       case "long":
         return "0";
@@ -449,12 +321,12 @@ function renderEntity(
   const parentIdParam = (optional: boolean): string | null =>
     e.isRoot
       ? null
-      : `parent_id: ${e.parentName ?? e.rootName}Id${optional ? " | None = None" : ""}`;
+      : `parent_id: ${pyIdType(String(e.parentName ?? e.rootName))}${optional ? " | None = None" : ""}`;
 
   // Full-state keyword-only parameter list — shared by `__init__` and the
   // `_create` rehydration alias.
   const stateParams = [
-    `id: ${e.name}Id`,
+    `id: ${pyIdType(e.name)}`,
     parentIdParam(isNested),
     ...e.fields.map((f) => `${snake(f.name)}: ${renderPyType(f.type)}`),
     ...e.contains.map((c) => `${snake(c.name)}: ${containsType(c)}`),
@@ -478,7 +350,7 @@ function renderEntity(
     e.isRoot
       ? null
       : isNested
-        ? `        self._parent_id = parent_id if parent_id is not None else new_${snake(e.parentName ?? e.name)}_id()`
+        ? `        self._parent_id = parent_id if parent_id is not None else ${pyNewId(e.parentName ?? e.name)}()`
         : `        self._parent_id = parent_id`,
     ...e.fields.map((f) => `        self._${snake(f.name)} = ${snake(f.name)}`),
     ...e.contains.map((c) => `        self._${snake(c.name)} = ${snake(c.name)}`),
@@ -503,9 +375,11 @@ function renderEntity(
     `    def ${name}(self) -> ${type}:`,
     `        return ${value}`,
   ];
-  getters.push(...prop("id", `${e.name}Id`, "self._id"));
+  getters.push(...prop("id", pyIdType(e.name), "self._id"));
   if (!e.isRoot) {
-    getters.push(...prop("parent_id", `${e.parentName ?? e.rootName}Id`, "self._parent_id"));
+    getters.push(
+      ...prop("parent_id", pyIdType(String(e.parentName ?? e.rootName)), "self._parent_id"),
+    );
   }
   for (const f of e.fields) {
     getters.push(...prop(snake(f.name), renderPyType(f.type), `self._${snake(f.name)}`));
@@ -752,7 +626,7 @@ function renderEntity(
   const relaxCreate = hasContains || hasOptionalField;
   const createParams = relaxCreate
     ? [
-        `id: ${e.name}Id`,
+        `id: ${pyIdType(e.name)}`,
         parentIdParam(isNested),
         ...e.fields.map(
           (f) =>
@@ -820,7 +694,7 @@ function renderEntity(
       ]),
       "",
       "    @classmethod",
-      `    def _from_events(cls, id: ${e.name}Id, events: list[DomainEvent]) -> ${self}:`,
+      `    def _from_events(cls, id: ${pyIdType(e.name)}, events: list[DomainEvent]) -> ${self}:`,
       `        inst = cls.__new__(cls)`,
       `        inst._id = id`,
       ...e.fields.map((f) => `        inst._${snake(f.name)} = ${shellSeed(f)}`),
@@ -836,7 +710,7 @@ function renderEntity(
         "    @classmethod",
         `    def create(cls${params.length > 0 ? `, *, ${params.join(", ")}` : ""}) -> ${self}:`,
         `        inst = cls.__new__(cls)`,
-        `        inst._id = new_${snake(e.name)}_id()`,
+        `        inst._id = ${pyNewId(e.name)}()`,
         ...e.fields.map((f) => `        inst._${snake(f.name)} = ${shellSeed(f)}`),
         "        inst._events = []",
         `        inst._init(${e.esCreate.params.map((p) => snake(p.name)).join(", ")})`,
@@ -916,7 +790,7 @@ function renderEntity(
       "    @classmethod",
       `    def create(cls${factoryParams.length > 0 ? `, *, ${factoryParams.join(", ")}` : ""}) -> ${self}:`,
       "        return cls(",
-      `            id=new_${snake(e.name)}_id(),`,
+      `            id=${pyNewId(e.name)}(),`,
       ...e.fields.map((f) => `            ${snake(f.name)}=${fieldInit(f)},`),
       ...e.contains.map((c) => `            ${snake(c.name)}=${c.collection ? "[]" : "None"},`),
       "        )",
@@ -952,14 +826,14 @@ function shellSeed(f: FieldIR): string {
       case "decimal":
         return "0.0";
       case "money":
-        return 'Decimal("0")';
+        return `${PY.Decimal}("0")`;
       case "bool":
         return "False";
       case "string":
       case "guid":
         return '""';
       case "datetime":
-        return "datetime.now(UTC)";
+        return `${PY.datetime}.now(${PY.UTC})`;
       default:
         return "None";
     }

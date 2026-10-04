@@ -10,14 +10,14 @@
 //       workflow rendered `self._x` inside a MODULE-LEVEL `async def` —
 //       there is no `self` there (F821).
 //   (c) `collectStmtExprImports` (emit/domain-service.ts) hand-enumerated 10
-//       of the 11 `StmtIR` kinds, missing `variant-match` — latent (a
-//       `variant-match` never actually reaches a rendered domain-service
-//       body; `renderPyStatements` throws on it first, mirroring every other
-//       backend), so it is pinned directly against the collector.
+//       of the 11 `StmtIR` kinds, missing `variant-match`.  The collector is
+//       gone (M-T9.84 — imports derive from the rendered text); (c) now pins
+//       that derivation per statement kind.
 import { describe, expect, it } from "vitest";
-import { collectStmtExprImports } from "../../../src/generator/python/emit/domain-service.js";
+import { renderPyStatements } from "../../../src/generator/python/render-stmt.js";
 import type { ExprIR, StmtIR } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
+import { pyDerivedImports } from "../../_helpers/py-imports.js";
 
 const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
   for (const [p, c] of files) if (p.endsWith(suffix)) return c;
@@ -114,66 +114,41 @@ describe("M-T6.50 (b) — uncorrelated command-workflow own-state assign is a re
   });
 });
 
-// --- (c) collectStmtExprImports — exhaustive over every StmtIR kind. -------
+// --- (c) imports are derived from the rendered statement (M-T9.84). -------
+// The hand collector this pinned (`collectStmtExprImports`) is gone: a
+// statement's imports are now read off the text it renders, so there is no
+// second walk to miss a kind.  `variant-match` never renders into a backend
+// body (`renderPyStatements` throws on it, as every backend does), so the
+// ordinary kinds are the whole surface.
 const moneyLit: ExprIR = { kind: "literal", lit: "money", value: "1.00" };
-const litInt = (v: string): ExprIR => ({ kind: "literal", lit: "int", value: v });
 
-describe("M-T6.50 (c) — collectStmtExprImports rides the shared walker, so variant-match arms contribute imports", () => {
-  it("collects `decimal` from a money literal nested inside a variant-match arm/else body", () => {
+describe("M-T6.50 (c) — every statement kind derives the imports its rendered text uses", () => {
+  it("a money literal under any ordinary statement kind imports Decimal", () => {
+    const cases: StmtIR[] = [
+      { kind: "precondition", expr: moneyLit, source: "x" },
+      { kind: "let", name: "x", expr: moneyLit, type: { kind: "primitive", name: "money" } },
+      {
+        kind: "assign",
+        target: { segments: ["x"] },
+        value: moneyLit,
+        targetType: { kind: "primitive", name: "money" },
+      },
+      { kind: "call", target: "function", name: "f", args: [moneyLit] },
+      { kind: "expression", expr: moneyLit },
+      { kind: "return", value: moneyLit },
+    ];
+    for (const stmt of cases) {
+      expect(pyDerivedImports(renderPyStatements([stmt])), stmt.kind).toContain("decimal.Decimal");
+    }
+  });
+
+  it("variant-match never reaches a rendered backend body", () => {
     const stmt: StmtIR = {
       kind: "variant-match",
       subject: { kind: "ref", name: "outcome", refKind: "let" },
-      arms: [
-        {
-          varType: { kind: "primitive", name: "int" },
-          binding: "n",
-          body: [{ kind: "return", value: moneyLit }],
-        },
-      ],
-      elseBody: [{ kind: "expression", expr: litInt("1") }],
+      arms: [],
+      elseBody: [{ kind: "return", value: moneyLit }],
     };
-    const into = new Set<string>();
-    collectStmtExprImports(stmt, into);
-    expect(into.has("decimal")).toBe(true);
-  });
-
-  it("still collects from every ordinary (non-variant-match) kind — no regression from the walker migration", () => {
-    const cases: { stmt: StmtIR; expect: string }[] = [
-      { stmt: { kind: "precondition", expr: moneyLit, source: "x" }, expect: "decimal" },
-      { stmt: { kind: "requires", expr: moneyLit, source: "x" }, expect: "decimal" },
-      {
-        stmt: {
-          kind: "let",
-          name: "x",
-          expr: moneyLit,
-          type: { kind: "primitive", name: "money" },
-        },
-        expect: "decimal",
-      },
-      {
-        stmt: {
-          kind: "assign",
-          target: { segments: ["x"] },
-          value: moneyLit,
-          targetType: { kind: "primitive", name: "money" },
-        },
-        expect: "decimal",
-      },
-      {
-        stmt: { kind: "emit", eventName: "E", fields: [{ name: "amt", value: moneyLit }] },
-        expect: "decimal",
-      },
-      {
-        stmt: { kind: "call", target: "function", name: "f", args: [moneyLit] },
-        expect: "decimal",
-      },
-      { stmt: { kind: "expression", expr: moneyLit }, expect: "decimal" },
-      { stmt: { kind: "return", value: moneyLit }, expect: "decimal" },
-    ];
-    for (const { stmt, expect: want } of cases) {
-      const into = new Set<string>();
-      collectStmtExprImports(stmt, into);
-      expect(into.has(want), `${stmt.kind} should collect ${want}`).toBe(true);
-    }
+    expect(() => renderPyStatements([stmt])).toThrow();
   });
 });

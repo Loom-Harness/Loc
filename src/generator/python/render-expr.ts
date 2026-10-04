@@ -1,7 +1,6 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
-import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapePythonIdent, snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
@@ -14,7 +13,9 @@ import {
   type RefExpr,
   renderExprWith,
 } from "../_expr/target.js";
+import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { PY, pyIdType, pyNewId, pyVoOrEnum } from "./py-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Python backend.
@@ -99,7 +100,10 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
   call: renderCall,
   domainServiceCall(args, serviceRef) {
     // `quote(cart, customer)` — bare module-level function (snake-cased).
-    return `${snake(serviceRef.op)}(${args.join(", ")})`;
+    // Written through its import marker: the module that renders the call
+    // imports the function (M-T9.84 — replaces the domainServiceImportLines
+    // mirror walks).
+    return `${pyRef(`app.domain.services.${snake(serviceRef.service)}`, snake(serviceRef.op))}(${args.join(", ")})`;
   },
   lambda(param, body) {
     const p = escapePythonIdent(snake(param));
@@ -119,16 +123,15 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
   // A5 temporal: a Loom ABSOLUTE duration value is a stdlib
   // `datetime.timedelta` on this backend, so `duration ± duration` /
   // `duration * int` and `datetime ± duration` all fall through to the
-  // native operators in `renderBinary`.  The emitters import the name via
-  // `collectPyExprImports` (`from datetime import timedelta`).
+  // native operators in `renderBinary`.  `PY.timedelta` derives the import.
   duration: (unit, amount) => {
     switch (unit) {
       case "days":
-        return `timedelta(days=(${amount}))`;
+        return `${PY.timedelta}(days=(${amount}))`;
       case "hours":
-        return `timedelta(hours=(${amount}))`;
+        return `${PY.timedelta}(hours=(${amount}))`;
       case "minutes":
-        return `timedelta(minutes=(${amount}))`;
+        return `${PY.timedelta}(minutes=(${amount}))`;
     }
   },
   match(arms, otherwise) {
@@ -209,102 +212,6 @@ export function renderPyNegatedGuard(e: ExprIR, ctx: PyRenderContext = DEFAULT):
 }
 
 /**
- * Imports a rendered domain expression reaches for beyond builtins.
- * Pure mirror of the renderer's triggers (the C#
- * `collectCsExprUsings` pattern): file emitters call it over the same
- * expressions they render to build their import header.  Keys are
- * import lines: `re`, `math` (→ `import math`), `decimal` (→ `from
- * decimal import Decimal`), `datetime` (→ `from datetime import UTC,
- * datetime`).
- */
-export function collectPyExprImports(e: ExprIR, into: Set<string> = new Set()): Set<string> {
-  walkExprDeep(e, (x) => addPyExprImport(x, into));
-  return into;
-}
-
-/** The per-kind side effect `collectPyExprImports` applies at each node —
- *  factored out (no recursion of its own, wave-2 packet 2.3 / M-T6.50 class)
- *  so `collectStmtExprImports` / `collectBlockStmtExprImports` can drive it
- *  from `walkStmtExprsDeep`'s single traversal instead of visiting every
- *  sub-expression twice. The switch this replaced skipped a block-body
- *  lambda's statements, so a triggering literal/call hidden inside one never
- *  reached its import — `walkExprDeep` closes that gap. */
-export function addPyExprImport(x: ExprIR, into: Set<string>): void {
-  switch (x.kind) {
-    case "literal":
-      if (x.lit === "money") into.add("decimal");
-      if (x.lit === "now") into.add("datetime");
-      break;
-    case "method-call":
-      if (
-        x.member === "matches" &&
-        x.receiverType.kind === "primitive" &&
-        x.receiverType.name === "string" &&
-        x.args.length === 1
-      ) {
-        into.add("re");
-      }
-      if (x.receiverType.kind === "primitive") {
-        const needs = PY_INTRINSIC_IMPORTS[intrinsicKey(x.receiverType.name, x.member)];
-        if (needs) into.add(needs);
-      }
-      // A money `sum` renders an explicit `Decimal(0)` start (fleet-bug-hunt
-      // B4), so the module needs the `Decimal` import even when no money
-      // LITERAL appears in the expression.
-      if (x.member === "sum" && x.isCollectionOp && (sumIsMoney(x) || sumIsDecimal(x))) {
-        into.add("decimal");
-      }
-      break;
-    case "binary":
-      // A money-scaling binary lifts its `decimal` operand through
-      // `Decimal(str(…))` (renderBinary / `moneyScalarCoercionSide`), so the
-      // module needs the name even when no money LITERAL appears in the
-      // expression — `price * rate` off two refs would otherwise emit an
-      // undefined `Decimal` (F821 / NameError).  Same mirror duty as the
-      // money-`sum` arm above.
-      if (moneyScalarCoercionSide(x)) into.add("decimal");
-      // Exact `decimal` arithmetic lifts its operands through `Decimal`
-      // (`renderDecimalArithmetic`, RS-37) — same mirror duty.
-      if (isDecimalArithmetic(x)) into.add("decimal");
-      break;
-    case "convert":
-      if (x.target === "money") into.add("decimal");
-      break;
-    case "duration":
-      // A5 temporal — an absolute constructor renders `timedelta(...)`.
-      into.add("timedelta");
-      break;
-    // No import needed for the node ITSELF.  This is a PER-NODE callback, not a
-    // traversal: every call site drives it with `walkExprDeep` /
-    // `walkStmtExprsDeep`, so a money literal or an intrinsic nested inside any
-    // kind below is delivered here in its own right.  Named rather than left to
-    // a `default:` so a new `ExprIR` kind that DOES need an import is a `tsc`
-    // error here.
-    case "action-ref":
-    case "authz-filter":
-    case "call":
-    case "i18nFormat":
-    case "id":
-    case "lambda":
-    case "list":
-    case "match":
-    case "member":
-    case "new":
-    case "object":
-    case "paren":
-    case "ref":
-    case "ternary":
-    case "this":
-    case "unary":
-      break;
-    default: {
-      const _exhaustive: never = x;
-      void _exhaustive;
-    }
-  }
-}
-
-/**
  * Render an explicit conversion (`string(age)`, `money(x)`, …) for the
  * Python backend.  Per-(from, target) pair so each emit matches the
  * host idiom:
@@ -331,16 +238,16 @@ function renderPyConvert(target: string, from: string | undefined, v: string): s
   }
   if (target === "money") {
     if (from === "money") return v;
-    return `Decimal(str(${v}))`;
+    return `${PY.Decimal}(str(${v}))`;
   }
   return v;
 }
 
 function renderLiteral(lit: LiteralKind, value: string): string {
   if (lit === "string") return JSON.stringify(value);
-  if (lit === "now") return "datetime.now(UTC)";
+  if (lit === "now") return `${PY.datetime}.now(${PY.UTC})`;
   if (lit === "null") return "None";
-  if (lit === "money") return `Decimal(${JSON.stringify(value)})`;
+  if (lit === "money") return `${PY.Decimal}(${JSON.stringify(value)})`;
   if (lit === "bool") return value === "true" ? "True" : "False";
   // int, long, decimal — value stored as source-compatible string.
   return value;
@@ -504,42 +411,25 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // answered `1.0` where the decimal-typed backends answer `1.01`.  Quantize
   // the shortest-repr `Decimal` half-away-from-zero (`ROUND_HALF_UP` is
   // away-from-zero in Python's decimal module) and narrow back to `float`.
-  // Needs `from decimal import Decimal` (collectPyExprImports mirrors).
   "decimal.round": (recv, args) =>
-    `float(Decimal(str(${recv})).quantize(Decimal(1).scaleb(-(${args[0] ?? "0"})), rounding="ROUND_HALF_UP"))`,
+    `float(${PY.Decimal}(str(${recv})).quantize(${PY.Decimal}(1).scaleb(-(${args[0] ?? "0"})), rounding="ROUND_HALF_UP"))`,
   // Decimal path: quantize to 10^-places with the explicit ROUND_HALF_UP mode
   // (Decimal's own default is context-dependent half-even).  Stays Decimal.
-  // Needs `from decimal import Decimal` (collectPyExprImports mirrors).
   "money.round": (recv, args) =>
-    `${recv}.quantize(Decimal(1).scaleb(-(${args[0] ?? "0"})), rounding="ROUND_HALF_UP")`,
+    `${recv}.quantize(${PY.Decimal}(1).scaleb(-(${args[0] ?? "0"})), rounding="ROUND_HALF_UP")`,
   // floor/ceil KEEP the receiver type (catalogue contract): float-wrapped on
   // the float-backed decimal (math.floor/ceil return int), to_integral_value
   // on money so the result stays Decimal.
-  "decimal.floor": (recv) => `float(math.floor(${recv}))`,
-  "decimal.ceil": (recv) => `float(math.ceil(${recv}))`,
+  "decimal.floor": (recv) => `float(${PY.math}.floor(${recv}))`,
+  "decimal.ceil": (recv) => `float(${PY.math}.ceil(${recv}))`,
   "money.floor": (recv) => `${recv}.to_integral_value(rounding="ROUND_FLOOR")`,
   "money.ceil": (recv) => `${recv}.to_integral_value(rounding="ROUND_CEILING")`,
   // ---- datetime — midnight UTC of the receiver's day (catalogue contract).
   // Columns are `DateTime(timezone=True)`, so the value is tz-aware;
   // `astimezone(UTC)` makes the day boundary UTC regardless of the incoming
-  // offset before the fields are zeroed.  Needs `from datetime import UTC`
-  // (PY_INTRINSIC_IMPORTS mirrors).
+  // offset before the fields are zeroed.
   "datetime.startOfDay": (recv) =>
-    `${recv}.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)`,
-};
-
-// Intrinsic snippets above whose emitted Python reaches for an import —
-// consulted by collectPyExprImports's method-call arm so the collector stays
-// a pure mirror of the renderer.  `decimal.*` rounding rides on `math`;
-// `money.round` constructs `Decimal(1)` (the receiver alone wouldn't force
-// the import when no money literal appears in the expression).
-const PY_INTRINSIC_IMPORTS: Record<string, "math" | "decimal" | "datetime"> = {
-  "decimal.round": "decimal",
-  "decimal.floor": "math",
-  "decimal.ceil": "math",
-  "money.round": "decimal",
-  // `astimezone(UTC)` names the UTC constant (`from datetime import UTC, …`).
-  "datetime.startOfDay": "datetime",
+    `${recv}.astimezone(${PY.UTC}).replace(hour=0, minute=0, second=0, microsecond=0)`,
 };
 
 function renderMethodCall(
@@ -559,7 +449,7 @@ function renderMethodCall(
     e.receiverType.name === "string" &&
     args.length === 1
   ) {
-    return `re.search(${args[0]}, ${recv}) is not None`;
+    return `${PY.re}.search(${args[0]}, ${recv}) is not None`;
   }
   if (e.receiverType.kind === "primitive") {
     const intrinsic = PY_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
@@ -632,14 +522,14 @@ export const PY_COLLECTION_RENDERERS: Record<
     // `Decimal(str(…))`, fold from `Decimal(0)`, narrow once.
     if (sumIsDecimal(e)) {
       const elem = args.length === 1 ? `(${args[0]})(__x)` : "__x";
-      return `float(sum((Decimal(str(${elem})) for __x in ${recv}), Decimal(0)))`;
+      return `float(sum((${PY.Decimal}(str(${elem})) for __x in ${recv}), ${PY.Decimal}(0)))`;
     }
     if (!sumIsMoney(e)) {
       return args.length === 1 ? `sum((${args[0]})(__x) for __x in ${recv})` : `sum(${recv})`;
     }
     return args.length === 1
-      ? `sum(((${args[0]})(__x) for __x in ${recv}), Decimal(0))`
-      : `sum(${recv}, Decimal(0))`;
+      ? `sum(((${args[0]})(__x) for __x in ${recv}), ${PY.Decimal}(0))`
+      : `sum(${recv}, ${PY.Decimal}(0))`;
   },
   all: (recv, args) => (args.length === 1 ? `all((${args[0]})(__x) for __x in ${recv})` : "True"),
   any: (recv, args) =>
@@ -715,7 +605,11 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       const ref = e.serviceRef!;
       const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? [];
       const all = [...ports, ...args].join(", ");
-      const call = `${snake(ref.op)}(${all})`;
+      // Written through its import marker — every calling module imports the
+      // function it spells (M-T9.84; the hoisted-gate import hole F2-CB-C7 was
+      // this call missing from a hand walk).
+      const fn = pyRef(`app.domain.services.${snake(ref.service)}`, snake(ref.op));
+      const call = `${fn}(${all})`;
       return ports.length > 0 ? `(await ${call})` : call;
     }
     case "repo-read": {
@@ -763,7 +657,7 @@ function renderNew(
   // (the ambient `self` id would be the wrong parent).  Root-level parts keep it.
   const parentRef = ctx.thisName === "self" ? "self._id" : `${ctx.thisName}.id`;
   const inits = [
-    `id=new_${snake(e.partName)}_id()`,
+    `id=${pyNewId(e.partName)}()`,
     ...(e.nested ? [] : [`parent_id=${parentRef}`]),
     ...fields.map((f) => `${snake(f.name)}=${f.value}`),
   ];
@@ -822,10 +716,10 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // An exact decimal chain on the scalar side hands over its un-narrowed
   // `Decimal` (RS-37) rather than round-tripping through `float`.
   if (coerce === "right") {
-    return `${left} ${pyBinOp(e.op)} ${decimalChainOperand(right, e.right) ?? `Decimal(str(${right}))`}`;
+    return `${left} ${pyBinOp(e.op)} ${decimalChainOperand(right, e.right) ?? `${PY.Decimal}(str(${right}))`}`;
   }
   if (coerce === "left") {
-    return `${decimalChainOperand(left, e.left) ?? `Decimal(str(${left}))`} ${pyBinOp(e.op)} ${right}`;
+    return `${decimalChainOperand(left, e.left) ?? `${PY.Decimal}(str(${left}))`} ${pyBinOp(e.op)} ${right}`;
   }
   // Same bargain as the money lift above, for the other operand pair Python
   // refuses to combine: `str + datetime`.
@@ -942,9 +836,9 @@ function renderDecimalArithmetic(
  *  `Decimal(str(…))`. */
 function liftDecimal(text: string, e: ExprIR): string {
   if (e.kind === "literal" && (e.lit === "decimal" || e.lit === "int" || e.lit === "long")) {
-    return `Decimal(${JSON.stringify(e.value)})`;
+    return `${PY.Decimal}(${JSON.stringify(e.value)})`;
   }
-  return `Decimal(str(${text}))`;
+  return `${PY.Decimal}(str(${text}))`;
 }
 
 /** A `decimal` arithmetic operand's UN-NARROWED `Decimal` text (parenthesised,
@@ -1005,27 +899,27 @@ const PY_TYPE_TARGET: TypeTarget = {
       case "money":
         // Precise decimal — `decimal.Decimal` (parity with decimal.js
         // on TS / `decimal` on C#).
-        return "Decimal";
+        return PY.Decimal;
       case "string":
       case "guid":
         return "str";
       case "bool":
         return "bool";
       case "datetime":
-        return "datetime";
+        return PY.datetime;
       case "json":
         return "object";
       case "File":
         // Passive wire-only leaf — the shared FileRef pydantic model
         // (emitted once per project; see the http-models emitter).
-        return "FileRef";
+        return PY.FileRef;
       case "duration":
         // A5 temporal — absolute duration as `datetime.timedelta`.
         // Expression-only (never a field / wire type).
-        return "timedelta";
+        return PY.timedelta;
     }
   },
-  id: (targetName) => `${targetName}Id`,
+  id: (targetName) => pyIdType(targetName),
   array: (element) => `list[${element}]`,
   optional: (inner) => `${inner} | None`,
   // Carrier-bounded generic (`order paged`) → the generic dataclass
@@ -1034,6 +928,10 @@ const PY_TYPE_TARGET: TypeTarget = {
   // Discriminated union → the tagged-union alias name (S12 emits it).
   union: (t) => unionInstanceName(t.variants),
   none: () => "None",
+  // Enum / value-object classes live in `app.domain.value_objects` — write the
+  // reference through its import marker (M-T9.84).  Entities stay bare: a part
+  // lives in its aggregate's module, which the emitters import themselves.
+  named: (kind, name) => (kind === "entity" ? name : pyVoOrEnum(name)),
 };
 
 export function renderPyType(t: TypeIR): string {

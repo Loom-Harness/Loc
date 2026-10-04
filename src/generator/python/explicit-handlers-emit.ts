@@ -59,7 +59,6 @@ import { lines } from "../../util/code-builder.js";
 import { plural, snake } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, wireModelImport } from "./emit/http-models.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
@@ -563,12 +562,6 @@ function renderHandlerModule(
     // sibling of the workflow import hole `emit/domain-service.ts` records).
     // Filtered through `refersTo` so a call the renderer folded away emits
     // nothing, and placed here so the block stays import-sorted.
-    ...domainServiceImportLinesForWorkflow(h.statements).filter((line) =>
-      line
-        .slice(line.indexOf(" import ") + 8)
-        .split(", ")
-        .some((fn) => refersTo(fn)),
-    ),
     [...enumNames, ...voNames].length > 0
       ? `from app.domain.value_objects import ${[...enumNames, ...voNames].sort().join(", ")}`
       : null,
