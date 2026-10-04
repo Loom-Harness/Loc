@@ -711,12 +711,14 @@ function projectReturn(
   // full `MathContext.DECIMAL128` precision where the REST DTO ships a double.
   // `domainToWire` carries the optional / `decimal[]` arms.
   //
-  // NOTE (reported, not fixed here): the `return "result"` below still passes
-  // `id` / `money` / `datetime` scalar returns through UN-projected, so an
-  // explicit handler returning one of those diverges from the DTO wire. That is
-  // a separate, pre-existing explicit-handler gap; only the decimal arm is in
-  // M-T6.46's scope.
-  if (info.refKind === "primitive" && info.primitive === "decimal") {
+  //
+  // The same holds for the other scalar wire forms: an `<Agg> id` return is a
+  // domain id RECORD, which Jackson serialises as `{"value": "…"}` where every
+  // other backend answers the bare id string; `money` / `datetime` likewise ship
+  // their canonical wire spelling only through `domainToWire`.  Found by the
+  // `handler-aggregate-ops` corpus fixture (M-T9.42 slice 2) — the per-backend
+  // string test pinned `ResponseEntity.ok(result)` and passed.
+  if (info.refKind === "primitive" || info.refKind === "id") {
     return domainToWire(retType, "result");
   }
   if (info.refKind !== "entity") return "result";

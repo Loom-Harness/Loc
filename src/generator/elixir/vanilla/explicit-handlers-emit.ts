@@ -42,6 +42,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
@@ -369,6 +370,12 @@ function renderHandlerModule(
     contextModule: contextModuleFq,
     resourceModules,
     recordParams: records,
+    // A `getById` miss names the row ("Order <id> not found"), as on the other
+    // four backends and on this one's own GET-by-id route.  The routes
+    // controller below carries the matching `{:not_found, detail}` arm (gated on
+    // `handlerLoadsById`).  Was the generic "Resource not found" until the
+    // `handler-aggregate-ops` corpus fixture compared it to the golden.
+    tagGetByIdMiss: true,
     // Domain-service call wiring (domain-services.md rev. 4, Elixir decision B)
     // — the same two fields the workflow emitter threads, and for the same
     // reason.  Without them the `domain-service` render arm falls through to the
@@ -557,6 +564,18 @@ function pathParamCoercions(r: RouteIR, h: Handler): string {
 /** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
  *  snake-casing each param so it matches the handler's `run/1` destructure key
  *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
+/** True when a handler body loads through `getById` at any depth — the load
+ *  whose miss `tagGetByIdMiss` tags with a row-naming detail. */
+function handlerLoadsById(h: CommandHandlerIR | QueryHandlerIR): boolean {
+  let found = false;
+  for (const top of h.statements) {
+    walkWorkflowStmtsDeep(top, (st) => {
+      if (st.kind === "repo-let" && st.method === "getById") found = true;
+    });
+  }
+  return found;
+}
+
 function phoenixPath(path: string): string {
   return path.replace(/\{(\w+)\}/g, (_, name: string) => `:${snake(name)}`);
 }
@@ -610,6 +629,10 @@ export function emitExplicitRoutesController(
   // Set when any route is a paged-run queryHandler — the controller then carries
   // a `page_param/3` coercion helper (Phoenix delivers query params as strings).
   let hasPaged = false;
+  // Set when a routed handler loads through `getById` (its miss carries a
+  // detail — see `tagGetByIdMiss`), and when one returns nothing (204).
+  let loadsById = false;
+  let hasVoid = false;
   for (const r of routes) {
     const resolved = resolveRoute(r, byName);
     if (!resolved) continue;
@@ -646,6 +669,10 @@ ${pagingElseArm("ProblemDetails", "    ")}
   end`);
       apiRoutes.push(routeEntry(r, action));
       continue;
+    }
+    if (!handler.extern) {
+      if (handlerLoadsById(handler)) loadsById = true;
+      if (!handler.returnType) hasVoid = true;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
     const coercions = pathParamCoercions(r, handler);
@@ -698,7 +725,15 @@ ${actions.join("\n\n")}
   # — the oracle the behavioural goldens are captured from — answers \`"hi"\`.  It
   # was invisible until the route moved under \`/api\`: before that every request
   # to it 404'd, so no caller ever saw the body.
-  def respond(conn, {:ok, result}) do
+${
+  hasVoid
+    ? `  # A handler with no return type closes its body with \`{:ok, :ok}\` and answers
+  # 204 with an empty body, like the other four backends — not \`200 "ok"\`.
+  def respond(conn, {:ok, :ok}), do: send_resp(conn, 204, "")
+
+`
+    : ""
+}  def respond(conn, {:ok, result}) do
     conn
     |> put_status(200)
     |> json(serialize(result))
@@ -707,7 +742,7 @@ ${actions.join("\n\n")}
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),
     do: ProblemDetails.validation_error_response(conn, changeset)
 
-${respondErrorTail("respond", "  ", contexts[0] ? denialOverrides(contexts[0]) : undefined, contextsHaveWireDenials(contexts))}
+${respondErrorTail("respond", "  ", contexts[0] ? denialOverrides(contexts[0]) : undefined, contextsHaveWireDenials(contexts), false, loadsById)}
 
 ${serializeBlock.clauses}${
   hasPaged

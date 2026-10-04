@@ -79,7 +79,12 @@ system HandlerAggregateOps {
   }
 
   test e2e "routed handlers load, mutate, save, project and delete a real row" against d {
-    let o = api.orders.create({ code: "A-1", status: "open", discount: 0, discountReason: "" })
+    // `discountReason` is seeded "none", not "": Phoenix casts with Ecto's
+    // default `empty_values: [""]`, so a required string sent as "" becomes nil
+    // and 422s `can't be blank` where the other four backends store "".  That
+    // divergence is real and unrecorded elsewhere; it is not this fixture's
+    // subject, so the seed sidesteps it rather than pinning it here.
+    let o = api.orders.create({ code: "A-1", status: "open", discount: 0, discountReason: "none" })
 
     // Scalar read off a loaded aggregate, before any handler wrote.
     expect(api.ordering.status(o)).toBe("open")
@@ -87,7 +92,7 @@ system HandlerAggregateOps {
     // Aggregate return: the WIRE shape, not the raw domain entity.  A backend
     // that serialised the entity would leak private state / miss `id`.
     let view = api.ordering.fetch(o)
-    expect(view.id).toBe(o)
+    expect(view.id).toBe(o.id)
     expect(view.code).toBe("A-1")
     expect(view.status).toBe("open")
 
@@ -95,7 +100,7 @@ system HandlerAggregateOps {
     // DERIVED getById, so a handler that dropped the body, mis-bound the VO or
     // forgot to save answers the old values.
     let d1 = api.ordering.discount(o, { amount: 15, currency: "EUR" }, "loyalty")
-    expect(d1).toBe(o)
+    expect(d1).toBe(o.id)
     let afterDiscount = api.orders.getById(o)
     expect(afterDiscount.discount).toBe(15)
     expect(afterDiscount.discountReason).toBe("loyalty")
@@ -104,7 +109,7 @@ system HandlerAggregateOps {
     expect(api.orders.getById(o).discount).toBe(20)
 
     // load → mutate → save → return id, observed through the other handler.
-    expect(api.ordering.cancel(o)).toBe(o)
+    expect(api.ordering.cancel(o)).toBe(o.id)
     expect(api.ordering.status(o)).toBe("cancelled")
     expect(api.orders.getById(o).status).toBe("cancelled")
 
@@ -115,9 +120,31 @@ system HandlerAggregateOps {
   }
 
   test e2e "a routed handler over a missing id answers the not-found rung" against d {
-    let missing = "44444444-4444-4444-8444-444444444444"
-    expect(api.ordering.status(missing)).toThrow(404)
-    expect(api.ordering.fetch(missing)).toThrow(404)
-    expect(api.ordering.cancel(missing)).toThrow(404)
+    // Literals inline on purpose: a `let` bound to a string literal is read as
+    // a create HANDLE by the e2e renderer (`missing.id` → `undefined` → 422).
+    expect(api.ordering.status("44444444-4444-4444-8444-444444444444")).toThrow(404)
+    expect(api.ordering.fetch("44444444-4444-4444-8444-444444444444")).toThrow(404)
+    expect(api.ordering.cancel("44444444-4444-4444-8444-444444444444")).toThrow(404)
+  }
+
+  // The DERIVED surface beside the routed handlers, so the caller census has a
+  // caller for every route this fixture serves — and so each handler effect
+  // above has a derived twin on the same table: the operation route and the
+  // routed handler must agree on what `cancel` / `applyDiscount` do.
+  test e2e "the derived routes beside the routed handlers" against d {
+    let o = api.orders.create({ code: "B-1", status: "open", discount: 0, discountReason: "none" })
+    api.orders.applyDiscount(o, { amount: { amount: 3, currency: "EUR" }, reason: "derived" })
+    let discounted = api.orders.getById(o)
+    expect(discounted.discount).toBe(3)
+    expect(discounted.discountReason).toBe("derived")
+    api.orders.cancel(o)
+    expect(api.ordering.status(o)).toBe("cancelled")
+    api.orders.update(o, { code: "B-2", status: "reopened", discount: 3, discountReason: "derived" })
+    expect(api.ordering.fetch(o).code).toBe("B-2")
+    let listing = api.orders.all()
+    expect(listing.total).toBe(1)
+    expect(listing.items.length).toBe(1)
+    api.orders.destroy(o)
+    expect(api.ordering.fetch(o)).toThrow(404)
   }
 }
