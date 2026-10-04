@@ -164,7 +164,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
   binary(left: string, right: string, e: BinaryExpr): string;
   ternary(cond: string, then: string, otherwise: string): string;
-  convert(value: string, e: ConvertExpr): string;
+  /** `ctx` lets a leaf qualify a framework reference against its emission
+   *  scope (.NET: `global::System` when a member named `System` shadows the
+   *  namespace — see `CsRenderContext.systemShadowed`). */
+  convert(value: string, e: ConvertExpr, ctx: Ctx): string;
   /** Duration constructor `days(n)`/`hours(n)`/`minutes(n)` (A5 temporal) —
    *  render the backend's ABSOLUTE-duration value from the already-rendered
    *  `amount`.  Every unit has a fixed millisecond width, so each backend
@@ -260,7 +263,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "ternary":
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise));
     case "convert":
-      return t.convert(r(e.value), e);
+      return t.convert(r(e.value), e, ctx);
     case "duration":
       return t.duration(e.unit, r(e.amount), e, ctx);
     case "i18nFormat":
@@ -754,7 +757,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     }
     case "convert": {
       const value = rm(e.value);
-      return compose(t.convert(value.text, e), [value]);
+      return compose(t.convert(value.text, e, ctx), [value]);
     }
     case "duration": {
       const amount = rm(e.amount);

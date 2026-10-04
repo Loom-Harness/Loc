@@ -35,6 +35,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR } from "../../ir/types/loom-ir.js";
+import { upperFirst } from "../../util/naming.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
  *  same-named domain type is ambiguous rather than merely shadowed.
@@ -136,4 +137,63 @@ export function collidingNamesOfAggregate(agg: Pick<AggregateIR, "name" | "parts
  *  repository IMPL wildcard-imports that namespace (CS0104). */
 export function taskInScopeOfAggregate(agg: Pick<AggregateIR, "name" | "parts">): boolean {
   return collidingNamesOfAggregate(agg).includes("Task");
+}
+
+// ---------------------------------------------------------------------------
+// The `System` namespace shadowed by a member named `System`.
+//
+// A domain member spelled `system` is emitted as the C# member `System`, and
+// inside its declaring type C# simple-name lookup finds that MEMBER before the
+// `System` namespace.  Every fully-qualified `System.X.Y` the emitter writes in
+// EXPRESSION position in that scope then binds `.X` against the member's type:
+//
+//     public string System { get; private set; }
+//     … this.Check.ToString(System.Globalization.CultureInfo.InvariantCulture)
+//     error CS1061: 'string' does not contain a definition for 'Globalization'
+//
+// TYPE positions (`System.Text.Json.JsonElement` as a property type,
+// `new System.InvalidOperationException(…)`, attributes) are unaffected —
+// namespace-or-type-name lookup skips non-type members — so only expression-
+// position references need `global::`.  Conditional on an actual `System`
+// member, so every other model emits byte-identical output.
+// ---------------------------------------------------------------------------
+
+/** True when one of `memberNames` (`.ddd` spelling) becomes the C# member
+ *  `System` and so shadows the `System` namespace in its declaring type. */
+export function shadowsSystemNamespace(memberNames: Iterable<string>): boolean {
+  for (const n of memberNames) {
+    if (upperFirst(n) === "System") return true;
+  }
+  return false;
+}
+
+/** The members a domain TYPE declares as C# members of its own class/record —
+ *  fields, containments, derived members, functions and (aggregates)
+ *  operations — plus any names it inherits (`inherited`, a TPC/TPH base's
+ *  fields).  True when one of them is `System`. */
+export function typeShadowsSystemNamespace(
+  t: {
+    readonly fields: readonly { readonly name: string }[];
+    readonly derived: readonly { readonly name: string }[];
+    readonly functions: readonly { readonly name: string }[];
+    readonly contains?: readonly { readonly name: string }[];
+    readonly operations?: readonly { readonly name: string }[];
+  },
+  inherited: Iterable<string> = [],
+): boolean {
+  return shadowsSystemNamespace([
+    ...t.fields.map((f) => f.name),
+    ...(t.contains ?? []).map((c) => c.name),
+    ...t.derived.map((d) => d.name),
+    ...t.functions.map((f) => f.name),
+    ...(t.operations ?? []).map((o) => o.name),
+    ...inherited,
+  ]);
+}
+
+/** The `System` namespace root for an EXPRESSION-position qualified reference:
+ *  `System` normally (byte-identical), `global::System` when a member named
+ *  `System` is in scope. */
+export function csSystemRoot(systemShadowed: boolean | undefined): string {
+  return systemShadowed ? "global::System" : "System";
 }

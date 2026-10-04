@@ -26,6 +26,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields } from "../../construction-default.js";
+import { typeShadowsSystemNamespace } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -352,6 +353,9 @@ export function renderEntity(
     // parts don't have associations, but typing as the union keeps
     // the ctx shape stable across the two callers.
     agg: isAgg(entity) ? entity : undefined,
+    // A member named `System` (own or inherited) shadows the namespace in
+    // this class — expression-position `System.…` must go `global::`.
+    ...(typeShadowsSystemNamespace(entity, superType?.fieldNames) ? { systemShadowed: true } : {}),
   };
 
   const propLines: string[] = [];
@@ -1093,9 +1097,10 @@ export function renderAbstractBaseEntity(
   // TPC bases own no typed `Id` (each concrete carries its own strongly-typed
   // id); a base derived body that reads `id` must go through the boxed accessor
   // the concretes override (`IdBoxed`).  TPH bases own the shared typed `Id`.
+  const systemShadow = typeShadowsSystemNamespace(base) ? { systemShadowed: true } : {};
   const renderCtx = options.tph
-    ? { thisName: "this", agg: base }
-    : { thisName: "this", agg: base, idAccessor: "IdBoxed" };
+    ? { thisName: "this", agg: base, ...systemShadow }
+    : { thisName: "this", agg: base, idAccessor: "IdBoxed", ...systemShadow };
   const usings = new Set<string>();
   for (const d of base.derived) collectCsExprUsings(d.expr, usings, ns);
   // A `File` field's type is the shared `FileRef` record in Domain.Common (M-T1.2)

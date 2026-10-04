@@ -29,6 +29,7 @@ import {
 } from "../_expr/target.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { csSystemRoot } from "./bcl-collision.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 
@@ -123,6 +124,12 @@ export interface CsRenderContext {
     service: string,
     op: string,
   ) => { receiver: string; method: string } | undefined;
+  /** The emission scope declares a member named `System` (a `.ddd` field /
+   *  derived / function / operation spelled `system`), which shadows the
+   *  `System` namespace there: expression-position qualified references
+   *  render `global::System.…` (see `csSystemRoot` in bcl-collision.ts).
+   *  Unset everywhere else, so output stays byte-identical. */
+  systemShadowed?: boolean;
 }
 
 /** The ambient request-scoped principal accessor on the .NET read side. Every
@@ -299,7 +306,14 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   unary: (op, operand) => `${op}${operand}`,
   binary: (left, right, e) => renderCsBinary(left, right, e, false),
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
-  convert: (value, e) => renderCsConvert(e.target, e.from, value, nullableValueOperand(e)),
+  convert: (value, e, ctx) =>
+    renderCsConvert(
+      e.target,
+      e.from,
+      value,
+      nullableValueOperand(e),
+      csSystemRoot(ctx.systemShadowed),
+    ),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
   // A5 temporal: a Loom ABSOLUTE duration value is a `TimeSpan` on this
@@ -684,6 +698,9 @@ function renderCsConvert(
   from: string | undefined,
   v: string,
   nullableValue = false,
+  /** `System` normally; `global::System` when a member named `System`
+   *  shadows the namespace in the emission scope (`csSystemRoot`). */
+  sys = "System",
 ): string {
   if (nullableValue) v = `${v}.Value`;
   if (target === "string") {
@@ -693,15 +710,15 @@ function renderCsConvert(
     // overload (records' default ToString) or render it obsolete (Enum.ToString
     // since .NET 8) — keep their bare ToString.
     if (from === "decimal" || from === "money") {
-      return `${v}.ToString(System.Globalization.CultureInfo.InvariantCulture)`;
+      return `${v}.ToString(${sys}.Globalization.CultureInfo.InvariantCulture)`;
     }
     if (from === "int" || from === "long") {
-      return `${v}.ToString(System.Globalization.CultureInfo.InvariantCulture)`;
+      return `${v}.ToString(${sys}.Globalization.CultureInfo.InvariantCulture)`;
     }
     if (from === "datetime") {
       // ISO 8601 round-trip — "O" is the only format that preserves DateTime
       // precision losslessly, and IFormatProvider keeps the literal stable.
-      return `${v}.ToString("O", System.Globalization.CultureInfo.InvariantCulture)`;
+      return `${v}.ToString("O", ${sys}.Globalization.CultureInfo.InvariantCulture)`;
     }
     return `${v}.ToString()`;
   }
