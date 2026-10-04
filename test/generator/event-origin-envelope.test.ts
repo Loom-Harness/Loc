@@ -364,4 +364,30 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       );
     });
   });
+
+  // Auth WITHOUT tenancy (corpus auth-simple et al.): the origin's tenant has
+  // no claim to land in, so `system_principal_for` must not bind it — an
+  // unused local is ruff F841 (python) and an unused-variable warning that
+  // `mix compile --warnings-as-errors` rejects (elixir).
+  describe("auth without tenancy binds no unused `tenant`", () => {
+    const untenanted = (platform: string): string =>
+      fixture(platform)
+        .replace("  tenancy by user.tenantId of Organization\n", "")
+        .replaceAll("with tenantOwned, crudish", "with crudish");
+
+    it("python: system_principal_for reads no tenant", async () => {
+      const u = get(await generateSystemFiles(untenanted("python")), "ship_api/app/auth/user.py");
+      expect(u).toContain("def system_principal_for(origin: Mapping[str, object] | None) -> User:");
+      expect(u).not.toContain("tenant = raw_tenant");
+    });
+
+    it("elixir: system_principal_for reads no tenant", async () => {
+      const auth = get(
+        await generateSystemFiles(untenanted("elixir")),
+        "ship_api/lib/ship_api_web/auth.ex",
+      );
+      expect(auth).toContain("  def system_principal_for(origin) do");
+      expect(auth).not.toContain('tenant = string_or_nil(Map.get(origin, "tenant"))');
+    });
+  });
 });

@@ -325,9 +325,13 @@ function renderPySystemPrincipal(
     if (f.type.kind === "primitive" && f.type.name === "string") return '""';
     return stubValueForType(f.type);
   };
+  // `tenant` is bound only when something reads it — an auth-less-tenancy
+  // principal never does, and ruff's F841 rejects an unused local.
+  let kwargsReadTenant = false;
   const kwargs = user.fields.map((f) => {
     if (f.name !== tenantClaim) return `        ${snake(f.name)}=${empty(f)},`;
     const rebuilt = claimFromOriginString(f.type, "tenant", "python");
+    if (rebuilt !== null) kwargsReadTenant = true;
     return rebuilt === null
       ? `        ${snake(f.name)}=${empty(f)},`
       : `        ${snake(f.name)}=${empty(f)} if tenant is None else ${rebuilt},`;
@@ -362,8 +366,12 @@ function renderPySystemPrincipal(
     '    """The system principal of an event origin: no claims, `is_system`, the',
     "    origin's tenant, `caused_by` for audit.  Gates are evaluated against it",
     '    normally — one that admits it says `currentUser.isSystem || …`."""',
-    '    raw_tenant = None if origin is None else origin.get("tenant")',
-    "    tenant = raw_tenant if isinstance(raw_tenant, str) else None",
+    ...(kwargsReadTenant || hierarchy
+      ? [
+          '    raw_tenant = None if origin is None else origin.get("tenant")',
+          "    tenant = raw_tenant if isinstance(raw_tenant, str) else None",
+        ]
+      : []),
     '    raw_caused_by = None if origin is None else origin.get("causedBy")',
     ...(hierarchy
       ? [

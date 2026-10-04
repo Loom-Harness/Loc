@@ -926,10 +926,12 @@ function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: str
 
   @doc "The system principal of an event origin map (or nil)."
   def system_principal_for(origin) do
-    origin = origin || %{}
-    tenant = string_or_nil(Map.get(origin, "tenant"))${
+    origin = origin || %{}${
+      // `tenant` is bound only under tenancy: unbound otherwise, it is an
+      // unused-variable warning that `--warnings-as-errors` rejects.
       tenantKey
         ? `
+    tenant = string_or_nil(Map.get(origin, "tenant"))
     org_path = string_or_nil(Map.get(origin, "orgPath")) || tenant || ""`
         : ""
     }
