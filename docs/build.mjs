@@ -22,6 +22,8 @@ const OUT  = join(HERE, '_site');
 export const RENDERED_SUBDIRS = [
   'new-plan',
   'new-plan/missions',
+  'new-plan/waves',
+  'new-plan/waves/handoffs',
   'new-plan/archive',
   'new-plan/archive/missions',
   'old/plans',
@@ -43,8 +45,11 @@ const NAV = [
   { label: 'Internals',    href: 'technical.html' },
 ];
 
-// rewrite ./foo.md, ../foo.md, foo.md or sub/foo.md (with optional #anchor) → .html
-const MD_LINK = /^((?:\.\.?\/)*(?:[a-zA-Z0-9_\-]+\/)*[a-zA-Z0-9_\-]+)\.md(#.*)?$/;
+// rewrite ./foo.md, ../foo.md, foo.md or sub/foo.md (with optional #anchor) → .html.
+// The basename may contain dots (`M-T5.21-callable-unification-design.md`,
+// `….waves.md`) — every mission file is named that way, and a dot-free class
+// left those links pointing at a `.md` the site never publishes.
+const MD_LINK = /^((?:\.\.?\/)*(?:[a-zA-Z0-9_\-]+\/)*[a-zA-Z0-9_\-][a-zA-Z0-9_.\-]*)\.md(#.*)?$/;
 
 marked.use({
   gfm: true,
