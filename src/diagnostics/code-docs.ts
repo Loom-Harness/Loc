@@ -438,6 +438,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   // --- docs-root-relative (no language-reference chapter covers migrations) ---
   "loom.migration-rename-inferred":
     "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
+  "loom.migration-unique-on-existing-table":
+    "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —

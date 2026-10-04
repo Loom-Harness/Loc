@@ -3670,6 +3670,11 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨, same reason (B-20b): a unique index added to a table the
+  // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
+  // file drives the warning, its `sql before` silencing, and the rebuild /
+  // new-table / first-generation exemptions.
+  "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 

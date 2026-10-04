@@ -1174,6 +1174,77 @@ export interface MigrationWarning {
   readonly message: string;
 }
 
+/** B-20b: a `unique (…)` index added to a table the BASELINE already has.
+ *
+ *  The table holds rows, and nothing guarantees they are unique over the new
+ *  column set — a duplicate makes `CREATE UNIQUE INDEX` fail at boot, the
+ *  migration rolls back, and every later generation is queued behind it.  A
+ *  diff cannot see the data, so this is a WARNING pointing at the one fix the
+ *  author controls: a `sql before "…"` dedupe in the same generation.  Declaring
+ *  one (any `before` step for the module this generation) is read as "handled"
+ *  and silences it.
+ *
+ *  Not raised for: a table created this generation (empty); a rebuild of a
+ *  unique index the baseline already had over the same columns (mapped through
+ *  this generation's column renames) and predicate — the derived-name churn a
+ *  rename causes (or a full unique narrowed to a partial one).  A NEW partial
+ *  unique (`softDeletable`'s `WHERE is_deleted = false`) is still a uniqueness
+ *  claim over the existing live rows, so it warns. */
+export function uniqueOnExistingTableWarnings(
+  steps: readonly MigrationStep[],
+  baseline: SchemaSnapshot | null,
+  module: string,
+): MigrationWarning[] {
+  if (baseline === null) return [];
+  const key = (schema: string | undefined, name: string): string => qualifiedName(schema, name);
+  // Tables that exist in the database before this generation runs, under the
+  // name they will carry once its renames apply.
+  const existing = new Map<string, TableShape>();
+  for (const t of baseline.tables) existing.set(key(t.schema, t.name), t);
+  for (const s of steps) {
+    if (s.op !== "renameTable") continue;
+    const t = existing.get(key(s.schema, s.from));
+    if (t) existing.set(key(s.schema, s.to), t);
+  }
+  const out: MigrationWarning[] = [];
+  for (const s of steps) {
+    if (s.op !== "addIndex" || !s.index.unique) continue;
+    const tableKey = key(s.schema, s.index.table);
+    const before = existing.get(tableKey);
+    if (!before) continue;
+    // Old column name → new, for this table, from this generation's renames.
+    const renamed = new Map<string, string>();
+    for (const r of steps) {
+      if (r.op === "renameColumn" && key(r.schema, r.table) === tableKey) renamed.set(r.from, r.to);
+    }
+    const cols = [...s.index.columns].sort().join(",");
+    const rebuild = before.indexes.some(
+      (i) =>
+        i.unique &&
+        // A baseline FULL unique already proves every row unique, so a
+        // partial one over the same columns cannot fail either.
+        (!i.predicate || i.predicate === s.index.predicate) &&
+        i.columns
+          .map((c) => renamed.get(c) ?? c)
+          .sort()
+          .join(",") === cols,
+    );
+    if (rebuild) continue;
+    out.push({
+      code: "loom.migration-unique-on-existing-table",
+      module,
+      message: diagMessage("loom.migration-unique-on-existing-table", {
+        module,
+        table: tableKey,
+        columns: s.index.columns.join(", "),
+        index: s.index.name,
+        partial: s.index.predicate ? ` (partial: WHERE ${s.index.predicate})` : "",
+      }),
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Destructive-change gate (audit finding 19).
 // ---------------------------------------------------------------------------
@@ -2191,6 +2262,11 @@ export function buildMigrations(
       ...tableRenamePlan.dataFixups,
     ].filter((d) => !applied.has(d.key));
     const toExec = (d: { sql: string }): MigrationStep => ({ op: "sqlExec", sql: d.sql });
+    // B-20b — announce a `unique (…)` landing on a populated table, unless the
+    // author already declared a `sql before` step for this generation.
+    if (options.warnings && !newData.some((d) => d.before)) {
+      options.warnings.push(...uniqueOnExistingTableWarnings(structuralSteps, baseline, m.name));
+    }
     const steps: MigrationStep[] = [
       ...newData.filter((d) => d.before).map(toExec),
       ...structuralSteps,

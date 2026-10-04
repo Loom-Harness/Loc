@@ -1984,6 +1984,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** B-20b — a `unique (…)` index added to a table the baseline already has.
+   *  Rows may already violate it, which fails the migration at boot and
+   *  queues every later generation behind it.  Silenced by declaring a
+   *  `sql before` step for the module in the same generation. */
+  "loom.migration-unique-on-existing-table": (p: {
+    module: unknown;
+    table: unknown;
+    columns: unknown;
+    index: unknown;
+    partial: unknown;
+  }) =>
+    `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
+    `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
