@@ -94,9 +94,10 @@ describe("HEEx form — `X id` field renders as <.input type='select'>", () => {
     const heex = findNewOrderHeex(files);
     // The mount stub assigns :<target>_options from the vanilla context
     // `list_<x>s()` tuple-returning fetch (case-unwrapped to the list), mapped
-    // to `{label, id}` option tuples.
+    // to `{label, id}` option tuples — the label is Customer's `display`, via
+    // the façade's `customer_label/1`.
     expect(heex).toMatch(
-      /\|> assign\(:customer_options, \(case [\w.]+\.list_customers\(\) do \{:ok, %\{items: items\}\} -> items; \{:ok, items\} -> items; _ -> \[\] end\) \|> Enum\.map\(fn r -> \{to_string\(r\.id\), r\.id\} end\)\)/,
+      /\|> assign\(:customer_options, \(case [\w.]+\.list_customers\(\) do \{:ok, %\{items: items\}\} -> items; \{:ok, items\} -> items; _ -> \[\] end\) \|> Enum\.map\(fn r -> \{[\w.]+\.customer_label\(r\), r\.id\} end\)\)/,
     );
   });
 
