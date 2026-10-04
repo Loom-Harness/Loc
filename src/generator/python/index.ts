@@ -88,6 +88,7 @@ import { buildPyExternHookModule, externHookModulePath } from "./extern-builder.
 import { renderPyFileRefModel, renderPyFilesRoutes } from "./files-routes-builder.js";
 import { PYTHON_PINS } from "./pins.js";
 import { buildPyProjectionsFile } from "./projections-builder.js";
+import { PyOutputMap } from "./py-output.js";
 import { buildPyQueryProjectionsFile } from "./query-projections-builder.js";
 import { buildPyRealtimeFile } from "./realtime-builder.js";
 import { buildPyRepositoryFile } from "./repository-builder.js";
@@ -148,7 +149,7 @@ export interface GeneratePythonArgs {
 }
 
 export function generatePythonForContexts(args: GeneratePythonArgs): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = new PyOutputMap();
   const slug = pythonProjectName(args.deployable.name);
   const mergedBase = mergeContexts(args.contexts);
   const sourcemap = args.sourcemap;
@@ -638,7 +639,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     out.set("app/dispatch.py", dispatchFile);
     if (sourcemap && dispatchOpFragments) {
       for (const frag of dispatchOpFragments) {
-        sourcemap.fragment("app/dispatch.py", dispatchFile, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          "app/dispatch.py",
+          out.get("app/dispatch.py")!,
+          frag.fragmentText,
+          frag.subRegions,
+        );
       }
     }
   }
@@ -703,7 +709,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       for (const frag of workflowOpFragments) {
         sourcemap.fragment(
           "app/http/workflows_routes.py",
-          workflowsFile,
+          out.get("app/http/workflows_routes.py")!,
           frag.fragmentText,
           frag.subRegions,
         );
@@ -759,11 +765,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       const baseDomainPath = `app/domain/${snake(base.name)}.py`;
       const baseDomainContent = buildPyBaseUnionFile(base, concretes);
       out.set(baseDomainPath, baseDomainContent);
-      sourcemap?.file(baseDomainPath, baseDomainContent, base.origin, baseConstruct);
+      sourcemap?.file(baseDomainPath, out.get(baseDomainPath)!, base.origin, baseConstruct);
       const baseRepoPath = `app/db/repositories/${snake(base.name)}_repository.py`;
       const baseRepoContent = buildPyBaseReaderFile(base, concretes, ctx);
       out.set(baseRepoPath, baseRepoContent);
-      sourcemap?.file(baseRepoPath, baseRepoContent, base.origin, baseConstruct);
+      sourcemap?.file(baseRepoPath, out.get(baseRepoPath)!, base.origin, baseConstruct);
     }
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
@@ -780,13 +786,13 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         opFragments,
       );
       out.set(domainPath, domainContent);
-      sourcemap?.file(domainPath, domainContent, agg.origin, construct);
+      sourcemap?.file(domainPath, out.get(domainPath)!, agg.origin, construct);
       // Statement-granular sub-regions (source-map) — layered
       // onto the whole-file region just recorded above, anchored by
       // exact-text search against this SAME final content.
       if (sourcemap && opFragments) {
         for (const frag of opFragments) {
-          sourcemap.fragment(domainPath, domainContent, frag.fragmentText, frag.subRegions);
+          sourcemap.fragment(domainPath, out.get(domainPath)!, frag.fragmentText, frag.subRegions);
         }
       }
       // Extern (b) (docs/extern.md): the scaffold-once, user-owned hook
@@ -819,7 +825,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
               ? buildPyEmbeddedRepositoryFile(agg, repo, ctx)
               : buildPyRepositoryFile(agg, repo, ctx);
       out.set(repoPath, repoContent);
-      sourcemap?.file(repoPath, repoContent, repo?.origin ?? agg.origin, construct);
+      sourcemap?.file(repoPath, out.get(repoPath)!, repo?.origin ?? agg.origin, construct);
       pyPortSpecs.push({ aggName: agg.name, members: pyPortMembersFromSource(repoContent) });
       const routesPath = `app/http/${snake(agg.name)}_routes.py`;
       // The id-import candidate pool is `ctx.aggregates` + these.  An `X id`
@@ -836,12 +842,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         ...merged.aggregates.map((a) => a.name),
       ]);
       out.set(routesPath, routesContent);
-      sourcemap?.file(routesPath, routesContent, agg.origin, construct);
+      sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
       const tests = renderPyTestsFile(agg, ctx);
       if (tests != null) {
         const testsPath = `tests/test_${snake(agg.name)}.py`;
         out.set(testsPath, tests);
-        sourcemap?.file(testsPath, tests, agg.origin, construct);
+        sourcemap?.file(testsPath, out.get(testsPath)!, agg.origin, construct);
       }
     }
   }
@@ -857,7 +863,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // finished map so every module that rendered a `trunc_mod(` call gets the
   // import, whichever emitter produced it.
   wireNumericHelpers(out);
-  return out;
+  return out.assertFinal();
 }
 
 /** PEP 508-safe project name — same camelCase→snake folding the system
