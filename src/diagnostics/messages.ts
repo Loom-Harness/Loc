@@ -63,6 +63,9 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.a11y-missing-alt": (p: { type: unknown }) =>
     `'${p.type}' renders an image but has no text alternative. Add 'alt: "…"' describing it, or 'decorative: true' if it conveys nothing (renders alt=""). Alt text is human content Loom can't derive — a missing alt fails WCAG 1.1.1.`,
   "loom.a11y-icon-only-no-name": `Icon-only 'Button' has no accessible name — a screen reader announces the meaningless default "Button". Add visible text ('Button { "Delete", icon: "trash" }') or an accessible name ('label: "Delete"', emitted as aria-label). A control without a name fails WCAG 4.1.2.`,
+  // M-T5.42, V8 — the button emitter renders NO glyph on a registry miss.
+  "loom.button-icon-unknown": (p: { name: unknown; known: unknown }) =>
+    `'Button { icon: "${p.name}" }' names no builtin icon, so the button renders with no glyph at all. The builtin names are: ${p.known}. Pick one of those, or pass your own SVG with 'iconSvg: "<svg …/>"'.`,
   "loom.a11y-theme-contrast": (p: {
     name: unknown;
     hex: unknown;
@@ -3509,6 +3512,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
     `own wording.  \`${p.primitive}\` walks a nested primitive in that slot, so wrap it in ` +
     `place: \`Money { ${p.path} }\`.  That is also what renders the amount WITH its currency.`,
+  // The value-object sibling of `loom.money-in-text-slot` (M-T5.42, V7).
+  "loom.valueobject-in-text-slot": (p: {
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+    valueObject: unknown;
+  }) =>
+    `\`${p.primitive}\` renders \`${p.path}\` — a \`${p.valueObject}\` value object ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) — as TEXT.  A value object crosses ` +
+    `the wire as a JSON OBJECT, which is not a renderable node: the generated frontend fails to ` +
+    `TYPECHECK (\`TS2322: Type '${p.valueObject}' is not assignable to type 'ReactNode'\`), and ` +
+    `the other frontends have the same hole in their own wording.  Render one of its fields ` +
+    `(\`${p.path}.<field>\`), or add a \`derived\` string member that formats it.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-gate-checks.ts

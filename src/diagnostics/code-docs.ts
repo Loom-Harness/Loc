@@ -342,6 +342,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#for--list-comprehension",
   "loom.money-in-text-slot":
     "16-ui-walker-primitives.md#formatters--money-datedisplay-enumbadge-idlink-filelink-provenanceinfo-timeline",
+  "loom.button-icon-unknown": "16-ui-walker-primitives.md#button-icons",
+  "loom.valueobject-in-text-slot":
+    "16-ui-walker-primitives.md#a-text-slot-renders-a-scalar-not-a-value-object",
   // The body-walker give-up codes (M-T9.55).  The first four are argument /
   // reference / expression refusals — the chapter's own gate section lists the
   // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so

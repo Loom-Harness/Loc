@@ -40,6 +40,7 @@ import type {
   PageIR,
   StmtIR,
   StoreIR,
+  TypeIR,
 } from "../../types/loom-ir.js";
 import { walkExprChildren, walkExprDeep, walkStmtChildren } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -178,6 +179,24 @@ export function checkMoneyInTextSlot(
       // primitive is a different defect and not this gate's business.  Either
       // way, skipping it is what keeps this check free of false positives.
       const nestedPrimitive = arg?.kind === "call" && isWalkerPrimitive(arg.name);
+      const vo = arg && !nestedPrimitive ? valueObjectFieldRead(arg, scope) : undefined;
+      if (slot !== undefined && vo !== undefined) {
+        const key = `${e.name}:${vo.path}`;
+        if (!flagged.has(key)) {
+          flagged.add(key);
+          diags.push({
+            severity: "error",
+            code: "loom.valueobject-in-text-slot",
+            message: diagMessage("loom.valueobject-in-text-slot", {
+              primitive: e.name,
+              path: vo.path,
+              aggregate: vo.aggregate,
+              valueObject: vo.valueObject,
+            }),
+            source: where,
+          });
+        }
+      }
       const field = arg && !nestedPrimitive ? moneyFieldRead(arg, scope) : undefined;
       if (slot !== undefined && field !== undefined) {
         const key = `${e.name}:${field.path}`;
@@ -320,6 +339,31 @@ function moneyFieldRead(
   const f = wireFieldsForAggregate(agg).find((w) => w.name === e.member);
   if (f?.type.kind !== "primitive" || f.type.name !== "money") return undefined;
   return { path: `${e.receiver.name}.${e.member}`, aggregate: agg.name };
+}
+
+/** `<boundRow>.<field>` where `<field>` is a VALUE OBJECT (or an optional
+ *  one) on that row — `loom.valueobject-in-text-slot` (M-T5.42, V7).  A value
+ *  object crosses the wire as a JSON OBJECT, which no frontend renders as a
+ *  text child (`TS2322: Type 'Address' is not assignable to type
+ *  'ReactNode'`).  Same two resolution paths as `moneyFieldRead`. */
+function valueObjectFieldRead(
+  e: ExprIR,
+  scope: RowScope,
+): { path: string; aggregate: string; valueObject: string } | undefined {
+  if (e.kind !== "member" || e.receiver.kind !== "ref") return undefined;
+  const path = `${e.receiver.name}.${e.member}`;
+  const voOf = (t: TypeIR | undefined): string | undefined => {
+    const inner = t?.kind === "optional" ? t.inner : t;
+    return inner?.kind === "valueobject" ? inner.name : undefined;
+  };
+  if (e.receiverType?.kind === "entity") {
+    const valueObject = voOf(e.memberType);
+    if (valueObject) return { path, aggregate: e.receiverType.name, valueObject };
+  }
+  const agg = scope.get(e.receiver.name);
+  if (!agg) return undefined;
+  const valueObject = voOf(wireFieldsForAggregate(agg).find((w) => w.name === e.member)?.type);
+  return valueObject ? { path, aggregate: agg.name, valueObject } : undefined;
 }
 
 function namedOf(e: Extract<ExprIR, { kind: "call" }>, name: string): ExprIR | undefined {
