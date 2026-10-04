@@ -179,12 +179,10 @@ const DELIBERATELY_INVALID = [
   // `eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
-  // they belong here rather than being fixed or untracked.  Only the seven
-  // that fail at the AST layer are listed, plus `b05` — see below; `b09` (a
-  // typo'd field in a page body) still validates CLEAN and is a finding in its
-  // own right (F-041), so it stays in the positive population
-  // above — the day either starts being refused, its pin is what should be
-  // added, not this comment.
+  // they belong here rather than being fixed or untracked.  The ones that fail
+  // at the AST layer are listed — `b05` and `b09` joined when their gates
+  // landed (see their entries); the day another starts being refused, its pin
+  // is what should be added, not a comment.
   //
   // Listing them here also puts them under the negative control below, which
   // turns the corpus into a standing ratchet: a gate that stops firing fails
@@ -202,6 +200,11 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b05-cyclic-containment.ddd",
   "eval/repro/broken/b06-duplicate-names.ddd",
   "eval/repro/broken/b07-bad-enum-value.ddd",
+  // `b09` was this corpus's F-041 — a typo'd field (`o.totl`) read off a page
+  // `QueryView`'s `data:` row validated clean, because the language layer never
+  // typed the row.  The single typing pass (M-T5.44 cutover 3b) types it, and
+  // `loom.unknown-member` now refuses it — so, per the note above, its pin.
+  "eval/repro/broken/b09-page-wrong-aggregate.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",
 ] as const;
 

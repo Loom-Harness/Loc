@@ -5,7 +5,7 @@
 // docs/new-plan/missions/M-T5.44-single-typing-pass-design.md.
 
 import type { AstNode } from "langium";
-import type { BinaryChain, Model } from "../generated/ast.js";
+import type { BinaryChain, Model, TypeRef } from "../generated/ast.js";
 import { DeclIndex } from "./decl-index.js";
 import { Elaborator, type Fold, type Scope } from "./elaborate.js";
 import type { Ty } from "./ty.js";
@@ -23,6 +23,8 @@ export interface TypingSession {
   /** The node's OWN type, before any context coerced it (`typeAt` is the
    *  elaborated one: a promoted literal, a retargeted enum value). */
   synthAt(node: AstNode): Ty | undefined;
+  /** A type reference, resolved (unlinked macro-built refs by name). */
+  resolveType(t: TypeRef): Ty;
   /** A binary chain's elaborated fold steps. */
   foldsAt(chain: BinaryChain): readonly Fold[] | undefined;
   /** The scope in force at a statement / expression root. */
@@ -38,6 +40,7 @@ export function typingSession(models: readonly Model[]): TypingSession {
     typeAt: (node) => elab.elaborated.get(node) ?? elab.types.get(node),
     synthAt: (node) => elab.types.get(node),
     foldsAt: (chain) => elab.folds.get(chain),
+    resolveType: (t) => elab.resolveType(t, undefined),
     scopeAt: (node) => elab.scopes.get(node),
   };
 }

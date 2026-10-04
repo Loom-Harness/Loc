@@ -824,6 +824,11 @@ export class Elaborator {
     if (queryResult?.kind === "array" && paged && isBoolLit(paged) && paged.value === "true") {
       queryResult = { kind: "generic", ctor: "paged", arg: queryResult.element };
     }
+    // `single: true` — the read answers ONE record: `data:` binds the row.
+    const single = entries.find((x) => x.name === "single")?.value;
+    if (queryResult?.kind === "array" && single && isBoolLit(single) && single.value === "true") {
+      queryResult = queryResult.element;
+    }
     void at;
     for (const entry of entries) {
       if (queryResult && entry.name === "data" && isLambda(entry.value))

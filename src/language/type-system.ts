@@ -438,37 +438,11 @@ export function sensitivityNarrows(value: DddType, target: DddType): Sensitivity
 
 export function resolveTypeRef(ref: TypeRef | undefined): DddType {
   if (!ref?.base) return T.unknown;
-  let resolved = resolveBase(ref.base);
-  if (ref.array) resolved = T.array(resolved);
-  if (ref.optional) resolved = T.opt(resolved);
-  return resolved;
-}
-
-function resolveBase(base: BaseType): DddType {
-  if (isPrimitiveType(base)) return T.prim(base.name as PrimitiveName);
-  if (isSlotType(base)) return T.slot;
-  if (isActionType(base)) {
-    return base.arg ? { kind: "action", arg: resolveTypeRef(base.arg) } : { kind: "action" };
-  }
-  if (isIdType(base)) {
-    const target = base.target?.ref;
-    if (!target) return T.unknown;
-    if (isAggregate(target) || isEntityPart(target)) {
-      return { kind: "id", target };
-    }
-    return T.unknown;
-  }
-  if (isNamedType(base)) {
-    const target = base.target?.ref;
-    if (!target) return T.unknown;
-    if (isEnumDecl(target)) return { kind: "enum", ref: target };
-    if (isValueObject(target)) return { kind: "valueobject", ref: target };
-    if (isAggregate(target)) return { kind: "aggregate", ref: target };
-    if (isEntityPart(target)) return { kind: "entity", ref: target };
-    if (isEventDecl(target) || isPayloadDecl(target)) return { kind: "payload", ref: target };
-    return T.unknown;
-  }
-  return T.unknown;
+  // Type references resolve through the single typing pass (M-T5.44, 3b) —
+  // including the macro-built ones whose cross-reference never linked, which
+  // the pass finds by name.  A union reads as its head variant and a generic
+  // carrier as its argument: the view this layer has always had.
+  return toDddType(typingFor(ref).resolveType(ref), { generic: "arg" });
 }
 
 // ---------------------------------------------------------------------------
@@ -669,31 +643,15 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
     isNowExpr(expr) ||
     isUnaryExpr(expr) ||
     isBinaryChain(expr) ||
-    isTernaryExpr(expr)
+    isTernaryExpr(expr) ||
+    // Cutover family 3b — names and member access.
+    isThisRef(expr) ||
+    isIdRef(expr) ||
+    isNameRef(expr) ||
+    isPostfixChain(expr)
   ) {
     const t = typingFor(expr).synthAt(expr);
     return t ? toDddType(t) : T.unknown;
-  }
-  if (isThisRef(expr)) {
-    if (env.part) return { kind: "entity", ref: env.part };
-    if (env.aggregate) return { kind: "aggregate", ref: env.aggregate };
-    if (env.valueObject) return { kind: "valueobject", ref: env.valueObject };
-    return T.unknown;
-  }
-  if (isIdRef(expr)) {
-    // `id` is a grammar rule, not a name (`IdRef` precedes `NameRef` in
-    // `PrimaryExpr`), but `Parameter.name` admits `id` through `LooseName` — so
-    // a PARAMETER can claim the name (a `let` / `if let` / lambda binding
-    // cannot: those name slots are plain `ID`).  When one does it
-    // shadows the implicit aggregate identity, matching the lowerer
-    // (`hasIdBinding` in `src/ir/lower/lower-expr.ts`).  Without this the
-    // checker types a shadowed `id` as the enclosing aggregate's identity — or,
-    // in a workflow, `unknown` — and every misuse passes silently (F-025).
-    const bound = env.resolve("id");
-    if (bound) return bound.type;
-    if (env.part) return { kind: "id", target: env.part };
-    if (env.aggregate) return { kind: "id", target: env.aggregate };
-    return T.unknown;
   }
   if (isParenExpr(expr)) return typeOf(expr.inner, env);
   if (isLambda(expr)) {
@@ -702,39 +660,6 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
   }
   if (isBuilderCall(expr)) {
     return typeOfBuilderCall(expr, env);
-  }
-  if (isPostfixChain(expr)) {
-    return typeOfPostfixChain(expr, env);
-  }
-  if (isNameRef(expr)) {
-    const looked = env.resolve(expr.name);
-    if (looked) return looked.type;
-    // `currentUser` — the authentication principal, backed by the system's
-    // `user { … }` claim block.  Resolving it to a `userclaim` type (rather
-    // than the historical `unknown`) lets `currentUser.<claim>` member access
-    // type precisely, so a bare boolean gate such as
-    // `requires currentUser.permissions.contains(permissions.x)` type-checks
-    // instead of falsely rejecting — resolving it to `unknown` passes only
-    // when a surrounding `==`/`&&`/`||` forces the result to bool.
-    if (expr.name === "currentUser") {
-      const ub = userBlockFor(expr);
-      if (ub) return { kind: "userclaim", ref: ub };
-    }
-    // `organizationContext` — the operating-scope peer of `currentUser`
-    // (organization-context.md).  One execution-context frame underneath, so
-    // it types against the same principal record: its one member, `orgPath`,
-    // is a derived principal member typed `string` by `lookupUserMember`.  Any
-    // other member is refused by name at the AST (`loom.org-context-surface`),
-    // so the shared record never lets `organizationContext.<claim>` through.
-    if (expr.name === ORG_CONTEXT_ACCESSOR) {
-      const ub = userBlockFor(expr);
-      if (ub) return { kind: "userclaim", ref: ub };
-    }
-    // A bare reference to a parameterless criterion / policy function is a
-    // boolean predicate.
-    if (lookupCriterionByName(expr.name, env)) return T.prim("bool");
-    if (lookupPolicyFnByName(expr.name, env)) return T.prim("bool");
-    return T.unknown;
   }
   return T.unknown;
 }
@@ -908,117 +833,6 @@ function moneyArithmetic(
   // money ÷ scalar = money (but scalar ÷ money is rejected).
   if (op === "*") return T.prim("money");
   if (op === "/" && aIsMoney) return T.prim("money");
-  return T.unknown;
-}
-
-/** Type of a PostfixChain — walk head + suffixes, threading the type
- *  through each step.  Each MemberSuffix dispatches to the same
- *  member-typing rules typeOfMemberAccess used; each CallSuffix
- *  resolves the receiver via the head-name lookup (matches typeOfCall). */
-function typeOfPostfixChain(expr: PostfixChain, env: Env): DddType {
-  // Head + first suffix: a CallSuffix at the front collapses
-  // `<NameRef>(args)` to the function / VO ctor lookup (legacy
-  // CallExpr typing).  Anything else starts from the head's type.
-  let curType: DddType;
-  const first = expr.suffixes[0];
-  if (first && isCallSuffix(first) && isNameRef(expr.head)) {
-    curType = typeOfFreeCall(expr.head.name, env);
-    for (let i = 1; i < expr.suffixes.length; i++) {
-      curType = typeAfterSuffix(curType, expr.suffixes[i]!, env);
-    }
-    return curType;
-  }
-  // `<Aggregate>.create(...)` — the crudish (and custom) factory returns an
-  // INSTANCE of the aggregate.  A workflow / operation body binds
-  // `let o = Order.create({ … })` and then calls operations on `o`; the bare
-  // aggregate NAME `Order` is not itself a value, so without this the chain
-  // types `unknown` and every downstream `o.field` / `o.op(...)` is suppressed.
-  if (
-    isNameRef(expr.head) &&
-    first &&
-    isMemberSuffix(first) &&
-    first.call &&
-    first.member === "create"
-  ) {
-    const ent = lookupEntityByName(expr.head.name, env);
-    if (ent && isAggregate(ent)) {
-      curType = { kind: "aggregate", ref: ent };
-      for (let i = 1; i < expr.suffixes.length; i++) {
-        curType = typeAfterSuffix(curType, expr.suffixes[i]!, env);
-      }
-      return curType;
-    }
-  }
-  // `<Repository>.<method>(...)` — a repository read yields an aggregate (or a
-  // collection of them).  A workflow body binds `let s = Orders.getById(id)` and
-  // then calls operations on `s`; without this the bare repository NAME types
-  // `unknown` and every downstream `s.op(...)` is suppressed.  Recognised: a
-  // declared `find` (its `returnType`), the built-in single-loaders
-  // `getById`/`findById` (the aggregate), and `findAll`/`all` (an array of it).
-  // Writes and unrecognised methods stay `unknown` (fail open — no false type).
-  if (isNameRef(expr.head) && first && isMemberSuffix(first) && first.call) {
-    const repo = lookupRepositoryByName(expr.head.name, env);
-    if (repo) {
-      const t = repositoryMethodType(repo, first.member);
-      if (t.kind !== "unknown") {
-        curType = t;
-        for (let i = 1; i < expr.suffixes.length; i++) {
-          curType = typeAfterSuffix(curType, expr.suffixes[i]!, env);
-        }
-        return curType;
-      }
-    }
-  }
-  // `<DomainService>.<operation>(...)` — the AST twin of the arm
-  // `lower-expr.ts` already has (`findDomainServiceByName` +
-  // `lowerType(opDecl.returnType)`).  Without it the call types `unknown`,
-  // and the `requires` / `precondition` gate rejects it as "got 'unknown'"
-  // — while `<same call> && true` validates, because the binary arm returns
-  // bool for any `&&` and suppresses on an unknown operand (F2-CB-C9).
-  if (isNameRef(expr.head) && first && isMemberSuffix(first) && first.call) {
-    const svc = lookupDomainServiceByName(expr.head.name, env);
-    const op = svc?.operations.find((o) => o.name === first.member);
-    if (op?.returnType) {
-      curType = resolveTypeRef(op.returnType);
-      for (let i = 1; i < expr.suffixes.length; i++) {
-        curType = typeAfterSuffix(curType, expr.suffixes[i]!, env);
-      }
-      return curType;
-    }
-  }
-  curType = typeOf(expr.head, env);
-  for (const s of expr.suffixes) {
-    curType = typeAfterSuffix(curType, s, env);
-  }
-  return curType;
-}
-
-function typeOfFreeCall(name: string, env: Env): DddType {
-  const sym = env.resolve(name);
-  if (sym && isFunctionDecl(sym.origin)) {
-    return resolveTypeRef(sym.origin.returnType);
-  }
-  if (sym && isValueObject(sym.origin)) {
-    return { kind: "valueobject", ref: sym.origin };
-  }
-  const fn = lookupFunctionInScope(name, env);
-  if (fn) return resolveTypeRef(fn.returnType);
-  const vo = lookupValueObjectByName(name, env);
-  if (vo) return { kind: "valueobject", ref: vo };
-  // A parameterised criterion call (`InRegion("EU")`) or policy-function call
-  // (`CanApprove(cap)`) is a boolean predicate.
-  if (lookupCriterionByName(name, env)) return T.prim("bool");
-  if (lookupPolicyFnByName(name, env)) return T.prim("bool");
-  // Top-level (ambient) helper function (stdlib) — its declared
-  // return type.  After the shadowing lookups above, before the duration
-  // builtins (a user `function days(...)` shadows the `days()` builtin).
-  const topFn = lookupTopLevelFunction(name, env);
-  if (topFn) return resolveTypeRef(topFn.returnType);
-  // A5 duration constructors (`days(n)` / `hours(n)` / `minutes(n)`) —
-  // builtins only when no user declaration matched above (a user
-  // `function days(...)` shadows the builtin).  Arity / argument type are
-  // the validator's job (`loom.duration-arity`), not typing's.
-  if (durationUnitOf(name)) return T.prim("duration");
   return T.unknown;
 }
 
@@ -1265,14 +1079,6 @@ function lookupUserMember(target: UserBlock, name: string): DddType {
   const f = target.fields.find((f) => f.name === name);
   if (f) return resolveTypeRef(f.type);
   return T.prim("string");
-}
-
-/** The `user { … }` claim block reachable from a node — its enclosing system's
- *  principal.  `undefined` when the node isn't inside a `system` (a loose /
- *  sibling-file context), matching the historical `unknown` typing there. */
-function userBlockFor(node: AstNode): UserBlock | undefined {
-  const sys = AstUtils.getContainerOfType(node, isSystem);
-  return sys?.members.find(isUserBlock);
 }
 
 /** For the unknown-user-claim validator: `name` is definitively NOT reachable
@@ -1561,45 +1367,6 @@ function typeOfBuilderCall(expr: import("./generated/ast.js").BuilderCall, env: 
       ? { kind: "aggregate", ref: ent }
       : { kind: "entity", ref: ent };
   }
-  return T.unknown;
-}
-
-/** Resolve a bare repository name against the enclosing bounded context —
- *  a workflow body reads through a repository by bare name (`Orders.getById(id)`). */
-function lookupRepositoryByName(name: string, env: Env): Repository | undefined {
-  const ctx = envContext(env);
-  if (!ctx) return undefined;
-  for (const m of ctx.members) {
-    if (isRepository(m) && m.name === name) return m;
-  }
-  return undefined;
-}
-
-/** Resolve a bare domain-service name against the enclosing bounded context —
- *  a `requires`/operation body calls a stateless cross-aggregate calculator by
- *  bare name (`Rules.isCancellable(this.qty)`), the domain-service twin of
- *  `lookupRepositoryByName`. */
-function lookupDomainServiceByName(name: string, env: Env): DomainService | undefined {
-  const ctx = envContext(env);
-  if (!ctx) return undefined;
-  for (const m of ctx.members) {
-    if (isDomainService(m) && m.name === name) return m;
-  }
-  return undefined;
-}
-
-/** The type a `<Repository>.<method>(...)` read yields, or `unknown` for a write
- *  / unrecognised method (fail open — leaves the receiver untyped).  A declared
- *  `find` yields its `returnType`; the built-in single-loaders `getById` /
- *  `findById` yield the repository's aggregate; `findAll` / `all` yield an array
- *  of it (see docs/generators.md — every repository auto-emits these). */
-function repositoryMethodType(repo: Repository, method: string): DddType {
-  const declared = repo.finds.find((f) => f.name === method);
-  if (declared) return resolveTypeRef(declared.returnType);
-  const agg = repo.aggregate?.ref;
-  if (!agg) return T.unknown;
-  if (method === "getById" || method === "findById") return { kind: "aggregate", ref: agg };
-  if (method === "findAll" || method === "all") return T.array({ kind: "aggregate", ref: agg });
   return T.unknown;
 }
 
