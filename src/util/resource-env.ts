@@ -26,7 +26,7 @@ export function resourceEnvUrlVar(resourceName: string): string {
  *  same snake-casing rule).  A resource's client must dial THIS host, never
  *  its own resource name: `resource mail { use: smtp }` reaches Mailpit at
  *  `smtp`, not `mail` (H-27). */
-export function storageServiceHost(storageName: string): string {
+function storageServiceHost(storageName: string): string {
   return storageName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 

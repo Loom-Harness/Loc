@@ -12,8 +12,7 @@
 // reads that same variable name.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const src = (platform: string): string => `
 system RC {
@@ -81,7 +80,7 @@ describe.each([
   "elixir",
 ])("sidecar resource address — %s", (platform) => {
   it.each(CASES)("$kind: compose service == injected URL host == client fallback", async (c) => {
-    const { files } = generateSystems(await parseValid(src(platform)));
+    const files = await generateSystemFiles(src(platform));
     const compose = files.get("docker-compose.yml")!;
     // (a) the sidecar is named after the storage
     expect(compose).toMatch(new RegExp(`^  ${c.svc}:$`, "m"));
@@ -124,7 +123,7 @@ describe.each([
         /salesJobs\.enqueue\(name\)\n\s*mail\.send\([^\n]*\)/,
         `let info = crm.get("/customers")`,
       );
-    const { files } = generateSystems(await parseValid(ddd));
+    const files = await generateSystemFiles(ddd);
     const reader = [...files].find(
       ([k, v]) => k.startsWith("d/") && v.includes('"http://crm.example:9000"'),
     );
