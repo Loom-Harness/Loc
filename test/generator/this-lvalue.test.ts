@@ -126,6 +126,22 @@ describe("G3 — `this.` on the left of `:=`", () => {
     expect(hits.map((d) => d.message)).toEqual(["Cannot assign 'int' to 'string'."]);
   });
 
+  it("does not blame an unresolved macro parameter type on the author (V4 follow-up)", async () => {
+    // crudish's `update(items: LineItem[]) { items := items }` types its
+    // parameter `unknown[]` in the language layer; once the bare head resolves
+    // to the `LineItem[]` FIELD, that must stay suppressed like plain `unknown`
+    // (it broke web/src/examples/subform-showcase.ddd and every corpus fixture
+    // with a value-object array).
+    const src = `
+      system S { subdomain D { context C {
+        valueobject LineItem { sku: string }
+        aggregate Order with crudish { reference: string  items: LineItem[] }
+        repository Orders for Order { }
+      } } }`;
+    const { diagnostics } = await parseString(src, { validate: true });
+    expect(diagnostics.filter((d) => d.code === "loom.assign-type-mismatch")).toEqual([]);
+  });
+
   // ---- the shadowing case, on four backends ------------------------------
   //
   // In each: the FIELD is written and the PARAMETER is read.  The two are
