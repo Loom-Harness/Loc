@@ -53,11 +53,11 @@ export function javaResourceClassName(sourceType: string): string {
  *  a `String` parameter made every record-literal call a javac
  *  `incompatible types`, on a model that had just validated `0 error(s)`.
  *
- *  Jackson is already on a Spring Boot classpath (`spring-boot-starter-web`
+ *  Jackson 3 is already on a Spring Boot classpath (`spring-boot-starter-web`
  *  pulls `jackson-databind`), so this adds no dependency. */
 function jsonHelper(): string[] {
   return [
-    `    private static final ObjectMapper JSON = new ObjectMapper();`,
+    `    private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();`,
     ``,
     `    private static String toJson(Object body) {`,
     `        if (body instanceof String s) {`,
@@ -65,7 +65,7 @@ function jsonHelper(): string[] {
     `        }`,
     `        try {`,
     `            return JSON.writeValueAsString(body);`,
-    `        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {`,
+    `        } catch (tools.jackson.core.JacksonException e) {`,
     `            throw new IllegalArgumentException("resource put: body is not JSON-serializable", e);`,
     `        }`,
     `    }`,
@@ -150,7 +150,7 @@ const s3JavaAdapter: JavaResourceAdapter = {
       `import java.time.Duration;`,
       `import java.util.List;`,
       ``,
-      `import com.fasterxml.jackson.databind.ObjectMapper;`,
+      `import tools.jackson.databind.json.JsonMapper;`,
       ``,
       `import software.amazon.awssdk.core.sync.RequestBody;`,
       `import software.amazon.awssdk.services.s3.S3Client;`,
@@ -610,7 +610,7 @@ const localDiskJavaAdapter: JavaResourceAdapter = {
       `import java.nio.file.Path;`,
       `import java.util.List;`,
       ``,
-      `import com.fasterxml.jackson.databind.ObjectMapper;`,
+      `import tools.jackson.databind.json.JsonMapper;`,
       ``,
       `public final class LocalDiskResources {`,
       `    private LocalDiskResources() {`,
