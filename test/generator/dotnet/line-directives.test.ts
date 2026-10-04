@@ -189,7 +189,9 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
     const plain = generateSystems(model, {}).files.get(ORDER_CS_PATH)!;
     expect(withTexts).not.toContain("#line");
     expect(withTexts).toBe(plain);
-    const mapped = generateSystems(model, { sourcemap: true, sourceTexts }).files.get(ORDER_CS_PATH)!;
+    const mapped = generateSystems(model, { sourcemap: true, sourceTexts }).files.get(
+      ORDER_CS_PATH,
+    )!;
     expect(mapped).toContain("#line");
   });
 });

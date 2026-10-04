@@ -10,9 +10,9 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
@@ -733,8 +733,7 @@ function docFindCapFilter(
   if (kept.length === 0) return "";
   const pred = kept
     .map(
-      (p) =>
-        `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
+      (p) => `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
     )
     .join(" && ");
   return `.Where(x => ${pred})`;
