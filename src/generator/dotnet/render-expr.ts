@@ -298,7 +298,12 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     `new { ${fields.map((f) => `${upperFirst(f.name)} = ${f.value}`).join(", ")} }`,
   unary: (op, operand) => `${op}${operand}`,
   binary: (left, right, e) => renderCsBinary(left, right, e, false),
-  ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
+  ternary: (cond, then, otherwise, e, ctx) => {
+    const narrowed = e && ctx ? narrowedNullableBranch(e, then, otherwise, ctx) : undefined;
+    if (narrowed === "then") then = `${then}.Value`;
+    if (narrowed === "otherwise") otherwise = `${otherwise}.Value`;
+    return `${cond} ? ${then} : ${otherwise}`;
+  },
   convert: (value, e) => renderCsConvert(e.target, e.from, value, nullableValueOperand(e)),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -648,6 +653,47 @@ function operandType(e: ExprIR): TypeIR | undefined {
   if (e.kind === "member") return e.memberType;
   if (e.kind === "paren") return operandType(e.inner);
   return undefined;
+}
+
+/** Which branch of a null-testing ternary reads, as its WHOLE value, the very
+ *  operand the condition proved non-null — and so must unwrap a `Nullable<T>`.
+ *
+ *  The language narrows that branch (`x != null ? x : y` — docs/language.md
+ *  "Null narrowing"; `x ?? y` desugars to `x == null ? y : x`), so the value
+ *  type-checks into a non-optional `T` slot.  C# does not narrow a
+ *  `Nullable<T>`: for a VALUE-typed `T` (ids are `readonly record struct`s,
+ *  enums, numerics, …) the conditional's type stays `T?`, and passing it where
+ *  a `T` is expected is CS1503 — the generated `Ticket.Create(…, requester:
+ *  currentUser.CustomerId != null ? currentUser.CustomerId : …)` did not build
+ *  (H-24).  `.Value` on the proven branch makes the conditional a `T`.
+ *
+ *  Reference-typed `T` (`string`, value objects) needs nothing — `T?` there is
+ *  only an annotation.  A bare `null` on the other branch keeps the
+ *  conditional optional on purpose, so it is left alone (`T` vs `null` has no
+ *  natural C# type).  Operand and branch are matched by their rendered C#,
+ *  the same spelling-equality the language's narrowing uses. */
+function narrowedNullableBranch(
+  e: Extract<ExprIR, { kind: "ternary" }>,
+  then: string,
+  otherwise: string,
+  ctx: CsRenderContext,
+): "then" | "otherwise" | undefined {
+  let cond = e.cond;
+  while (cond.kind === "paren") cond = cond.inner;
+  if (cond.kind !== "binary" || (cond.op !== "==" && cond.op !== "!=")) return undefined;
+  const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
+  const tested = isNull(cond.right) ? cond.left : isNull(cond.left) ? cond.right : undefined;
+  if (!tested) return undefined;
+  const t = operandType(tested);
+  if (t?.kind !== "optional") return undefined;
+  // A `currentUser.<T? claim>` lowers as `optional(optional(T))`.
+  let inner: TypeIR = t.inner;
+  while (inner.kind === "optional") inner = inner.inner;
+  if (!isCsValueType(inner)) return undefined;
+  const side = cond.op === "!=" ? "then" : "otherwise";
+  const [branch, other] = side === "then" ? [then, e.otherwise] : [otherwise, e.then];
+  if (isNull(other)) return undefined;
+  return branch === renderCsExpr(tested, ctx) ? side : undefined;
 }
 
 /** Is this `convert` reading an OPTIONAL operand that C# models as

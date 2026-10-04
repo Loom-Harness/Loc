@@ -811,13 +811,46 @@ dataKey := parent.dataKey != null ? parent.dataKey + "." + seg : seg
 
 ```typescript
 // generated TS (Hono) — the emitted expression is unchanged by narrowing;
-// the null test was always in the condition.
+// the null test was always in the condition (TS narrows it itself).
 org.setPath(loaded.dataKey !== null ? loaded.dataKey + "." + nm : nm);
 ```
 
 Both directions narrow: `x != null ? …` narrows the **then**-branch,
 `x == null ? … : …` narrows the **else**-branch, and the `null` literal may sit
-on either side of the comparison.
+on either side of the comparison.  `x ?? y` is the same narrowing (it desugars to
+`x == null ? y : x`).
+
+A nullable value into a non-optional slot — an assignment, a call argument, a
+record construction, an `emit` field or an `Agg.create({ … })` field — is an
+error (`loom.assign-type-mismatch`, `loom.call-arg-type`,
+`loom.construction-field-type`, `loom.emit-field-type`, `loom.create-field-type`).
+That includes an optional `currentUser` claim, even behind a `requires` that
+tests it:
+
+```ddd
+user { customerId: Customer id? }
+workflow openTicket {
+  create(subject: string, onBehalfOf: Customer id) {
+    requires currentUser.customerId != null || IsAgent()
+    // requester: currentUser.customerId            ← loom.create-field-type
+    let t = Ticket.create({ subject: subject,
+      requester: currentUser.customerId != null ? currentUser.customerId : onBehalfOf })
+  }
+}
+```
+
+```csharp
+// generated C# (.NET) — an id is a `readonly record struct`, so the claim is a
+// `Nullable<CustomerId>`; the narrowed branch is unwrapped with `.Value`.
+var t = Ticket.Create(subject: command.Subject,
+    requester: currentUser.CustomerId != null ? currentUser.CustomerId.Value : command.OnBehalfOf, …);
+```
+
+.NET is the one backend whose emitted expression changes: when the narrowed
+branch is exactly the tested path and C# models it as `Nullable<T>` (ids,
+enums, numerics, `bool`, `datetime`, `guid`), that branch gets `.Value`, unless
+the other branch is a bare `null`.  Reference types (`string`, value objects)
+and the other backends emit the expression unchanged.
 
 Deliberately **not** narrowed — each is conservative, never unsound:
 
