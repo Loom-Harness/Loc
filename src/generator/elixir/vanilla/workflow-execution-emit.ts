@@ -746,6 +746,14 @@ function lowerStatement(
       ];
       return [{ kind: "with-clause", text: lines.join("\n"), bindName: undefined }];
     }
+    default: {
+      // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
+      // listed above, so this arm is unreachable — the never-check makes that
+      // a compile-time claim rather than an implicit one resting on the
+      // return-type annotation.
+      const _exhaustive: never = st;
+      return [{ kind: "stmt", text: `# unreachable: ${JSON.stringify(_exhaustive)}` }];
+    }
   }
 }
 

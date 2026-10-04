@@ -648,7 +648,39 @@ const REGISTERED: Ratchet[] = [
     // re-merged at 27 (-> 26).  Each of those numbers was right on the tree it
     // landed on and wrong one merge later — which is how this PR was ejected
     // from the merge queue once already, on exactly this line.
-    max: 26,
+    //
+    // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
+    // — a RAISE of three, and the reviewed line this ratchet exists to force.
+    // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
+    // `vo-regex-invariant`) carry value-object shapes NO model in the repo had:
+    // a VO resolved from a sibling context, a root-level (shared-kernel) VO
+    // nested in a context-local one, and a `.matches(<regex>)` invariant.  None
+    // can carry a `test e2e` block YET, and the reason is unusual enough to be
+    // worth the raise rather than hidden by it: on each of them at least one
+    // backend CANNOT BOOT, so there is no stack to record a wire golden from and
+    // a captured golden would enshrine the defect as the reviewed answer key.
+    // (node's routes module makes a temporal-dead-zone read, TS2448/TS2454;
+    // python names columns its own schema never created, and emits `re.search`
+    // with no `import re`.)  Each broken backend is excluded BY NAME from its
+    // row's `backends:` in the corpus manifest — not skip-listed, because a
+    // generate-only cell is refused by gate-ledger's own
+    // "no cell is held up by generation alone".
+    //
+    // These three ARE a tier gap, unlike the two entries above, and each fixture
+    // header writes down the runtime assertion it wants so the drain does not
+    // have to re-derive it.  They drain when the emitters are fixed: the same PR
+    // that lands the fix returns the excluded backend key, adds the e2e block,
+    // captures its golden, and deletes the entry here — lowering this number.
+    //
+    // MERGE RESOLUTION (fixture-shape audit, 2026-09-29): main's drain and this
+    // branch's raise landed on the same line and ejected this PR from the merge
+    // queue — the collision the note above predicts in its own last sentence.
+    // Re-DERIVED on the combined tree rather than carried from either side:
+    // main's 26 (27 minus the drained `handler-triad`) plus this branch's 3
+    // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
+    // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
+    // from memory of either branch.
+    max: 29,
   },
 ];
 

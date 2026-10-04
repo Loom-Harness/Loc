@@ -98,11 +98,6 @@ export function brokerChannelBindings(deployable: DeployableIR, sys: SystemIR): 
   return out;
 }
 
-/** The redis (Valkey) subset; the Python leg consumes exactly this view. */
-export function redisChannelBindings(deployable: DeployableIR, sys: SystemIR): BrokerBinding[] {
-  return brokerChannelBindings(deployable, sys).filter((b) => b.transport === "redis");
-}
-
 /** Names of broker-type storages that back a channelSource some deployable
  *  actually wires — exactly the set the compose renderer provisions a
  *  sidecar for (design §6a: `valkey/valkey` for redis, the official

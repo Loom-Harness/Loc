@@ -26,8 +26,16 @@ import { installGeneratedProject } from "./support/npm-install.js";
 //
 // Slow (~5-8 min cold; ~60s warm) and requires docker (postgres sidecar)
 // + elixir/mix on PATH + node (vite build) + network to hex.pm.  Opt-in
-// via LOOM_EMBED_E2E_PHOENIX=1; reuses the phoenix-obs-e2e.yml workflow's
-// postgres service + BEAM setup (LOOM_OBS_PG_URL / LOOM_OBS_PG_DB).
+// via LOOM_EMBED_E2E_PHOENIX=1 (`npm run test:embed-phoenix`).
+//
+// CI home: the `embed-react-runtime` job in elixir-vanilla-obs-e2e.yml,
+// reusing that workflow's postgres service + BEAM setup (LOOM_OBS_PG_URL /
+// LOOM_OBS_PG_DB); `push: main` + manual dispatch, not per-PR.  That file was
+// once named phoenix-obs-e2e.yml — which is what this header used to point at,
+// and the rename left this suite unreachable (nothing set the env var) until
+// the 2026-09-13 code review found it.  test/system/skip-gate-reachability.ts
+// fails now on any skip-gating LOOM_* var no script and no workflow sets, so
+// the next rename cannot orphan it silently.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
