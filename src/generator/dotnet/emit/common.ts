@@ -235,6 +235,68 @@ public interface IDomainEventDispatcher
         => Task.FromResult(events);
 }
 
+/// <summary>
+/// Buffers the aggregate events a repository would dispatch after its save,
+/// while a CALLER-OWNED transaction is open, and releases them only once that
+/// transaction has committed.  A repository's post-save dispatch is right when
+/// the save owns its commit; inside a <c>transactional</c> workflow the save
+/// only writes into the workflow's open transaction, so dispatching there
+/// would announce a write a later statement can still roll back.  The
+/// workflow handler opens a scope before <c>BeginTransactionAsync</c>, calls
+/// <see cref="FlushAsync"/> after <c>CommitAsync</c>, and disposes it on every
+/// path — a rollback disposes without flushing, discarding the buffer.
+/// Durable capture (<c>RecordDurableAsync</c>) is untouched: the outbox row
+/// still commits with the transaction.  Ambient via <see cref="AsyncLocal{T}"/>
+/// so every repository the handler's scope resolves joins without a new port.
+/// </summary>
+public sealed class DomainEventDeferral : IDisposable
+{
+    private static readonly AsyncLocal<DomainEventDeferral?> _current = new();
+    private readonly DomainEventDeferral? _previous;
+    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();
+    private bool _closed;
+
+    private DomainEventDeferral()
+    {
+        _previous = _current.Value;
+        _current.Value = this;
+    }
+
+    public static DomainEventDeferral Begin() => new();
+
+    /// <summary>Dispatch now, or buffer into the innermost open scope.</summary>
+    public static Task DispatchAsync(IDomainEventDispatcher dispatcher, IDomainEvent ev, CancellationToken cancellationToken = default)
+    {
+        var scope = _current.Value;
+        while (scope is { _closed: true }) scope = scope._previous;
+        if (scope is null) return dispatcher.DispatchAsync(ev, cancellationToken);
+        scope._buffered.Add((dispatcher, ev));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Close the scope and dispatch what it buffered, in raise order.</summary>
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        Close();
+        var pending = _buffered.ToArray();
+        _buffered.Clear();
+        foreach (var (dispatcher, ev) in pending) await dispatcher.DispatchAsync(ev, cancellationToken);
+    }
+
+    public void Dispose()
+    {
+        Close();
+        _buffered.Clear();
+    }
+
+    private void Close()
+    {
+        if (_closed) return;
+        _closed = true;
+        if (ReferenceEquals(_current.Value, this)) _current.Value = _previous;
+    }
+}
+
 ${
   /* `Paged<T>`'s sibling carrier record, `Envelope<T>`, used to sit right here.
      It was DEAD and worse than dead: `find x(): T envelope` declared

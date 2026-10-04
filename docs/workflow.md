@@ -229,13 +229,36 @@ Two constraints keep the helper a well-formed module/static function:
 - **Loaded aggregates** (`Repo.getById` etc.) are saved only if at
   least one operation was invoked on them inside the workflow body.
 - **Aggregate-level events** (raised inside an operation via `emit`)
-  drain through the aggregate's repository save — same path as
-  before workflows.
+  drain through the aggregate's repository save.  In a
+  non-transactional workflow each save commits on its own, so its
+  events dispatch right after it — same path as before workflows.
+  In a `transactional` workflow the save only writes into the
+  workflow's open transaction, so the repository *buffers* its events
+  instead (node: a `deferredDispatcher(events)` handed to every
+  repository built on `tx`; .NET: an ambient `DomainEventDeferral`
+  scope the handler opens before `BeginTransactionAsync`) and the
+  workflow dispatches the buffer only *after* commit.  On rollback
+  the buffer is discarded, so a consumer never sees an event for a
+  write that was undone.  Durable capture is unaffected: a durable
+  event's outbox row is still recorded *inside* the transaction and
+  commits or rolls back with it.
 - **Workflow-level events** (raised via `emit` directly inside the
   workflow body) accumulate in a local list and dispatch through
   `IDomainEventDispatcher` *after* all saves complete.  When
-  `transactional`, the dispatch happens *after* commit; on rollback
-  / mid-workflow exception, workflow events are discarded.
+  `transactional`, the dispatch happens *after* commit (after the
+  buffered aggregate events); on rollback / mid-workflow exception,
+  workflow events are discarded.
+
+> **Backend status (banking-eval B-04).** The post-commit guarantee
+> above holds on **node** and **.NET**.  **python** and **elixir**
+> still dispatch aggregate events *inside* the open transaction:
+> their in-process reactors run on the same session / process and so
+> join that transaction (their database writes roll back with it),
+> but a non-database effect a reactor or broadcast performs —
+> Phoenix PubSub / LiveView, realtime push, mail — escapes before
+> commit.  **java** does not publish workflow-raised events at all
+> (neither aggregate-level nor workflow-level).  Tracked in
+> `docs/new-plan/T4-eventing-temporal.md` (M-T4.3 item 6).
 
 ## Transactional vs non-transactional
 
