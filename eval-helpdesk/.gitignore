@@ -1,3 +1,4 @@
 */out/
-port/out-*/
+port/
 starter/
+**/.loom/

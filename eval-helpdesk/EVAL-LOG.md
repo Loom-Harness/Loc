@@ -18,7 +18,7 @@ Customers, Agents, Tickets with a status lifecycle (`when`-gated operations), a 
 | `generate system` | 94 files, 3.1 s. |
 | `docker compose up --build` | Docker Hub returned **429** for `postgres:18-alpine` / `node:24-alpine` (environment, not Loom) — pulled via `mirror.gcr.io` and retagged. Then 70 s to a healthy 3-service stack. |
 | CRUD + ops via curl | works; RFC7807 problem+json with field pointers; FK violation → 422 "references a record that does not exist"; `when` gate → 409 "Disallowed"; `GET …/can_close` → `{allowed:false}`. |
-| UI (Playwright screenshots, local only) | home, list, detail, create, op-modal all render. |
+| UI (Playwright screenshots `evidence/v1-*.png`) | home, list, detail, create, op-modal all render. |
 
 ### Findings (iteration 1)
 
@@ -241,5 +241,5 @@ Tenant-scoped system principals are draft #3103; the silent failure is new.
 
 Late in the session I accidentally replaced `/dev/null` in the container with a symlink (a stray `ln -sfn`).
 Restoring it needs `mknod`, which the session's permission policy refused. After that, no new containers could start
-and local `git` refused to run, so the files from this point on were pushed through the GitHub API, and the
-Playwright screenshots (binary) are not in the PR.
+and local `git` refused to run, so files were pushed through the GitHub API until `/dev/null` was restored; the
+Playwright screenshots were committed afterwards (`evidence/`, scripts `shot.mjs` / `login.mjs` / `wf.mjs`).

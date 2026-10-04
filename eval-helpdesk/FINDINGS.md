@@ -2,7 +2,7 @@
 
 Three iterations of a helpdesk/ticketing system (`v1/` → `v2/` → `v3/`), each booted with `docker compose` and driven
 over HTTP and in a browser, with real OIDC tokens from the generated Keycloak. Working notes in `EVAL-LOG.md`;
-minimal repros in `repro/`. Overlap with in-flight work checked against all 63 open PRs on 2026-10-04.
+minimal repros in `repro/`; screenshots in `evidence/`. Overlap with in-flight work checked against all 63 open PRs on 2026-10-04.
 
 **Status key:** `new` = nobody has claimed it · `#NNNN` = an open PR already covers it (don't duplicate) ·
 `partial #NNNN` = an open PR covers part of it.
