@@ -13,6 +13,291 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_auth/dev-stub-id.ts
+  "src/generator/_auth/dev-stub-id.ts#devStubIdExpr": {
+    invariant:
+      "Exhaustive `never` default over the closed dev-stub language union; tsc proves no other value. (src/generator/_auth/dev-stub-id.ts:88)",
+  },
+
+  // src/generator/_channels/wire-codec.ts
+  "src/generator/_channels/wire-codec.ts#decodeValue": {
+    invariant:
+      "Exhaustive `never` default: every TypeIR kind has an arm above it. (src/generator/_channels/wire-codec.ts:128)",
+  },
+
+  // src/generator/_expr/target.ts
+  "src/generator/_expr/target.ts#renderExprWith": {
+    invariant:
+      "action-ref is lowered only when env.actions/env.stores are set (page/component/store lowering), and those bodies are rendered only by the frontend walkers (walker-core.ts:2200, heex-walker-core.ts:780), never by the backend renderExprWith callers (domain bodies, requires gates). (src/ir/lower/lower-expr.ts:2455, src/ir/lower/lower-expr.ts:744, src/ir/lower/lower-ui.ts:134/374)",
+  },
+  "src/generator/_expr/target.ts#renderExprWith$2": {
+    invariant:
+      "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks": {
+    invariant:
+      "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks$2": {
+    invariant:
+      "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
+  },
+
+  // src/generator/_frontend/api-module.ts
+  "src/generator/_frontend/api-module.ts#zodForRequest": {
+    invariant:
+      "The provenanced genericInstance has no grammar arm and is built only by wireTypeForField for RESPONSE wire fields; every zodForRequest caller (api-module.ts:177/192/216/238) passes a declared f.type/p.type. (src/ir/enrich/wire-projection.ts:435; src/ir/stdlib/generics.ts:86-95)",
+  },
+
+  // src/generator/_frontend/gate-expr.ts
+  "src/generator/_frontend/gate-expr.ts#renderGateExpr": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: "firstNonUiGateNode mirrors the renderer arm-for-arm and every renderGateExpr call site renders a page.requires, which validatePageGates checks for every page of every ui.",
+  },
+  "src/generator/_frontend/gate-expr.ts#renderGateExpr$2": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: 'A non-.contains method in a page gate is rejected with kind "method".',
+  },
+  "src/generator/_frontend/gate-expr.ts#renderGateExpr$3": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: 'Any other expression kind in a page gate is rejected with kind "kind".',
+  },
+  "src/generator/_frontend/gate-expr.ts#renderLiteral": {
+    guardedBy: ["loom.page-gate-not-client-evaluable"],
+    note: 'Literal kinds outside string/bool/int/long/decimal/null are rejected with kind "literal"; same set as renderLiteral.',
+  },
+
+  // src/generator/_frontend/realtime.ts
+  "src/generator/_frontend/realtime.ts#renderMessageExpr": {
+    guardedBy: ["loom.toast-message-unsupported"],
+    note: "A toast ref other than the event binding is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
+  },
+  "src/generator/_frontend/realtime.ts#renderMessageExpr$2": {
+    guardedBy: ["loom.toast-message-unsupported"],
+    note: "A member chain not rooted at the event binding is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
+  },
+  "src/generator/_frontend/realtime.ts#renderMessageExpr$3": {
+    guardedBy: ["loom.toast-message-unsupported"],
+    note: "Every other expression kind (enumerated explicitly) is rejected by toastMessageProblem, which mirrors renderMessageExpr arm for arm.",
+  },
+
+  // src/generator/_frontend/shell-chrome.ts
+  "src/generator/_frontend/shell-chrome.ts#entry": {
+    invariant:
+      "Chrome names are hard-coded string literals at every call site, all present in APP_SHELL_CHROME. (src/generator/svelte/index.ts:436-454; src/generator/elixir/vanilla/shell-emit.ts:233)",
+  },
+
+  // src/generator/_frontend/workflows-module.ts
+  "src/generator/_frontend/workflows-module.ts#zodForRequest": {
+    invariant:
+      "`duration` is not in the PrimitiveType grammar, so it exists only as an expression type and never as a declared workflow param type. (src/language/ddd.langium:2162)",
+  },
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$2": {
+    guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
+    note: "`slot`/`action` are rejected on any Parameter not owned by a Component, so a workflow param cannot have them.",
+  },
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$3": {
+    guardedBy: ["loom.generic-position"],
+    note: "A generic carrier is allowed only as a find/queryHandler return or a payload field, never as a workflow Parameter (Provenanced has no grammar arm).",
+  },
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$4": {
+    guardedBy: ["loom.union-position"],
+    note: "An anonymous `A or B` union is rejected on Parameters; named payload unions lower to an entity marker, and `none` appears only as a union arm.",
+  },
+
+  // src/generator/_frontend/zod-schemas.ts
+  "src/generator/_frontend/zod-schemas.ts#zodForRequest": {
+    invariant:
+      "Same as api-module: Provenanced<T> only exists on response wire shapes; request callers pass declared types. (src/ir/enrich/wire-projection.ts:435; src/generator/svelte/api-builder.ts:94/121/142)",
+  },
+
+  // src/generator/_packs/loader-fs.ts
+  "src/generator/_packs/loader-fs.ts#loadPack": {
+    deferred:
+      'A custom design path with no pack.json. Relative paths resolve against the process CWD, not the .ddd directory (resolvePackDir is called without referenceDir at react/index.ts:168 and others). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/loader-fs.ts#loadPack$2": {
+    deferred:
+      'A custom pack whose pack.json has no emits map. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/loader-fs.ts#loadPack$3": {
+    invariant:
+      "Fires only for a path inside <repo>/designs/<family>/<ver>, which holds only the shipped packs (their versions match; tests pin this); custom paths outside designs/ are exempt. (src/generator/_packs/loader-fs.ts:155-161)",
+  },
+  "src/generator/_packs/loader-fs.ts#loadPack$4": {
+    deferred:
+      'A custom pack whose emits entry names a .hbs file that does not exist. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/loader-fs.ts#loadPack$5": {
+    deferred:
+      'A custom pack that declares stack: "v999". Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/loader-fs.ts#loadPack$6": {
+    invariant:
+      "The shipped stack dirs contain only stack-package-*.hbs, and no shipped shared dir has a template with those names, so no clash is possible. (stacks/*/ (only stack-package-deps/devdeps.hbs))",
+  },
+  "src/generator/_packs/loader-fs.ts#readSharedSources": {
+    invariant:
+      "The shared dirs are fixed shipped directories chosen by format, and none of the five format combos has a duplicate .hbs name (checked: vite/api/docker, phoenix, sveltekit, vue/api/docker, angular/api). (src/generator/_packs/loader-fs.ts:29-50)",
+  },
+  "src/generator/_packs/loader-fs.ts#repoRoot": {
+    invariant:
+      "The shipped install always has designs/ next to out/; this is a broken-install failure, not model-driven. (src/generator/_packs/loader-fs.ts:55-66)",
+  },
+
+  // src/generator/_packs/loader.ts
+  "src/generator/_packs/loader.ts#compilePack": {
+    invariant:
+      "The only caller, loadPack, already throws on a missing or non-object emits before calling compilePack. (src/generator/_packs/loader-fs.ts:146-150)",
+  },
+  "src/generator/_packs/loader.ts#compilePack$2": {
+    invariant:
+      "loadPack fills `sources` for every emits key (or throws first), so sources[logicalName] is never null. (src/generator/_packs/loader-fs.ts:170-178)",
+  },
+  "src/generator/_packs/loader.ts#compilePack$3": {
+    deferred:
+      'A custom pack missing a required primitive (validateRequired defaults to true). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/loader.ts#render": {
+    invariant:
+      "Every template name the generators render is in REQUIRED_PRIMITIVES (checked: all literal render/primitive names in react/_walker/_frontend) and so is enforced at load; the optional ones (realtime-toast-setup, primitive-modal-controlled) are checked with templates.has first. (src/generator/_packs/loader.ts:466-475; src/generator/react/realtime-handlers-builder.ts:33; src/generator/_walker/primitives/forms.ts:978)",
+  },
+
+  // src/generator/_packs/pack-chrome.ts
+  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane": {
+    deferred:
+      'A custom pack with an empty chrome message. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$2": {
+    deferred:
+      'A custom pack whose chrome message contains `<`. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$3": {
+    deferred:
+      'A custom pack whose chrome message has an unbalanced brace. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/pack-chrome.ts#bind": {
+    deferred:
+      'A custom heex pack (elixir LiveView) whose template passes an ICU hole value ({{chrome "rowActions" who="x"}}); this fires when the ui is translatable (heexI18nEnabled). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_packs/pack-chrome.ts#declared": {
+    deferred:
+      'A custom pack whose template uses {{chrome "boolTrue"}} with no chrome entry for it. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/_packs/shell-emits.ts
+  "src/generator/_packs/shell-emits.ts#emitShellFiles": {
+    deferred:
+      'A custom pack declaring shellFiles with a key that is not in emits. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/_stmt/target.ts
+  "src/generator/_stmt/target.ts#renderStmt": {
+    guardedBy: ["loom.variant-match-placement"],
+    note: "A match statement outside a frontend zone (action/page/component/store/ui) is rejected, and backend statement renderers never see frontend bodies.",
+  },
+  "src/generator/_stmt/target.ts#renderStmt$2": {
+    invariant: "Exhaustive `never` default over StmtIR kinds. (src/generator/_stmt/target.ts:221)",
+  },
+
+  // src/generator/_type/target.ts
+  "src/generator/_type/target.ts#renderTypeWith": {
+    guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
+    note: "`slot`/`action` types are legal only on component params, and those are rendered only by the frontends; renderTypeWith callers are the backend type renderers (java/dotnet/python/typescript render-expr), with no frontend importers.",
+  },
+
+  // src/generator/_walker/i18n-chrome.ts
+  "src/generator/_walker/i18n-chrome.ts#chromeMessage": {
+    invariant:
+      "Every chromeMessage/localizedChrome* call passes a hard-coded name from our own emitters, all present in CHROME_MESSAGES. (src/generator/_walker/i18n-chrome.ts:~60-91 (CHROME_MESSAGES))",
+  },
+
+  // src/generator/_walker/i18n-emit.ts
+  "src/generator/_walker/i18n-emit.ts#icuParts": {
+    invariant:
+      "The hole values are supplied by our own emitter call sites against fixed catalog messages; this is a programmer-error precondition, not model-driven. (src/generator/_walker/i18n-emit.ts:722-729)",
+  },
+
+  // src/generator/_walker/js-expr-leaves.ts
+  "src/generator/_walker/js-expr-leaves.ts#unreachedExprLeaf": {
+    invariant:
+      "A shim for the HEEx target, which forks emitExpr into its own renderExpr and never calls the shared dispatcher leaves. (src/generator/elixir/heex-walker-core.ts:701)",
+  },
+
+  // src/generator/_walker/primitives/display.ts
+  "src/generator/_walker/primitives/display.ts#emitSlot": {
+    invariant:
+      "Every shared-walker target implements renderChildrenSlot or is React; HEEx dispatches Slot through its own def.heex (heex-walker-core.ts:1188). (svelte-target.ts:411, vue-target.ts:420, angular-target.ts:602, feliz-target.ts:913, flutter-target.ts:973 (react is in JSX_CHILDREN_PROP_FRAMEWORKS))",
+  },
+
+  // src/generator/_walker/walker-core.ts
+  "src/generator/_walker/walker-core.ts#emitExpr": {
+    invariant:
+      "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
+  },
+  "src/generator/_walker/walker-core.ts#emitExpr$2": {
+    invariant:
+      "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
+  },
+  "src/generator/_walker/walker-core.ts#emitExpr$3": {
+    invariant:
+      "Every shared-walker target implements renderRouteId. (tsx-target.ts:398, vue-target.ts:393, svelte-target.ts:325, angular-target.ts:330, feliz-target.ts:381, flutter-target.ts:315)",
+  },
+  "src/generator/_walker/walker-core.ts#emitExpr$4": {
+    deferred:
+      "No validator rejects `this` in a page/component body: `Text { this.name }` in a ui page parses with 0 errors and crashes react/vue/svelte/angular generation.",
+    mission: "M-T9.81",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_walker/walker-core.ts#emitExpr$5": {
+    invariant:
+      "authz-filter is built only by enrichment into aggregate contextFilters/writeScopeFilter, which page/component bodies never contain. (src/ir/util/tenant-stance.ts:349/451; src/ir/enrich/enrichments.ts:588/682)",
+  },
+  "src/generator/_walker/walker-core.ts#emitExpr$6": {
+    invariant:
+      "Exhaustive `never` default over ExprIR kinds. (src/generator/_walker/walker-core.ts:2240)",
+  },
+  "src/generator/_walker/walker-core.ts#emitStmt": {
+    invariant:
+      "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
+  },
+  "src/generator/_walker/walker-core.ts#renderTextContent": {
+    invariant:
+      "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
+  },
+  "src/generator/_walker/walker-core.ts#unsupportedPageStmt": {
+    deferred:
+      "A page action that assigns (`:=` or `+=`) to a name that is not a declared state field parses with 0 errors. Example: `action bump() { other := 1 }`. Only if/precondition/requires are gated (loom.if-stmt-page-body-unsupported / loom.ui-body-statement-kind).",
+    mission: "M-T9.81",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_walker/walker-core.ts#walk": {
+    invariant:
+      "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
+  },
+
   // src/generator/dotnet/adapters/by-feature-layout.ts
   "src/generator/dotnet/adapters/by-feature-layout.ts#need": {
     invariant:
@@ -879,6 +1164,38 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
+  // src/generator/react/index.ts
+  "src/generator/react/index.ts#generateReactForContexts": {
+    guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
+    note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
+  },
+  "src/generator/react/index.ts#generateReactForContexts$2": {
+    invariant:
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+  },
+
+  // src/generator/sql-pg-expr.ts
+  "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
+    invariant:
+      "Backfill rendering is wrapped in try/catch (and reported by loom.migration-expr-unsupported), and the column-default path is gated by sqlLiteralColumnDefault, which admits no this-prop ref. (src/system/migrations-builder.ts:2266-2270, :3291-3295)",
+  },
+
+  // src/generator/sql-pg.ts
+  "src/generator/sql-pg.ts#seedSqlLiteral": {
+    guardedBy: ["loom.seed-raw-non-literal-column"],
+    note: "isRawSeedLiteral admits exactly literal + enum-value refs, mirroring seedSqlLiteral (verified: `size: -4` on a raw row is rejected).",
+  },
+
+  // src/generator/svelte/index.ts
+  "src/generator/svelte/index.ts#generateSvelteForContexts": {
+    guardedBy: ["loom.svelte-deployable-missing-ui"],
+    note: "A svelte deployable without ui:/hosts: is rejected (verified: parse reports the error).",
+  },
+  "src/generator/svelte/index.ts#generateSvelteForContexts$2": {
+    invariant:
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+  },
+
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {
     invariant:
@@ -997,6 +1314,22 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/typescript/repository-find-predicate.ts#lowerExpr": {
     invariant:
       "Exhaustive `never` default over the authz-filter discriminated union; tsc guarantees every variant is handled. (src/generator/typescript/repository-find-predicate.ts:222-225)",
+  },
+
+  // src/generator/vue/index.ts
+  "src/generator/vue/index.ts#generateVueForContexts": {
+    guardedBy: ["loom.vue-deployable-missing-ui"],
+    note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
+  },
+  "src/generator/vue/index.ts#generateVueForContexts$2": {
+    invariant:
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+  },
+
+  // src/generator/zod-refine.ts
+  "src/generator/zod-refine.ts#unrenderable": {
+    invariant:
+      "refineClauseFor/takeSingleFieldChain screen with classifyForWire + refineRenderable before rendering; renderRefineExpr has no other production caller. (src/generator/zod-refine.ts:320, :338-339)",
   },
 
   // src/platform/hono/v4/adapters/by-feature-layout.ts

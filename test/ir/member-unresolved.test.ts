@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
+import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
 // `loom.member-unresolved` — the IR backstop for an invented member the
 // language layer never typed (`src/ir/validate/checks/member-resolution-checks.ts`).
@@ -87,5 +89,14 @@ describe("loom.member-unresolved", () => {
     expect(
       errs.map((e) => e.message).some((m) => m.includes("'nope' is not a member of 'Addr'")),
     ).toBe(true);
+  });
+
+  it("refuses F-041: the error-quality corpus's typo'd page-body field (b09)", async () => {
+    // `data: o => … o.totl` in a QueryView over `Order`: AST-clean (the lambda
+    // param is untyped in the language layer), refused here.
+    const src = readFileSync(`${REPO_ROOT}/eval/repro/broken/b09-page-wrong-aggregate.ddd`, "utf8");
+    const errs = await codes(src);
+    expect(errs.map((e) => e.code)).toContain("loom.member-unresolved");
+    expect(errs.find((e) => e.code === "loom.member-unresolved")?.message).toContain("'totl'");
   });
 });

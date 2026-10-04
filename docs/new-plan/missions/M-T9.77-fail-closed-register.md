@@ -1,4 +1,4 @@
-# M-T9.77 – M-T9.82 — the fail-closed register
+# M-T9.77 – M-T9.83 — the fail-closed register
 
 *Minted 2026-10-04 by the fail-closed sweep (#3133). Mission headings live in [`T9-toolchain-health.md`](../T9-toolchain-health.md); this file is the per-site evidence.*
 
@@ -6,7 +6,7 @@
 
 **How an entry closes.** Add the refusal upstream (and re-classify the census entry `guardedBy: ["loom.<code>"]`), or make the emitter render the shape (the throw goes away, and so must its entry). A closed entry must be deleted in the same PR. The census fails on a stale entry, and on any deferral past its `reviewUntil`.
 
-**Already closed by #3133**, so not listed: the four test tiers' statement vocabulary (nine sites, `loom.test-statement-invalid`) and thirteen predicate-lowering sites across Drizzle / MikroORM / Dapper / JPA (column vs column, `== null`, `now()`, date arithmetic, method-call and parenthesised values). The second set is pinned by `test/system/predicate-position-census.test.ts`.
+**Already closed by #3133**, so not listed: the four test tiers' statement vocabulary (nine sites, `loom.test-statement-invalid`) and thirteen predicate-lowering sites, the SvelteKit `/foo` vs `/foo/` route collision (`loom.ui-page-route-collision` now compares routes segment-wise), across Drizzle / MikroORM / Dapper / JPA (column vs column, `== null`, `now()`, date arithmetic, method-call and parenthesised values). The second set is pinned by `test/system/predicate-position-census.test.ts`.
 
 ## M-T9.77 — Paged `queryHandler` body shape (lands with #3084's `loom.paged-query-handler-shape`)
 
@@ -746,7 +746,103 @@ system RC {
 
 </details>
 
-## M-T9.81 — Feliz / Flutter page- and store-action vocabulary
+## M-T9.81 — Frontend page- and store-action vocabulary (Feliz / Flutter, plus the shared JS walker)
+
+### `src/generator/_walker/walker-core.ts#emitExpr$4`
+
+No validator rejects `this` in a page/component body: `Text { this.name }` in a ui page parses with 0 errors and crashes react/vue/svelte/angular generation.
+
+Crash: `Error: walker: 'this' has no meaning in a page/component body — there is no aggregate instance in scope on a frontend.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp {
+    api Sales: SalesApi
+    page Home {
+      route: "/home"
+      title: "Home"
+      body: Stack { Text { this.name } }
+    }
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_walker/walker-core.ts#unsupportedPageStmt`
+
+A page action that assigns (`:=` or `+=`) to a name that is not a declared state field parses with 0 errors. Example: `action bump() { other := 1 }`. Only if/precondition/requires are gated (loom.if-stmt-page-body-unsupported / loom.ui-body-statement-kind).
+
+Crash: `Error: react: unsupported assignment to 'other' in a page event handler — the React backend only mutates page-state fields (declare the root in 'state { … }').`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp {
+    api Sales: SalesApi
+    page Home {
+      route: "/home"
+      title: "Home"
+      state { count: int = 0 }
+      action bump() { other := 1 }
+      body: Stack { Button { "Bump", onClick: bump } }
+    }
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
 
 ### `src/generator/feliz/fs-expr.ts#renderFsMethodCall`
 
@@ -1164,6 +1260,476 @@ system Demo {
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
   deployable web { platform: flutter targets: api ui: Web { C: api } port: 3001 }
+}
+```
+
+</details>
+
+## M-T9.83 — A misconfigured custom design pack crashes generate with no diagnostic
+
+### `src/generator/_packs/loader-fs.ts#loadPack`
+
+A custom design path with no pack.json. Relative paths resolve against the process CWD, not the .ddd directory (resolvePackDir is called without referenceDir at react/index.ts:168 and others). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: loader: pack manifest not found at /home/user/loc/no-such-pack/pack.json.  A pack must contain a pack.json file.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "./no-such-pack"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/loader-fs.ts#loadPack$2`
+
+A custom pack whose pack.json has no emits map. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: loader: pack at .../packs/noemits has no 'emits' map in pack.json.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/noemits"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/loader-fs.ts#loadPack$4`
+
+A custom pack whose emits entry names a .hbs file that does not exist. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: loader: pack mantine: template "primitive-button" → "nope.hbs" not found at .../packs/missingfile/nope.hbs.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/missingfile"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/loader-fs.ts#loadPack$5`
+
+A custom pack that declares stack: "v999". Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: loader: pack mantine@v7 declares stack="v999" but no such directory exists at /home/user/loc/stacks/v999.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/badstack"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/loader.ts#compilePack$3`
+
+A custom pack missing a required primitive (validateRequired defaults to true). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: loader: pack mantine (format: tsx): missing required template(s): primitive-button.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/missingreq"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane`
+
+A custom pack with an empty chrome message. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: pack-chrome: pack mantine declares chrome role "boolTrue" with a non-string or empty message.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/chromeempty"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$2`
+
+A custom pack whose chrome message contains `<`. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: pack-chrome: pack mantine chrome role "boolTrue" contains a character that is significant to the markup it is spliced into`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/chromelt"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$3`
+
+A custom pack whose chrome message has an unbalanced brace. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: pack-chrome: pack mantine chrome role "boolTrue" has an unbalanced or non-ICU brace: "Yes {".`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/chromebrace"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/pack-chrome.ts#declared`
+
+A custom pack whose template uses {{chrome "boolTrue"}} with no chrome entry for it. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: pack-chrome: pack mantine has no chrome string "boolTrue".`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/chromemissing"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/pack-chrome.ts#bind`
+
+A custom heex pack (elixir LiveView) whose template passes an ICU hole value ({{chrome "rowActions" who="x"}}); this fires when the ui is translatable (heexI18nEnabled). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: pack-chrome: pack coreComponents chrome role "rowActions" passes ICU hole values, which the heex format does not render.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable app {
+    platform: elixir
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/heexholes"
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    ui: WebApp { Sales: app }
+    port: 4000
+  }
+}
+```
+
+</details>
+
+### `src/generator/_packs/shell-emits.ts#emitShellFiles`
+
+A custom pack declaring shellFiles with a key that is not in emits. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.
+
+Crash: `Error: pack mantine: shellFiles entry "nonexistent-tpl" → "src/x.tsx" not present in emits map.`
+
+<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Customer with crudish {
+        name: string
+      }
+      repository Customers for Customer {}
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource st { for: Orders, kind: state, use: primary }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Sales: SalesApi
+  }
+  deployable api {
+    platform: node
+    contexts: [Orders]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    design: "/tmp/claude-0/-home-user/16ef4e13-d170-5fc4-a7e3-46c3db554d9b/scratchpad/packs/shellfiles"
+    targets: api
+    ui: WebApp { Sales: api }
+    port: 3000
+  }
 }
 ```
 
