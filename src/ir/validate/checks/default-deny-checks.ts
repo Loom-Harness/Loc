@@ -9,7 +9,7 @@ import { descriptorFor } from "../../../platform/metadata.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
-import { deriveContextOperations } from "../../util/api-surface.js";
+import { deriveContextOperations, isAllFind } from "../../util/api-surface.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -193,45 +193,59 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
           }
         }
       }
-      // The SYNTHESISED single-record read, `GET /api/<aggs>/{id}` (F-009 /
-      // mission M-T3.19).  Every non-abstract aggregate serves one on all five
-      // backends, it carries NO gate on any of them, and until this diagnostic
-      // nothing said so: a model could gate `find all` admin-only and still
-      // hand the same rows out one id at a time to any authenticated caller.
-      // (The tenancy filter DOES cover the by-id read — a foreign tenant gets
-      // 404 — so what leaks is role separation WITHIN a tenant.)
+      // The two COMPILER-DERIVED aggregate reads — `GET /api/<aggs>/{id}`
+      // (F-009 / mission M-T3.19) and the list `GET /api/<aggs>` backed by the
+      // enrichment-injected `find all` (Commons F-006).  Both serve on all five
+      // backends; before M-T3.19 the by-id read had no surface to gate it at
+      // all (a model could gate `find all` admin-only and still hand the same
+      // rows out one id at a time) and the injected list read was exempted.
       //
-      // WARNING, not an error, and a code of its own rather than
-      // `loom.default-deny-ungated`.  The two differ in the one property that
-      // matters for an error: RECOURSE.  Every `loom.default-deny-ungated` arm
-      // names a `requires` the author can write — which is also precisely why
-      // the arms that have no such surface (the enrichment-injected `find all`,
-      // a macro-emitted projection) are EXEMPTED rather than reported.  The
-      // by-id read has no surface either (M-T3.19 designs one:
-      // `find byId(id: T id): T? requires <expr>`, recognised as *the* by-id
-      // read and honoured by all five route emitters — a five-backend feature,
-      // not a validator change), so raising an error here would make every
-      // `denyByDefault` model unbuildable with nothing the author could do
-      // about it.  A warning turns a SILENT hole into an honest, visible one
-      // today; when the surface lands, the check gains its `if (gated)
-      // continue;` and can be promoted to an error under the same code.
+      // Both now have a surface named AT THE DECLARATION (the #2877 ruling — no
+      // inherited aggregate-level default gate): the author declares the read
+      // in the repository with its gate —
+      //     find byId(id: T id): T? requires <expr>
+      //     find all(): T paged    requires <expr>
+      // — and every backend's route renders that gate before the load (403).
+      // So the instruction is satisfiable, and under denyByDefault an ungated
+      // one is an ERROR (fail closed: the build is refused rather than the
+      // route served open).  `requires true` is the explicit public escape.
+      //
+      // Read off `deriveContextOperations` — the same derivation every backend
+      // route builder renders — so the check covers exactly the routes that
+      // exist (abstract bases serve neither).
       for (const op of deriveContextOperations(c)) {
-        if (op.kind !== "getById") continue;
-        diags.push({
-          severity: "warning",
-          code: "loom.default-deny-by-id-ungated",
-          message: diagMessage("loom.default-deny-by-id-ungated", {
-            name: op.aggregate,
-            path: op.path,
-          }),
-          source: `${c.name}/${op.aggregate}`,
-        });
+        if (op.kind === "getById") {
+          // A DECLARED by-id find is reported (if ungated) by the named-find
+          // loop below — it also serves its own `/by_id` route — so only the
+          // undeclared case is reported here, once.
+          if (op.find) continue;
+          diags.push({
+            severity: "error",
+            code: "loom.default-deny-by-id-ungated",
+            message: diagMessage("loom.default-deny-by-id-ungated", {
+              name: op.aggregate,
+              path: op.path,
+            }),
+            source: `${c.name}/${op.aggregate}`,
+          });
+        } else if (isAllFind(op) && !op.find?.requires) {
+          const returns =
+            op.find?.returnType.kind === "array" ? `${op.aggregate}[]` : `${op.aggregate} paged`;
+          diags.push({
+            severity: "error",
+            code: "loom.default-deny-ungated",
+            message: diagMessage("loom.default-deny-ungated#denybydefault-list-read", {
+              name: op.aggregate,
+              path: op.path,
+              returns,
+            }),
+            source: `find/${c.name}.${op.aggregate}.all`,
+          });
+        }
       }
       // Repository finds: each author-declared named find is its own GET route
-      // and carries the same optional `requires <expr>` gate.  The aggregate
-      // list-all endpoint (the auto-injected `find all`) is out of scope — it is
-      // compiler-synthesized and has no author source line to attach a gate to;
-      // gating it needs an aggregate-level default-read surface (follow-up).
+      // and carries the same optional `requires <expr>` gate.  `all` is
+      // reported by the list-read arm above (declared or injected, once).
       // Internal synthesized finds (paged-run helpers) are never their own route.
       for (const repo of c.repositories) {
         for (const find of repo.finds) {

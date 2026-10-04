@@ -1021,9 +1021,19 @@ function allRoute(
 }
 
 function byIdRoute(agg: EnrichedAggregateIR, apiOp: ApiOperationIR): string {
+  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates this
+  // read, BEFORE the load (403 for an existing and a missing id alike).  That
+  // find is emittable, so its `User` / `ForbiddenError` imports are already in
+  // (`findRoute` renders the same gate on its own `/by_id` route).
+  const byIdFind = apiOp.find;
+  const gate = byIdFind?.requires;
+  const gateUsesUser = !!gate && exprUsesCurrentUser(gate);
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${camelId(opGetById(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-    `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, session: SessionDep) -> dict[str, object]:`,
+    `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, ${gateUsesUser ? "request: Request, " : ""}session: SessionDep) -> dict[str, object]:`,
+    gateUsesUser ? "    current_user: User = request.state.current_user" : null,
+    gate ? `    if ${renderPyNegatedGuard(gate)}:` : null,
+    gate ? `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind!.name}`)})` : null,
     "    repo = _repo(session)",
     `    return ${wireResp(agg, `await repo.get_by_id(${agg.name}Id(id))`)}`,
   );

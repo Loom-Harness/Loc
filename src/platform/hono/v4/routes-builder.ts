@@ -1187,6 +1187,21 @@ export function buildRoutesFile(
   lines.push(`    }),`);
   lines.push(`    async (c) => {`);
   lines.push(`      const { id } = c.req.valid("param");`);
+  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+  // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
+  // an existing and a missing id alike (no existence oracle); same carrier and
+  // `detail` label as the find's own route (`emitFindRoute`).
+  const byIdFind = derivedGetById.find;
+  if (byIdFind?.requires) {
+    if (findGateUsesCurrentUser(byIdFind)) {
+      lines.push(
+        `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+      );
+    }
+    lines.push(
+      `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
+    );
+  }
   lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
   // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
   // every backend, and this route was the one place Hono answered a machine

@@ -35,7 +35,7 @@ import {
 import { lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { listReadFind } from "../../../ir/util/read-gates.js";
+import { byIdReadFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -407,6 +407,40 @@ ${indexBody}
   end`
     : `  def index(conn, ${indexParamArg}) do
 ${cuBind}${indexBody}
+  end`;
+  // The BY-ID read's authorization gate (M-T3.19) — the author's
+  // `find byId(id: T id): T? requires <expr>`.  403 BEFORE the load, so a
+  // refused caller cannot tell an existing id from a missing one; same
+  // denial carrier + `detail` label as the list gate above and the find's own
+  // `by_id` action (`renderFindActions`).
+  const byIdFind = byIdReadFind((ctx.repositories ?? []).find((r) => r.aggregateName === agg.name));
+  const showGate = effectiveGate(byIdFind?.requires);
+  const showCuBind =
+    showGate && exprUsesCurrentUser(showGate) && !principal
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+  const showBody = `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
+      {:ok, record} ->
+        json(conn, serialize(record))
+
+      {:error, :not_found} ->
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+    end`;
+  const showAction = showGate
+    ? `  def show(conn, %{"id" => id}) do
+${cuBind}${showCuBind}    if not (${renderElixirExpr(showGate, { thisName: "record", contextModule: facadeMod })}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${byIdFind!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${showBody}
+    end
+  end`
+    : `  def show(conn, %{"id" => id}) do
+${cuBind}${showBody}
   end`;
   // Command-load context fn a MUTATION action loads through (authorization.md):
   // `get_<agg>_for_write` when the aggregate's write scope is
@@ -897,15 +931,7 @@ ${renderPathIdCastPlug()}
 
 ${indexAction}
 
-  def show(conn, %{"id" => id}) do
-${cuBind}    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
-      {:ok, record} ->
-        json(conn, serialize(record))
-
-      {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
-  end${historyAction}
+${showAction}${historyAction}
 
 ${writeActions}
 ${findActions}

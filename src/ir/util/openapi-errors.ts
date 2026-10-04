@@ -204,8 +204,15 @@ export function errorStatuses(
     // here rather than per-backend: `getById` is also what the history read and
     // the workflow-instance-by-id read declare against, and all three validate
     // the same `{id}`.
+    //
+    // A `find byId(id: T id): T? requires <expr>` gates it (M-T3.19,
+    // `byIdReadGate` in `read-gates.ts`): the gate runs BEFORE the load, so a
+    // denied caller answers 403 whether or not the id exists — the by-id read
+    // is not an existence oracle for a caller the gate refuses.
     case "getById":
-      return set(notFound, UNPROCESSABLE_ENTITY);
+      return guarded
+        ? set(forbidden, notFound, UNPROCESSABLE_ENTITY)
+        : set(notFound, UNPROCESSABLE_ENTITY);
     // destroy (DELETE /<aggs>/{id}) → 404 (not found) + 409 (still
     // referenced: cross-aggregate `X id` FK is ON DELETE RESTRICT — the
     // `ReferencedInUse` structural conflict, remappable via `httpStatus`).

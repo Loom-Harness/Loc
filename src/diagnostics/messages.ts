@@ -2798,19 +2798,27 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
   }) =>
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
-  // The SYNTHESISED by-id read (F-009 / M-T3.19).  A WARNING with its own code
-  // rather than an arm of `loom.default-deny-ungated`, because it is the one
-  // ungated read the author cannot currently gate — see the long-form reason
-  // at the call site in `default-deny-checks.ts`.
+  // The SYNTHESISED by-id read (F-009 / M-T3.19).  An ERROR since M-T3.19
+  // gave it a surface — `find byId(id: T id): T? requires <expr>` — so the
+  // instruction is satisfiable; its own code is kept for continuity.
   "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
-    `denyByDefault: the synthesised by-id read '${p.path}' on aggregate '${p.name}' serves to ` +
-    `ANY authenticated caller — it is compiler-generated and has no author surface to attach a ` +
-    `\`requires\` gate to, so gating '${p.name}' elsewhere (an admin-only \`find all\`, gated ` +
-    `operations) does NOT cover reading a single record by id. Under a \`tenancy by\` system the ` +
-    `tenant filter still applies (a foreign tenant gets 404); what is NOT enforced is role ` +
-    `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
-    `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
-    `whole api is restricted.`,
+    `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
+    `so it would serve any record to any authenticated caller. Declare the by-id read in ` +
+    `'${p.name}'s repository with a gate: \`find byId(id: ${p.name} id): ${p.name}? requires <expr>\` ` +
+    `(use \`requires true\` to make it intentionally public). A gate elsewhere (an admin-only ` +
+    `\`find all\`, gated operations) does not cover it.`,
+  // The enrichment-injected LIST read (Commons F-006).  An arm of
+  // `loom.default-deny-ungated`: the author CAN gate it, by declaring the
+  // `find all` themselves (theirs replaces the injected one).
+  "loom.default-deny-ungated#denybydefault-list-read": (p: {
+    name: unknown;
+    path: unknown;
+    returns: unknown;
+  }) =>
+    `denyByDefault: the list read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
+    `so it would serve every record to any authenticated caller. Declare the list read in ` +
+    `'${p.name}'s repository with a gate: \`find all(): ${p.returns} requires <expr>\` ` +
+    `(use \`requires true\` to make it intentionally public).`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for the same RECOURSE reason as the by-id read above: the author cannot gate
   // this one either — a body `requires` here is refused outright by
