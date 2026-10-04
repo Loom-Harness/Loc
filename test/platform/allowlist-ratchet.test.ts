@@ -591,7 +591,96 @@ const REGISTERED: Ratchet[] = [
     // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
     // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
     // once #2976's registry-row principal lands).
-    max: 26,
+    // 25 -> 27, SECOND raise at this merge (#3024 — `dotnet-bcl-type-collision`).
+    //
+    // READ THIS BEFORE TOUCHING THE NUMBER.  `main` and this branch BOTH raised
+    // 25 -> 26 at the same time, for DIFFERENT fixtures — `org-context` above,
+    // `dotnet-bcl-type-collision` here.  Because both sides wrote the identical
+    // literal `26`, git auto-merged the `max:` line WITHOUT a conflict and left
+    // only the prose to collide.  The number it produced was wrong: two +1
+    // raises off a base of 25 are ADDITIVE, so the answer is **27**.
+    // A ratchet bound is the one kind of value where a clean textual merge
+    // proves nothing — always re-derive it as base + each side's delta, and
+    // mutation-prove the result, rather than trusting the merged literal.
+    //
+    // The fixture itself: a NEW corpus entry whose subject the compile tier does
+    // not merely gate but IS — a domain type named after a BCL type (`aggregate
+    // Task` vs `System.Threading.Tasks.Task`) made the emitted .NET project fail
+    // its own build with 17 errors (CS0104 in every file that wildcard-imports
+    // the domain namespace, CS0535/CS0738 where the repository interface
+    // DECLARES it) while `generate system` reported `0 error(s), 0 warning(s)`.
+    // The shipped `ddd new --platform dotnet --template crud` starter emits
+    // exactly that shape, so the starter did not compile.
+    //
+    // A `test e2e` block here would be the hollowing-out this gate was minted to
+    // stop rather than a drain: the fix is a compile-time `using` alias plus a
+    // qualified non-generic return, and NEITHER is observable on the wire — a C#
+    // alias cannot change the runtime type, so a booted round-trip would assert
+    // the same bytes `core-domain` already records and mint a golden with no new
+    // content.  The oracle that reads the thing under test is
+    // `corpus-dotnet-build`: either `dotnet build /warnaserror` accepts the tree
+    // or it does not.
+    //
+    // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
+    // gap.  If the entry ever stops paying for itself the honest move is to
+    // delete the fixture, not to boot it.
+    //
+    // 27 -> 26 (2026-09-29, M-T6.73): `handler-triad` DRAINED, on the THIRD
+    // attempt.  #2984 made a routed handler addressable and drained this cell;
+    // booting it showed four of five backends did not serve an explicit route
+    // where the caller asks, so #2984 reverted its own drain and put the row
+    // back — correctly, since `gate-ledger` refuses a feature that boots on some
+    // declared backends and not others, with no allowlist, and
+    // `BEHAVIOURAL_SKIP` is at `max: 0`.  The emitter half of #3024 then fixed
+    // six defects and got FOUR legs to 0 wire divergences, but left the row in
+    // place rather than waive the fifth.
+    //
+    // What makes the drain legitimate now is that nothing is hidden: the last
+    // four divergences were the tier's malformed-body probe landing on a POST
+    // this create-less `Order` does not serve, where it cannot reach the parser
+    // it exists to test and measures whichever layer answers first instead.  The
+    // probe steps aside there now — the same step-aside its PATCH sibling
+    // already makes — so all five legs are green with NO per-backend waiver, no
+    // `BEHAVIOURAL_SKIP` entry, and no wire waiver.
+    //
+    // Re-derived against `main`'s CURRENT value at each merge, never carried:
+    // this branch was cut at 24 (-> 23), re-merged at 26 (-> 25), and is now
+    // re-merged at 27 (-> 26).  Each of those numbers was right on the tree it
+    // landed on and wrong one merge later — which is how this PR was ejected
+    // from the merge queue once already, on exactly this line.
+    //
+    // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
+    // — a RAISE of three, and the reviewed line this ratchet exists to force.
+    // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
+    // `vo-regex-invariant`) carry value-object shapes NO model in the repo had:
+    // a VO resolved from a sibling context, a root-level (shared-kernel) VO
+    // nested in a context-local one, and a `.matches(<regex>)` invariant.  None
+    // can carry a `test e2e` block YET, and the reason is unusual enough to be
+    // worth the raise rather than hidden by it: on each of them at least one
+    // backend CANNOT BOOT, so there is no stack to record a wire golden from and
+    // a captured golden would enshrine the defect as the reviewed answer key.
+    // (node's routes module makes a temporal-dead-zone read, TS2448/TS2454;
+    // python names columns its own schema never created, and emits `re.search`
+    // with no `import re`.)  Each broken backend is excluded BY NAME from its
+    // row's `backends:` in the corpus manifest — not skip-listed, because a
+    // generate-only cell is refused by gate-ledger's own
+    // "no cell is held up by generation alone".
+    //
+    // These three ARE a tier gap, unlike the two entries above, and each fixture
+    // header writes down the runtime assertion it wants so the drain does not
+    // have to re-derive it.  They drain when the emitters are fixed: the same PR
+    // that lands the fix returns the excluded backend key, adds the e2e block,
+    // captures its golden, and deletes the entry here — lowering this number.
+    //
+    // MERGE RESOLUTION (fixture-shape audit, 2026-09-29): main's drain and this
+    // branch's raise landed on the same line and ejected this PR from the merge
+    // queue — the collision the note above predicts in its own last sentence.
+    // Re-DERIVED on the combined tree rather than carried from either side:
+    // main's 26 (27 minus the drained `handler-triad`) plus this branch's 3
+    // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
+    // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
+    // from memory of either branch.
+    max: 29,
   },
 ];
 

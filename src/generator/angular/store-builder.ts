@@ -52,13 +52,6 @@ export function storeFileSlug(storeName: string): string {
     .toLowerCase();
 }
 
-/** The import path a consuming page/component resolves a store from, relative
- *  to a `src/app/pages/<slug>.component.ts` or `src/app/components/…` file
- *  (one hop up into `stores/`).  `Cart` → `../stores/cart.store`. */
-export function storeImportPath(storeName: string): string {
-  return `../stores/${storeFileSlug(storeName)}.store`;
-}
-
 /** Map a store-field `TypeIR` to its TS type annotation (the `signal<T>(…)`
  *  generic).  Mirrors React's `storeFieldTsType` (kept local so the store
  *  builder doesn't import upward into the page shell). */

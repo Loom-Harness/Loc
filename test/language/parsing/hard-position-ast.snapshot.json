@@ -1371,5 +1371,4145 @@
       }
     ],
     "imports": []
+  },
+  "event": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "channel": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "check": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "requires": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "mask": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "provenanced": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "sensitive": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "projection": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "check": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "code"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "length",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    ">"
+                  ],
+                  "rest": [
+                    {
+                      "$type": "IntLit",
+                      "value": 0
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "email",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "sensitivity": {
+                  "$type": "SensitivityClause",
+                  "tags": [
+                    "pii"
+                  ]
+                },
+                "provenanced": true
+              },
+              {
+                "$type": "Property",
+                "name": "salary",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "maskUnless": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Operation",
+                "name": "ship",
+                "gate": {
+                  "$type": "BinaryChain",
+                  "head": {
+                    "$type": "PostfixChain",
+                    "head": {
+                      "$type": "NameRef",
+                      "name": "currentUser"
+                    },
+                    "suffixes": [
+                      {
+                        "$type": "MemberSuffix",
+                        "member": "id",
+                        "args": [],
+                        "call": false
+                      }
+                    ],
+                    "bypass": [],
+                    "bypassAll": false
+                  },
+                  "ops": [
+                    "=="
+                  ],
+                  "rest": [
+                    {
+                      "$type": "StringLit",
+                      "value": "x"
+                    }
+                  ]
+                },
+                "body": [
+                  {
+                    "$type": "EmitStmt",
+                    "event": {
+                      "$ref": "Shipped"
+                    },
+                    "fields": [
+                      {
+                        "$type": "EmitField",
+                        "name": "code",
+                        "value": {
+                          "$type": "NameRef",
+                          "name": "code"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "audited": false,
+                "extern": false,
+                "params": [],
+                "private": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Shipped",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "Channel",
+            "name": "Ships",
+            "carries": [
+              {
+                "$ref": "Shipped"
+              }
+            ]
+          },
+          {
+            "$type": "Projection",
+            "name": "Revenue",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "n",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "source": {
+              "$ref": "Order"
+            },
+            "sourceAlias": "o",
+            "filter": {
+              "$type": "NameRef",
+              "name": "Big"
+            },
+            "selects": [
+              {
+                "$type": "ProjectionSelect",
+                "field": "n",
+                "expr": {
+                  "$type": "NameRef",
+                  "name": "count"
+                }
+              }
+            ],
+            "bypass": [],
+            "bypassAll": false,
+            "groupBys": [],
+            "joins": [],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "id",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "theme": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "PayloadDecl",
+            "kind": "command",
+            "name": "PlaceCmd",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "variants": []
+          },
+          {
+            "$type": "CommandHandler",
+            "name": "place",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "cmd",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "PlaceCmd"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "audited": false,
+            "body": [],
+            "extern": false,
+            "private": false
+          }
+        ]
+      },
+      {
+        "$type": "Api",
+        "name": "OrdApi",
+        "source": {
+          "$ref": "C"
+        },
+        "routes": [
+          {
+            "$type": "Route",
+            "method": "POST",
+            "path": "/place",
+            "target": {
+              "$type": "HandlerRef",
+              "context": {
+                "$ref": "C"
+              },
+              "handler": "place"
+            }
+          }
+        ],
+        "statuses": []
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "ThemeBlock",
+            "props": [
+              {
+                "$type": "ThemeProp",
+                "name": "primary",
+                "value": "#3b82f6"
+              }
+            ]
+          },
+          {
+            "$type": "Layout",
+            "name": "Frame",
+            "slots": [
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "header",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "h"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "$type": "LayoutMainSlot"
+              },
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "footer",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "$type": "Ui",
+            "name": "Web",
+            "members": [
+              {
+                "$type": "UiApiParam",
+                "name": "Orders",
+                "apiRef": {
+                  "$ref": "OrdApi"
+                }
+              },
+              {
+                "$type": "Page",
+                "name": "Home",
+                "props": [
+                  {
+                    "$type": "RouteProp",
+                    "value": "/"
+                  },
+                  {
+                    "$type": "BodyProp",
+                    "expr": {
+                      "$type": "BuilderCall",
+                      "type": "Text",
+                      "entries": [
+                        {
+                          "$type": "BuilderEntry",
+                          "value": {
+                            "$type": "StringLit",
+                            "value": "hi"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": []
+              }
+            ]
+          },
+          {
+            "$type": "Deployable",
+            "name": "api",
+            "platform": "node",
+            "contextRefs": [
+              {
+                "$ref": "C"
+              }
+            ],
+            "port": 3000,
+            "channelRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          },
+          {
+            "$type": "Deployable",
+            "name": "web",
+            "platform": "react",
+            "targets": {
+              "$ref": "api"
+            },
+            "uiSugar": {
+              "$type": "UiSugarBinding",
+              "ref": {
+                "$ref": "Web"
+              }
+            },
+            "port": 3001,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "layout": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "PayloadDecl",
+            "kind": "command",
+            "name": "PlaceCmd",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "variants": []
+          },
+          {
+            "$type": "CommandHandler",
+            "name": "place",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "cmd",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "PlaceCmd"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "audited": false,
+            "body": [],
+            "extern": false,
+            "private": false
+          }
+        ]
+      },
+      {
+        "$type": "Api",
+        "name": "OrdApi",
+        "source": {
+          "$ref": "C"
+        },
+        "routes": [
+          {
+            "$type": "Route",
+            "method": "POST",
+            "path": "/place",
+            "target": {
+              "$type": "HandlerRef",
+              "context": {
+                "$ref": "C"
+              },
+              "handler": "place"
+            }
+          }
+        ],
+        "statuses": []
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "ThemeBlock",
+            "props": [
+              {
+                "$type": "ThemeProp",
+                "name": "primary",
+                "value": "#3b82f6"
+              }
+            ]
+          },
+          {
+            "$type": "Layout",
+            "name": "Frame",
+            "slots": [
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "header",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "h"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "$type": "LayoutMainSlot"
+              },
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "footer",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "$type": "Ui",
+            "name": "Web",
+            "members": [
+              {
+                "$type": "UiApiParam",
+                "name": "Orders",
+                "apiRef": {
+                  "$ref": "OrdApi"
+                }
+              },
+              {
+                "$type": "Page",
+                "name": "Home",
+                "props": [
+                  {
+                    "$type": "RouteProp",
+                    "value": "/"
+                  },
+                  {
+                    "$type": "BodyProp",
+                    "expr": {
+                      "$type": "BuilderCall",
+                      "type": "Text",
+                      "entries": [
+                        {
+                          "$type": "BuilderEntry",
+                          "value": {
+                            "$type": "StringLit",
+                            "value": "hi"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": []
+              }
+            ]
+          },
+          {
+            "$type": "Deployable",
+            "name": "api",
+            "platform": "node",
+            "contextRefs": [
+              {
+                "$ref": "C"
+              }
+            ],
+            "port": 3000,
+            "channelRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          },
+          {
+            "$type": "Deployable",
+            "name": "web",
+            "platform": "react",
+            "targets": {
+              "$ref": "api"
+            },
+            "uiSugar": {
+              "$type": "UiSugarBinding",
+              "ref": {
+                "$ref": "Web"
+              }
+            },
+            "port": 3001,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "platform": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "PayloadDecl",
+            "kind": "command",
+            "name": "PlaceCmd",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "variants": []
+          },
+          {
+            "$type": "CommandHandler",
+            "name": "place",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "cmd",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "PlaceCmd"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "audited": false,
+            "body": [],
+            "extern": false,
+            "private": false
+          }
+        ]
+      },
+      {
+        "$type": "Api",
+        "name": "OrdApi",
+        "source": {
+          "$ref": "C"
+        },
+        "routes": [
+          {
+            "$type": "Route",
+            "method": "POST",
+            "path": "/place",
+            "target": {
+              "$type": "HandlerRef",
+              "context": {
+                "$ref": "C"
+              },
+              "handler": "place"
+            }
+          }
+        ],
+        "statuses": []
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "ThemeBlock",
+            "props": [
+              {
+                "$type": "ThemeProp",
+                "name": "primary",
+                "value": "#3b82f6"
+              }
+            ]
+          },
+          {
+            "$type": "Layout",
+            "name": "Frame",
+            "slots": [
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "header",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "h"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "$type": "LayoutMainSlot"
+              },
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "footer",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "$type": "Ui",
+            "name": "Web",
+            "members": [
+              {
+                "$type": "UiApiParam",
+                "name": "Orders",
+                "apiRef": {
+                  "$ref": "OrdApi"
+                }
+              },
+              {
+                "$type": "Page",
+                "name": "Home",
+                "props": [
+                  {
+                    "$type": "RouteProp",
+                    "value": "/"
+                  },
+                  {
+                    "$type": "BodyProp",
+                    "expr": {
+                      "$type": "BuilderCall",
+                      "type": "Text",
+                      "entries": [
+                        {
+                          "$type": "BuilderEntry",
+                          "value": {
+                            "$type": "StringLit",
+                            "value": "hi"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": []
+              }
+            ]
+          },
+          {
+            "$type": "Deployable",
+            "name": "api",
+            "platform": "node",
+            "contextRefs": [
+              {
+                "$ref": "C"
+              }
+            ],
+            "port": 3000,
+            "channelRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          },
+          {
+            "$type": "Deployable",
+            "name": "web",
+            "platform": "react",
+            "targets": {
+              "$ref": "api"
+            },
+            "uiSugar": {
+              "$type": "UiSugarBinding",
+              "ref": {
+                "$ref": "Web"
+              }
+            },
+            "port": 3001,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "api": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "PayloadDecl",
+            "kind": "command",
+            "name": "PlaceCmd",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "variants": []
+          },
+          {
+            "$type": "CommandHandler",
+            "name": "place",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "cmd",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "PlaceCmd"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "audited": false,
+            "body": [],
+            "extern": false,
+            "private": false
+          }
+        ]
+      },
+      {
+        "$type": "Api",
+        "name": "OrdApi",
+        "source": {
+          "$ref": "C"
+        },
+        "routes": [
+          {
+            "$type": "Route",
+            "method": "POST",
+            "path": "/place",
+            "target": {
+              "$type": "HandlerRef",
+              "context": {
+                "$ref": "C"
+              },
+              "handler": "place"
+            }
+          }
+        ],
+        "statuses": []
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "ThemeBlock",
+            "props": [
+              {
+                "$type": "ThemeProp",
+                "name": "primary",
+                "value": "#3b82f6"
+              }
+            ]
+          },
+          {
+            "$type": "Layout",
+            "name": "Frame",
+            "slots": [
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "header",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "h"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "$type": "LayoutMainSlot"
+              },
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "footer",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "$type": "Ui",
+            "name": "Web",
+            "members": [
+              {
+                "$type": "UiApiParam",
+                "name": "Orders",
+                "apiRef": {
+                  "$ref": "OrdApi"
+                }
+              },
+              {
+                "$type": "Page",
+                "name": "Home",
+                "props": [
+                  {
+                    "$type": "RouteProp",
+                    "value": "/"
+                  },
+                  {
+                    "$type": "BodyProp",
+                    "expr": {
+                      "$type": "BuilderCall",
+                      "type": "Text",
+                      "entries": [
+                        {
+                          "$type": "BuilderEntry",
+                          "value": {
+                            "$type": "StringLit",
+                            "value": "hi"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": []
+              }
+            ]
+          },
+          {
+            "$type": "Deployable",
+            "name": "api",
+            "platform": "node",
+            "contextRefs": [
+              {
+                "$ref": "C"
+              }
+            ],
+            "port": 3000,
+            "channelRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          },
+          {
+            "$type": "Deployable",
+            "name": "web",
+            "platform": "react",
+            "targets": {
+              "$ref": "api"
+            },
+            "uiSugar": {
+              "$type": "UiSugarBinding",
+              "ref": {
+                "$ref": "Web"
+              }
+            },
+            "port": 3001,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "ui": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          },
+          {
+            "$type": "PayloadDecl",
+            "kind": "command",
+            "name": "PlaceCmd",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "variants": []
+          },
+          {
+            "$type": "CommandHandler",
+            "name": "place",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "cmd",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "PlaceCmd"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "audited": false,
+            "body": [],
+            "extern": false,
+            "private": false
+          }
+        ]
+      },
+      {
+        "$type": "Api",
+        "name": "OrdApi",
+        "source": {
+          "$ref": "C"
+        },
+        "routes": [
+          {
+            "$type": "Route",
+            "method": "POST",
+            "path": "/place",
+            "target": {
+              "$type": "HandlerRef",
+              "context": {
+                "$ref": "C"
+              },
+              "handler": "place"
+            }
+          }
+        ],
+        "statuses": []
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "ThemeBlock",
+            "props": [
+              {
+                "$type": "ThemeProp",
+                "name": "primary",
+                "value": "#3b82f6"
+              }
+            ]
+          },
+          {
+            "$type": "Layout",
+            "name": "Frame",
+            "slots": [
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "header",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "h"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "$type": "LayoutMainSlot"
+              },
+              {
+                "$type": "LayoutNamedSlot",
+                "name": "footer",
+                "body": {
+                  "$type": "BuilderCall",
+                  "type": "Text",
+                  "entries": [
+                    {
+                      "$type": "BuilderEntry",
+                      "value": {
+                        "$type": "StringLit",
+                        "value": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "$type": "Ui",
+            "name": "Web",
+            "members": [
+              {
+                "$type": "UiApiParam",
+                "name": "Orders",
+                "apiRef": {
+                  "$ref": "OrdApi"
+                }
+              },
+              {
+                "$type": "Page",
+                "name": "Home",
+                "props": [
+                  {
+                    "$type": "RouteProp",
+                    "value": "/"
+                  },
+                  {
+                    "$type": "BodyProp",
+                    "expr": {
+                      "$type": "BuilderCall",
+                      "type": "Text",
+                      "entries": [
+                        {
+                          "$type": "BuilderEntry",
+                          "value": {
+                            "$type": "StringLit",
+                            "value": "hi"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "params": []
+              }
+            ]
+          },
+          {
+            "$type": "Deployable",
+            "name": "api",
+            "platform": "node",
+            "contextRefs": [
+              {
+                "$ref": "C"
+              }
+            ],
+            "port": 3000,
+            "channelRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          },
+          {
+            "$type": "Deployable",
+            "name": "web",
+            "platform": "react",
+            "targets": {
+              "$ref": "api"
+            },
+            "uiSugar": {
+              "$type": "UiSugarBinding",
+              "ref": {
+                "$ref": "Web"
+              }
+            },
+            "port": 3001,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ],
+    "imports": []
   }
 }

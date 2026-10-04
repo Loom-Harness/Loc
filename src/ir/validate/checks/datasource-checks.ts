@@ -35,6 +35,7 @@ import {
   isDocumentShaped,
   resolveDataSourceConfig,
 } from "../../util/resolve-datasource.js";
+import { walkStmtChildren } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -394,10 +395,25 @@ function docExprUnsupported(
     case "id":
     case "this":
       return false;
-    default:
-      // new / match / list / *-call — all need the struct / list / tuple
-      // machinery the document scalar path omits.
+    // The rejected half, named.  These need the struct / list / tuple / i18n /
+    // duration machinery the document scalar path omits, so the answer is
+    // "unsupported" — the SAFE direction for a gate (a false positive is a
+    // refusal, never a silent emission).  Enumerated rather than left to a
+    // `default:` so a new `ExprIR` kind is a `tsc` error and someone decides
+    // which side it lands on.
+    case "new":
+    case "match":
+    case "list":
+    case "duration":
+    case "i18nFormat":
+    case "authz-filter":
+    case "action-ref":
       return true;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return true;
+    }
   }
 }
 
@@ -409,22 +425,20 @@ function docFunctionUnsupported(fn: FunctionIR, agg: AggregateIR): boolean {
   const body = fn.body;
   const exprs: ExprIR[] = "expr" in body ? [body.expr] : [];
   if ("stmts" in body) {
-    for (const s of body.stmts) {
-      switch (s.kind) {
-        case "precondition":
-        case "requires":
-        case "let":
-        case "expression":
-          exprs.push(s.expr);
-          break;
-        case "return":
-          exprs.push(s.value);
-          break;
-        case "call":
-          exprs.push(...s.args);
-          break;
-      }
-    }
+    // Ride the sanctioned walker, not a hand-rolled per-kind pull.  The
+    // hand-rolled version listed six of the twelve `StmtIR` kinds and, crucially,
+    // had no `if` arm — yet a `function` block body IS allowed to branch (the
+    // grammar's `FunctionDecl` block form takes `Statement*`, and wave C2 stopped
+    // refusing the shape).  So a non-doc-safe expression inside an `if` branch
+    // made the whole function look doc-SAFE, and `loom.vanilla-document-unsupported`
+    // never fired for the aggregate — a false negative in a gate, which emits
+    // Elixir the document path cannot render rather than refusing it.  Collecting
+    // the ROOTS here keeps `docExprUnsupported`'s own derived-cycle recursion in
+    // charge of the expression descent.
+    const pushRoots = (s: StmtIR): void => {
+      walkStmtChildren(s, (e) => exprs.push(e), pushRoots);
+    };
+    for (const s of body.stmts) pushRoots(s);
   }
   return exprs.some((e) => docExprUnsupported(e, /* allowFnCall */ true, agg));
 }
@@ -489,10 +503,18 @@ function docStmtUnsupported(s: StmtIR, allowFnCall: boolean, agg: AggregateIR): 
       // plain response map.  A private-operation self-call in tail position stays
       // gated (`docExprUnsupported` rejects the non-function call).
       return bad(s.value);
-    default:
-      // call / variant-match — need the self-call / frontend machinery the
-      // document op path doesn't carry.
+    // call / if / variant-match — need the self-call / branch / frontend
+    // machinery the document op path doesn't carry.  Named rather than left to
+    // a `default:` so a new `StmtIR` kind is a decision, not a silent refusal.
+    case "call":
+    case "if":
+    case "variant-match":
       return true;
+    default: {
+      const _exhaustive: never = s;
+      void _exhaustive;
+      return true;
+    }
   }
 }
 

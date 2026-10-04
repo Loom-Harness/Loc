@@ -46,7 +46,9 @@ export function readFixture(
     | "vo-collection-base"
     | "vo-collection-evolved"
     | "field-default-base"
-    | "field-default-evolved",
+    | "field-default-evolved"
+    | "journal-order-base"
+    | "journal-order-evolved",
 ): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
@@ -940,6 +942,178 @@ export async function runFieldDefaultEvolutionGate(): Promise<void> {
       } catch {
         /* best-effort */
       }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// F-012 — the drizzle journal's ORDERING KEY, proved at runtime.
+//
+// The sibling gate above already boots twice against a populated database, and
+// it passed throughout: its fixture is SINGLE-MODULE and non-provenanced, so the
+// old positional key (`epochMillis(version) + arrayIndex`) happened to come out
+// monotonic and nothing was ever renumbered.  This gate uses the two-module +
+// `provenanced` fixture pair, which is the shape a real system has, and asserts
+// the two things F-012 observed on a booted stack:
+//
+//   (1) the new migration ACTUALLY RUNS.  Its version lands in module Catalog's
+//       block (`20260101500001`), below Billing's already-applied initial
+//       (`20260102000000`) — and below the year-2999 provenance sentinel.  Under
+//       a watermark migrator that meant the correct SQL was emitted and never
+//       executed, with no error: `notes` simply did not exist.
+//
+//   (2) a `provenanced` model still BOOTS.  The provenance migration was pinned
+//       last forever, so it was always the entry the positional key renumbered,
+//       so it always re-ran — and `ADD COLUMN "total_provenance"` against a
+//       column that already exists exits the process before it is healthy.
+//
+// Plus the structural invariant underneath both: an entry the database has
+// already applied keeps its exact `when`, so the journal and
+// `__drizzle_migrations` never stop agreeing about what has run.
+//
+// node/Drizzle only — it is the one backend whose migrator is a watermark
+// (`lastApplied.created_at < entry.when`) rather than an applied-set.
+// ---------------------------------------------------------------------------
+
+interface JournalEntry {
+  idx: number;
+  when: number;
+  tag: string;
+}
+
+function readJournal(appDir: string): JournalEntry[] {
+  const p = path.join(appDir, "db", "migrations", "meta", "_journal.json");
+  return JSON.parse(fs.readFileSync(p, "utf8")).entries as JournalEntry[];
+}
+
+export async function runJournalOrderingGate(driver: BackendDriver): Promise<void> {
+  if (!driver.toolchain.check()) {
+    throw new Error(
+      `journal-ordering ${driver.platform}: \`${driver.toolchain.name}\` not on PATH.`,
+    );
+  }
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), `loom-journal-${driver.platform}-`));
+  const appDir = path.join(tree, "d");
+  let server: PgServer | undefined;
+  const boots: BootHandle[] = [];
+  const boot = async (pg: PgConn): Promise<BootHandle> => {
+    driver.migrate?.(appDir, pg);
+    const port = await freePort();
+    const h = driver.boot(appDir, pg, port);
+    boots.push(h);
+    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
+    return h;
+  };
+
+  try {
+    server = await startPgServer();
+    resetDatabase(server, "journal");
+    const pg = connFor(server, "journal");
+
+    // --- v1: the first deploy.  This one was always fine. ---
+    generate(readFixture("journal-order-base"), driver.platform, tree);
+    driver.install(appDir);
+    const v1Journal = readJournal(appDir);
+    // The fixture has to actually carry the two things that reach the defect,
+    // or this gate silently degrades into the single-module one that already
+    // passed. Asserted here rather than assumed.
+    expect(
+      v1Journal.some((e) => e.tag.endsWith("_provenance")),
+      `fixture must emit the late provenance migration; journal: ${v1Journal.map((e) => e.tag).join(", ")}`,
+    ).toBe(true);
+    expect(
+      new Set(v1Journal.filter((e) => e.tag.endsWith("_initial")).map((e) => e.tag)).size,
+      "fixture must span two modules (two initial migrations)",
+    ).toBe(2);
+
+    const v1 = await boot(pg);
+    const id = await seedV1Product(v1.base);
+    v1.stop();
+    await settle();
+
+    // What the database recorded as applied.  Drizzle writes `entry.when` into
+    // `__drizzle_migrations.created_at`, and compares the MAX of that column
+    // against every journal entry on the next boot.
+    const appliedBefore = psql(
+      server,
+      "journal",
+      `SELECT max(created_at) FROM drizzle.__drizzle_migrations`,
+    );
+    expect(appliedBefore, "v1 recorded a migration watermark").not.toBe("");
+
+    // --- v2: the first real evolution, against a database WITH data in it. ---
+    generate(readFixture("journal-order-evolved"), driver.platform, tree);
+    driver.rebuild?.(appDir);
+    const v2Journal = readJournal(appDir);
+
+    // The structural invariant: regenerating must not renumber an entry the
+    // database has already applied.  This is the defect itself — every later
+    // entry's `when` shifted by one, so the journal stopped agreeing with
+    // `__drizzle_migrations`.
+    const before = new Map(v1Journal.map((e) => [e.tag, e.when]));
+    for (const e of v2Journal) {
+      const prior = before.get(e.tag);
+      if (prior === undefined) continue; // the newly inserted delta
+      if (e.tag.endsWith("_provenance")) continue; // re-homed on purpose; idempotent SQL
+      expect(e.when, `\`when\` of already-applied ${e.tag} must not move`).toBe(prior);
+    }
+    // …and the new entry must clear the recorded watermark, or the migrator
+    // skips it in silence.
+    const inserted = v2Journal.filter((e) => !before.has(e.tag));
+    expect(inserted.length, "exactly one new journal entry for the nullable add").toBe(1);
+    expect(
+      inserted[0].when,
+      `inserted ${inserted[0].tag} must sort above the applied watermark ${appliedBefore}`,
+    ).toBeGreaterThan(Number(appliedBefore));
+
+    // (2) The boot itself is the assertion: the provenance migration re-running
+    // against an existing `total_provenance` column used to exit the process.
+    const v2 = await boot(pg);
+
+    // (1) The delta actually ran.  This is the exact query F-012 reported as
+    // returning zero rows.
+    const notes = psql(
+      server,
+      "journal",
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'products' AND column_name = 'notes'`,
+    );
+    expect(notes, "the evolved model's `notes` column must exist after the second boot").toBe(
+      "notes",
+    );
+
+    // The provenanced column is there exactly once, and the seeded row survived.
+    const provCols = psql(
+      server,
+      "journal",
+      `SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'invoices' AND column_name = 'total_provenance'`,
+    );
+    expect(provCols, "one co-located provenance column on invoices").toBe("1");
+    const read = await fetch(`${v2.base}/api/products/${id}`);
+    expect(read.status, `seeded row survives the evolution: ${await read.clone().text()}`).toBe(
+      200,
+    );
+    const row = (await read.json()) as { name: string; notes: string | null };
+    expect(row.name, "seeded name preserved").toBe(SEED.name);
+    expect(row.notes, "the nullable add reads NULL on the pre-existing row").toBeNull();
+
+    // The journal and the database now agree: the watermark advanced to the
+    // newest entry rather than being stuck behind a year-2999 sentinel.
+    const appliedAfter = psql(
+      server,
+      "journal",
+      `SELECT max(created_at) FROM drizzle.__drizzle_migrations`,
+    );
+    expect(Number(appliedAfter)).toBeGreaterThan(Number(appliedBefore));
+    v2.stop();
+  } finally {
+    for (const b of boots) b.stop();
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
     }
   }
 }

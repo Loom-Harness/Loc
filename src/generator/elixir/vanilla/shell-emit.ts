@@ -401,7 +401,14 @@ defmodule ${appModule}.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:jason, "~> 1.4"},
       {:uuidv7, "~> 1.0"},
-      {:plug_cowboy, "~> 2.6"},
+      # Bandit, not Plug.Cowboy.  Phoenix 1.8's own default adapter, and the
+      # reason it is spelled out here: the cowboy chain (plug_cowboy ->
+      # cowboy -> cowlib) ends at cowlib, whose latest release IS the one
+      # carrying CVE-2026-43966 (HTTP response splitting) and CVE-2026-43969
+      # (cookie header injection).  There is nothing to bump to, so every
+      # generated Elixir project shipped a flagged transitive dependency it
+      # never actually needed.  Bandit is pure Elixir and pulls none of it.
+      {:bandit, "~> 1.12"},
       {:open_api_spex, "~> 3.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.1"},
@@ -722,12 +729,13 @@ function renderVanillaRouter(
   liveRoutes: LiveRoute[] = [],
   hasEmbeddedSpa = false,
 ): string {
-  // Routes prefixed with `!root:` (e.g. the OpenAPI spec endpoint) sit OUTSIDE
-  // the `/api` scope so they're served at the router root (cross-backend
-  // alignment: every backend serves `/openapi.json`).  They still pipe through
-  // `:api` for JSON content negotiation — the Auth plug there already bypasses
-  // `/openapi.json`, so they stay reachable without a token.  Bare paths splice
-  // into `scope "/api"` as before.
+  // Routes prefixed with `!root:` (e.g. the OpenAPI spec endpoint, the `/files`
+  // object-store pair, and an explicit route whose `/api` slot an auto-derived
+  // aggregate route already occupies) sit OUTSIDE the `/api` scope so they're
+  // served at the router root (cross-backend alignment: every backend serves
+  // `/openapi.json`).  They still pipe through `:api` for JSON content
+  // negotiation — the Auth plug there already bypasses `/openapi.json`, so they
+  // stay reachable without a token.  Bare paths splice into `scope "/api"`.
   const rootApiRoutes = apiRoutes.filter((r) => r.path.startsWith("!root:"));
   // `!sse:` — the realtime SSE stream (channels.md Part I).  It CANNOT ride the
   // `:api` pipeline: `plug :accepts, ["json"]` answers 406 to the
@@ -735,9 +743,16 @@ function renderVanillaRouter(
   // `:sse` pipeline at the router root instead (the path already carries the
   // `/api` prefix, so the served URL is unchanged from the other backends').
   const sseRoutes = apiRoutes.filter((r) => r.path.startsWith("!sse:"));
-  const scopedApiRoutes = apiRoutes.filter(
+  // `first` routes lead the `/api` scope.  Phoenix matches in declaration order
+  // and the explicit-route emitter runs after the per-aggregate one, so a
+  // user-declared `GET /api/orders/describe` appended behind the derived
+  // `GET /api/orders/:id` would never match.  A stable partition, so every
+  // other route keeps its insertion order and the emitted router is unchanged
+  // for a system with no `first` route.
+  const scoped = apiRoutes.filter(
     (r) => !r.path.startsWith("!root:") && !r.path.startsWith("!sse:"),
   );
+  const scopedApiRoutes = [...scoped.filter((r) => r.first), ...scoped.filter((r) => !r.first)];
   const routeLines = withStaticSubpathGuards(scopedApiRoutes)
     .map((r) =>
       r.guard
@@ -1516,7 +1531,7 @@ ${swooshConfig}
 
 config :${appName}, ${appModule}Web.Endpoint,
   url: [host: "localhost"],
-  adapter: Phoenix.Endpoint.Cowboy2Adapter,
+  adapter: Bandit.PhoenixAdapter,
   render_errors: [
     formats: [json: ${appModule}Web.ErrorJSON${hasLiveView ? `, html: ${appModule}Web.ErrorHTML` : ""}],
     layout: false

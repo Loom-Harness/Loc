@@ -508,6 +508,39 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `money managed` field: off the create input, no `= <default>`, no stamp,
+  // and `money` is the one scalar with NO language-defined absent value — a
+  // `Decimal` has no agreed zero, so node's create factory emitted `total:
+  // null` into a non-nullable slot while .NET persisted a fabricated `0`.
+  // Deliberately `money` and not `int`: an `int managed` IS constructible (the
+  // seed is `0`) and must stay silent, which is what keeps this fixture
+  // honest about what the gate refuses.
+  "loom.unconstructible-server-field": `
+system Unconstructible {
+  subdomain S { context Billing {
+    aggregate Invoice with crudish {
+      reference: string
+      total: money managed
+    }
+  } }
+}`,
+  // Two enums in one context declaring the same member, and a bare use with no
+  // expected type to resolve it — an untyped `let`.  First-wins would silently
+  // pick `OrderStatus` and lower a comparison between two different enums
+  // (F-022); the refusal is the honest answer.  The typed sites in the same
+  // aggregate stay silent, which is what makes this the ambiguous one.
+  "loom.ambiguous-enum-value": `
+system EnumAmbiguity {
+  subdomain S { context Billing {
+    enum OrderStatus   { Draft, Confirmed }
+    enum InvoiceStatus { Draft, Issued, Paid }
+    aggregate Invoice with crudish {
+      status: InvoiceStatus = Draft
+      label: string
+      operation touch() { let x = Draft  label := "x" }
+    }
+  } }
+}`,
   // M-T3.6 items 3+5 — `organizationContext` has exactly one member, `.orgPath`.
   // Any other shape is refused by name (the operating org's id is not
   // derivable from a submitted path without a registry read).
@@ -1211,6 +1244,20 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // An `oidc { … }` block with no `audience:` — the verifier then validates
+  // signature / iss / exp and accepts ANY token that issuer minted, for any of
+  // its clients.  Warning, not error: single-client deployments are legitimate
+  // and every backend can still be switched on with OIDC_AUDIENCE at deploy
+  // time.  What was not legitimate is the silence (CR1-b / P0-4).
+  "loom.auth-oidc-no-audience": `
+system S {
+  user { id: string }
+  auth { oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
 }`,
 
   // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
@@ -2612,6 +2659,33 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // A page `requires` gate outside the closed, client-evaluable subset every
+  // JS/F#/Dart gate renderer implements — a CONVERSION, the same shape that
+  // catches the toast gate above.  Without this gate the model reports
+  // `0 error(s), 0 warning(s)` and then aborts `ddd generate system` with a raw
+  // `Error: UI gate: expression kind 'convert' is not supported in a UI gate`
+  // from `renderGateExpr` / `renderFelizGate` / `renderFlutterGate`.
+  "loom.ui-gate-expr-unsupported": `
+system P {
+  user { id: guid  role: string }
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      requires string(currentUser.role) == "admin"
+      body: Stack { Heading { "home" } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
+}`,
+
   // `display`/`inspect` are reserved derived names that only mean something on
   // an aggregate — on a value object they are rejected.
   "loom.reserved-derived-on-vo": repoOnly(`    valueobject Money {
@@ -2937,6 +3011,30 @@ system S {
   // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
   // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
   // so — the admin-only `find all` next to it is no protection at all.
+  // #3023: an invariant the Ecto changeset carrier can enforce on NEITHER path
+  // used to fall through both in silence — enforced at the domain floor on
+  // node/.NET/python/java and nowhere on elixir, at `0 error(s), 0 warning(s)`.
+  // `members` is a REFERENCE collection, whose join rows the repository writes
+  // after the changeset runs: the changeset would read `[]` and the rule would
+  // pass for every input, so it is reported rather than emitted as a check that
+  // cannot fail.
+  "loom.elixir-invariant-unenforced": `
+system S {
+  subdomain Shop { context Shop {
+    aggregate Order {
+      label: string
+      members: Member id[]
+      invariant members.count <= 6
+    }
+    aggregate Member { nick: string }
+    repository Orders for Order { }
+    repository Members for Member { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+
   "loom.default-deny-by-id-ungated": `
 system S {
   user { id: guid  role: string }
@@ -2951,6 +3049,36 @@ system S {
   storage pg { type: postgres }
   resource st { for: Vault, kind: state, use: pg }
   deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // F-004: `denyByDefault` + `persistedAs: eventLog`.  An event-sourced create
+  // cannot carry an ENFORCEABLE gate — its body renders into the domain `_init`,
+  // which has no principal in scope, so `loom.lifecycle-guard-event-sourced`
+  // refuses one outright.  Demanding a `requires` here was therefore an
+  // unsatisfiable error, and the two settings were mutually exclusive for any
+  // event-sourced aggregate with a creation endpoint: gate present → 1 error,
+  // gate absent → 1 error.  Now the honest warning, on the RECOURSE precedent
+  // the by-id arm above is built on.
+  "loom.default-deny-es-create-ungateable": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Ledger {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account {
+      find all(): Account[] requires currentUser.role == "admin"
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  resource el { for: Ledger, kind: eventLog, use: pg }
+  deployable api { platform: node contexts: [Ledger] dataSources: [st, el] serves: Api port: 3000 auth: required }
 }`,
 
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
