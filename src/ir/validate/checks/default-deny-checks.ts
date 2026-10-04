@@ -88,15 +88,14 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             // exclusive for any aggregate with a creation endpoint — measured,
             // not theorised: gate present → 1 error, gate absent → 1 error.
             //
-            // So this is the same RECOURSE test the by-id arm below is built on,
-            // and it resolves the same way: a WARNING with its own code, not an
+            // So this is a RECOURSE test (the one the by-id arm below was built
+            // on until M-T3.19 gave it a surface), resolved as: a WARNING with its own code, not an
             // arm of `loom.default-deny-ungated`.  Every
             // `loom.default-deny-ungated` arm names a `requires` the author CAN
             // write; the arms with no such surface are exempted rather than
             // reported.  An ES create is exactly such a site, so erroring here
             // makes the model unbuildable with nothing the author could do —
-            // which is the one thing the by-id comment says an error must never
-            // be.  Making the ES create route genuinely gateable means hoisting
+            // which is the one thing an error must never be.  Making the ES create route genuinely gateable means hoisting
             // the gate out of `_init` to each backend's own chokepoint: a
             // five-backend change owned by mission M-T3.16, not a validator fix.
             // …and only where NO host can enforce it.  On an elixir-only host the

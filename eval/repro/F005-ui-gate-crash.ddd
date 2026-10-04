@@ -17,7 +17,10 @@ system Repro {
           name := n
         }
       }
-      repository Things for Thing { }
+      repository Things for Thing {
+        find all(): Thing paged requires currentUser.permissions.contains(permissions.manage)
+        find byId(id: Thing id): Thing? requires currentUser.permissions.contains(permissions.manage)
+      }
     }
   }
   user { id: string  role: string  permissions: string[] }

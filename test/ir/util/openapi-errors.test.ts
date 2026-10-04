@@ -95,10 +95,16 @@ describe("errorStatuses — shared error matrix", () => {
     expect(errorStatuses("destroy", true)).toEqual([403, 404, 409, 422]);
   });
 
+  it("a gated by-id read declares 403 (M-T3.19)", () => {
+    // `getById` is gated by a declared `find byId(id: T id): T? requires …`;
+    // the gate runs before the load, so 403 joins 404 + 422.
+    expect(errorStatuses("getById", true)).toEqual([403, 404, 422]);
+    expect(errorStatuses("getById", false)).toEqual([404, 422]);
+  });
+
   it("guarded stays inert for the remaining kinds", () => {
-    // `list` is the auto-`findAll` — synthesized, so it has no `requires` of
-    // its own.  `getById` is a canonical route with no guard clause.
-    expect(errorStatuses("getById", true)).toEqual([404, 422]);
+    // `list` is the auto-`findAll` kind — its gate (when declared) is the
+    // `find all`'s own, declared through the find route.
     expect(errorStatuses("list", true)).toEqual([]);
   });
 

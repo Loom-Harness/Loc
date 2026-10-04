@@ -49,28 +49,34 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   `handle …(){}` continuation (event-triggered creates and `on(...)`
   reactors are not client-reachable, so they are excluded);
 - **repository `find`s** — the same optional `requires` gate (see
-  [Find gates](#find-requires-gates) below).  The auto-injected `find all`
-  list route is the one exception: it is compiler-synthesized with no author
-  source line, so it is out of default-deny scope.  Declaring an explicit
-  `find all(): T[] requires <expr>` gates that route, and does so on **all
-  five** backends — node/Hono and .NET emit a route per repository find and so
-  always honoured it, while java, python and elixir each special-case `all` out
-  of their named-find loop and used to emit the list route without reading its
-  gate.  All five now resolve the list read through one shared derivation
-  (`src/ir/util/read-gates.ts`).
-- **the synthesised by-id read is the second exception — and unlike the list
-  read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
-  on all five backends and carries no gate on any of them, so gating an
-  aggregate everywhere else (an admin-only `find all`, gated operations) still
-  leaves single records readable by any authenticated caller.  It is no longer
-  silent: under `denyByDefault` each such route raises
-  `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
-  the author can write to satisfy it — the by-id gate surface
-  (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
-  still apply to the by-id route: the tenancy filter (a foreign tenant's row
-  reads 404) and `mask unless` field redaction.  What does not: role
-  separation within a tenant.
-- **an event-sourced `create` is the third exception — on the four backends that
+  [Find gates](#find-requires-gates) below).
+- **the two compiler-derived aggregate reads** (M-T3.19, Commons F-006) — the
+  list read `GET /api/<plural>` and the single-record read
+  `GET /api/<plural>/{id}`.  Each is served on all five backends whether or
+  not the author declares anything, so each is gated by declaring it on the
+  repository with a `requires`, named at the declaration (no inherited
+  aggregate-level default):
+
+  ```ddd
+  repository Secrets for Secret {
+    find all(): Secret paged requires currentUser.role == "admin"
+    find byId(id: Secret id): Secret? requires currentUser.role == "admin"
+  }
+  ```
+
+  The by-id read is recognised by name AND shape — `byId`, one `<T> id`
+  parameter, returning `<T>?`; a filterless one reads THE row (`where this.id
+  == id` is supplied).  Every backend evaluates the gate on `/{id}` **before**
+  the load, so a refused caller gets 403 for an existing and a missing id alike
+  (no existence oracle); the route's OpenAPI responses gain 403.  Under
+  `denyByDefault`, an aggregate whose list read is undeclared or ungated fails
+  the build with `loom.default-deny-ungated`, and one whose by-id read is
+  undeclared fails it with `loom.default-deny-by-id-ungated` (a declared but
+  ungated `find byId` is reported as an ordinary ungated find).  Both used to
+  be exempt — the list read silently, the by-id read with a warning, because
+  it had no surface.  `requires true` is the explicit public escape.  The
+  tenancy filter and `mask unless` still apply on top of the gate.
+- **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
   is refused (`loom.lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
@@ -81,8 +87,8 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   gate present, one error; gate absent, one error — which made
   `enforcement: denyByDefault` and `persistedAs: eventLog` **mutually exclusive**
   for any event-sourced aggregate with a creation endpoint.  It now raises
-  `loom.default-deny-es-create-ungateable` (a **warning**, for the same reason
-  the by-id arm is one: there is nothing the author can write to satisfy it), and
+  `loom.default-deny-es-create-ungateable` (a **warning**: there is nothing the
+  author can write to satisfy it), and
   the model builds.  To close the hole today, issue the create from a gated
   `operation` / `workflow` and keep the canonical `create` off the client, or
   host the aggregate on a deployable whose whole api is restricted.  Gating the

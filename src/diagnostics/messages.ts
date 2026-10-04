@@ -2820,8 +2820,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.name}'s repository with a gate: \`find all(): ${p.returns} requires <expr>\` ` +
     `(use \`requires true\` to make it intentionally public).`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
-  // for the same RECOURSE reason as the by-id read above: the author cannot gate
-  // this one either — a body `requires` here is refused outright by
+  // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
+  // a surface): the author cannot gate this one — a body `requires` here is refused outright by
   // `loom.lifecycle-guard-event-sourced`, so demanding one would be an
   // unsatisfiable error.  See the long-form reason at the call site in
   // `default-deny-checks.ts`.

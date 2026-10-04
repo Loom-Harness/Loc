@@ -145,6 +145,11 @@ system ReadGates {
     // declared gates and not from a guard applied aggregate-wide.
     let read = api.orders.getById(a)
     expect(read.code).toBe("O-1")
+    // The declared `find byId` also serves its own `GET /orders/by_id` route,
+    // under the same gate.  It is written without a `where`, so this reads the
+    // SECOND order — a filterless optional find would answer the first row.
+    let viaFind = api.orders.byId({ id: b.id })
+    expect(viaFind.code).toBe("O-2")
     api.orders.update(a, { code: "O-1b", total: money("10.00"), open: true })
     let updated = api.orders.getById(a)
     expect(updated.code).toBe("O-1b")

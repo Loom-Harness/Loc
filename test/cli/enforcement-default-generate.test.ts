@@ -23,7 +23,9 @@ const cli = path.resolve(here, "..", "..", "bin", "cli.js");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-enforcement-default-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-function model(gate: string): string {
+/** `reads`: declare the two compiler-derived reads (list + by-id) publicly —
+ *  under the default each is otherwise an error of its own (M-T3.19). */
+function model(gate: string, reads = true): string {
   return `system Helpdesk {
   user { id: string role: string }
   auth {
@@ -35,7 +37,7 @@ function model(gate: string): string {
         open: bool
         operation close() { ${gate}open := false }
       }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket { ${reads ? "find all(): Ticket[] requires true  find byId(id: Ticket id): Ticket? requires true" : ""} }
     }
   }
   storage primary { type: postgres }
@@ -75,7 +77,7 @@ describe("the enforcement default on the node leg (`ddd generate system`)", () =
   });
 
   it("generates the same model once the codemod pins `enforcement: opt` — route ungated", () => {
-    const r = generate("ungated-opt", pinEnforcementOpt(model("")).text);
+    const r = generate("ungated-opt", pinEnforcementOpt(model("", false)).text);
     expect(r.status, r.out).toBe(0);
     const src = routes(r.dir);
     expect(src).toContain(`path: "/{id}/close"`);

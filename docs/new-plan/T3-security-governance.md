@@ -103,7 +103,7 @@ Sources: `docs/auth.md` (D-AUTH-OIDC), `docs/tenancy.md`; pairs with M-T3.13 (st
 
 ---
 
-## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `partial` (the diagnostic slice `loom.default-deny-by-id-ungated` landed; the gate SURFACE + five route emitters remain) · **M** · **P0** (raised 2026-09-29 by wave L0: C5 moment 5d made `denyByDefault` the language default, so the hole is on every auth model) · security
+## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `done` (#3109: `find byId(id: T id): T? requires …` gates `/{id}` on all five backends; the undeclared by-id read and the ungated injected `find all` list read are now build ERRORS under denyByDefault) · **M** · **P0** (raised 2026-09-29 by wave L0: C5 moment 5d made `denyByDefault` the language default, so the hole is on every auth model) · security
 
 Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with `auth { enforcement: denyByDefault }` + `user {}` + `auth: required` on the deployable, one aggregate, and `find all(): Product[] requires true`:
 

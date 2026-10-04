@@ -44,7 +44,7 @@ const system = (platform: string, findClauses: string, aggMods = "") => `system 
   }
   api SalesApi from Sales
   storage pg { type: postgres }
-  resource ordersState { for: Orders, kind: state, use: pg }
+  resource ordersState { for: Orders, kind: ${aggMods ? "eventLog" : "state"}, use: pg }
   deployable api { platform: ${platform} contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 auth: required }
 }`;
 

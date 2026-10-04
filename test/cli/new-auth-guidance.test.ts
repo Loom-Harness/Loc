@@ -6,7 +6,8 @@
 // the `enforcement: opt` escape.  Both README snippets are asserted to MEAN
 // what the README says when pasted into the real crud starter with
 // `auth: required`: the plain block is deny-by-default (the starter's ungated
-// `with crudish` members are reported), the `enforcement: opt` block is not.
+// `with crudish` members and its undeclared list + by-id reads are reported),
+// the `enforcement: opt` block is not.
 
 import { describe, expect, it } from "vitest";
 import { renderReadme, renderStarter } from "../../src/cli/new-templates.js";
@@ -59,7 +60,9 @@ describe("ddd new — auth guidance under the denyByDefault language default", (
   it("the README's plain auth block is deny-by-default in the real starter", async () => {
     const codes = await denyCodes(withAuth(fences[0] ?? ""));
     expect(codes.length).toBeGreaterThan(0);
-    expect(new Set(codes)).toEqual(new Set(["loom.default-deny-ungated"]));
+    expect(new Set(codes)).toEqual(
+      new Set(["loom.default-deny-ungated", "loom.default-deny-by-id-ungated"]),
+    );
   });
 
   it("the README's `enforcement: opt` block validates clean in the real starter", async () => {

@@ -324,6 +324,8 @@ export const AUTHZ_LADDERS = {
       // M-T3.19 — the compiler-derived by-id read, gated by the fixture's
       // `find byId(id: Order id): Order? requires …`.
       { label: "gated by-id read", method: "GET", path: "/api/orders/{id}" },
+      // …and the same declared find's own route, under the same gate.
+      { label: "gated byId find route", method: "GET", path: "/api/orders/by_id?id={id}" },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
