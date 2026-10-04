@@ -154,4 +154,41 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       );
     });
   });
+
+  describe("python", () => {
+    it("app/auth/user.py: origin snapshot, origin → system principal, the delivery frame", async () => {
+      const u = get(await gen("python"), "ship_api/app/auth/user.py");
+      expect(u).toContain("def current_event_origin() -> dict[str, str | None] | None:");
+      expect(u).toContain(
+        '        "causedBy": user.caused_by if user.is_system else str(user.id),',
+      );
+      expect(u).toContain("def system_principal_for(origin: Mapping[str, object] | None) -> User:");
+      expect(u).toContain('        tenant_id="" if tenant is None else tenant,');
+      expect(u).toContain("    return system_principal_for(current_event_origin())");
+      expect(u).toContain("    token = current_user_var.set(system_principal_for(origin))");
+    });
+
+    it("producer: the outbox row records the origin; the relay publishes inside it", async () => {
+      const d = get(await gen("python"), "sales_api/app/dispatch.py");
+      expect(d).toContain(
+        'payload={**_event_to_payload(event), "__loomOrigin": current_event_origin()}',
+      );
+      expect(d).toContain('            with event_origin_frame(payload.get("__loomOrigin")):');
+      expect(d).toContain("from app.auth.user import current_event_origin, event_origin_frame");
+    });
+
+    it("envelope carries the origin attributes; the consumer dispatches inside it", async () => {
+      const ch = get(await gen("python"), "ship_api/app/channels.py");
+      expect(ch).toContain('    ("tenantid", "tenant"),');
+      expect(ch).toContain("    origin = current_event_origin()");
+      expect(ch).toContain("                envelope[attr] = value");
+      expect(ch).toContain("        with event_origin_frame(_origin_of(envelope)):");
+    });
+
+    it("an auth-less deployable keeps the bare row and envelope", async () => {
+      const files = await gen("python", false);
+      expect(get(files, "sales_api/app/dispatch.py")).not.toContain("__loomOrigin");
+      expect(get(files, "ship_api/app/channels.py")).not.toContain("tenantid");
+    });
+  });
 });
