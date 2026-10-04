@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Aggregate } from "../../src/language/generated/ast.js";
 import { printExpr } from "../../src/language/print/print-expr.js";
 import type {
   FilterParam,
@@ -391,9 +392,9 @@ describe("scaffold list/detail — the optimistic-concurrency counter stays off 
   it("drops the spliced `version` from the list columns and detail rows", async () => {
     const { model, errors } = await parseString(src);
     expect(errors).toEqual([]);
-    const task = findNode(model, "Aggregate", "Task");
+    const task: Aggregate = findNode(model, "Aggregate", "Task");
     // the field really is on the aggregate (still on the wire / DTO)…
-    expect(task.members.some((m) => (m as { name?: string }).name === "version")).toBe(true);
+    expect(task.members.some((m) => m.$type === "Property" && m.name === "version")).toBe(true);
     // …but not on the page
     expect(scalarColumnsForAggregate(task).map((c) => c.name)).toEqual(["title"]);
     const details = printExpr(scaffoldDetails(task));
