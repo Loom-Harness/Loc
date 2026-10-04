@@ -1,9 +1,19 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
+import { pyRef } from "../_imports/python.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { PY } from "./py-symbols.js";
+
+const prov = (n: string): string => pyRef("app.domain.provenance", n);
+const PROV = {
+  ProvInput: prov("ProvInput"),
+  ProvLineage: prov("ProvLineage"),
+  ProvTarget: prov("ProvTarget"),
+  record: prov("record"),
+} as const;
+
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -103,13 +113,13 @@ function withProv(
   const computed = renderPath(target);
   const field = prov.target.field;
   const inputs = collectLeaves(value, renderPyExpr)
-    .map((l) => `ProvInput(path=${JSON.stringify(l.path)}, value=${l.value})`)
+    .map((l) => `${PROV.ProvInput}(path=${JSON.stringify(l.path)}, value=${l.value})`)
     .join(", ");
   return wrapProvCapture(base, {
     snapshot: `${i}${tmp} = [${inputs}]`,
-    lineage: `${i}${lin} = ProvLineage(snapshot_id=${JSON.stringify(prov.snapshotId)}, target=ProvTarget(type=${JSON.stringify(prov.target.type)}, field=${JSON.stringify(field)}), inputs=${tmp}, computed_value=${computed})`,
+    lineage: `${i}${lin} = ${PROV.ProvLineage}(snapshot_id=${JSON.stringify(prov.snapshotId)}, target=${PROV.ProvTarget}(type=${JSON.stringify(prov.target.type)}, field=${JSON.stringify(field)}), inputs=${tmp}, computed_value=${computed})`,
     colocated: `${i}self._${snake(field)}_provenance = ${lin}`,
-    sink: `${i}record(${lin})`,
+    sink: `${i}${PROV.record}(${lin})`,
   });
 }
 
@@ -206,7 +216,7 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
 
     emit: (s) => {
       const kwargs = s.fields.map((f) => `${snake(f.name)}=${renderPyExpr(f.value)}`).join(", ");
-      const ev = `${s.eventName}(${kwargs})`;
+      const ev = `${pyRef("app.domain.events", s.eventName)}(${kwargs})`;
       if (ctx.eventSourced) {
         return [`${i}__ev = ${ev}`, `${i}self._events.append(__ev)`, `${i}self._apply(__ev)`].join(
           "\n",

@@ -16,7 +16,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
-import { pyModule, pyRef } from "../_imports/python.js";
+import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
@@ -333,8 +333,6 @@ export function buildPyDispatchFile(
       ? ["", "", outboxBlock(durableEvents, { durableBroker, pureProducer: false, hasRealtime })]
       : []),
   );
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
   const eventNames = [...new Set(subs.map((s) => s.event))].sort();
   // `let x = Agg.create({...})` constructs the domain class directly.
   const factoryAggs = [
@@ -360,29 +358,17 @@ export function buildPyDispatchFile(
   const esEventNames = touchedWorkflows
     .filter((w) => w.eventSourced)
     .flatMap((w) => (w.appliers ?? []).map((a) => a.event));
-  const idNames = ctx.aggregates
-    .map((a) => `${a.name}Id`)
-    .filter((n) => refersTo(n))
-    .sort();
 
   return lines(
     `"""In-process event dispatch (channels.md).  Auto-generated."""`,
     "",
-    // The names below are still spelled bare by helpers this module shares
-    // (the workflow statement target, the event-store `fromData` codec, the
-    // numeric codec) — scanned until those write markers.
-    refersTo("datetime") ? "from datetime import UTC, datetime" : null,
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
-    refersTo("cast") ? "from typing import cast" : null,
-    "",
+    PY_IMPORTS,
     "from sqlalchemy.ext.asyncio import AsyncSession",
-    refersTo("DomainError") ? "from app.domain.errors import DomainError" : null,
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
       ...[...new Set([...eventNames, ...esEventNames])].sort(),
     ].join(", ")}`,
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
     ...resourceImports,
     // Domain-service calls render as bare functions (`quote(...)`) — import

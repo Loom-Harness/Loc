@@ -168,9 +168,6 @@ export function renderPyAggregate(
     "",
     PY_IMPORTS,
     `from app.domain.events import ${eventImports.join(", ")}`,
-    emitProvenance
-      ? "from app.domain.provenance import ProvInput, ProvLineage, ProvTarget, record"
-      : null,
     "",
     "",
     body,
