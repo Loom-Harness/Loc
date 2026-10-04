@@ -15,6 +15,7 @@ import {
   validateMigrationDataSteps,
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
+import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validateFindGates,
@@ -285,6 +286,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validatePagedParamNames(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateContextIntegrationTests(c, diags);

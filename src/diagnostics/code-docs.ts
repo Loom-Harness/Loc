@@ -136,6 +136,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":

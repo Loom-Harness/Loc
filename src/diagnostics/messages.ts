@@ -1239,6 +1239,38 @@ export const DIAGNOSTIC_MESSAGES = {
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
+  "loom.paged-param-reserved#find": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    key: unknown;
+    reserved: unknown;
+  }) =>
+    `repository '${p.name}' paged find '${p.findName}': parameter '${p.param}' collides with the ` +
+    `paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would carry ` +
+    `two values for one query key, and every generated repository / controller signature a duplicate ` +
+    `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
+  "loom.paged-param-reserved#criterion": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    key: unknown;
+    reserved: unknown;
+  }) =>
+    `criterion '${p.name}' parameter '${p.param}' becomes a parameter of the paged read ` +
+    `'${p.findName}' a paged queryHandler runs it through, where it collides with the paging query ` +
+    `parameter '${p.key}' (${p.reserved}) — a duplicate parameter in every generated repository ` +
+    `signature.  Rename the criterion parameter (e.g. '${p.param}Filter').`,
+  "loom.paged-param-reserved#query-handler": (p: {
+    name: unknown;
+    param: unknown;
+    key: unknown;
+    reserved: unknown;
+  }) =>
+    `queryHandler '${p.name}' returns a \`paged\` result, and its parameter '${p.param}' collides with ` +
+    `the paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would ` +
+    `carry two values for one query key, and the generated handler / route signature a duplicate ` +
+    `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
   "loom.generic-carrier-unsupported": (p: {
     where: unknown;
     ctor: unknown;
