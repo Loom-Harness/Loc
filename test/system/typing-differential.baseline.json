@@ -1,1 +1,19 @@
-{"floors":{"docs":0,"expressions":0},"classes":{}}
+{
+  "floors": {
+    "docs": 2800,
+    "expressions": 250000
+  },
+  "classes": {
+    "agree": 106626,
+    "conflict": 3153,
+    "declaration-name": 52834,
+    "new-differs": 145,
+    "new-only": 77325,
+    "new=ir": 13807,
+    "new=lang": 769,
+    "nobody-knows": 7387,
+    "not-lowered-agree": 2050,
+    "not-lowered-differ": 467,
+    "unreached": 0
+  }
+}

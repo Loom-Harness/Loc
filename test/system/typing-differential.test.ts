@@ -42,12 +42,19 @@
 // causes and samples per (class, $type, lang, ir, new) cell.
 
 import * as fs from "node:fs";
-import { AstUtils } from "langium";
+import { type AstNode, AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { inferExprType, setLowerExprObserver } from "../../src/ir/lower/lower-expr.js";
 import type { TypeIR } from "../../src/ir/types/loom-ir.js";
-import { type Expression, isExpression, type Model } from "../../src/language/generated/ast.js";
+import {
+  type Expression,
+  isExpression,
+  isMemberSuffix,
+  isNameRef,
+  isPostfixChain,
+  type Model,
+} from "../../src/language/generated/ast.js";
 import type { DddType } from "../../src/language/type-system.js";
 import { envForNode, typeOf } from "../../src/language/type-system.js";
 import { tyKey, typingSession } from "../../src/language/typing/index.js";
@@ -58,7 +65,16 @@ import {
   UNPARSEABLE_DDD,
 } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/index.js";
-import BASELINE from "./typing-differential.baseline.json" with { type: "json" };
+
+/** The pinned counts — read rather than JSON-imported (the repo compiles on a
+ *  module setting where `import … with { type: "json" }` does not typecheck). */
+const BASELINE = JSON.parse(
+  fs.readFileSync(new URL("./typing-differential.baseline.json", import.meta.url), "utf8"),
+) as { floors: { docs: number; expressions: number }; classes: Record<string, number> };
+
+/** Classes pinned exactly / pinned as a ceiling (see the two gates below). */
+const EXACT = ["unreached", "new-differs"] as const;
+const CEILING = ["conflict", "nobody-knows", "new=lang", "not-lowered-differ"] as const;
 
 /** The language layer's answer, in the shared key space (#3125's). */
 function langKey(t: DddType | undefined): string {
@@ -217,8 +233,8 @@ async function differential(): Promise<Tally> {
       const neu = nt ? tyKey(nt) : "(unreached)";
       if (nt?.kind === "unknown") {
         bump(tally.newUnknownByCause, nt.cause);
-        if (nt.cause === "unresolved-name" && node.$type === "NameRef") {
-          let c = node.$container;
+        if (nt.cause === "unresolved-name" && isNameRef(node)) {
+          let c: AstNode | undefined = node.$container;
           while (
             c &&
             (isExpression(c) ||
@@ -227,13 +243,22 @@ async function differential(): Promise<Tally> {
               c.$type.endsWith("Suffix"))
           )
             c = c.$container;
-          bump(tally.unresolvedNames, `${c?.$type} ${(node as { name?: string }).name}`);
+          bump(tally.unresolvedNames, `${c?.$type} ${node.name}`);
+        }
+        if (nt.cause === "unresolved-member" && isPostfixChain(node)) {
+          const path = node.suffixes.map((x) => (isMemberSuffix(x) ? x.member : "()"));
+          bump(tally.unresolvedNames, `.member ${path.join(".")}`);
         }
       }
       const irk = ir.get(node);
       let klass: Klass;
-      if (!nt) klass = "unreached";
-      else if (nt.kind === "unknown" && nt.cause === "not-a-value") klass = "declaration-name";
+      if (!nt) {
+        klass = "unreached";
+        bump(
+          tally.unresolvedNames,
+          `UNREACHED ${node.$type} ${src.name} ${node.$container?.$type}`,
+        );
+      } else if (nt.kind === "unknown" && nt.cause === "not-a-value") klass = "declaration-name";
       else if (irk === undefined) klass = neu === lang ? "not-lowered-agree" : "not-lowered-differ";
       else if (neu === lang && neu === irk) klass = "agree";
       else if (lang === "unknown" && irk === "p:string" && neu !== "p:string") {
@@ -294,10 +319,25 @@ describe("M-T5.44 shadow mode — three-way typing differential", () => {
     expect(tally.byClass.unreached ?? 0).toBe(0);
   });
 
-  it("each disagreement class matches its pinned count (shrink-only, exact)", () => {
-    const actual: Record<string, number> = {};
-    for (const k of Object.keys(BASELINE.classes)) actual[k] = tally.byClass[k] ?? 0;
-    for (const k of Object.keys(tally.byClass)) if (!(k in actual)) actual[k] = tally.byClass[k]!;
-    expect(actual).toEqual(BASELINE.classes);
+  // `new-differs` rows are each TRIAGED (the PR that pins a count names what
+  // the rows are), so the count is exact: a new one is a pass bug or a new
+  // defect, and one that disappears must lower the pin.
+  it("the triaged classes match their pinned counts exactly", () => {
+    for (const k of EXACT)
+      expect({ [k]: tally.byClass[k] ?? 0 }).toEqual({ [k]: BASELINE.classes[k] });
+  });
+
+  // The failure classes may not GROW. A band absorbs fixtures other PRs add
+  // (every `.ddd` added anywhere adds expressions to every class); a real
+  // regression in one of the three checkers moves a class by far more.
+  it("the failure classes do not grow", () => {
+    for (const k of CEILING) {
+      const pinned = BASELINE.classes[k] ?? 0;
+      const allowed = Math.ceil(pinned * 1.02) + 25;
+      expect(
+        tally.byClass[k] ?? 0,
+        `${k}: pinned ${pinned}, allowed up to ${allowed}`,
+      ).toBeLessThanOrEqual(allowed);
+    }
   });
 });

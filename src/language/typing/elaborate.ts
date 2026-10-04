@@ -15,6 +15,7 @@
 import type { AstNode } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
+import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
 import {
   ORG_CONTEXT_ACCESSOR,
@@ -352,6 +353,15 @@ export class Elaborator {
       const s = scope.child();
       if (!isStore(node)) this.bindParams(s, node.params);
       const decls: AstNode[] = isPage(node) ? node.props : node.decls;
+      // Route `:segments` bind as strings (the URL is text; every frontend reads it so).
+      for (const d of decls) {
+        if (d.$type !== "RouteProp") continue;
+        for (const m of String((d as { value?: string }).value ?? "").matchAll(
+          /:([A-Za-z_][A-Za-z0-9_]*)/g,
+        )) {
+          if (!s.lookup(m[1]!)) s.bind(m[1], Ty.prim("string"), d, "param");
+        }
+      }
       for (const d of decls) {
         if (isStateBlock(d))
           for (const f of d.fields) s.bind(f.name, this.resolveType(f.type, s), f, "state");
@@ -576,6 +586,10 @@ export class Elaborator {
       return this.thisType(scope) ?? Ty.unknown("unresolved-name");
     const local = scope.lookup(name);
     if (local) return local.ty;
+    // `test e2e` call roots are resolved at render time against the target
+    // deployable; typing them is cutover family 3f's (a pass gap, not an
+    // author error).
+    if (f.e2e && (name === "api" || name === "ui")) return Ty.unknown("no-rule");
     const member = f.owner ? this.ownerMember(f.owner, name, scope) : undefined;
     if (member) return member;
     // A store named as a value (`Cart.lines` heads resolve here).
@@ -727,7 +741,13 @@ export class Elaborator {
       const el = source ? elementOf(this.synth(source.value, scope)) : undefined;
       if (el) body = scope.child({ rowElem: el });
     }
-    const queryResult = name === "QueryView" ? this.queryResultType(entries, scope) : undefined;
+    let queryResult = name === "QueryView" ? this.queryResultType(entries, scope) : undefined;
+    // `paged: true` — the read answers one page: the `data:` lambda binds the
+    // `Paged<T>` envelope (`rows.items`, `rows.totalPages`), not the list.
+    const paged = entries.find((x) => x.name === "paged")?.value;
+    if (queryResult?.kind === "array" && paged && isBoolLit(paged) && paged.value === "true") {
+      queryResult = { kind: "generic", ctor: "paged", arg: queryResult.element };
+    }
     void at;
     for (const entry of entries) {
       if (queryResult && entry.name === "data" && isLambda(entry.value))
@@ -834,15 +854,17 @@ export class Elaborator {
     let cur: Ty | undefined;
     let start = 0;
     if (headName !== undefined && first) {
-      cur = this.chainHead(e, headName, first, scope);
-      if (cur) {
+      const head = this.chainHead(e, headName, first, scope);
+      cur = head?.t;
+      if (head) {
         if (isNameRef(e.head) && !this.types.has(e.head)) {
           // The head NAME of a call / repository / service / store chain is not
           // a value of its own; record what it names for the LSP.
           this.types.set(e.head, this.headNameType(headName, scope, e.head));
         }
-        this.types.set(first, cur);
-        start = 1;
+        this.types.set(first, head.t);
+        start = head.consumed;
+        if (start > 1) this.types.set(e.suffixes[start - 1]!, head.t);
       }
     }
     if (!cur) cur = this.synth(e.head, scope);
@@ -869,7 +891,18 @@ export class Elaborator {
     name: string,
     first: PostfixSuffix,
     scope: Scope,
-  ): Ty | undefined {
+  ): { t: Ty; consumed: number } | undefined {
+    const t = this.chainHeadType(e, name, first, scope);
+    if (t === undefined) return undefined;
+    return { t: t.t, consumed: t.consumed };
+  }
+
+  private chainHeadType(
+    e: PostfixChain,
+    name: string,
+    first: PostfixSuffix,
+    scope: Scope,
+  ): { t: Ty; consumed: number } | undefined {
     const node = e.head;
     // A value of that name in scope wins over every declaration-name form.
     const shadowed = scope.lookup(name) !== undefined;
@@ -879,7 +912,7 @@ export class Elaborator {
       if (scope.frame.ui && t.kind === "slot" && isWalkerPrimitive(name)) {
         this.synthPrimitiveArgs(name, args, scope, node);
       } else this.synthArgs(args, scope);
-      return t;
+      return { t: t, consumed: 1 };
     }
     if (!isMemberSuffix(first) || shadowed) return undefined;
     const ms = first;
@@ -889,24 +922,29 @@ export class Elaborator {
       this.index.find("projection", name, node) ||
       this.index.find("workflow", name, node);
     if (scope.frame.ui && readHead) {
+      // The read consumes the whole chain: its suffixes are path segments, not
+      // member accesses on a value.
       for (const s of e.suffixes) if (isMemberSuffix(s) && s.call) this.synthArgs(s.args, scope);
       for (const s of e.suffixes.slice(1)) this.types.set(s, Ty.unknown("not-a-value"));
-      return this.apiReadType(e, scope) ?? Ty.unknown("no-rule");
+      return {
+        t: this.apiReadType(e, scope) ?? Ty.unknown("no-rule"),
+        consumed: e.suffixes.length,
+      };
     }
     if (name === "permissions" && !ms.call && !scope.lookup("permissions")) {
       const perms = this.permissionsVisible(node);
-      if (perms) return Ty.prim("string");
+      if (perms) return { t: Ty.prim("string"), consumed: 1 };
     }
     if (!ms.call) {
       const en = this.index.find("enum", name, node);
       if (en?.values.some((v) => v.name === ms.member))
-        return { kind: "enum", ref: en, name: en.name };
+        return { t: { kind: "enum", ref: en, name: en.name }, consumed: 1 };
     }
     if (ms.call && ms.member === "create") {
       const agg = this.index.find("aggregate", name, node);
       if (agg) {
         this.synthArgs(ms.args, scope);
-        return Ty.record({ of: "aggregate", ref: agg });
+        return { t: Ty.record({ of: "aggregate", ref: agg }), consumed: 1 };
       }
     }
     if (ms.call) {
@@ -914,14 +952,20 @@ export class Elaborator {
       if (repo && !this.index.find("aggregate", name, node)) {
         const agg = repo.aggregate?.ref;
         this.synthArgs(ms.args, scope);
-        return agg ? this.repoReadType(repo, agg, ms, scope) : Ty.unknown("unresolved-type");
+        return {
+          t: agg ? this.repoReadType(repo, agg, ms, scope) : Ty.unknown("unresolved-type"),
+          consumed: 1,
+        };
       }
       const svc = this.index.find("service", name, node);
       if (svc) {
         this.synthArgs(ms.args, scope);
         const op = svc.operations.find((o) => o.name === ms.member);
-        if (!op) return Ty.unknown("unresolved-member");
-        return op.returnType ? this.resolveType(op.returnType, scope) : Ty.never;
+        if (!op) return { t: Ty.unknown("unresolved-member"), consumed: 1 };
+        return {
+          t: op.returnType ? this.resolveType(op.returnType, scope) : Ty.never,
+          consumed: 1,
+        };
       }
     }
     return undefined;
@@ -1006,6 +1050,18 @@ export class Elaborator {
 
   /** The receiver type after one postfix suffix. */
   private afterSuffix(recv: Ty, s: PostfixSuffix, scope: Scope): Ty {
+    const t = this.afterSuffixInner(recv, s, scope);
+    // Every argument is typed, whether or not the member resolved.
+    if (isMemberSuffix(s) && s.call) {
+      for (const a of s.args) if (!this.types.has(a.value)) this.synth(a.value, scope);
+    }
+    // An assertion matcher (`expect(x).toBe(y)`) is a statement, not a value.
+    if (t.kind === "unknown" && isMemberSuffix(s) && s.call && isIntrinsicMatcher(s.member))
+      return Ty.never;
+    return t;
+  }
+
+  private afterSuffixInner(recv: Ty, s: PostfixSuffix, scope: Scope): Ty {
     if (isCallSuffix(s)) {
       this.synthArgs(s.args, scope);
       return Ty.unknown("no-rule");
@@ -1022,6 +1078,8 @@ export class Elaborator {
     switch (recv.kind) {
       case "record":
         return this.recordMember(recv.shape, ms, scope);
+      case "generic":
+        return genericMember(recv.ctor, recv.arg, name) ?? Ty.unknown("unresolved-member");
       case "valueobject": {
         if (!recv.ref) return Ty.unknown("unresolved-type");
         const t = this.memberOf(recv.ref, ms, scope);
@@ -1202,6 +1260,23 @@ export class Elaborator {
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
+
+/** A member of a blessed generic carrier (the field lists of
+ *  `src/ir/stdlib/generics.ts`). */
+function genericMember(ctor: string, arg: Ty, name: string): Ty | undefined {
+  if (ctor === "paged") {
+    if (name === "items") return Ty.array(arg);
+    if (["page", "pageSize", "total", "totalPages"].includes(name)) return Ty.prim("int");
+  } else if (ctor === "envelope") {
+    if (name === "id") return Ty.prim("string");
+    if (name === "ts") return Ty.prim("datetime");
+    if (name === "body") return arg;
+  } else if (ctor === "provenanced") {
+    if (name === "value") return arg;
+    if (name === "lineage") return Ty.opt(Ty.prim("json"));
+  }
+  return undefined;
+}
 
 /** The collection argument of each row-shaped walker primitive. */
 const ROW_SOURCE_ARG: Readonly<Record<string, string>> = {

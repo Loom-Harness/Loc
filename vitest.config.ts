@@ -52,6 +52,7 @@ const CORPUS = [
   "test/system/emitted-unbound-identifiers.test.ts",
   "test/system/openapi-component-uniqueness-census.test.ts",
   "test/cli/new.test.ts",
+  "test/system/typing-differential.test.ts",
 ];
 
 const INCLUDE = ["test/**/*.test.ts", "packages/**/*.test.ts"];
