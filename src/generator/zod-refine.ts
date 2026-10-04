@@ -153,9 +153,10 @@ export function refineRenderable(e: ExprIR): boolean {
  *  violation reached the user as zod's `"Invalid input"` — under a field whose
  *  bound the message never named (field-test finding D2).
  *
- *  This is the NATIVE-CHAIN carrier only, which is node-local: each backend's
- *  own chain (`FluentValidation`, `Field(min_length=…)`, `validate_length`)
- *  carries that framework's default text.  The message-LESS `.refine(…)`
+ *  This is the NATIVE-CHAIN carrier.  Python re-words its `Field(…)`
+ *  violations to this same sentence (D-MESSAGELESS-RULE-WIRE-MESSAGE, #15d —
+ *  `python/emit/wire-constraints.ts`); .NET (`FluentValidation`), Java and
+ *  Elixir (`validate_length`) still carry their own text (M-T6.86).  The message-LESS `.refine(…)`
  *  clause default (`"Invariant violated: <src>"`, in `refineClauseFor` below)
  *  is by contrast a CROSS-BACKEND string all five wire validators emit
  *  verbatim, so it is deliberately left alone here.

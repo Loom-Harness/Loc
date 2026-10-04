@@ -676,3 +676,17 @@ Item **P15** (#2736). An `invariant` without an explicit message surfaces the ra
 Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-floor shape). The same precondition inside a domain-service operation, a top-level `function` or a workflow step still answers a 422 whose body carries only the message, with no stable `code` — so a client cannot branch on it and the LiveView flash (see [M-T6.77](#m-t677) E5) cannot either.
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
+
+## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
+
+*Minted 2026-10-04 by the #15d fix (ruling D10 of the 2026-09-28 eval-closure review, PR #3153). M-T6.85 is reserved by #3152.*
+
+A message-less single-field rule (`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) is a native wire constraint on every backend. Node's zod chain denies it with the synthesized per-field sentence (`singleFieldMessage` in `src/generator/zod-refine.ts`: "Amount must be at least 1", "Code is not in the expected format"); since #3153 python sends the same sentence (a per-model wrap `field_validator` table in `src/generator/python/emit/wire-constraints.ts`). The other three still diverge, measured on booted legs against `validation-messages` (golden seq 12/13):
+
+- **.NET (EF + Dapper)** — FluentValidation's default: `'Amount' must be greater than or equal to '1'.`, `'Code' is not in the correct format.`
+- **Java** — the derived refine default: `Invariant violated: amount >= 1`.
+- **Elixir** — a message-less PRECONDITION never reaches the wire validator at all: it answers the domain-floor 422 (`title: "Unprocessable Entity"`, `detail: "Precondition failed: amount >= 1"`, no `errors[]`).
+
+**The fix:** each backend's native carrier takes the node sentence as its message (`.WithMessage(…)`, the Bean Validation `message`, the Ecto `message:` option), derived from the same `singleFieldShape` classification; elixir additionally routes a wire-translatable message-less precondition through the shared `errors[]` 422 sender, as M-T6.20 did for the messaged one.
+
+**Verification.** Delete the four `M-T6.86` waivers in `test/_helpers/wire-waivers.ts`; the dotnet / dapper / java / elixir behavioral legs then gate `validation-messages` seq 12/13 against the node golden.

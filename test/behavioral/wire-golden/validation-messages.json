@@ -180,6 +180,51 @@
     },
     {
       "seq": 12,
+      "method": "POST",
+      "path": "/api/products/{id}/ship",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Amount must be at least 1",
+            "pointer": "/amount"
+          }
+        ],
+        "instance": "/api/products/{id}/ship",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/products/{id}/retag",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Code is not in the expected format",
+            "pointer": "/code"
+          }
+        ],
+        "instance": "/api/products/{id}/retag",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/products/{id}/retag",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/products",
       "status": 405,
@@ -192,7 +237,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -205,7 +250,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "POST",
       "path": "/api/products",
       "status": 400,
