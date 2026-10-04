@@ -415,7 +415,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.frontend-collection-op-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-collection-display-checks.ts:660",
+    site: "src/ir/validate/checks/ui-collection-display-checks.ts:658",
     what:
       "EIGHT of the seventeen stdlib collection ops over a collection receiver in a " +
       "walker-rendered page/component/store expression. The nine that RESHAPE a collection " +
@@ -495,7 +495,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.paged-query-handler-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:246",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:243",
     what:
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
       "seam for a NEW backend",
@@ -526,7 +526,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-groupby-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:108",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:105",
     what:
       "`group by` grouped read models ship on all five backends (PROJECTION_GROUPBY_SUPPORTED) " +
       "— latent seam for a NEW backend",
@@ -535,7 +535,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-query-time-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:273",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:270",
     what:
       "query-time projections ship on all five backends (PROJECTION_QT_SUPPORTED) — latent seam " +
       "for a NEW backend",
@@ -544,7 +544,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-source-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:359",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:356",
     what:
       "a projection sourced from another projection's rows ships on all five backends " +
       "(PROJECTION_PROJ_SOURCE_SUPPORTED) — latent seam for a NEW backend",
@@ -553,7 +553,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-whole-table-aggregation-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:72",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:69",
     what:
       "whole-table `select f = agg(…)` SQL push-down ships on all five backends " +
       "(PROJECTION_AGG_SUPPORTED) — latent seam for a NEW backend",
@@ -562,7 +562,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-workflow-source-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:316",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:313",
     what:
       "a projection sourced from a workflow's instance rows ships on all five backends " +
       "(PROJECTION_WF_SOURCE_SUPPORTED) — latent seam for a NEW backend",
@@ -589,7 +589,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.saving-shape-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/datasource-checks.ts:214",
+    site: "src/ir/validate/checks/datasource-checks.ts:215",
     what:
       "re-classified from a live latent seam to a dormant one: every platform key already in " +
       "PLATFORM_SAVING_SHAPES (dotnet/node/python/java, plus elixir widened to `document` in " +
@@ -635,7 +635,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.table-filter-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-collection-display-checks.ts:332",
+    site: "src/ir/validate/checks/ui-collection-display-checks.ts:330",
     what:
       "`Table { filter: <state> }` on a framework with no filter seam.  LATENT seam for a NEW " +
       "frontend: `TABLE_FILTER_FRAMEWORKS` now names every `framework:` the grammar admits.  " +
@@ -653,7 +653,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.modal-controlled-op-form-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-collection-display-checks.ts:406",
+    site: "src/ir/validate/checks/ui-collection-display-checks.ts:404",
     what:
       "`Modal { open: <stateBool>, OperationForm { … } }` on react / vue / svelte / flutter, " +
       "where `emitModal` only reaches the state-controlled path when there is NO form child and " +
@@ -683,7 +683,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-gate-expr-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:1118",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1105",
     what:
       "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
       "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +

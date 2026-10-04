@@ -1355,6 +1355,26 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
   // Member access transparently unwraps a single optional level.
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   switch (t.kind) {
+    // An ARRAY's member surface is exactly the collection-op catalogue
+    // (`COLLECTION_OP_SIGNATURES`) — which is already what `membersOfType`
+    // offers for completion on an array receiver, so this arm only makes
+    // VALIDATION agree with what completion has always claimed.
+    //
+    // Without it `collectionOpType`'s `default` returned `T.unknown` for an
+    // absent member, and `unknown` is the value every downstream check
+    // suppresses on — so a typo'd or invented collection op on an array
+    // receiver was reported NOWHERE and reached the emitters verbatim
+    // (testability audit F1's residue; the same shape in an aggregate
+    // `operation` and in a `domainService` body alike).
+    //
+    // `sum`/`avg`/`min`/`max` in their BARE form are collection ops, so they
+    // pass here and are refused by `loom.bare-collection-accessor` instead —
+    // its message names the lambda form, which is the actionable fix.
+    case "array":
+      // `length` is an alias `collectionOpType` types as `int` (see there); it
+      // is legal on an array but absent from the catalogue, so `isCollectionOp`
+      // alone would reject it.
+      return isCollectionOp(name) || name === "length" ? undefined : typeToString(t);
     case "aggregate": {
       if (name === "id") return undefined;
       return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;
@@ -1416,6 +1436,19 @@ function collectionOpType(
 ): DddType {
   switch (name) {
     case "count":
+    // `<array>.length` — an ALIAS for `count`, not a catalogue op.  The IR has
+    // typed it as `int` all along (`lower-expr.ts`, the `array` arm), and its
+    // comment there claims this is "exactly as the language type-system already
+    // reports it" — which was NOT true: `collectionOpType` had no `length` case,
+    // so the language layer returned `T.unknown` while the IR and every emitter
+    // handled it (java renders `.size()`, and the corpus relies on it).  That is
+    // the same IR/language disagreement shape as F1, found by this PR's own gate
+    // turning a valid fixture red.
+    //
+    // It is deliberately NOT added to COLLECTION_OP_SIGNATURES: that catalogue
+    // drives `collection-op-completeness`, which requires every backend to
+    // RENDER each entry, and `length` is spelled `count` there.
+    case "length":
       return T.prim("int");
     case "sum": {
       // sum returns the lambda's body type when one is given;
