@@ -265,7 +265,9 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
       // use matches the (also-escaped) binding (`let new` → `new_`).
       return escapeTsIdent(e.name);
     case "param":
-      return ctx.paramExpr?.(e.name) ?? e.name;
+      // A parameter BINDING escapes a reserved word (`class` → `class_`) at
+      // its declaration, so the use escapes the same way.
+      return ctx.paramExpr?.(e.name) ?? escapeTsIdent(e.name);
     case "this-prop":
       // Inside the aggregate class: read the private backing field.
       // Outside (projection reads, e.g. row `r`): use the public

@@ -19,7 +19,7 @@ import {
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../../util/intrinsics.js";
-import { snake } from "../../../util/naming.js";
+import { escapeTsIdent, snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../../_expr/subtree-like.js";
 import { isReservedIdent } from "../../sql-reserved.js";
@@ -333,7 +333,7 @@ function comparisonEntry(e: Extract<ExprIR, { kind: "binary" }>, acc: string): s
 function filterValue(e: ExprIR, acc: string): string {
   switch (e.kind) {
     case "ref":
-      if (e.refKind === "param") return e.name;
+      if (e.refKind === "param") return escapeTsIdent(e.name);
       if (e.refKind === "enum-value") return JSON.stringify(e.name);
       throw new Error(`mikroorm: unsupported ref '${e.refKind}' in find`);
     case "member":

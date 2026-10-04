@@ -35,6 +35,7 @@ import {
   collectionSuccess,
   deriveContextOperations,
 } from "../../../../ir/util/api-surface.js";
+import { escapeTsIdent } from "../../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../../util/resource-env.js";
 
 /** The aggregate an operation answers with, looked up ACROSS the system — the
@@ -79,7 +80,7 @@ function pathExpr(op: ApiOperationIR): string {
   let out = op.path;
   for (const p of op.params) {
     if (p.location !== "path") continue;
-    out = out.replace(`{${p.name}}`, `\${encodeURIComponent(String(${p.name}))}`);
+    out = out.replace(`{${p.name}}`, `\${encodeURIComponent(String(${escapeTsIdent(p.name)}))}`);
   }
   return `\`${out}\``;
 }
@@ -197,7 +198,7 @@ export function emitApiClientModule(
       // which a naive `JSON.stringify(bodyParams[0])` does — silently drops
       // every argument after the first.
       const wholeShapeBody = bodyParams.length === 1 && bodyParams[0]?.type.kind === "entity";
-      const params = op.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+      const params = op.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
       // The parsed shape and the declared return move together: whichever
       // schema the body is parsed against is the one the signature names.
       const parseSchema = createName ?? pagedName ?? schemaName;
@@ -216,15 +217,16 @@ export function emitApiClientModule(
       out.push(`  const url = new URL(${pathExpr(op)}, ${b.resource.name}BaseUrl);`);
       for (const q of query) {
         out.push(
-          `  if (${q.name} !== undefined) url.searchParams.set(${JSON.stringify(q.name)}, String(${q.name}));`,
+          `  if (${escapeTsIdent(q.name)} !== undefined) url.searchParams.set(${JSON.stringify(q.name)}, String(${escapeTsIdent(q.name)}));`,
         );
       }
       out.push(`  const res = await fetch(url, {`);
       out.push(`    method: ${JSON.stringify(op.method.toUpperCase())},`);
       if (bodyParams.length > 0) {
         const payload = wholeShapeBody
-          ? (bodyParams[0]?.name ?? "body")
-          : `{ ${bodyParams.map((p) => p.name).join(", ")} }`;
+          ? escapeTsIdent(bodyParams[0]?.name ?? "body")
+          : // Shorthand keeps the wire key; an escaped binding spells it out.
+            `{ ${bodyParams.map((p) => (escapeTsIdent(p.name) === p.name ? p.name : `${p.name}: ${escapeTsIdent(p.name)}`)).join(", ")} }`;
         out.push(`    headers: { "content-type": "application/json" },`);
         out.push(`    body: JSON.stringify(${payload}),`);
       }

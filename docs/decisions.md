@@ -4565,6 +4565,16 @@ languages' keyword lists.
   the two outward names: the DB column via `mapped_column("def", …)`, the wire
   key via a pydantic `alias` / `Query(alias=…)`. This mirrors Java's M-T6.36
   (`@JsonProperty` / `@Column`).
+- **Node (Hono / TypeScript)** escapes through `escapeTsIdent` (`class` →
+  `class_`, the strict-mode + module reserved set) at every BINDING position:
+  operation / function / domain-service / VO-ctor / repository-find /
+  criterion-fn / extern-hook / event-applier / projection-fold params, and the
+  `const` locals the route, workflow and handler emitters bind. PROPERTY
+  positions keep the declared name — `this._class`, `get class()`,
+  `{ class: class_ }`, `schema.things.class`, the zod wire key — since any
+  string is a legal TS property, so the wire and the DB column never move. The
+  React / Vue / Svelte / Angular emitters bind no field name as an identifier
+  (form state is keyed objects), so they needed no change.
 - **.NET, node, python** rename the generated private invariant helper — and
   only when a member actually takes its name, so every other model's output is
   byte-identical (the conservative sub-choice: a fixed rename would have moved

@@ -81,7 +81,7 @@ import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { emitWireSchema, QUERY_BOOL, wireToDomainExpr, zodFor } from "./routes-builder.js";
 import {
@@ -257,12 +257,16 @@ function emitPagedRunHandler(
   out.push(`    const query = httpCtx.req.valid("query");`);
   const paramExprs = new Map<string, string>();
   for (const p of pathParams) {
-    out.push(`    const ${p.name} = ${wireToDomainExpr(`params.${p.name}`, p.type, ctx)};`);
-    paramExprs.set(p.name, p.name);
+    out.push(
+      `    const ${escapeTsIdent(p.name)} = ${wireToDomainExpr(`params.${p.name}`, p.type, ctx)};`,
+    );
+    paramExprs.set(p.name, escapeTsIdent(p.name));
   }
   for (const p of queryParams) {
-    out.push(`    const ${p.name} = ${wireToDomainExpr(`query.${p.name}`, p.type, ctx)};`);
-    paramExprs.set(p.name, p.name);
+    out.push(
+      `    const ${escapeTsIdent(p.name)} = ${wireToDomainExpr(`query.${p.name}`, p.type, ctx)};`,
+    );
+    paramExprs.set(p.name, escapeTsIdent(p.name));
   }
   const repoVar = lowerFirst(run.repoName);
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
@@ -417,21 +421,23 @@ function emitRouteHandler(
   for (const m of materialised) {
     if (m.kind === "scalar") {
       const p = h.params.find((pp) => pp.name === m.name)!;
-      out.push(`    const ${m.name} = ${wireToDomainExpr(wireSrc(m.name), p.type, ctx)};`);
+      out.push(
+        `    const ${escapeTsIdent(m.name)} = ${wireToDomainExpr(wireSrc(m.name), p.type, ctx)};`,
+      );
     } else {
       const fields = m.fields
         .map((f) => `${f.field}: ${wireToDomainExpr(wireSrc(f.field), f.type, ctx)}`)
         .join(", ");
-      out.push(`    const ${m.name} = { ${fields} };`);
+      out.push(`    const ${escapeTsIdent(m.name)} = { ${fields} };`);
     }
-    paramExprs.set(m.name, m.name);
+    paramExprs.set(m.name, escapeTsIdent(m.name));
   }
   // Extern handler: no DSL body — no repos, no workflow statements, no wire
   // projection.  Delegate to the scaffold-once user impl module (imported by
   // `buildExplicitRoutesFile`), passing the domain-coerced param locals.  The
   // impl owns the return shape, so it serialises as-is.
   if (h.extern) {
-    const call = `${externImplFn(h.name)}(${h.params.map((p) => p.name).join(", ")})`;
+    const call = `${externImplFn(h.name)}(${h.params.map((p) => escapeTsIdent(p.name)).join(", ")})`;
     if (hasReturn) {
       out.push(`    const result = await ${call};`);
       out.push(`    return httpCtx.json(result as unknown, 200);`);
@@ -488,7 +494,7 @@ function emitRouteHandler(
   );
   out.push(...chunks.flat());
   for (const save of h.savesAtExit) {
-    out.push(`    await ${lowerFirst(save.repoName)}.save(${save.name});`);
+    out.push(`    await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   }
   if (hasReturn) {
     const retExpr = renderExprWithParams(h.returnValue!, paramExprs, "this", readPortArgs);
@@ -882,7 +888,9 @@ export function buildExplicitRoutesFile(
  *  call); the return type is the user's contract. */
 function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const fn = externImplFn(h.name);
-  const params = h.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+  const params = h.params
+    .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+    .join(", ");
   const ret = h.returnType ? renderTsType(h.returnType) : "void";
   const sig = `export async function ${fn}(${params}): Promise<${ret}>`;
   const kind = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR)

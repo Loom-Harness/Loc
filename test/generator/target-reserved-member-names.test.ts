@@ -23,6 +23,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
   escapePythonIdent,
@@ -284,5 +285,206 @@ describe("byte-identity: a model with no reserved names keeps the old helper nam
       const { doc } = await parseString(forPlatform(p));
       expect(doc.parseResult.parserErrors).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// node (Hono) + the React frontend: a field / parameter named after a JS/TS
+// reserved word.  Every TS BINDING position (method / function / ctor param,
+// `const` local, repository-find param, criterion-fn param, workflow local)
+// escapes through `escapeTsIdent` (`class` → `class_`); every PROPERTY
+// position keeps the declared name (`this._class`, `get class()`, `{ class:
+// … }`, `schema.things.class`, the zod wire key) — any string is a legal TS
+// property.  Before the fix `public touch(class: string, …)` was a cascade of
+// TS1390/TS1005 parse errors.  `enum`/`import`/`extends`/`static` are still
+// Loom keywords, so they cannot reach the emitter from a parsed model; the
+// names below are the reserved words Loom already accepts.
+// ---------------------------------------------------------------------------
+
+const TS_RESERVED_SRC = `
+  system TsReserved {
+    subdomain Core {
+      context Things {
+        valueobject Span {
+          yield: int
+          label: string
+          function within(new: int, default: int): bool = new <= yield && default >= 0
+        }
+
+        criterion InClass(class: string) of Thing = this.class == class
+
+        event Touched { class: string, new: int }
+
+        aggregate Thing with crudish {
+          class: string
+          new: int
+          default: bool
+          interface: string
+          yield: int
+          span: Span
+          derived protected: int = this.new + this.yield
+          function delete(package: int, implements: int): int = package + implements + this.yield
+          operation touch(class: string, new: int, default: bool, interface: string) {
+            let public = Calc.sum(new, this.yield)
+            this.class := class
+            this.new := public
+            this.default := default
+            this.interface := interface
+            emit Touched { class: class, new: new }
+          }
+          invariant new >= 0
+        }
+
+        repository Things for Thing {
+          find byClass(class: string, new: int): Thing[] where this.class == class && this.new >= new
+          find viaClass(class: string): Thing[] where InClass(class)
+        }
+
+        domainService Calc {
+          operation sum(new: int, default: int): int {
+            let class = new + default
+            return class
+          }
+        }
+
+        workflow MakeThing transactional {
+          create(class: string, new: int) {
+            precondition new >= 0
+            let t = Thing.create({ class: class, new: new, default: true, interface: "i", yield: 2, span: Span { yield: 3, label: "x" } })
+          }
+        }
+      }
+    }
+
+    api CoreApi from Core
+    ui Web with scaffold(subdomains: [Core]) { }
+    storage pg { type: postgres }
+    resource thingState { for: Things, kind: state, use: pg }
+    deployable api { platform: node contexts: [Things] dataSources: [thingState] serves: CoreApi port: 3000 }
+    deployable web { platform: react targets: api ui: Web port: 3001 design: mantine }
+  }
+`;
+
+/** TS GRAMMAR diagnostics (codes 1000–1999: parse errors, `'class' is not
+ *  allowed as a parameter name`, strict-mode reserved words) across every
+ *  emitted `.ts` / `.tsx` file.  Imports are left unresolved, so the 2xxx
+ *  type errors that produces are filtered out — only a reserved-word / syntax
+ *  break shows up here. */
+function tsGrammarErrors(files: Map<string, string>): string[] {
+  const sources = new Map(
+    [...files]
+      .filter(([p]) => /\.(ts|tsx)$/.test(p) && !p.endsWith(".d.ts"))
+      .map(([p, c]) => [`/${p}`, c]),
+  );
+  const options: ts.CompilerOptions = {
+    noEmit: true,
+    noResolve: true,
+    strict: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    jsx: ts.JsxEmit.ReactJSX,
+    types: [],
+  };
+  const host = ts.createCompilerHost(options);
+  host.getSourceFile = (name, lang) => {
+    const text = sources.get(name);
+    return text === undefined ? undefined : ts.createSourceFile(name, text, lang, true);
+  };
+  host.fileExists = (name) => sources.has(name);
+  host.readFile = (name) => sources.get(name);
+  const program = ts.createProgram([...sources.keys()], options, host);
+  return [...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics()]
+    .filter((d) => d.code < 2000 && d.file)
+    .map((d) => {
+      const { line } = d.file!.getLineAndCharacterOfPosition(d.start ?? 0);
+      return `${d.file!.fileName}:${line + 1}: TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`;
+    });
+}
+
+describe("node + react: JS/TS reserved words as field / parameter names", async () => {
+  const files = await generateSystemFiles(TS_RESERVED_SRC);
+  const read = (p: string): string => {
+    const hit = [...files].find(([k]) => k.endsWith(p));
+    if (!hit) throw new Error(`no emitted file ending ${p}`);
+    return hit[1];
+  };
+
+  it("escapes operation / function params and locals, keeps the properties", () => {
+    const thing = read("api/domain/thing.ts");
+    expect(thing).toContain(
+      "  public touch(class_: string, new_: number, default_: boolean, interface_: string): void {",
+    );
+    expect(thing).toContain("    const public_ = Calc.sum(new_, this.yield);");
+    expect(thing).toContain("    this._class = class_;");
+    expect(thing).toContain("    this._new = public_;");
+    expect(thing).toContain(
+      "  public delete(package_: number, implements_: number): number { return package_ + implements_ + this.yield; }",
+    );
+    // Property positions keep the declared name.
+    expect(thing).toContain("  get class(): string { return this._class; }");
+    expect(thing).toContain("  get protected(): number { return this.new + this.yield; }");
+  });
+
+  it("escapes value-object, domain-service and workflow bindings", () => {
+    expect(read("api/domain/value-objects.ts")).toContain(
+      "  within(new_: number, default_: number): boolean { return new_ <= this.yield && default_ >= 0; }",
+    );
+    const svc = read("api/domain/services.ts");
+    expect(svc).toContain("export function sum(new_: number, default_: number): number {");
+    expect(svc).toContain("const class_ = new_ + default_;");
+    const wf = read("api/http/workflows.ts");
+    expect(wf).toContain("const class_ = body.class;");
+    expect(wf).toContain("Thing.create({ class: class_, new: new_,");
+  });
+
+  it("escapes repository-find + criterion params, keeps the column and wire keys", () => {
+    const repo = read("api/db/repositories/thing-repository.ts");
+    expect(repo).toContain(
+      "const inClassCriterion = (class_: string) => eq(schema.things.class, class_);",
+    );
+    expect(repo).toContain("  async byClass(class_: string, new_: number): Promise<Thing[]> {");
+    expect(repo).toContain("eq(schema.things.class, class_), gte(schema.things.new, new_)");
+    expect(repo).toContain(".where(inClassCriterion(class_))");
+    expect(read("api/domain/repository-ports.ts")).toContain(
+      "  byClass(class_: string, new_: number): Promise<Thing[]>;",
+    );
+    // The wire (JSON) key is the declared spelling.
+    expect(repo).toMatch(/\{ id: root\.id as string, class: root\.class, new: root\.new,/);
+  });
+
+  it("every emitted node + react TS file is free of TS grammar errors", () => {
+    expect(tsGrammarErrors(files)).toEqual([]);
+  });
+});
+
+describe("byte-identity: a model with no reserved names keeps its node bindings", () => {
+  it("params and locals are unchanged", async () => {
+    const files = await generateSystemFiles(`
+      system Plain {
+        subdomain S {
+          context C {
+            aggregate Note with crudish {
+              title: string
+              operation retitle(next: string) {
+                let t = next
+                this.title := t
+              }
+            }
+            repository Notes for Note {
+              find byTitle(title: string): Note[] where this.title == title
+            }
+          }
+        }
+        storage pg { type: postgres }
+        resource st { for: C, kind: state, use: pg }
+        deployable d { platform: node contexts: [C] dataSources: [st] port: 3000 }
+      }
+    `);
+    const find = (suffix: string) => [...files].find(([k]) => k.endsWith(suffix))![1];
+    expect(find("domain/note.ts")).toContain("  public retitle(next: string): void {");
+    expect(find("domain/note.ts")).toContain("    const t = next;");
+    expect(find("db/repositories/note-repository.ts")).toContain(
+      "  async byTitle(title: string): Promise<Note[]> {",
+    );
   });
 });

@@ -15,7 +15,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst, plural } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -331,7 +331,7 @@ function embeddedFindMethod(
 ): string {
   const tableName = lowerFirst(plural(agg.name));
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${p.name}: ${tsFindParamType(p.type)}`);
+  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsFindParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on THIS find drops the named capability
   // conjuncts from its `where` (other finds keep them).  The repo-wide

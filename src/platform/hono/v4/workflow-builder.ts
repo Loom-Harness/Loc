@@ -72,7 +72,14 @@ import {
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+  workflowFnCamel,
+} from "../../../util/naming.js";
 import { emitWireSchema, wireToDomainExpr, zodFor, zodForResponse } from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted workflow function signature —
@@ -776,7 +783,9 @@ function hasAuditedOpCall(ctx: BoundedContextIR, sts: WorkflowStmtIR[]): boolean
 function emitWorkflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const name = workflowFnCamel(wf.name, fn.name);
     const head = `function ${name}(${params}): ${renderTsType(fn.returnType)}`;
     if ("expr" in fn.body) {
@@ -902,7 +911,7 @@ function emitWorkflowRoute(
   // Map param names to local consts at the top of the route handler.
   // Avoids re-computing brand conversions on every reference.
   for (const p of wf.params) {
-    out.push(`    const ${p.name} = ${paramExprs.get(p.name)};`);
+    out.push(`    const ${escapeTsIdent(p.name)} = ${paramExprs.get(p.name)};`);
   }
   // Bind the request-scoped current user when the workflow body
   // references `currentUser` (in a guard / precondition / expr).  The
@@ -1039,7 +1048,7 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${save.name});`);
+      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
@@ -1057,7 +1066,7 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
     out.push(...stateSave("db", bi));
     out.push(...renderProvFlush(provSaves, bi, "db"));
@@ -1841,7 +1850,8 @@ function emitHandlerFn(
       });
     }
   }
-  for (const save of saves) out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+  for (const save of saves)
+    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   if (persisted && durable) {
@@ -1963,7 +1973,8 @@ function emitEventSourcedHandlerFn(
       });
     }
   }
-  for (const save of saves) out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+  for (const save of saves)
+    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   // Append the workflow's OWN events (the ones it folds) to its stream,
@@ -2134,12 +2145,12 @@ export function honoWorkflowStmtTarget(
     },
     factoryLet: (st, indent) => {
       const fields = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`).join(", ");
-      return [`${indent}const ${st.name} = ${st.aggName}.create({ ${fields} });`];
+      return [`${indent}const ${escapeTsIdent(st.name)} = ${st.aggName}.create({ ${fields} });`];
     },
     repoLet: (st, indent) => {
       const args = st.args.map(renderArg).join(", ");
       return [
-        `${indent}const ${st.name} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
+        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
       ];
     },
     opCall: (st, indent) => {
@@ -2217,7 +2228,7 @@ export function honoWorkflowStmtTarget(
       // repo-let arm (`lowerFirst(repoName)`).
       return [`${indent}await ${lowerFirst(st.repoName)}.delete(${renderArg(st.entity)}.id);`];
     },
-    exprLet: (st, indent) => [`${indent}const ${st.name} = ${renderArg(st.expr)};`],
+    exprLet: (st, indent) => [`${indent}const ${escapeTsIdent(st.name)} = ${renderArg(st.expr)};`],
     // `field := value` — own-state mutation: write `value` onto the loaded
     // correlation-state row (`thisName` = `state` on the persisted-state path),
     // which `save<Wf>(db, state)` flushes at handler exit.
@@ -2235,7 +2246,7 @@ export function honoWorkflowStmtTarget(
         args.push(`{ ${parts.join(", ")} }`);
       }
       return [
-        `${indent}const ${st.name} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
+        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (st, indent, bodyLines) => {
@@ -2244,10 +2255,10 @@ export function honoWorkflowStmtTarget(
       // INSIDE the loop (aggregate events drain through the same save).
       const inner = `${indent}  `;
       const saveLines = st.savesPerIteration.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       return [
-        `${indent}for (const ${st.var} of ${renderArg(st.iterable)}) {`,
+        `${indent}for (const ${escapeTsIdent(st.var)} of ${renderArg(st.iterable)}) {`,
         ...bodyLines,
         ...saveLines,
         `${indent}}`,
@@ -2262,14 +2273,14 @@ export function honoWorkflowStmtTarget(
       const args = st.retrievalArgs.map(renderArg);
       args.push("{ limit: 1 }");
       const thenSaves = st.savesInThen.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const elseSaves = st.savesInElse.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const out = [
-        `${indent}const ${st.var} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
-        `${indent}if (${st.var} !== null) {`,
+        `${indent}const ${escapeTsIdent(st.var)} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
+        `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,
       ];

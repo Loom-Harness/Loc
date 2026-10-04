@@ -226,7 +226,7 @@ function emitFoldHandler(p: ProjectionIR, h: ProjectionOnIR, usingMikro = false)
   // Key: the `by <expr>` extractor, else the event field name-matching the key.
   const keyExpr = h.correlation
     ? renderTsExpr(h.correlation, { thisName: "state" })
-    : `${h.param}.${corr}`;
+    : `${escapeTsIdent(h.param)}.${corr}`;
   // Allocate for a not-yet-seen key: just the correlation column (every other
   // read-model column is nullable, so a partial row is valid — the fold
   // assignments below populate the carried fields before the upsert).  Under
@@ -241,7 +241,7 @@ function emitFoldHandler(p: ProjectionIR, h: ProjectionOnIR, usingMikro = false)
   const out = [
     `export async function fold${h.event}Into${T}(`,
     `  db: ${projDbType(usingMikro)},`,
-    `  ${h.param}: Events.${h.event},`,
+    `  ${escapeTsIdent(h.param)}: Events.${h.event},`,
     `): Promise<void> {`,
     `  const __key = ${keyExpr};`,
     `  const state = (await load${T}(db, __key)) ?? ${allocate};`,
