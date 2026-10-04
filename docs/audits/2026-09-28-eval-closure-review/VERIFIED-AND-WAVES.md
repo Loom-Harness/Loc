@@ -155,6 +155,28 @@ All 9 PRs are open and ready. Each has a mutation-proved test and its local gate
 | C6 | #38 ICU-drop warning; #37 `ddd new` invocation; #47 README claims | D8, D11 | — |
 | C7 | M-FT.24 OpenAPI splits op-union error arms out of the 200 schema (shared `_payload/union-wire.ts` helper) | union-wire card for the rest | — |
 
+### Wave C outcome (2026-10-04)
+
+A weekly usage limit stopped Wave C on 9-29, and a session limit stopped it again on 10-04. Both times it was resumed from the open branches; no work was restarted from scratch. Every Wave C PR is open and ready. None is merged; the owner queues them.
+
+The agent labels changed between runs. The table below is keyed by item, not by the plan's row letters.
+
+| item | PR | fixed | left open |
+|---|---|---|---|
+| #3 (D1), principal + emitters | #3103 | Reactors and timers run as a tenant-scoped `system` principal on all five backends. `currentUser.isSystem` exists in the language. An unsatisfiable gate gets a compile warning. A timer needs `crossTenant` for tenant-owned reads. CI fixes: the Node id-claim placeholder no longer references an unimported `Ids`; Python `user User(` under hierarchy tenancy | The warning does not cover gates on lifecycle `create` operations a reactor calls |
+| #3 (D1), envelope (stacked on #3103) | #3131 | The outbox row (`__loomOrigin`) and the channel envelope (`tenantid` / `loomorgpath` / `loomcausedby`) carry the event's origin. The relay and consumers run each event as that origin's system principal. CI fix: `tenant` is bound only when it is read (Python ruff F841, Elixir `--warnings-as-errors`) | Retarget to main after #3103 merges. #3083 edits the same channel emitters, so whichever merges second resolves a signature conflict. The channels-e2e broker leg was not run locally |
+| #6 (D2) | #3102 | Target reserved words are escaped per backend: one Python ident funnel that keeps wire and DB names, and a renamed .NET helper. Sweep fix: Python soft keywords (`match`, `case`) are no longer escaped | — |
+| #20 (D4), #23 (D6), #26 | #3104 | The 403 body echoes the gate predicate only under dev-stub auth. A malformed dev-claims header gets a 400 on all five stubs. The demo tenant gets a stable uuid plus a registry row seeded on first boot. CI fix: Phoenix `seeds.ex` emits `insert!/3` only when a domain-path row uses it | The Keycloak demo-user `permissions` attribute was deliberately not done and needs its own ruling |
+| #22 (D5), #39 (D9) | #3143 | `loom.default-deny-list-ungated` warning; `loom.policy-out-of-scope` error | Cross-file policies in a multi-file model still give the old `unknown` error. Sharing policies across contexts stays a mission |
+| #13 (D3) | #3149 | Kafka work queues start a new group at `earliest` on all five backends; `retention: log` keeps `latest`. A late-join e2e case was added. CI fix: the late-join test counted the other scenario's rows in the shared CI database | The python kafka leg's port-bind failure (55678 is in the runner's ephemeral port range) is unconfirmed until the re-run |
+| #15d (D10) | #3153 | Python returns node's synthesized message for a rule with no message (the regex no longer leaks), including the bound wording. Rebaselined the wire golden | The same rule's message text still differs on .NET (EF and Dapper), Java and Elixir: new mission M-T6.86, four narrow waivers |
+| #38 (D8), #37 + #47 (D11) | #3154 | `loom.interp-format-dropped-in-domain` warning. `ddd new` and the generated README print the invocation that actually ran. The README's "no drift" and "identical contracts" claims are qualified, with links | Rendering ICU branches on the backends stays a mission |
+| M-FT.24 (OpenAPI half) | #3156 | An operation returning an error union publishes `<Union>Success` as its 200 schema and each error arm as `anyOf [ProblemDetails, <Tag>Problem]` at the arm's status. One shared helper (`opUnionResponses`) feeds all five OpenAPI emitters. The runtime wire is unchanged | Schemathesis fixture follow-up (F34). The union wire redesign stays mission M-FT.24 |
+
+**Sweep of Wave A/B (2026-10-04):** all 18 PRs plus #3102 merge cleanly into main and have no open review threads. Required checks are green on every head except #3102, which has been fixed and is re-running. #3079, #3086, #3095 and #3097 show `blocked` although both required checks are green; the cause is unconfirmed (possibly the ruleset's extra-approval setting). Most Wave A/B heads date from 9-29, so the merge queue is where a semantic conflict with current main would show up.
+
+**Known on main, not caused by these PRs:** two Elixir build failures (a tenantRegistry consumer in another deployable; a multi-context reactor consuming another context's event). Also, `dotnet-obs-e2e` truncates captured stdout at 8 KiB, which makes it flaky.
+
 **Mission-only** (filed by B7, not built): #41 aggregate move, #42a multi-resource per kind, #25 lockfile policy, #40b stale-pin detector, #43 matchers (event, equality, not-navigated), M-FT.24 union wire, the OIDC code-flow gate, widening ir-walk-census to independent `if` chains, the clinica wave-0 generated-compiles gate.
 
 **Scale:** 23 implementer agents across three waves, plus landing the nine already-claimed PRs above.
