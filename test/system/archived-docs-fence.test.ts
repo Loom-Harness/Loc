@@ -3,7 +3,13 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error - docs/build.mjs is a plain ESM script outside the TS project graph.
-import { ARCHIVED, archivedNotice, RENDERED_SUBDIRS } from "../../docs/build.mjs";
+import {
+  ARCHIVED,
+  archivedNotice,
+  RENDERED_SUBDIRS,
+  UNPUBLISHED,
+  unpublishedSourceUrl,
+} from "../../docs/build.mjs";
 
 // ---------------------------------------------------------------------------
 // The archived-corpus fence.
@@ -41,7 +47,7 @@ const isArchivedSubdir = (sub: string): boolean =>
 /** The corpora that are frozen/perishable and must never render unmarked.
  *  Hard-coded rather than derived, so DELETING an ARCHIVED entry fails here
  *  instead of silently unmarking the corpus it covered. */
-const MUST_BE_MARKED = ["old/plans", "old/proposals", "audits"];
+const MUST_BE_MARKED = ["audits"];
 
 describe("archived docs carry a fence on the published site", () => {
   it("every corpus that must be marked is still covered by an ARCHIVED prefix", () => {
@@ -73,16 +79,72 @@ describe("archived docs carry a fence on the published site", () => {
     expect(marked.filter((r) => !ARCHIVED_PREFIXES.some((p) => r.startsWith(p)))).toEqual([]);
     expect(bare.filter((r) => ARCHIVED_PREFIXES.some((p) => r.startsWith(p)))).toEqual([]);
     // Sanity: the gate actually reached both sides.
-    expect(marked.length).toBeGreaterThan(100);
+    // ~80 today (audits/ + new-plan/archive/); `old/**` no longer renders.
+    expect(marked.length).toBeGreaterThan(50);
     expect(bare.length).toBeGreaterThan(10);
   });
 
   it("the banner routes to the live surfaces, not deeper into the archive", () => {
-    const html = archivedNotice("old/proposals/x.md", 2);
+    const html = archivedNotice("audits/sub/x.md", 2);
     expect(html).toContain('href="../../README.html"');
     expect(html).toContain('href="../../new-plan/README.html"');
     expect(fs.existsSync(path.join(docsDir, "README.md"))).toBe(true);
     expect(fs.existsSync(path.join(docsDir, "new-plan", "README.md"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The design record is not published at all.
+//
+// A banner on an archived proposal did not stop readers from taking its status
+// tables as what ships, so `docs/old/**` left the site: it stays in git as the
+// design record, and links into it from published pages go to the GitHub
+// source.  These pin both halves — nothing under it renders, and the rewrite
+// actually reaches the links (a rewrite that returned null would leave every
+// one of them pointing at a page that no longer exists).
+// ---------------------------------------------------------------------------
+
+describe("the archived design record is not published", () => {
+  it("no rendered subdir lies under docs/old/", () => {
+    const published = (RENDERED_SUBDIRS as string[]).filter(
+      (sub) => sub === UNPUBLISHED || sub.startsWith(`${UNPUBLISHED}/`),
+    );
+    expect(published).toEqual([]);
+  });
+
+  it("links into it resolve to the GitHub source, keeping the anchor", () => {
+    expect(unpublishedSourceUrl("new-plan/T8.md", "../old/proposals/x.md#the-rule")).toBe(
+      "https://github.com/Loom-Harness/Loc/blob/main/docs/old/proposals/x.md#the-rule",
+    );
+    expect(unpublishedSourceUrl("README.md", "old/plans/")).toBe(
+      "https://github.com/Loom-Harness/Loc/tree/main/docs/old/plans",
+    );
+    // Everything else is left to the ordinary .md -> .html rewrite.
+    expect(unpublishedSourceUrl("new-plan/T8.md", "../language.md")).toBeNull();
+    expect(unpublishedSourceUrl("README.md", "older.md")).toBeNull();
+    expect(unpublishedSourceUrl("README.md", "https://example.com/old/x.md")).toBeNull();
+    expect(unpublishedSourceUrl("README.md", "#old")).toBeNull();
+  });
+
+  it("every live link into it names a file that exists — any extension, not just .md", () => {
+    // The `.md`-only matcher below let `[…](../old/plans/…)` — a placeholder
+    // left in a track file — through as a link into nothing.
+    const LINK = /\]\(([^)\s]+)\)/g;
+    const dead: string[] = [];
+    let seen = 0;
+    for (const file of liveDocs()) {
+      for (const m of fs.readFileSync(file, "utf8").matchAll(LINK)) {
+        const href = (m[1] as string).split("#")[0] as string;
+        if (/^[a-z]+:/i.test(href) || href === "") continue;
+        const abs = path.resolve(path.dirname(file), href);
+        if (!path.relative(docsDir, abs).split(path.sep).join("/").startsWith(`${UNPUBLISHED}/`))
+          continue;
+        seen++;
+        if (!fs.existsSync(abs)) dead.push(`${path.relative(repoRoot, file)} -> ${m[1]}`);
+      }
+    }
+    expect(seen, "the matcher stopped reaching live -> docs/old links").toBeGreaterThan(40);
+    expect(dead, `dead link into docs/old:\n${dead.join("\n")}`).toEqual([]);
   });
 });
 
