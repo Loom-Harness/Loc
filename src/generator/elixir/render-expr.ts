@@ -183,7 +183,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
   // char escaping (src/util/naming.ts; F2-ELX-ESCAPE-FUNNEL).
   escapeStringLiteral: elixirString,
-  literal: renderLiteral,
+  literal: (lit, value) => renderLiteral(lit, value),
   id: (ctx) => ctx.idLocal ?? `${ctx.thisName}.id`,
   ref: renderRef,
   member: renderMember,

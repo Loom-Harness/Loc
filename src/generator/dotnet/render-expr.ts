@@ -29,7 +29,13 @@ import {
 } from "../_expr/target.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
-import { csSystemRoot } from "./bcl-collision.js";
+import {
+  type CsBclReceiver,
+  type CsMemberScope,
+  csBcl,
+  csProjectType,
+  csSystemRoot,
+} from "./bcl-collision.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 
@@ -124,12 +130,14 @@ export interface CsRenderContext {
     service: string,
     op: string,
   ) => { receiver: string; method: string } | undefined;
-  /** The emission scope declares a member named `System` (a `.ddd` field /
-   *  derived / function / operation spelled `system`), which shadows the
-   *  `System` namespace there: expression-position qualified references
-   *  render `global::System.…` (see `csSystemRoot` in bcl-collision.ts).
-   *  Unset everywhere else, so output stays byte-identical. */
-  systemShadowed?: boolean;
+  /** The member names of the class the expression renders inside (a domain
+   *  entity / value object / workflow-state class).  A member spelled like a
+   *  static receiver the emitter writes in expression position (`Math`,
+   *  `Regex`, `DateTime`, `DomainLog`, a domain service, the `System`
+   *  namespace root, …) shadows it there, so that receiver renders
+   *  `global::`-qualified (see bcl-collision.ts).  Without a collision — or
+   *  with the scope unset — every receiver renders bare (byte-identical). */
+  memberScope?: CsMemberScope;
 }
 
 /** The ambient request-scoped principal accessor on the .NET read side. Every
@@ -276,15 +284,15 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   // prefix the emitter never uses for a splice) — JSON's escaping is already
   // correct C# syntax (_expr/target.ts).
   escapeStringLiteral: (value) => JSON.stringify(value),
-  literal: renderLiteral,
+  literal: (lit, value, ctx) => renderLiteral(lit, value, ctx),
   id: (ctx) => `${ctx.thisName}.${ctx.idAccessor ?? "Id"}`,
   ref: renderRef,
   member: renderMember,
   methodCall: renderMethodCall,
   call: renderCall,
-  domainServiceCall(args, serviceRef) {
+  domainServiceCall(args, serviceRef, ctx) {
     // `Pricing.Quote(cart, customer)` — generated `public static class`.
-    return `${upperFirst(serviceRef.service)}.${upperFirst(serviceRef.op)}(${args.join(", ")})`;
+    return `${csDomainService(serviceRef.service, ctx)}.${upperFirst(serviceRef.op)}(${args.join(", ")})`;
   },
   lambda(param, body) {
     // Lambdas always introduce their own parameter; the body is rendered
@@ -312,7 +320,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
       e.from,
       value,
       nullableValueOperand(e),
-      csSystemRoot(ctx.systemShadowed),
+      csSystemRoot(ctx.memberScope),
     ),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -332,11 +340,11 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
     if (ctx.efQuery) return `(${amount})`;
     switch (unit) {
       case "days":
-        return `TimeSpan.FromDays(${amount})`;
+        return `${csBcl("TimeSpan", ctx.memberScope)}.FromDays(${amount})`;
       case "hours":
-        return `TimeSpan.FromHours(${amount})`;
+        return `${csBcl("TimeSpan", ctx.memberScope)}.FromHours(${amount})`;
       case "minutes":
-        return `TimeSpan.FromMinutes(${amount})`;
+        return `${csBcl("TimeSpan", ctx.memberScope)}.FromMinutes(${amount})`;
     }
   },
   match(arms, otherwise) {
@@ -739,9 +747,9 @@ function renderCsConvert(
   return v;
 }
 
-function renderLiteral(lit: string, value: string): string {
+function renderLiteral(lit: string, value: string, ctx?: CsRenderContext): string {
   if (lit === "string") return JSON.stringify(value);
-  if (lit === "now") return "DateTime.UtcNow";
+  if (lit === "now") return `${csBcl("DateTime", ctx?.memberScope)}.UtcNow`;
   if (lit === "null") return "null";
   if (lit === "decimal") return `${value}m`;
   // long literals emit with the `L` suffix.  Without it, large
@@ -781,7 +789,7 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
     case "workflow-fn":
       // Bare reference to a workflow helper — the static method group on the
       // shared `<Wf>Functions` class.
-      return `${upperFirst(e.wfScope!)}Functions.${upperFirst(e.name)}`;
+      return `${csWorkflowFunctions(e.wfScope!, ctx)}.${upperFirst(e.name)}`;
     case "enum-value":
       return `${e.enumName}.${e.name}`;
     case "current-user":
@@ -828,10 +836,35 @@ function renderMember(recv: string, e: MemberExpr): string {
   return `${recv}.${upperFirst(e.member)}`;
 }
 
+/** A scalar-intrinsic snippet.  `q` spells a BCL static receiver (`Math`,
+ *  `MidpointRounding`, `StringComparison`) for the emission scope — bare by
+ *  default, `global::`-qualified when a same-named member shadows it
+ *  (`csBcl`).  Defaulted so a caller without a scope (the completeness tests)
+ *  gets the plain spelling. */
+export type CsIntrinsicRenderer = (
+  recv: string,
+  args: string[],
+  q?: (name: CsBclReceiver) => string,
+) => string;
+
+const bareCsBcl = (name: CsBclReceiver): string => name;
+
+/** A pure domain service's static class (`<ns>.Domain.Services.<Svc>`), as an
+ *  expression-position receiver in `ctx`'s scope. */
+function csDomainService(service: string, ctx: CsRenderContext): string {
+  return csProjectType(upperFirst(service), "Domain.Services", ctx.memberScope);
+}
+
+/** A workflow's shared `<Wf>Functions` static class
+ *  (`<ns>.Application.Workflows`), as an expression-position receiver. */
+function csWorkflowFunctions(wfScope: string, ctx: CsRenderContext): string {
+  return csProjectType(`${upperFirst(wfScope)}Functions`, "Application.Workflows", ctx.memberScope);
+}
+
 // Scalar-intrinsic snippet table (src/util/intrinsics.ts) — one arm per
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a C# arm.
-export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   "string.trim": (recv) => `${recv}.Trim()`,
   // Invariant forms — the catalogue contract is culture-free case mapping,
   // and the culture-sensitive ToUpper()/ToLower() trip CA1304/CA1311 under
@@ -853,16 +886,19 @@ export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
   // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):
-  // .NET's Substring throws on out-of-range, so guard + Math.Min.  Receiver /
+  // .NET's Substring throws on out-of-range, so guard + ${q("Math")}.Min.  Receiver /
   // arg duplication is safe — Loom expressions are pure.  StringComparison
   // and Math live in `System`, covered by the SDK's <ImplicitUsings>.
-  "string.substring": (recv, args) =>
+  "string.substring": (recv, args, q = bareCsBcl) =>
     args.length > 1
-      ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, Math.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
+      ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, ${q("Math")}.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
       : `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}))`,
-  "string.startsWith": (recv, args) => `${recv}.StartsWith(${args[0]}, StringComparison.Ordinal)`,
-  "string.endsWith": (recv, args) => `${recv}.EndsWith(${args[0]}, StringComparison.Ordinal)`,
-  "string.contains": (recv, args) => `${recv}.Contains(${args[0]}, StringComparison.Ordinal)`,
+  "string.startsWith": (recv, args, q = bareCsBcl) =>
+    `${recv}.StartsWith(${args[0]}, ${q("StringComparison")}.Ordinal)`,
+  "string.endsWith": (recv, args, q = bareCsBcl) =>
+    `${recv}.EndsWith(${args[0]}, ${q("StringComparison")}.Ordinal)`,
+  "string.contains": (recv, args, q = bareCsBcl) =>
+    `${recv}.Contains(${args[0]}, ${q("StringComparison")}.Ordinal)`,
   "string.replace": (recv, args) => `${recv}.Replace(${args[0]}, ${args[1]})`,
   // Materialized to a List: Loom `string[]` renders as List<T> on this
   // backend, and the collection-op renderer emits the List API (`.Count`,
@@ -873,40 +909,40 @@ export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // scalar, no currency); int→int, long→long — so the System.Math overloads
   // resolve per receiver with no casts.  `Math` is in `System`, covered by
   // the SDK's <ImplicitUsings>.
-  "int.abs": (recv) => `Math.Abs(${recv})`,
-  "long.abs": (recv) => `Math.Abs(${recv})`,
-  "decimal.abs": (recv) => `Math.Abs(${recv})`,
-  "money.abs": (recv) => `Math.Abs(${recv})`,
+  "int.abs": (recv, _args, q = bareCsBcl) => `${q("Math")}.Abs(${recv})`,
+  "long.abs": (recv, _args, q = bareCsBcl) => `${q("Math")}.Abs(${recv})`,
+  "decimal.abs": (recv, _args, q = bareCsBcl) => `${q("Math")}.Abs(${recv})`,
+  "money.abs": (recv, _args, q = bareCsBcl) => `${q("Math")}.Abs(${recv})`,
   // Truncating integer division (toward zero) — C# `int`/`long` `/` truncates natively.
   "int.divTrunc": (recv, args) => `${recv} / ${args[0]}`,
   "long.divTrunc": (recv, args) => `${recv} / ${args[0]}`,
   // Two-value LEAST/GREATEST (the catalogue contract), not the LINQ
   // aggregates.
-  "int.min": (recv, args) => `Math.Min(${recv}, ${args[0]})`,
-  "long.min": (recv, args) => `Math.Min(${recv}, ${args[0]})`,
-  "decimal.min": (recv, args) => `Math.Min(${recv}, ${args[0]})`,
-  "money.min": (recv, args) => `Math.Min(${recv}, ${args[0]})`,
-  "int.max": (recv, args) => `Math.Max(${recv}, ${args[0]})`,
-  "long.max": (recv, args) => `Math.Max(${recv}, ${args[0]})`,
-  "decimal.max": (recv, args) => `Math.Max(${recv}, ${args[0]})`,
-  "money.max": (recv, args) => `Math.Max(${recv}, ${args[0]})`,
+  "int.min": (recv, args, q = bareCsBcl) => `${q("Math")}.Min(${recv}, ${args[0]})`,
+  "long.min": (recv, args, q = bareCsBcl) => `${q("Math")}.Min(${recv}, ${args[0]})`,
+  "decimal.min": (recv, args, q = bareCsBcl) => `${q("Math")}.Min(${recv}, ${args[0]})`,
+  "money.min": (recv, args, q = bareCsBcl) => `${q("Math")}.Min(${recv}, ${args[0]})`,
+  "int.max": (recv, args, q = bareCsBcl) => `${q("Math")}.Max(${recv}, ${args[0]})`,
+  "long.max": (recv, args, q = bareCsBcl) => `${q("Math")}.Max(${recv}, ${args[0]})`,
+  "decimal.max": (recv, args, q = bareCsBcl) => `${q("Math")}.Max(${recv}, ${args[0]})`,
+  "money.max": (recv, args, q = bareCsBcl) => `${q("Math")}.Max(${recv}, ${args[0]})`,
   // HALF-AWAY-FROM-ZERO ("commercial") rounding per the catalogue contract —
   // .NET's native default is banker's half-even, so the mode is forced.
-  // `places` defaults to 0 (the parameterless Math.Round overload).
-  "decimal.round": (recv, args) =>
+  // `places` defaults to 0 (the parameterless ${q("Math")}.Round overload).
+  "decimal.round": (recv, args, q = bareCsBcl) =>
     args.length > 0
-      ? `Math.Round(${recv}, ${args[0]}, MidpointRounding.AwayFromZero)`
-      : `Math.Round(${recv}, MidpointRounding.AwayFromZero)`,
-  "money.round": (recv, args) =>
+      ? `${q("Math")}.Round(${recv}, ${args[0]}, ${q("MidpointRounding")}.AwayFromZero)`
+      : `${q("Math")}.Round(${recv}, ${q("MidpointRounding")}.AwayFromZero)`,
+  "money.round": (recv, args, q = bareCsBcl) =>
     args.length > 0
-      ? `Math.Round(${recv}, ${args[0]}, MidpointRounding.AwayFromZero)`
-      : `Math.Round(${recv}, MidpointRounding.AwayFromZero)`,
+      ? `${q("Math")}.Round(${recv}, ${args[0]}, ${q("MidpointRounding")}.AwayFromZero)`
+      : `${q("Math")}.Round(${recv}, ${q("MidpointRounding")}.AwayFromZero)`,
   // floor/ceil keep the receiver type (whole-valued decimal, not int) — the
-  // decimal overloads of Math.Floor/Ceiling do exactly that.
-  "decimal.floor": (recv) => `Math.Floor(${recv})`,
-  "money.floor": (recv) => `Math.Floor(${recv})`,
-  "decimal.ceil": (recv) => `Math.Ceiling(${recv})`,
-  "money.ceil": (recv) => `Math.Ceiling(${recv})`,
+  // decimal overloads of ${q("Math")}.Floor/Ceiling do exactly that.
+  "decimal.floor": (recv, _args, q = bareCsBcl) => `${q("Math")}.Floor(${recv})`,
+  "money.floor": (recv, _args, q = bareCsBcl) => `${q("Math")}.Floor(${recv})`,
+  "decimal.ceil": (recv, _args, q = bareCsBcl) => `${q("Math")}.Ceiling(${recv})`,
+  "money.ceil": (recv, _args, q = bareCsBcl) => `${q("Math")}.Ceiling(${recv})`,
   // ---- datetime — midnight of the receiver's day.  Every DateTime on this
   // backend is UTC (`DateTime.UtcNow` binds, `timestamptz` columns read back
   // Kind=Utc through Npgsql), so `.Date` IS the midnight-UTC bucket, and EF
@@ -922,14 +958,11 @@ export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
 // culture-free, the semantics stay the catalogue's invariant contract; the
 // culture-default C# SPELLING never actually executes.  CA1304/CA1311 are
 // NoWarn'd in the generated csproj for exactly this line of code.
-export const CS_INTRINSIC_QUERY_RENDERERS: Record<
-  string,
-  (recv: string, args: string[]) => string
-> = {
+export const CS_INTRINSIC_QUERY_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   "string.toUpper": (recv) => `${recv}.ToUpper()`,
   "string.toLower": (recv) => `${recv}.ToLower()`,
   // The `StringComparison` overloads are NOT translatable either — the domain
-  // form (`StartsWith(p, StringComparison.Ordinal)`) throws "could not be
+  // form (`StartsWith(p, ${q("StringComparison")}.Ordinal)`) throws "could not be
   // translated", while the bare one-argument overload is EF Core's canonical
   // prefix translation (a parameterized pattern lowers to an anchored
   // `left(col, length(@p)) = @p`, not a `LIKE`, so a `%`/`_` in the value
@@ -942,16 +975,16 @@ export const CS_INTRINSIC_QUERY_RENDERERS: Record<
   // in-memory `IsSatisfiedBy`, so THAT face does run the culture-default
   // spelling.  Splitting the two faces is its own change.)
   "string.startsWith": (recv, args) => `${recv}.StartsWith(${args[0]})`,
-  // The MidpointRounding overloads of Math.Round are NOT translatable — only
-  // the bare Math.Round(x) / Math.Round(x, n) forms lower to SQL round()
+  // The MidpointRounding overloads of ${q("Math")}.Round are NOT translatable — only
+  // the bare ${q("Math")}.Round(x) / ${q("Math")}.Round(x, n) forms lower to SQL round()
   // (verified against EF Core 10.0.9 + Npgsql 10.0.2 via ToQueryString).
   // Postgres round(numeric[, n]) is half-away-from-zero already, so the
   // catalogue's commercial-rounding contract holds; the banker's-default C#
-  // SPELLING never actually executes.  (Math.Abs/Min/Max/Floor/Ceiling all
+  // SPELLING never actually executes.  (${q("Math")}.Abs/Min/Max/Floor/Ceiling all
   // translate as-is — abs()/LEAST()/GREATEST()/floor()/ceiling() — so no
   // other numeric row needs a query override.)
-  "decimal.round": (recv, args) => `Math.Round(${recv}, ${args[0] ?? "0"})`,
-  "money.round": (recv, args) => `Math.Round(${recv}, ${args[0] ?? "0"})`,
+  "decimal.round": (recv, args, q = bareCsBcl) => `${q("Math")}.Round(${recv}, ${args[0] ?? "0"})`,
+  "money.round": (recv, args, q = bareCsBcl) => `${q("Math")}.Round(${recv}, ${args[0] ?? "0"})`,
 };
 
 function renderMethodCall(
@@ -1002,7 +1035,7 @@ function renderMethodCall(
     e.receiverType.name === "string" &&
     args.length === 1
   ) {
-    return `Regex.IsMatch(${recv}, ${args[0]})`;
+    return `${csBcl("Regex", ctx.memberScope)}.IsMatch(${recv}, ${args[0]})`;
   }
   if (e.receiverType.kind === "primitive") {
     const key = intrinsicKey(e.receiverType.name, e.member);
@@ -1011,7 +1044,7 @@ function renderMethodCall(
     // the sparse query table wins there, falling back to the main table.
     const intrinsic =
       (ctx.efQuery ? CS_INTRINSIC_QUERY_RENDERERS[key] : undefined) ?? CS_INTRINSIC_RENDERERS[key];
-    if (intrinsic) return intrinsic(recv, args);
+    if (intrinsic) return intrinsic(recv, args, (n) => csBcl(n, ctx.memberScope));
   }
   return `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;
 }
@@ -1123,7 +1156,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
       // A workflow's own `function` — a `public static` method on the shared
       // `<Wf>Functions` helper class (the workflow body renders into several
       // handler/reactor classes, so a static class avoids a receiver + dupes).
-      return `${upperFirst(e.wfScope!)}Functions.${upperFirst(e.name)}(${argList})`;
+      return `${csWorkflowFunctions(e.wfScope!, ctx)}.${upperFirst(e.name)}(${argList})`;
     case "remote-api-op": {
       // A typed in-system call (M-T4.8).  `Resources/ApiClients.cs` exposes one
       // `<Resource>_<OperationId>` static per operation the callee exposes.
@@ -1175,7 +1208,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
         return `(await ${reading.receiver}.${reading.method}(${ctArg}))`;
       }
-      return `${upperFirst(ref.service)}.${upperFirst(ref.op)}(${argList})`;
+      return `${csDomainService(ref.service, ctx)}.${upperFirst(ref.op)}(${argList})`;
     }
     case "repo-read": {
       // A read-only repository query in a `reading` domain-service body
@@ -1379,7 +1412,12 @@ export function csValueTypeForId(idValueType: string): string {
   }
 }
 
-export function csNewIdValue(idValueType: string): string {
+export function csNewIdValue(
+  idValueType: string,
+  /** The emitting class's member scope — `global::System.Guid` when a member
+   *  named `Guid` shadows the type there (bcl-collision.ts). */
+  scope?: CsMemberScope,
+): string {
   switch (idValueType) {
     case "int":
     case "long":
@@ -1387,8 +1425,8 @@ export function csNewIdValue(idValueType: string): string {
     case "string":
       // UUIDv7 (time-ordered) — native on net9+; better index locality than
       // the random v4 without giving up the portable guid wire shape.
-      return "Guid.CreateVersion7().ToString()";
+      return `${csBcl("Guid", scope)}.CreateVersion7().ToString()`;
     default:
-      return "Guid.CreateVersion7()";
+      return `${csBcl("Guid", scope)}.CreateVersion7()`;
   }
 }

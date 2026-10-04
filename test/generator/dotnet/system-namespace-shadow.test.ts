@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  csMemberScope,
   csSystemRoot,
-  shadowsSystemNamespace,
-  typeShadowsSystemNamespace,
+  typeMemberNames,
 } from "../../../src/generator/dotnet/bcl-collision.js";
 import { renderValueObject } from "../../../src/generator/dotnet/emit/enums-vos.js";
 import { renderCsExpr } from "../../../src/generator/dotnet/render-expr.js";
@@ -37,15 +37,14 @@ const toStr = (value: ExprIR, from: string): ExprIR =>
 
 describe("dotnet — `System` member shadows the System namespace", () => {
   it("names a `system`/`System` member as shadowing, and nothing else", () => {
-    expect(shadowsSystemNamespace(["system"])).toBe(true);
-    expect(shadowsSystemNamespace(["System"])).toBe(true);
-    expect(shadowsSystemNamespace(["systems", "systemId", "subsystem"])).toBe(false);
-    expect(csSystemRoot(true)).toBe("global::System");
+    expect(csSystemRoot(csMemberScope(["system"], "Api"))).toBe("global::System");
+    expect(csSystemRoot(csMemberScope(["System"], "Api"))).toBe("global::System");
+    expect(csSystemRoot(csMemberScope(["systems", "systemId", "subsystem"], "Api"))).toBe("System");
     expect(csSystemRoot(undefined)).toBe("System");
   });
 
   it("qualifies the InvariantCulture conversions with global:: only when shadowed", () => {
-    const shadowed = { thisName: "this", systemShadowed: true };
+    const shadowed = { thisName: "this", memberScope: csMemberScope(["system"], "Api") };
     expect(renderCsExpr(toStr(intRef, "int"), shadowed)).toBe(
       "this.Check.ToString(global::System.Globalization.CultureInfo.InvariantCulture)",
     );
@@ -84,7 +83,7 @@ describe("dotnet — `System` member shadows the System namespace", () => {
       functions: [],
       tests: [],
     } as unknown as ValueObjectIR;
-    expect(typeShadowsSystemNamespace(vo)).toBe(true);
+    expect(typeMemberNames(vo)).toContain("system");
     const cs = renderValueObject(vo, "Api");
     expect(cs).toContain("public string System { get; init; }");
     expect(cs).toContain(

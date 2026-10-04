@@ -146,7 +146,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  `elixirRegexBody`, `src/util/naming.ts` — the funnel Wave 1 (packet 1d)
    *  routed nine live injection sites through). */
   escapeStringLiteral(value: string): string;
-  literal(lit: LiteralKind, value: string): string;
+  /** `ctx` lets a leaf qualify a framework reference against its emission
+   *  scope (.NET: `now` → `global::System.DateTime.UtcNow` when a member named
+   *  `DateTime` shadows the type — see `CsRenderContext.memberScope`). */
+  literal(lit: LiteralKind, value: string, ctx: Ctx): string;
   id(ctx: Ctx): string;
   ref(e: RefExpr, ctx: Ctx): string;
   member(recv: string, e: MemberExpr, ctx: Ctx): string;
@@ -166,7 +169,7 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   ternary(cond: string, then: string, otherwise: string): string;
   /** `ctx` lets a leaf qualify a framework reference against its emission
    *  scope (.NET: `global::System` when a member named `System` shadows the
-   *  namespace — see `CsRenderContext.systemShadowed`). */
+   *  namespace — see `CsRenderContext.memberScope`). */
   convert(value: string, e: ConvertExpr, ctx: Ctx): string;
   /** Duration constructor `days(n)`/`hours(n)`/`minutes(n)` (A5 temporal) —
    *  render the backend's ABSOLUTE-duration value from the already-rendered
@@ -231,7 +234,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
   const r = (x: ExprIR): string => renderExprWith(x, t, ctx);
   switch (e.kind) {
     case "literal":
-      return t.literal(e.lit, e.value);
+      return t.literal(e.lit, e.value, ctx);
     case "this":
       return ctx.thisName;
     case "id":
@@ -679,7 +682,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
   };
   switch (e.kind) {
     case "literal":
-      return compose(t.literal(e.lit, e.value), []);
+      return compose(t.literal(e.lit, e.value, ctx), []);
     case "this":
       return compose(ctx.thisName, []);
     case "id":

@@ -140,38 +140,84 @@ export function taskInScopeOfAggregate(agg: Pick<AggregateIR, "name" | "parts">)
 }
 
 // ---------------------------------------------------------------------------
-// The `System` namespace shadowed by a member named `System`.
+// Static receivers shadowed by a same-named domain MEMBER.
 //
-// A domain member spelled `system` is emitted as the C# member `System`, and
-// inside its declaring type C# simple-name lookup finds that MEMBER before the
-// `System` namespace.  Every fully-qualified `System.X.Y` the emitter writes in
-// EXPRESSION position in that scope then binds `.X` against the member's type:
+// A domain member spelled `math` is emitted as the C# member `Math`, and
+// inside its declaring type C# simple-name lookup finds that MEMBER before any
+// type or namespace of the same name.  Every static-receiver reference the
+// emitter writes in EXPRESSION position in that scope then binds against the
+// member's type instead (measured under `dotnet build /warnaserror`):
 //
-//     public string System { get; private set; }
-//     … this.Check.ToString(System.Globalization.CultureInfo.InvariantCulture)
-//     error CS1061: 'string' does not contain a definition for 'Globalization'
+//     public int Math { get; private set; }
+//     public int B => Math.Abs(this.N);
+//     error CS0176: Member 'int.Abs(int)' cannot be accessed with an instance
+//                   reference; qualify it with a type name instead
 //
-// TYPE positions (`System.Text.Json.JsonElement` as a property type,
-// `new System.InvalidOperationException(…)`, attributes) are unaffected —
-// namespace-or-type-name lookup skips non-type members — so only expression-
-// position references need `global::`.  Conditional on an actual `System`
-// member, so every other model emits byte-identical output.
+//     public string Regex { get; private set; }
+//     public bool C => Regex.IsMatch(this.Label, "^[a-z]+$");
+//     error CS1061: 'string' does not contain a definition for 'IsMatch'
+//
+// The same holds for every receiver in `CS_BCL_RECEIVER_HOME` below, for the
+// project's own static helpers (`DomainLog`, `RequestContext`), for a domain
+// service's static class (`Pricing.Quote(…)` beside a `pricing` field) and a
+// workflow's `<Wf>Functions` class, and for the `System` namespace root itself
+// (`System.Globalization.CultureInfo…` beside a `system` member — CS1061
+// "'string' does not contain a definition for 'Globalization'").
+//
+// THE FIX: on a collision, and only then, the receiver is written fully
+// qualified from `global::` (`global::System.Math.Abs(…)`), which no member can
+// shadow.  Every other model emits byte-identical output.
+//
+// TYPE positions (property types, `new System.X(…)`, attributes, casts) are
+// unaffected — namespace-or-type-name lookup skips non-type members — so only
+// expression-position references go through these helpers.  A member whose own
+// type IS the receiver (`DateTime DateTime`) would survive under C#'s
+// "Color Color" rule, but qualifying it is equally valid, so the check does not
+// bother to tell the two apart.
+//
+// Domain TYPE names colliding with a member (`Status.Active` beside a `status`
+// field of another type) are a separate, refused case —
+// `loom.dotnet-name-collision` in src/ir/validate/checks/backend-syntax-checks.ts.
 // ---------------------------------------------------------------------------
 
-/** True when one of `memberNames` (`.ddd` spelling) becomes the C# member
- *  `System` and so shadows the `System` namespace in its declaring type. */
-export function shadowsSystemNamespace(memberNames: Iterable<string>): boolean {
-  for (const n of memberNames) {
-    if (upperFirst(n) === "System") return true;
-  }
-  return false;
+/** Each BCL type the .NET emitter writes as a static-member receiver in
+ *  expression position inside a domain class body, mapped to its namespace.
+ *  Built from the emitters, not from guesswork:
+ *  `render-expr.ts` (intrinsics `Math.*` / `MidpointRounding` /
+ *  `StringComparison`, `Regex.IsMatch`, `TimeSpan.From*`, `now` →
+ *  `DateTime.UtcNow`, `Guid.Parse` / `Guid.CreateVersion7`). */
+export const CS_BCL_RECEIVER_HOME = {
+  Math: "System",
+  MidpointRounding: "System",
+  StringComparison: "System",
+  TimeSpan: "System",
+  DateTime: "System",
+  Guid: "System",
+  Regex: "System.Text.RegularExpressions",
+} as const;
+
+export type CsBclReceiver = keyof typeof CS_BCL_RECEIVER_HOME;
+
+/** The simple names a class body declares as members — the scope a
+ *  static-receiver reference is resolved in — plus the project root
+ *  namespace, so a project-local helper can be qualified from `global::`. */
+export interface CsMemberScope {
+  /** C# member names (PascalCase), own and inherited. */
+  readonly members: ReadonlySet<string>;
+  /** The project root namespace (`Api`). */
+  readonly ns: string;
 }
 
-/** The members a domain TYPE declares as C# members of its own class/record —
- *  fields, containments, derived members, functions and (aggregates)
- *  operations — plus any names it inherits (`inherited`, a TPC/TPH base's
- *  fields).  True when one of them is `System`. */
-export function typeShadowsSystemNamespace(
+/** The scope for a class whose `.ddd` members are `memberNames`. */
+export function csMemberScope(memberNames: Iterable<string>, ns: string): CsMemberScope {
+  return { members: new Set([...memberNames].map(upperFirst)), ns };
+}
+
+/** The `.ddd` names a domain TYPE declares as C# members of its own
+ *  class/record — fields, containments, derived members, functions and
+ *  (aggregates) operations — plus any it inherits (`inherited`, a TPC/TPH
+ *  base's fields). */
+export function typeMemberNames(
   t: {
     readonly fields: readonly { readonly name: string }[];
     readonly derived: readonly { readonly name: string }[];
@@ -180,20 +226,39 @@ export function typeShadowsSystemNamespace(
     readonly operations?: readonly { readonly name: string }[];
   },
   inherited: Iterable<string> = [],
-): boolean {
-  return shadowsSystemNamespace([
+): string[] {
+  return [
     ...t.fields.map((f) => f.name),
     ...(t.contains ?? []).map((c) => c.name),
     ...t.derived.map((d) => d.name),
     ...t.functions.map((f) => f.name),
     ...(t.operations ?? []).map((o) => o.name),
     ...inherited,
-  ]);
+  ];
 }
 
-/** The `System` namespace root for an EXPRESSION-position qualified reference:
- *  `System` normally (byte-identical), `global::System` when a member named
+/** A BCL static receiver for an expression-position reference: the bare name
+ *  normally (byte-identical), `global::<namespace>.<Name>` when a member of
+ *  that name is in scope. */
+export function csBcl(name: CsBclReceiver, scope: CsMemberScope | undefined): string {
+  return scope?.members.has(name) ? `global::${CS_BCL_RECEIVER_HOME[name]}.${name}` : name;
+}
+
+/** The `System` namespace root for an expression-position qualified
+ *  reference: `System` normally, `global::System` when a member named
  *  `System` is in scope. */
-export function csSystemRoot(systemShadowed: boolean | undefined): string {
-  return systemShadowed ? "global::System" : "System";
+export function csSystemRoot(scope: CsMemberScope | undefined): string {
+  return scope?.members.has("System") ? "global::System" : "System";
+}
+
+/** A project-declared static class (`DomainLog`, `RequestContext`, a domain
+ *  service, `<Wf>Functions`) living in `<ns>.<nsSuffix>`: the bare name
+ *  normally, `global::<ns>.<nsSuffix>.<Name>` when a member of that name is in
+ *  scope. */
+export function csProjectType(
+  name: string,
+  nsSuffix: string,
+  scope: CsMemberScope | undefined,
+): string {
+  return scope?.members.has(name) ? `global::${scope.ns}.${nsSuffix}.${name}` : name;
 }

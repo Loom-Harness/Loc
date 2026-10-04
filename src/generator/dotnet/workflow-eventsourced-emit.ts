@@ -1,7 +1,7 @@
 import type { WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
-import { csSystemRoot, shadowsSystemNamespace } from "./bcl-collision.js";
+import { csMemberScope, csSystemRoot } from "./bcl-collision.js";
 import { eventDbSetName, eventRecordClass } from "./emit/event-store.js";
 import { renderCsType } from "./render-expr.js";
 import { renderCsStatements } from "./render-stmt.js";
@@ -87,11 +87,15 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
   const corr = wf.correlationField as string;
   const corrId = esCorrIdClass(wf);
   const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
-  // A state field named `system` becomes the property `System`, which shadows
-  // the `System` namespace in this class: the codec's expression-position
-  // `System.Text.Json` references and the appliers' conversions go `global::`.
-  const systemShadowed = shadowsSystemNamespace((wf.stateFields ?? []).map((f) => f.name));
-  const sys = csSystemRoot(systemShadowed);
+  // A state field becomes a property of this class, so one spelled like a
+  // static receiver shadows it here: `System` breaks the codec's
+  // expression-position `System.Text.Json` references, and `Math` / `Regex` /
+  // `<Wf>Functions` / … the appliers' bodies — those then go `global::`.
+  const memberScope = csMemberScope(
+    (wf.stateFields ?? []).map((f) => f.name),
+    ns,
+  );
+  const sys = csSystemRoot(memberScope);
 
   // State properties — same shape as the EF saga POCO, but plain (no mapping).
   const props = (wf.stateFields ?? []).map((f) => {
@@ -108,7 +112,7 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
     applierMethods.push("    {");
     const body = renderCsStatements(
       ap.statements,
-      systemShadowed ? { thisName: "this", systemShadowed } : { thisName: "this" },
+      { thisName: "this", memberScope },
       {
         emitTrace: false,
         aggregate: wf.name,

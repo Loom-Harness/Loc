@@ -26,10 +26,11 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields } from "../../construction-default.js";
-import { typeShadowsSystemNamespace } from "../bcl-collision.js";
+import { csMemberScope, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
+  csDomainLog,
   declarationSubRegion,
   renderCsStatementChunks,
   renderCsStatements,
@@ -353,9 +354,10 @@ export function renderEntity(
     // parts don't have associations, but typing as the union keeps
     // the ctx shape stable across the two callers.
     agg: isAgg(entity) ? entity : undefined,
-    // A member named `System` (own or inherited) shadows the namespace in
-    // this class — expression-position `System.…` must go `global::`.
-    ...(typeShadowsSystemNamespace(entity, superType?.fieldNames) ? { systemShadowed: true } : {}),
+    // The class's own + inherited member names: one spelled like a static
+    // receiver (`Math`, `Regex`, `DomainLog`, the `System` root, …) shadows it
+    // here, so that receiver renders `global::`-qualified (bcl-collision.ts).
+    memberScope: csMemberScope(typeMemberNames(entity, superType?.fieldNames), ns),
   };
 
   const propLines: string[] = [];
@@ -706,7 +708,7 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           `        e._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
           "        return e;",
           "    }",
@@ -752,7 +754,7 @@ export function renderEntity(
       return [`        ${check} ${thrown};`];
     }
     const ok = `__inv_${i}_ok`;
-    const traceCall = `DomainLog.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "invariant_evaluated", "${entity.name}", __op, ${JSON.stringify(inv.source)}, ${ok});`;
+    const traceCall = `${csDomainLog(renderCtx)}.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "invariant_evaluated", "${entity.name}", __op, ${JSON.stringify(inv.source)}, ${ok});`;
     if (inv.guard) {
       return [
         `        if (${renderCsExpr(inv.guard, renderCtx)})`,
@@ -909,7 +911,7 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
@@ -948,7 +950,7 @@ export function renderEntity(
           "    /// matching the interceptor's null-safe behaviour.</summary>",
           "    internal void _StampOnCreate()",
           "    {",
-          "        var currentUser = RequestContext.Current?.CurrentUser;",
+          `        var currentUser = ${csProjectType("RequestContext", "Domain.Common", renderCtx.memberScope)}.Current?.CurrentUser;`,
           "        if (currentUser == null) return;",
           ...docCreateStamps.map(
             (st) => `        ${upperFirst(st.field)} = ${renderCsExpr(st.value, renderCtx)};`,
@@ -1097,10 +1099,10 @@ export function renderAbstractBaseEntity(
   // TPC bases own no typed `Id` (each concrete carries its own strongly-typed
   // id); a base derived body that reads `id` must go through the boxed accessor
   // the concretes override (`IdBoxed`).  TPH bases own the shared typed `Id`.
-  const systemShadow = typeShadowsSystemNamespace(base) ? { systemShadowed: true } : {};
+  const memberScope = csMemberScope(typeMemberNames(base), ns);
   const renderCtx = options.tph
-    ? { thisName: "this", agg: base, ...systemShadow }
-    : { thisName: "this", agg: base, idAccessor: "IdBoxed", ...systemShadow };
+    ? { thisName: "this", agg: base, memberScope }
+    : { thisName: "this", agg: base, idAccessor: "IdBoxed", memberScope };
   const usings = new Set<string>();
   for (const d of base.derived) collectCsExprUsings(d.expr, usings, ns);
   // A `File` field's type is the shared `FileRef` record in Domain.Common (M-T1.2)

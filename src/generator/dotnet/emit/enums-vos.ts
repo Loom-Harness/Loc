@@ -2,7 +2,7 @@ import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
-import { typeShadowsSystemNamespace } from "../bcl-collision.js";
+import { csMemberScope, typeMemberNames } from "../bcl-collision.js";
 import {
   collectCsExprUsings,
   collectCsTypeUsings,
@@ -61,9 +61,9 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
     collectCsTypeUsings(fn.returnType, usings, ns);
     for (const p of fn.params) collectCsTypeUsings(p.type, usings, ns);
   }
-  const renderCtx = typeShadowsSystemNamespace(vo)
-    ? { thisName: "this", systemShadowed: true }
-    : { thisName: "this" };
+  // A field spelled like a static receiver (`Math`, `Regex`, the `System`
+  // root, …) shadows it inside the record — see bcl-collision.ts.
+  const renderCtx = { thisName: "this", memberScope: csMemberScope(typeMemberNames(vo), ns) };
   const propLines = vo.fields.map(
     (f) => `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; init; }`,
   );
