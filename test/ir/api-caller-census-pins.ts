@@ -735,6 +735,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The adversarial identifier-legality fixture (#3155): every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never

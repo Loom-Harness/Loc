@@ -1,0 +1,376 @@
+system TargetReservedWords {
+  subdomain Words {
+    context Lexicon {
+      enum Keyword { after, alias, and, any, arguments, assert, async, atomic, base, begin, boolean, break, byte, bytes, case, catch, char, checked, class, cls, cond, const, constraint, constructor, continue, copy, covariant, data, debugger, declare, def, default, deferred, defmodule, defp, del, delegate, delete, dict, do, done, double, downcast, downto, dynamic, eager, elif, end, eval, except, exception, exec, explicit, export, extension, external, factory, final, finally, fixed, float, fn, foreach, fun, functor, get, goto, hide, implicit, include, infer, inherit, init, inline, input, instanceof, interface, is, keyof, lambda, late, lazy, len, library, list, lock, map, member, method, mixin, module, mutable, namespace, native, never, new, nil, nonlocal, not, object, open, operator, out, override, package, parallel, params, part, pass, permits, print, process, protected, public, pure, quote, raise, rec, receive, record, ref, require, rescue, rethrow, sbyte, sealed, self, set, short, show, sizeof, stackalloc, str, strictfp, struct, super, switch, synchronized, tailcall, then, throw, throws, to, trait, transient, try, typedef, typeof, uint, ulong, unchecked, unknown, unquote, unsafe, upcast, ushort, using, val, value, var, virtual, void, volatile, while, yield }
+
+      aggregate Keywords with crudish {
+        abstract: string
+        after: string
+        alias: string
+        and: string
+        any: string
+        arguments: string
+        assert: string
+        async: string
+        atomic: string
+        await: string
+        base: string
+        begin: string
+        boolean: string
+        break: string
+        byte: string
+        bytes: string
+        case: string
+        catch: string
+        char: string
+        checked: string
+        class: string
+        cls: string
+        component: string
+        cond: string
+        const: string
+        constraint: string
+        continue: string
+        copy: string
+        covariant: string
+        data: string
+        debugger: string
+        declare: string
+        def: string
+        default: string
+        deferred: string
+        defmodule: string
+        defp: string
+        del: string
+        delegate: string
+        delete: string
+        dict: string
+        do: string
+        done: string
+        double: string
+        downcast: string
+        downto: string
+        dynamic: string
+        eager: string
+        elif: string
+        end: string
+        eval: string
+        event: string
+        except: string
+        exception: string
+        exec: string
+        explicit: string
+        export: string
+        extension: string
+        extern: string
+        external: string
+        factory: string
+        filter: string
+        final: string
+        finally: string
+        fixed: string
+        float: string
+        fn: string
+        foreach: string
+        fun: string
+        functor: string
+        get: string
+        global: string
+        goto: string
+        hide: string
+        implements: string
+        implicit: string
+        include: string
+        infer: string
+        inherit: string
+        init: string
+        inline: string
+        input: string
+        instanceof: string
+        interface: string
+        internal: string
+        is: string
+        keyof: string
+        lambda: string
+        late: string
+        lazy: string
+        len: string
+        library: string
+        list: string
+        lock: string
+        map: string
+        member: string
+        method: string
+        mixin: string
+        module: string
+        mutable: string
+        namespace: string
+        native: string
+        never: string
+        new: string
+        nil: string
+        nonlocal: string
+        not: string
+        object: string
+        of: string
+        open: string
+        operator: string
+        or: string
+        out: string
+        override: string
+        package: string
+        parallel: string
+        params: string
+        part: string
+        pass: string
+        permits: string
+        print: string
+        process: string
+        protected: string
+        public: string
+        pure: string
+        quote: string
+        raise: string
+        readonly: string
+        rec: string
+        receive: string
+        record: string
+        ref: string
+        require: string
+        required: string
+        rescue: string
+        rethrow: string
+        sbyte: string
+        sealed: string
+        select: string
+        self: string
+        set: string
+        short: string
+        show: string
+        sizeof: string
+        stackalloc: string
+        state: string
+        str: string
+        strictfp: string
+        struct: string
+        super: string
+        switch: string
+        synchronized: string
+        tailcall: string
+        then: string
+        throw: string
+        throws: string
+        to: string
+        trait: string
+        transient: string
+        try: string
+        type: string
+        typedef: string
+        typeof: string
+        uint: string
+        ulong: string
+        unchecked: string
+        unknown: string
+        unquote: string
+        unsafe: string
+        upcast: string
+        use: string
+        ushort: string
+        using: string
+        val: string
+        value: string
+        var: string
+        virtual: string
+        void: string
+        volatile: string
+        while: string
+        yield: string
+        kind: Keyword
+      }
+
+      aggregate Verbs with crudish {
+        tally: int
+        operation after(after: int) { tally := after }
+        operation alias(alias: int) { tally := alias }
+        operation and(and: int) { tally := and }
+        operation any(any: int) { tally := any }
+        operation arguments(arguments: int) { tally := arguments }
+        operation assert(assert: int) { tally := assert }
+        operation async(async: int) { tally := async }
+        operation atomic(atomic: int) { tally := atomic }
+        operation base(base: int) { tally := base }
+        operation begin(begin: int) { tally := begin }
+        operation boolean(boolean: int) { tally := boolean }
+        operation break(break: int) { tally := break }
+        operation byte(byte: int) { tally := byte }
+        operation bytes(bytes: int) { tally := bytes }
+        operation case(case: int) { tally := case }
+        operation catch(catch: int) { tally := catch }
+        operation char(char: int) { tally := char }
+        operation checked(checked: int) { tally := checked }
+        operation class(class: int) { tally := class }
+        operation cls(cls: int) { tally := cls }
+        operation cond(cond: int) { tally := cond }
+        operation const(const: int) { tally := const }
+        operation constraint(constraint: int) { tally := constraint }
+        operation constructor(constructor: int) { tally := constructor }
+        operation continue(continue: int) { tally := continue }
+        operation copy(copy: int) { tally := copy }
+        operation covariant(covariant: int) { tally := covariant }
+        operation data(data: int) { tally := data }
+        operation debugger(debugger: int) { tally := debugger }
+        operation declare(declare: int) { tally := declare }
+        operation def(def: int) { tally := def }
+        operation default(default: int) { tally := default }
+        operation deferred(deferred: int) { tally := deferred }
+        operation defmodule(defmodule: int) { tally := defmodule }
+        operation defp(defp: int) { tally := defp }
+        operation del(del: int) { tally := del }
+        operation delegate(delegate: int) { tally := delegate }
+        operation delete(delete: int) { tally := delete }
+        operation dict(dict: int) { tally := dict }
+        operation do(do: int) { tally := do }
+        operation done(done: int) { tally := done }
+        operation double(double: int) { tally := double }
+        operation downcast(downcast: int) { tally := downcast }
+        operation downto(downto: int) { tally := downto }
+        operation dynamic(dynamic: int) { tally := dynamic }
+        operation eager(eager: int) { tally := eager }
+        operation elif(elif: int) { tally := elif }
+        operation end(end: int) { tally := end }
+        operation eval(eval: int) { tally := eval }
+        operation except(except: int) { tally := except }
+        operation exception(exception: int) { tally := exception }
+        operation exec(exec: int) { tally := exec }
+        operation explicit(explicit: int) { tally := explicit }
+        operation export(export: int) { tally := export }
+        operation extension(extension: int) { tally := extension }
+        operation external(external: int) { tally := external }
+        operation factory(factory: int) { tally := factory }
+        operation final(final: int) { tally := final }
+        operation finally(finally: int) { tally := finally }
+        operation fixed(fixed: int) { tally := fixed }
+        operation float(float: int) { tally := float }
+        operation fn(fn: int) { tally := fn }
+        operation foreach(foreach: int) { tally := foreach }
+        operation fun(fun: int) { tally := fun }
+        operation functor(functor: int) { tally := functor }
+        operation get(get: int) { tally := get }
+        operation goto(goto: int) { tally := goto }
+        operation hide(hide: int) { tally := hide }
+        operation implicit(implicit: int) { tally := implicit }
+        operation include(include: int) { tally := include }
+        operation infer(infer: int) { tally := infer }
+        operation inherit(inherit: int) { tally := inherit }
+        operation init(init: int) { tally := init }
+        operation inline(inline: int) { tally := inline }
+        operation input(input: int) { tally := input }
+        operation instanceof(instanceof: int) { tally := instanceof }
+        operation interface(interface: int) { tally := interface }
+        operation is(is: int) { tally := is }
+        operation keyof(keyof: int) { tally := keyof }
+        operation lambda(lambda: int) { tally := lambda }
+        operation late(late: int) { tally := late }
+        operation lazy(lazy: int) { tally := lazy }
+        operation len(len: int) { tally := len }
+        operation library(library: int) { tally := library }
+        operation list(list: int) { tally := list }
+        operation lock(lock: int) { tally := lock }
+        operation map(map: int) { tally := map }
+        operation member(member: int) { tally := member }
+        operation method(method: int) { tally := method }
+        operation mixin(mixin: int) { tally := mixin }
+        operation module(module: int) { tally := module }
+        operation mutable(mutable: int) { tally := mutable }
+        operation namespace(namespace: int) { tally := namespace }
+        operation native(native: int) { tally := native }
+        operation never(never: int) { tally := never }
+        operation new(new: int) { tally := new }
+        operation nil(nil: int) { tally := nil }
+        operation nonlocal(nonlocal: int) { tally := nonlocal }
+        operation not(not: int) { tally := not }
+        operation object(object: int) { tally := object }
+        operation open(open: int) { tally := open }
+        operation operator(operator: int) { tally := operator }
+        operation out(out: int) { tally := out }
+        operation override(override: int) { tally := override }
+        operation package(package: int) { tally := package }
+        operation parallel(parallel: int) { tally := parallel }
+        operation params(params: int) { tally := params }
+        operation part(part: int) { tally := part }
+        operation pass(pass: int) { tally := pass }
+        operation permits(permits: int) { tally := permits }
+        operation print(print: int) { tally := print }
+        operation process(process: int) { tally := process }
+        operation protected(protected: int) { tally := protected }
+        operation public(public: int) { tally := public }
+        operation pure(pure: int) { tally := pure }
+        operation quote(quote: int) { tally := quote }
+        operation raise(raise: int) { tally := raise }
+        operation rec(rec: int) { tally := rec }
+        operation receive(receive: int) { tally := receive }
+        operation record(record: int) { tally := record }
+        operation ref(ref: int) { tally := ref }
+        operation require(require: int) { tally := require }
+        operation rescue(rescue: int) { tally := rescue }
+        operation rethrow(rethrow: int) { tally := rethrow }
+        operation sbyte(sbyte: int) { tally := sbyte }
+        operation sealed(sealed: int) { tally := sealed }
+        operation self(self: int) { tally := self }
+        operation set(set: int) { tally := set }
+        operation short(short: int) { tally := short }
+        operation show(show: int) { tally := show }
+        operation sizeof(sizeof: int) { tally := sizeof }
+        operation stackalloc(stackalloc: int) { tally := stackalloc }
+        operation str(str: int) { tally := str }
+        operation strictfp(strictfp: int) { tally := strictfp }
+        operation struct(struct: int) { tally := struct }
+        operation super(super: int) { tally := super }
+        operation switch(switch: int) { tally := switch }
+        operation synchronized(synchronized: int) { tally := synchronized }
+        operation tailcall(tailcall: int) { tally := tailcall }
+        operation then(then: int) { tally := then }
+        operation throw(throw: int) { tally := throw }
+        operation throws(throws: int) { tally := throws }
+        operation to(to: int) { tally := to }
+        operation trait(trait: int) { tally := trait }
+        operation transient(transient: int) { tally := transient }
+        operation try(try: int) { tally := try }
+        operation typedef(typedef: int) { tally := typedef }
+        operation typeof(typeof: int) { tally := typeof }
+        operation uint(uint: int) { tally := uint }
+        operation ulong(ulong: int) { tally := ulong }
+        operation unchecked(unchecked: int) { tally := unchecked }
+        operation unknown(unknown: int) { tally := unknown }
+        operation unquote(unquote: int) { tally := unquote }
+        operation unsafe(unsafe: int) { tally := unsafe }
+        operation upcast(upcast: int) { tally := upcast }
+        operation ushort(ushort: int) { tally := ushort }
+        operation using(using: int) { tally := using }
+        operation val(val: int) { tally := val }
+        operation value(value: int) { tally := value }
+        operation var(var: int) { tally := var }
+        operation virtual(virtual: int) { tally := virtual }
+        operation void(void: int) { tally := void }
+        operation volatile(volatile: int) { tally := volatile }
+        operation while(while: int) { tally := while }
+        operation yield(yield: int) { tally := yield }
+        operation withReservedParams(abstract: int, component: int, event: int, extern: int, filter: int, global: int, implements: int, internal: int, of: int, or: int, readonly: int, required: int, select: int, state: int, type: int, use: int) { tally := abstract }
+      }
+
+      repository KeywordsRepo for Keywords { }
+      repository VerbsRepo for Verbs { }
+    }
+  }
+
+  api WordsApi from Words
+  storage pg { type: postgres }
+  resource lexState { for: Lexicon, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Lexicon]
+    dataSources: [lexState]
+    serves: WordsApi
+    port: 4000
+  }
+}

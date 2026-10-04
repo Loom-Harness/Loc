@@ -62,7 +62,7 @@ import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/reso
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, plural, snake, upperFirst } from "../../../util/naming.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -752,7 +752,7 @@ function renderDocFindFn(
     bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
   });
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => elixirLocal(p.name));
   const paged = pagedReturn(f.returnType) != null;
   const single = isDocSingleReturn(f.returnType);
   const rc: RenderCtx = {
@@ -926,7 +926,7 @@ function docOpStructBody(
   // `--warnings-as-errors`); `params` itself is always read by the `is_map` guard.
   const usedParams = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
   const params = usedParams.map(
-    (p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   const guardClauses = collectOpGuardClauses(agg.name, op, rc);
   const lastIdx = op.statements.length - 1;

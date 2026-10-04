@@ -81,7 +81,7 @@ import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { emitWireSchema, QUERY_BOOL, wireToDomainExpr, zodFor } from "./routes-builder.js";
 import {
@@ -882,7 +882,9 @@ export function buildExplicitRoutesFile(
  *  call); the return type is the user's contract. */
 function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const fn = externImplFn(h.name);
-  const params = h.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+  const params = h.params
+    .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+    .join(", ");
   const ret = h.returnType ? renderTsType(h.returnType) : "void";
   const sig = `export async function ${fn}(${params}): Promise<${ret}>`;
   const kind = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR)

@@ -38,7 +38,7 @@ import {
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
@@ -170,7 +170,7 @@ function renderOperation(op: DomainServiceOperationIR, ctx: BoundedContextIR): s
   // (the repo methods are awaited), and its return type is wrapped in a Promise.
   const ports = readPortsForOperation(op);
   const portParams = ports.map((p) => `${lowerFirst(p.repo)}: ${repoPortName(p.aggregate)}`);
-  const userParams = op.params.map((p) => `${p.name}: ${renderTsType(p.type)}`);
+  const userParams = op.params.map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`);
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
   const kw = isReading ? "export async function" : "export function";

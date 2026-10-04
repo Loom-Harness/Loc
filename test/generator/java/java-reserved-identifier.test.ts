@@ -44,6 +44,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
+import { isReserved } from "../../../src/util/target-identifiers.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** Every position the `loom.java-reserved-identifier-unsupported` gate used to
@@ -252,17 +253,26 @@ describe("M-T6.36 — a java reserved word is emitted, mangled, with the wire pi
   // The other four backends are untouched — the mangle lives in the java
   // emitters, not in the IR.
   // -------------------------------------------------------------------------
-  for (const [platform, marker] of [
-    ["node", "case"],
-    ["python", "case"],
-    ["dotnet", "@case"],
-    ["elixir", "case"],
+  // Python spells EVERY `.ddd` member through its own funnel since #3102, and
+  // reserves the soft keyword `case` (src/util/target-identifiers.ts), so its
+  // own `case_(` is expected there.  Elixir also reserves `case` but escapes
+  // only locals and controller actions — a struct field stays `case`.  The
+  // guard on the rest is that java's mangle does not leak.
+  for (const [platform, target, marker] of [
+    ["node", "ts", "case"],
+    ["python", "python", "case"],
+    ["dotnet", "csharp", "@case"],
+    ["elixir", "elixir", "case"],
   ] as const) {
-    it(`leaves platform: ${platform} on the bare \`.ddd\` name`, async () => {
+    it(`leaves platform: ${platform} on the bare \`.ddd\` name unless it reserves it too`, async () => {
       const files = await generateSystemFiles(SOURCE(platform));
       const all = [...files.values()].join("\n");
       expect(all).toContain(marker);
-      expect(all, "no java-style mangle leaked onto another backend").not.toContain("case_(");
+      if (target === "python" && isReserved("python", "case")) {
+        expect(all, `${platform} reserves \`case\`: its own escape`).toContain("case_(");
+      } else {
+        expect(all, "no java-style mangle leaked onto another backend").not.toContain("case_(");
+      }
     });
   }
 });

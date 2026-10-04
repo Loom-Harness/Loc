@@ -141,6 +141,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -2037,7 +2038,7 @@ function emitOperationRoute(
   // so the operation method itself runs preconditions → hook → invariants —
   // the route calls it exactly like a non-extern op.
   const mutation = (pad: string): string[] => [
-    `${pad}aggregate.${lowerFirst(op.name)}(${callArgs});`,
+    `${pad}aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
   ];
 
   if (!audit && !prov) {
@@ -2200,7 +2201,7 @@ function emitReturningOperationRoute(
         // returning op of the same name keeps the write-time CAS fallback.
         isVersionedUpdate: false,
         mutation: (pad) => [
-          `${pad}const __result = aggregate.${lowerFirst(op.name)}(${callArgs});`,
+          `${pad}const __result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
         ],
         capture: true,
       }),
@@ -2211,7 +2212,9 @@ function emitReturningOperationRoute(
     out.push(...whenGateLine(agg, op, "    "));
     // Lifecycle stamps are applied persist-time in the drizzle save()
     // — the handler does not stamp.
-    out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
+    out.push(
+      `    const result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
+    );
     out.push(`    await repo.save(aggregate);`);
   }
   // Translate each error variant to a ProblemDetails before the success path.

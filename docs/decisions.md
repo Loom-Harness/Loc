@@ -4583,6 +4583,16 @@ that name) are recorded in `docs/generators.md` § "Names that are Python
 keywords" as follow-ups — they fail loudly (a syntax/compile error), not
 silently.
 
+**Follow-up (2026-10-04, #3155).** The per-backend keyword sets became ONE
+table with ONE escaping path, `src/util/target-identifiers.ts`
+(`escapeTargetIdent` / `isReserved`, plus `escapeTargetMember` for names a
+target reserves as a class member), and the ratchet widened from python to
+every target: `test/fixtures/corpus/target-reserved-words.ddd` names a field,
+an enum value, an operation and its parameter after every table word the
+grammar admits, on all five compile legs.  The ruling is unchanged — escape,
+never refuse.  See `generators.md` § "The per-target reserved-identifier
+table".
+
 **Sources.** `docs/audits/2026-09-28-eval-closure-review/` item 6;
 [`generators.md`](generators.md) § "Names that are Python keywords" and
 § "Names that are Java reserved words".

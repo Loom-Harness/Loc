@@ -31,7 +31,7 @@ import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../../ir/util/o
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -284,7 +284,7 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
   switch (t.name) {
     case "money":
     case "decimal":
-      return `{:ok, ${snake(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
     // An `int` is an int4 COLUMN, so the guard carries its declared range as
     // well as its type: without it a contract-conforming-looking value like
     // 9543751572142 cast cleanly, reached the column and the DATABASE refused
@@ -293,9 +293,9 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
     // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
     // moving it is a five-backend ruling rather than this row.
     case "int":
-      return `{:ok, ${snake(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
-      return `{:ok, ${snake(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
     default:
       return null;
   }
@@ -533,7 +533,7 @@ function renderContextModule(
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const findLines = customFindsOf(repo).map((f) => {
       const findSnake = snake(f.name);
-      const baseArgs = f.params.map((p) => snake(p.name));
+      const baseArgs = f.params.map((p) => elixirLocal(p.name));
       // A `paged` find carries the same `page`/`page_size` + `sort`/`dir` arity
       // (with defaults) the repository fn declares, so the defdelegate matches
       // and the controller's paged call routes through (M-T2.6).
@@ -796,7 +796,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       const retMod = `${facadeMod}.Retrievals.${upperFirst(r.name)}`;
       // `defdelegate` carries the function arity through to the target.
       // `\\\\ []` is the default for the trailing `opts` arg.
-      const args = r.params.map((p) => snake(p.name));
+      const args = r.params.map((p) => elixirLocal(p.name));
       const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
       return `  defdelegate run_${retSnake}_${aggSnake}(${argList}), to: ${retMod}, as: :run`;
     });
@@ -1204,7 +1204,7 @@ function renderExternOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
@@ -1299,7 +1299,7 @@ function renderNamedOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
   // S5a: a body that `emit`s a domain event is restructured to persist-then-

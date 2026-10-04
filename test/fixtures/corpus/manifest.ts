@@ -404,6 +404,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by eval-closure item 6 / ruling D2 — the python twin of `java-reserved-words` (M-T6.36).  `generate system` answered `0 error(s)` and the python project did not even PARSE: `def __init__(self, *, def: str, …)`, `def: Mapped[str]`, `class ThingResponse: def: str`, `aggregate.def`, `def class(self)`.  Fixed by ONE funnel (`pythonIdent` / `pythonWireIdent` in `src/util/naming.ts` → `def_`) at every identifier position, with the two outward names kept: the DB column via `mapped_column(\"def\", …)` and the wire key via a pydantic `Field(alias=\"def\")` / `Query(alias=\"def\")`.  The e2e block reads every key back off the wire, so a moved alias fails the behavioural leg, not only the compile tier.  `assertInvariants` is the second collision in the same item: .NET emitted a private `AssertInvariants()` next to the member's `AssertInvariants` property (CS0102), and the python aggregate's backing field `self._assert_invariants` overwrote its `_assert_invariants()` method (a runtime TypeError on the first invariant check) — both helpers now step aside only when a member takes their name, so every other model is byte-identical.  The names are python-reserved and NOT Postgres-reserved (`reserved-words.ddd` owns SQL quoting); the row is ALL so the other four backends keep compiling the same names.",
   },
   {
+    id: "target-reserved-words",
+    title:
+      "every word any target reserves (the TS / C# / Java / Python / Elixir / F# / Dart keyword tables in `src/util/target-identifiers.ts`) that the `.ddd` grammar admits, as a field, an enum value, an operation AND its parameter, plus value objects named after .NET BCL / UI-primitive / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, …)",
+    doc: "language",
+    backends: ALL,
+    note: "The adversarial gate of the generated-identifier legality class (#2923, #3043, #2737, #3102): a Loom-legal name that is fatal in a target.  A census proving every emitter routes every user-derived identifier through `escapeTargetIdent` is infeasible (thousands of interpolation sites), so this fixture names things after EVERY table entry at once and rides every backend's compile leg.  `target-identifiers.test.ts` fails when a table entry the grammar admits is missing from this file, so the table and the fixture cannot drift apart.",
+  },
+  {
     id: "dotnet-bcl-type-collision",
     title:
       "a domain type whose name is also a BCL type the .NET `using` set brings into scope (`aggregate Task` vs `System.Threading.Tasks.Task`, `aggregate Queue` vs `System.Collections.Generic.Queue`)",

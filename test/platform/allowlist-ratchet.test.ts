@@ -680,7 +680,16 @@ const REGISTERED: Ratchet[] = [
     // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
     // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
     // from memory of either branch.
-    max: 29,
+    //
+    // 29 -> 30 (2026-10-04, #3155): `target-reserved-words`, the all-targets
+    // identifier-legality fixture.  Like `dotnet-bcl-type-collision` it is NOT
+    // a tier gap — its defect IS a compile failure and the five corpus compile
+    // legs read it directly; the escape is invisible on the wire by ruling
+    // D-TARGET-RESERVED-NAMES.  Its open follow-ups (a node field named
+    // `constructor`, type names that shadow target globals, the frontends) are
+    // tracked by M-T6.86.  Counted off BEHAVIOURAL_ABSENT's keys on the
+    // combined tree (#3102 + main + this branch).
+    max: 30,
   },
 ];
 

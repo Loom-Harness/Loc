@@ -4,6 +4,7 @@ import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
+import { escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
@@ -265,7 +266,7 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
       // use matches the (also-escaped) binding (`let new` → `new_`).
       return escapeTsIdent(e.name);
     case "param":
-      return ctx.paramExpr?.(e.name) ?? e.name;
+      return ctx.paramExpr?.(e.name) ?? escapeTsIdent(e.name);
     case "this-prop":
       // Inside the aggregate class: read the private backing field.
       // Outside (projection reads, e.g. row `r`): use the public
@@ -276,7 +277,9 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
     case "this-derived":
       return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
     case "helper-fn":
-      return fromOutside ? `${ctx.thisName}.${lowerFirst(e.name)}` : `this.${lowerFirst(e.name)}`;
+      return fromOutside
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}`;
     case "workflow-fn":
       // A bare (uncalled) reference to a workflow helper — the module-scoped name.
       return workflowFnCamel(e.wfScope!, e.name);
@@ -459,8 +462,8 @@ function renderCall(
     case "function":
     case "private-operation":
       return fromOutside
-        ? `${ctx.thisName}.${lowerFirst(e.name)}(${argList})`
-        : `this.${lowerFirst(e.name)}(${argList})`;
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` helper — a module-scoped function named by
       // its workflow (workflows share the generated file).  Call and def sites

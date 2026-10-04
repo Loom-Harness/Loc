@@ -61,6 +61,7 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { isReserved } from "../../../util/target-identifiers.js";
 import {
   type RequestComponentOwner,
   requestComponentNamerFor,
@@ -447,7 +448,26 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     action: ":index",
   });
 
+  for (const [path, content] of files) {
+    const fixed = withoutStructOnReservedKey(content);
+    if (fixed !== content) files.set(path, fixed);
+  }
   return { files, routes };
+}
+
+/** `OpenApiSpex.schema/1` derives a STRUCT from the schema's property keys and
+ *  binds each key as a variable in its own expansion, so a property named after
+ *  an elixir reserved word (`fn`, `do`, `end`) fails `mix compile` inside the
+ *  macro ("fn is not allowed in matches") — the key itself is a legal atom.
+ *  These modules only describe the published document (no controller casts a
+ *  body into the struct), so such a schema opts out of the struct with
+ *  `struct?: false`.  Every schema without a reserved key keeps the default
+ *  and stays byte-identical.  (test/fixtures/corpus/target-reserved-words.ddd) */
+function withoutStructOnReservedKey(content: string): string {
+  if (!content.includes("OpenApiSpex.schema(%{")) return content;
+  const keys = [...content.matchAll(/^ {6}([a-z_][a-zA-Z0-9_]*): /gm)].map((m) => m[1] as string);
+  if (!keys.some((k) => isReserved("elixir", k))) return content;
+  return content.replace(/\n {2}\}\)\nend\n$/, "\n  }, struct?: false)\nend\n");
 }
 
 // ---------------------------------------------------------------------------

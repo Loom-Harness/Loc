@@ -30,7 +30,13 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import {
+  elixirLocal,
+  elixirOpAction,
+  escapeElixirIdent,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -695,7 +701,7 @@ export function renderReturningOpFunction(
   // so it never trips the unused-variable check even when the op has no params
   // (an underscore-prefixed name used in a guard would itself warn).
   const paramReads = op.params.map(
-    (p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   // The `before` wire snapshot — taken from the ORIGINAL `record` before the
   // body rebinds any field (parity with the non-returning path + the other
@@ -1577,7 +1583,7 @@ export function renderReturningOpControllerAction(
   const opCuBind = opActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const opCallActor = opActor ? ", current_user" : "";
   return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
     { name: "aggregate", valueExpr: `"${aggPascal}"` },

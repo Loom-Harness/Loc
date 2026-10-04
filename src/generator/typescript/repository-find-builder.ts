@@ -31,7 +31,7 @@ import { discriminatorValue } from "../../ir/util/inheritance.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { indent, lines } from "../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
@@ -127,7 +127,9 @@ export function renderCriterionFn(
       ctx,
       exprUsesCurrentUser(c.body) ? { principalAccessor: "requireCurrentUser()" } : undefined,
     ) ?? refuseOutOfVocabulary("drizzle-predicate", `body of criterion '${c.name}'`);
-  const params = c.params.map((p) => `${p.name}: ${tsTypeForReturn(p.type)}`).join(", ");
+  const params = c.params
+    .map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`)
+    .join(", ");
   return `const ${criterionFnName(c.name)} = (${params}) => ${lowered.expr};`;
 }
 
@@ -420,7 +422,7 @@ export function findQueryMethod(
   // Drizzle predicate reads from.  Hono routes / workflow handlers
   // thread the user from `c.get("currentUser")` into the call.
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${p.name}: ${tsTypeForReturn(p.type)}`);
+  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on this find drops the named
   // capability filters from its `where` conjunction (other finds keep them).
@@ -609,7 +611,9 @@ export function runMethod(
   const methodName = `run${upperFirst(retrieval.name)}`;
   // Retrieval params + an optional call-site page argument.  `page` is
   // never part of the declaration (retrieval.md) — it rides here.
-  const baseParams = retrieval.params.map((p) => `${p.name}: ${tsTypeForReturn(p.type)}`);
+  const baseParams = retrieval.params.map(
+    (p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`,
+  );
   const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
 
   // `where` → Drizzle predicate, AND-ed with the TPH `kind` scope.

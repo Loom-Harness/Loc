@@ -26,7 +26,8 @@ import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -529,7 +530,9 @@ function renderEntity(
   }
 
   const fns = e.functions.flatMap((fn) => {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     // PUBLIC, like the operations below.  A `function` is not an internal
     // helper the class keeps to itself: the generated code calls it from
     // OUTSIDE the class in three places the model itself asks for — the
@@ -539,7 +542,7 @@ function renderEntity(
     // (`precondition t.hasSkill(…)`).  Emitted `private`, every one of those
     // was a TS2341 on a model that validated `0 error(s)`.  The generator's
     // own `.loom/domain.mmd` has always rendered the member as `+<fn>()`.
-    const head = `  public ${lowerFirst(fn.name)}(${params}): ${renderTsType(fn.returnType)}`;
+    const head = `  public ${escapeTargetMember("ts", lowerFirst(fn.name))}(${params}): ${renderTsType(fn.returnType)}`;
     // Expression form stays the single-line `{ return expr; }` (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     if ("expr" in fn.body) {
@@ -589,7 +592,9 @@ function renderEntity(
     // The authorization gate is the CALLER's job — the handler evaluates it
     // post-load, before this method is entered (op-gates.ts).
     const opBody = operationBody(op);
-    const baseParams = op.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const baseParams = op.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const userParam = usesUser ? "currentUser: User" : "";
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -616,7 +621,9 @@ function renderEntity(
       ops.push("  }");
       ops.push("");
       // The operation method — state gate → preconditions → hook → invariants.
-      ops.push(`  public ${lowerFirst(op.name)}(${params}): ${retType} {`);
+      ops.push(
+        `  public ${escapeTargetMember("ts", lowerFirst(op.name))}(${params}): ${retType} {`,
+      );
       const externGate = whenGate(op);
       if (externGate) ops.push(externGate);
       ops.push(`    this.${checkName}(${callArgs});`);
@@ -646,7 +653,9 @@ function renderEntity(
     // `void` signature and asserts invariants on the way out; a returning one
     // ends in `return`, so the trailing assert would be unreachable — skip it.
     const retType = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
-    ops.push(`  ${visibility} ${lowerFirst(op.name)}(${params}): ${retType} {`);
+    ops.push(
+      `  ${visibility} ${escapeTargetMember("ts", lowerFirst(op.name))}(${params}): ${retType} {`,
+    );
     const gate = whenGate(op);
     if (gate) ops.push(gate);
     // Chunked (one string per statement) rather than the pre-joined

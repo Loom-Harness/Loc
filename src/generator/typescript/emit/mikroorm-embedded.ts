@@ -16,7 +16,7 @@ import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import {
@@ -175,7 +175,7 @@ export function renderMikroEmbeddedRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     let filter: string;
     try {

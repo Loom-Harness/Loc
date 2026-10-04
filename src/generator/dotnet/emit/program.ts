@@ -1452,8 +1452,14 @@ export function renderCsproj(
          rule polices a decision Loom does not own, and it fires on a model that
          compiles clean everywhere else.  The C#-suffix conventions it protects
          (a type ending \`Exception\` should derive from Exception) describe
-         hand-written libraries, not a mapped domain model. -->
-    <NoWarn>CA1707;CA1711;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
+         hand-written libraries, not a mapped domain model.
+         CA1720: "identifier contains type name" — the same bargain for MEMBER
+         names.  A field / enum value / parameter named \`object\`, \`double\`,
+         \`char\` or \`short\` is ordinary domain vocabulary that compiles
+         (keywords are escaped through src/util/target-identifiers.ts as
+         \`@object\`), and the rule would fail the build on a name Loom may not
+         rename (test/fixtures/corpus/target-reserved-words.ddd). -->
+    <NoWarn>CA1707;CA1711;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->
