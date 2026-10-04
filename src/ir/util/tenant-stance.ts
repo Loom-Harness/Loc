@@ -135,8 +135,7 @@ export function buildRegistrySelfScopeFilter(
  *  syntax for type uuid`) and answers it with a 500.  Each backend gates its
  *  parse-to-NULL rendering on this predicate so a malformed claim degrades to
  *  the same empty result a foreign-but-well-formed one already gives — .NET's
- *  `Guid.TryParse(…) ? new <Agg>Id(g) : null` is the reference shape
- *  (M-T3.7(c)).
+ *  `Guid.TryParse(…) ? new <Agg>Id(g) : null` is the reference shape.
  *
  *  `idOnLeft` reports which operand carried `this.id`, so a backend that emits
  *  an infix comparison keeps the authored operand order. */
@@ -157,7 +156,7 @@ export function guidFromStringSelfScope(
  *  {@link guidFromStringSelfScope}: that one answers "does THIS comparison need
  *  the parse-to-null guard", this one answers "does this system need the
  *  accessor that performs it", which is what an auth-surface emitter asks
- *  before emitting one (M-T3.7(c)). */
+ *  before emitting one. */
 export function guidFromStringTenancyClaim(
   sys: Pick<SystemIR, "tenancy" | "subdomains" | "user">,
 ): string | undefined {
@@ -186,7 +185,7 @@ function findAggregate(sys: Pick<SystemIR, "subdomains">, name: string): Aggrega
 /** The `User` accessor name that yields {@link guidFromStringTenancyClaim}'s
  *  claim parsed to the registry's `guid` id type, or null when it is absent or
  *  MALFORMED — the fail-closed coercion every backend's registry self-scope
- *  binds through (M-T3.7(c)).  Derived from the claim name so it can't collide
+ *  binds through.  Derived from the claim name so it can't collide
  *  with the claim's own accessor. */
 export function guidClaimAccessorName(claimField: string): string {
   return `${claimField}AsUuid`;
@@ -254,7 +253,7 @@ export const ROOT_ORG_CLAIM_FIELD = "rootOrg";
 export const DATA_KEY_PATH_DELIMITER = ".";
 
 /** `ESCAPE` character for the SARGABLE PREFILTER half of the subtree read
- *  (M-T3.17 — see {@link DEEP_SCOPE_SEMANTICS}).
+ *  (see {@link DEEP_SCOPE_SEMANTICS}).
  *
  *  `!` rather than the conventional `\`: the pattern and its `ESCAPE` clause
  *  are spelled in five generated source languages plus HQL, and backslash is
@@ -274,7 +273,7 @@ export const DATA_KEY_LIKE_ESCAPE = "!";
 export const DATA_KEY_LIKE_ESCAPED_CHARS: readonly string[] = [DATA_KEY_LIKE_ESCAPE, "%", "_"];
 
 /**
- * Semantics every backend renders the `scope` authorization filter (M-T9.9) to
+ * Semantics every backend renders the `scope` authorization filter to
  * (row R, principal P; fail-closed — no principal ⇒ matches nothing):
  *
  *   (R.dataKey IS NOT NULL
@@ -284,20 +283,20 @@ export const DATA_KEY_LIKE_ESCAPED_CHARS: readonly string[] = [DATA_KEY_LIKE_ESC
  *   OR (R.dataKey IS NULL                               -- legacy / principal-less
  *       AND R.tenantId = P.tenantId)                    --   rows degrade to `local`
  *
- * **Why the descendant test is TWO terms (M-T3.17).**  `strpos(col, needle) = 1`
- * (the #2562 fix for the `orgXa.leak` wildcard leak) has no pattern language,
+ * **Why the descendant test is TWO terms.**  `strpos(col, needle) = 1`
+ * (which closes the `orgXa.leak` wildcard leak) has no pattern language,
  * so it is correct for an anchor containing `%`/`_` — but it is a
  * function-of-column predicate, so Postgres cannot use the `data_key`
  * `text_pattern_ops` index for it and every deep/global read seq-scans.  A
  * prefix `LIKE` IS what that opclass indexes, so the LIKE is added as a
  * *prefilter* and the anchored test is kept as the *recheck*:
  *
- *   - Correctness is decided by the recheck, which is byte-for-byte the
- *     predicate #2562 shipped.  An escaping bug in the pattern can only make
+ *   - Correctness is decided by the recheck, the anchored `strpos` predicate
+ *     on its own.  An escaping bug in the pattern can only make
  *     the prefilter WIDER (an unescaped `_`/`%` matches more), never narrower,
  *     and the recheck then throws the extra rows away — so the `orgXa.leak`
  *     trap is green by construction rather than by trusting five escape
- *     helpers, which is exactly the failure mode M-T3.17 exists to avoid.
+ *     helpers, which is exactly the failure mode this split exists to avoid.
  *   - Sargability comes from the LIKE: the planner extracts the fixed prefix
  *     (escapes included) and turns it into an index range over
  *     `<table>_data_key_idx`, leaving `strpos(...)` as a cheap recheck filter
@@ -322,7 +321,7 @@ export const DEEP_SCOPE_SEMANTICS =
 
 /** Build a subtree reachability predicate for a tenant-owned aggregate as an
  *  `authz-filter` sentinel node carrying a `scope` decision anchored at
- *  `anchorClaim` (M-T9.9).  The `scope` decision carries the two principal
+ *  `anchorClaim`.  The `scope` decision carries the two principal
  *  claims (`currentUser.<anchorClaim>`, `currentUser.tenantId`) as
  *  fully-resolved `member` nodes so `exprUsesCurrentUser` classifies the filter
  *  as principal-referencing (routing it to each backend's ambient-principal
