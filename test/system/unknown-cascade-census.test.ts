@@ -61,8 +61,12 @@ import { REPO_ROOT, trackedDddFiles } from "../_helpers/ddd-corpus.js";
  *  it at 0); adding one fails until it is declared here with a reason. */
 const SUPPRESSION_BASELINE: Record<string, number> = {
   // The statement validator is the big one — lvalue walks, call-arg checks and
-  // assignment all stop on an unknown receiver.
-  "src/language/validators/statements.ts": 8,
+  // assignment all stop on an unknown receiver.  The 9th is `partlyUnknown`
+  // (M-T5.42 V4): an assignment whose bare head now resolves to the MEMBER meets
+  // crudish's macro parameter typed `unknown[]`, and the element-unknown array
+  // must stand down like a plain `unknown` (the root is the unresolved macro
+  // param type in `type-system.ts`, fenced by #3092 / #2949 at the time).
+  "src/language/validators/statements.ts": 9,
   // Binary-operand folding, ternary branch agreement, and the `match`
   // subject/arm check.
   "src/language/validators/types.ts": 7,
