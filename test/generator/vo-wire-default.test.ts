@@ -74,6 +74,43 @@ describe("a value-object field default renders in the WIRE shape", () => {
     );
   });
 
+  it(".NET: a list-literal default (`tags: string[] = []`) goes nullable and coalesces", async () => {
+    // `IReadOnlyList<string> Tags = []` — a collection expression is an
+    // allocation, not a compile-time constant, even when empty (CS1736; the
+    // shape #3060's corpus attempt tripped).  Same escape hatch as `total`.
+    const files = await generateCorpusCase(FEATURE, "dotnet");
+    const req = fileEndingWith(files, "InvoiceRequests.cs");
+    expect(req).toContain("IReadOnlyList<string>? Tags = null");
+    expect(req).not.toMatch(/Tags = \[/);
+
+    const ctl = fileEndingWith(files, "InvoicesController.cs");
+    expect(ctl).toContain("request.Tags is null ? [] : request.Tags.Select(__e => __e).ToList()");
+  });
+
+  it(".NET: a declared-optional VO field's FluentValidation rule narrows and guards", async () => {
+    // `discount: Money?` is a nullable `MoneyRequest?` with no default at all;
+    // `SetValidator(new MoneyRequestValidator())` on it is CS8620 under
+    // /warnaserror exactly as for the VO-default case above.
+    const src = fileEndingWith(
+      await generateCorpusCase(FEATURE, "dotnet"),
+      "InvoiceRequestValidators.cs",
+    );
+    expect(src).toContain(
+      "RuleFor(x => x.Discount!).SetValidator(new MoneyRequestValidator()).When(x => x.Discount is not null);",
+    );
+    expect(src).not.toContain("RuleFor(x => x.Discount).SetValidator(");
+  });
+
+  it("java: a list-literal default coalesces to a MUTABLE list, not `List.of()`", async () => {
+    // `List.of()` is immutable: a later `tags += t` (`.add(t)`) on the freshly
+    // created aggregate throws UnsupportedOperationException.  The bare
+    // (no-default) collection arm already used `new ArrayList<>()`; the
+    // explicit `= []` arm rendered the literal straight through.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Invoice.java");
+    expect(src).toContain("e.tags = tags != null ? tags : new ArrayList<>(List.of());");
+    expect(src).toContain("import java.util.ArrayList;");
+  });
+
   it("java: the entity imports BigDecimal for a default it renders into the factory", async () => {
     // Java carries no wire default at all — it coalesces in the service — so
     // it looked unaffected.  It was not: the factory renders the default, and
