@@ -10,6 +10,7 @@ import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
+import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
   validateMigrationAdapterSupport,
   validateMigrationDataSteps,
@@ -349,6 +350,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);
+  validateMemberResolution(loom, diags);
   // `Agg.create({ … })` CALL SITES against the factory the emitters actually
   // emit — `isConstructible` (no factory at all) + the required create-input
   // set.  Whole-model: the call sites live in tests, workflow bodies, handlers

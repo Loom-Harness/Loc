@@ -1164,6 +1164,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `an empty collection already encodes absence; drop the '?'.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/member-resolution-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.member-unresolved": (p: { member: unknown; shape: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of '${p.shape}' (it has: ${p.known}). ` +
+    `The type checker could not see the receiver's type here, so this was not caught earlier. ` +
+    `Name a declared member, or bind the receiver with an explicit type.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/structural-checks.ts
   // ----------------------------------------------------------------------
   "loom.applier-on-non-event-sourced#ir": (p: { name: unknown }) =>
