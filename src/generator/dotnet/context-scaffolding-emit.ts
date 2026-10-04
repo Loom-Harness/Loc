@@ -111,9 +111,6 @@ export function emitEvents(
   ns: string,
   out: Map<string, string>,
   hasSubscriptions = false,
-  /** The project maps an EF `AppDbContext` (not `persistence: dapper`): the
-   *  dispatcher then detaches a failed reactor's staged changes. */
-  efDbContext = true,
 ): void {
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
   for (const ev of ctx.events) {
