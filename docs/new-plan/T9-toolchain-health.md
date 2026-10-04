@@ -863,6 +863,21 @@ Every backend decides its import block with a hand-written predicate computed se
 
 **Slices:** (1) design + census, (2) `src/generator/_imports/` + python canonical import order (an import-equivalence-verified reorder), (3) python mirrors (`collectPyExprImports`, `visitPyTypeImports`) → `ref`, (4) python emitters one by one, each byte-identical except where the old predicate was wrong (`vo-regex-invariant`: `re.search` without `import re` in `app/http/wire_models.py`). Oracle: `ruff check` F401/F821 + `--select I` and `mypy --strict` over the corpus python leg.
 
+**Progress (2026-10-04, #3135 design + #3144 python):**
+- **Python census 285 → 0, pinned at zero.** Every `.py` goes through `PyOutputMap` → `finalizePyModule`.
+- **Mirrors deleted:** `collectPyExprImports` / `addPyExprImport` / `PY_INTRINSIC_IMPORTS`, both `collectStmtExprImports`, the four `domainServiceImportLines*` walks, and `wireModelImport` / `wireHelperImport` / `authUserImport` / `historySequenceImport` / `dtImportLine`.
+- **Verification:** every step is byte-identical on the corpus plus examples python trees except two changes.
+  - The `vo-regex-invariant` fix: the corpus cell is re-armed on python, and the mutation is proven.
+  - A formatting-only blank-line normalization in 14 `app/dispatch.py` files.
+  - The canonical-order step was verified by import-equivalence, and `ruff --select I` is clean.
+- **Source-map recorder:** it now refuses a fragment that still carries markers, instead of silently dropping its regions.
+
+**Remaining on python, to fold into the close-out:**
+1. Unconditional import lines whose NAME LIST is enumerated from the IR rather than read off the text, about ten sites. Examples: the `from app.domain.events import DomainEvent, …` lists in aggregate / dispatch / channels / scheduler, the test-subject and sibling-aggregate lines in `emit/tests.ts` / `integration-tests.ts`, the entity line in `domain-service.ts`, and the router lines in `main.py`. The regex census can't see them because they are not conditional. Convert each by writing the event / aggregate / router names through markers at their use sites.
+2. `resourceImportLines` (`resource-clients.ts`), the resource-op / remote-api-op import walk. `render-expr` needs a `ctx` hook to resolve a resource's module (`app.resources.<sourceType>`) so the call leaf can write a marker.
+3. Wire `isReserved("python", spelling)` from S1's `src/util/target-identifiers.ts` (#3155) into the finalizer's collision check once it merges, and move the unresolved-marker guard onto S1's sink (#3134) as a content check.
+4. Optionally add `"I"` to the generated ruff `select`, so the corpus leg enforces the canonical order too.
+
 ## M-T9.85 — Imports derived from use: TypeScript (`src/generator/typescript`, `src/platform/hono`) — `open` · **L** · P1
 
 Follows M-T9.84's four slices (canonicalize → mirrors → emitters → close) for the node backend. 230 census sites at minting. Handles: named, default, namespace and type-only (`refType` replaces the hand `isValueUsed(n) ? n : \`type ${n}\`` sites). Relative specifiers are computed from the importing file's path. #2939's `drizzle-imports.ts` vocabulary scan is replaced by `ref` at the drizzle render sites. Oracle: `test/system/emitted-symbol-binding.test.ts` (the binder gate) + `npm run test:tsc-corpus`.
