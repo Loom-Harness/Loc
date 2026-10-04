@@ -1,0 +1,23 @@
+// B-13 (+B-01): datetime `==` and money `toBe` in a unit test.
+system R {
+  subdomain S { context C {
+    aggregate Acct with crudish {
+      balance: money
+      lastDay: datetime
+      function sameDay(a: datetime, b: datetime): bool = a.startOfDay() == b.startOfDay()
+      operation touch() { lastDay := now() }
+      test "same instant is same day" {
+        let a = Acct.create({ balance: money("1"), lastDay: now() })
+        expect(a.sameDay(a.lastDay, a.lastDay)).toBe(true)
+      }
+      test "money toBe" {
+        let a = Acct.create({ balance: money("15"), lastDay: now() })
+        expect(a.balance).toBe(money("15"))
+      }
+    }
+    repository Accts for Acct { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: PLATFORM, contexts: [C], dataSources: [st], port: 3000 }
+}

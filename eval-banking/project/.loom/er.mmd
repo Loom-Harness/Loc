@@ -1,0 +1,62 @@
+%% Loom ER diagram — generated from the IR, do not edit by hand.
+%% System: NorthBank
+erDiagram
+  Customer {
+    guid id PK
+    string firstName
+    string lastName
+    string email
+    int version
+  }
+  Account {
+    guid id PK
+    string number
+    Id_Customer owner FK
+    AccountType accountType
+    string currency
+    AccountStatus status
+    money balance
+    decimal interestRate
+    money dailyLimit
+    money withdrawnToday
+    datetime limitDay
+    datetime openedAt
+    int version
+  }
+  LedgerEntry {
+    EntryKind kind
+    money amount
+    money balanceAfter
+    datetime at
+    string memo
+  }
+  Transfer {
+    guid id PK
+    string reference
+    Id_Account source FK
+    Id_Account target FK
+    money amount
+    TransferStatus status
+    string requestedBy
+    datetime requestedAt
+    string decidedBy
+    int version
+  }
+  InterestRun {
+    guid id PK
+    datetime startedAt
+    int version
+  }
+  Notification {
+    guid id PK
+    Id_Transfer recipient FK
+    string text
+    datetime sentAt
+    Channel via
+    int version
+  }
+  Account ||--o{ LedgerEntry : "entries"
+  Account }o--|| Customer : "owner"
+  Transfer }o--|| Account : "source"
+  Transfer }o--|| Account : "target"
+  Notification }o--|| Transfer : "recipient"

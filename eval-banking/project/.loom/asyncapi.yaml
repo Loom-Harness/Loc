@@ -1,0 +1,25 @@
+asyncapi: 3.0.0
+info:
+  title: "NorthBank channels"
+  version: 0.0.0
+channels:
+  "Banking.Clock":
+    address: "Banking.Clock"
+    messages:
+      "MonthEnd":
+        name: "MonthEnd"
+    x-loom:
+      delivery: broadcast
+      retention: ephemeral
+      transport: in-process
+  "Banking.TransferEvents":
+    address: "Banking.TransferEvents"
+    messages:
+      "TransferCompleted":
+        name: "TransferCompleted"
+    x-loom:
+      delivery: broadcast
+      retention: ephemeral
+      transport: "bus"
+      transportStatus: "declared, not provisioned"
+      wiredBy: ["api", "notify"]

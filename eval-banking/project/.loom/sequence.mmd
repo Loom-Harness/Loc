@@ -1,0 +1,64 @@
+%% Loom sequence diagram — generated from the IR, do not edit by hand.
+%% System: NorthBank
+sequenceDiagram
+  autonumber
+  participant WF as Workflow
+  participant Account
+  participant Accounts
+  participant Customers
+  participant Notification
+  participant Transfer
+  participant Transfers
+  note over WF: Banking · monthlyInterest(e)
+  WF->>Accounts: run(ActiveSavings)
+  Accounts-->>WF: accts[]
+  note over WF: for a in Account[]
+  WF->>Account: accrueInterest()
+  note over WF: Banking · openAccount(owner, number, accountType, currency)
+  note over WF: requires: IsStaff()
+  WF->>Customers: getById()
+  Customers-->>WF: customer
+  WF->>Account: create()
+  Account-->>WF: account
+  note over WF: Banking · transfer(sourceAccount, targetAccount, amount, reference)
+  note over WF: requires: IsStaff() || currentUser.customerId != null
+  note over WF: precondition: sourceAccount != targetAccount
+  note over WF: precondition: amount > money(&quot;0&quot;)
+  note over WF: precondition: amount <= money(&quot;10000&quot;)
+  WF->>Accounts: getById()
+  Accounts-->>WF: source
+  WF->>Accounts: getById()
+  Accounts-->>WF: target
+  note over WF: precondition: source.currency == target.currency
+  WF->>Transfer: create()
+  Transfer-->>WF: t
+  WF->>Account: debitForTransfer()
+  WF->>Account: creditForTransfer()
+  note over WF: emit TransferCompleted
+  note over WF: Banking · requestLargeTransfer(sourceAccount, targetAccount, amount, reference)
+  note over WF: requires: IsStaff() || currentUser.customerId != null
+  note over WF: precondition: sourceAccount != targetAccount
+  note over WF: precondition: amount > money(&quot;10000&quot;)
+  WF->>Accounts: getById()
+  Accounts-->>WF: source
+  WF->>Accounts: getById()
+  Accounts-->>WF: target
+  note over WF: precondition: source.currency == target.currency
+  WF->>Transfer: create()
+  Transfer-->>WF: t
+  note over WF: Banking · approveTransfer(transferId)
+  note over WF: requires: currentUser.permissions.contains(permissions.transfersApprove)
+  WF->>Transfers: getById()
+  Transfers-->>WF: t
+  note over WF: precondition: t.requestedBy != currentUser.id
+  WF->>Accounts: getById()
+  Accounts-->>WF: source
+  WF->>Accounts: getById()
+  Accounts-->>WF: target
+  WF->>Account: debitForTransfer()
+  WF->>Account: creditForTransfer()
+  WF->>Transfer: markCompleted()
+  note over WF: emit TransferCompleted
+  note over WF: Notifications · notifyTransfer(e)
+  WF->>Notification: create()
+  Notification-->>WF: n

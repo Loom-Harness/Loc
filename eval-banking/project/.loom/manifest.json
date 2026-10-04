@@ -1,0 +1,677 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": ".loom/architecture.c4",
+      "hash": "1e0fd9353d95b5a7"
+    },
+    {
+      "path": ".loom/asyncapi.yaml",
+      "hash": "fa17efb16b5c37cf"
+    },
+    {
+      "path": ".loom/datasources.md",
+      "hash": "7ebca3767b3f4ddc"
+    },
+    {
+      "path": ".loom/deployment.mmd",
+      "hash": "be377e081edf01e6"
+    },
+    {
+      "path": ".loom/domain.mmd",
+      "hash": "236636bf6928641d"
+    },
+    {
+      "path": ".loom/er.mmd",
+      "hash": "162d0cfd2be37bfb"
+    },
+    {
+      "path": ".loom/manifest.json"
+    },
+    {
+      "path": ".loom/messages.en.json",
+      "hash": "3324a95c6472944a"
+    },
+    {
+      "path": ".loom/sequence.mmd",
+      "hash": "92a445e1647d3393"
+    },
+    {
+      "path": ".loom/snapshots/Engagement.snapshot.json",
+      "hash": "c33e8c91980acb43"
+    },
+    {
+      "path": ".loom/snapshots/Retail.snapshot.json",
+      "hash": "c08bdc1123b41df7"
+    },
+    {
+      "path": ".loom/wire-spec.json",
+      "hash": "a29ab145d982b6bf"
+    },
+    {
+      "path": ".loom/workflows.mmd",
+      "hash": "83c113786add1bca"
+    },
+    {
+      "path": "README.md",
+      "scaffoldOnce": true,
+      "hash": "e2bdede33455236d"
+    },
+    {
+      "path": "api/.dockerignore",
+      "hash": "a22c9af9615ce86b"
+    },
+    {
+      "path": "api/Dockerfile",
+      "hash": "e820cf577e088cdd"
+    },
+    {
+      "path": "api/auth/handshake.ts",
+      "hash": "b5ac2c92b6e44040"
+    },
+    {
+      "path": "api/auth/middleware.ts",
+      "hash": "1da135937c88ea6d"
+    },
+    {
+      "path": "api/auth/oidc.ts",
+      "hash": "b86b5a7a625571ac"
+    },
+    {
+      "path": "api/auth/user-types.ts",
+      "hash": "fd3fa09c8ac7415a"
+    },
+    {
+      "path": "api/auth/verifier.ts",
+      "hash": "d0ef10621372a840"
+    },
+    {
+      "path": "api/certs/.gitkeep",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "api/db/migrations/20260101000000_retail_initial.sql",
+      "hash": "bc2d8f5fa19aafa9"
+    },
+    {
+      "path": "api/db/migrations/20260101500001_retail_migrate.sql",
+      "hash": "5f23b2291cb215fb"
+    },
+    {
+      "path": "api/db/migrations/20260101500002_retail_data_migration.sql",
+      "hash": "45a51e764ae484b8"
+    },
+    {
+      "path": "api/db/migrations/20260101500003_retail_migrate.sql",
+      "hash": "453835bd3bff813b"
+    },
+    {
+      "path": "api/db/migrations/meta/_journal.json",
+      "hash": "10659096855b002c"
+    },
+    {
+      "path": "api/db/repositories/account-repository.ts",
+      "hash": "32d88e94dee6c842"
+    },
+    {
+      "path": "api/db/repositories/customer-repository.ts",
+      "hash": "789919b056f91f16"
+    },
+    {
+      "path": "api/db/repositories/interestRun-repository.ts",
+      "hash": "87578d2b18db722d"
+    },
+    {
+      "path": "api/db/repositories/transfer-repository.ts",
+      "hash": "d965402028e35cc2"
+    },
+    {
+      "path": "api/db/schema.ts",
+      "hash": "f86913b1f7e78837"
+    },
+    {
+      "path": "api/domain/account.test.ts",
+      "hash": "bda13fbfd6ebd411"
+    },
+    {
+      "path": "api/domain/account.ts",
+      "hash": "76d68c19a764ce37"
+    },
+    {
+      "path": "api/domain/customer.ts",
+      "hash": "4c289e2aefb013e4"
+    },
+    {
+      "path": "api/domain/errors.ts",
+      "hash": "ab13137bdda819e9"
+    },
+    {
+      "path": "api/domain/events.ts",
+      "hash": "df3215aa817389bc"
+    },
+    {
+      "path": "api/domain/ids.ts",
+      "hash": "c30a9dbc2fa095d6"
+    },
+    {
+      "path": "api/domain/interestRun.ts",
+      "hash": "82205531a71090e3"
+    },
+    {
+      "path": "api/domain/repository-ports.ts",
+      "hash": "5c488fe11dcf7923"
+    },
+    {
+      "path": "api/domain/transfer.ts",
+      "hash": "6d8f2cbbf0439ee5"
+    },
+    {
+      "path": "api/domain/value-objects.ts",
+      "hash": "41eeaf8960f63d3b"
+    },
+    {
+      "path": "api/drizzle.config.ts",
+      "hash": "a5c82749790533fb"
+    },
+    {
+      "path": "api/http/account.routes.ts",
+      "hash": "eecd7449ec5c313f"
+    },
+    {
+      "path": "api/http/channels.ts",
+      "hash": "5c836721fa41dcdb"
+    },
+    {
+      "path": "api/http/customer.routes.ts",
+      "hash": "dbfef1304736d3ae"
+    },
+    {
+      "path": "api/http/index.ts",
+      "hash": "9c03791844801ef2"
+    },
+    {
+      "path": "api/http/interestRun.routes.ts",
+      "hash": "b3e7be73d4403419"
+    },
+    {
+      "path": "api/http/messages.ts",
+      "hash": "b09470841e305e76"
+    },
+    {
+      "path": "api/http/problem-details.ts",
+      "hash": "3c8c609f2ae9cb55"
+    },
+    {
+      "path": "api/http/realtime.ts",
+      "hash": "c58b3fe03b7a16de"
+    },
+    {
+      "path": "api/http/transfer.routes.ts",
+      "hash": "b8309cd33f35d97d"
+    },
+    {
+      "path": "api/http/workflows.ts",
+      "hash": "196803e7296d85e9"
+    },
+    {
+      "path": "api/index.ts",
+      "hash": "968ea85e8b53678c"
+    },
+    {
+      "path": "api/lib/schemas.ts",
+      "hash": "c39c898aac478350"
+    },
+    {
+      "path": "api/obs/als.ts",
+      "hash": "f087af973b1eec19"
+    },
+    {
+      "path": "api/obs/log.ts",
+      "hash": "70f828225a192d70"
+    },
+    {
+      "path": "api/obs/metrics.ts",
+      "hash": "bb4e347fd3ca0e95"
+    },
+    {
+      "path": "api/obs/request-id.ts",
+      "hash": "0114de210a375ba3"
+    },
+    {
+      "path": "api/obs/tracing.ts",
+      "hash": "9777026c010bf8f2"
+    },
+    {
+      "path": "api/package.json",
+      "hash": "a31dd2905a4c0172"
+    },
+    {
+      "path": "api/scheduler.ts",
+      "hash": "5449492fa5c4a3c1"
+    },
+    {
+      "path": "api/tsconfig.json",
+      "hash": "0a253c406d58df9a"
+    },
+    {
+      "path": "api/tsup.config.ts",
+      "hash": "815f3ac056e5adf2"
+    },
+    {
+      "path": "api/vitest.config.ts",
+      "hash": "b33e2d8185783c17"
+    },
+    {
+      "path": "db-init/00-create-databases.sql",
+      "hash": "67ee40119a4a0ac3"
+    },
+    {
+      "path": "docker-compose.obs.yml",
+      "hash": "34c17fc16d99b4bf"
+    },
+    {
+      "path": "docker-compose.yml",
+      "hash": "d63f74165f9676f8"
+    },
+    {
+      "path": "keycloak/realm.json",
+      "hash": "653612cf52d147bd"
+    },
+    {
+      "path": "monitoring/prometheus.yml",
+      "hash": "f08cbf96d087b05c"
+    },
+    {
+      "path": "notify/.dockerignore",
+      "hash": "5ec1bae516e24dd7"
+    },
+    {
+      "path": "notify/Dockerfile",
+      "hash": "e6d1c9bdb2e10603"
+    },
+    {
+      "path": "notify/app/__init__.py",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/app/channels.py",
+      "hash": "d56c262be0fbc3d9"
+    },
+    {
+      "path": "notify/app/db/__init__.py",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/app/db/engine.py",
+      "hash": "c87051fc5e71320a"
+    },
+    {
+      "path": "notify/app/db/migrate.py",
+      "hash": "981cac532282206d"
+    },
+    {
+      "path": "notify/app/db/repositories/__init__.py",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/app/db/repositories/notification_repository.py",
+      "hash": "301c7e38a9ed80f2"
+    },
+    {
+      "path": "notify/app/db/schema.py",
+      "hash": "bc39b61cfeea14ba"
+    },
+    {
+      "path": "notify/app/db/transaction.py",
+      "hash": "d889b22dad46f0eb"
+    },
+    {
+      "path": "notify/app/db/wire.py",
+      "hash": "bce34b6bda6d0c5d"
+    },
+    {
+      "path": "notify/app/dispatch.py",
+      "hash": "de4ba340a275076e"
+    },
+    {
+      "path": "notify/app/domain/__init__.py",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/app/domain/errors.py",
+      "hash": "faf3d08fd2a67fad"
+    },
+    {
+      "path": "notify/app/domain/events.py",
+      "hash": "4182416fac088e6d"
+    },
+    {
+      "path": "notify/app/domain/ids.py",
+      "hash": "80520c2c39ba7d9e"
+    },
+    {
+      "path": "notify/app/domain/notification.py",
+      "hash": "a9e6ea4420a4a186"
+    },
+    {
+      "path": "notify/app/domain/repository_ports.py",
+      "hash": "60cede8006ef26be"
+    },
+    {
+      "path": "notify/app/domain/value_objects.py",
+      "hash": "6334f28a321d1ce8"
+    },
+    {
+      "path": "notify/app/http/__init__.py",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/app/http/notification_routes.py",
+      "hash": "fa1d7a81e1c3d6d3"
+    },
+    {
+      "path": "notify/app/http/problem.py",
+      "hash": "0923badc173e8afa"
+    },
+    {
+      "path": "notify/app/http/wire_models.py",
+      "hash": "38a6141eb002acc0"
+    },
+    {
+      "path": "notify/app/http/workflows_routes.py",
+      "hash": "0c63f84e2591c91c"
+    },
+    {
+      "path": "notify/app/main.py",
+      "hash": "a10792bea2294ac8"
+    },
+    {
+      "path": "notify/app/obs/__init__.py",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/app/obs/log.py",
+      "hash": "20c8f5eecedfdf54"
+    },
+    {
+      "path": "notify/app/obs/metrics.py",
+      "hash": "b68a649d1f5baf37"
+    },
+    {
+      "path": "notify/app/obs/middleware.py",
+      "hash": "a9a540506001d24e"
+    },
+    {
+      "path": "notify/app/obs/tracing.py",
+      "hash": "b792640d22118457"
+    },
+    {
+      "path": "notify/app/realtime.py",
+      "hash": "765b17c134e8211b"
+    },
+    {
+      "path": "notify/app/settings.py",
+      "hash": "8fe8c7a667e248ec"
+    },
+    {
+      "path": "notify/certs/.gitkeep",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/migrations/.gitkeep",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "notify/migrations/20260102000000_engagement_initial.sql",
+      "hash": "a9965df2c3554cd8"
+    },
+    {
+      "path": "notify/pyproject.toml",
+      "hash": "4c4453e3c7189dd9"
+    },
+    {
+      "path": "web/.dockerignore",
+      "hash": "e2b543d2d14b3fb4"
+    },
+    {
+      "path": "web/.npmrc",
+      "hash": "6ecd9ea5cf2c168f"
+    },
+    {
+      "path": "web/Dockerfile",
+      "hash": "c4138644573276ee"
+    },
+    {
+      "path": "web/certs/.gitkeep",
+      "hash": "811c9dc510000193"
+    },
+    {
+      "path": "web/e2e/fixtures.ts",
+      "hash": "7d6bc747c6fbdfc1"
+    },
+    {
+      "path": "web/e2e/package.json",
+      "hash": "fe2b604111a8637b"
+    },
+    {
+      "path": "web/e2e/pages/account.ts",
+      "hash": "520b5d538f3793b1"
+    },
+    {
+      "path": "web/e2e/pages/customer.ts",
+      "hash": "23b3638d8a071797"
+    },
+    {
+      "path": "web/e2e/pages/interestRun.ts",
+      "hash": "ec1a426f74faf94d"
+    },
+    {
+      "path": "web/e2e/pages/transfer.ts",
+      "hash": "56779991526564cb"
+    },
+    {
+      "path": "web/e2e/pages/workflows/approve_transfer.ts",
+      "hash": "71a99ab6efa7f0d4"
+    },
+    {
+      "path": "web/e2e/pages/workflows/open_account.ts",
+      "hash": "1cb4c4a5dd2ddd1b"
+    },
+    {
+      "path": "web/e2e/pages/workflows/request_large_transfer.ts",
+      "hash": "04ae1dd1ac04ae0f"
+    },
+    {
+      "path": "web/e2e/pages/workflows/transfer.ts",
+      "hash": "cb41968b596da931"
+    },
+    {
+      "path": "web/e2e/playwright.config.ts",
+      "hash": "2759f312cfd48050"
+    },
+    {
+      "path": "web/e2e/smoke.spec.ts",
+      "hash": "1240e0e0bf089782"
+    },
+    {
+      "path": "web/e2e/tsconfig.json",
+      "hash": "c848057a95652578"
+    },
+    {
+      "path": "web/index.html",
+      "hash": "5265e2166d7afc50"
+    },
+    {
+      "path": "web/package.json",
+      "hash": "cb94a58111d1d733"
+    },
+    {
+      "path": "web/src/App.tsx",
+      "hash": "c9df939bb7177e65"
+    },
+    {
+      "path": "web/src/ErrorBoundary.tsx",
+      "hash": "eb840ebcb2ef9c86"
+    },
+    {
+      "path": "web/src/api/account.ts",
+      "hash": "593dcb49003185b3"
+    },
+    {
+      "path": "web/src/api/client.ts",
+      "hash": "f968e023eff32489"
+    },
+    {
+      "path": "web/src/api/config.ts",
+      "hash": "90b019d9efe63e7f"
+    },
+    {
+      "path": "web/src/api/customer.ts",
+      "hash": "55231c8b85ce658d"
+    },
+    {
+      "path": "web/src/api/interestRun.ts",
+      "hash": "75618d1f32c0d5a1"
+    },
+    {
+      "path": "web/src/api/realtime.ts",
+      "hash": "9bf245f4bb13aa6a"
+    },
+    {
+      "path": "web/src/api/transfer.ts",
+      "hash": "c9e79cc7a1acbd91"
+    },
+    {
+      "path": "web/src/api/workflows.ts",
+      "hash": "e6532606a2961798"
+    },
+    {
+      "path": "web/src/auth/AuthGate.tsx",
+      "hash": "28018587b411dbf1"
+    },
+    {
+      "path": "web/src/auth/session.ts",
+      "hash": "8239bc31f5704523"
+    },
+    {
+      "path": "web/src/i18n.ts",
+      "hash": "c841f0496d6e6027"
+    },
+    {
+      "path": "web/src/lib/apply-server-errors.ts",
+      "hash": "92ba15551da8441f"
+    },
+    {
+      "path": "web/src/lib/format.tsx",
+      "hash": "32516e8513c977eb"
+    },
+    {
+      "path": "web/src/lib/schemas.ts",
+      "hash": "17a7203717b89d91"
+    },
+    {
+      "path": "web/src/lib/strict-field-map.ts",
+      "hash": "a322f0e8613051e2"
+    },
+    {
+      "path": "web/src/locales/en.json",
+      "hash": "484e03263dfc7a2c"
+    },
+    {
+      "path": "web/src/logger.ts",
+      "hash": "8be2439110a49893"
+    },
+    {
+      "path": "web/src/main.tsx",
+      "hash": "8749853411f44fe6"
+    },
+    {
+      "path": "web/src/pages/accounts/detail.tsx",
+      "hash": "4462db9a7e67e5d8"
+    },
+    {
+      "path": "web/src/pages/accounts/list.tsx",
+      "hash": "272878e279131960"
+    },
+    {
+      "path": "web/src/pages/customers/detail.tsx",
+      "hash": "5123f83bfdca1b45"
+    },
+    {
+      "path": "web/src/pages/customers/list.tsx",
+      "hash": "090d0baa6afac02c"
+    },
+    {
+      "path": "web/src/pages/customers/new.tsx",
+      "hash": "221358679504fa8d"
+    },
+    {
+      "path": "web/src/pages/home.tsx",
+      "hash": "e07d287154db1a2b"
+    },
+    {
+      "path": "web/src/pages/interest_runs/detail.tsx",
+      "hash": "461c262a1d9ba604"
+    },
+    {
+      "path": "web/src/pages/interest_runs/list.tsx",
+      "hash": "1bcd0677fdd0e5d9"
+    },
+    {
+      "path": "web/src/pages/transfers/detail.tsx",
+      "hash": "002ac03793fd4d79"
+    },
+    {
+      "path": "web/src/pages/transfers/list.tsx",
+      "hash": "d36cf5342ae5a57e"
+    },
+    {
+      "path": "web/src/pages/workflows/approve_transfer.tsx",
+      "hash": "57e82df41d2e5352"
+    },
+    {
+      "path": "web/src/pages/workflows/index.tsx",
+      "hash": "1215d3c677cb6cfc"
+    },
+    {
+      "path": "web/src/pages/workflows/monthly_interest/instance_detail.tsx",
+      "hash": "4a4e4147d6f669b1"
+    },
+    {
+      "path": "web/src/pages/workflows/monthly_interest/instances.tsx",
+      "hash": "33d253c7893c09d9"
+    },
+    {
+      "path": "web/src/pages/workflows/open_account.tsx",
+      "hash": "335466abde861f31"
+    },
+    {
+      "path": "web/src/pages/workflows/request_large_transfer.tsx",
+      "hash": "d11e8132de2d8968"
+    },
+    {
+      "path": "web/src/pages/workflows/transfer.tsx",
+      "hash": "013ccc4639674a94"
+    },
+    {
+      "path": "web/src/theme.ts",
+      "hash": "cd1b50d1b8d5e4df"
+    },
+    {
+      "path": "web/src/vite-env.d.ts",
+      "hash": "c78bd3703454bde6"
+    },
+    {
+      "path": "web/tsconfig.json",
+      "hash": "63a1872e15cd0abc"
+    },
+    {
+      "path": "web/tsconfig.node.json",
+      "hash": "d4326577b1553d79"
+    },
+    {
+      "path": "web/vite.config.ts",
+      "hash": "082ac9804870bf0a"
+    }
+  ]
+}
