@@ -2,7 +2,7 @@ import type { DataSourceIR, StorageIR, SystemIR, WorkflowStmtIR } from "../../ir
 import { walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
-import { resourceEnvBase } from "../../util/resource-env.js";
+import { resourceEnvBase, resourceSidecarUrl } from "../../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
 // Python ResourceAdapter — async client modules for the non-persistence
@@ -247,7 +247,7 @@ const rabbitmqAdapter: PyResourceAdapter = {
     for (const r of resources) {
       const fn = snake(r.name);
       body.push(
-        `_${fn}_url = os.environ.get("${envVar(r.name)}", "amqp://guest:guest@${r.name}:5672")`,
+        `_${fn}_url = os.environ.get("${envVar(r.name)}_URL", ${JSON.stringify(resourceSidecarUrl("rabbitmq", r.storageName))})`,
         "",
         "",
         `async def _${fn}_channel() -> aio_pika.abc.AbstractChannel:`,
@@ -315,7 +315,7 @@ const restApiAdapter: PyResourceAdapter = {
       const fn = snake(r.name);
       const baseUrl = cfg(storeOf(r, stores), "baseUrl") ?? "";
       body.push(
-        `_${fn}_base_url = os.environ.get("${envVar(r.name)}", ${JSON.stringify(baseUrl)})`,
+        `_${fn}_base_url = os.environ.get("${envVar(r.name)}_URL", ${JSON.stringify(baseUrl)})`,
         "",
         "",
         `async def ${fn}_get(path: str) -> object:`,
@@ -360,7 +360,7 @@ const smtpAdapter: PyResourceAdapter = {
     for (const r of resources) {
       const fn = snake(r.name);
       body.push(
-        `_${fn}_url = os.environ.get("${envVar(r.name)}_URL", "smtp://localhost:1025")`,
+        `_${fn}_url = os.environ.get("${envVar(r.name)}_URL", ${JSON.stringify(resourceSidecarUrl("smtp", r.storageName))})`,
         `_${fn}_from = os.environ.get("${envVar(r.name)}_FROM", ${JSON.stringify(mailFrom(r, stores))})`,
         "",
         "",

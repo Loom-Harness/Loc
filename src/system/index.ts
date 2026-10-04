@@ -35,7 +35,7 @@ import type { Model } from "../language/generated/ast.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
-import { resourceEnvUrlVar } from "../util/resource-env.js";
+import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { TEST_RESET_ENV } from "../util/test-reset.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
@@ -1199,6 +1199,30 @@ function renderKeycloakRealm(sys: SystemIR): string {
   return `${JSON.stringify(doc, null, 2)}\n`;
 }
 
+/** The storage-backed resources `d` wires whose storage compose runs as a
+ *  fixed-address sidecar (`resourceSidecarUrl`): each joined to its env var,
+ *  URL and sidecar service.  A rabbitmq storage that ALSO carries a channel
+ *  transport boots without the `guest` account (broker auth, channels.md §7),
+ *  so no guest URL is injected for it — that pairing is not a dev default. */
+function sidecarResourceBindings(
+  d: DeployableIR,
+  sys: SystemIR,
+): { envVar: string; url: string; slug: string }[] {
+  const transportStorages = channelTransportStorageNames(sys);
+  const out: { envVar: string; url: string; slug: string }[] = [];
+  for (const name of d.dataSourceNames) {
+    const resource = sys.dataSources.find((r) => r.name === name);
+    if (!resource?.storageName) continue;
+    if (resource.kind !== "mailer" && resource.kind !== "queue") continue;
+    const storage = sys.storages.find((s) => s.name === resource.storageName);
+    if (!storage || transportStorages.has(storage.name)) continue;
+    const url = resourceSidecarUrl(storage.type, storage.name);
+    if (!url) continue;
+    out.push({ envVar: resourceEnvUrlVar(resource.name), url, slug: serviceSlug(storage.name) });
+  }
+  return out;
+}
+
 /** Dev-compose sidecar services derived from `sys.storages`.  One per
  *  object-store / queue storage, named by its slug; returns the service
  *  blocks (each a string[] of lines) and any named volumes they need. */
@@ -1376,10 +1400,22 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     };
   });
   const apiServices = [...new Set(apiBindings.map((b) => b.slug))];
+  // Sidecar-backed resources (H-27): a wired `resource { kind: mailer|queue,
+  // use: <storage> }` dials the STORAGE's compose service — the resource name
+  // is no host.  The URL comes from the same helper the emitted clients bake
+  // as their fallback, injected here so the stack never leans on it.
+  const sidecarBindings = sidecarResourceBindings(d, sys);
+  const sidecarServices = [...new Set(sidecarBindings.map((b) => b.slug))];
   const lines: string[] = [];
   lines.push(`${slug}:`);
   lines.push(`  build: ./${slug}`);
-  if (shape.dependsOnDb || oidc || brokerServices.length > 0 || apiServices.length > 0) {
+  if (
+    shape.dependsOnDb ||
+    oidc ||
+    brokerServices.length > 0 ||
+    apiServices.length > 0 ||
+    sidecarServices.length > 0
+  ) {
     lines.push(`  depends_on:`);
     if (shape.dependsOnDb) {
       lines.push(`    db:`);
@@ -1398,6 +1434,12 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     for (const svc of apiServices) {
       lines.push(`    ${svc}:`);
       lines.push(`      condition: service_healthy`);
+    }
+    // Mailpit / the guest rabbitmq sidecar carry no healthcheck; ordering
+    // after start is all compose can offer (the clients connect lazily).
+    for (const svc of sidecarServices) {
+      lines.push(`    ${svc}:`);
+      lines.push(`      condition: service_started`);
     }
   }
   if (oidc) {
@@ -1434,6 +1476,9 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // reads (`resourceEnvUrlVar`), so compose and the generated code cannot
   // disagree about the variable name.
   for (const b of apiBindings) {
+    lines.push(`    ${b.envVar}: ${JSON.stringify(b.url)}`);
+  }
+  for (const b of sidecarBindings) {
     lines.push(`    ${b.envVar}: ${JSON.stringify(b.url)}`);
   }
   // CORS allowlist for a backend that a separate-origin frontend may call:

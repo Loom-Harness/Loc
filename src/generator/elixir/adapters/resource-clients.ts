@@ -10,7 +10,7 @@
 
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar } from "../../../util/resource-env.js";
+import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
 
 export interface PhoenixResourceAdapter {
   readonly name: string;
@@ -133,7 +133,7 @@ const rabbitmqPhoenixAdapter: PhoenixResourceAdapter = {
       const fn = snake(r.name);
       lines.push(
         `  defp ${fn}_url do`,
-        `    System.get_env("${envVar(r.name)}") || "amqp://guest:guest@${r.name}:5672"`,
+        `    System.get_env("${envVar(r.name)}") || ${elixirString(resourceSidecarUrl("rabbitmq", r.storageName) as string)}`,
         "  end",
         "",
         `  defp ${fn}_channel do`,
@@ -244,7 +244,7 @@ const smtpPhoenixAdapter: PhoenixResourceAdapter = {
         `    # Read MAIL_URL at RUNTIME (not a compile-time @attribute): the URL`,
         `    # carries per-environment credentials that aren't set when the module`,
         `    # is compiled.`,
-        `    uri = URI.parse(System.get_env("${envVar(r.name)}") || "smtp://localhost:1025")`,
+        `    uri = URI.parse(System.get_env("${envVar(r.name)}") || ${elixirString(resourceSidecarUrl("smtp", r.storageName) as string)})`,
         "    base = [relay: uri.host, port: uri.port || 25]",
         "",
         "    opts =",

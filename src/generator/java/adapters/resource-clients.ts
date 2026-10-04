@@ -1,7 +1,7 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar } from "../../../util/resource-env.js";
+import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
 
 // ---------------------------------------------------------------------------
 // Java ResourceAdapter — client classes for the non-persistence
@@ -150,7 +150,7 @@ const rabbitmqJavaAdapter: JavaResourceAdapter = {
       const n = r.name;
       return [
         `    private static final String ${n}Url =`,
-        `        System.getenv().getOrDefault("${envVar(n)}", "amqp://guest:guest@${n}:5672");`,
+        `        System.getenv().getOrDefault("${envVar(n)}", ${JSON.stringify(resourceSidecarUrl("rabbitmq", r.storageName))});`,
         `    private static Channel ${n}Channel;`,
         ``,
         `    private static synchronized Channel ${n}channel() throws Exception {`,
@@ -306,7 +306,7 @@ const smtpJavaAdapter: JavaResourceAdapter = {
       const n = r.name;
       return [
         `    private static final String ${n}Url =`,
-        `        System.getenv().getOrDefault("${envVar(n)}", "smtp://localhost:1025");`,
+        `        System.getenv().getOrDefault("${envVar(n)}", ${JSON.stringify(resourceSidecarUrl("smtp", r.storageName))});`,
         `    private static final String ${n}From =`,
         `        System.getenv().getOrDefault("${envVar(n).replace(/_URL$/, "")}_FROM", ${JSON.stringify(mailFrom(r, stores))});`,
         ``,
