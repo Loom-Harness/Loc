@@ -343,6 +343,14 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
     }
     case "domain-service-call":
       return { id, decl: `${id}["${label(`${s.service}.${s.op}()`)}"]` };
+    default: {
+      // CR1-f: the switch was already total by case count, which `tsc` enforced
+      // only as "function lacks ending return".  The explicit never-check says
+      // so at the site, so a new `WorkflowStmtIR` kind fails HERE with the
+      // reason instead of as a return-type error two screens up.
+      const _exhaustive: never = s;
+      return { id, decl: `${id}["${label(String(_exhaustive))}"]` };
+    }
   }
 }
 
@@ -567,6 +575,12 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
     }
     case "domain-service-call":
       return [call(s.service, `${s.op}()`)];
+    default: {
+      // CR1-f — see `stepNode`.  Total by case count already; the never-check
+      // makes that a stated invariant rather than an implicit one.
+      const _exhaustive: never = s;
+      return [note(String(_exhaustive))];
+    }
   }
 }
 

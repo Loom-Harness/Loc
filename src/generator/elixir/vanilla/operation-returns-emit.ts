@@ -619,12 +619,6 @@ export function renderDurableEmitDispatchParts(
   return { bind, dispatch, broadcast };
 }
 
-/** Does this aggregate have any public returning operation (→ the controller
- *  needs the shared `problem_variant/5` responder)? */
-export function aggregateHasReturningOp(agg: AggregateIR): boolean {
-  return agg.operations.some((op) => op.visibility === "public" && isReturningOperation(op));
-}
-
 /** A return variant is an *error* iff it names a `kind: "error"` payload in
  *  this context; the other (success) variant is the aggregate itself. */
 function isErrorTag(tag: string, ctx: BoundedContextIR): boolean {
@@ -1393,6 +1387,13 @@ export function renderReturningStmt(
         cond: renderExpr(s.cond, rc),
         renderInner: (stmts) => stmts.map((st, i) => renderReturningStmt(st, ctx, rc, index + i)),
       });
+    }
+    default: {
+      // CR1-f (wave CR1, audit row P0-2b): total by case count already — all
+      // 12 `StmtIR` kinds are listed — so the never-check costs nothing and
+      // turns a future "function lacks ending return" into a named failure.
+      const _exhaustive: never = s;
+      return `    # unreachable: ${JSON.stringify(_exhaustive)}`;
     }
   }
 }

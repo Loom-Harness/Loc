@@ -4,7 +4,6 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EnrichedEntityPartIR,
-  FieldIR,
   FindIR,
   RepositoryIR,
   TypeIR,
@@ -636,10 +635,4 @@ function primitivePy(name: string): string {
     default:
       return "str";
   }
-}
-
-/** Field-import helper kept exported for the schema's document model to
- *  share the id-typing decision. */
-export function documentFields(agg: EnrichedAggregateIR): FieldIR[] {
-  return agg.fields;
 }

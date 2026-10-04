@@ -675,6 +675,40 @@ end
 ```
 ::: end
 
+### A server-owned field must have a value
+
+`managed` / `internal` / `token` take a field off the create input, so the server owns it — but "the server owns it" is only half a contract: something has to WRITE it. A non-optional server-owned field is constructible when the language has an absent value for its type, or when the model supplies one:
+
+| the field is | constructible because |
+|---|---|
+| `datetime` / `int` / `long` / `decimal` / `bool` / `string` / `guid` | the type has a language-defined absent value (`now`, `0`, `false`, `""`) that every backend's create factory seeds |
+| a collection | absent is the empty collection |
+| `= <default>` | the declared default is materialized at construction |
+| written by a `stamp onCreate` / `stamp onUpdate` | persist-time supplies it |
+| `T?` | absent is `null`, declared |
+
+Everything else is refused as `loom.unconstructible-server-field` — `money`, `json`, an enum (no member is privileged), a value object, an `X id`. There is no input anywhere that gives the field a value, so the aggregate cannot be created:
+
+```ddd
+context Billing {
+  aggregate Invoice with crudish {
+    reference: string
+    total: money managed      // refused — no client param, no default, no stamp
+  }
+}
+```
+
+```
+error  loom.unconstructible-server-field
+aggregate 'Invoice' cannot be created: field 'total' is 'managed', so it is not
+on the create input, but nothing writes it — it has no '= <default>' and no
+lifecycle stamp. Every create would leave it unset (a null into a NOT NULL
+column). Give it a default ('total: … = <expr>'), stamp it
+('stamp onCreate { total := … }'), or make it optional ('total: …?').
+```
+
+Seeding a value in the emitters instead would make the model compile while leaving the value **fabricated**, which is worse than a refusal: on node the create factory emitted `total: null` into a non-nullable `Decimal`, .NET persisted a silent `0`, and java/elixir/python failed the insert against a `NOT NULL` column — four answers to one model.
+
 ## `unique (…)` — the set-level invariant
 
 `unique (a, b)` declares a natural key: no two rows may share the listed tuple. It cannot run in the per-instance `_assertInvariants` floor, so the compiler **derives** its enforcement — a DB unique index (partial under `softDeletable`; tenant-scoped under `tenantOwned`, or `loom.unique-missing-tenant-scope`) plus a per-backend `23505 unique_violation → 409 Conflict` mapping. Columns are bare field names resolved against the aggregate (`loom.unique-unknown-field`, with a did-you-mean list; `loom.unique-duplicate-column`; a collection or value-object column is rejected — `loom.unique-collection-field` / `loom.unique-valueobject-field`); an event-sourced aggregate has no single table to constrain (`loom.unique-on-event-sourced`).
