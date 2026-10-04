@@ -192,6 +192,66 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     });
   });
 
+  describe("java", () => {
+    it("auth: EventOrigin record + payload codec; User origin snapshot/factory; accessor frame", async () => {
+      const files = await gen("java");
+      const origin = get(files, "ship_api/src/main/java/com/loom/shipapi/auth/EventOrigin.java");
+      expect(origin).toContain('    public static final String KEY = "__loomOrigin";');
+      expect(origin).toContain("        var origin = User.currentEventOrigin();");
+      const user = get(files, "ship_api/src/main/java/com/loom/shipapi/auth/User.java");
+      expect(user).toContain("    public static EventOrigin originOf(User user) {");
+      expect(user).toContain("    public static User systemPrincipalFor(EventOrigin origin) {");
+      expect(user).toContain('t == null ? "" : t');
+      const acc = get(
+        files,
+        "ship_api/src/main/java/com/loom/shipapi/auth/CurrentUserAccessor.java",
+      );
+      expect(acc).toContain("        HOLDER.set(User.systemPrincipalFor(origin));");
+    });
+
+    it("producer: the tee records the origin; the relay publishes inside it", async () => {
+      const files = await gen("java");
+      expect(
+        get(files, "sales_api/src/main/java/com/loom/salesapi/config/ChannelPublishTee.java"),
+      ).toContain(
+        "outbox.save(new LoomOutboxMessage(type, EventOrigin.capture(ChannelCodec.toData(event))));",
+      );
+      const relay = get(
+        files,
+        "sales_api/src/main/java/com/loom/salesapi/config/OutboxRelayService.java",
+      );
+      expect(relay).toContain(
+        "CurrentUserAccessor.runAsEventOrigin(EventOrigin.of(row.getPayload()),",
+      );
+      expect(relay).toContain("EventOrigin.strip(row.getPayload()), row.getId().toString()));");
+    });
+
+    it("envelope carries the origin attributes; the consumer dispatches inside it", async () => {
+      const files = await gen("java");
+      const env = get(
+        files,
+        "ship_api/src/main/java/com/loom/shipapi/config/LoomEventEnvelope.java",
+      );
+      expect(env).toContain('            m.put("tenantid", tenantId);');
+      expect(env).toContain('                (String) m.get("tenantid"),');
+      expect(
+        get(files, "ship_api/src/main/java/com/loom/shipapi/config/ChannelConsumerService.java"),
+      ).toContain(
+        "        CurrentUserAccessor.runAsEventOrigin(envelope.origin(), () -> dispatchAsOrigin(envelope));",
+      );
+    });
+
+    it("an auth-less deployable keeps the bare row and envelope", async () => {
+      const files = await gen("java", false);
+      expect(
+        get(files, "sales_api/src/main/java/com/loom/salesapi/config/ChannelPublishTee.java"),
+      ).toContain("outbox.save(new LoomOutboxMessage(type, ChannelCodec.toData(event)));");
+      expect(
+        get(files, "ship_api/src/main/java/com/loom/shipapi/config/LoomEventEnvelope.java"),
+      ).not.toContain("tenantid");
+    });
+  });
+
   describe("dotnet", () => {
     it("Auth: EventOrigin record + payload codec; User origin snapshot, factory and frame", async () => {
       const files = await gen("dotnet");
