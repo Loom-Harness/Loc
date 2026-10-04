@@ -231,7 +231,7 @@ describe("entity history — the LiveView (in-process) read seam", () => {
 
   it("carries guard 2 — reachability rides the entity read", async () => {
     const loader = (await liveView()).split("defp load_employee_history")[1] ?? "";
-    expect(loader).toContain("case Api.C.get_employee(id) do");
+    expect(loader).toContain("{:ok, _record} <- Api.C.get_employee(id) do");
     expect(loader.indexOf("Api.C.get_employee(id)")).toBeLessThan(
       loader.indexOf("Audit.History.for_target"),
     );

@@ -1452,11 +1452,26 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
       readFn === `get_${aggSnake}`
         ? ""
         : `        {:ok, nil} -> assign(socket, :${qb.assign}, :not_found)\n`;
-    return `    socket =
-      case ${ctxModule}.${readFn}(${singleArgs}) do
+    const read = `      case ${ctxModule}.${readFn}(${singleArgs}) do
 ${nilArm}${okArm}
         {:error, :not_found} -> assign(socket, :${qb.assign}, :not_found)
         _ -> assign(socket, :${qb.assign}, :error)
+      end`;
+    // The by-id fetch is `Repo.get/2` over a `:binary_id` key, which RAISES
+    // `Ecto.Query.CastError` on a malformed id — a hand-typed `/orders/abc`
+    // crashed the LiveView into a 500 (M-T6.71).  The JSON controller refuses it
+    // at the edge (`__cast_path_id`); a page has no 422 to answer, so a
+    // malformed id is what it is to a reader: no such record, the `:not_found`
+    // arm.  A custom single find takes its own typed argument, not an id, and
+    // keeps its plain read.
+    if (readFn !== `get_${aggSnake}`) return `    socket =\n${read}`;
+    return `    socket =
+      case Ecto.UUID.cast(${singleArgs}) do
+        :error ->
+          assign(socket, :${qb.assign}, :not_found)
+
+        {:ok, _} ->
+${read.replace(/^/gm, "    ")}
       end`;
   }
   // List read.  A bare `list_<agg>s()` returns `{:ok, list}` (the repo wraps
@@ -1643,11 +1658,13 @@ function renderHistoryLoaders(
     const mapper = read.mapperTakesPrincipal
       ? `fn row -> ${read.mapperName}(row, current_user) end`
       : `&${read.mapperName}/1`;
-    const inner = `    case ${read.ctxModule}.${read.getFn}(${getArgs}) do
-      {:ok, _record} ->
-        ${read.historyModule}.for_target(${read.repoModule}, ${JSON.stringify(read.targetType)}, id)
-        |> Enum.map(${mapper})
-
+    // `Ecto.UUID.cast/1` first: `get_<agg>` is `Repo.get/2`, which raises on a
+    // malformed `:binary_id` (M-T6.71) — a miss, not a crash.
+    const inner = `    with {:ok, _} <- Ecto.UUID.cast(id),
+         {:ok, _record} <- ${read.ctxModule}.${read.getFn}(${getArgs}) do
+      ${read.historyModule}.for_target(${read.repoModule}, ${JSON.stringify(read.targetType)}, id)
+      |> Enum.map(${mapper})
+    else
       _ ->
         :error
     end`;
