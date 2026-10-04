@@ -2016,15 +2016,72 @@ function buildProducerOutboxFile(ctx: EnrichedBoundedContextIR, usingMikro = fal
 
 function emitDispatcherFactory(byEvent: Map<string, string[]>, usingMikro = false): string[] {
   const out: string[] = [];
+  // Reactor failure isolation (H-28, workflow.md § "Reactor failures").  The
+  // request path dispatches AFTER the command committed, so a reactor throw
+  // must not turn that committed command into a 500 the client then retries
+  // into a 409.  `isolateReactorFailures` (set by `createApp` and the boot
+  // script's request-path instance) runs each handler on its own: a transient
+  // error is retried inline, a deterministic domain rejection is not, and the
+  // last failure is logged `reactor_failed` instead of thrown.  The DEFAULT
+  // stays throwing — the outbox relay, broker consumers and the timer
+  // scheduler drive this same factory and need the throw for their own
+  // retry / redelivery / dead-letter bookkeeping.
+  const hasHandlers = byEvent.size > 0;
+  out.push(`export interface InProcessDispatchOptions {`);
+  out.push(`  /** Log + swallow a reactor's failure instead of rethrowing it. */`);
+  out.push(`  isolateReactorFailures?: boolean;`);
+  out.push(`  /** Inline attempts per reactor for a transient error (default 3). */`);
+  out.push(`  reactorAttempts?: number;`);
+  out.push(`}`);
+  out.push(``);
+  if (hasHandlers) {
+    out.push(`/** Business rejections a retry cannot change — logged on the first failure. */`);
+    out.push(
+      `const REACTOR_REJECTIONS: ReadonlySet<string> = new Set(["DomainError", "ForbiddenError", "DisallowedError", "AggregateNotFoundError"]);`,
+    );
+    out.push(``);
+    out.push(`async function runReactor(`);
+    out.push(`  opts: InProcessDispatchOptions,`);
+    out.push(`  handler: string,`);
+    out.push(`  event: Events.DomainEvent,`);
+    out.push(`  run: () => Promise<void>,`);
+    out.push(`): Promise<void> {`);
+    out.push(`  if (!opts.isolateReactorFailures) return run();`);
+    out.push(`  const maxAttempts = Math.max(1, opts.reactorAttempts ?? 3);`);
+    out.push(
+      `  const event_id = (event as { __loomEventId?: string }).__loomEventId ?? randomUUID();`,
+    );
+    out.push(`  for (let attempt = 1; ; attempt++) {`);
+    out.push(`    try {`);
+    out.push(`      await run();`);
+    out.push(`      return;`);
+    out.push(`    } catch (err) {`);
+    out.push(`      const rejected = err instanceof Error && REACTOR_REJECTIONS.has(err.name);`);
+    out.push(`      if (rejected || attempt >= maxAttempts) {`);
+    out.push(
+      `        ${renderHonoStoreLogCall("reactorFailed", "handler, event_type: event.type, event_id, attempts: attempt, error: err instanceof Error ? err.message : String(err)")}`,
+    );
+    out.push(`        return;`);
+    out.push(`      }`);
+    out.push(`      await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** (attempt - 1)));`);
+    out.push(`    }`);
+    out.push(`  }`);
+    out.push(`}`);
+    out.push(``);
+  }
   out.push(`export function createInProcessDispatcher(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
+  out.push(`  ${hasHandlers ? "opts" : "_opts"}: InProcessDispatchOptions = {},`);
   out.push(`): DomainEventDispatcher {`);
   out.push(`  const dispatcher: DomainEventDispatcher = {`);
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      switch (event.type) {`);
   for (const [event, fns] of byEvent) {
     out.push(`        case "${event}": {`);
-    for (const fn of fns) out.push(`          await ${fn}(db, dispatcher, event);`);
+    for (const fn of fns)
+      out.push(
+        `          await runReactor(opts, "${fn}", event, () => ${fn}(db, dispatcher, event));`,
+      );
     out.push(`          break;`);
     out.push(`        }`);
   }

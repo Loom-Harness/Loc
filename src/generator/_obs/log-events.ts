@@ -139,6 +139,18 @@ export const LogEvents = {
     level: "warn",
     fields: ["workflow", "event_type", "key"],
   },
+  /** An in-process reactor / event-triggered starter threw on the REQUEST
+   *  path, after the command that raised its event had committed (H-28).  The
+   *  command still answers its 2xx: the failure is isolated, retried inline
+   *  (transient errors only), then logged here.  `event_id` is the outbox row
+   *  id when relayed, else a fresh correlation id; `handler` names the
+   *  generated reactor function.  Durable delivery (the outbox) is the
+   *  retried-until-dead-lettered alternative — workflow.md § Reactor failures. */
+  reactorFailed: {
+    event: "reactor_failed",
+    level: "error",
+    fields: ["handler", "event_type", "event_id", "attempts", "error"],
+  },
   /** The outbox relay exhausted its retries for a durable event — the row
    *  stays in __loom_outbox (attempts ≥ max) for manual inspection
    *  (dispatch-delivery-semantics.md, the dead-letter surface). */

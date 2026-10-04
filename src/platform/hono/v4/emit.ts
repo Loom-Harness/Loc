@@ -1876,6 +1876,9 @@ function renderProjectIndexTs(
   // deployable (wires a broker channel, hosts no reactors) falls back to the
   // always-exported Noop as the tee's inner dispatcher.
   const withInProcess = outboxRelay || hasTimers || hasChannelConsumers;
+  // The dispatcher `createApp` gets on the request path — the isolating twin
+  // when there are reactors to isolate (H-28), else the shared instance.
+  const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
   const authStubImport = !userShape
     ? ""
     : oidc
@@ -1998,6 +2001,19 @@ ${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
             : "NoopDomainEventDispatcher"
       };
 ${
+  withInProcess
+    ? `// The request path's twin (workflow.md § Reactor failures): its reactors
+// run after the command committed, so a reactor failure is retried, then
+// logged \`reactor_failed\` — it never fails the committed command.  The
+// instance above keeps throwing: the relay / consumers / scheduler retry on it.
+const requestEvents = ${
+        hasRealtime
+          ? "realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))"
+          : "createInProcessDispatcher(db, { isolateReactorFailures: true })"
+      };
+`
+    : ""
+}${
   hasChannels
     ? `// Broker transport (channels.md): one shared redis connection set
 // per LOOM_CHANNEL_*_URL.  The publish tee routes broker-bound events to
@@ -2010,10 +2026,10 @@ const channelTransports = createChannelTransports();
 }const app = ${
         hasChannels
           ? `createApp(db, channelPublishTee(channelTransports, ${
-              outboxRelay ? "createOutboxDispatcher(db, inProcessEvents)" : "inProcessEvents"
+              outboxRelay ? `createOutboxDispatcher(db, ${requestEventsVar})` : requestEventsVar
             }))`
           : outboxRelay
-            ? "createApp(db, createOutboxDispatcher(db, inProcessEvents))"
+            ? `createApp(db, createOutboxDispatcher(db, ${requestEventsVar}))`
             : "createApp(db)"
       };
 ${

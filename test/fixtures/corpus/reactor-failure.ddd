@@ -1,0 +1,86 @@
+// H-28 (helpdesk eval): a reactor that FAILS must not fail the command whose
+// event it reacts to.  Reactors run AFTER that command committed, so a throw
+// used to turn an already-committed `resolve` into a 500 (node, elixir) or a
+// 422 (.NET) — and the client's retry then hit the state gate.  The fixed
+// semantic (workflow.md § "Reactor failures"): the command answers its 2xx with
+// its write committed; the failed reactor is logged `reactor_failed` and its
+// own effects (here: the Survey + the saga row) are simply absent.
+system ReactorFailure {
+  subdomain Desk {
+    context Desk {
+      event TicketResolved { ticket: Ticket id, email: string }
+
+      aggregate Ticket with crudish {
+        email: string
+        status: string
+
+        operation resolve() {
+          precondition status == "Open"
+          status := "Resolved"
+          emit TicketResolved { ticket: id, email: email }
+        }
+      }
+      repository Tickets for Ticket { }
+
+      aggregate Survey with crudish {
+        ticket: Ticket id
+        email: string
+      }
+      repository Surveys for Survey { }
+
+      channel DeskEvents {
+        carries: TicketResolved
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // Asks for a rating once a ticket is resolved — and REFUSES one address,
+      // the deterministic stand-in for any reactor failure (an unreachable
+      // mailer was the eval's).
+      workflow AskForRating {
+        ticket: Ticket id
+        create(e: TicketResolved) by e.ticket {
+          precondition e.email != "boom@example.test"
+          let s = Survey.create({ ticket: e.ticket, email: e.email })
+        }
+      }
+    }
+  }
+
+  api DeskApi from Desk
+  storage pg { type: postgres }
+  resource deskState { for: Desk, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a failing reactor leaves its committed command successful" against d {
+    // The happy path first, so a backend that never runs the reactor at all
+    // cannot pass the failure half vacuously.
+    let ok = api.tickets.create({ email: "ok@example.test", status: "Open" })
+    api.tickets.resolve(ok)
+    let surveys = api.surveys.all()
+    expect(surveys.total).toBe(1)
+    let rated = api.askForRating.instance(ok)
+    expect(rated.ticket).toBe(ok.id)
+
+    // The reactor refuses this one.  The command must still answer 2xx (an
+    // e2e call throws on any non-2xx), and its own write must be committed.
+    let bad = api.tickets.create({ email: "boom@example.test", status: "Open" })
+    api.tickets.resolve(bad)
+    let resolved = api.tickets.getById(bad)
+    expect(resolved.status).toBe("Resolved")
+    // The reactor's effects are absent — no Survey, no saga row …
+    let after = api.surveys.all()
+    expect(after.total).toBe(1)
+    expect(api.askForRating.instance(bad)).toThrow(404)
+    // … and nothing was rolled back or double-applied for the ticket that
+    // reacted fine.
+    let okAgain = api.tickets.getById(ok)
+    expect(okAgain.status).toBe("Resolved")
+  }
+}
