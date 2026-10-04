@@ -354,7 +354,7 @@ Item **V14** (#2838). The expression form of a variant `match` carries its resol
 
 **Verification.** The pinned case flips; one negative case per gate on the statement form.
 
-## M-T5.44 — One typing pass: each expression typed once, validators read it, lowering copies it — `in progress` (slice 1, design) · **L** · P1 ⭐ cost-of-growth
+## M-T5.44 — One typing pass: each expression typed once, validators read it, lowering copies it — `in-flight` (slice 1, design) · **L** · P1 ⭐ cost-of-growth
 
 The front end types each expression **two to three times**, by hand-kept copies:
 - `typeOf` / `envForNode` in `src/language/type-system.ts`, used by the validators and the LSP;
