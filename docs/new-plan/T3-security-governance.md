@@ -96,13 +96,6 @@ Sources: [execution-context](../old/proposals/execution-context.md), D-CTX-SHAPE
 Signup/invite/role-assignment flows as macro-level batteries over the OIDC boundary (production-readiness §3.6); tenant provisioning/onboarding hooks into the registry.
 Sources: [production-readiness](../old/proposals/production-readiness.md) §3.6, [quickstart-and-day-one-batteries](../old/proposals/quickstart-and-day-one-batteries.md) `saas` template.
 
-## M-T3.14 — SAST over generated auth/tenancy code — `open` · **M** · P2
-Generated security-sensitive code (the OIDC PKCE/refresh-rotation flow, the tenant-isolation query predicates) gets the same correctness gates as any other emitter — but no *security* scanning. Run a focused CodeQL/semgrep ruleset over the emitted auth + tenancy source across all five backends: leaked/hardcoded secrets, a PKCE `state`/`nonce` check omitted on a code path, a tenant predicate missing from one query site, tokens logged. Generated security code deserves generated-code security scanning; the ruleset is small and targeted (not a general SAST sweep). Nightly / `security` label.
-Sources: `docs/auth.md` (D-AUTH-OIDC), `docs/tenancy.md`; pairs with M-T3.13 (static twin of the runtime deny gate).
-
-
----
-
 ## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `partial` (the diagnostic slice `loom.default-deny-by-id-ungated` landed; the gate SURFACE + five route emitters remain) · **M** · **P0** (raised 2026-09-29 by wave L0: C5 moment 5d made `denyByDefault` the language default, so the hole is on every auth model) · security
 
 Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with `auth { enforcement: denyByDefault }` + `user {}` + `auth: required` on the deployable, one aggregate, and `find all(): Product[] requires true`:

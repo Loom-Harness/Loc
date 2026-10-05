@@ -13,6 +13,50 @@
     },
     {
       "seq": 1,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.sb5be7",
+            "message": "Quantity cannot be negative",
+            "pointer": "/quantity"
+          }
+        ],
+        "instance": "/api/products",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Widget",
+            "quantity": 2,
+            "reorderLevel": 1,
+            "sku": {
+              "code": "WID"
+            },
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 3,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -28,14 +72,14 @@
       }
     },
     {
-      "seq": 2,
+      "seq": 4,
       "method": "POST",
       "path": "/api/products/{id}/restock",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 3,
+      "seq": 5,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -51,14 +95,14 @@
       }
     },
     {
-      "seq": 4,
+      "seq": 6,
       "method": "POST",
       "path": "/api/products/{id}/ship",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 5,
+      "seq": 7,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -74,7 +118,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "GET",
       "path": "/api/products?dir=asc&sort=name",
       "status": 200,
@@ -98,7 +142,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/products/by_name?n=Widget",
       "status": 200,
@@ -116,7 +160,7 @@
       ]
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "POST",
       "path": "/api/products/{id}/restock",
       "status": 422,
@@ -136,7 +180,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "POST",
       "path": "/api/products/{id}/rename",
       "status": 422,
@@ -156,14 +200,14 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/products/{id}/rename",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -179,7 +223,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "PATCH",
       "path": "/api/products",
       "status": 405,
@@ -192,7 +236,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -205,7 +249,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "POST",
       "path": "/api/products",
       "status": 400,

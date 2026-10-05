@@ -160,7 +160,7 @@ Exit (all measured): `MAX_OPEN_GAPS` counts 0 LIVE rows; `KNOWN_FLUTTER_GAPS = [
 
 ### Wave C3 — verification that sees runtime values (2 weeks; Opus ×6 + coordinator; **two PRs** — harness code, then CI-workflow changes; test-only, runs concurrently with C2)
 
-**Status (2026-09-29): claimed by #3058** (draft, PR 3-A; nothing landed yet).
+**Status (2026-10-04): in flight** — PR 3-A [#3058](https://github.com/Loom-Harness/Loc/pull/3058) is ready (3a, 3c, 3f, 3d, 3b folded); packet 3g and PR 3-B (3e) follow it; log in [`waves/wave-c3.md`](waves/wave-c3.md).
 
 | packet | rows | tree |
 |---|---|---|

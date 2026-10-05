@@ -329,7 +329,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
     doc: "tenancy",
     backends: ALL,
-    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
+    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while the (since-deleted) `ignoring` backend gate's family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
   },
   {
     id: "projection-document-aggregation",
@@ -678,6 +678,30 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
+  },
+  {
+    id: "stamps-principal",
+    title:
+      "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",
+    doc: "capabilities",
+    backends: ALL,
+    note: "M-T9.42 promotion of the `*-stamping.test.ts` string copies: each pinned how its emitter spells the principal read; this asserts the value that lands in the row, on every leg.",
+  },
+  {
+    id: "intrinsics",
+    title:
+      "scalar intrinsics in memory (derived trim / trim().toLower() / money round / int abs, an invariant over trim().length) and in SQL (column-side and value-side trim, toLower both sides, floor, abs, a reified criterion)",
+    doc: "stdlib",
+    backends: ALL,
+    note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
+  },
+  {
+    id: "wire-ingress",
+    title:
+      "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+    doc: "language",
+    backends: ALL,
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
   },
 ] as const;
 

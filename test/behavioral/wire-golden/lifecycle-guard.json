@@ -315,6 +315,35 @@
         "title": "Validation failed",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "DELETE",
+      "path": "/api/shipments/{id}",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: currentUser.permissions.contains(permissions.manage) && quantity == 0",
+        "instance": "/api/shipments/{id}",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "DELETE",
+      "path": "/api/shipments/{id}",
+      "status": 204,
+      "body": ""
     }
   ]
 }

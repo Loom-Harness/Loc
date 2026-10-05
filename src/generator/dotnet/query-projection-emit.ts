@@ -76,8 +76,8 @@ import {
 // plus a per-context `Api/<Ctx>QueryProjectionsController.cs` exposing
 // `GET /projections/<slug>` (sibling of the folded `<Ctx>ProjectionsController`
 // at the same prefix; distinct projection names ⇒ distinct slugs ⇒ no route
-// collision).  Only backends in `PROJECTION_QT_SUPPORTED` are permitted a
-// query-time projection by the IR validator; dotnet joins node/python/elixir/java.
+// collision).  Every backend emits query-time projections; dotnet was the last
+// to join (after node/python/elixir/java).
 // ---------------------------------------------------------------------------
 
 export function emitQueryProjections(

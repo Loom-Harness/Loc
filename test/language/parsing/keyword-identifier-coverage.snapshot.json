@@ -1573,16 +1573,7 @@
     "paramName",
     "stateField"
   ],
-  "precondition": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
+  "precondition": [],
   "primeng": [
     "fieldName",
     "fieldNameAfterField",
@@ -1785,16 +1776,7 @@
     "paramName",
     "stateField"
   ],
-  "requires": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
+  "requires": [],
   "resource": [
     "fieldName",
     "fieldNameAfterField",
