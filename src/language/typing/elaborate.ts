@@ -1348,7 +1348,9 @@ export class Elaborator {
     // A collection op over a receiver the pass could not type still has the
     // result SHAPE its signature fixes — `xs.map(…)` is a list, `xs.count` an
     // int — whatever `xs` is; the element stays unknown, with its cause.
-    if (bare.kind === "unknown" && isCollectionOp(name)) {
+    // (Only the CALLED form, plus bare `count`: a bare `.all` is also a read
+    // verb — `C.Order.all` — not the `all(λ)` predicate.)
+    if (bare.kind === "unknown" && isCollectionOp(name) && (ms.call || name === "count")) {
       if (ms.call) this.synthArgs(ms.args, scope);
       const sig = collectionOpSignature(name);
       if (sig.endsWith("[]")) return Ty.array(bare);
