@@ -31,9 +31,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { finalizeJavaUnit, JAVA_IMPORTS } from "../../../src/generator/_imports/java.js";
 import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderCsExpr } from "../../../src/generator/dotnet/render-expr.js";
-import { collectJavaExprImports, renderJavaExpr } from "../../../src/generator/java/render-expr.js";
+import { renderJavaExpr } from "../../../src/generator/java/render-expr.js";
 import { NUMERIC_PY } from "../../../src/generator/python/emit/numeric.js";
 import { renderPyExpr } from "../../../src/generator/python/render-expr.js";
 import { renderTsExpr } from "../../../src/generator/typescript/render-expr.js";
@@ -272,49 +273,50 @@ function javaProgram(rows: readonly ValueRow[]): string {
     const args = Object.values(row.params).map((prm) => javaInput(prm.type, prm.value));
     return `    emit(${JSON.stringify(row.id)}, () -> r_${row.id}(${args.join(", ")}));`;
   });
-  // The imports come from the renderer's OWN collector — the set a generated
-  // file would carry — so a rendering that names a symbol its collector does
-  // not import fails here the way it fails `gradle compileJava`.
-  const imports = new Set<string>();
-  for (const row of rows) collectJavaExprImports(row.expr, imports);
-  return [
-    ...[...imports].sort().map((i) => `import ${i};`),
-    "import java.math.BigDecimal;",
-    "import java.util.*;",
-    "import java.util.function.Supplier;",
-    "import java.util.stream.*;",
-    "",
-    "public class Main {",
-    ...fns,
-    "  static String json(String s) {",
-    '    StringBuilder b = new StringBuilder("\\"");',
-    "    for (char c : s.toCharArray()) {",
-    "      if (c == '\"' || c == '\\\\') b.append('\\\\').append(c);",
-    '      else if (c < 0x20 || c > 0x7e) b.append(String.format("\\\\u%04x", (int) c));',
-    "      else b.append(c);",
-    "    }",
-    "    return b.append('\"').toString();",
-    "  }",
-    "  static String show(Object v) {",
-    '    if (v instanceof Boolean x) return "bool\\t" + x;',
-    '    if (v instanceof BigDecimal x) return "num\\t" + x.toPlainString();',
-    '    if (v instanceof Double x) return "num\\t" + new BigDecimal(Double.toString(x)).toPlainString();',
-    '    if (v instanceof Number x) return "num\\t" + x;',
-    '    if (v instanceof String x) return "str\\t" + json(x);',
-    '    if (v instanceof List<?> x) return "list\\t[" + x.stream().map(e -> json(show(e).split("\\t", 2)[1])).collect(Collectors.joining(",")) + "]";',
-    '    return "other\\t" + v;',
-    "  }",
-    "  static void emit(String id, Supplier<Object> f) {",
-    "    String line;",
-    '    try { line = show(f.get()); } catch (Throwable e) { line = "err\\t" + e; }',
-    '    System.out.println(id + "\\t" + line);',
-    "  }",
-    "  public static void main(String[] argv) {",
-    ...calls,
-    "  }",
-    "}",
-    "",
-  ].join("\n");
+  // The imports are DERIVED from the rendered text by the same finalizer a
+  // generated unit goes through (M-T9.86), so a rendering that names a symbol
+  // without importing it fails here the way it fails `gradle compileJava`.
+  return finalizeJavaUnit(
+    [
+      JAVA_IMPORTS,
+      "import java.math.BigDecimal;",
+      "import java.util.*;",
+      "import java.util.function.Supplier;",
+      "import java.util.stream.*;",
+      "",
+      "public class Main {",
+      ...fns,
+      "  static String json(String s) {",
+      '    StringBuilder b = new StringBuilder("\\"");',
+      "    for (char c : s.toCharArray()) {",
+      "      if (c == '\"' || c == '\\\\') b.append('\\\\').append(c);",
+      '      else if (c < 0x20 || c > 0x7e) b.append(String.format("\\\\u%04x", (int) c));',
+      "      else b.append(c);",
+      "    }",
+      "    return b.append('\"').toString();",
+      "  }",
+      "  static String show(Object v) {",
+      '    if (v instanceof Boolean x) return "bool\\t" + x;',
+      '    if (v instanceof BigDecimal x) return "num\\t" + x.toPlainString();',
+      '    if (v instanceof Double x) return "num\\t" + new BigDecimal(Double.toString(x)).toPlainString();',
+      '    if (v instanceof Number x) return "num\\t" + x;',
+      '    if (v instanceof String x) return "str\\t" + json(x);',
+      '    if (v instanceof List<?> x) return "list\\t[" + x.stream().map(e -> json(show(e).split("\\t", 2)[1])).collect(Collectors.joining(",")) + "]";',
+      '    return "other\\t" + v;',
+      "  }",
+      "  static void emit(String id, Supplier<Object> f) {",
+      "    String line;",
+      '    try { line = show(f.get()); } catch (Throwable e) { line = "err\\t" + e; }',
+      '    System.out.println(id + "\\t" + line);',
+      "  }",
+      "  public static void main(String[] argv) {",
+      ...calls,
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+    { path: "Main.java" },
+  );
 }
 
 // ── dotnet (one file-based `dotnet run`) ────────────────────────────────────
