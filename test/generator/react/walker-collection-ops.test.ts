@@ -12,7 +12,16 @@
 // render the callback.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFilesUnchecked } from "../../_helpers/index.js";
+
+/** `filter` is NOT a Loom collection op (Loom spells it `where`), so the AST
+ *  refuses `[1, 2, 3].filter(…)` now that the single typing pass types the
+ *  list literal (M-T5.44).  It is used here on purpose: the subject is the
+ *  walker's VERBATIM `<recv>.<member>(<lambda>)` fall-through, which only a
+ *  method off the catalogue reaches. */
+const OFF_CATALOGUE =
+  "the subject is the walker's verbatim lambda fall-through, reached only by a method off the collection-op catalogue (`filter`), which the AST refuses";
+const generateSystemFiles = (src: string) => generateSystemFilesUnchecked(src, OFF_CATALOGUE);
 
 async function reactPage(body: string): Promise<string> {
   const files = await generateSystemFiles(`

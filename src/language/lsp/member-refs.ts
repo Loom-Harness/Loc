@@ -41,7 +41,7 @@ import {
   iterateEntityMembers,
   stepInto,
   stepIntoNode,
-  typeAfterSuffix,
+  suffixType,
   typeOf,
 } from "../type-system.js";
 
@@ -87,12 +87,8 @@ function receiverTypeForSuffix(ms: MemberSuffix): DddType | undefined {
   if (!isPostfixChain(chain)) return undefined;
   const idx = chain.suffixes.indexOf(ms);
   if (idx < 0) return undefined;
-  const env = envForNode(ms);
-  let t = typeOf(chain.head, env);
-  for (let i = 0; i < idx; i++) {
-    t = typeAfterSuffix(t, chain.suffixes[i]!, env);
-  }
-  return t;
+  // The single pass's answer: the head's type, or the previous suffix's.
+  return idx === 0 ? typeOf(chain.head, envForNode(ms)) : suffixType(chain.suffixes[idx - 1]!);
 }
 
 /** The member declaration a `MemberSuffix` resolves to via its receiver's

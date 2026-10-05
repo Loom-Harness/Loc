@@ -66,7 +66,7 @@ import {
   lowerEmitFields,
   lowerExpr,
   lowerExprInContext,
-  pathType,
+  passType,
 } from "./lower-expr.js";
 import { computeSaves, lowerApply, lowerField, lowerFunction, plural } from "./lower-members.js";
 import {
@@ -836,23 +836,12 @@ function lowerWorkflowStatementInner(
       // single non-null aggregate of the repo's target).
       const repo = repoCall.repo;
       const aggName = repo.aggregate?.ref?.name ?? "Unknown";
-      let returnType: TypeIR = { kind: "entity", name: aggName };
-      if (repoCall.method !== "getById") {
-        const find = repo.finds.find((f) => f.name === repoCall.method);
-        if (find) returnType = lowerType(find.returnType);
-        // `findById` is a BUILT-IN, so there is no declared find to read a
-        // return type off — and the bare-entity default above then claims the
-        // nullable by-id read cannot be absent.  That silences
-        // `loom.handler-load-nullable-unsupported`, which decides purely on
-        // `returnType.kind === "optional"`, so the handler tier emitted an
-        // unguarded dereference of a value its own port types as
-        // `Optional<T>` / `T | null`.  `getById` (which throws) keeps the bare
-        // entity; see `repoReadResultType` in `repo-read.ts`, the domain-service
-        // twin of this table.
-        else if (repoCall.method === "findById") {
-          returnType = { kind: "optional", inner: { kind: "entity", name: aggName } };
-        }
-      }
+      // The read's type is the single pass's (cutover family 3e) — the same
+      // table the domain-service path reads: a declared find's return type,
+      // `getById` the row, the NULLABLE `findById` `T?` (so
+      // `loom.handler-load-nullable-unsupported` sees it), and the built-in
+      // `findAll()` / `all()` the whole collection.
+      const returnType: TypeIR = inferExprType(stmt.expr, env);
       // The let binding's local type is the unwrapped aggregate
       // (validator rejects array/optional repo-lets).  Use the
       // declared return type so the validator can flag misuse.
@@ -1027,7 +1016,7 @@ function lowerWorkflowStatementInner(
       env.workflow?.members.some((m) => isProperty(m) && m.name === lv.head)
     ) {
       const path: PathIR = { segments: [lv.head] };
-      const targetType = pathType(path, env);
+      const targetType = passType(lv, env);
       const compound = stmt.op === "+=" || stmt.op === "-=";
       // Collection own-state `+=`/`-=` is out of scope — fall through to
       // `__bad__` (a saga-state list append isn't a recognised form yet).

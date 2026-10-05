@@ -35,7 +35,6 @@ import {
   isOperation,
   isPayloadDecl,
   isPrimitiveType,
-  isProjection,
   isProperty,
   isSlotType,
   isSystem,
@@ -567,23 +566,6 @@ export function findWorkflowByName(env: Env, name: string): Workflow | undefined
     if (isWorkflow(m) && m.name === name) return m;
   }
   return undefined;
-}
-
-/** Look up a context-level `projection` declaration by name.  A projection ROW
- *  is a state-bearing record like a workflow (projection.md): its `Property`
- *  members are the row columns, and a `this` / source-alias reference inside a
- *  query-time comprehension types as `{ kind: "entity", name }` resolved back
- *  through this lookup — the projection twin of `findWorkflowByName`. */
-export function findProjectionByName(env: Env, name: string): Projection | undefined {
-  if (env.ctx) {
-    for (const m of env.ctx.members) {
-      if (isProjection(m) && m.name === name) return m;
-    }
-  }
-  // Project-global fallback — the ui-body case, which has no `ctx` at all
-  // (M-T5.33).  Env-local first so a context resolves its own declaration
-  // even when a sibling context declares the same name.
-  return ambientDeclIndex.projections.get(name);
 }
 
 /** Look up a context-level `enum` declaration by name.  Used by the

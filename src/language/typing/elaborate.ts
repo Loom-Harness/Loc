@@ -14,9 +14,18 @@
 
 import type { AstNode } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
-import { isCollectionOp } from "../../util/collection-ops.js";
+import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
+import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opList,
+  opOperation,
+} from "../../util/openapi-ids.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
@@ -29,6 +38,7 @@ import { durationUnitOf } from "../../util/temporal.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import type {
   Aggregate,
+  Api,
   BinaryChain,
   BoundedContext,
   BuilderCall,
@@ -54,6 +64,7 @@ import {
   isActionDecl,
   isActionType,
   isAggregate,
+  isApi,
   isApply,
   isAwaitExpr,
   isBinaryChain,
@@ -125,6 +136,7 @@ import {
 } from "../generated/ast.js";
 import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
+import { astProjectionReadShape } from "./projection-shape.js";
 import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
 
 // ---------------------------------------------------------------------------
@@ -206,6 +218,12 @@ export class Elaborator {
   readonly folds = new WeakMap<BinaryChain, Fold[]>();
   /** The scope in force at each statement / expression root. */
   readonly scopes = new WeakMap<AstNode, Scope>();
+  /** Each assignment / call target's receiver chain (see `lvalueSteps`). */
+  readonly lvalueChains = new WeakMap<AstNode, Ty[]>();
+  /** A CONTEXT-level `filter` / `stamp` is one AST that lands on every
+   *  aggregate of its context (`lowerContext` propagates it), so it has one
+   *  typing per host: each is elaborated again with that aggregate as `this`. */
+  readonly perHost = new WeakMap<AstNode, Map<Aggregate, Elaborator>>();
 
   constructor(readonly index: DeclIndex) {}
 
@@ -223,6 +241,28 @@ export class Elaborator {
     }
     const inner = this.enterNode(node, scope);
     this.scopes.set(node, inner);
+    if (
+      (node.$type === "FilterDecl" || node.$type === "StampDecl") &&
+      isBoundedContext(node.$container) &&
+      !scope.frame.owner
+    ) {
+      const hosts = new Map<Aggregate, Elaborator>();
+      for (const agg of node.$container.members) {
+        if (!isAggregate(agg)) continue;
+        const sub = new Elaborator(this.index);
+        sub.visit(node, inner.child({ owner: agg, candidateAlias: undefined }));
+        hosts.set(agg, sub);
+      }
+      this.perHost.set(node, hosts);
+    }
+    // An assignment target (`x := …`, `this.a.b += …`) is not an expression,
+    // but it has a type: the head binding, then one member step per segment.
+    if (node.$type === "LValue") {
+      const lv = node as LValueNode;
+      const steps = this.lvalueSteps(lv, inner);
+      this.lvalueChains.set(lv, steps);
+      if (!lv.call) this.types.set(lv, steps[steps.length - 1]!);
+    }
     if (isProjection(node)) {
       this.visitProjection(node, scope, inner);
       return;
@@ -264,13 +304,39 @@ export class Elaborator {
     }
   }
 
+  /** The receiver chain of an assignment / call target: `this`'s type, then
+   *  the type after each data segment (every segment of an assignment target;
+   *  all but the called last one of a call target). */
+  private lvalueSteps(lv: LValueNode, scope: Scope): Ty[] {
+    const step = (recv: Ty, member: string): Ty =>
+      this.afterSuffixInner(
+        recv,
+        { $type: "MemberSuffix", member, call: false, args: [] } as never,
+        scope,
+      );
+    const self = this.thisType(scope) ?? Ty.unknown("unresolved-name");
+    const segs = [lv.head, ...lv.tail];
+    const data = lv.call ? segs.slice(0, -1) : segs;
+    const out: Ty[] = [self];
+    let cur = self;
+    data.forEach((seg, i) => {
+      cur = i === 0 && !lv.thisRef ? this.synthName(seg, scope, lv) : step(cur, seg);
+      out.push(cur);
+    });
+    return out;
+  }
+
   /** A projection's QUERY half (`from` / joins / `where` / `group by` /
    *  `select`) reads the SOURCE row, aliased like a criterion candidate, with
    *  the query params and each join alias bound in order; its `requires` gate
    *  sees only the context; its fold half (`on`, state fields) sees the
    *  projection row itself. */
   private visitProjection(p: Projection, outer: Scope, own: Scope): void {
-    const src = p.source?.ref;
+    // A macro-built projection's `from` may never link — resolve it by name,
+    // as an unlinked type ref is.
+    const src =
+      p.source?.ref ??
+      (p.source?.$refText ? this.index.find("aggregate", p.source.$refText, p) : undefined);
     const q = outer.child({
       owner: src ?? p,
       candidateAlias: src ? p.sourceAlias : undefined,
@@ -278,7 +344,9 @@ export class Elaborator {
     this.bindParams(q, p.params);
     for (const j of p.joins) {
       this.synth(j.idRef, q);
-      const agg = j.aggregate?.ref;
+      const agg =
+        j.aggregate?.ref ??
+        (j.aggregate?.$refText ? this.index.find("aggregate", j.aggregate.$refText, p) : undefined);
       q.bind(
         j.alias,
         agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
@@ -686,6 +754,25 @@ export class Elaborator {
     return undefined;
   }
 
+  /** A value name as the validators' env sees it (`envForNode(…).resolve`):
+   *  a lexical binding in `scope` (param, let, lambda / for / match / if-let
+   *  binding, event param), else a member of the enclosing record. */
+  envBinding(name: string, scope: Scope): { ty: Ty; origin: AstNode } | undefined {
+    const local = scope.lookup(name);
+    if (local) return { ty: local.ty, origin: local.origin };
+    const owner = scope.frame.owner;
+    if (!owner) return undefined;
+    for (const o of ownerChain(owner)) {
+      for (const m of o.members as AstNode[]) {
+        if ((m as { name?: string }).name !== name) continue;
+        if (!isProperty(m) && !isContainment(m) && !isDerivedProp(m)) continue;
+        const ty = this.ownerMember(o, name, scope);
+        if (ty) return { ty, origin: m };
+      }
+    }
+    return undefined;
+  }
+
   private componentNamed(name: string, node: AstNode): boolean {
     for (let c: AstNode | undefined = node; c; c = c.$container) {
       if (isUi(c)) return c.members.some((m) => isComponent(m) && m.name === name);
@@ -903,7 +990,7 @@ export class Elaborator {
       const proj = this.index.find("projection", m, of);
       if (proj) {
         if (i !== segs.length - 1) return undefined;
-        const shape = projectionReadShape(proj);
+        const shape = astProjectionReadShape(proj);
         if (!shape) return undefined;
         const row = Ty.record({ of: "projection", ref: proj });
         return shape === "many" ? Ty.array(row) : row;
@@ -913,6 +1000,71 @@ export class Elaborator {
         const row = Ty.record({ of: "workflow", ref: wf });
         const op = segs[i + 2];
         return op === "byId" ? row : Ty.array(row);
+      }
+    }
+    return undefined;
+  }
+
+  /** A `test e2e` `api.<handle>.<verb>(…)` call: the generated test client's
+   *  CRUD verbs over the aggregate (or projection) the handle names. */
+
+  private e2eApiCall(handle: string, verb: string, _scope: Scope, _node: AstNode): Ty | undefined {
+    const target = this.index.byApiHandle(handle);
+    if (!target) return undefined;
+    // A projection read rides its wire shape (an enum column is its string
+    // value), which is not the declared row — not modelled yet.
+    if (isProjection(target)) return Ty.unknown("no-rule");
+    const row = Ty.record({ of: "aggregate", ref: target });
+    if (verb === "create" || verb === "update" || verb === "getById") return row;
+    if (verb === "destroy") return Ty.never;
+    if (verb === "all" || verb === "list") {
+      const paged =
+        target.persistedAs !== "eventLog" &&
+        (target.shape ?? "relational") === "relational" &&
+        !target.superType;
+      return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
+    }
+    // A find / operation answers its WIRE shape through the generated client —
+    // an absence union unwrapped to the row, a primitive in a `{ value }`
+    // envelope — which is not its declared domain type.  Not modelled yet.
+    return Ty.unknown("no-rule");
+  }
+
+  /** The response of the operation `opId` an api exposes — the operation set
+   *  `deriveAggregateOperations` lifts (create / getById / destroy / finds /
+   *  public operations and their `can<Op>` gate probes / the `all` list),
+   *  named by the shared operationId tokens. */
+  private apiOperationType(api: Api, opId: string, scope: Scope): Ty | undefined {
+    for (const ctx of api.source?.ref?.contexts ?? []) {
+      for (const agg of ctx.members) {
+        if (!isAggregate(agg) || agg.isAbstract) continue;
+        const row = Ty.record({ of: "aggregate", ref: agg });
+        const repo = this.repositoryFor(agg);
+        if (opId === camelId(opCreate(agg.name)) || opId === camelId(opGetById(agg.name)))
+          return row;
+        if (opId === camelId(opDestroy(agg.name))) return Ty.never;
+        for (const f of repo?.finds ?? []) {
+          if (opId === camelId(opFind(agg.name, f.name)))
+            return this.resolveType(f.returnType, scope);
+        }
+        if (opId === camelId(opList(agg.name))) {
+          // The implicit `all` is paged by default, except for the shapes the
+          // enrichment keeps unbounded (an event log, a document / embedded
+          // aggregate, an inheritance subtype).
+          const paged =
+            agg.persistedAs !== "eventLog" &&
+            (agg.shape ?? "relational") === "relational" &&
+            !agg.superType;
+          return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
+        }
+        for (const o of ownerChain(agg)) {
+          for (const m of o.members as AstNode[]) {
+            if (!isOperation(m)) continue;
+            if (opId === camelId(opOperation(agg.name, m.name)))
+              return m.returnType ? this.resolveType(m.returnType, scope) : Ty.never;
+            if (opId === camelId(["can", m.name, agg.name])) return Ty.prim("bool");
+          }
+        }
       }
     }
     return undefined;
@@ -963,9 +1115,11 @@ export class Elaborator {
           // a value of its own; record what it names for the LSP.
           this.types.set(e.head, this.headNameType(headName, scope, e.head));
         }
-        this.types.set(first, head.t);
         start = head.consumed;
-        if (start > 1) this.types.set(e.suffixes[start - 1]!, head.t);
+        // A multi-segment read (`Sales.Order.byId(id)`): its path segments
+        // name declarations, not values; only the last one carries the result.
+        if (start > 1) this.types.set(first, Ty.unknown("not-a-value"));
+        this.types.set(e.suffixes[start - 1]!, head.t);
       }
     }
     if (!cur) cur = this.synth(e.head, scope);
@@ -1017,6 +1171,16 @@ export class Elaborator {
     }
     if (!isMemberSuffix(first) || shadowed) return undefined;
     const ms = first;
+    // `test e2e`: `api.<handle>.<verb>(…)` calls the target deployable's
+    // generated test client (cutover family 3f).
+    if (scope.frame.e2e && name === "api") {
+      const call = e.suffixes[1];
+      if (!ms.call && call && isMemberSuffix(call) && call.call) {
+        this.synthArgs(call.args, scope);
+        const t = this.e2eApiCall(String(ms.member), String(call.member), scope, node);
+        return { t: t ?? Ty.unknown("unresolved-member"), consumed: 2 };
+      }
+    }
     const readHead =
       this.apiParamNamed(name, node) ||
       this.index.find("aggregate", name, node) ||
@@ -1181,6 +1345,20 @@ export class Elaborator {
     // Scalar intrinsics and collection ops read through ONE optional level
     // (the validator owns whether the unguarded read is legal).
     const bare = recv.kind === "optional" ? recv.inner : recv;
+    // A collection op over a receiver the pass could not type still has the
+    // result SHAPE its signature fixes — `xs.map(…)` is a list, `xs.count` an
+    // int — whatever `xs` is; the element stays unknown, with its cause.
+    // (Only the CALLED form, plus bare `count`: a bare `.all` is also a read
+    // verb — `C.Order.all` — not the `all(λ)` predicate.)
+    if (bare.kind === "unknown" && isCollectionOp(name) && (ms.call || name === "count")) {
+      if (ms.call) this.synthArgs(ms.args, scope);
+      const sig = collectionOpSignature(name);
+      if (sig.endsWith("[]")) return Ty.array(bare);
+      if (sig === "int") return Ty.prim("int");
+      if (sig.endsWith("bool")) return Ty.prim("bool");
+      if (sig.endsWith("string")) return Ty.prim("string");
+      return bare;
+    }
     if (bare.kind === "array") {
       if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return withTags(Ty.prim("int"), tags);
       return this.collectionOp(bare.element, ms, scope);
@@ -1250,6 +1428,13 @@ export class Elaborator {
       case "resource": {
         this.synthArgs(ms.args, scope);
         const kind = shape.ref.kind;
+        // A bound api's typed operation (`orders.getOrderById(id)`, M-T4.8)
+        // answers its declared response; the verb registry is the untyped rest.
+        const api = kind === "api" ? shape.ref.use?.ref : undefined;
+        if (api && isApi(api) && ms.call) {
+          const op = this.apiOperationType(api, name, scope);
+          if (op) return op;
+        }
         const verb = kind ? findVerb(kind, name) : undefined;
         if (!verb) return Ty.unknown("unresolved-member");
         switch (verb.result) {
@@ -1385,6 +1570,14 @@ const QUERY_HANDLE_PROPS: ReadonlySet<string> = new Set([
   "isSuccess",
 ]);
 
+/** The assignment-target node's shape (`LValue` in the grammar). */
+interface LValueNode extends AstNode {
+  thisRef?: boolean;
+  head: string;
+  tail: string[];
+  call?: boolean;
+}
+
 /** A member of a blessed generic carrier (the field lists of
  *  `src/ir/stdlib/generics.ts`). */
 function genericMember(ctor: string, arg: Ty, name: string): Ty | undefined {
@@ -1436,15 +1629,6 @@ const ROW_SOURCE_ARG: Readonly<Record<string, string>> = {
   Table: "rows",
   DataGrid: "rows",
 };
-
-/** How a query-time projection rides the wire: one row, a list, or neither. */
-function projectionReadShape(p: Projection): "one" | "many" | undefined {
-  if (!p.source || p.members.some(isProjectionOn)) return undefined;
-  if (p.key !== undefined) return undefined;
-  if (p.groupBys.length > 0) return "many";
-  if (!p.members.some(isProperty) && p.selects.length === 0) return "many";
-  return "one";
-}
 
 function isAstNode(v: unknown): v is AstNode {
   return (
