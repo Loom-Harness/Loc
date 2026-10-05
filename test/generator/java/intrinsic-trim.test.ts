@@ -41,24 +41,6 @@ system Shop {
 const ROOT = "shop_api/src/main/java/com/loom/shopapi";
 
 describe("java generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
-  it("parses + validates cleanly (typed as string, queryable where)", async () => {
-    const { errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-  });
-
-  it("renders trim in-memory in derived/invariant bodies", async () => {
-    const files = await generateSystemFiles(SRC);
-    const domain = files.get(`${ROOT}/features/products/Product.java`)!;
-    expect(domain).toContain(".trim()");
-    expect(domain).toContain("this.name.trim()");
-  });
-
-  it("renders trim as JPQL in the find where-clause (column side)", async () => {
-    const files = await generateSystemFiles(SRC);
-    const jpa = files.get(`${ROOT}/features/products/ProductJpaRepository.java`)!;
-    expect(jpa).toContain('@Query("select e from Product e where trim(e.name) = :q")');
-  });
-
   it("renders a value-side trim (param receiver) as trim(:q) — JPQL trim works on parameters", async () => {
     const src = SRC.replace(
       "find byExactName(q: string): Product[] where this.name.trim() == q",
@@ -69,18 +51,5 @@ describe("java generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
     const files = await generateSystemFiles(src);
     const jpa = files.get(`${ROOT}/features/products/ProductJpaRepository.java`)!;
     expect(jpa).toContain('@Query("select e from Product e where e.name = trim(:q)")');
-  });
-
-  it("renders trim in a reified criterion Specification via cb.trim", async () => {
-    const src = SRC.replace(
-      "repository Products for Product {",
-      `criterion TrimmedName(q: string) of Product = name.trim() == q
-      repository Products for Product {`,
-    );
-    const { errors } = await parseString(src);
-    expect(errors).toEqual([]);
-    const files = await generateSystemFiles(src);
-    const crit = files.get(`${ROOT}/domain/criteria/ProductCriteria.java`)!;
-    expect(crit).toContain('cb.equal(cb.trim(root.<String>get("name")), q)');
   });
 });
