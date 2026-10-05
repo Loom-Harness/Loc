@@ -30,6 +30,18 @@
 //     object fails "the flutter leg derives its seed from the contract";
 //   - dropping one `toHaveText` from the feliz fixture's numeric round-trip
 //     fails "the feliz UI round-trip reads every numeric field back".
+//
+// The VUE cell (M-T9.15, wave C3 packet 3b) joined the same contract: its
+// fixture is held to (1) and (3) like Feliz's, and — because its list half is
+// a harness probe rather than a `.ddd` assertion — the wiring test below pins
+// the corpus case to the fixture and the probe to the contract.  Mutation-
+// proven the same way (file copy, restored, md5-verified):
+//   - deleting `barcode: long` from the vue fixture fails the vue declaration
+//     row naming barcode/long;
+//   - changing the fixture's `toHaveText("98.76")` to "98.7600" fails "the vue
+//     UI round-trip reads every numeric field back" naming listPrice;
+//   - replacing `f[cfg.render]` in run-ui.mjs's list probe with `f.vue` fails
+//     "the vue cell is wired".
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -44,8 +56,13 @@ const REPO = path.resolve(__dirname, "..", "..");
 const FIXTURES = {
   feliz: "web/src/examples/sales-system-feliz.ddd",
   flutter: "web/src/examples/sales-system-flutter.ddd",
+  vue: "test/e2e/fixtures/vue-fullstack/sales-system-vue.ddd",
 } as const;
 const FLUTTER_RUNNER = "test/behavioral/run-ui-flutter.mjs";
+const UI_RUNNER = "test/behavioral/run-ui.mjs";
+/** The legs whose emitted `*.ui.spec.ts` reads the numeric fields back off the
+ *  DETAIL page — each fixture's `.ddd` assertion text is its contract column. */
+const DOM_LEGS = ["feliz", "vue"] as const;
 
 const read = (rel: string) => fs.readFileSync(path.join(REPO, rel), "utf8");
 
@@ -73,7 +90,7 @@ describe("numeric runtime legs — the contract the two self-hosting frontends a
         const prop = fields.find((p) => p.name === row.field);
         expect(
           prop,
-          `${rel}: Product has no '${row.field}' field — the ${row.host} round-trip the nightly ${frontend} leg asserts has lost its subject`,
+          `${rel}: Product has no '${row.field}' field — the ${row.host} round-trip the ${frontend} leg asserts has lost its subject`,
         ).toBeDefined();
         expect(prop!.type, `${rel}: '${row.field}' is not a primitive type`).toMatchObject({
           kind: "primitive",
@@ -97,16 +114,55 @@ describe("numeric runtime legs — the contract the two self-hosting frontends a
     );
   });
 
-  it("the feliz UI round-trip reads every numeric field back", () => {
-    const src = read(FIXTURES.feliz);
-    for (const row of NUMERIC_FIELDS) {
-      // The `.ddd` assertion the emitted `*.ui.spec.ts` lowers to
-      // `await expect(read.field("<name>")).toHaveText("<text>")`.
-      expect(
-        src,
-        `${FIXTURES.feliz}: the numeric UI round-trip no longer asserts '${row.field}' — the feliz leg would still pass without reading it back`,
-      ).toContain(`expect(read.${row.field}).toHaveText("${row.feliz}")`);
-    }
+  for (const leg of DOM_LEGS) {
+    it(`the ${leg} UI round-trip reads every numeric field back`, () => {
+      const src = read(FIXTURES[leg]);
+      for (const row of NUMERIC_FIELDS) {
+        // The `.ddd` assertion the emitted `*.ui.spec.ts` lowers to
+        // `await expect(read.field("<name>")).toHaveText("<text>")`.
+        expect(
+          src,
+          `${FIXTURES[leg]}: the numeric UI round-trip no longer asserts '${row.field}' as the contract's ${leg} text — the ${leg} leg would still pass without reading it back`,
+        ).toContain(`expect(read.${row.field}).toHaveText("${row[leg]}")`);
+      }
+    });
+  }
+
+  it("the vue cell is wired: corpus case → fixture, and the list probe reads the contract", () => {
+    // The Vue leg is a corpus case plus a harness probe, and either half can go
+    // quiet on its own: a case pointing at another `.ddd` keeps the leg green
+    // on a fixture without the numeric row, and a probe that stops deriving its
+    // seed or its expectations from the contract drifts exactly the way the
+    // flutter test above guards against.
+    const corpus = JSON.parse(read("test/behavioral/corpus.json")) as {
+      cases: {
+        name: string;
+        ddd: string;
+        ui?: boolean;
+        numericList?: Record<string, unknown>;
+      }[];
+    };
+    const vue = corpus.cases.find((c) => c.name === "sales-system-vue");
+    expect(vue, "corpus.json lost its sales-system-vue case").toBeDefined();
+    expect(vue!.ddd).toBe(FIXTURES.vue);
+    expect(vue!.ui, "the vue case must run in run-ui.mjs").toBe(true);
+    expect(vue!.numericList, "the vue case must declare the list probe").toMatchObject({
+      render: "vue",
+      api: "/api/products",
+      route: "/products",
+      row: "products-row-",
+    });
+    const src = read(UI_RUNNER);
+    expect(src).toContain('from "./numeric-ui-contract.mjs"');
+    expect(src, `${UI_RUNNER}: the list probe must seed numericSeedBody()`).toContain(
+      "...numericSeedBody() }",
+    );
+    expect(src, `${UI_RUNNER}: the list probe must read the contract column`).toContain(
+      "const want = f[cfg.render];",
+    );
+    expect(src, `${UI_RUNNER}: the probe must run for a case that declares it`).toContain(
+      "if (c.numericList) {",
+    );
   });
 
   it("every expectation is discriminating and consistent with its seed", () => {
@@ -114,6 +170,7 @@ describe("numeric runtime legs — the contract the two self-hosting frontends a
       for (const [target, text] of [
         ["flutter", row.flutter],
         ["feliz", row.feliz],
+        ["vue", row.vue],
       ] as const) {
         // Four characters is the floor, not an aesthetic: the flutter probe
         // asserts by SUBSTRING over the page's accessible text, and a one- or

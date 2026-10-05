@@ -426,6 +426,7 @@ function prepareFormFields(
       bc,
       `${testidNamespace}-input-${f.name}`,
       aggregatesByNameMut,
+      ctx.bcByAggregate,
     ),
   );
   // RHF + zodResolver are universal across all React packs; the
@@ -926,8 +927,37 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
       return defaultUsesThis(e.inner);
     case "unary":
       return defaultUsesThis(e.operand);
-    default:
+    // `false` for every other kind, and exactly right rather than merely safe:
+    // this predicate MIRRORS `renderDefaultSeed`
+    // (`src/generator/_frontend/default-seed.ts`), whose client-evaluable subset
+    // is `literal | ref | this | member | paren | unary` and nothing else.  A
+    // default of any other shape renders `null` there — the form keeps its
+    // type-zero seed and needs no `record` prop — so answering `true` here would
+    // thread a prop nothing reads.  The two vocabularies must move together,
+    // which is what the `never` below enforces.
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ref":
+    case "ternary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 

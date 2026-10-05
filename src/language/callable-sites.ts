@@ -203,9 +203,6 @@ export const CALLABLE_SITES = {
   },
 } as const satisfies Record<string, CallableSite>;
 
-/** The `$type`s this table covers. */
-export type CallableSiteType = keyof typeof CALLABLE_SITES;
-
 /** The site row for an AST `$type`, or `undefined` when the node is not a
  *  callable site. */
 export function callableSiteOf(type: string): CallableSite | undefined {

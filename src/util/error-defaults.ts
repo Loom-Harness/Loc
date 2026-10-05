@@ -61,8 +61,6 @@ export const STRUCTURAL_CONFLICT_ERRORS = [
   "ReferencedInUse",
 ] as const;
 
-export type StructuralConflictError = (typeof STRUCTURAL_CONFLICT_ERRORS)[number];
-
 /** Resolve an error name to its HTTP status at generation time: the api's
  *  `httpStatus` override if present, else the stdlib default. The canonical
  *  idiom every backend's route/handler emitter uses for both user `error`
