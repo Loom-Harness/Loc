@@ -239,7 +239,7 @@ export function renderAuthFiles(
     .map((f) => {
       const kind = stubClaimKinds.get(f.name);
       if (kind === "string") {
-        return `claims.has("${f.name}") && claims.get("${f.name}").isTextual() ? claims.get("${f.name}").asText() : ${stubValue(f.type)}`;
+        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
       }
       if (kind === "stringList") {
         return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
@@ -301,8 +301,8 @@ export function renderAuthFiles(
                   `        if (node == null || !node.isArray()) return fallback;`,
                   `        java.util.List<String> out = new java.util.ArrayList<>();`,
                   `        for (tools.jackson.databind.JsonNode e : node) {`,
-                  `            if (!e.isTextual()) return fallback;`,
-                  `            out.add(e.asText());`,
+                  `            if (!e.isString()) return fallback;`,
+                  `            out.add(e.asString());`,
                   `        }`,
                   `        return java.util.List.copyOf(out);`,
                   `    }`,
@@ -892,7 +892,7 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        HttpResponse<String> resp =`,
     `            HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofString());`,
     `        JsonNode doc = MAPPER.readTree(resp.body());`,
-    `        return doc.get("jwks_uri").asText();`,
+    `        return doc.get("jwks_uri").asString();`,
     `    }`,
     ``,
     `    /** The bearer token from the Authorization header, or the HttpOnly`,
@@ -1110,7 +1110,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `    @GetMapping("${AUTH_BASE_PATH}/login")`,
     `    public ResponseEntity<Void> login(HttpServletResponse response) throws Exception {`,
     `        JsonNode config = discovery();`,
-    `        String authorize = config.get("authorization_endpoint").asText();`,
+    `        String authorize = config.get("authorization_endpoint").asString();`,
     `        String state = UUID.randomUUID().toString().replace("-", "");`,
     `        // PKCE (RFC 7636): mint a verifier, send only its S256 challenge to the`,
     `        // IdP, stash the verifier in an HttpOnly cookie for /callback.`,
@@ -1145,7 +1145,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        }`,
     `        try {`,
     `            JsonNode config = discovery();`,
-    `            String tokenEndpoint = config.get("token_endpoint").asText();`,
+    `            String tokenEndpoint = config.get("token_endpoint").asString();`,
     `            String form = "grant_type=authorization_code"`,
     `                + "&code=" + enc(code)`,
     `                + "&redirect_uri=" + enc(REDIRECT_URI)`,
@@ -1177,7 +1177,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        }`,
     `        try {`,
     `            JsonNode config = discovery();`,
-    `            String tokenEndpoint = config.get("token_endpoint").asText();`,
+    `            String tokenEndpoint = config.get("token_endpoint").asString();`,
     `            String form = "grant_type=refresh_token"`,
     `                + "&refresh_token=" + enc(refresh)`,
     `                + "&client_id=" + enc(CLIENT_ID)`,
@@ -1224,10 +1224,10 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `     *  (when granted) for /refresh.  Both HttpOnly — the SPA never sees them. */`,
     `    private static void storeTokens(HttpServletResponse response, JsonNode tokens) {`,
     `        JsonNode access = tokens.get("access_token");`,
-    `        response.addCookie(sessionCookie("session", access == null ? "" : access.asText()));`,
+    `        response.addCookie(sessionCookie("session", access == null ? "" : access.asString()));`,
     `        JsonNode refresh = tokens.get("refresh_token");`,
-    `        if (refresh != null && !refresh.asText().isEmpty()) {`,
-    `            response.addCookie(sessionCookie("refresh", refresh.asText()));`,
+    `        if (refresh != null && !refresh.asString().isEmpty()) {`,
+    `            response.addCookie(sessionCookie("refresh", refresh.asString()));`,
     `        }`,
     `    }`,
     ``,
