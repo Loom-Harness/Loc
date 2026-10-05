@@ -62,7 +62,7 @@ import { REPO_ROOT, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 const SUPPRESSION_BASELINE: Record<string, number> = {
   // The statement validator is the big one — lvalue walks, call-arg checks and
   // assignment all stop on an unknown receiver.
-  "src/language/validators/statements.ts": 8,
+  "src/language/validators/statements.ts": 7,
   // Binary-operand folding, ternary branch agreement, and the `match`
   // subject/arm check.
   "src/language/validators/types.ts": 7,

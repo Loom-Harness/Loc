@@ -4,16 +4,26 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 196912,
+    "agree": 197075,
     "conflict": 0,
     "declaration-name": 53916,
     "new-differs": 0,
     "new-only": 0,
-    "new=ir": 2876,
-    "new=lang": 5702,
-    "nobody-knows": 2637,
-    "not-lowered-agree": 2447,
-    "not-lowered-differ": 72,
+    "new=ir": 2928,
+    "new=lang": 5563,
+    "nobody-knows": 2693,
+    "not-lowered-agree": 2367,
+    "not-lowered-differ": 20,
     "unreached": 0
+  },
+  "unknownCauses": {
+    "not-a-value": 53916,
+    "no-rule": 2129,
+    "unresolved-member": 598,
+    "unresolved-name": 471,
+    "contextual-lambda": 115,
+    "unresolved-type": 89,
+    "ill-typed-operands": 2,
+    "parse-broken": 1
   }
 }
