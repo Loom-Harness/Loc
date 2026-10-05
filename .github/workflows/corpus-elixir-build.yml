@@ -194,15 +194,21 @@ jobs:
       # exit 125 before any compile ran. Pre-pull with backoff so a transient
       # hiccup costs seconds, not the cell. The tag is grepped from the test
       # file — the single source of truth — so a version bump cannot drift.
-      - name: Pre-pull the hexpm/elixir image (retries)
+      # The Postgres sidecar the test starts to APPLY each project's migrations
+      # (not just compile them — #3060) is pulled the same way.
+      - name: Pre-pull the hexpm/elixir + postgres images (retries)
         run: |
           IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/corpus-elixir-build.test.ts | head -1)
-          echo "pre-pulling $IMG"
-          for i in 1 2 3 4; do
-            docker pull "$IMG" && exit 0
-            echo "pull failed (attempt $i), retrying in $((i*10))s"; sleep $((i*10))
+          PG=$(grep -ohE 'postgres:[0-9]+-alpine' test/e2e/corpus-elixir-build.test.ts | head -1)
+          for img in "$IMG" "$PG"; do
+            echo "pre-pulling $img"
+            ok=0
+            for i in 1 2 3 4; do
+              if docker pull "$img"; then ok=1; break; fi
+              echo "pull failed (attempt $i), retrying in $((i*10))s"; sleep $((i*10))
+            done
+            [ "$ok" = 1 ] || exit 1
           done
-          exit 1
 
       - name: Install Loom toolchain
         run: npm ci
@@ -222,7 +228,7 @@ jobs:
           echo "## Corpus Elixir compile failed: ${{ matrix.feature }}" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the "mix compile this corpus feature" step above for the captured `mix deps.get` + `mix compile --warnings-as-errors` diagnostics.' >> $GITHUB_STEP_SUMMARY
-          echo 'This cell generates `test/fixtures/corpus/${{ matrix.feature }}.ddd` on `platform: elixir` and compiles it in the hexpm/elixir image via `test/e2e/corpus-elixir-build.test.ts` (LOOM_CORPUS_ELIXIR_CASE=${{ matrix.feature }}).' >> $GITHUB_STEP_SUMMARY
+          echo 'This cell generates `test/fixtures/corpus/${{ matrix.feature }}.ddd` on `platform: elixir` compiles it in the hexpm/elixir image and applies its migrations to a Postgres sidecar via `test/e2e/corpus-elixir-build.test.ts` (LOOM_CORPUS_ELIXIR_CASE=${{ matrix.feature }}).' >> $GITHUB_STEP_SUMMARY
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix

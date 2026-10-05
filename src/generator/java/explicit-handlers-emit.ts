@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Java / Spring emission
-// (unfoldable-api-derivation.md, Layers 3-4; A2 slice — the Java sibling of the
-// .NET A1 emitter in ../dotnet/explicit-handlers-emit.ts).
+// (unfoldable-api-derivation.md, Layers 3-4 — the Java sibling of the
+// .NET emitter in ../dotnet/explicit-handlers-emit.ts).
 //
 // Reads the explicit `commandHandler` / `queryHandler` context members and the
-// `route <METHOD> "<path>" -> <Ctx>.<Handler>` api bindings shipped in #1756 /
-// #1793 and emits them onto the SAME repository seam the backend already uses —
+// `route <METHOD> "<path>" -> <Ctx>.<Handler>` api bindings and emits them
+// onto the SAME repository seam the backend already uses —
 // no mediator, no marker records:
 //
 //   commandHandler  → a `@Service @Transactional` bean with a `handle(...)`
@@ -17,17 +17,17 @@
 //
 // PARALLEL emitter (the reuse fork): it reuses the shared workflow statement
 // spine (`renderWorkflowStmtChunks` + `javaWorkflowStmtTarget`, from
-// emit/workflow.ts) but writes its own handler shell, so the shipped workflow
-// emitter stays byte-identical.  The handler body renders the workflow
-// statements + exit-saves, then `return <returnValue>` (the IR field #1793
-// added — the workflow stmt target has no return arm).
+// emit/workflow.ts) but writes its own handler shell, leaving the workflow
+// emitter untouched.  The handler body renders the workflow
+// statements + exit-saves, then `return <returnValue>` (the handler IR's own
+// field — the workflow stmt target has no return arm).
 //
 // Java takes NO command-param rewrite (unlike .NET's renderExprWithCmdParams):
 // a handler param is a domain-typed `handle(...)` method parameter, so a `param`
 // ref renders as its bare name and the route controller coerces the wire path
 // param into the domain type at the call site (`new <Agg>Id(id)`).
 //
-// Route param binding (B2, the Java sibling of .NET B1 #1822): a handler param
+// Route param binding (the Java sibling of .NET's): a handler param
 // bound by a `{token}` in the route path stays URL-bound (id → wire type coerced
 // back with `new <Agg>Id`); every other param rides in one `<Handler>Body`
 // `@RequestBody` record (a domain-typed record emitted alongside the controller,
@@ -97,11 +97,11 @@ function reposUsed(h: Handler): string[] {
   return [...aggs].sort();
 }
 
-/** A handler's params FLATTENED for the `handle(...)` signature + request body
- *  (M-T5.10 handler-param rewrite): a `command`/`query` RECORD param expands to
- *  its request fields (each a flat domain param named `<field>`, byte-identical
- *  to the pre-rewrite flat-param form); every other param (a path-bound id /
- *  scalar / value object) passes through unchanged. */
+/** A handler's params FLATTENED for the `handle(...)` signature + request
+ *  body: a `command`/`query` RECORD param expands to its request fields (each
+ *  a flat domain param named `<field>`, identical to a hand-written flat
+ *  param); every other param (a path-bound id / scalar / value object) passes
+ *  through unchanged. */
 function flatHandlerParams(h: Handler, ctx: EnrichedBoundedContextIR): ParamIR[] {
   const out: ParamIR[] = [];
   for (const p of h.params) {
@@ -137,12 +137,10 @@ function handlerRenderCtx(
   // `serviceReading` is what makes a READING-tier `domain-service` call render
   // as an instance call against the injected bean (`registration.isHolderFree(x)`)
   // instead of the static `Registration.isHolderFree(x)` a pure service emits.
-  // The workflow emitter has threaded it since rev. 4; this one did not, so a
-  // handler calling a reading service emitted a static call into a bean with no
-  // static member and no import — "cannot find symbol", twice
-  // (ledger `M-T5.14-reading-service-readport-not-threaded`).  A handler that
-  // calls NO reading service resolves `false` for every ref and keeps the
-  // byte-identical static shape.
+  // The workflow emitter threads it too; without it a handler calling a
+  // reading service emits a static call into a bean with no static member and
+  // no import — "cannot find symbol", twice.  A handler that calls NO reading
+  // service resolves `false` for every ref and keeps the static shape.
   const serviceReading = (service: string, op: string): boolean =>
     isReadingServiceOp(ctx.domainServices ?? [], service, op);
   return {
@@ -297,7 +295,7 @@ function pagedRunStmt(
 /** Render a paged-run queryHandler as a `@Service` bean.  It injects the
  *  aggregate's `<Agg>Repository` and returns the domain `Paged<Agg>` from the
  *  synthesized paged FIND method (`findAllBy<Criterion>`); the controller
- *  projects the page items to `<Agg>Response`.  Reuses the #1904 paged repo
+ *  projects the page items to `<Agg>Response`.  Reuses the paged repo
  *  method (already declared on the wrapper because the synthesized FIND is in
  *  its `finds`). */
 function renderPagedRunHandlerClass(
@@ -375,9 +373,8 @@ function renderHandlerClass(
 
   // Body — the shared workflow statement spine, rendered at 8-space indent
   // (method-body depth).  The render context carries the handler's `command`/
-  // `query` record params (M-T5.10) so a `cmd.<field>` access collapses to the
-  // flattened flat param; a flat-param handler reuses the base context, so its
-  // output stays byte-identical.
+  // `query` record params so a `cmd.<field>` access collapses to the
+  // flattened flat param; a flat-param handler reuses the base context.
   const renderCtx = handlerRenderCtx(h, ctx, resources?.classes);
   const bodyLines = renderWorkflowStmtChunks(
     h.statements,
@@ -655,8 +652,8 @@ function emitPagedRunAction(
   ];
 }
 
-/** The wire-shape projection of a handler's return value (C2, the Java sibling
- *  of .NET C1 #1830).  An entity return (aggregate or part) is projected to its
+/** The wire-shape projection of a handler's return value (the Java sibling
+ *  of .NET's).  An entity return (aggregate or part) is projected to its
  *  `<Agg>Response` — the SAME static factory the auto-derived read endpoints use
  *  (`emit/wire.ts` domainToWire; `service.ts` `<Agg>Response::from`) — so the
  *  route serialises the wire contract, not the raw JPA entity.  Id / VO returns
@@ -670,17 +667,15 @@ function projectReturn(
   responsePkgs: Set<string>,
 ): string {
   const info = wireTypeInfo(retType, "response");
-  // A plain `decimal` narrows to the response wire's `double` (RS-24 /
-  // M-T6.46) — an explicit handler returning `decimal` is the same response
+  // A plain `decimal` narrows to the response wire's `double` (RS-24)
+  // — an explicit handler returning `decimal` is the same response
   // direction as an aggregate read, so it cannot ship the domain BigDecimal's
   // full `MathContext.DECIMAL128` precision where the REST DTO ships a double.
   // `domainToWire` carries the optional / `decimal[]` arms.
   //
-  // NOTE (reported, not fixed here): the `return "result"` below still passes
-  // `id` / `money` / `datetime` scalar returns through UN-projected, so an
-  // explicit handler returning one of those diverges from the DTO wire. That is
-  // a separate, pre-existing explicit-handler gap; only the decimal arm is in
-  // M-T6.46's scope.
+  // KNOWN GAP: the `return "result"` below passes `id` / `money` / `datetime`
+  // scalar returns through UN-projected, so an explicit handler returning one
+  // of those diverges from the DTO wire.  Only the decimal arm is projected.
   if (info.refKind === "primitive" && info.primitive === "decimal") {
     return domainToWire(retType, "result");
   }
@@ -787,8 +782,8 @@ export function emitExplicitRouteController(
     // complex `@PathVariable Money` param would be unbindable — Spring can't
     // materialise a value object from a URL segment that isn't even in the path.
     // A `command`/`query` record param FLATTENS into its request fields (the
-    // body record + call args carry the flat fields, byte-identical to the
-    // pre-rewrite flat-param form — M-T5.10); an extern handler keeps its raw
+    // body record + call args carry the flat fields, identical to a
+    // hand-written flat-param form); an extern handler keeps its raw
     // params (its impl owns the signature).  Then split on the route `{token}`s.
     const pathNames = pathParamNames(r.path);
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
@@ -815,10 +810,10 @@ export function emitExplicitRouteController(
     // handler actually returns so the boundary projection fires on it.
     const retType = normalizeHandlerReturn(qry ? qry.returnType : cmd?.returnType, ctx);
     const annot = HTTP_ANNOT[r.method] ?? "GetMapping";
-    // A bare `String` return has to be SERIALISED to JSON by hand (M-T6.73).
+    // A bare `String` return has to be SERIALISED to JSON by hand.
     // Spring selects its converter by the body's RUNTIME type, and
     // `StringHttpMessageConverter` claims a String for `text/plain` ahead of
-    // Jackson — so the route answered `text/plain: hi` where every other backend
+    // Jackson — so the route would answer `text/plain: hi` where every other backend
     // answers `application/json: "hi"` (measured with `curl -D-` on a booted app;
     // the .NET sibling of this defect is `StringOutputFormatter`).
     //
@@ -841,7 +836,7 @@ export function emitExplicitRouteController(
     // Jackson does the quoting and escaping.
     //
     // Every other type (int, bool, BigDecimal, a response DTO) already routes to
-    // Jackson, which is why only this arm changes.
+    // Jackson, which is why only this arm needs it.
     const isBareString = !!retType && renderJavaType(retType) === "String";
     if (isBareString) usesJsonString = true;
     const callLines = retType

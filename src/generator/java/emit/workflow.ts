@@ -10,9 +10,13 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
-import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
+import {
+  operationBodyUsesCurrentUser,
+  operationGates,
+  workflowNeedsCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
@@ -160,15 +164,13 @@ function stateRepoField(wf: WorkflowIR): string {
  *  those (`field := currentUser.id`, an `if-let` branch, …) never triggered
  *  the principal-threading this predicate gates, and the generated method
  *  omits the `currentUser` parameter its own body reads. */
-function workflowUsesCurrentUser(wf: WorkflowIR): boolean {
-  for (const s of wf.statements) {
-    let found = false;
-    walkWorkflowStmtExprsDeep(s, (e) => {
-      if (exprUsesCurrentUser(e)) found = true;
-    });
-    if (found) return true;
-  }
-  return false;
+function workflowUsesCurrentUser(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): boolean {
+  // Delegates rather than walking `wf.statements` itself: a workflow that calls
+  // an operation whose GATE reads `currentUser` needs the principal too, and
+  // the gate is not in the workflow's own statement tree.  Walking only the
+  // statements missed it, so the emitted method omitted the `currentUser`
+  // parameter that the inlined gate then read — `javac` rejects it.
+  return workflowNeedsCurrentUser(wf, ctx);
 }
 
 /** Aggregates whose repository the given workflow BODIES touch — repo binds,
@@ -710,7 +712,7 @@ export function renderJavaWorkflows(
   // workflow below, emitted once into this package after the loop).
   const localVoRequests = new Set<string>();
   for (const wf of cmdWorkflows) {
-    const usesUser = workflowUsesCurrentUser(wf);
+    const usesUser = workflowUsesCurrentUser(wf, ctx);
     // The own-state receiver: the loaded saga row, whose fields are
     // package-private with record-style accessors — so READS go through the
     // accessor (`accessorProps`) and WRITES through the JavaBean setter, the
@@ -1002,7 +1004,7 @@ export function renderJavaWorkflows(
   }
 
   const repoFields = [...repoAggs].sort();
-  const anyUser = authed && cmdWorkflows.some(workflowUsesCurrentUser);
+  const anyUser = authed && cmdWorkflows.some((wf) => workflowUsesCurrentUser(wf, ctx));
   const hasEmit = cmdWorkflows.some((wf) => {
     const walk = (ss: WorkflowStmtIR[]): boolean =>
       ss.some((s) => s.kind === "emit" || (s.kind === "for-each" && walk(s.body)));

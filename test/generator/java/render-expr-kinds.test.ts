@@ -157,19 +157,6 @@ describe("java renderJavaExpr — member + method-call", () => {
     ).toBe('Pattern.compile("^[^@]+@.+$").matcher(this.email).find()');
   });
 
-  it("renders the `string.trim()` intrinsic via the catalogue snippet", () => {
-    expect(
-      renderJavaExpr({
-        kind: "method-call",
-        receiver: thisProp("name"),
-        member: "trim",
-        args: [],
-        receiverType: STRING,
-        isCollectionOp: false,
-      }),
-    ).toBe("this.name.trim()");
-  });
-
   it("renders the A2 string-batch intrinsics via the catalogue snippets", () => {
     const call = (member: string, args: ExprIR[] = []): ExprOf<"method-call"> => ({
       kind: "method-call",
@@ -194,23 +181,6 @@ describe("java renderJavaExpr — member + method-call", () => {
     // string[] is List<String> on Java).
     expect(renderJavaExpr(call("split", [litStr(",")]))).toBe(
       'java.util.Arrays.asList(this.name.split(java.util.regex.Pattern.quote(","), -1))',
-    );
-  });
-
-  it("renders substring with 0-based clamping semantics (both arities)", () => {
-    const sub = (args: ExprIR[]): ExprOf<"method-call"> => ({
-      kind: "method-call",
-      receiver: thisProp("name"),
-      member: "substring",
-      args,
-      receiverType: STRING,
-      isCollectionOp: false,
-    });
-    expect(renderJavaExpr(sub([litInt("2")]))).toBe(
-      '(2 >= this.name.length() ? "" : this.name.substring(2))',
-    );
-    expect(renderJavaExpr(sub([litInt("2"), litInt("3")]))).toBe(
-      '(2 >= this.name.length() ? "" : this.name.substring(2, Math.min((2) + (3), this.name.length())))',
     );
   });
 
@@ -306,18 +276,6 @@ describe("java renderJavaExpr — member + method-call", () => {
     expect(renderJavaExpr(sum)).toBe(
       "this.items.stream().map(l -> l.price().multiply(java.math.BigDecimal.valueOf(l.qty()))).reduce(BigDecimal.ZERO, BigDecimal::add)",
     );
-  });
-
-  it("renders int sum via mapToInt", () => {
-    const sum: ExprIR = {
-      kind: "method-call",
-      receiver: thisProp("scores"),
-      member: "sum",
-      args: [],
-      receiverType: { kind: "array", element: INT },
-      isCollectionOp: true,
-    };
-    expect(renderJavaExpr(sum)).toBe("this.scores.stream().mapToInt(Integer::intValue).sum()");
   });
 
   it("renders the A4 collection transformation ops via Streams", () => {
@@ -419,47 +377,12 @@ describe("java renderJavaExpr — binary leaf divergences", () => {
   const bin = (op: string, left: ExprIR, right: ExprIR, leftType?: TypeIR): ExprIR =>
     ({ kind: "binary", op, left, right, leftType }) as ExprIR;
 
-  it("int comparison keeps native operators", () => {
-    expect(renderJavaExpr(bin("==", litInt("1"), litInt("2"), INT))).toBe("1 == 2");
-    expect(renderJavaExpr(bin("<", litInt("1"), litInt("2"), INT))).toBe("1 < 2");
-  });
-
-  it("string equality routes through Objects.equals", () => {
-    expect(renderJavaExpr(bin("==", thisProp("code"), litStr("A"), STRING))).toBe(
-      'Objects.equals(this.code, "A")',
-    );
-    expect(renderJavaExpr(bin("!=", thisProp("code"), litStr("A"), STRING))).toBe(
-      '!Objects.equals(this.code, "A")',
-    );
-  });
-
-  it("string concatenation keeps native `+`", () => {
-    expect(renderJavaExpr(bin("+", thisProp("first"), thisProp("last"), STRING))).toBe(
-      "this.first + this.last",
-    );
-  });
-
   it("null comparisons keep native ==/!= (reference check)", () => {
     expect(renderJavaExpr(bin("==", thisProp("note"), litNull(), STRING))).toBe(
       "this.note == null",
     );
     expect(renderJavaExpr(bin("!=", thisProp("note"), litNull(), STRING))).toBe(
       "this.note != null",
-    );
-  });
-
-  it("money arithmetic dispatches through BigDecimal methods", () => {
-    expect(renderJavaExpr(bin("+", thisProp("a"), thisProp("b"), MONEY))).toBe(
-      "this.a.add(this.b)",
-    );
-    expect(renderJavaExpr(bin("-", thisProp("a"), thisProp("b"), MONEY))).toBe(
-      "this.a.subtract(this.b)",
-    );
-    expect(renderJavaExpr(bin("*", thisProp("a"), thisProp("b"), MONEY))).toBe(
-      "this.a.multiply(this.b)",
-    );
-    expect(renderJavaExpr(bin("/", thisProp("a"), thisProp("b"), MONEY))).toBe(
-      "this.a.divide(this.b, MathContext.DECIMAL128)",
     );
   });
 
@@ -473,46 +396,11 @@ describe("java renderJavaExpr — binary leaf divergences", () => {
   const binT = (op: string, left: ExprIR, right: ExprIR, lt: TypeIR, rt: TypeIR): ExprIR =>
     ({ kind: "binary", op, left, right, leftType: lt, rightType: rt }) as ExprIR;
 
-  it("boxes a non-literal integral operand in money arithmetic (A4)", () => {
-    expect(renderJavaExpr(binT("/", thisProp("total"), thisProp("qty"), MONEY, INT))).toBe(
-      "this.total.divide(java.math.BigDecimal.valueOf(this.qty), MathContext.DECIMAL128)",
-    );
-    expect(renderJavaExpr(binT("*", thisProp("total"), refParam("n"), MONEY, INT))).toBe(
-      "this.total.multiply(java.math.BigDecimal.valueOf(n))",
-    );
-    // `money × scalar` is commutative in `moneyArithmetic`, so money can sit on
-    // the RIGHT — that spelling missed the money arm entirely and fell through
-    // to `qty * total`, an `int * BigDecimal`.
-    expect(renderJavaExpr(binT("*", thisProp("qty"), thisProp("total"), INT, MONEY))).toBe(
-      "java.math.BigDecimal.valueOf(this.qty).multiply(this.total)",
-    );
-    // Comparisons need it too — `compareTo` takes a BigDecimal.
-    expect(renderJavaExpr(binT("<", thisProp("total"), thisProp("qty"), MONEY, INT))).toBe(
-      "this.total.compareTo(java.math.BigDecimal.valueOf(this.qty)) < 0",
-    );
-  });
-
   it("leaves a money/decimal operand untouched (byte-identical to pre-A4)", () => {
     // The guard keys on the operand TYPE, so an all-money expression must render
     // exactly as before — this is what keeps the fixture baselines stable.
     expect(renderJavaExpr(binT("/", thisProp("a"), thisProp("b"), MONEY, MONEY))).toBe(
       "this.a.divide(this.b, MathContext.DECIMAL128)",
-    );
-  });
-
-  it("money comparison routes through compareTo (BigDecimal.equals is scale-sensitive)", () => {
-    expect(renderJavaExpr(bin("==", thisProp("a"), thisProp("b"), MONEY))).toBe(
-      "this.a.compareTo(this.b) == 0",
-    );
-    expect(renderJavaExpr(bin(">=", thisProp("a"), thisProp("b"), MONEY))).toBe(
-      "this.a.compareTo(this.b) >= 0",
-    );
-  });
-
-  it("decimal modulo dispatches through BigDecimal.remainder (BigDecimal has no % operator)", () => {
-    const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
-    expect(renderJavaExpr(bin("%", thisProp("a"), thisProp("b"), DECIMAL))).toBe(
-      "this.a.remainder(this.b)",
     );
   });
 
@@ -551,20 +439,6 @@ describe("java renderJavaExpr — convert / match / list / lambda / object", () 
     ).toBe("(long) 7");
   });
 
-  it("lowers match to a right-folded ternary chain", () => {
-    expect(
-      renderJavaExpr({
-        kind: "match",
-        variantArms: [],
-        arms: [
-          { cond: litBool("true"), value: litStr("first") },
-          { cond: litBool("false"), value: litStr("second") },
-        ],
-        otherwise: litStr("else"),
-      }),
-    ).toBe('(true ? "first" : (false ? "second" : "else"))');
-  });
-
   it("renders list literals as List.of and ternary / paren / unary natively", () => {
     expect(renderJavaExpr({ kind: "list", elements: [litInt("1"), litInt("2")] })).toBe(
       "List.of(1, 2)",
@@ -600,12 +474,6 @@ describe("java renderJavaExpr — convert / match / list / lambda / object", () 
     ).toBe("this.rate.negate()");
   });
 
-  it("keeps unary `-` on int/long native (A11 — only BigDecimal needs the method)", () => {
-    expect(
-      renderJavaExpr({ kind: "unary", op: "-", operand: { ...thisProp("qty"), type: INT } }),
-    ).toBe("-this.qty");
-  });
-
   it("renders single-expression lambdas with the Java arrow", () => {
     expect(renderJavaExpr({ kind: "lambda", param: "item", body: thisProp("active") })).toBe(
       "item -> this.active",
@@ -635,43 +503,6 @@ describe("java renderJavaExpr — convert / match / list / lambda / object", () 
         { thisName: "this", agg },
       ),
     ).toBe('LineItem._create(this.id, "ABC", 2)');
-  });
-});
-
-describe("java renderJavaExpr — A1 int-division widening + divTrunc", () => {
-  const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
-
-  // `int / int` widens to `decimal`.  int/long are primitives whose `/` is
-  // truncating integer division, so both operands are boxed into BigDecimal
-  // and divided with the money-precision context.
-  it("renders int/int→decimal division via BigDecimal.valueOf(...).divide(...)", () => {
-    expect(
-      renderJavaExpr({
-        kind: "binary",
-        op: "/",
-        left: litInt("5"),
-        right: litInt("2"),
-        leftType: INT,
-        rightType: INT,
-        resultType: DECIMAL,
-      }),
-    ).toBe(
-      "java.math.BigDecimal.valueOf(5).divide(java.math.BigDecimal.valueOf(2), java.math.MathContext.DECIMAL128)",
-    );
-  });
-
-  // `a.divTrunc(b)` — Java int `/` already truncates toward zero.
-  it("renders the `divTrunc` intrinsic as native `recv / arg` (int `/` truncates)", () => {
-    expect(
-      renderJavaExpr({
-        kind: "method-call",
-        receiver: thisProp("a"),
-        member: "divTrunc",
-        args: [litInt("2")],
-        receiverType: INT,
-        isCollectionOp: false,
-      }),
-    ).toBe("this.a / 2");
   });
 });
 

@@ -91,18 +91,18 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
         case "bool":
           return boxed ? "Boolean" : "boolean";
         case "decimal":
-          // RS-24 narrowing, RESPONSE ONLY (#2563 on node, #2575 on .NET,
-          // M-T6.46 here).  A plain `decimal` is a JSON NUMBER, and the other
+          // RS-24 narrowing, RESPONSE ONLY (the same rule node and .NET
+          // apply).  A plain `decimal` is a JSON NUMBER, and the other
           // four backends all carry that number through an IEEE-754 double —
           // node `Number(...)`, python `float(...)`, elixir `Decimal.to_float`,
           // .NET's response-side `double`.  Java's domain type is `BigDecimal`
           // and a `derived` division renders through `MathContext.DECIMAL128`,
-          // so an un-narrowed response record serialized all 34 significant
+          // so an un-narrowed response record would serialize all 34 significant
           // digits: `0.3333333333333333333333333333333333` against everyone
           // else's `0.3333333333333333`.
           //
           // The REQUEST side deliberately stays `BigDecimal` (the same
-          // asymmetry #2575 chose): a `double` request component would accept a
+          // asymmetry .NET keeps): a `double` request component would accept a
           // JSON number outside `BigDecimal`'s useful range and then fail
           // converting it to the domain type — a 500 where the current parse
           // gives a 400.  A client may send more precision than it reads back,
@@ -120,7 +120,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
           return J.JsonNode;
         case "File":
           // Passive wire-only leaf — the shared FileRef record is both the
-          // domain and the wire shape, so no conversion (M-T1.2).
+          // domain and the wire shape, so no conversion.
           return "FileRef";
       }
       return "Object";
@@ -138,7 +138,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
     case "optional":
       return wireJavaType(t.inner, dir, true);
     case "genericInstance":
-      // `Provenanced<Integer>` (M-T6.12).  The carried type is BOXED — a Java
+      // `Provenanced<Integer>`.  The carried type is BOXED — a Java
       // generic argument cannot be a primitive — which is also why the value
       // keeps its identity in the published schema instead of collapsing to
       // the `Object` the default arm would have produced.
@@ -158,8 +158,8 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
  *  groups of three and omits a zero one, so after `truncatedTo(MILLIS)` it is
  *  exactly the canonical form — `.120Z` with a fraction, `…30Z` on a whole
  *  second.  Without the truncation a value read back from a microsecond
- *  `TIMESTAMPTZ` column (or an `Instant.now()`) shipped six or nine digits
- *  (ledger `F2-W-06`).  `truncatedTo` never rounds, so `.9996` cannot carry into
+ *  `TIMESTAMPTZ` column (or an `Instant.now()`) would ship six or nine digits.
+ *  `truncatedTo` never rounds, so `.9996` cannot carry into
  *  the next second. */
 export function javaInstantWire(expr: string): string {
   return `${expr}.truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()`;
@@ -174,8 +174,8 @@ export function domainToWire(t: TypeIR, expr: string): string {
       // byte-consistent with the other backends.
       if (t.name === "money") return numericEncode(JAVA_NUMERIC, "money", "dto-map", expr);
       if (t.name === "datetime") return javaInstantWire(expr);
-      // decimal → the response's `double` component (RS-24 / M-T6.46).  The
-      // narrowing is the wire boundary's job, exactly as on .NET (#2575): the
+      // decimal → the response's `double` component (RS-24).  The
+      // narrowing is the wire boundary's job, exactly as on .NET: the
       // DOMAIN value keeps every digit `MathContext.DECIMAL128` produced.
       if (t.name === "decimal") return numericEncode(JAVA_NUMERIC, "decimal", "dto-map", expr);
       return expr;
@@ -206,7 +206,7 @@ function elementMapper(element: TypeIR): string | null {
       if (element.name === "money")
         return `__x -> ${numericEncode(JAVA_NUMERIC, "money", "dto-map", "__x")}`;
       if (element.name === "datetime") return `__x -> ${javaInstantWire("__x")}`;
-      // `decimal[]` → `List<Double>` (RS-24 / M-T6.46): the element narrows on
+      // `decimal[]` → `List<Double>` (RS-24): the element narrows on
       // the response exactly as a scalar decimal component does.
       if (element.name === "decimal")
         return `__x -> ${numericEncode(JAVA_NUMERIC, "decimal", "dto-map", "__x")}`;
@@ -226,12 +226,12 @@ function elementMapper(element: TypeIR): string | null {
  *  its domain form.
  *
  *  `pointer` is the RFC 6901 path of the field being converted (`/price`,
- *  `/lines/0/unitPrice`) and is REQUIRED, deliberately (M-T6.48): a money
- *  conversion can now FAIL, and its refusal carries the pointer so the advice
+ *  `/lines/0/unitPrice`) and is REQUIRED, deliberately: a money
+ *  conversion can FAIL, and its refusal carries the pointer so the advice
  *  renders the same `errors: [{pointer, message}]` entry the other four
  *  backends send.  Making it a required argument rather than an optional one
  *  is the point — a new call site cannot reintroduce a bare, un-pointed parse
- *  by simply forgetting to pass it.  (The .NET arm took the same decision for
+ *  by simply forgetting to pass it.  (The .NET arm makes the same choice for
  *  the same reason.) */
 export function wireToDomain(
   t: TypeIR,
@@ -242,8 +242,7 @@ export function wireToDomain(
    *  the default arm passes through — correct for a containment part, wrong
    *  for a workflow's `create(c: FileClaim)` param, whose domain record has to
    *  be built from the wire record before the body's `c.<field>` reads are
-   *  domain-typed (#2864 D7/T2).  Omitted everywhere a payload cannot appear,
-   *  so those call sites stay byte-identical. */
+   *  domain-typed.  Omitted everywhere a payload cannot appear. */
   payloads?: ReadonlySet<string>,
 ): string {
   switch (t.kind) {
@@ -253,10 +252,10 @@ export function wireToDomain(
       if (t.name === "money")
         return `WireFormatException.money(${expr}, ${JSON.stringify(pointer)})`;
       // Guarded for the same reason and in the same shape as `money` above:
-      // `Instant.parse("")` / `Instant.parse("not-a-date")` threw
+      // an unguarded `Instant.parse("")` / `Instant.parse("not-a-date")` throws
       // `DateTimeParseException` out of the service, which no advice arm
-      // matched, so the caller got 500 for input the server itself refused
-      // (schemathesis F19 — money's half landed with M-T6.48 and left this one).
+      // matches, so the caller would get 500 for input the server itself
+      // refuses (a schemathesis-found shape).
       if (t.name === "datetime")
         return `WireFormatException.instant(${expr}, ${JSON.stringify(pointer)})`;
       return expr;
@@ -271,7 +270,7 @@ export function wireToDomain(
     case "array": {
       const el = t.element;
       // The element pointer keeps the RFC 6901 index wildcard shape the
-      // nested-errors work (M-T9.25) established for collections.
+      // nested-errors contract uses for collections.
       const mapped = wireToDomain(el, "__x", `${pointer}/0`, payloads);
       if (mapped === "__x") return expr;
       // MUTABLE copy, not `Stream.toList()`.  This value is assigned straight
@@ -324,10 +323,10 @@ export function collectWireToDomainImports(
   switch (t.kind) {
     case "primitive":
       if (t.name === "money") {
-        // The guarded parse `wireToDomain` emits (M-T6.48).  REQUIRED, and
+        // The guarded parse `wireToDomain` emits.  REQUIRED, and
         // `basePkg` is required with it: emitting the call without the import
-        // is a `cannot find symbol` that no string-level test sees — the
-        // generated-java compile caught exactly that here.
+        // is a `cannot find symbol` that no string-level test sees — only the
+        // generated-java compile tier catches it.
         into.add(`${basePkg}.domain.common.WireFormatException`);
       }
       if (t.name === "datetime") {
