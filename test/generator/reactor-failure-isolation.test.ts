@@ -61,6 +61,10 @@ describe("reactor failure isolation — .NET", () => {
     expect(d).toContain("public bool IsolateReactorFailures { get; set; } = true;");
     expect(d).toContain('"reactor_failed"');
     expect(d).toContain("entry.State = Microsoft.EntityFrameworkCore.EntityState.Detached;");
+    // `global::`-rooted: a deployable named `api` has an `Api.Api` namespace, and
+    // an unrooted `Api.Infrastructure…` resolves against it (CS0234 under the
+    // compile tier's tph-crossref / multi-context-eventlog fixtures).
+    expect(d).toContain("typeof(global::D.Infrastructure.Persistence.AppDbContext)");
   });
 
   it("the outbox relay switches isolation off for its scope", async () => {

@@ -379,7 +379,7 @@ export function renderInProcessDispatcher(ns: string, efDbContext = false): stri
     ? `
         // Drop whatever the failed reactor staged but did not commit, so the
         // next SaveChangesAsync in this scope cannot persist half a reaction.
-        if (_services.GetService(typeof(${ns}.Infrastructure.Persistence.AppDbContext)) is Microsoft.EntityFrameworkCore.DbContext db)
+        if (_services.GetService(typeof(global::${ns}.Infrastructure.Persistence.AppDbContext)) is Microsoft.EntityFrameworkCore.DbContext db)
         {
             foreach (var entry in db.ChangeTracker.Entries().Where(e => e.State != Microsoft.EntityFrameworkCore.EntityState.Unchanged).ToList())
                 entry.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
