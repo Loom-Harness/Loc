@@ -41,6 +41,7 @@ import type { Model } from "../language/generated/ast.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
+import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar } from "../util/resource-env.js";
 import { TEST_RESET_ENV } from "../util/test-reset.js";
 import { renderAsyncApi } from "./asyncapi.js";
@@ -223,7 +224,7 @@ export function generateSystemsFromLoom(
   loom: EnrichedLoomModel,
   options: GenerateSystemOptions = {},
 ): SystemEmission {
-  const out = new Map<string, string>();
+  const out = emissionSink("system/index");
   const snapshots = options.snapshots ?? memorySnapshotStore();
   // One recorder for the whole model — systems share one flat output map
   // (same pattern as traceability below), so a single recorder's paths
@@ -282,7 +283,7 @@ export function generateSystemsFromLoom(
       // every region's line numbers against the file's pre-directive
       // content, and this is the file's own only trailing-line addition.
       const basename = mapPath.split("/").pop()!;
-      out.set(path, `${content}//# sourceMappingURL=${basename}\n`);
+      out.replace(path, `${content}//# sourceMappingURL=${basename}\n`);
     }
   }
   // JSR-45 SMAP sidecars — the Java sibling of the
@@ -334,7 +335,7 @@ export function generateSystemsFromLoom(
 function emitSystem(
   sys: EnrichedSystemIR,
   loom: EnrichedLoomModel,
-  out: Map<string, string>,
+  out: EmissionSink,
   options: {
     emitTrace?: boolean;
     emitKubernetes?: boolean;
@@ -678,7 +679,7 @@ function emitDeployable(
   sys: SystemIR,
   d: DeployableIR,
   contexts: EnrichedBoundedContextIR[],
-  out: Map<string, string>,
+  out: EmissionSink,
   options: {
     emitTrace?: boolean;
     migrations?: MigrationsIR[];
@@ -734,9 +735,7 @@ function emitDeployable(
     // its own ui's keys.  Absent for every backend platform, which ignore it.
     translations: options.translations,
   });
-  for (const [relPath, content] of files) {
-    out.set(`${sub}/${relPath}`, content);
-  }
+  out.copyFrom(files, `${sub}/`);
 }
 
 /** Filter system-level migrations to just those this deployable runs.

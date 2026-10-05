@@ -13,6 +13,7 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
@@ -66,7 +67,7 @@ export function renderAuthFiles(
    *  flat tenancy — the claim-copy accessor stands. */
   orgPathRegistry?: OrgPathRegistry,
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/emit/auth");
   const fields = sys.user?.fields ?? [];
   const pkg = `${basePkg}.auth`;
   // OIDC turnkey auth (D-AUTH-OIDC): an `auth { oidc }` block turns on the

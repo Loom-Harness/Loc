@@ -6,6 +6,7 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
 import {
@@ -321,7 +322,7 @@ export function renderJavaChannelFiles(
     return "uuid";
   };
 
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/emit/channels");
 
   out.set(
     "LoomEventEnvelope.java",

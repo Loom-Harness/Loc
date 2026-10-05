@@ -15,6 +15,7 @@ import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_GATE_SVELTE, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -121,7 +122,7 @@ export function generateSvelteForContexts(
   deployable: DeployableIR,
   options: GenerateSvelteOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/svelte/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Same-origin relative `/api` base; `vite dev` proxies it to the
@@ -478,7 +479,7 @@ export function generateSvelteForContexts(
   // above stays path-agnostic (same shape as the react generator's).
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/svelte/index");
   for (const [path, content] of out) {
     prefixed.set(`${pathPrefix}${path}`, content);
   }

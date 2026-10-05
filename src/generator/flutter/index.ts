@@ -38,6 +38,7 @@ import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/p
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -122,7 +123,7 @@ export function generateFlutterForContexts(
   deployable: DeployableIR,
   options: GenerateFlutterOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/flutter/index");
 
   // Not `snake(name)` directly — a deployable named `web` (or any other package
   // in the app's own dependency graph) would make `flutter pub get` fail before
