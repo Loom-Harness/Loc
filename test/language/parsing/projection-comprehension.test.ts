@@ -13,7 +13,7 @@ import { parseString } from "../../_helpers/parse.js";
 const wrap = (body: string) => `
   context Sales {
     enum OrderStatus { Draft, Confirmed, Closed }
-    aggregate Order { status: OrderStatus  placedAt: datetime  customerId: Customer id  lineCount: int  total: money }
+    aggregate Order { status: OrderStatus  placedAt: datetime  customerId: Customer id  lineCount: int  total: money  region: string }
     aggregate Customer { name: string  region: string }
     repository Orders for Order { }
     repository Customers for Customer { }

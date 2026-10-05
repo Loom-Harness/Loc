@@ -4,16 +4,16 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 107440,
-    "conflict": 3147,
+    "agree": 120061,
+    "conflict": 3174,
     "declaration-name": 52834,
-    "new-differs": 145,
-    "new-only": 77325,
-    "new=ir": 13001,
-    "new=lang": 766,
-    "nobody-knows": 7388,
-    "not-lowered-agree": 2052,
-    "not-lowered-differ": 465,
+    "new-differs": 0,
+    "new-only": 8281,
+    "new=ir": 378,
+    "new=lang": 69788,
+    "nobody-knows": 7530,
+    "not-lowered-agree": 2245,
+    "not-lowered-differ": 272,
     "unreached": 0
   }
 }

@@ -125,7 +125,7 @@ import {
 } from "../generated/ast.js";
 import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
-import { isPrim, mergeTags, type RecordShape, Ty, withTags } from "./ty.js";
+import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
 
 // ---------------------------------------------------------------------------
 // Scope model (design §D4): one persistent chain, built by the walk.
@@ -868,10 +868,10 @@ export class Elaborator {
   /** The value a ui-side read `<handle>.<Agg>.<verb>(…)` (or
    *  `<handle>.<Projection>`) yields — the aggregate is the LAST suffix naming
    *  one, the verb the suffix after it. */
-  private apiReadType(of: PostfixChain, scope: Scope): Ty | undefined {
+  private apiReadType(of: PostfixChain, scope: Scope, upTo?: number): Ty | undefined {
     // The path segments: the head name, then each member suffix.
     const segs: string[] = [isNameRef(of.head) ? of.head.name : ""];
-    for (const s of of.suffixes) if (isMemberSuffix(s)) segs.push(String(s.member));
+    for (const s of of.suffixes.slice(0, upTo)) if (isMemberSuffix(s)) segs.push(String(s.member));
     for (let i = segs.length - 1; i >= 0; i--) {
       const m = segs[i]!;
       if (!m) continue;
@@ -879,9 +879,13 @@ export class Elaborator {
       const agg = this.index.find("aggregate", m, of);
       if (agg) {
         const row = Ty.record({ of: "aggregate", ref: agg });
+        const repo = this.repositoryFor(agg);
+        // The implicit `all` is paged by default (M-T2.6): admit the page
+        // metadata the walker re-roots onto an auto-paged binding.
+        if (verb === "all" && !repo?.finds.some((f) => f.name === "all"))
+          return { kind: "array", element: row, pagedMeta: true };
         if (verb === undefined || verb === "all" || verb === "findAll") return Ty.array(row);
         if (verb === "byId") return row;
-        const repo = this.repositoryFor(agg);
         const find = repo?.finds.find((f) => f.name === verb);
         if (find) return this.resolveType(find.returnType, scope);
         return Ty.array(row);
@@ -1009,14 +1013,22 @@ export class Elaborator {
       this.index.find("projection", name, node) ||
       this.index.find("workflow", name, node);
     if (scope.frame.ui && readHead) {
-      // The read consumes the whole chain: its suffixes are path segments, not
-      // member accesses on a value.
-      for (const s of e.suffixes) if (isMemberSuffix(s) && s.call) this.synthArgs(s.args, scope);
-      for (const s of e.suffixes.slice(1)) this.types.set(s, Ty.unknown("not-a-value"));
-      return {
-        t: this.apiReadType(e, scope) ?? Ty.unknown("no-rule"),
-        consumed: e.suffixes.length,
-      };
+      // The read consumes its path segments, which are not member accesses on
+      // a value — up to a query-handle property stacked on it (`.data`,
+      // `.isLoading`), which the walker renders on the handle itself.
+      const hook = e.suffixes.findIndex(
+        (s, i) => i > 0 && isMemberSuffix(s) && !s.call && QUERY_HANDLE_PROPS.has(String(s.member)),
+      );
+      const path = hook === -1 ? e.suffixes.length : hook;
+      for (const s of e.suffixes.slice(0, path))
+        if (isMemberSuffix(s) && s.call) this.synthArgs(s.args, scope);
+      for (const s of e.suffixes.slice(1, path)) this.types.set(s, Ty.unknown("not-a-value"));
+      const read = this.apiReadType(e, scope, path) ?? Ty.unknown("no-rule");
+      if (hook === -1) return { t: read, consumed: path };
+      const prop = String((e.suffixes[hook] as MemberSuffix).member);
+      const t =
+        prop === "data" ? read : prop.startsWith("is") ? Ty.prim("bool") : Ty.unknown("no-rule");
+      return { t, consumed: hook + 1 };
     }
     if (name === "permissions" && !ms.call && !scope.lookup("permissions")) {
       const perms = this.permissionsVisible(node);
@@ -1159,7 +1171,10 @@ export class Elaborator {
     // Scalar intrinsics and collection ops read through ONE optional level
     // (the validator owns whether the unguarded read is legal).
     const bare = recv.kind === "optional" ? recv.inner : recv;
-    if (bare.kind === "array") return this.collectionOp(bare.element, ms, scope);
+    if (bare.kind === "array") {
+      if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return withTags(Ty.prim("int"), tags);
+      return this.collectionOp(bare.element, ms, scope);
+    }
     if (ms.call && bare.kind !== "record" && bare.kind !== "valueobject")
       this.synthArgs(ms.args, scope);
     switch (recv.kind) {
@@ -1348,12 +1363,24 @@ export class Elaborator {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
+/** The query-handle properties a ui page reads off an api read
+ *  (`Sales.Customer.all.isLoading`) — the walker renders them on the handle. */
+const QUERY_HANDLE_PROPS: ReadonlySet<string> = new Set([
+  "data",
+  "error",
+  "isError",
+  "isFetching",
+  "isLoading",
+  "isPending",
+  "isSuccess",
+]);
+
 /** A member of a blessed generic carrier (the field lists of
  *  `src/ir/stdlib/generics.ts`). */
 function genericMember(ctor: string, arg: Ty, name: string): Ty | undefined {
   if (ctor === "paged") {
     if (name === "items") return Ty.array(arg);
-    if (["page", "pageSize", "total", "totalPages"].includes(name)) return Ty.prim("int");
+    if (PAGED_META.has(name)) return Ty.prim("int");
   } else if (ctor === "envelope") {
     if (name === "id") return Ty.prim("string");
     if (name === "ts") return Ty.prim("datetime");

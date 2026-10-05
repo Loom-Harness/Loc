@@ -45,7 +45,12 @@ export function toDddType(t: Ty, opts: { generic?: "arg" | "unknown" } = {}): Dd
           return { kind: "unknown", ...s };
       }
     case "array":
-      return { kind: "array", element: toDddType(t.element, opts), ...s };
+      return {
+        kind: "array",
+        element: toDddType(t.element, opts),
+        ...(t.pagedMeta ? { pagedMeta: true as const } : {}),
+        ...s,
+      };
     case "optional":
       return { kind: "optional", inner: toDddType(t.inner, opts), ...s };
     case "union":
@@ -53,7 +58,9 @@ export function toDddType(t: Ty, opts: { generic?: "arg" | "unknown" } = {}): Dd
     case "generic":
       return opts.generic === "arg" ? toDddType(t.arg, opts) : { kind: "unknown", ...s };
     case "action":
-      return t.arg ? { kind: "action", arg: toDddType(t.arg, opts), ...s } : { kind: "action", ...s };
+      return t.arg
+        ? { kind: "action", arg: toDddType(t.arg, opts), ...s }
+        : { kind: "action", ...s };
     case "slot":
     case "any":
     case "never":

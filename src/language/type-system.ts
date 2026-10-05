@@ -8,14 +8,12 @@ import {
   intrinsicsForReceiver,
   isIntrinsicName,
 } from "../util/intrinsics.js";
-import { ORG_CONTEXT_ACCESSOR, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
+import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import type {
   Aggregate,
-  BaseType,
   BoundedContext,
   Criterion,
-  DomainService,
   EntityPart,
   EnumDecl,
   EventDecl,
@@ -36,7 +34,6 @@ import type {
   ValueObject,
 } from "./generated/ast.js";
 import {
-  isActionType,
   isAggregate,
   isApply,
   isBinaryChain,
@@ -49,22 +46,17 @@ import {
   isCriterion,
   isDecLit,
   isDerivedProp,
-  isDomainService,
   isDomainServiceOperation,
   isEntityPart,
-  isEnumDecl,
-  isEventDecl,
   isFindDecl,
   isFunctionDecl,
   isHandleDecl,
   isIdRef,
-  isIdType,
   isIntLit,
   isLambda,
   isLetStmt,
   isMemberSuffix,
   isModel,
-  isNamedType,
   isNameRef,
   isNowExpr,
   isNullLit,
@@ -72,22 +64,17 @@ import {
   isOperation,
   isPage,
   isParenExpr,
-  isPayloadDecl,
   isPolicyDecl,
   isPostfixChain,
   isPrimitiveConversion,
-  isPrimitiveType,
   isProperty,
-  isRepository,
   isRetrieval,
-  isSlotType,
   isStringLit,
   isSystem,
   isTemplateStr,
   isTernaryExpr,
   isThisRef,
   isUnaryExpr,
-  isUserBlock,
   isValueObject,
   isWorkflow,
   isWorkflowCreateDecl,
@@ -95,6 +82,7 @@ import {
 import { stdFunction } from "./stdlib.js";
 import { toDddType } from "./typing/adapt.js";
 import { typingFor } from "./typing/shared.js";
+import { PAGED_META } from "./typing/ty.js";
 
 // ---------------------------------------------------------------------------
 // Type representation
@@ -133,7 +121,8 @@ export type DddType =
    *  (string), mirroring the IR layer (`lower-expr.ts`), so it never introduces
    *  a new error on an already-valid claim reference. */
   | { kind: "userclaim"; ref: UserBlock; sensitivity?: SensitivityTags }
-  | { kind: "array"; element: DddType; sensitivity?: SensitivityTags }
+  /** `pagedMeta`: an auto-paged read's row array (see the typing pass's `Ty`). */
+  | { kind: "array"; element: DddType; pagedMeta?: true; sensitivity?: SensitivityTags }
   | { kind: "optional"; inner: DddType; sensitivity?: SensitivityTags }
   /** Element-shaped param marker — mirrors the `TypeIR.slot` variant
    *  produced by lowering a `SlotType` AST node.  Only valid on a
@@ -1146,7 +1135,9 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
       // `length` is an alias `collectionOpType` types as `int` (see there); it
       // is legal on an array but absent from the catalogue, so `isCollectionOp`
       // alone would reject it.
-      return isCollectionOp(name) || name === "length" ? undefined : typeToString(t);
+      return isCollectionOp(name) || name === "length" || (t.pagedMeta && PAGED_META.has(name))
+        ? undefined
+        : typeToString(t);
     case "aggregate": {
       if (name === "id") return undefined;
       return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;

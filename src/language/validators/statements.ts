@@ -770,7 +770,9 @@ function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): vo
     if (recv.kind === "unknown") return;
   }
   const methodName = lv.tail[lv.tail.length - 1]!;
-  const memberNode = stepIntoNode(recv, methodName);
+  // A nullable read (`Orders.findById(…)`: `Order?`) still names its callee —
+  // arity and arg types do not depend on whether the receiver was guarded.
+  const memberNode = stepIntoNode(recv.kind === "optional" ? recv.inner : recv, methodName);
   if (!memberNode || (!isOperation(memberNode) && !isFunctionDecl(memberNode))) return;
   checkCallArgs(
     (memberNode as Operation | FunctionDecl).params,

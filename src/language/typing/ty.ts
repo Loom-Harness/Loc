@@ -83,7 +83,11 @@ export type Ty = (
   | { kind: "enum"; ref: EnumDecl | undefined; name: string; candidates?: EnumDecl[] }
   | { kind: "valueobject"; ref: ValueObject | undefined; name: string }
   | { kind: "record"; shape: RecordShape }
-  | { kind: "array"; element: Ty }
+  /** `pagedMeta`: the row array an AUTO-paged read binds (`QueryView { of:
+   *  Api.Order.all, data: rows => … }` over the paged-by-default `all`). The
+   *  walker unwraps the envelope to its rows and re-roots the page metadata
+   *  (`rows.total`) onto it, so those members are legal on exactly this array. */
+  | { kind: "array"; element: Ty; pagedMeta?: true }
   | { kind: "optional"; inner: Ty }
   | { kind: "union"; variants: Ty[] }
   | { kind: "none" }
@@ -119,6 +123,10 @@ export const Ty = {
 export function isPrim(t: Ty, ...names: PrimitiveName[]): boolean {
   return t.kind === "primitive" && (names.length === 0 || names.includes(t.name));
 }
+
+/** The `Paged<T>` envelope's page metadata (the IR's `PAGED_META_MEMBERS`,
+ *  which the language layer cannot import). */
+export const PAGED_META: ReadonlySet<string> = new Set(["page", "pageSize", "total", "totalPages"]);
 
 /** The name a record shape carries in the IR's `entity{name}` marker. */
 const PRINCIPAL_SHAPE_NAME = "__User__";

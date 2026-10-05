@@ -196,6 +196,16 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // type (a value-object `expect(Money{…}).toThrow()` included), so the
         // matcher terminates the chain rather than reporting an unknown member.
         if (intrinsicMatcherSig(ms.member)) break;
+        // `expect(x).not.<matcher>(…)` — the negation surface of the same.
+        const next = chain.suffixes[chain.suffixes.indexOf(suffix) + 1];
+        if (
+          ms.member === "not" &&
+          !ms.call &&
+          next &&
+          isMemberSuffix(next) &&
+          intrinsicMatcherSig(next.member)
+        )
+          break;
         // Bare collection aggregation (`prices.sum`, no lambda call) — admitted
         // by the type system but unrenderable.  Reject with the lambda form (C11).
         if (

@@ -149,8 +149,10 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
 
   it("rejects a CREATE guard calling an aggregate `function` through `this.`", async () => {
     // `method-call` over `{kind:"this"}` — the fourth spelling, and the one the
-    // `helper-fn` allowlist used to wave through.  Refused at the AST layer too
-    // (it types as `unknown` there), so both facts are asserted.
+    // `helper-fn` allowlist used to wave through.  The AST layer once refused it
+    // too, but only by accident (the old checker typed the call `unknown`, so
+    // `'requires' must be of type 'bool'`); the single typing pass (M-T5.44)
+    // types it `bool`, so this gate is the refusal.
     const src = `
       aggregate Order {
         code: string
@@ -159,13 +161,14 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
         create(code: string) { requires this.isEmpty() }
       }`;
     expect(await irCodesFor(src)).toContain(CODE);
-    expect(await astErrorsFor(src)).not.toEqual([]);
+    expect(await astErrorsFor(src)).toEqual([]);
   });
 
   it("rejects a CREATE guard calling a `private operation`", async () => {
     // Same implicit receiver as an aggregate `function` (`callKind:
     // "private-operation"`), and additionally a MUTATION inside an authorization
-    // predicate.  Also refused at the AST layer today.
+    // predicate.  (The AST layer's old refusal was the same `unknown`-typed
+    // accident as above.)
     const src = `
       aggregate Order {
         code: string
@@ -174,7 +177,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
         create(code: string) { requires bump() }
       }`;
     expect(await irCodesFor(src)).toContain(CODE);
-    expect(await astErrorsFor(src)).not.toEqual([]);
+    expect(await astErrorsFor(src)).toEqual([]);
   });
 
   it("rejects a CREATE guard naming an aggregate `function` WITHOUT calling it", async () => {

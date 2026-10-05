@@ -81,13 +81,15 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
 };
 
 /** The band the measured `unknown` share must stay inside.  Measured at
- *  **60.9 %** (28 333 of 46 492) on the day this census landed.  Pinned BOTH
+ *  **60.9 %** (28 333 of 46 492) on the day this census landed, and at
+ *  **29.3 %** (13 643 of 46 498) once names and member chains read the single
+ *  typing pass (M-T5.44 cutover 3b).  Pinned BOTH
  *  ways on purpose: a rise means the validators stopped checking more of the
  *  corpus (a name-resolution or env regression), and a fall means the drain
  *  worked and the band should be lowered in the same change — the anti-slack
  *  rule that keeps a baseline believable. */
-const UNKNOWN_SHARE_MAX = 0.66;
-const UNKNOWN_SHARE_MIN = 0.5;
+const UNKNOWN_SHARE_MAX = 0.34;
+const UNKNOWN_SHARE_MIN = 0.24;
 
 function suppressionSites(rel: string): number {
   const text = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");

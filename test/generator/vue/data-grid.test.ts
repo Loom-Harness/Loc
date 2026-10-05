@@ -36,7 +36,7 @@ async function gen(body: string, state = "", design = "") {
   return generateSystemFiles(`
     system S {
       subdomain Sales { context Orders {
-        aggregate Customer { name: string  tier: int }
+        aggregate Customer { name: string  tier: int  joinedAt: datetime }
         repository Customers for Customer { } } }
       api SalesApi from Sales
       storage pg { type: postgres }

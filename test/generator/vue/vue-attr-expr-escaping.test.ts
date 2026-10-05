@@ -7,7 +7,7 @@
 //
 // `vite build` then failed in `parseForExpression`, from a `.ddd` that validates
 // clean (`0 error(s), 0 warning(s)`).  The trigger is any string or enum literal
-// inside a `rows:` / `key:` expression — `Table { rows: rows.filter(i => i.status
+// inside a `rows:` / `key:` expression — `Table { rows: rows.where(i => i.status
 // == Todo) }` is the ordinary spelling of a Kanban column, so this was not an
 // edge case.
 //
@@ -42,7 +42,7 @@ const system = (platform: string, design: string) => `
         page L {
           route: "/"
           body: QueryView { of: Api.Thing.all, data: rows =>
-            Table { rows: rows.filter(t => t.kind == A), Column { "Name", r => r.name } } }
+            Table { rows: rows.where(t => t.kind == A), Column { "Name", r => r.name } } }
         }
       }
     }
