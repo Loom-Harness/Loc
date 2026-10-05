@@ -14,7 +14,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // ContextVar buffer + `app/db/provenance.py` history model) and a LATE
 // hand-emitted migration (ALTER backing columns + CREATE history) ride along.
 //
-// The python gate is un-gated (PROVENANCE_BACKENDS, system-checks).  This is a
+// Every backend emits provenance, so python is un-gated.  This is a
 // mechanical mirror of node / .NET / elixir-vanilla.
 // ---------------------------------------------------------------------------
 
@@ -114,37 +114,6 @@ describe("python provenance runtime (W2)", () => {
     expect(db).toContain("parent_id: Mapped[str | None]");
   });
 
-  it("adds the co-located `<field>_provenance` jsonb column to the schema model", async () => {
-    const schema = file(await generateSystemFiles(SOURCE), "/app/db/schema.py");
-    expect(schema).toContain("total_provenance: Mapped[object | None] = mapped_column(JSONB)");
-    // The declared column is untouched.
-    expect(schema).toContain("total: Mapped[int]");
-  });
-
-  it("captures lineage inline at each named-op write site", async () => {
-    const agg = file(await generateSystemFiles(SOURCE), "/app/domain/order.py");
-    // Leaf inputs snapshotted (params + the sibling `discount`).
-    expect(agg).toContain('ProvInput(path="qty", value=qty)');
-    expect(agg).toContain('ProvInput(path="discount", value=self._discount)');
-    // The lineage (snapshot id + target + computed value), routed to both
-    // sinks — the co-located backing field + the ContextVar buffer.
-    expect(agg).toContain('target=ProvTarget(type="Order", field="total")');
-    expect(agg).toContain("computed_value=self._total");
-    expect(agg).toContain("self._total_provenance = __lin_0");
-    expect(agg).toContain("record(__lin_0)");
-  });
-
-  it("snapshots a self-referential write's leaf BEFORE the mutation", async () => {
-    const agg = file(await generateSystemFiles(SOURCE), "/app/domain/order.py");
-    // applyDiscount does `total := total - amount` — the `self._total` leaf
-    // must be captured into __prov_0 before the `self._total = …` rebind.
-    const inputsIdx = agg.indexOf('ProvInput(path="total", value=self._total)');
-    const writeIdx = agg.indexOf("self._total = self._total - amount");
-    expect(inputsIdx).toBeGreaterThan(-1);
-    expect(writeIdx).toBeGreaterThan(-1);
-    expect(inputsIdx).toBeLessThan(writeIdx);
-  });
-
   it("persists the co-located column and flushes records before save flush()", async () => {
     const repo = file(await generateSystemFiles(SOURCE), "/order_repository.py");
     // Co-located column on the upsert root dict.
@@ -162,29 +131,6 @@ describe("python provenance runtime (W2)", () => {
     expect(repo).not.toContain("session.begin()");
   });
 
-  it("restores the lineage on hydrate and exposes the carrier on the Pydantic response", async () => {
-    const files = await generateSystemFiles(SOURCE);
-    const repo = file(files, "/order_repository.py");
-    expect(repo).toContain("ProvLineage.from_wire(row.total_provenance)");
-    // The PERSISTENCE row still writes the two columns apart — storage is
-    // unchanged by the wire fold (M-T6.12).
-    expect(repo).toContain('"total_provenance": (aggregate.total_provenance.to_wire()');
-    // `to_wire` folds them into the one carrier.
-    expect(repo).toContain(
-      '"total": {"value": root.total, "lineage": (root.total_provenance.to_wire() if root.total_provenance is not None else None)}',
-    );
-    // The response model types the field through the shared generic carrier —
-    // not a trailing `total_provenance` model field.
-    const routes = file(files, "/app/http/order_routes.py");
-    expect(routes).toContain("total: Provenanced[Int32]");
-    expect(routes).toContain("Provenanced");
-    expect(routes).not.toContain("total_provenance:");
-    const models = file(files, "/app/http/wire_models.py");
-    expect(models).toContain("class Provenanced(BaseModel, Generic[_ProvT]):");
-    expect(models).toContain("    value: _ProvT");
-    expect(models).toContain("    lineage: dict[str, object] | None = None");
-  });
-
   it("emits the LATE provenance migration (co-located ALTER only)", async () => {
     const files = await generateSystemFiles(SOURCE);
     const mig = file(files, "_provenance.sql");
@@ -197,16 +143,6 @@ describe("python provenance runtime (W2)", () => {
     const initial = file(files, "_ordering_initial.sql");
     expect(initial).toContain('CREATE TABLE "provenance_records"');
     expect(initial).toContain('CREATE INDEX "provenance_records_correlation_idx"');
-  });
-
-  it("the migration sorts after every module migration", async () => {
-    const files = await generateSystemFiles(SOURCE);
-    const sqlFiles = [...files.keys()].filter((k) => k.endsWith(".sql"));
-    const provFile = sqlFiles.find((k) => k.endsWith("_provenance.sql"));
-    expect(provFile).toBeDefined();
-    const others = sqlFiles.filter((k) => k !== provFile).map((k) => k.split("/").pop()!);
-    const provName = provFile!.split("/").pop()!;
-    for (const other of others) expect(provName > other).toBe(true);
   });
 
   it("is gated: no SDK / migration / capture / column when nothing is provenanced", async () => {

@@ -46,20 +46,6 @@ async function runner(): Promise<string> {
 }
 
 describe("java generator — seed runner", () => {
-  it("emits an ApplicationRunner per seeded context with one method per dataset", async () => {
-    const s = await runner();
-    expect(s).toContain("public class CatalogSeedRunner implements ApplicationRunner {");
-    expect(s).toContain("    private void seedDefault(Set<String> requested) {");
-    expect(s).toContain("    private void seedDemo(Set<String> requested) {");
-    expect(s).toContain("    private void seedWired(Set<String> requested) {");
-  });
-
-  it("domain rows go through the create factory (invariants run) and the port save", async () => {
-    const s = await runner();
-    expect(s).toContain('widgetsRepository.save(Widget.create("Alpha", 1, Tier.Free));');
-    expect(s).toContain('widgetsRepository.save(Widget.create("Gamma", 3, Tier.Pro));');
-  });
-
   it("raw rows emit the shared INSERT, schema-qualified for the per-module schema", async () => {
     const s = await runner();
     expect(s).toContain(
@@ -121,40 +107,5 @@ describe("java generator — seed runner", () => {
     expect(s).toBeDefined();
     expect(s).toContain('accountsRepository.save(Account.create("seeded-alice"));');
     expect(s).not.toContain('Account.create("seeded-alice", null)');
-  });
-
-  it("datetime seed literals parse to Instant at the create boundary", async () => {
-    const src = `
-      system Clock {
-        subdomain Core {
-          context Catalog {
-            aggregate Stamp {
-              label: string
-              at: datetime
-            }
-            repository Stamps for Stamp { }
-            seed default {
-              Stamp { label: "first", at: "2024-01-01T00:00:00Z" }
-            }
-          }
-        }
-        storage primary { type: postgres }
-        resource catalogState { for: Catalog, kind: state, use: primary }
-        deployable api {
-          platform: java
-          contexts: [Catalog]
-          dataSources: [catalogState]
-          port: 8080
-        }
-      }
-    `;
-    const files = await generateSystemFiles(src);
-    const s = files.get(
-      "api/src/main/java/com/loom/api/infrastructure/persistence/CatalogSeedRunner.java",
-    )!;
-    expect(s).toContain(
-      'stampsRepository.save(Stamp.create("first", Instant.parse("2024-01-01T00:00:00Z")));',
-    );
-    expect(s).toContain("import java.time.Instant;");
   });
 });

@@ -113,6 +113,43 @@ const ORDERED_ROOT_VO_EMISSION: readonly Backend[] = ALL.filter(
   (b) => b !== "node" && b !== "python",
 );
 
+/** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
+ *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
+ *  (`stamp_at_time` / `stamp_who`) while every response DTO declares it NESTED,
+ *  so a read model has to bridge the two halves: the fold writes the leaves, the
+ *  read route rebuilds the nest.
+ *
+ *  **node** does, as of the PR that mints this fixture.  The other four are
+ *  excluded — an honest, named exclusion rather than a red gate, and each key
+ *  returns with its own fix:
+ *
+ *  - **java** almost certainly belongs here already: it is the one backend whose
+ *    emission bridges both halves — `@Embedded` + `@AttributeOverride` onto
+ *    exactly the migration's flat columns (`emit/projection-state.ts`), then
+ *    `new OrderBoardResponse(…, StampResponse.from(x.stamp()), x.seen() == null ?
+ *    null : StampResponse.from(x.seen()), AuditResponse.from(x.audit()))` with
+ *    both response records emitted (`emit/projection-reads.ts`).  It is held out
+ *    only because it was not COMPILED: `gradle testClasses bootJar` in
+ *    `gradle:9-jdk25` could not resolve its dependencies (Maven Central answered
+ *    429 through the sandbox proxy, twice).  Adding `"java"` here is a one-line
+ *    change for whoever can run that gate.  One behavioural caveat to check when
+ *    they do: JPA hands back a non-null `@Embedded` instance with null fields
+ *    when every column is null, so java's `x.seen() == null` arm may answer an
+ *    object of nulls where node answers `null`.
+ *
+ *  - **dotnet**: `OrderBoardRowConfiguration` maps the value object as a SCALAR
+ *    property to one column (`builder.Property(x => x.St).HasColumnName("st")`)
+ *    that the migration never creates, so EF fails at model build.  The
+ *    controller half is already right (it projects a nested `StampResponse`).
+ *  - **python**: the route returns `{"st": row.st}` against a SQLAlchemy model
+ *    whose only attributes are `st_at_time` / `st_who` — `AttributeError`.
+ *  - **elixir** (`vanilla`): the row schema types the field `field :st, :map`
+ *    over a table with no `st` column.  Its fix is entangled with #3082, which
+ *    makes elixir's state-table migration COLLAPSE value-object leaves into one
+ *    `:map` column — i.e. elixir is moving to a different column shape than the
+ *    other four read.  That fork wants settling before a key is minted here. */
+const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
+
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
   readonly id: string;
@@ -233,6 +270,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
   {
+    id: "projection-valueobject-row",
+    title:
+      "value object on a folded read model — leaf columns folded, nested object served (plus an absent optional one and a value object inside a value object)",
+    backends: PROJECTION_VO_ROW,
+    note: "Minted by the PR that fixed node (`backends` is node-only — see `PROJECTION_VO_ROW` for why each of the other four is held out, java included).  The shape validated `0 error(s)` and emitted on all five backends while FOUR of them produced a read model that cannot run — node with two compile errors in the generated project (`state.stamp = e.stamp` against a row that holds `stamp_atTime` / `stamp_who`, TS2339; `stamp: StampSchema.nullish()` with `StampSchema` declared nowhere, TS2304), dotnet with an EF model-build failure, python with an `AttributeError`, elixir naming a column the migration does not create.  Only java bridged the flat-column / nested-wire halves.  Nothing caught it because no corpus fixture carried a value object on a folded projection, so no tier ever compiled or booted one.  The optional field is never folded on purpose (the wire `null` arm) and `Audit` holds a `Stamp` on purpose (two levels of flattening, which a one-level implementation gets wrong silently).",
+  },
+  {
     id: "projection-fold-statements",
     title:
       "folded-projection fold body — the FULL pure statement vocabulary (`let` read by a later assign, scalar `+=`/`-=` over int and money, collection `+=`/`-=`)",
@@ -271,7 +315,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
     doc: "tenancy",
     backends: ALL,
-    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
+    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while the (since-deleted) `ignoring` backend gate's family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
   },
   {
     id: "projection-document-aggregation",
@@ -620,6 +664,30 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
+  },
+  {
+    id: "stamps-principal",
+    title:
+      "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",
+    doc: "capabilities",
+    backends: ALL,
+    note: "M-T9.42 promotion of the `*-stamping.test.ts` string copies: each pinned how its emitter spells the principal read; this asserts the value that lands in the row, on every leg.",
+  },
+  {
+    id: "intrinsics",
+    title:
+      "scalar intrinsics in memory (derived trim / trim().toLower() / money round / int abs, an invariant over trim().length) and in SQL (column-side and value-side trim, toLower both sides, floor, abs, a reified criterion)",
+    doc: "stdlib",
+    backends: ALL,
+    note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
+  },
+  {
+    id: "wire-ingress",
+    title:
+      "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+    doc: "language",
+    backends: ALL,
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
   },
 ] as const;
 

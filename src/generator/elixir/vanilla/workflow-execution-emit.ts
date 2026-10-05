@@ -1609,7 +1609,7 @@ function renderWorkflowModule(
         `${snake(wf.correlationField as string)}: key`,
         ...(wf.stateFields ?? [])
           .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
+          .map((f) => `${snake(f.name)}: ${stateDefault(f.type, ctx?.enums)}`),
       ]
     : [];
   const statePrelude = corrParam
@@ -1676,9 +1676,29 @@ function renderWorkflowModule(
   // the `run/1` map.  Empty when no params are referenced, so a
   // param-free workflow renders byte-identically to before.
   const params = referencedParams(wf);
+  // A PAYLOAD-typed param (`create(c: FileClaim)`) arrives as the decoded JSON
+  // object — a STRING-keyed map — while the body reads its fields with the dot
+  // syntax (`c.cargo`), i.e. ATOM keys: every run raised `KeyError: key :cargo
+  // not found` (wave C3 D7).  Each referenced payload param is rebound to an
+  // atom-keyed map over the payload's declared fields (wire key → snake atom,
+  // the name the body's member access renders).
+  const payloadRebinds = params.flatMap((n) => {
+    const t = (wf.params ?? []).find((p) => p.name === n)?.type;
+    const inner = t?.kind === "optional" ? t.inner : t;
+    const payload =
+      inner?.kind === "entity"
+        ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
+        : undefined;
+    if (!payload) return [];
+    const v = snake(n);
+    const entries = payload.fields.map(
+      (f) => `${snake(f.name)}: Map.get(${v}, ${JSON.stringify(f.name)})`,
+    );
+    return [`    ${v} = if is_map(${v}), do: %{${entries.join(", ")}}, else: ${v}\n`];
+  });
   const paramDestructure =
     params.length > 0
-      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${snake(n)}`).join(", ")}} = params\n`
+      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${snake(n)}`).join(", ")}} = params\n${payloadRebinds.join("")}`
       : "";
   // That destructure is a BARE MATCH: a request missing one of these keys
   // raises `MatchError` rather than returning, so it never reaches the

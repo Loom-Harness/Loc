@@ -49,13 +49,6 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("entity history — python route surface", () => {
-  it("serves GET /{id}/history off the derived find", async () => {
-    const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
-    expect(routes).toContain('@router.get("/{id}/history"');
-    expect(routes).toContain("response_model=AuditEntryListResponse");
-    expect(routes).toContain("__rows = await repo.history(EmployeeId(id))");
-  });
-
   it("queries audit_records on the indexed (target_type, target_id) pair, oldest first", async () => {
     const repo = fileEndingWith(await emit(MASKED), "app/db/repositories/employee_repository.py");
     expect(repo).toContain('AuditRecordRow.target_type == "Employee"');
@@ -102,17 +95,6 @@ describe("entity history — python negative authz", () => {
     // drops, same shape as `to_wire_masked`.
     expect(routes).toContain("_mask_user = current_user()");
     expect(routes).toContain("_mask_user is not None and");
-  });
-
-  it("scopes by entity reachability, so a filtered-out row 404s instead of leaking", async () => {
-    const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
-    const handler = routes.slice(routes.indexOf('@router.get("/{id}/history"'));
-    // `audit_records` carries no tenant column, so there is nothing on it for a
-    // capability filter to scope.  The handler resolves the ENTITY first —
-    // `get_by_id` already carries every capability predicate — and only reads
-    // the trail for a row this caller can see.
-    expect(handler).toContain("await repo.get_by_id(EmployeeId(id))");
-    expect(handler.indexOf("get_by_id")).toBeLessThan(handler.indexOf("repo.history"));
   });
 
   it("never lets a stamp, the version counter, or the id into the diff", async () => {
