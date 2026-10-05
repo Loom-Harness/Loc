@@ -680,6 +680,20 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.orderFulfillment.instance (no such aggregate)",
     "api.orderFulfillment.instances (no such aggregate)",
   ],
+  // Wave C3 packet 3g: the three workflow/projection blocks packet 3a held,
+  // drained with their elixir fixes (D6/D7/D8) — the same `notLifted` classes
+  // (workflow accessor, projection read) as the entries above.
+  "corpus/workflow-enum-state": [
+    "api.review.instance (no such aggregate)",
+    "api.review.instances (no such aggregate)",
+  ],
+  "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
+  "corpus/projection-implicit-sub": [
+    "api.fulfilment.instance (no such aggregate)",
+    "api.fulfilment.instances (no such aggregate)",
+    "api.orderBoard.byKey (no such aggregate)",
+    "api.orderBoard.list (no such aggregate)",
+  ],
 };
 
 /**
@@ -827,85 +841,15 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // on the node leg would therefore redden the other four legs on main.  Author
   // the block once THAT is ruled.
   "envelope",
-  // COMPILE-TIER WITNESS (freight audit D3 / M-T6.64) — a `valueobject` whose
-  // field is a cross-aggregate reference (`ship: Ship id`).  The defect class
-  // it pins is entirely STATIC: node emitted `domain/value-objects.ts` naming
-  // `Ids.ShipId` in a file with zero imports (TS2503), and python's repository
-  // branded `Berth(ShipId(row.berth_ship), …)` without importing `ShipId`
-  // (ruff F821).  A type-checker is the only oracle for that, and the five
-  // compile legs are it.  The runtime shapes a behavioural block would boot —
-  // a required embedded VO and a `<VO>[]` collection — are already booted by
-  // `embedded` and `value-collections`; the new axis here is only what the
-  // VO's fields are TYPED as, which no booted leg can observe.
-  //
-  // THAT LAST CLAIM WAS WRONG, and booting it is how it was found (wave C3
-  // packet 3a).  A block was written (it reads the `Ship id` back through the
-  // flattened embedded VO and the `<VO>[]` child table) and it went green on
-  // node / mikroorm / python / dotnet / dapper — and JAVA 500s on the FIRST
-  // create: `POST /api/docks` → `column d1_0.value does not exist`.  The
-  // embedded override targets `ship` (`@AttributeOverride(name = "ship",
-  // column = @Column(name = "berth_ship"))`), but `ShipId` is itself an
-  // embeddable whose component is `value`, so Hibernate selects a `value`
-  // column that no migration created — the override path must be `ship.value`
-  // (suspect `src/generator/java/emit/jpa-annotations.ts:118`, `voOverrides`,
-  // and its collection twin `voElementOverrides`).  ELIXIR does not get as far
-  // as a request: `mix ecto.migrate` fails with `column "berth_ship" does not
-  // exist` — the elixir migration stores the embedded VO as ONE `:map` column
-  // (`add :berth, :map`) but still emits the shared MigrationsIR's index on the
-  // FLATTENED id column (`create index(:docks, [:berth_ship])`; suspect
-  // `src/generator/elixir/migrations-emit.ts`, the index arm).  The runtime
-  // shape the old comment called "already booted" is booted only for SCALAR VO
-  // fields.  The block is in the hand-off note (defect D4); it lands when java
-  // and elixir do.
-  "vo-id-reference",
-  // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
-  // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
-  // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
-  // an int[]).  The old reason here ("a behavioural block would add uncalled
-  // routes and unrecorded goldens for no additional oracle") did not survive
-  // booting one (wave C3 packet 3a): the block that reads every derived VALUE
-  // back is green on dapper and java only.  A DERIVED ENTITY ARRAY
-  // (`byPriceDesc: LineItem[]`) is serialized without the entity's wire
-  // projection on node (`byPriceDesc: root.byPriceDesc.map((a) => (a))` — the
-  // private-field domain instance, so `sku` reads undefined;
-  // `src/generator/typescript/repository-wire-builder.ts:193`, the `entity`
-  // arm returns `expr`) and python (`list(root.by_price_desc)`, then a
-  // `ResponseValidationError` 500 on the Decimal price;
-  // `src/generator/python/repository-builder.ts` `wireValue` has no `entity`
-  // arm), and EF Core refuses to BUILD the model on .NET (`Unable to determine
-  // the relationship represented by navigation 'Order.ByPriceDesc'` — no
-  // `builder.Ignore(...)` for a derived navigation-typed member,
-  // `src/generator/dotnet/emit/efcore.ts`); mikroorm 500s on the create (the
-  // `int[]` is bound as the JSON text `'[7,2,9]'` into an `integer[]` column —
-  // "invalid input syntax for type integer").  Node
-  // is the golden's oracle, so no golden can be minted until node is fixed.
-  // Block + repro in the hand-off note (defect D1).
-  "collection-op-shapes",
-  // COMPILE-TIER WITNESS (audit F-014, S1) — an enum COLLECTION field
-  // (`skills: Skill[]`).  The corpus carried scalar enums and scalar/VO arrays
-  // but never the CROSSING, so every compile gate was blind to it and elixir
-  // folded the enum's `values:` (a `field/3` OPTION) into the array TYPE tuple:
-  // `** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field
-  // :skills` — `mix compile` fails on the emitted project.
-  //
-  // The old second reason ("a behavioural block would boot a generic CRUD
-  // round-trip … over an enum-array JSON encoding no ruling has been asked
-  // for") did not survive booting one (wave C3 packet 3a).  The encoding
-  // question answers itself — node, python and dapper agree on an array of
-  // member NAMES, in order — and the crossing is broken at RUNTIME on four
-  // legs the compile tier passes: EF Core maps `List<Skill>` without the
-  // string converter the scalar enum gets, so it reads the `text[]` column as
-  // `Int32[]` and every read 500s (`src/generator/dotnet/emit/efcore.ts`, the
-  // `leaf.kind === "enum"` arm is scalar-only); java persists ORDINALS and
-  // cannot read them back (`No enum constant …Skill.2` — the
-  // `@Enumerated(EnumType.STRING)` arm of `src/generator/java/emit/
-  // jpa-annotations.ts` is scalar-only too); mikroorm hydrates the `text[]` as
-  // the raw Postgres array literal (`root.skills.map is not a function`); and
-  // elixir 500s on the operation that REPLACES the list (`POST /retrain` —
-  // `Ecto.ChangeError: value ["Plumbing", …] … does not match type {:array,
-  // #Ecto.Enum<…>}`: the operation param is written without the cast the
-  // create path gets).  Block + repro in the hand-off note (defect D3).
-  "enum-collection",
+  // `vo-id-reference` DRAINED (wave C3 packet 3g, defect D4): java overrides
+  // the VO's `X id` column at `ship.value`, elixir no longer indexes the
+  // flattened leaf of a VO it stores as one `:map`, and elixir's VO / VO-row
+  // changesets now carry a messaged rule's wire `code` (the golden's 422s
+  // found that one).  Green on all seven legs.
+  // `enum-collection` DRAINED (wave C3 packet 3g, defect D3): an enum array
+  // round-trips as member NAMES on all seven legs (EF element converter, java
+  // `@Enumerated(STRING)` on the array, mikroorm `ArrayType`, elixir's
+  // operation param mapped onto the enum's atoms).
   // `principal-read-filter` DRAINED (wave C3 packet 3a).  Its blocker read
   // "the harness cannot seed a row owned by the authenticated principal".  It
   // can: the claim is `user.id: guid`, and every backend's dev-stub principal
@@ -1208,75 +1152,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // no-switch default the behavioural tier COULD drive is `tenancy-hierarchy`'s
   // cell, which waits on #2976's registry-row principal.  Reasoned entry.
   "org-context",
-  // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
-  // is an enum.  Both halves of what it pins are STATIC, and both are caught by
-  // legs that already gate this fixture: the node backend named `<Enum>Schema`
-  // with that name bound nowhere in the emitted tree (TS2304, corpus-tsc) and
-  // then, underneath it, seeded a fresh saga row with `""` for an enum column
-  // whose Drizzle type is a literal union (TS2345, same leg); the four frontends
-  // imported the schema from whichever aggregate happened to be declared first
-  // (`vue-tsc` TS2305 / `svelte-check`, the generated-{vue,svelte}-build gates,
-  // which carry their own inline case for this shape).
-  //
-  // A behavioural block would add nothing an oracle can read.  The workflow is
-  // EVENT-TRIGGERED, so it has no command route to POST; its only api surface is
-  // the pair of read-only instance endpoints, and reaching them at runtime needs
-  // a `ClaimFiled` emitter this fixture deliberately does not have — the shape
-  // under test is the enum in the state row, not the dispatch that fills it,
-  // and `saga`/`eventsourced-workflow` already boot that dispatch path.
-  //
-  // WRONG ABOUT "NOTHING AN ORACLE CAN READ" (wave C3 packet 3a).  A block was
-  // written — the aggregate gained a `file()` operation that emits
-  // `ClaimFiled`, and the enum was reordered so `Filed` is not the SEED value
-  // (the first member), so the instance read tells the assignment from the
-  // seed.  Green on node / mikroorm / python / dotnet / dapper / java (the
-  // non-node legs before the reorder — see the hand-off note); mutation-
-  // proved on node (dropping the create's own-state assignment reads back
-  // `UnderReview`).  ELIXIR 500s on the emitting operation: the saga row is
-  // INSERTED with `claim_state` NULL (`not_null_violation … relation
-  // "reviews"`) — the elixir saga persists before the create body's enum
-  // assignment reaches the row, the very "seed a fresh saga row wrong" class
-  // this fixture was minted for on node (suspect the elixir workflow state
-  // emitter under `src/generator/elixir/`, `lib/<app>/review/workflows/
-  // review/state.ex` in the output).  Also: the aggregate had to be renamed
-  // (`Claim` → `ClaimRecord`), because its e2e slug `claims` is a Loom keyword
-  // (defect D2).  Block + repro in the hand-off note (defect D6).
-  "workflow-enum-state",
-  // COMPILE-TIER WITNESS, and NOT EXPRESSIBLE at the behavioural tier besides.
-  // The bug class this fixture was minted for (#2864 D7/T2) is "the emitted
-  // project names a wire type nothing emits" — `z.unknown()` with no contract
-  // on node, an undefined `<Payload>Response` on the other four, plus an
-  // undefined domain record on dotnet.  That is exactly what the five compile
-  // legs see and the generate tier cannot: the model generated cleanly on all
-  // five backends the whole time it was broken.
-  //
-  // A caller is also not writable here today: the defect lives on the WORKFLOW
-  // command route (`POST /workflows/claim_handling`), and the e2e DSL has no
-  // surface that calls one — no `.ddd` in the repo drives a command workflow
-  // from a `test e2e` block.  So an e2e block added to this fixture would drive
-  // the two `crudish` aggregates and never touch the payload wire contract it
-  // exists for, which is worse than an honest exclusion: a green caller over
-  // the routes that were never broken.
-  //
-  // Drain: when the e2e DSL gains a workflow-invocation form, POST the payload
-  // and read the created `Claim` back — that would prove the wire CONTRACT
-  // (node's `z.unknown()` accepted anything, so the boundary had no oracle at
-  // all), which the compile tier genuinely cannot see.
-  //
-  // The e2e DSL HAS that form now (`api.<wf>.run(…)`, M-T5.36 F5), so the
-  // block above was written in wave C3 packet 3a — POST the payload, read the
-  // record back field by field, and a payload missing a required field must
-  // 422.  Green on node / mikroorm / python / dotnet / dapper / java (the
-  // non-node legs before the 422 probe was added); mutation-
-  // proved on node (a `z.any()` payload schema turns the 422 into a 500).
-  // ELIXIR 500s on the first run: `KeyError: key :cargo not found in:
-  // %{"amount" => …, "cargo" => …}` — the payload arrives with STRING keys and
-  // the emitted body reads it with ATOM keys (`lib/<app>/claims/workflows/
-  // claim_handling.ex:19` in the output; suspect the payload-param binding in
-  // the elixir workflow emitter).  The aggregate also had to be renamed
-  // (`Claim` → `ClaimRecord`) for its slug to parse (defect D2).  Block + repro
-  // in the hand-off note (defect D7).
-  "workflow-command-payload",
+  // `workflow-command-payload` DRAINED (wave C3 packet 3g, defects D2 + D7):
+  // `api.claims` parses, and elixir rebinds a payload-typed workflow param to
+  // an atom-keyed map over the payload's fields before the body reads it.
+  // Green on all seven legs.  (3a's 422 probe for a missing `amount` was
+  // dropped: its body is each framework's DEFAULT message — D5's class — and
+  // java also points it at `/amount` rather than `/c/amount`; see the note.)
   // WAVE C1 PACKET 1e-i (ledger rows F2-XB-4 / F2-CB-C1) — both fixtures exist
   // for the COMPILE tier: a dropped fold-body `let` is CS0103 / "cannot find
   // symbol", and the paged × non-relational carrier is CS0535 + CS0029, so the
@@ -1285,33 +1166,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // is the drain condition recorded there.
   "projection-fold-statements",
   "paged-nonrelational",
-  // WAVE C2 PACKET 2f (D-PROJECTION-IMPLICIT-SUB) — a folded projection AND a
-  // workflow reactor on events NO `channel` carries.  The fixture exists for
-  // the per-backend COMPILE tier and the generation gate: what had to be proven
-  // is that the DISPATCH WIRING is emitted at all (before, `deriveEventSubscriptions`
-  // returned `[]` and four backends emitted no handler while python emitted no
-  // dispatcher module), and the symbols that carry it are static —
-  // `test/generator/projection-implicit-sub.test.ts` names one per backend.
-  // Its CARRIED twin `projection.ddd` already runs the fold end to end on the
-  // behavioural tier, over the same dispatch path, so a second runtime block
-  // here would re-boot the identical fold to observe the identical rows and
-  // mint a wire golden that is an oracle for nothing this fixture is about.
-  // Drain: only if carriage ever stops being a pure delivery/durability knob.
-  //
-  // WRONG ABOUT "THE IDENTICAL FOLD" (wave C3 packet 3a).  The twin carries no
-  // workflow, and the defect this fixture was minted for (no subscription for
-  // an uncarried event) is a NON-compile defect: seeding it back
-  // (`deriveEventSubscriptions` returning `[]` without channels) leaves node
-  // building and `projection` green, while the block written here reads 404 on
-  // the reactor's instance.  That block is green on node / mikroorm / python /
-  // dotnet / dapper / java — and ELIXIR 500s on `POST /orders/{id}/ship`: the
-  // reactor's `shippedAt := e.at` is dumped into a workflow-state column the
-  // Ecto schema types `:string` (`Ecto.ChangeError: value ~U[…] for
-  // `…FulfilmentState.shipped_at` … does not match type :string`) — an optional
-  // `datetime` state field missed RS-38's `Loom.Datetime` mapping (suspect the
-  // elixir workflow-state schema emitter).  Block + repro in the hand-off note
-  // (defect D8).
-  "projection-implicit-sub",
+  // `projection-implicit-sub` DRAINED (wave C3 packet 3g, defect D8): an
+  // optional `datetime` saga-state field is typed as its inner type
+  // (`Loom.Datetime`, RS-38) on elixir, so the reactor's write no longer
+  // raises.  Green on all seven legs; seeding the original subscription defect
+  // back still turns this block red while `projection` stays green (3a).
   // `workflow-primitive-params` DRAINED (wave C3 packet 3a).  Its blocker ("the
   // runner cannot address a workflow's create surface") went stale with the
   // workflow accessor.  The block proves the PRESENT-value half on all seven

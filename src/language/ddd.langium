@@ -2358,8 +2358,36 @@ AssignOrCallStmt:
 // target's type is computed.  `'this'` is already a token (`ThisRef`) and the
 // same `('this' '.')?` prefix is already spelled on `LoadPath`.
 LValue:
-    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueIdent)*
+    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueTail)*
       (call?='(' (args+=Expression (',' args+=Expression)*)? ')')?;
+
+// A segment AFTER the head: the plural-slug keywords are admissible here (a
+// call statement `api.claims.file(rec)` names an aggregate slug), but not as
+// the head — `this` there is the `thisRef` prefix.
+LValueTail returns string:
+    LValueIdent | PluralSlugKeyword;
+
+// Plural-shaped HARD keywords (wave C3 D2).  An aggregate's e2e slug is
+// `snake(plural(Name))`, so `aggregate Claim` is addressed as `api.claims` —
+// and `claims` is the `auth { claims: … }` keyword, so the declarable
+// aggregate was unaddressable from a `test e2e` block.  Every keyword that is
+// the plural of some aggregate name is admitted after a `.` (MemberName, and
+// LValueTail for a call statement); the SLUG FLOOR in
+// `keyword-identifier-completeness.test.ts` derives the set from the grammar
+// and fails naming any plural-shaped keyword left out (it is literal:
+// `aggregate A` is `api.as`, `aggregate Extend` is `api.extends`).
+// Only the plural-shaped keywords that are NOT already soft in
+// `CommonSoftKeywords` are listed — the rest (`claims`, `serves`, `targets`,
+// …) are admissible through the shared core, and a word spelled in two
+// alternatives of the same rule is an ambiguous alternative.  `requires` is
+// HARD (no statement may start with it: a gate line missing its subject must
+// fail, not parse as a call on a name `requires`), so it is listed here —
+// admitting it only after a `.` cannot start a statement.  The slug floor
+// derives its set from every grammar keyword and checks ADMISSIBILITY, not
+// membership in this rule, so a word moving between the two lists is
+// invisible to it.
+PluralSlugKeyword returns string:
+    'as' | 'extends' | 'requires' | 'this';
 
 LValueIdent returns string:
     ID | CommonSoftKeywords
@@ -2638,7 +2666,8 @@ MemberName returns string:
     // MemberName-only extras (structural keywords not in the shared
     // value core; member access after `.`).  Composing CommonSoftKeywords here also closes the
     // "declarable-but-unreadable" class (M-T5.18 Track C, BUG-004: `e.resource`).
-    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where';
+    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where'
+    | PluralSlugKeyword;
 
 // Lambdas accept either a single expression body or a brace-wrapped block of
 // statements.  Block bodies are required for multi-statement event handlers in
