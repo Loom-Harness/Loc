@@ -39,20 +39,16 @@ import {
   validateFieldDefaults,
   validateFindNameCollisions,
   validateFunctionBlockBodies,
-  validateGenericInstancesUnimplemented,
   validateLifecycleBodyDropped,
   validateNamedLifecycleDropped,
-  validateOperationReturnsUnimplemented,
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
   validateResourceOpPlacement,
   validateUiPermissionRefs,
   validateUnionFindShapes,
-  validateUnionsUnimplemented,
   validateUniqueColumns,
   validateUnmappedErrorStatuses,
   validateVariantMatch,
-  validateWhenGateSupport,
   validateWorkspaceUniqueness,
 } from "./checks/structural-checks.js";
 import {
@@ -78,7 +74,6 @@ import {
   validateElixirInvariantCoverage,
   validateElixirOpSelfCallPosition,
   validateEventSourcedStorage,
-  validateEventSourcedWorkflowStorage,
   validateFieldMask,
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
@@ -86,21 +81,16 @@ import {
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
   validateFrontendPropTypes,
-  validateGroupedProjectionBackend,
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
-  validatePagedQueryHandlerBackend,
   validatePageGateExprs,
   validatePermissions,
-  validateProjectionSourceProjectionBackend,
   validateProvenancedStorage,
-  validateQueryTimeProjectionBackend,
   validateReactIdReferences,
   validateRelayTargetNotSubscribed,
-  validateRemoteApiOpSupport,
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
@@ -111,8 +101,6 @@ import {
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
   validateVanillaDocumentScope,
-  validateWholeTableAggregationBackend,
-  validateWorkflowSourceProjectionBackend,
 } from "./checks/system-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
@@ -204,7 +192,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
-    validateRemoteApiOpSupport(sys, diags);
     validateDataSourceUnwiredKnobs(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
@@ -231,14 +218,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `// flutter pack: no renderer` comment.  Fail fast instead.
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
-    validatePagedQueryHandlerBackend(sys, diags);
-    validateQueryTimeProjectionBackend(sys, diags);
-    validateWholeTableAggregationBackend(sys, diags);
-    validateGroupedProjectionBackend(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
-    validateWorkflowSourceProjectionBackend(sys, diags);
-    validateProjectionSourceProjectionBackend(sys, diags);
     validateDefaultDeny(sys, diags);
     validateAuth(sys, diags);
     validatePermissions(sys, diags);
@@ -323,30 +304,13 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
-    validateGenericInstancesUnimplemented(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
-    validateUnionsUnimplemented(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateUnionFindShapes(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateLifecycleBodyDropped(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateNamedLifecycleDropped(c, diags);
-    validateWhenGateSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateOperationReturnsUnimplemented(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateEventSourcedWorkflowStorage(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());

@@ -207,10 +207,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.projection-document-source-capability-filtered":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-groupby-unsupported-backend":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-whole-table-aggregation-unsupported":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
   "loom.tenancy-filter-bypass":

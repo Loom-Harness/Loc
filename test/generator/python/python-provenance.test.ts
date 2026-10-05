@@ -14,7 +14,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // ContextVar buffer + `app/db/provenance.py` history model) and a LATE
 // hand-emitted migration (ALTER backing columns + CREATE history) ride along.
 //
-// The python gate is un-gated (PROVENANCE_BACKENDS, system-checks).  This is a
+// Every backend emits provenance, so python is un-gated.  This is a
 // mechanical mirror of node / .NET / elixir-vanilla.
 // ---------------------------------------------------------------------------
 
