@@ -10,8 +10,7 @@ import { describe, expect, it } from "vitest";
 // `toContain` / `toMatch` and their `.not.` forms under `test/generator/`.  It
 // is the cheapest assertion to write and the weakest in the building: it
 // breaks on formatting and passes on code that compiles to nothing.  Nothing
-// measured its size, so it only grew (19,178 -> 19,941 in the 14 days before
-// this gate; ~3 per merged PR).
+// measured its size, so it grew by ~3 assertions per merged PR.
 //
 // THE RULE IS BUMP-TO-GROW, NOT ONLY-FALLS.  A hard "may only fall" ceiling
 // was rejected on evidence: of the 42 scenarios duplicated across target dirs,
@@ -48,8 +47,7 @@ import { describe, expect, it } from "vitest";
 //     `.not.toContain(` counts once; `toContainEqual` / `toMatchObject` /
 //     `toMatchInlineSnapshot` do NOT count (they are structural, not textual);
 //   * equivalent shell: `git grep -hoE "\.(not\.)?(toContain|toMatch)\("
-//     -- test/generator/ | wc -l`  (19,941 on main @ bce7f409, before this
-//     packet's drain).
+//     -- test/generator/ | wc -l`  (19,391 on main @ 7c5a0aa5, the seed tree).
 // The audit's 65.8%-of-40,463 figure counted per matcher across all of
 // `test/`, so it is NOT comparable with these numbers; do not reconcile them.
 //
@@ -71,7 +69,7 @@ const BUCKET = 100;
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
-  "(cross-target)": 2200,
+  "(cross-target)": 2100,
   _expr: 100,
   _frontend: 300,
   _i18n: 100,
@@ -84,16 +82,16 @@ const CEILINGS: Record<string, number> = {
   _walker: 600,
   _workflow: 100,
   angular: 900,
-  dotnet: 2200,
-  elixir: 3200,
+  dotnet: 2100,
+  elixir: 3100,
   "elixir-vanilla": 400,
   feliz: 1400,
   flutter: 1100,
   frontend: 100,
   hono: 400,
   i18n: 100,
-  java: 1900,
-  python: 1800,
+  java: 1700,
+  python: 1700,
   react: 1500,
   svelte: 500,
   typescript: 1400,
