@@ -18,6 +18,15 @@ import { isCollectionOp } from "../../util/collection-ops.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
 import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opList,
+  opOperation,
+} from "../../util/openapi-ids.js";
+import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
   PRINCIPAL_ORG_CONTEXT_PATH,
@@ -29,6 +38,7 @@ import { durationUnitOf } from "../../util/temporal.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import type {
   Aggregate,
+  Api,
   BinaryChain,
   BoundedContext,
   BuilderCall,
@@ -54,6 +64,7 @@ import {
   isActionDecl,
   isActionType,
   isAggregate,
+  isApi,
   isApply,
   isAwaitExpr,
   isBinaryChain,
@@ -956,6 +967,79 @@ export class Elaborator {
     return undefined;
   }
 
+  /** A `test e2e` `api.<handle>.<verb>(…)` call: the generated test client's
+   *  CRUD verbs over the aggregate (or projection) the handle names, then the
+   *  aggregate's own finds and operations. */
+  private e2eApiCall(handle: string, verb: string, scope: Scope, node: AstNode): Ty | undefined {
+    const target = this.index.byApiHandle(handle);
+    if (!target) return undefined;
+    void node;
+    if (isProjection(target)) {
+      const row = Ty.record({ of: "projection", ref: target });
+      return verb === "list" || verb === "all" ? Ty.array(row) : row;
+    }
+    const row = Ty.record({ of: "aggregate", ref: target });
+    if (verb === "create" || verb === "update" || verb === "getById") return row;
+    if (verb === "destroy") return Ty.never;
+    const repo = this.repositoryFor(target);
+    const find = repo?.finds.find((f) => f.name === verb);
+    if (find) return this.resolveType(find.returnType, scope);
+    if (verb === "all" || verb === "list") {
+      const paged =
+        target.persistedAs !== "eventLog" &&
+        (target.shape ?? "relational") === "relational" &&
+        !target.superType;
+      return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
+    }
+    for (const o of ownerChain(target)) {
+      for (const m of o.members as AstNode[]) {
+        if (isOperation(m) && m.name === verb)
+          return m.returnType ? this.resolveType(m.returnType, scope) : Ty.never;
+      }
+    }
+    return undefined;
+  }
+
+  /** The response of the operation `opId` an api exposes — the operation set
+   *  `deriveAggregateOperations` lifts (create / getById / destroy / finds /
+   *  public operations and their `can<Op>` gate probes / the `all` list),
+   *  named by the shared operationId tokens. */
+  private apiOperationType(api: Api, opId: string, scope: Scope): Ty | undefined {
+    for (const ctx of api.source?.ref?.contexts ?? []) {
+      for (const agg of ctx.members) {
+        if (!isAggregate(agg) || agg.isAbstract) continue;
+        const row = Ty.record({ of: "aggregate", ref: agg });
+        const repo = this.repositoryFor(agg);
+        if (opId === camelId(opCreate(agg.name)) || opId === camelId(opGetById(agg.name)))
+          return row;
+        if (opId === camelId(opDestroy(agg.name))) return Ty.never;
+        for (const f of repo?.finds ?? []) {
+          if (opId === camelId(opFind(agg.name, f.name)))
+            return this.resolveType(f.returnType, scope);
+        }
+        if (opId === camelId(opList(agg.name))) {
+          // The implicit `all` is paged by default, except for the shapes the
+          // enrichment keeps unbounded (an event log, a document / embedded
+          // aggregate, an inheritance subtype).
+          const paged =
+            agg.persistedAs !== "eventLog" &&
+            (agg.shape ?? "relational") === "relational" &&
+            !agg.superType;
+          return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
+        }
+        for (const o of ownerChain(agg)) {
+          for (const m of o.members as AstNode[]) {
+            if (!isOperation(m)) continue;
+            if (opId === camelId(opOperation(agg.name, m.name)))
+              return m.returnType ? this.resolveType(m.returnType, scope) : Ty.never;
+            if (opId === camelId(["can", m.name, agg.name])) return Ty.prim("bool");
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
   private repositoryFor(agg: Aggregate): import("../generated/ast.js").Repository | undefined {
     const ctx = agg.$container;
     return ctx.members.find((m) => isRepository(m) && m.aggregate?.ref === agg) as never;
@@ -1057,6 +1141,16 @@ export class Elaborator {
     }
     if (!isMemberSuffix(first) || shadowed) return undefined;
     const ms = first;
+    // `test e2e`: `api.<handle>.<verb>(…)` calls the target deployable's
+    // generated test client (cutover family 3f).
+    if (scope.frame.e2e && name === "api") {
+      const call = e.suffixes[1];
+      if (!ms.call && call && isMemberSuffix(call) && call.call) {
+        this.synthArgs(call.args, scope);
+        const t = this.e2eApiCall(String(ms.member), String(call.member), scope, node);
+        return { t: t ?? Ty.unknown("unresolved-member"), consumed: 2 };
+      }
+    }
     const readHead =
       this.apiParamNamed(name, node) ||
       this.index.find("aggregate", name, node) ||
@@ -1290,6 +1384,13 @@ export class Elaborator {
       case "resource": {
         this.synthArgs(ms.args, scope);
         const kind = shape.ref.kind;
+        // A bound api's typed operation (`orders.getOrderById(id)`, M-T4.8)
+        // answers its declared response; the verb registry is the untyped rest.
+        const api = kind === "api" ? shape.ref.use?.ref : undefined;
+        if (api && isApi(api) && ms.call) {
+          const op = this.apiOperationType(api, name, scope);
+          if (op) return op;
+        }
         const verb = kind ? findVerb(kind, name) : undefined;
         if (!verb) return Ty.unknown("unresolved-member");
         switch (verb.result) {
