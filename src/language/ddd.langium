@@ -1140,14 +1140,16 @@ MacroCall:
 MacroArg:
     name=MacroArgName ':' value=MacroArgValue;
 
-// Macro-arg names — `with crudish(requires: CatalogManager)` names the
-// authorization gate with the same word the gate itself uses.  `requires`
-// was once admitted HERE ONLY; the reserved-keyword sweep moved it into
-// `CommonSoftKeywords` (no statement or expression starts with it, and a
-// header gate clause is introduced after the callable's `)`), so this rule
-// is now just `LooseName` and stays as the macro-arg seam.
+// Macro-arg names, and ONLY macro-arg names, additionally admit
+// `requires` — so `with crudish(requires: CatalogManager)` names the
+// authorization gate with the same word the gate itself uses.  It is
+// deliberately NOT folded into `LooseName`: that rule also backs
+// `Parameter.name`, `Property.name`, `CallArg.name` and friends, and
+// `requires` has to stay a hard keyword everywhere a statement or a
+// header gate clause can start.  Inside a macro call's parentheses
+// nothing else can begin with it, so the widening is ambiguity-free.
 MacroArgName returns string:
-    LooseName;
+    LooseName | 'requires';
 
 // Macro arg ref-list elements are bare IDs, not Langium cross-
 // references.  We don't use the [Target:ID] form because:
@@ -2044,8 +2046,11 @@ Parameter:
 //     `decimal` `long` `guid` `datetime` `json` `File` `Self` `id` `true`
 //     `false` `null` `this` `now` `if` `else` `match` `find` `in` `as` `with`
 //     `where` `when` `unless` `from` `let` `return` `emit` `persist` `expect`
-//     `for`, and the HTTP verbs.  Admitting them as a name makes an expression
-//     or statement ambiguous.
+//     `for` `requires` `precondition`, and the HTTP verbs.  Admitting them as
+//     a name makes an expression or statement ambiguous — and, for a
+//     statement head, silently so: with `requires` soft, a gate line missing
+//     its subject (`requires .permissions.contains(x)`) parsed as a CALL
+//     statement on a name `requires` instead of failing (review of the sweep).
 //   * the heads of members that share a body with `Property` — `contains`
 //     `derived` `invariant` `private` `unique` `function` `operation` `create`
 //     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
@@ -2085,10 +2090,10 @@ CommonSoftKeywords returns string:
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'policy'
-      | 'port' | 'postgres' | 'precondition' | 'primeng' | 'projection' | 'provenanced' | 'provider'
+      | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
       | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
-      | 'required' | 'requirement' | 'requires' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
+      | 'required' | 'requirement' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
       | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
       | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
       | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'

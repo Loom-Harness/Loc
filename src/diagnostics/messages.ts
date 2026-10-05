@@ -443,6 +443,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
   "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
     `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
+  // Same code, different reason.  The bare entry above is the no-UI-mount case;
+  // Flutter DOES mount a UI, so that wording would be false for it — but the
+  // outcome is the same one the user needs to hear (the value is dropped), so
+  // it stays one code and splits only the message.
+  "loom.design-pack-ignored#flutter": (p: { design: unknown; name: unknown }) =>
+    `Design '${p.design}' on Flutter deployable '${p.name}' has no effect. ` +
+    `Flutter has no design-pack menu — it renders Material 3 widgets ` +
+    `procedurally, so 'design:' is dropped at lowering and the generated ` +
+    `project is identical without it. Remove the 'design:' line.`,
   // The theme must be QUOTED.  `DesignPack` is a closed keyword set of pack
   // families plus `STRING`, so a bare `design: light` is a PARSE error — this
   // message used to list the themes bare, which meant pasting its own
@@ -1164,6 +1173,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `an empty collection already encodes absence; drop the '?'.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/member-resolution-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.member-unresolved": (p: { member: unknown; shape: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of '${p.shape}' (it has: ${p.known}). ` +
+    `The type checker could not see the receiver's type here, so this was not caught earlier. ` +
+    `Name a declared member, or bind the receiver with an explicit type.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/structural-checks.ts
   // ----------------------------------------------------------------------
   "loom.applier-on-non-event-sourced#ir": (p: { name: unknown }) =>
@@ -1644,6 +1661,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `Extract the logic into a pure 'function' and call that from both places.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
+  "loom.unknown-primitive-member": (p: { member: unknown; prim: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of '${p.prim}'. '${p.prim}' is a PRIMITIVE value, not a record — it has no fields.${p.known} An invented member is not caught anywhere downstream: it reaches the generated code verbatim, where node/.NET/Java fail their own compile and python/elixir do not — so an invariant written over one silently never fires.`,
+  "loom.unknown-primitive-member#money": (p: { member: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of 'money'. 'money' is a PRIMITIVE — a precise decimal (decimal.js / decimal / BigDecimal / Decimal per backend), not a record: it carries an amount and nothing else, so it has no '.amount' and no '.currency' to read.${p.known} Compare or arithmetic the value directly ('limit > deductible'); if you wanted a record, declare one and use it as the field's type — 'valueobject Money { amount: money currency: string }'. Left un-rejected, '.${p.member}' reaches the generated code verbatim: node/.NET/Java fail their own compile, python/elixir do not, so an invariant over it silently never fires.`,
+  "loom.unknown-primitive-member#json": (p: { member: unknown }) =>
+    `'${p.member}' is not a member of 'json'. 'json' is an OPAQUE blob — Loom does not model its interior, so no member of it can be typed, validated, or rendered. Declare a 'valueobject' (or an entity part) when the shape is known, and keep 'json' for genuinely freeform payloads.`,
+  "loom.unknown-primitive-member#file": (p: { member: unknown }) =>
+    `'${p.member}' is not a member of 'File'. A 'File' field carries a wire-only REFERENCE — its '{ url, key, contentType, size }' shape is emitted at the boundary, but Loom does not expose those members to expressions on any backend, so '.${p.member}' would be rendered verbatim into code that has no such value. Pass the whole 'File' value to the primitive that renders it ('FileLink { a.attachment }' downloads it, 'FileUpload' writes it); if you need a member in domain logic, store it as its own field.`,
   "loom.collection-op-in-ui#avg":
     "collection op '.avg' isn't available in a page body — the frontends render the " +
     "ops that RESHAPE a collection (count, where, any, all, map, sortBy, take, skip, " +
@@ -1970,6 +1995,20 @@ export const DIAGNOSTIC_MESSAGES = {
    *  when it is NOT, so nothing will ever run the author's declared value. */
   "loom.migration-backfill-discarded": (p: { module: unknown; columns: unknown }) =>
     `migration for module "${p.module}" declares backfill(s) for column(s) that this migration ADDS, but nothing consumed them — the declared value would never run:\n${p.columns}\nThis is an internal inconsistency in the derived migration, not a mistake in the model. Report it: the migration was NOT written.`,
+
+  /** The rename heuristic GUESSED (docs/migrations.md § Rename detection): one
+   *  dropped column plus one added column, same type and nullability, with no
+   *  backfill and no default, collapsed into a single `renameColumn`.  The
+   *  inference is deliberate and load-bearing — a real rename would otherwise
+   *  lose its data — but it is structurally unable to tell a rename from two
+   *  unrelated columns, since both produce a byte-identical diff.  So it
+   *  ANNOUNCES itself: a warning (never an error — an error would break every
+   *  model relying on the collapse) so the one case it gets wrong is a line on
+   *  stderr instead of a silently misattributed column. */
+  "loom.migration-rename-inferred": (p: { module: unknown; from: unknown; to: unknown }) =>
+    `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
+    `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
+    `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -3698,6 +3737,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unbound": (p: {
+    primitive: unknown;
+    spelling: unknown;
+    known: unknown;
+  }) =>
+    `\`${p.primitive} { of: ${p.spelling} }\` reads a name that binds to NOTHING — not an ` +
+    `aggregate, not a query-time projection, not a workflow's instance list, and not a local ` +
+    `in scope on this page.  ${p.known}  Left to codegen this fails SILENTLY: the page ` +
+    `emitter writes the name into a comment and \`undefined\` into the page itself, and ` +
+    `\`ddd generate system\` still reports success.  Downstream that is a frontend build ` +
+    `error (\`TS18050\`) on a typed client, a \`TypeError\` at runtime on Feliz/Flutter, or — ` +
+    `where inference is weaker — a region that renders blank forever with nothing, anywhere, ` +
+    `reporting a problem.  Check the spelling, or bind the read through an ` +
+    `\`api <Handle>: <Api>\` param on the ui.`,
   "loom.scaffold-filter-param-unsupported": (p: {
     where: unknown;
     find: unknown;
@@ -4158,6 +4211,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' test '${p.testName}': ${p.reason} ` +
     `Aggregate-level tests are bound to a value-object / pure-function context — they don't have a 'this' aggregate to mutate.  ` +
     `Move the operation invocation inside an aggregate operation or rewrite the test to assert via 'expect' / 'expect-throws'.`,
+  "loom.test-statement-invalid": (p: {
+    owner: unknown;
+    testName: unknown;
+    reason: unknown;
+    tier: unknown;
+    allowed: unknown;
+  }) =>
+    `${p.owner} test '${p.testName}': ${p.reason} ` +
+    `A ${p.tier} test body may only contain ${p.allowed} statements — it has no operation to guard and no aggregate to mutate. ` +
+    `Exercise the behaviour through an operation call and assert on the result with 'expect' / 'expect-throws'.`,
   "loom.integration-find-must-bind": (p: { name: unknown; testName: unknown }) =>
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +

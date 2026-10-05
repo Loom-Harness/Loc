@@ -74,8 +74,8 @@ function norm(v: unknown): unknown {
 // investigation, which was run one word at a time (regenerate the parser, run
 // the grammar suites, only then move on) so a failure would have been
 // attributable to a single word.  All seven came back clean and joined
-// `CommonSoftKeywords`, so `HELD_BACK` is empty today — the field stays because
-// a LATER keyword may well not be promotable, and flipping it to `false` with a
+// `CommonSoftKeywords`.  `HELD_BACK` stayed empty until the sweep's review put
+// `requires` back (batch 3 below) — flipping a word to `false` with a
 // `note` is how that verdict gets recorded and pinned.
 // ---------------------------------------------------------------------------
 
@@ -84,7 +84,7 @@ type Word = {
   word: string;
   /** Was it promoted to `Property.name` (field-name position)? */
   promoted: boolean;
-  /** Why not, when `promoted` is false — the reason it stays `LooseName`-only. */
+  /** Why not, when `promoted` is false — the reason it stays hard. */
   note?: string;
   /** A source exercising EVERY hard-keyword position of the word. */
   hard: string;
@@ -373,7 +373,17 @@ ui U {
   { word: "event", promoted: true, hard: MEMBER_SYNTAX },
   { word: "channel", promoted: true, hard: MEMBER_SYNTAX },
   { word: "check", promoted: true, hard: MEMBER_SYNTAX },
-  { word: "requires", promoted: true, hard: MEMBER_SYNTAX },
+  {
+    word: "requires",
+    promoted: false,
+    // Reverted in the sweep's review.  `requires` heads a STATEMENT
+    // (`RequiresStmt`), so soft it was also an `LValue` head: a gate line
+    // missing its subject — `requires .permissions.contains(x)` — stopped
+    // failing and parsed as a call statement on a name `requires`.  Statement
+    // heads stay hard, like `let` / `emit` / `precondition`.
+    note: "it heads a statement, where a soft word silently re-parses a broken gate",
+    hard: MEMBER_SYNTAX,
+  },
   { word: "mask", promoted: true, hard: MEMBER_SYNTAX },
   { word: "provenanced", promoted: true, hard: MEMBER_SYNTAX },
   { word: "sensitive", promoted: true, hard: MEMBER_SYNTAX },
@@ -436,7 +446,7 @@ describe("reserved-field-name widening (audit D4)", () => {
     }
 
     for (const { word, note } of HELD_BACK) {
-      it(`\`${word}\` stays LooseName-only — ${note}`, () => {
+      it(`\`${word}\` stays hard as a field name — ${note}`, () => {
         // Pinned so a later promotion is a deliberate edit here, not a silent
         // side effect of an unrelated grammar change.
         const res = parseRawResult(`context C { aggregate A { title: string\n ${word}: string } }`);
@@ -449,7 +459,7 @@ describe("reserved-field-name widening (audit D4)", () => {
   });
 
   describe("LooseName position (D4a is exactly this for `deny`)", () => {
-    for (const { word } of WORDS) {
+    for (const { word } of PROMOTED) {
       it(`\`${word}\` is usable as a parameter name`, () => {
         const src = `context C { aggregate A { title: string\n operation op(${word}: string) { } } }`;
         const res = parseRawResult(src);

@@ -8747,11 +8747,20 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
       "name": "MacroArgName",
       "dataType": "string",
       "definition": {
-        "$type": "RuleCall",
-        "rule": {
-          "$ref": "#/rules@178"
-        },
-        "arguments": []
+        "$type": "Alternatives",
+        "elements": [
+          {
+            "$type": "RuleCall",
+            "rule": {
+              "$ref": "#/rules@178"
+            },
+            "arguments": []
+          },
+          {
+            "$type": "Keyword",
+            "value": "requires"
+          }
+        ]
       },
       "entry": false,
       "fragment": false,
@@ -15116,10 +15125,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "precondition"
-          },
-          {
-            "$type": "Keyword",
             "value": "primeng"
           },
           {
@@ -15197,10 +15202,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "requirement"
-          },
-          {
-            "$type": "Keyword",
-            "value": "requires"
           },
           {
             "$type": "Keyword",

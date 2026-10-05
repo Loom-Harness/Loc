@@ -508,6 +508,33 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An invented member on a receiver the LANGUAGE layer types as `unknown`
+  // (a `let` bound from a list literal), so the AST member check stands down
+  // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
+  "loom.member-unresolved": `
+system MemberBackstop {
+  subdomain S { context C {
+    valueobject Addr { street: string }
+    aggregate Task with crudish {
+      title: string
+      addr: Addr
+      operation probe() {
+        let xs = [this.addr]
+        title := xs.first().nope
+      }
+    }
+  } }
+}`,
+  // An `emit` in a CONTEXT integration test: no backend's integration-test
+  // renderer has an arm for it, and before #3133 every one crashed generate.
+  "loom.test-statement-invalid": `
+system TestVocab {
+  subdomain S { context C {
+    event Pinged { n: int }
+    aggregate Task with crudish { title: string }
+    test "t" { emit Pinged { n: 1 } }
+  } }
+}`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:
@@ -1022,6 +1049,21 @@ system S {
   // (unknown ⇒ `string`), so before this check the model parsed, validated and
   // GENERATED clean — and the emitted backend then failed its own compile
   // against a `UserClaims` shape built from exactly these two fields.
+  // --- invented member READ on a primitive (F-040) -------------------------
+  // `money` is a precise decimal, not a record: before this check the read
+  // typed as `unknown`, every operand validator suppressed on `unknown`, and
+  // `.amount` reached the emitters verbatim — so `invariant m.amount > 0` was
+  // a business rule that can never fire (python/elixir compile it happily).
+  "loom.unknown-primitive-member": `
+system S {
+  subdomain Sub { context C {
+    aggregate Cover with crudish {
+      limit: money
+      invariant limit.amount > 0
+    }
+    repository Covers for Cover { }
+  } }
+}`,
   "loom.unknown-user-claim": `
 system S {
   user { id: string  role: string }
@@ -3662,6 +3704,14 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // -at file builds the pair and asserts the code, both directions (it also
   // pins the inert cases that must stay silent).
   "loom.migration-backfill-discarded": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨, same reason (F-3): the warning announcing the drop+add → RENAME
+  // inference fires only when the collapse does, and the collapse needs a
+  // BASELINE SNAPSHOT — one generation's schema, then a source that renames a
+  // field. `validate()` has no baseline, so no fixture here reaches it. The
+  // pointed-at file drives both directions: the warning on a bare drop+add
+  // pair, and NO warning on a pair carrying a declared backfill (which proves
+  // it tracks the COLLAPSE, not merely the diff shape).
+  "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 

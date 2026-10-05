@@ -19,6 +19,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, "..", "..");
@@ -226,13 +227,11 @@ function serverEntrySource({ deplDir, devStub = false }) {
     ? `import { registerDevStubVerifier } from ${J(join(deplDir, "auth", "dev-stub.ts"))};\nregisterDevStubVerifier();\n`
     : "";
   return `
-${auth}import { synthDDL } from ${J(join(REPO, "web/src/runtime/ddl.ts"))};
+${auth}${MIGRATOR_IMPORT}
 import { createApp } from ${J(join(deplDir, "http/index.ts"))};
 import * as schema from ${J(join(deplDir, "db/schema.ts"))};
 import { drizzle } from "drizzle-orm/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { is, Table } from "drizzle-orm";
-import { getTableConfig } from "drizzle-orm/pg-core";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -247,8 +246,8 @@ const MIME = { ".html":"text/html", ".js":"text/javascript", ".mjs":"text/javasc
 
 export async function startServer({ distDir }) {
   const pglite = new PGlite();
-  await pglite.exec(synthDDL(schema, { is, Table, getTableConfig }));
   const db = drizzle(pglite, { schema });
+  ${applyMigrationsStmt(deplDir)}
   const app = createApp(db);
   const server = createServer(async (req, res) => {
     try {

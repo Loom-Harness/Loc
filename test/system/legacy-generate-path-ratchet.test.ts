@@ -5,7 +5,9 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Legacy single-context `generate` ratchet (M-T9.48 Hono, M-T9.49 .NET).
+// Legacy single-context `generate` ratchet (minted by M-T9.48 Hono, M-T9.49
+// .NET; the drain of both PINNED backlogs is owned by M-T9.76 —
+// docs/new-plan/T9-toolchain-health.md).
 //
 // The sibling ratchet (`direct-generate-systems-ratchet.test.ts`) pins the
 // tests that import the SYSTEM orchestrator directly.  This one pins the other

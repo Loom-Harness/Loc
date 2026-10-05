@@ -94,3 +94,13 @@ Minted 2026-08-30 from the [08-24 generator review](../audits/generator-code-rev
 **Verification when it lands.** The conformance test from (a) over all five backends; plus a runtime leg that connects an authenticated SPA to a live stream and reads one frame — [M-T1.10's ledger row](../audits/generator-code-review-2026-08-24.md) `M-T1.10-realtime-no-runtime-e2e` records that realtime has **no** runtime e2e on any backend today, which is precisely why an auth hole and a delivery regression both shipped green.
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §F4, §A4, §A9, §Follow-up register (2026-08-30) row 20; [channels.md](../old/proposals/channels.md) realtime sections. Relates to M-T1.10 (frontend consumption), M-T3.x (auth modes), M-T4.3 (the durable tee).
+
+## M-T4.13 — A channel consume failure is only a `warn`: no log-catalog event on node, no retry or DLQ for `ephemeral` — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
+
+Item **P13** (#2944). When a channel consumer's handler throws, every backend logs a `warn` and drops the message. Node bypasses the `_obs/` log catalog for it entirely (a raw logger call, so the obs-e2e legs cannot assert it), and a `retention: ephemeral` channel has neither a retry nor a dead-letter path — the event is gone.
+
+**The fix:** one catalog event (`channel_consume_failed`) rendered on all five, then a bounded retry with a DLQ destination per broker, or an explicit ruling that `ephemeral` means at-most-once (and the docs saying so).
+
+**Verification.** The five `*-obs-e2e` legs assert the catalog event on a seeded handler failure; `channels-e2e` (run locally — it is in neither the per-PR set nor the queue) covers the retry.

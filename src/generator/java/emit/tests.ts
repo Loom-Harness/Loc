@@ -38,8 +38,21 @@ export function renderJavaTestsFile(
    *  invoked from a test body, a stub test user is materialised with the
    *  dev-stub claim values and threaded as the trailing argument. */
   userFields?: readonly FieldIR[],
+  /** Package holding another aggregate's root class, resolved through the SAME
+   *  layout router this file's own package came from — so the sibling import
+   *  below is correct under `byLayer` and `byFeature` alike. */
+  siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
-  return renderJavaSubjectTests(agg.name, agg.tests, ctx, basePkg, pkg, userFields, false);
+  return renderJavaSubjectTests(
+    agg.name,
+    agg.tests,
+    ctx,
+    basePkg,
+    pkg,
+    userFields,
+    false,
+    siblingPkgFor,
+  );
 }
 
 /** Value-object unit-test class (test-placement.md).  The VO is
@@ -74,11 +87,29 @@ function renderJavaSubjectTests(
   pkg: string,
   userFields: readonly FieldIR[] | undefined,
   includeServices: boolean,
+  siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
   if (tests.length === 0) return null;
   const imports = new Set<string>();
   const state = { usesTestUser: false, userFields, ctx };
   const methods = tests.flatMap((t) => renderTest(t, ctx, imports, state));
+  // Every OTHER aggregate the bodies name.  A test body may legally reach for a
+  // sibling aggregate — the validator admits it, and it is the only way to
+  // exercise a value object holding a CROSS-aggregate reference
+  // (`Berth { ship: Ship id }` needs a `Ship` to get an id from).  The
+  // wildcards below cover the shared `domain.*` packages, but an aggregate ROOT
+  // lives in its own per-aggregate package, so `Ship.create(...)` was
+  // `cannot find symbol`.  Narrowed to names the rendered bodies actually
+  // spell.  Freight audit D3 follow-up.
+  if (siblingPkgFor) {
+    const bodyText = methods.join("\n");
+    for (const a of ctx.aggregates) {
+      if (a.name === name) continue;
+      if (!new RegExp(`\\b${a.name}\\b`).test(bodyText)) continue;
+      const sp = siblingPkgFor(a.name);
+      if (sp && sp !== pkg) imports.add(`${sp}.${a.name}`);
+    }
+  }
   while (methods[methods.length - 1] === "") methods.pop();
   if (state.usesTestUser) {
     for (const f of userFields ?? []) collectJavaTypeImports(f.type, imports);
