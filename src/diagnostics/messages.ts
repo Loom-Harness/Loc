@@ -4809,6 +4809,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.found}' is a Loom keyword and cannot be READ as a name, even though it ` +
     `is accepted where a name is DECLARED — so a parameter, field or binding ` +
     `called '${p.found}' parses and can then never be mentioned. Rename it.`,
+  // A declaration one scope off — `migration` inside `system { … }`,
+  // `aggregate` straight in a `system`, `deployable` inside a `context`.  The
+  // enclosing block's member loop exits, so chevrotain's own text is
+  // "Expecting token of type '}' but found `migration`" — an unbalanced-brace
+  // reading of a file whose braces are fine.  Say where the declaration
+  // belongs and how to move it there; the valid scopes are derived from the
+  // grammar (`src/language/misplaced-declaration.ts`).
+  "loom.parse-error#misplaced-declaration": (p: {
+    keyword: unknown;
+    where: unknown;
+    notHere: unknown;
+    remedy: unknown;
+  }) => `'${p.keyword}' declarations belong ${p.where}${p.notHere} — ${p.remedy}.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;
