@@ -16,8 +16,10 @@ import type {
   BoundedContextIR,
   DeployableIR,
   EnrichedBoundedContextIR,
+  ExprIR,
   FieldIR,
   PageIR,
+  StateFieldIR,
   SystemIR,
   UiIR,
   UserIR,
@@ -26,6 +28,7 @@ import type {
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
+import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
@@ -270,10 +273,13 @@ function storeWrappers(
         lines.push(`    let ${fsIdent(local)} = model.${storeModelField(storeName, member)}`);
       } else {
         const p = actionsByName.get(member)?.params[0]?.name;
+        // Both the local (a store action named `fixed`) and its payload param are
+        // model names: an F# keyword takes the ``x`` spelling the body's call
+        // site (`storeActionLocalUseSite`) gives it too.
         lines.push(
           p
-            ? `    let ${local} ${p} = dispatch (${storeMsgCase(storeName, member)} ${p})`
-            : `    let ${local} () = dispatch ${storeMsgCase(storeName, member)}`,
+            ? `    let ${fsIdent(local)} ${fsIdent(p)} = dispatch (${storeMsgCase(storeName, member)} ${fsIdent(p)})`
+            : `    let ${fsIdent(local)} () = dispatch ${storeMsgCase(storeName, member)}`,
         );
       }
     }
@@ -1142,6 +1148,39 @@ function combinedActions(ui: UiIR): PageIR["actions"][number][] {
   return out;
 }
 
+/** Every walked component whose `state {}` is seeded from a component param
+ *  (`src/ir/util/feliz-component-state-init.ts`): the F# value `init`
+ *  substitutes for each param, per cell — or `null` for a cell of a DEFERRED
+ *  component (no single init-time value; the validator reports it), which
+ *  seeds its type's zero. */
+function componentStateInits(ui: UiIR): {
+  paramValues: Map<StateFieldIR, ReadonlyMap<string, string> | null>;
+  deferred: Set<string>;
+} {
+  const paramValues = new Map<StateFieldIR, ReadonlyMap<string, string> | null>();
+  const deferred = new Set<string>();
+  // The argument is a constant (literals / enum members), so it renders with
+  // nothing in scope; a non-literal is parenthesised to substitute as ONE
+  // operand.
+  const render = (e: ExprIR): string => {
+    const fs = renderFsExpr(e, { stateNames: new Set(), locals: new Set() });
+    return e.kind === "literal" ? fs : `(${fs})`;
+  };
+  for (const c of ui.components) {
+    const init = felizComponentStateInit(ui, c);
+    if (init === undefined) continue;
+    if (init.kind === "unresolved") {
+      deferred.add(c.name);
+      for (const f of init.cells) paramValues.set(f, null);
+      continue;
+    }
+    for (const [f, params] of init.cells) {
+      paramValues.set(f, new Map([...params].map(([p, e]) => [p, render(e)] as const)));
+    }
+  }
+  return { paramValues, deferred };
+}
+
 /** Assemble the single `App.fs` module for a ui.  A ui with >1 page emits a
  *  `Page` union + `parseUrl` + a `React.router` root over a combined Model
  *  (`Feliz.Router`); a single-page ui stays byte-for-byte as before.  When any
@@ -1379,6 +1418,10 @@ function renderAppFs(
   const storeUrlArm = storeUrlUpdateArm(persistedStores);
   const storeUrlSub = renderStoreUrlSub(persistedStores);
   const model = renderModel(state, reads, routed, formRecords, authUi, pageGate);
+  // A component `state {}` cell seeded from a component param: `init` has no
+  // props, so the agreeing call-site constant substitutes in — or the component
+  // defers (`component-state-init.ts`).
+  const componentInits = componentStateInits(ui);
   const init = renderInit(
     state,
     reads,
@@ -1387,6 +1430,7 @@ function renderAppFs(
     authUi,
     pageGate,
     storePersistInitOverrides(persistedStores),
+    componentInits.paramValues,
   );
   const msg = renderMsg(
     msgActions,
@@ -1487,6 +1531,7 @@ function renderAppFs(
     // `renderModel` is built from, so a component naming `model.<Field>` can
     // only be emitted when that field exists.
     modelFields: felizModelReadFields(reads),
+    deferred: componentInits.deferred,
   });
   // The map every call site resolves against: both flavours, since
   // `felizTarget.renderUserComponent` renders them identically (an extern name
