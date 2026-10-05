@@ -70,6 +70,7 @@ import {
 } from "./generated/ast.js";
 import { stdFunction } from "./stdlib.js";
 import { toDddType } from "./typing/adapt.js";
+import { PRIMITIVE_FIELDS } from "./typing/primitive-fields.js";
 import { typingFor } from "./typing/shared.js";
 import { PAGED_META } from "./typing/ty.js";
 
@@ -950,6 +951,48 @@ export function absentUserClaim(recvType: DddType, name: string): string[] | und
   return t.ref.fields.map((f) => f.name);
 }
 
+/** For the unknown-member validator: `name` is definitively NOT reachable on a
+ *  primitive receiver.  Returns the receiver's primitive name plus everything
+ *  that IS reachable on it (for the diagnostic's tail); `undefined` when the
+ *  member resolves *or* the receiver isn't a primitive.
+ *
+ *  A primitive is a VALUE, not a record — it has no fields beyond
+ *  `PRIMITIVE_FIELDS` above and no operations beyond the intrinsic catalogue,
+ *  and both are fully enumerable.  Yet a bare member READ on one was the last
+ *  fail-open hole in the member funnel: the CALL form has been gated since the
+ *  stdlib landed (`loom.intrinsic-unknown`), while `s.totallyMadeUp` typed as
+ *  `unknown`, every operand validator suppressed on `unknown`
+ *  (anti-double-reporting), and the invented member reached the emitters
+ *  verbatim.  On node/.NET/Java the generated project then failed its own
+ *  compile; on python/elixir it did not, so an `invariant m.amount > 0` written
+ *  over a `money` field became a business rule that can never fire.
+ *
+ *  Fail-open by construction — `undefined` on every non-primitive receiver
+ *  (record, array, enum, `X id`, slot, `any`, `unknown`), so this never
+ *  competes with `absentRecordMember` / `absentUserClaim`.
+ *
+ *  A single optional level is unwrapped first, exactly as member RESOLUTION
+ *  does everywhere else: `nickname.length` on a `string?` stays a membership
+ *  question, and whether the DEREF is safe is a separate judgement
+ *  (`loom.intrinsic-nullable-receiver`).
+ *
+ *  INTRINSIC NAMES RESOLVE HERE even when written bare (`s.trim`): the name is
+ *  reachable, it is the missing call that is wrong, and that already has its
+ *  own code (`loom.intrinsic-bare`).  One diagnostic per mistake.  The string
+ *  regex `matches` is reachable the same way though it is not a catalogue row. */
+export function absentPrimitiveMember(
+  recvType: DddType,
+  name: string,
+): { prim: PrimitiveName; known: string[] } | undefined {
+  const t = recvType.kind === "optional" ? recvType.inner : recvType;
+  if (t.kind !== "primitive") return undefined;
+  const fields = [...(PRIMITIVE_FIELDS.get(t.name)?.keys() ?? [])];
+  const ops = intrinsicsForReceiver(t.name).map((s) => s.name);
+  const extra = t.name === "string" ? ["matches"] : [];
+  if (fields.includes(name) || ops.includes(name) || extra.includes(name)) return undefined;
+  return { prim: t.name, known: [...fields, ...ops, ...extra] };
+}
+
 /** For the unknown-member validator: when `recvType` is a record we can
  *  fully enumerate (aggregate / entity / value object / event-or-payload, or
  *  an `X id` resolving to one) and `name` is **not** one of its members,
@@ -1451,9 +1494,10 @@ export function membersOfType(t: DddType): MemberCompletion[] {
         kind: "method",
         detail: s.signature,
       }));
-      return t.name === "string"
-        ? [{ name: "length", kind: "field", detail: "int" }, ...intrinsics]
-        : intrinsics;
+      const fields: MemberCompletion[] = [...(PRIMITIVE_FIELDS.get(t.name) ?? [])].map(
+        ([name, detail]) => ({ name, kind: "field", detail }),
+      );
+      return [...fields, ...intrinsics];
     }
     case "enum":
       return t.ref.values.map((v) => ({ name: v.name, kind: "enum-value", detail: t.ref.name }));

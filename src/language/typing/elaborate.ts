@@ -12,7 +12,7 @@
 // This file is the SYNTH half (each expression's own type). Expected-type
 // elaboration (literal promotion, enum retargeting) is the cutover slices'.
 
-import type { AstNode } from "langium";
+import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
@@ -136,6 +136,7 @@ import {
 } from "../generated/ast.js";
 import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
+import { primitiveFieldType } from "./primitive-fields.js";
 import { astProjectionReadShape } from "./projection-shape.js";
 import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
 
@@ -1385,8 +1386,9 @@ export class Elaborator {
       case "optional": {
         const p = bare.kind === "primitive" ? bare.name : undefined;
         if (!p) return Ty.unknown("unresolved-member");
-        if (p === "string" && name === "length") return withTags(Ty.prim("int"), tags);
-        if (p === "string" && name === "matches") return Ty.prim("bool");
+        const field = primitiveFieldType(p, name);
+        if (field) return withTags(Ty.prim(field), tags);
+        if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
         const sig = intrinsicFor(p, name);
         if (sig) {
           const ret = intrinsicReturnType(sig, p);
@@ -1482,7 +1484,15 @@ export class Elaborator {
     for (const o of ownerChain(target)) {
       for (const m of o.members as AstNode[]) {
         if ((m as { name?: string }).name !== name) continue;
-        if (isProperty(m)) return this.propertyType(m, scope);
+        if (isProperty(m)) {
+          const t = this.propertyType(m, scope);
+          // In a frontend body a `provenanced` field IS its wire carrier —
+          // `{ value, lineage }` (`src/util/provenance-carrier.ts`) — which
+          // the scaffold detail page reads as `<row>.<field>.value`.
+          return m.provenanced && inFrontendDecl(ms)
+            ? { kind: "generic", ctor: "provenanced", arg: t }
+            : t;
+        }
         if (isContainment(m)) {
           const part = m.partType?.ref;
           if (!part) return Ty.unknown("unresolved-type");
@@ -1576,6 +1586,15 @@ interface LValueNode extends AstNode {
   head: string;
   tail: string[];
   call?: boolean;
+}
+
+/** True inside a `ui` or a `component` — the frontend subtree, where a field
+ *  reads as its wire shape. */
+function inFrontendDecl(node: AstNode): boolean {
+  return (
+    AstUtils.getContainerOfType(node, isUi) !== undefined ||
+    AstUtils.getContainerOfType(node, isComponent) !== undefined
+  );
 }
 
 /** A member of a blessed generic carrier (the field lists of

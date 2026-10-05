@@ -78,12 +78,14 @@ system Shop {
         // which coerces the same wire text first — so a bare ISO-8601 string
         // landed a BINARY in a `:utc_datetime` field.  An id stays raw: an
         // Ecto `:binary_id` IS the uuid string at runtime.  `mix test` here
-        // asserts on the STORED value, so a binary fails the DateTime compare.
+        // asserts on the STORED value: a `%DateTime{}` is never equal to its
+        // ISO-8601 text, a leaked binary is.  (Not `dispatchedAt.year` — a
+        // `datetime` has no fields, `loom.unknown-primitive-member`.)
         test "an id and a datetime literal reach an operation parameter" {
           let o = Order.create({ customer: "acme" })
           o.dispatch("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
           expect(o.clerkId).toBe("00000000-0000-0000-0000-000000000002")
-          expect(o.dispatchedAt.year).toBe(2026)
+          expect(o.dispatchedAt).not.toBe("2026-02-02T12:30:00Z")
         }
         test "an order with a valid price is created" {
           let o = Order.create({ customer: "acme", price: Money { amount: 5.0, currency: "USD" } })

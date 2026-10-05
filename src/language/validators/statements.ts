@@ -130,7 +130,7 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
       });
     }
     if (op.private) {
-      // The gate itself DOES still run — since M-T6.38 / D-WHEN-GATE-DOMAIN the
+      // The gate itself DOES still run — per D-WHEN-GATE-DOMAIN the
       // `when` predicate is emitted at the domain-method entry on every
       // backend, so an in-system caller (a workflow step, another domain
       // method) is refused.  What a private operation loses is the HTTP
@@ -428,8 +428,8 @@ export function checkConstructionArgTypes(
 
 /** Arity + type check for calls in EXPRESSION position (`derived x = fee(a)`,
  *  `let y := compute(a, b)`, `precondition check(a)`, `derived t = price.scaled(f)`)
- *  — the expression-walk companion to `checkCallStmt`'s statement-call check
- *  (M-T6.18 gap #2).  Streams every `PostfixChain` reachable from `node` and
+ *  — the expression-walk companion to `checkCallStmt`'s statement-call check.
+ *  Streams every `PostfixChain` reachable from `node` and
  *  covers two call shapes:
  *
  *   - **Free call** (`name(args)` — a bare `NameRef` head with a leading
@@ -511,7 +511,7 @@ export function checkExprCallArgs(
   }
 }
 
-/** M-T6.18 gap #3 — arg-type + construction-value checking at the EXPRESSION
+/** Arg-type + construction-value checking at the EXPRESSION
  *  slots the operation/function/default/invariant/derived walk never reaches:
  *  repository `find … where` / `… requires`, retrieval `where:` (named +
  *  anonymous), criterion / policy-fn bodies, and operation `requires` / `when`
@@ -548,12 +548,12 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
       visit((node as Operation).gate);
       visit((node as Operation).when);
     } else if (isFilterDecl(node)) {
-      // M-T6.18 gap #3, last live piece — a capability `filter` is a
-      // DECLARATION site, not a body: `filter InRegion(42)` against `criterion
-      // InRegion(region: string)` carries no lexical `Env` of its own, so the
-      // predicate call was arity-checked (`loom.criterion-arity`, model-wide)
-      // and never TYPE-checked.  `envForNode` binds the host aggregate as
-      // `this` + its members, which is all a filter predicate can reference.
+      // A capability `filter` is a DECLARATION site, not a body: `filter
+      // InRegion(42)` against `criterion InRegion(region: string)` carries no
+      // lexical `Env` of its own, so the model-wide `loom.criterion-arity`
+      // checks only its arity — this TYPE-checks it.  `envForNode` binds the
+      // host aggregate as `this` + its members, which is all a filter
+      // predicate can reference.
       visit(node.expr);
     } else if (isProjection(node)) {
       // The projection query clauses are declaration sites too — `where`, the
@@ -597,12 +597,12 @@ function resolveStoreAction(
   return undefined;
 }
 
-/** M-T6.18 gap #3 — arity + per-argument type check for a store-action call
+/** Arity + per-argument type check for a store-action call
  *  (`Cart.add(42)`).  Page / component / store `action` bodies are never fed to
- *  the statement walk (that fires only for aggregate operations), so a
- *  store-action call had NEITHER its arity NOR its argument types checked — a
- *  wrong count or a `string` into an `int` action param compiled the .ddd and
- *  only failed the emitted frontend.  Both invocation forms are covered: the bare
+ *  the statement walk (that fires only for aggregate operations), so without
+ *  this a wrong count or a `string` into an `int` action param would compile
+ *  the .ddd and only fail the emitted frontend.  Both invocation forms are
+ *  covered: the bare
  *  call STATEMENT (`Cart.add(42)` — an `AssignOrCallStmt` LValue) and the
  *  expression form (a single-suffix `PostfixChain`, e.g. `x := Cart.add(42)`).
  *  Reuses the shared `checkCallArgs` (arity + positional type, `unknown`
@@ -661,11 +661,11 @@ function resolveComponent(name: string, node: AstNode, model: Model): Component 
   return undefined;
 }
 
-/** M-T6.18 gap #3 — per-prop type check for a page-body COMPONENT invocation
+/** Per-prop type check for a page-body COMPONENT invocation
  *  (`Panel(amount: "x")` / `Panel { amount: "x" }`).  A user `component` declares
- *  typed params, but neither invocation form had its prop VALUES checked — a
- *  `string` into an `int` param compiled the .ddd and only failed the emitted
- *  frontend's tsc.  Both forms are covered: the paren call (`Panel(amount: x)` — a
+ *  typed params; without this a `string` into an `int` param would compile the
+ *  .ddd and only fail the emitted frontend's tsc.  Both forms are covered: the
+ *  paren call (`Panel(amount: x)` — a
  *  single-suffix `PostfixChain` `CallSuffix`, positional or named) and the brace
  *  builder (`Panel { amount: x }` — a `BuilderCall`, which record constructions
  *  also use, so a name resolving to a value object / part / payload is left to
@@ -786,10 +786,10 @@ function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): vo
   );
 }
 
-/** M-T6.18 gap #3 (follow-on to #2238) — bare operation/function-call STATEMENTS
- *  in a workflow create/handle/on/apply body (`o.bump(x)`).  #2238 wired
- *  `checkConstructionArgTypes` / `checkExprCallArgs` / `checkEmit` into workflow
- *  bodies, but a bare call statement is an `AssignOrCallStmt` LValue (not a
+/** Bare operation/function-call STATEMENTS
+ *  in a workflow create/handle/on/apply body (`o.bump(x)`).  Workflow bodies
+ *  run `checkConstructionArgTypes` / `checkExprCallArgs` / `checkEmit`, but a
+ *  bare call statement is an `AssignOrCallStmt` LValue (not a
  *  PostfixChain), so `checkExprCallArgs` never sees it and `checkCallStmt` only
  *  runs for aggregate operations (it needs a `this` aggregate a workflow lacks).
  *  Streams the workflow member and arg-checks each MEMBER-call statement; a bare
@@ -867,8 +867,8 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
 }
 
 /** Arity + per-argument type check for a resolved domain call (`bump("hi")`,
- *  `o.bump(a)`) — the statement-call twin of `checkAsyncEffectArgs` / `checkEmit`
- *  (M-T6.18 gap #2).  The callee is already resolved to an operation / function
+ *  `o.bump(a)`) — the statement-call twin of `checkAsyncEffectArgs` /
+ *  `checkEmit`.  The callee is already resolved to an operation / function
  *  with a fixed, all-required param list (the grammar has no optional/defaulted
  *  params), so the discipline mirrors the sibling gates: strict arity, then
  *  per-arg `isAssignable` with `unknown`-suppression (a typo'd bare arg is

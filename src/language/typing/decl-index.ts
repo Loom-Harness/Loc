@@ -98,8 +98,23 @@ export class DeclIndex {
   readonly users: UserBlock[] = [];
   readonly resources: Resource[] = [];
 
-  constructor(readonly models: readonly Model[]) {
+  /** `composed` — the other documents of the project's import closure.  Only
+   *  their `user { }` block is read: the principal folds into the project's
+   *  single system wherever it is written (implicit-system-composition), so a
+   *  `currentUser` in one file types against a claim block in another. */
+  constructor(
+    readonly models: readonly Model[],
+    composed: readonly Model[] = [],
+  ) {
     for (const m of models) this.collect(m.members ?? []);
+    for (const m of composed) this.collectUsers(m.members ?? []);
+  }
+
+  private collectUsers(members: readonly AstNode[]): void {
+    for (const n of members) {
+      if (isSystem(n)) this.collectUsers(n.members);
+      else if (isUserBlock(n)) this.users.push(n);
+    }
   }
 
   private add(name: string | undefined, node: AstNode): void {

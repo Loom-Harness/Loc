@@ -53,7 +53,7 @@ describe("parsing — projection comprehension", () => {
         projection SalesDashboard {
           openOrders: int  revenue: money
           from Order as o where o.status == Confirmed
-          select openOrders = o.lineCount.count, revenue = o.total.sum
+          select openOrders = count(), revenue = sum(o.total)
         }
       `),
     );

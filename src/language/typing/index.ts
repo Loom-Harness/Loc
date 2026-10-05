@@ -40,8 +40,11 @@ export interface TypingSession {
   synthAtFor(node: AstNode, host: Aggregate): Ty | undefined;
 }
 
-export function typingSession(models: readonly Model[]): TypingSession {
-  const index = new DeclIndex(models);
+export function typingSession(
+  models: readonly Model[],
+  composed: readonly Model[] = [],
+): TypingSession {
+  const index = new DeclIndex(models, composed);
   const elab = new Elaborator(index);
   elab.run();
   return {
