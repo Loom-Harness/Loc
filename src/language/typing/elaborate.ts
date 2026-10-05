@@ -888,6 +888,16 @@ export class Elaborator {
         if (verb === "byId") return row;
         const find = repo?.finds.find((f) => f.name === verb);
         if (find) return this.resolveType(find.returnType, scope);
+        // An operation invoked through the handle (`match await
+        // Sales.Order.placeOrder()`) answers its declared return type — the
+        // `or`-union a variant match discriminates; a void one, nothing.
+        for (const o of ownerChain(agg)) {
+          const op = (o.members as AstNode[]).find(
+            (x): x is Operation => isOperation(x) && x.name === verb,
+          );
+          if (op) return op.returnType ? this.resolveType(op.returnType, scope) : Ty.never;
+        }
+        if (verb === "create") return row;
         return Ty.array(row);
       }
       const proj = this.index.find("projection", m, of);

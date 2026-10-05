@@ -4,12 +4,12 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 186904,
+    "agree": 186897,
     "conflict": 3081,
     "declaration-name": 52834,
     "new-differs": 0,
     "new-only": 6829,
-    "new=ir": 1923,
+    "new=ir": 1930,
     "new=lang": 2945,
     "nobody-knows": 7530,
     "not-lowered-agree": 2245,
