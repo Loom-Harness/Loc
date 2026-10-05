@@ -307,7 +307,10 @@ export function lowerToDrizzle(
       const orientedFn = COMPARE_OP_TO_DRIZZLE[oriented.op];
       if (!orientedFn) return null;
       const colExpr = renderColumnRef(oriented.column);
-      const valueExpr = renderValue(oriented.value);
+      // Column vs column (`this.qty > this.cap`): Drizzle's comparison
+      // operators take a column in the value position as readily as a bound
+      // value, so the other side renders as its column reference.
+      const valueExpr = renderValue(oriented.value) ?? renderColumnRef(oriented.value);
       if (colExpr === null || valueExpr === null) return null;
       ops.add(orientedFn);
       return `${orientedFn}(${colExpr}, ${valueExpr})`;

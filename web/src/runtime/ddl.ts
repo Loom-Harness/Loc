@@ -47,6 +47,9 @@ interface DrizzleColumn {
   // `defaultNow()`/`sql\`…\``, or a literal).
   hasDefault?: boolean;
   default?: unknown;
+  // `PgArray` only: the ELEMENT column (`integer("codes").array()` carries an
+  // `integer` base column), whose own SQL type the array wraps.
+  baseColumn?: DrizzleColumn;
 }
 
 interface DrizzleIndex {
@@ -127,6 +130,18 @@ function columnSql(c: DrizzleColumn): string {
         throw new Error(`PgEnumColumn "${c.name}" missing enum reference`);
       }
       return `"${c.enum.enumName}"`;
+    case "PgArray":
+      // A scalar array field (`codes: int[]`) — the node emitter types it as a
+      // native Postgres array over the element column.  No BOOTED fixture has
+      // carried one yet, so the harness had never synthesised it: the first
+      // `test e2e` written over one (wave C3, `collection-op-shapes` — held in
+      // the E2E-less register on a node wire defect, block in
+      // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md`) died here with
+      // `unsupported drizzle column type "PgArray"` before its first request.
+      if (!c.baseColumn) {
+        throw new Error(`PgArray "${c.name}" missing its element column`);
+      }
+      return `${columnSql(c.baseColumn)}[]`;
     default:
       throw new Error(`DDL synth: unsupported drizzle column type "${c.columnType}" (column "${c.name}")`);
   }
