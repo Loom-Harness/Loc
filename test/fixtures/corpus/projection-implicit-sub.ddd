@@ -85,4 +85,26 @@ system ProjectionImplicitSub {
     serves: OrdersApi
     port: 4000
   }
+
+  test e2e "an uncarried event still folds the read model and drives the reactor" against d {
+    let ord = api.orders.create({ customerId: "c-1", status: "Draft" })
+    api.orders.place(ord)
+    let placed = api.orderBoard.byKey(ord)
+    expect(placed.status).toBe("Placed")
+    let started = api.fulfilment.instance(ord)
+    expect(started.shippedAt).toBe(null)
+    expect(api.fulfilment.instances().count()).toBe(1)
+    api.orders.ship(ord)
+    let shipped = api.orderBoard.byKey(ord)
+    expect(shipped.status).toBe("Shipped")
+    let reacted = api.fulfilment.instance(ord)
+    expect(reacted.shippedAt == null).toBe(false)
+    expect(api.orderBoard.list().count()).toBe(1)
+    api.orders.update(ord, { customerId: "c-2", status: "Draft" })
+    expect(api.orders.getById(ord).customerId).toBe("c-2")
+    expect(api.orderBoard.byKey(ord).status).toBe("Shipped")
+    expect(api.orders.all().total).toBe(1)
+    api.orders.destroy(ord)
+    expect(api.orders.getById(ord)).toThrow(404)
+  }
 }

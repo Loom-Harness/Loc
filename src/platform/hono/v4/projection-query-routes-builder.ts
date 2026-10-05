@@ -72,9 +72,8 @@ import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 //
 // One file per context — `http/projections.ts` — mounted under `/projections`
 // in `http/index.ts` (the folded projection
-// read model keeps its own by-key route elsewhere).  Only backends that have
-// ported this emit are permitted a query-time projection by the IR validator
-// (`loom.projection-query-time-unsupported`); node is the first.
+// read model keeps its own by-key route elsewhere).  Every backend emits the
+// query-time projection read; node was the first.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

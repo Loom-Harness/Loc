@@ -207,10 +207,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.projection-document-source-capability-filtered":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-groupby-unsupported-backend":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-whole-table-aggregation-unsupported":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
   "loom.tenancy-filter-bypass":
@@ -390,6 +386,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.async-effect-subject-unsupported":
     "15-ui-pages-structure.md#effect-markers-and-match-await",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
+  "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
+  "loom.member-unresolved": "05-expressions.md#member-access--calls",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",

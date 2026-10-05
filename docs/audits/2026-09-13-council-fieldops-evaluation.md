@@ -12,7 +12,7 @@ An architecture-council spike (a 452-line multi-tenant field-service model, `eva
 
 - **F-011** (scaffold across deployables): eval-closure item **#18**. [#3088](https://github.com/Loom-Harness/Loc/pull/3088) (Wave A8) adds the phase-⑦ refusal `loom.ui-aggregate-unserved` and fixes the false `docs/page-metamodel.md` promise and the `walker-core.ts` "DEAD" comment (G8-02).
 - **F-012 secondary** (python `for child` reused across two `contains` loops, `mypy --strict`): eval-closure item **#15a**, in flight as [#3098](https://github.com/Loom-Harness/Loc/pull/3098) (Wave B5).
-- **F-003** (an entity part as an `X id` target; the UI message says "not declared"): no owner → [M-T9.79](../new-plan/T9-toolchain-health.md) row R1.
+- **F-003** (an entity part as an `X id` target; the UI message says "not declared"): no owner → [M-T9.91](../new-plan/T9-toolchain-health.md) row R1.
 - **F-005** stays declined by design (`loom.find-where-not-queryable`); no mission.
 
 ### The 2026-09-28 re-verification

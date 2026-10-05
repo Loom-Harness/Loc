@@ -15,7 +15,7 @@ A stack-switching probe: one order-management model (`orderly/main.ddd` on the b
 - **F-3** (inferred column RENAME is silent): item **#1**, claimed by [#3073](https://github.com/Loom-Harness/Loc/pull/3073) (`loom.migration-rename-inferred`).
 - **F-4** (Flutter `design:` is a silent no-op): item **#33**, [#3071](https://github.com/Loom-Harness/Loc/pull/3071).
 - **F-6** (`ddd breakpoints` answers `:1`): item **#34**, diagnosed in [#3074](https://github.com/Loom-Harness/Loc/pull/3074).
-- **M-2** (Feliz on `sdk:8.0`): no owner → [M-T9.79](../new-plan/T9-toolchain-health.md) row R2.
+- **M-2** (Feliz on `sdk:8.0`): no owner → [M-T9.91](../new-plan/T9-toolchain-health.md) row R2.
 
 ### The 2026-09-28 re-verification
 

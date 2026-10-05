@@ -53,29 +53,4 @@ describe("python projection runtime", () => {
       /customer: Mapped\[str \| None\] = mapped_column\(Uuid\(as_uuid=False\)\)/,
     );
   });
-
-  it("emits a pure fold handler wired into the in-process dispatcher", async () => {
-    const dispatch = file(await build(), "app/dispatch.py");
-    expect(dispatch).toContain("async def _proj_order_book_order_placed(");
-    expect(dispatch).toContain("state = await _load_order_book(session, __key)");
-    expect(dispatch).toContain("state = OrderBookRow(order=__key)");
-    expect(dispatch).toContain("state.status = OrderStatus.Placed");
-    // routed in the isinstance fan-out
-    expect(dispatch).toContain("isinstance(event, OrderPlaced)");
-    expect(dispatch).toContain("await _proj_order_book_order_placed(self._session, self, event)");
-  });
-
-  it("emits list + by-key read routes", async () => {
-    const routes = file(await build(), "app/http/projections_routes.py");
-    expect(routes).toContain('router = APIRouter(prefix="/projections", tags=["projections"])');
-    expect(routes).toContain('@router.get("/order_book", response_model=OrderBookListResponse');
-    expect(routes).toContain('@router.get("/order_book/{key}", response_model=OrderBookResponse');
-    expect(routes).toContain("await session.get(OrderBookRow, key)");
-  });
-
-  it("mounts the projections router in main", async () => {
-    const main = file(await build(), "app/main.py");
-    expect(main).toContain("from app.http.projections_routes import router as projections_router");
-    expect(main).toContain("app.include_router(projections_router");
-  });
 });

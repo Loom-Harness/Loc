@@ -428,6 +428,115 @@
         "title": "Not Found",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 36,
+      "method": "POST",
+      "path": "/api/ledgers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/ledgers/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "LADDER-L1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 38,
+      "method": "GET",
+      "path": "/api/ledgers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Ledger {id} not found",
+        "instance": "/api/ledgers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 39,
+      "method": "GET",
+      "path": "/api/ledgers/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "LADDER-L1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 40,
+      "method": "POST",
+      "path": "/api/ledgers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/ledgers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/ledgers/{id}/update",
+      "status": 404,
+      "body": {
+        "detail": "Ledger {id} not found",
+        "instance": "/api/ledgers/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/ledgers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/ledgers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "DELETE",
+      "path": "/api/ledgers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Ledger {id} not found",
+        "instance": "/api/ledgers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 46,
+      "method": "DELETE",
+      "path": "/api/ledgers/{id}",
+      "status": 204,
+      "body": ""
     }
   ]
 }

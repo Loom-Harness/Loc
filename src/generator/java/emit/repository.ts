@@ -581,7 +581,7 @@ export function renderJavaSpringDataRepository(
  *  never bypassable, matching `capability-filter.ts`'s triage rule.  AND-ing
  *  the clause unconditionally would make `find … ignoring tenantOwned` silently
  *  keep returning only the caller's own tenant — the same `.ddd`, a different
- *  row set on Java, and `FILTER_BYPASS_FAMILIES` certifying otherwise.
+ *  row set on Java, while the validator certifies `ignoring` as honored.
  *  The aggregation path in `emit/query-projection-reads.ts` (`aggregationScope`)
  *  is the line-for-line template this mirrors. */
 function principalJpqlClause(
