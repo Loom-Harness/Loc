@@ -1566,14 +1566,14 @@ function stmtIsAwaited(s: StmtIR): boolean {
  *  `/<plural-snake>/{id}` detail-page route, with the truncated id
  *  rendered via the pack's `IdValue` helper as the link text.
  *
- *  Link-text choice — IdValue (truncated id) is the deliberate
- *  match to the scaffold's `cell-id-link.hbs` rendering.  Looking
- *  up the aggregate's `display`-marked field would require a per-
- *  row `useXById(id)` hook call from inside the IdLink primitive,
- *  which doesn't compose cleanly when IdLink appears inside a
- *  Table cell (one hook per row violates React's rules-of-hooks).
- *  Detail-page TITLES use the display field — that's where it
- *  belongs.
+ *  Link text — when the target aggregate ships a `display` and the id
+ *  is a reference (not the row's own `.id`), the target wraps the
+ *  pack's truncated id in a per-cell `LoomRefLabel` child that reads
+ *  the record's `display` (the `renderRefLabelWrap` seam).  A
+ *  `useXById(id)` straight in the page would be one hook per Table
+ *  row — a rules-of-hooks violation — but inside a child component
+ *  it is legal, and the query cache dedupes repeated ids.  The
+ *  truncated id stays as the loading / error / no-display fallback.
  *
  *  Aggregates are plumbed through to the walker; we use that to
  *  validate `of:` at emit time — an unresolvable aggregate

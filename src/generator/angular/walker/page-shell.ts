@@ -38,6 +38,7 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
 } from "../form-fields.js";
+import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
 import { angularTarget } from "./angular-target.js";
 import { angularSink } from "./sink.js";
@@ -1045,7 +1046,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     const sorted = [...names].sort();
     imports.push(`import { ${sorted.join(", ")} } from ${JSON.stringify(rewritten)};`);
     for (const n of sorted) {
-      if (n.endsWith("Module")) componentImports.add(n);
+      // `*Module` declarables, plus the `IdLink` reference-label child — a
+      // standalone component the walker imports the same way.
+      if (n.endsWith("Module") || n === ANGULAR_REF_LABEL_CLASS) componentImports.add(n);
     }
   }
 

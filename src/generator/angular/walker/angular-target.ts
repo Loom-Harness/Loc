@@ -45,8 +45,10 @@ import { renderAngularAction } from "../action.js";
 import { angularComponentSelector } from "../component-selector.js";
 import { renderAngularCreateForm } from "../create-form.js";
 import { renderAngularDestroyForm } from "../destroy-form.js";
+import { addNg } from "../form-fields.js";
 import { renderAngularModal } from "../modal.js";
 import { renderAngularOperationForm } from "../operation-form.js";
+import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { renderAngularWorkflowForm } from "../workflow-form.js";
 import { renderAngularDataGridChild } from "./data-grid-child.js";
 
@@ -219,6 +221,19 @@ export const angularTarget: WalkerTarget = {
    *  `angular/walker/data-grid-child.ts`. */
   renderDataGridChild(spec, ctx) {
     return renderAngularDataGridChild(spec, ctx);
+  },
+
+  /** `<loom-ref-label>` (`src/lib/ref-label.ts`) — the pack's `shortId`
+   *  interpolation is projected into it as the fallback.  Single-quoted
+   *  binding, like the packs' `[routerLink]`, so a double-quoted index in the
+   *  id expression survives.  The import rides the walk's import map and the
+   *  page shell registers the class in the standalone `imports: []`. */
+  renderRefLabelWrap(spec, ctx) {
+    addNg(ctx, "../../lib/ref-label", ANGULAR_REF_LABEL_CLASS);
+    return {
+      open: `<loom-ref-label path=${JSON.stringify(spec.apiPath)} [refId]='${spec.idExpr}'>`,
+      close: "</loom-ref-label>",
+    };
   },
 
   // --- API binding seam ---------------------------------------------------

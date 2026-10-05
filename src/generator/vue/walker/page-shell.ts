@@ -714,6 +714,13 @@ export function renderVuePage(input: VuePageShellInput): string {
   if (result.tsx.includes("<LoomChart")) {
     script.push(`import LoomChart from "${adjustDepth("../components/LoomChart.vue", input)}";`);
   }
+  // The `IdLink` reference-label child — same marker discipline, same reason
+  // (`vue/ref-label-runtime.ts`).
+  if (result.tsx.includes("<LoomRefLabel")) {
+    script.push(
+      `import LoomRefLabel from "${adjustDepth("../components/LoomRefLabel.vue", input)}";`,
+    );
+  }
   for (const line of storeWiring.imports) script.push(line);
   script.push("");
   if (needsRoute) {
@@ -1391,6 +1398,10 @@ export function renderVueComponentFile(
   }
   if (usesLoomForm) {
     script.push(`import { useLoomForm } from "../lib/form";`);
+  }
+  // A component is a sibling of the reference-label SFC in `src/components/`.
+  if (result.tsx.includes("<LoomRefLabel")) {
+    script.push(`import LoomRefLabel from "./LoomRefLabel.vue";`);
   }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);
