@@ -198,6 +198,8 @@ The collection-op path two hundred lines up does it correctly (`collElem && isLa
 
 This is the enabling change for the formatter work: a per-type formatter table cannot route `Text`'s child while every page-body field types as `string`. #2871's D4 is downstream of it.
 
+**F-041 is closed by an IR backstop (#3133), not by this mission.** Where the lambda's receiver IS typed in the IR (the `of:` form #3050 landed), `loom.member-unresolved` (`src/ir/validate/checks/member-resolution-checks.ts`) refuses an invented member the language layer couldn't see. `eval/repro/broken/b09-page-wrong-aggregate.ddd` (`o.totl`) is now refused and pinned in `ddd-source-census.test.ts`. A bare lambda still types its parameter `string`, so the backstop can't see into it; that part of this mission stands.
+
 **The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`. **The first half landed with #3050 for the `of:` forms the page DSL documents; the remainder this mission now covers is the second half** — the placeholder itself.
 
 **Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
