@@ -14,7 +14,7 @@
 
 import type { AstNode } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
-import { isCollectionOp } from "../../util/collection-ops.js";
+import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
 import {
@@ -220,6 +220,10 @@ export class Elaborator {
   readonly scopes = new WeakMap<AstNode, Scope>();
   /** Each assignment / call target's receiver chain (see `lvalueSteps`). */
   readonly lvalueChains = new WeakMap<AstNode, Ty[]>();
+  /** A CONTEXT-level `filter` / `stamp` is one AST that lands on every
+   *  aggregate of its context (`lowerContext` propagates it), so it has one
+   *  typing per host: each is elaborated again with that aggregate as `this`. */
+  readonly perHost = new WeakMap<AstNode, Map<Aggregate, Elaborator>>();
 
   constructor(readonly index: DeclIndex) {}
 
@@ -237,6 +241,20 @@ export class Elaborator {
     }
     const inner = this.enterNode(node, scope);
     this.scopes.set(node, inner);
+    if (
+      (node.$type === "FilterDecl" || node.$type === "StampDecl") &&
+      isBoundedContext(node.$container) &&
+      !scope.frame.owner
+    ) {
+      const hosts = new Map<Aggregate, Elaborator>();
+      for (const agg of node.$container.members) {
+        if (!isAggregate(agg)) continue;
+        const sub = new Elaborator(this.index);
+        sub.visit(node, inner.child({ owner: agg, candidateAlias: undefined }));
+        hosts.set(agg, sub);
+      }
+      this.perHost.set(node, hosts);
+    }
     // An assignment target (`x := …`, `this.a.b += …`) is not an expression,
     // but it has a type: the head binding, then one member step per segment.
     if (node.$type === "LValue") {
@@ -993,10 +1011,9 @@ export class Elaborator {
   private e2eApiCall(handle: string, verb: string, _scope: Scope, _node: AstNode): Ty | undefined {
     const target = this.index.byApiHandle(handle);
     if (!target) return undefined;
-    if (isProjection(target)) {
-      const row = Ty.record({ of: "projection", ref: target });
-      return verb === "list" || verb === "all" ? Ty.array(row) : row;
-    }
+    // A projection read rides its wire shape (an enum column is its string
+    // value), which is not the declared row — not modelled yet.
+    if (isProjection(target)) return Ty.unknown("no-rule");
     const row = Ty.record({ of: "aggregate", ref: target });
     if (verb === "create" || verb === "update" || verb === "getById") return row;
     if (verb === "destroy") return Ty.never;
@@ -1328,6 +1345,18 @@ export class Elaborator {
     // Scalar intrinsics and collection ops read through ONE optional level
     // (the validator owns whether the unguarded read is legal).
     const bare = recv.kind === "optional" ? recv.inner : recv;
+    // A collection op over a receiver the pass could not type still has the
+    // result SHAPE its signature fixes — `xs.map(…)` is a list, `xs.count` an
+    // int — whatever `xs` is; the element stays unknown, with its cause.
+    if (bare.kind === "unknown" && isCollectionOp(name)) {
+      if (ms.call) this.synthArgs(ms.args, scope);
+      const sig = collectionOpSignature(name);
+      if (sig.endsWith("[]")) return Ty.array(bare);
+      if (sig === "int") return Ty.prim("int");
+      if (sig.endsWith("bool")) return Ty.prim("bool");
+      if (sig.endsWith("string")) return Ty.prim("string");
+      return bare;
+    }
     if (bare.kind === "array") {
       if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return withTags(Ty.prim("int"), tags);
       return this.collectionOp(bare.element, ms, scope);

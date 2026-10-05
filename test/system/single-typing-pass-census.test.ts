@@ -43,7 +43,9 @@ const ALLOWED: Record<string, string> = {
     "the head's `typeOf` or the previous suffix's `suffixType` — both the pass's",
   "src/language/validators/statements.ts:lvalueType":
     "`typingFor(lv).lvalueStepsAt(lv)`; reports the unresolved segment the pass left `unknown`",
-  "src/ir/lower/lower-expr.ts:passType": "`typingFor(node).synthAt(node)` through `irType`",
+  "src/ir/lower/lower-expr.ts:passSynth":
+    "`typingFor(node).synthAt(node)` — or `synthAtFor(node, host)` in a context-level filter / stamp",
+  "src/ir/lower/lower-expr.ts:passType": "`passSynth` through `irType`",
   "src/ir/lower/lower-expr.ts:passTargetSteps":
     "`typingFor(lv).lvalueStepsAt(lv)` through `irType`",
   "src/ir/lower/lower-expr.ts:inferExprType":
@@ -58,6 +60,7 @@ const MUST_READ_THE_PASS = [
   "src/language/type-system.ts:typeOfExpr",
   "src/language/type-system.ts:suffixType",
   "src/language/validators/statements.ts:lvalueType",
+  "src/ir/lower/lower-expr.ts:passSynth",
   "src/ir/lower/lower-expr.ts:passType",
   "src/ir/lower/lower-expr.ts:passTargetSteps",
   "src/ir/lower/lower-expr.ts:inferExprType",
@@ -88,10 +91,13 @@ function scan(): Map<string, string> {
   return found;
 }
 
+/** A function's BODY — after its signature, so the function's own name in
+ *  its declaration cannot satisfy a "calls X" check. */
 function bodyOf(src: string, name: string): string {
   const start = src.search(new RegExp(`^(?:export )?function ${name}\\(`, "m"));
+  const open = src.indexOf("{\n", start);
   const end = src.indexOf("\n}\n", start);
-  return src.slice(start, end);
+  return src.slice(open, end);
 }
 
 describe("M-T5.44 — one typing pass: no second type-inference path", () => {
@@ -123,8 +129,8 @@ describe("M-T5.44 — one typing pass: no second type-inference path", () => {
       const [, name] = key.split(":") as [string, string];
       const src = found.get(key);
       expect(src, `${key} is gone`).toBeDefined();
-      expect(bodyOf(src!, name), `${key} must read the pass (typingFor / passType)`).toMatch(
-        /typingFor\(/,
+      expect(bodyOf(src!, name), `${key} must read the pass (typingFor / passSynth)`).toMatch(
+        /typingFor\(|passSynth\(/,
       );
     }
   });

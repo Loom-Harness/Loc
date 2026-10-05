@@ -5,7 +5,7 @@
 // docs/new-plan/missions/M-T5.44-single-typing-pass-design.md.
 
 import type { AstNode } from "langium";
-import type { BinaryChain, Model, TypeRef } from "../generated/ast.js";
+import type { Aggregate, BinaryChain, Model, TypeRef } from "../generated/ast.js";
 import { DeclIndex } from "./decl-index.js";
 import { Elaborator, type Fold, type Scope } from "./elaborate.js";
 import type { Ty } from "./ty.js";
@@ -35,6 +35,9 @@ export interface TypingSession {
   /** An assignment / call target's receiver chain: `this`'s type, then the
    *  type after each data segment. */
   lvalueStepsAt(lv: AstNode): readonly Ty[] | undefined;
+  /** `synthAt` for a node inside a CONTEXT-level `filter` / `stamp`, typed
+   *  against the aggregate `host` it lands on; undefined elsewhere. */
+  synthAtFor(node: AstNode, host: Aggregate): Ty | undefined;
 }
 
 export function typingSession(models: readonly Model[]): TypingSession {
@@ -49,6 +52,13 @@ export function typingSession(models: readonly Model[]): TypingSession {
     resolveType: (t) => elab.resolveType(t, undefined),
     scopeAt: (node) => elab.scopes.get(node),
     lvalueStepsAt: (lv) => elab.lvalueChains.get(lv),
+    synthAtFor: (node, host) => {
+      for (let n: AstNode | undefined = node; n; n = n.$container) {
+        const hosts = elab.perHost.get(n);
+        if (hosts) return hosts.get(host)?.types.get(node);
+      }
+      return undefined;
+    },
     bindingAt: (node, name) => {
       for (let n: AstNode | undefined = node; n; n = n.$container) {
         const scope = elab.scopes.get(n);

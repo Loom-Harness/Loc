@@ -423,7 +423,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // money-typed target lowers as money — `subtotal := 0.50`
       // becomes `lit("money", "0.50")` so the backend emits the
       // precise constructor.
-      const targetType = passType(lv);
+      const targetType = passType(lv, env);
       const value = lowerExprInContext(stmt.value, targetType, env);
       return {
         stmt: { kind: "assign", target: path, value, targetType, prov },
@@ -431,7 +431,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       };
     }
     if (stmt.op === "+=" || stmt.op === "-=") {
-      const targetType = passType(lv);
+      const targetType = passType(lv, env);
       const collection = targetType.kind === "array";
       const elementType = collection ? targetType.element : targetType;
       // Element-type context applies for both array push (`+=`) and

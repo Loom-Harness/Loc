@@ -301,9 +301,17 @@ const STRING_T: TypeIR = { kind: "primitive", name: "string" };
  *  into the IR.  Lowering infers nothing itself (M-T5.44); the pass's
  *  `unknown` and a node it never reached both carry the `string` placeholder,
  *  which the single-typing-pass census pins shrink-only. */
-export function passType(node: AstNode): TypeIR {
-  const t = typingFor(node).synthAt(node);
+export function passType(node: AstNode, env?: Env): TypeIR {
+  const t = passSynth(node, env);
   return t ? irType(t) : STRING_T;
+}
+
+/** The pass's type for `node` — typed against the aggregate being lowered
+ *  when `node` sits in a CONTEXT-level `filter` / `stamp` (one AST, one typing
+ *  per aggregate it lands on). */
+function passSynth(node: AstNode, env: Env | undefined): Ty | undefined {
+  const typing = typingFor(node);
+  return (env?.aggregate && typing.synthAtFor(node, env.aggregate)) || typing.synthAt(node);
 }
 
 /** An assignment / call target's receiver chain as the pass typed it:
@@ -1015,7 +1023,7 @@ function applySuffixToRecv(
       ...(ms.throwKind && isThrowKind(ms.throwKind) ? { throwKind: ms.throwKind } : {}),
       ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
     };
-    return { recv: mcIR, recvType: passType(suffix) };
+    return { recv: mcIR, recvType: passType(suffix, env) };
   }
   // Qualified enum value `EnumName.Value` — when the receiver is an
   // unresolved bare name matching a declared enum and the member names one of
@@ -1081,14 +1089,14 @@ function applySuffixToRecv(
     };
     return {
       recv: mcIR,
-      recvType: passType(suffix),
+      recvType: passType(suffix, env),
     };
   }
   // Non-call MemberSuffix — preserve `stepInto` semantics on the IR
   // node's `memberType` (matches the legacy MemberAccess lowering),
   // but track the next type using `memberType` so chained access
   // through array.count etc. continues to type correctly.
-  const stepType = passType(suffix);
+  const stepType = passType(suffix, env);
   const memberIR: ExprIR = {
     kind: "member",
     receiver: recv,
@@ -1131,7 +1139,7 @@ export function isErrorVariantTag(tag: string, env: Env): boolean {
 function lowerLambda(expr: Lambda, env: Env, paramType: TypeIR): ExprIR {
   // The parameter's type is the one the pass bound (cutover family 3d); the
   // caller's contextual type answers only where the pass has none.
-  const self = passType(expr);
+  const self = passType(expr, env);
   const param = self.kind === "action" && self.arg ? self.arg : paramType;
   const inner = withLocal(env, expr.param, "lambda", param);
   // Lambdas can carry either a single expression body
@@ -2342,7 +2350,7 @@ function resolveCallKind(
 
 export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   if (!expr) return STRING_T;
-  const t = typingFor(expr).synthAt(expr);
+  const t = passSynth(expr, env);
   // A ui element keeps the IR's representation (design §D7): the
   // `entity{<primitive>}` marker a builder always carried, and a `match` the
   // type of its first arm.

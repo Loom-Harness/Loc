@@ -1016,7 +1016,7 @@ function lowerWorkflowStatementInner(
       env.workflow?.members.some((m) => isProperty(m) && m.name === lv.head)
     ) {
       const path: PathIR = { segments: [lv.head] };
-      const targetType = passType(lv);
+      const targetType = passType(lv, env);
       const compound = stmt.op === "+=" || stmt.op === "-=";
       // Collection own-state `+=`/`-=` is out of scope — fall through to
       // `__bad__` (a saga-state list append isn't a recognised form yet).
