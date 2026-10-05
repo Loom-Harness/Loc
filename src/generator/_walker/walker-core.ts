@@ -1009,6 +1009,27 @@ export interface OperationFormState extends FormStateBase {
    *  `<Agg>Response`) — the `record` prop annotation.  Present iff
    *  `recordVar` is. */
   recordType?: string;
+  /** Present iff the operation carries a `when` state gate — the trigger
+   *  queries the backend's `GET /{id}/can_<op>` companion and is disabled
+   *  while it answers `allowed: false`.  Absent ⇒ no probe query, output
+   *  byte-identical to an ungated op. */
+  gate?: OpGateState;
+}
+
+/** The `can_<op>` probe wiring of a `when`-gated operation trigger. */
+export interface OpGateState {
+  /** Page-scope local bound to the probe query (`canComplete`). */
+  local: string;
+  /** The api-client hook/function that issues the probe
+   *  (`useCanCompleteTask`), keyed under the record's own query key so every
+   *  mutation that invalidates the record re-queries it. */
+  hook: string;
+  /** Target-native boolean expression — true while the trigger is disabled
+   *  (`canComplete.data?.allowed === false`). */
+  disabledExpr: string;
+  /** Target-native string expression for the disabled trigger's accessible
+   *  reason (`chrome.opNotAllowed`, translated when the UI is). */
+  reasonExpr: string;
 }
 
 /** Rewrite a detected user-FIND hook's rendered args from positional to

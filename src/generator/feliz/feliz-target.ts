@@ -13,9 +13,10 @@ import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
-import { emitExpr, walk } from "../_walker/walker-core.js";
+import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
 import {
@@ -34,6 +35,7 @@ import { fsIdent, isFsKeyword } from "./fs-ident.js";
 import { fsZeroValue } from "./type-fs.js";
 import {
   byIdFieldName,
+  canProbeFieldName,
   type FelizFieldArray,
   type FelizFormField,
   type FelizRowField,
@@ -384,6 +386,8 @@ export const felizTarget: WalkerTarget = {
   // (`| Loaded <binding> -> …`), so a read handle's data dereferences to that
   // binding directly (no `.data` — the arm already unwrapped the `Remote`).
   renderQueryDataAccess: (handle) => lowerFirst(handle),
+  // The probe is a page-entry `Remote<bool>` Model field (`collectPageGateProbes`).
+  renderOpGateDisabled: (field) => `(model.${field} = Loaded false)`,
   // The Elmish decoder SPLITS the paged envelope: the rows land in the read's
   // `Remote<'T list>` Model field and the page METADATA in a sibling `PageMeta`
   // record (see `FelizReadPaging`).  So the scaffold's `rows.items` is the
@@ -605,7 +609,11 @@ export const felizTarget: WalkerTarget = {
     }
     const action = felizAction(agg.name, op);
     ctx.usesRouteId = true; // the action dispatches with the route `id`
-    const button = `Html.button [ prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch (${action.triggerMsg} id)); prop.text "${action.label}" ]`;
+    const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
+    const gateProps = gate
+      ? `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
+      : "";
+    const button = `Html.button [ prop.className "btn btn-primary"; ${gateProps}prop.onClick (fun _ -> dispatch (${action.triggerMsg} id)); prop.text "${action.label}" ]`;
     if (ctx.authUi) {
       const gate = opActionGate(op);
       if (gate) {
@@ -707,7 +715,15 @@ export const felizTarget: WalkerTarget = {
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text "${upperFirst(form.op)} ${upperFirst(form.aggregate)}" ]`;
+    // A `when`-gated op also disables on its `can_<op>` probe (a page-entry read
+    // collected by `collectPageGateProbes`), with the reason as the title.
+    const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
+    const gated = gate
+      ? form.fields.length > 0
+        ? `prop.disabled (${gate.disabledExpr} || not (Validation.${form.validFn} model.${form.formField})); prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
+        : `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
+      : disabled;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${gated}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text "${upperFirst(form.op)} ${upperFirst(form.aggregate)}" ]`;
     return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
   },
 
@@ -765,6 +781,14 @@ export const felizTarget: WalkerTarget = {
     if (!formChild) return null;
     const form = felizTarget.renderOperationForm?.(formChild, ctx, 0);
     if (!form) return null;
+    // A `when`-gated op: a `<summary>` cannot be `disabled`, so while the
+    // `can_<op>` probe answers false the click is swallowed (the disclosure
+    // never opens) and the summary carries `aria-disabled` + the reason.  The
+    // inner submit is disabled too (`renderOperationForm`).
+    const gate = modalOpGate(formChild, ctx);
+    const summaryGate = gate
+      ? `prop.ariaDisabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); prop.onClick (fun e -> if ${gate.disabledExpr} then e.preventDefault()); `
+      : "";
     // The trigger label is the `button` user-visible slot — already extracted
     // into the catalog as `page.<Page>.button.<hash>`, and read RAW here, so the
     // key was dead and the summary shipped in English at every locale (A13).
@@ -796,7 +820,7 @@ export const felizTarget: WalkerTarget = {
     // the enclosing Group's children list; paren-wrapped against sibling absorption.
     // A native <details> styled as a daisyUI `collapse` disclosure — the summary
     // is the trigger, the operation form the revealed `collapse-content`.
-    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${form} ] ] ] ])`;
+    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${form} ] ] ] ])`;
   },
 
   defaultInitFor: (type) => fsZeroValue(type),
@@ -1227,3 +1251,27 @@ export const felizTarget: WalkerTarget = {
 };
 
 export { fsString };
+
+/** The `can_<op>` gate of a `Modal`'s `OperationForm` child — resolved through
+ *  the same two shapes `renderOperationForm` accepts — or undefined when the op
+ *  is ungated / unresolvable. */
+function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
+  const names = formChild.argNames ?? [];
+  const ofArg = names.indexOf("of") >= 0 ? formChild.args[names.indexOf("of")] : undefined;
+  const opArg = names.indexOf("op") >= 0 ? formChild.args[names.indexOf("op")] : undefined;
+  let aggName: string | undefined;
+  let opName: string | undefined;
+  if (ofArg?.kind === "ref" && opArg?.kind === "ref") {
+    aggName = ofArg.name;
+    opName = opArg.name;
+  } else {
+    const inst = formChild.args.find((_, i) => !names[i]);
+    if (inst?.kind === "member" && inst.receiver.kind === "ref") {
+      aggName = ctx.paramTypes?.get(inst.receiver.name);
+      opName = inst.member;
+    }
+  }
+  const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+  const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
+  return agg && op ? opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name)) : undefined;
+}

@@ -367,6 +367,8 @@ export const angularTarget: WalkerTarget = {
 
   /** Fork `Modal { OperationForm(…), trigger: … }` to a signal-toggled inline
    *  Reactive Form (the operation-dialog form). */
+  // The probe query is a TanStack `injectQuery` handle: `data` is a signal.
+  renderOpGateDisabled: (local: string) => `${local}.data()?.allowed === false`,
   renderModal(call: ExprIR, ctx: WalkContext, depth: number): string | null {
     return call.kind === "call" ? renderAngularModal(call, ctx, depth) : null;
   },
