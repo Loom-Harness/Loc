@@ -1028,8 +1028,9 @@ function applySuffixToRecv(
     // Result type after a method call — `memberType` handles collection
     // ops, entity/VO members, and the string `.length` case; the λ-body
     // refinement `memberType` structurally cannot see is applied on top.
-    let nextType = passType(suffix, env, () => memberType(recvType, ms.member, env));
-    if (collectionOp) {
+    const passed = passTypeOrUndefined(suffix, env);
+    let nextType = passed ?? memberType(recvType, ms.member, env);
+    if (collectionOp && !passed) {
       const lam = args[0];
       const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
       nextType = refineCollectionOpType(ms.member, recvType, bodyT, nextType);
@@ -1148,7 +1149,11 @@ export function isErrorVariantTag(tag: string, env: Env): boolean {
  *  member accesses and binaries inside the body get the right
  *  receiver/member/left types — backends never re-resolve. */
 function lowerLambda(expr: Lambda, env: Env, paramType: TypeIR): ExprIR {
-  const inner = withLocal(env, expr.param, "lambda", paramType);
+  // The parameter's type is the one the pass bound (cutover family 3d); the
+  // caller's contextual type answers only where the pass has none.
+  const self = passTypeOrUndefined(expr, env);
+  const param = self?.kind === "action" && self.arg ? self.arg : paramType;
+  const inner = withLocal(env, expr.param, "lambda", param);
   // Lambdas can carry either a single expression body
   // (`x => expr`, the only v22 form) OR a brace-block of statements
   // (`x => { stmt; stmt; … }`, new for page event handlers).  The
@@ -2713,7 +2718,8 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     // this as malformed.
     return { kind: "primitive", name: "string" };
   }
-  if (isLambda(expr)) return { kind: "primitive", name: "string" };
+  // A lambda's type is the `action(param)` the context bound (cutover 3d).
+  if (isLambda(expr)) return passType(expr, env, () => ({ kind: "primitive", name: "string" }));
   if (isBuilderCall(expr)) {
     return inferBuilderCallType(expr, env);
   }

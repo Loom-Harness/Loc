@@ -645,14 +645,12 @@ function typeOfExpr(expr: Expression | undefined, _env: Env): DddType {
     isListLit(expr) ||
     isMatchExpr(expr) ||
     isAwaitExpr(expr) ||
-    isObjectLit(expr)
+    isObjectLit(expr) ||
+    // Cutover family 3d — lambdas (typed by the context that binds them).
+    isLambda(expr)
   ) {
     const t = typingFor(expr).synthAt(expr);
     return t ? toDddType(t) : T.unknown;
-  }
-  if (isLambda(expr)) {
-    // Lambda type is contextual; without a target type it's unknown.
-    return T.unknown;
   }
   return T.unknown;
 }

@@ -4,16 +4,16 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 187027,
+    "agree": 193152,
     "conflict": 0,
     "declaration-name": 52834,
     "new-differs": 0,
-    "new-only": 6829,
-    "new=ir": 1800,
+    "new-only": 0,
+    "new=ir": 2504,
     "new=lang": 6026,
     "nobody-knows": 7530,
-    "not-lowered-agree": 2258,
-    "not-lowered-differ": 259,
+    "not-lowered-agree": 2445,
+    "not-lowered-differ": 72,
     "unreached": 0
   }
 }
