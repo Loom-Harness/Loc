@@ -1529,7 +1529,7 @@ export function generateTypeScriptForContexts(
     ),
   );
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
-  out.set("Dockerfile", DOCKERFILE_TS);
+  out.set("Dockerfile", renderDockerfileTs(hasMigrations));
   out.set(".dockerignore", DOCKERIGNORE_TS);
   out.set("certs/.gitkeep", "");
   // Pooled domain-side repository PORTS (audit S7) — the `<Agg>RepositoryPort`
@@ -2088,7 +2088,27 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 // Multi-stage Dockerfile: build stage installs all deps and compiles
 // TypeScript; runtime stage uses a smaller production-only image.
-export const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
+/** The runtime stage's copy of the drizzle migration folder.  Present iff the
+ *  project emits `db/migrations` — the same `hasMigrations` predicate that
+ *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
+ *  (schema via `orm.schema.updateSchema()`) and a node deployable that owns no
+ *  module's migrations emit none, and an unconditional `COPY` of a missing
+ *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
+const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
+# from disk; without these the process crashes on boot with
+# "Can't find meta/_journal.json file".
+COPY --from=build /app/db/migrations ./db/migrations
+`;
+
+/** The generated Dockerfile; `copyMigrations` mirrors `hasMigrations`. */
+function renderDockerfileTs(copyMigrations: boolean): string {
+  return DOCKERFILE_TS_TEMPLATE.replace(
+    "__MIGRATIONS_COPY__",
+    copyMigrations ? MIGRATIONS_COPY : "",
+  );
+}
+
+const DOCKERFILE_TS_TEMPLATE = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM node:24-alpine AS build
@@ -2113,11 +2133,7 @@ ENV NODE_ENV=production PORT=3000
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
-# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
-# from disk; without these the process crashes on boot with
-# "Can't find meta/_journal.json file".
-COPY --from=build /app/db/migrations ./db/migrations
-EXPOSE 3000
+__MIGRATIONS_COPY__EXPOSE 3000
 # --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
 # without it every stack-trace frame names dist/index.js and \`ddd trace\`
 # resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
@@ -2126,6 +2142,9 @@ EXPOSE 3000
 # against.  The flag costs a one-off map parse on first throw.
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 `;
+
+/** The drizzle (migrations-shipping) Dockerfile — the common case. */
+export const DOCKERFILE_TS = renderDockerfileTs(true);
 
 const DOCKERIGNORE_TS = `# Auto-generated.
 node_modules

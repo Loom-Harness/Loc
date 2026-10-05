@@ -119,6 +119,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
+  "loom.unknown-primitive-member": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.emit-field-type": "06-behavior-and-statements.md#let--emit",

@@ -187,10 +187,14 @@ docker `conformance-full` leg (`LOOM_E2E=1`). Everything per-PR is
 it *behaves*. This tier promotes the behavioral layer (for the Hono/TS
 backend + pure domain) to a **fast, per-PR, docker-free gate**.
 
-It reuses the **playground's own** runners (`web/src/testing/*`,
-`web/src/runtime/ddl.ts`) and the same `createHarness()` the in-browser
-*Tests* tab uses — so the node tier and the browser tier share one
-execution path. The cross-backend (.NET/Java/Phoenix/Python) and
+It reuses the **playground's own** test runners (`web/src/testing/*`) and
+the same `createHarness()` the in-browser *Tests* tab uses — so the node
+tier and the browser tier share one execution path. The **database** is
+the exception, deliberately: the harness applies the deployable's EMITTED
+migrations (`db/migrations/*.sql`, via `emitted-schema.mjs`) — what the
+shipped `index.ts` runs at boot — never the playground's `synthDDL`, which
+derives DDL from the drizzle schema object and dropped every FK, unique
+and CHECK (#2773, #2988). `harness-schema-source.test.ts` pins this. The cross-backend (.NET/Java/Phoenix/Python) and
 cross-pack UI behavioral coverage stays in the docker/nightly legs; this
 tier is *additive*.
 
@@ -364,8 +368,9 @@ probe fails the gate.
 
 Per case: `generate system` → locate the one node deployable → esbuild
 bundles a tiny boot entry (its `createApp` + `schema` + drizzle/pglite +
-the repo's `synthDDL`/runners) → PGlite → `exec(synthDDL)` →
-`drizzle(pglite,{schema})` → **`runSeeds(db)`** (only when the system
+the repo's runners) → PGlite → `drizzle(pglite,{schema})` → apply the
+emitted `db/migrations` (drizzle's own `readMigrationFiles`, each chunk via
+`exec`) → **`runSeeds(db)`** (only when the system
 emitted `db/seed.ts`) → `createApp(db)` → run the emitted suites
 against `app.fetch`. All third-party deps stay external (resolved from
 this dir's `node_modules`), so there is one drizzle instance and PGlite's
