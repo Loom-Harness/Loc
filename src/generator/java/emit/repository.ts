@@ -319,6 +319,16 @@ const REPO_IMPL_FIND_NAMES: ReadonlySet<string> = new Set([
   "__session",
 ]);
 
+/** Names a JPA retrieval's `run<Name>` overloads spell themselves: the paged
+ *  overload's `offset` / `limit` params plus everything a find delegate spells
+ *  (`REPO_IMPL_FIND_NAMES` — the `jpa` / accessor fields, the bypass
+ *  session).  A retrieval param landing here moves to `<name>_`. */
+const RETRIEVAL_IMPL_NAMES: ReadonlySet<string> = new Set([
+  ...REPO_IMPL_FIND_NAMES,
+  "offset",
+  "limit",
+]);
+
 /** Finds keep their DSL name; a find returning `T[]` → `List<T>`,
  *  a single `T` → `T` (nullable); `T paged` → `Paged<T>` with trailing
  *  `int page, int pageSize` parameters (1-based, cross-backend).
@@ -374,10 +384,16 @@ export function renderJavaRepositoryInterface(
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
   // (either may be null — partial pages are legal in the DSL).
   const retrievalLines = (ctx.retrievals ?? []).flatMap((r) => {
+    // Same spelling as the impl's overrides (`RETRIEVAL_IMPL_NAMES`): a param
+    // named `offset` / `limit` would redeclare the paged overload's own.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -723,14 +739,22 @@ export function renderJavaRepositoryImpl(
   };
   const retrievalDelegates = retrievals.flatMap((r) => {
     const retrievalBypass = ctx.bypassByRetrieval?.get(r.name);
+    // The paged overload declares its own `offset` / `limit` beside the
+    // retrieval's params, and the body spells the `jpa` / accessor fields — a
+    // param named like one moves to `<name>_` (`javaLocals`).  The JPA
+    // `@Param` key / JPQL `:name` binding keep the declared spelling.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
-    const bareArgs = r.params.map((p) => jid(p.name)).join(", ");
+    const bareArgs = r.params.map((p) => localOf(locals, p.name)).join(", ");
     if (ctx.isReified?.(r) && r.criterionRef) {
       // A reified `criterion` retrieval reads via
       // JpaSpecificationExecutor.findAll(spec); the scoped findAll/findById
@@ -740,7 +764,7 @@ export function renderJavaRepositoryImpl(
       imports.add("org.springframework.data.domain.Sort");
       const args = r.criterionRef.args.map((a) => {
         collectJavaExprImports(a, imports);
-        return renderJavaExpr(a);
+        return renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) });
       });
       const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
       return [

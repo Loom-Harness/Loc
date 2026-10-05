@@ -162,6 +162,12 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  local of the enclosing host method (Java — a lambda parameter cannot
    *  shadow a local); every other target ignores it. */
   lambda(param: string, body: string | undefined, ctx: Ctx): string;
+  /** Optional: the context a lambda's BODY renders under, given the lambda's
+   *  `param` and the enclosing context.  Lets a backend thread the binder
+   *  into its scope so a NESTED lambda reusing the name can rename (Java — a
+   *  lambda parameter cannot shadow an enclosing lambda's).  Absent → the body
+   *  renders under the enclosing `ctx` unchanged. */
+  lambdaBodyCtx?(param: string, ctx: Ctx): Ctx;
   newPart(fields: RenderedField[], e: NewExpr, ctx: Ctx): string;
   object(fields: RenderedField[]): string;
   unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
@@ -244,8 +250,11 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       return t.methodCall(r(e.receiver), e.args.map(r), e, ctx);
     case "call":
       return t.call(e.args.map(r), e, ctx);
-    case "lambda":
-      return t.lambda(e.param, e.body ? r(e.body) : undefined, ctx);
+    case "lambda": {
+      const bodyCtx = t.lambdaBodyCtx?.(e.param, ctx) ?? ctx;
+      const body = e.body ? renderExprWith(e.body, t, bodyCtx) : undefined;
+      return t.lambda(e.param, body, ctx);
+    }
     case "new":
       return t.newPart(
         e.fields.map((f) => ({ name: f.name, value: r(f.value) })),
@@ -715,7 +724,8 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       );
     }
     case "lambda": {
-      const body = e.body ? rm(e.body) : undefined;
+      const bodyCtx = t.lambdaBodyCtx?.(e.param, ctx) ?? ctx;
+      const body = e.body ? renderExprWithMarks(e.body, t, bodyCtx) : undefined;
       return compose(t.lambda(e.param, body?.text, ctx), body ? [body] : []);
     }
     case "new": {

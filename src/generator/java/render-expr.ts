@@ -79,6 +79,12 @@ export interface JavaRenderContext {
    *  parameter lands here renders under `<name>_` (`lambdaLocal`), and its
    *  body's lambda-bound refs follow.  Unset → no rename (byte-identical). */
   lambdaScope?: ReadonlySet<string>;
+  /** Loom lambda param name → the Java binder its innermost enclosing lambda
+   *  declared (`lambdaBodyCtx`).  A `refKind: "lambda"` ref resolves here
+   *  first, so a nested lambda renamed off an enclosing lambda's binder
+   *  (`x -> … x_ -> x_ …`) and the outer body's own refs each name their
+   *  own binder.  Unset outside a lambda body. */
+  lambdaBinders?: ReadonlyMap<string, string>;
   /** Aggregate whose bodies we're lowering — used by `new <Part>` to
    *  order the part's constructor arguments by declared field order. */
   agg?: EnrichedAggregateIR;
@@ -375,6 +381,18 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     // `Pricing.quote(cart, customer)` — generated static utility class.
     return `${upperFirst(serviceRef.service)}.${jid(lowerFirst(serviceRef.op))}(${args.join(", ")})`;
   },
+  lambdaBodyCtx(param, ctx) {
+    // The body sees this binder: a nested lambda reusing a name already bound
+    // (by this lambda or any enclosing one) renames off it — Java forbids a
+    // lambda param shadowing an enclosing lambda's ("variable x is already
+    // defined").  Loom resolves a lambda ref to the INNERMOST binder.
+    const binder = lambdaLocal(param, ctx);
+    return {
+      ...ctx,
+      lambdaScope: new Set([...(ctx.lambdaScope ?? []), binder]),
+      lambdaBinders: new Map([...(ctx.lambdaBinders ?? []), [param, binder]]),
+    };
+  },
   lambda(param, body, ctx) {
     const p = lambdaLocal(param, ctx);
     if (body !== undefined) return `${p} -> ${body}`;
@@ -484,7 +502,7 @@ function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
       // collision-renamed local the binding site declared (`letExpr`).
       return ctx.letExpr?.(e.name) ?? escapeJavaIdent(e.name);
     case "lambda":
-      return lambdaLocal(e.name, ctx);
+      return ctx.lambdaBinders?.get(e.name) ?? lambdaLocal(e.name, ctx);
     case "param":
       return ctx.paramExpr?.(e.name) ?? jid(e.name);
     case "this-prop":
