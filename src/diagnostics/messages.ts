@@ -443,6 +443,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
   "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
     `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
+  // Same code, different reason.  The bare entry above is the no-UI-mount case;
+  // Flutter DOES mount a UI, so that wording would be false for it — but the
+  // outcome is the same one the user needs to hear (the value is dropped), so
+  // it stays one code and splits only the message.
+  "loom.design-pack-ignored#flutter": (p: { design: unknown; name: unknown }) =>
+    `Design '${p.design}' on Flutter deployable '${p.name}' has no effect. ` +
+    `Flutter has no design-pack menu — it renders Material 3 widgets ` +
+    `procedurally, so 'design:' is dropped at lowering and the generated ` +
+    `project is identical without it. Remove the 'design:' line.`,
   // The theme must be QUOTED.  `DesignPack` is a closed keyword set of pack
   // families plus `STRING`, so a bare `design: light` is a PARSE error — this
   // message used to list the themes bare, which meant pasting its own
@@ -1935,6 +1944,20 @@ export const DIAGNOSTIC_MESSAGES = {
    *  when it is NOT, so nothing will ever run the author's declared value. */
   "loom.migration-backfill-discarded": (p: { module: unknown; columns: unknown }) =>
     `migration for module "${p.module}" declares backfill(s) for column(s) that this migration ADDS, but nothing consumed them — the declared value would never run:\n${p.columns}\nThis is an internal inconsistency in the derived migration, not a mistake in the model. Report it: the migration was NOT written.`,
+
+  /** The rename heuristic GUESSED (docs/migrations.md § Rename detection): one
+   *  dropped column plus one added column, same type and nullability, with no
+   *  backfill and no default, collapsed into a single `renameColumn`.  The
+   *  inference is deliberate and load-bearing — a real rename would otherwise
+   *  lose its data — but it is structurally unable to tell a rename from two
+   *  unrelated columns, since both produce a byte-identical diff.  So it
+   *  ANNOUNCES itself: a warning (never an error — an error would break every
+   *  model relying on the collapse) so the one case it gets wrong is a line on
+   *  stderr instead of a silently misattributed column. */
+  "loom.migration-rename-inferred": (p: { module: unknown; from: unknown; to: unknown }) =>
+    `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
+    `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
+    `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -3567,6 +3590,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unbound": (p: {
+    primitive: unknown;
+    spelling: unknown;
+    known: unknown;
+  }) =>
+    `\`${p.primitive} { of: ${p.spelling} }\` reads a name that binds to NOTHING — not an ` +
+    `aggregate, not a query-time projection, not a workflow's instance list, and not a local ` +
+    `in scope on this page.  ${p.known}  Left to codegen this fails SILENTLY: the page ` +
+    `emitter writes the name into a comment and \`undefined\` into the page itself, and ` +
+    `\`ddd generate system\` still reports success.  Downstream that is a frontend build ` +
+    `error (\`TS18050\`) on a typed client, a \`TypeError\` at runtime on Feliz/Flutter, or — ` +
+    `where inference is weaker — a region that renders blank forever with nothing, anywhere, ` +
+    `reporting a problem.  Check the spelling, or bind the read through an ` +
+    `\`api <Handle>: <Api>\` param on the ui.`,
   "loom.scaffold-filter-param-unsupported": (p: {
     where: unknown;
     find: unknown;

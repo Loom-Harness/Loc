@@ -223,11 +223,11 @@ export function persistPutBodies(
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
   const assignedFields: string[] = [];
   // The op's OWN writes, plus the writes of every private operation its body
-  // calls (transitively).  A bare `recompute()` now really runs
+  // calls (transitively).  A bare `recompute()` really runs
   // (`renderReturningStmt`'s `call` arm → `record = __op_recompute(record)`), so
-  // the columns IT assigns have to reach this persist tail — this function
-  // walking only `op.statements` is the second half of M-T6.55 F24: emitting the
-  // call alone computes the mutation and then silently drops it at persist.
+  // the columns IT assigns have to reach this persist tail — walking only
+  // `op.statements` here would compute the mutation and then silently drop it
+  // at persist.
   for (const s of [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)]) {
     // `assign` (`field := v`), collection `add`/`remove` (`items += Item{…}`),
     // and scalar compound `add`/`remove` (`total += n`) all re-bind a real
@@ -340,9 +340,9 @@ function renderOpGuardClause(
   s: Extract<StmtIR, { kind: "requires" | "precondition" }>,
   rc: RenderCtx,
   /** The operation's param names — the request body a wire-rung denial can
-   *  point into (M-T6.20).  A messaged `precondition` classified wire-translatable
+   *  point into.  A messaged `precondition` classified wire-translatable
    *  against this set denies with `{:validation_failed, errors}` instead of the
-   *  domain floor; everything else is byte-identical. */
+   *  domain floor; everything else denies as usual. */
   wireAvailable?: ReadonlySet<string>,
 ): string {
   return `:ok <- ensure(${renderExpr(s.expr, rc)}, ${denialTerm(s, wireAvailable)})`;
@@ -376,7 +376,7 @@ export function collectOpGuardClauses(aggName: string, op: OperationIR, rc: Rend
   if (op.when) clauses.push(renderWhenGateClause(aggName, op, rc));
   // The request body a wire-rung denial can point into is the op's own params —
   // the same `available` set `routes-builder.ts` / `_i18n/validation-catalog.ts`
-  // classify an `<Op>Request` refine against (M-T6.20).
+  // classify an `<Op>Request` refine against.
   const wireAvailable = new Set(op.params.map((p) => p.name));
   for (const s of op.statements) {
     if (s.kind === "requires" || s.kind === "precondition") {
@@ -471,7 +471,7 @@ export function returningOpPersistsChangeset(
  *  `{:ok, saved}` branch of `persist_change`, so an event is observed iff the
  *  write committed.  `baseIndent` is the leading whitespace for each line.
  *
- *  M13 (#1704 leftover) — a hoisted `emit` renders OUTSIDE the regular body
+ *  A hoisted `emit` renders OUTSIDE the regular body
  *  `OpFragment` (that fragment deliberately excludes hoisted emits, see its
  *  doc comment above), so it gets its OWN per-emit fragment here: pushed
  *  into the SAME `opFragments` out-param the regular body uses, keyed to
@@ -489,7 +489,7 @@ export function renderEmitDispatchLines(
   /** Source-map collector (`--sourcemap`) — only allocated by
    *  the caller when a recorder is present (zero cost otherwise). */
   opFragments?: OpFragment[],
-  /** Broker channels (M-T4.4) — presence re-routes the dispatch
+  /** Broker channels — presence re-routes the dispatch
    *  line through the `<App>.Channels` tee (see channels-emit.ts). */
   channels?: ElixirChannelsCfg,
 ): string[] {
@@ -658,7 +658,7 @@ export function renderReturningOpFunction(
   /** Source-map collector (`--sourcemap`) — only allocated by the
    *  caller when a recorder is present (zero cost otherwise). */
   opFragments?: OpFragment[],
-  /** Broker channels (M-T4.4) — see renderEmitDispatchLines. */
+  /** Broker channels — see renderEmitDispatchLines. */
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
 ): string {
@@ -854,25 +854,19 @@ export function renderReturningOpFunction(
   //
   // `versioned` declares `version: int token = 1`, incremented per command
   // (`src/macros/prelude.ts`), and the named-operation path in `context-emit.ts`
-  // already emits `change(%{version: record.version + 1})` — its comment says it
-  // "brings the relational/embedded path in line" with the document path.  This
-  // arm was never brought in line: it emitted a bare `change(%{})`, so an
-  // exception-less `T or Error` operation persisted its field write and left
-  // `version` untouched.
+  // bumps it the same way.  Without the bump here an exception-less
+  // `T or Error` operation would persist its field write and leave `version`
+  // untouched — `corpus/operation-returns`' `accept()` (`reserved := true`,
+  // returning `: string or NotFound`) must read back the same `version` on
+  // every backend.
   //
   // Not the RS-20 shape (java's Hibernate `@Version` tracks ROW DIRTINESS, so it
   // misses a bump only when nothing actually changed).  Here the write is a real
-  // change and the bump is simply absent from one emitter arm — elixir alone,
-  // against a capability the other four backends honour, so it is a fix rather
-  // than a waiver.
+  // change, against a capability all five backends honour.
   //
-  // Found 2026-08-05 by the caller-census drain: `corpus/operation-returns`'
-  // `accept()` (`reserved := true`, returning `: string or NotFound`) read back
-  // `version: 2` where every other backend read 3.
-  //
-  // M-T6.27: the bump now rides `optimistic_lock(:version)` instead of a plain
-  // `change(%{version: …+1})` — same +1 on the wire, plus the CAS filter the
-  // plain bump lacked, so a raced returning operation raises
+  // The bump rides `optimistic_lock(:version)` rather than a plain
+  // `change(%{version: …+1})` — same +1 on the wire, plus the CAS filter a
+  // plain bump lacks, so a raced returning operation raises
   // `Ecto.StaleEntryError` (rescued to `{:error, :conflict}` → 409 in
   // `persist_change/1`) instead of silently overwriting the other writer.
   const versionLock = aggregateIsVersioned(agg)
@@ -1342,22 +1336,20 @@ export function renderReturningStmt(
             : `${snake(s.name)}(${rc.thisName})`;
         return `    _ = ${call}`;
       }
-      // A bare call to a PRIVATE operation (`recompute()` inside `bump`).  This
-      // used to render `_ = nil  # vanilla: bare call to 'recompute' (no callable
-      // target); record unchanged` — compile-clean, behaviourally absent, and the
-      // "no callable target" claim was false: the emitting module carries a
-      // `defp __op_<name>/n` for exactly this (`renderPrivateOpHelpers`), and the
-      // public twin `<op>_<agg>/2` was already six lines away in the same file.
+      // A bare call to a PRIVATE operation (`recompute()` inside `bump`).  The
+      // emitting module carries a `defp __op_<name>/n` for exactly this
+      // (`renderPrivateOpHelpers`), so the call must run it — a no-op
+      // placeholder would compile clean and be behaviourally absent.
       // The mutation is a PURE struct rebind, so the helper returns the new
       // `record` and the caller's own persist tail writes the columns it assigned
-      // (`persistPutBodies` unions the callee's targets — M-T6.55 F24).
+      // (`persistPutBodies` unions the callee's targets).
       return `    ${rc.thisName} = __op_${snake(s.name)}(${[rc.thisName, ...args].join(", ")})`;
     }
     case "variant-match":
       // UNREACHABLE — the elixir twin of the shared spine's guard in
       // `src/generator/_stmt/target.ts`.  The effect form of `match` is
-      // frontend-only (Stage 2) and is now refused at phase ④ by
-      // `loom.variant-match-placement` (M-T5.28), so reaching here means the
+      // frontend-only and is refused at phase ④ by
+      // `loom.variant-match-placement`, so reaching here means the
       // validator was bypassed.  Kept as a throw, not softened to a skip: a
       // skip drops the statement's effects silently.
       throw new Error(
@@ -1365,7 +1357,7 @@ export function renderReturningStmt(
           "loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed",
       );
     case "if": {
-      // M-T6.59 — a value-producing `if`: every arm ends in the threaded
+      // A value-producing `if`: every arm ends in the threaded
       // `record`, and the whole expression rebinds it, so a branch that assigns
       // IS observable after the call.  The two sub-shapes this rendering cannot
       // express (a `return` / a nested guard in a branch) are refused up front
@@ -1446,8 +1438,7 @@ function renderProvenancedAssign(
 // to the same HTTP status the other backends return — `requires` → 403 (Hono
 // `ForbiddenError`), `precondition` → 422 (RS-15 — a domain-floor rejection is
 // well-formed-but-semantically-rejected, not malformed; the typed-denial path
-// below has always answered 422, so this rescue arm was the odd one out) —
-// instead of propagating to Phoenix's default 500.
+// below answers 422 too) — instead of propagating to Phoenix's default 500.
 //
 // The ROUTING KEY is the exception's `:kind` FIELD, never its message.  A
 // `cond` over `String.starts_with?(guard_msg, "Precondition failed: ")` would
@@ -1457,7 +1448,7 @@ function renderProvenancedAssign(
 // arm is needed either — an exception that is not a `<App>.GuardError` is
 // simply not rescued and propagates with its own stacktrace (still a 500 for a
 // genuine bug, one construct less to keep in lockstep).  Only the STATUS +
-// TITLE are resolved (M-T5.20).
+// TITLE are resolved.
 export function guardRescue(appModule: string, overrides?: ErrorStatusMap): string {
   return `  rescue
     guard_error in ${guardErrorModule(appModule)} ->
@@ -1519,7 +1510,7 @@ export function renderReturningOpControllerAction(
     do: ${disallowedResponse("detail", denialOverrides(ctx))}`,
         ]
       : []),
-    // M-T6.20 — the WIRE-VALIDATION rung: a messaged `precondition` over the op's
+    // The WIRE-VALIDATION rung: a messaged `precondition` over the op's
     // own request params denies with the `errors[]` 422 the other four backends'
     // lifted request validator produces, not the domain floor.
     ...(opHasWireDenial(op)

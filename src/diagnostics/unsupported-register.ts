@@ -45,13 +45,11 @@
 // fires for nothing that exists; and some backend gates fire only for a
 // context no backend deployable hosts at all.  The frontend gates are kept as
 // the seam the NEXT frontend gates on until it ports, the pattern
-// CHART_FRAMEWORKS documents at system-checks.ts.  (The BACKEND support sets
-// that named all five backends — EVENT_SOURCING_BACKENDS,
-// PROJECTION_*_SUPPORTED, SUPPORTED_UNION_BACKENDS, FILTER_BYPASS_FAMILIES,
-// REMOTE_API_OP_UNSUPPORTED, … — were DELETED by owner decision: a set naming
-// every backend is dead weight, and when partial support reappears the
-// validator code is the honest place for it.  Gates with a reachable
-// no-backend arm kept that arm and their code.)  Their rows stay too,
+// CHART_FRAMEWORKS documents at system-checks.ts.  (There is deliberately no
+// BACKEND support set naming all five backends: such a set gates nothing, and
+// when partial support appears the validator code is the honest place for
+// it.  A backend gate that remains does so for its reachable no-backend arm.)
+// Their rows stay too,
 // because the code IS still emitted in `src/` and that invariant demands a
 // row — but they are `kind: "seam"`, not `gap`, so `openGaps()` (and the
 // `MAX_OPEN_GAPS` pin) counts only rows a SHIPPING target has left undone.

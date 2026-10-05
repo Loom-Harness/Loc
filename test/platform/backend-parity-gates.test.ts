@@ -11,12 +11,10 @@
 //   2. EMITTED  — generateSystems(model).files contains the feature's
 //                 backend-specific emitter marker (the feature is realised).
 //
-// Accepted-but-not-emitted is the F1 silent gap and FAILS this test.  There
-// used to be a per-feature backend gate SET for each row (PAGED_QH_SUPPORTED,
-// EVENT_SOURCING_BACKENDS, SUPPORTED_UNION_BACKENDS, …) and this test cross-
-// checked emit against membership; every one of those sets named all five
-// backends, so they were deleted (a set naming every backend gates nothing).
-// When partial support reappears, the honest place for it is a
+// Accepted-but-not-emitted is the F1 silent gap and FAILS this test.  Every
+// row is supported on all five backends, so there is no per-feature backend
+// gate set to cross-check (a set naming every backend gates nothing).  When
+// partial support appears, the honest place for it is a
 // `loom.*-unsupported` validator code — and a row here would then expect that
 // code on the unsupporting backend instead of the marker.
 //
