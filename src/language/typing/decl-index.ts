@@ -11,6 +11,7 @@
 // document's root (and its `system`), then any other document of the unit.
 
 import { type AstNode, AstUtils } from "langium";
+import { lowerFirst, plural } from "../../util/naming.js";
 import type {
   Aggregate,
   BoundedContext,
@@ -168,6 +169,24 @@ export class DeclIndex {
     const sameDoc = cands.find((c) => AstUtils.getContainerOfType(c, isModel) === doc);
     return sameDoc ?? cands[0];
   }
+
+  /** The aggregate / projection a `test e2e` `api.<handle>` names — the
+   *  handle is the lower-camel plural (`orders` → `Order`). */
+  byApiHandle(handle: string): Aggregate | Projection | undefined {
+    if (!this.apiHandles) {
+      this.apiHandles = new Map();
+      for (const list of this.byName.values()) {
+        for (const n of list) {
+          if (isAggregate(n) || isProjection(n)) {
+            const key = lowerFirst(plural(n.name));
+            if (!this.apiHandles.has(key)) this.apiHandles.set(key, n);
+          }
+        }
+      }
+    }
+    return this.apiHandles.get(handle);
+  }
+  private apiHandles: Map<string, Aggregate | Projection> | undefined;
 
   /** The enums declaring a value named `name`, nearest level first: the
    *  enclosing context's enums shadow the rest as a level. */
