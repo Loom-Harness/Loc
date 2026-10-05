@@ -21,16 +21,17 @@ import type {
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
+import { renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
 import {
   bearsNestedRecord,
-  collectWireImports,
   domainToWire,
   JAVA_PRIMITIVES,
+  javaIdValueType,
   referencedValueObjects,
   type WireDir,
   wireJavaType,
@@ -50,6 +51,11 @@ export interface DtoFile {
   category: "request-dto" | "response-dto";
   content: string;
 }
+
+const SCHEMA = javaRef("io.swagger.v3.oas.annotations.media", "Schema");
+const VALID = javaRef("jakarta.validation", "Valid");
+const NOT_NULL = javaRef("jakarta.validation.constraints", "NotNull");
+const noNulChar = (basePkg: string): string => javaRef(`${basePkg}.api`, "NoNulChar");
 
 function isOptionalType(t: TypeIR): boolean {
   return t.kind === "optional";
@@ -84,7 +90,6 @@ function recordFile(
   // — imported precisely (not wildcarded) so a File-free DTO stays byte-identical.
   const usesFileRef = components.some((c) => /\bFileRef\b/.test(c));
   const publishAs = schemaName && schemaName !== name ? schemaName : undefined;
-  if (publishAs) imports.add("io.swagger.v3.oas.annotations.media.Schema");
   return lines(
     `package ${pkg};`,
     ``,
@@ -96,7 +101,7 @@ function recordFile(
     usesFileRef ? `import ${basePkg}.domain.common.FileRef;` : null,
     entityImport ? entityImport : null,
     ``,
-    publishAs ? `@Schema(name = ${JSON.stringify(publishAs)})` : null,
+    publishAs ? `@${SCHEMA}(name = ${JSON.stringify(publishAs)})` : null,
     `public record ${name}(${components.join(", ")}) {`,
     ...body,
     `}`,
@@ -212,7 +217,6 @@ export function renderDtoFiles(
         type: eff(f.type, !isRequiredCreateInput(f)),
       }))
     ).map((f) => {
-      collectWireImports(f.type, imports, "Request");
       // F23 — a REQUIRED create input that arrives as JSON `null` used to bind
       // null and reach the domain, which dereferenced it: `Cannot invoke
       // "String.codePoints()" because "sku" is null` → NullPointerException →
@@ -228,7 +232,6 @@ export function renderDtoFiles(
       // value object instead.
       const javaType = wireJavaType(f.type, "Request");
       const nested = bearsNestedRecord(f.type);
-      if (nested) imports.add("jakarta.validation.Valid");
       // A required input whose wire form is a Java PRIMITIVE gets no `@NotNull`:
       // a primitive can never be null, so the annotation is inert, and the
       // absence it would describe is already answered — Jackson 3 (Spring Boot
@@ -237,13 +240,11 @@ export function renderDtoFiles(
       // leaves required inputs unboxed (unlike an operation body, RS-26), so
       // this is where that decision shows up.
       const guardable = !isOptionalType(f.type) && !JAVA_PRIMITIVES.has(javaType);
-      if (guardable) imports.add("jakarta.validation.constraints.NotNull");
       // The NUL guard rides every wire string, required or not: null passes it,
       // so an optional component is not made required by carrying it (F20).
       const noNul = bearsWireString(f.type);
-      if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
-      const marks = `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}`;
-      return `${jsonProp(f.name, imports)}${marks}${noNul ? nulGuarded(javaType) : javaType} ${jid(f.name)}`;
+      const marks = `${guardable ? `@${NOT_NULL} ` : ""}${nested ? `@${VALID} ` : ""}`;
+      return `${jsonProp(f.name, imports)}${marks}${noNul ? nulGuarded(javaType, basePkg) : javaType} ${jid(f.name)}`;
     });
     out.push({
       name: `Create${agg.name}Request.java`,
@@ -266,7 +267,6 @@ export function renderDtoFiles(
     if (op.params.length === 0) continue;
     const imports = new Set<string>();
     const components = op.params.map((p) => {
-      collectWireImports(p.type, imports, "Request");
       if (isOptionalType(p.type))
         return `${jsonProp(p.name, imports)}${wireJavaType(p.type, "Request")} ${jid(p.name)}`;
       // RS-26: an omitted operation param must be REJECTED, not silently
@@ -277,16 +277,13 @@ export function renderDtoFiles(
       // was required.  Boxing gives us a null to detect and `@NotNull` turns
       // it into the 400 the contract promises (`@Valid` is already on the
       // controller's @RequestBody).
-      imports.add("jakarta.validation.constraints.NotNull");
       const boxed = eff(p.type, true);
       // …and `@Valid` where the component is itself a record, so a null INSIDE
       // a value object is caught too rather than NPE-ing in the mapper.
       const nested = bearsNestedRecord(p.type);
-      if (nested) imports.add("jakarta.validation.Valid");
       const noNul = bearsWireString(p.type);
-      if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
       const boxedType = wireJavaType(boxed, "Request");
-      return `${jsonProp(p.name, imports)}@NotNull ${nested ? "@Valid " : ""}${noNul ? nulGuarded(boxedType) : boxedType} ${jid(p.name)}`;
+      return `${jsonProp(p.name, imports)}@${NOT_NULL} ${nested ? `@${VALID} ` : ""}${noNul ? nulGuarded(boxedType, basePkg) : boxedType} ${jid(p.name)}`;
     });
     out.push({
       name: `${upperFirst(op.name)}${agg.name}Request.java`,
@@ -337,23 +334,22 @@ export function renderDtoFiles(
         basePkg,
         `${agg.name}Paged`,
         [
-          `List<${agg.name}Response> items`,
+          `${J.List}<${agg.name}Response> items`,
           "int page",
           "int pageSize",
           "int total",
           "int totalPages",
         ],
         [],
-        new Set<string>(["java.util.List"]),
+        new Set<string>(),
       ),
     });
   }
 
   // --- create response (`{ id }`) ---------------------------------------------------
   if (emitsRestCreate(agg)) {
-    const idJava = javaValueTypeForId(agg.idValueType);
+    const idJava = javaIdValueType(agg.idValueType);
     const imports = new Set<string>();
-    if (idJava === "UUID") imports.add("java.util.UUID");
     out.push({
       name: `Create${agg.name}Response.java`,
       category: "response-dto",
@@ -392,10 +388,11 @@ export function renderDtoFiles(
  *  `string[]` create input. A CONTAINER-ELEMENT annotation (`List<@NoNulChar
  *  String>`, which is why the constraint also targets `TYPE_USE`) validates
  *  each element instead, which is what the guard meant all along. */
-function nulGuarded(javaType: string): string {
+function nulGuarded(javaType: string, basePkg: string): string {
   // `List` arrives as an import marker from the type renderer (M-T9.86).
   const list = [`${J.List}<`, "List<"].find((p) => javaType.startsWith(p));
-  return list ? javaType.replace(list, `${list}@NoNulChar `) : `@NoNulChar ${javaType}`;
+  const mark = `@${noNulChar(basePkg)} `;
+  return list ? javaType.replace(list, `${list}${mark}`) : `${mark}${javaType}`;
 }
 
 function bearsWireString(t: TypeIR): boolean {
@@ -421,7 +418,6 @@ export function voRecord(
   const imports = new Set<string>();
   const components = fields.map((f) => {
     const t = eff(f.type, f.optional);
-    collectWireImports(t, imports, dir);
     // REQUEST only: a value object's own required members get the same
     // `@NotNull` the enclosing create/operation body now carries, so
     // `{"price":{"amount":null}}` is refused at the boundary instead of
@@ -429,15 +425,12 @@ export function voRecord(
     // validated — annotating it would only add noise to the published schema.
     const javaType = wireJavaType(t, dir);
     const noNul = dir === "Request" && bearsWireString(t);
-    if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
-    const guardedType = noNul ? nulGuarded(javaType) : javaType;
+    const guardedType = noNul ? nulGuarded(javaType, basePkg) : javaType;
     if (dir === "Response" || f.optional || JAVA_PRIMITIVES.has(javaType)) {
       return `${jsonProp(f.name, imports)}${guardedType} ${jid(f.name)}`;
     }
-    imports.add("jakarta.validation.constraints.NotNull");
     const nested = bearsNestedRecord(t);
-    if (nested) imports.add("jakarta.validation.Valid");
-    return `${jsonProp(f.name, imports)}@NotNull ${nested ? "@Valid " : ""}${guardedType} ${jid(f.name)}`;
+    return `${jsonProp(f.name, imports)}@${NOT_NULL} ${nested ? `@${VALID} ` : ""}${guardedType} ${jid(f.name)}`;
   });
   const body =
     dir === "Response"
@@ -485,7 +478,6 @@ function wireRecord(
     const idW = forApiRead(wireFieldsFor(entity)).find((w) => w.source === "id");
     if (idW) {
       const t = wireFieldType(idW);
-      collectWireImports(t, imports, "Response");
       components.push(
         `${jsonProp(idW.name, imports)}${wireJavaType(t, "Response")} ${jid(idW.name)}`,
       );
@@ -500,7 +492,6 @@ function wireRecord(
       if (provNames.has(f.name)) {
         imports.add(`${basePkg}.domain.common.${JAVA_PROVENANCED_RECORD}`);
         imports.add(`${basePkg}.domain.common.ProvLineage`);
-        collectWireImports(f.type, imports, "Response");
         components.push(
           `${jsonProp(f.name, imports)}${JAVA_PROVENANCED_RECORD}<${wireJavaType(f.type, "Response", true)}> ${jid(f.name)}`,
         );
@@ -510,7 +501,7 @@ function wireRecord(
         continue;
       }
       components.push(
-        `${jsonProp(f.name, imports)}${payloadFieldJavaType(f, declared.payloads, imports)} ${jid(f.name)}`,
+        `${jsonProp(f.name, imports)}${payloadFieldJavaType(f, declared.payloads)} ${jid(f.name)}`,
       );
       args.push(payloadFieldToWire(f, declared.payloads));
     }
@@ -524,7 +515,6 @@ function wireRecord(
       // component is shared by both mappers; `from` still projects the real value
       // (auto-boxed), only `fromMasked` may pass null.
       const t = masked ? eff(wireFieldType(w), true) : wireFieldType(w);
-      collectWireImports(t, imports, "Response");
       const carried = provenancedCarrier(t);
       if (carried) {
         // The carrier is a generated `domain.common` record (M-T6.12); its
@@ -547,16 +537,6 @@ function wireRecord(
         // .currentOrNull()` (a static mapper injects no bean); an unauthenticated
         // request (`__maskUser == null`) always redacts.
         maskedAny = true;
-        // The rendered predicate is Java source like any other, and its LEAF
-        // renderings carry imports: a string/ref `==` becomes
-        // `Objects.equals(...)` (java.util.Objects), `matches` becomes
-        // `Pattern.compile(...)`, a decimal/money literal a `BigDecimal`, a
-        // `now()` an `Instant`.  `renderJavaExpr` writes the source but cannot
-        // reach this file's import set, so the collector has to be called
-        // alongside it — otherwise the mapper names a symbol the file never
-        // imports and `javac` fails on the `mask unless` field-redaction
-        // control itself.
-        collectJavaExprImports(w.maskUnless!, imports);
         const pred = renderJavaExpr(w.maskUnless!, {
           thisName: "value",
           currentUserExpr: "__maskUser",
@@ -578,10 +558,6 @@ function wireRecord(
   // no bean), then each masked arg guards on it (authorization.md §5).  The
   // imports + second method ride in only when a mask is present, so mask-free
   // records stay byte-identical.
-  if (maskedAny) {
-    imports.add(`${basePkg}.auth.CurrentUserAccessor`);
-    imports.add(`${basePkg}.auth.User`);
-  }
   const body = [
     `    public static ${recordName} from(${entity.name} value) {`,
     `        return new ${recordName}(${args.join(", ")});`,
@@ -593,7 +569,7 @@ function wireRecord(
           `     *  unless the ambient principal satisfies each field's predicate`,
           `     *  (fail-closed — unauthenticated redacts). */`,
           `    public static ${recordName} fromMasked(${entity.name} value) {`,
-          `        User __maskUser = CurrentUserAccessor.currentOrNull();`,
+          `        ${javaRef(`${basePkg}.auth`, "User")} __maskUser = ${javaRef(`${basePkg}.auth`, "CurrentUserAccessor")}.currentOrNull();`,
           `        return new ${recordName}(${maskedArgs.join(", ")});`,
           `    }`,
         ]
@@ -628,21 +604,13 @@ function isResponsePayloadName(payloads: readonly PayloadIR[], name: string): bo
  *  lowers to an `entity` whose name is a declared `response`).  That name is
  *  rendered DIRECTLY (peel + re-wrap `List<...>`); running it through
  *  `wireJavaType` would append a second `Response` (`LineResponseResponse`). */
-function payloadFieldJavaType(
-  f: FieldIR,
-  payloads: readonly PayloadIR[],
-  imports: Set<string>,
-): string {
+function payloadFieldJavaType(f: FieldIR, payloads: readonly PayloadIR[]): string {
   const t = eff(f.type, f.optional);
   const base = t.kind === "array" ? t.element : t;
   if (base.kind === "entity" && isResponsePayloadName(payloads, base.name)) {
-    if (t.kind === "array") {
-      imports.add("java.util.List");
-      return `List<${base.name}>`;
-    }
+    if (t.kind === "array") return `${J.List}<${base.name}>`;
     return base.name;
   }
-  collectWireImports(t, imports, "Response");
   return wireJavaType(t, "Response");
 }
 

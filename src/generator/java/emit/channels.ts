@@ -7,9 +7,11 @@ import {
   type WireDecodeLeaf,
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
+import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { javaInstantWire } from "./wire.js";
 
@@ -158,10 +160,7 @@ function javaWireDecode(
         imports.add("java.math.BigDecimal");
         return numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`);
       },
-      datetime: (e) => {
-        imports.add("java.time.Instant");
-        return `Instant.parse((String) ${e})`;
-      },
+      datetime: (e) => `${J.Instant}.parse((String) ${e})`,
       string: asString,
       guid: asString,
       json: asString,
@@ -178,8 +177,7 @@ function javaWireDecode(
         return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", e)})`;
       if (vt === "long")
         return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", e)})`;
-      imports.add("java.util.UUID");
-      return `new ${targetName}Id(UUID.fromString((String) ${e}))`;
+      return `new ${targetName}Id(${J.UUID}.fromString((String) ${e}))`;
     },
     enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
     optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
@@ -872,7 +870,7 @@ export function renderJavaChannelFiles(
     ),
   );
 
-  const codecImports = new Set<string>(["java.util.LinkedHashMap", "java.util.Map"]);
+  const codecImports = new Set<string>();
   const toArms = carried.map((ev) => {
     const puts = ev.fields.map(
       (f) =>
@@ -897,6 +895,8 @@ export function renderJavaChannelFiles(
     lines(
       `package ${pkg};`,
       ``,
+      `import java.util.LinkedHashMap;`,
+      `import java.util.Map;`,
       ...[...codecImports].sort().map((i) => `import ${i};`),
       ``,
       `import ${basePkg}.domain.enums.*;`,
@@ -1211,9 +1211,6 @@ export function renderJavaChannelFiles(
       lines(
         `package ${pkg};`,
         ``,
-        hasRedis ? `import java.util.concurrent.ExecutorService;` : null,
-        hasRedis ? `import java.util.concurrent.Executors;` : null,
-        hasRedis ? `` : null,
         `import org.springframework.context.SmartLifecycle;`,
         `import org.springframework.stereotype.Component;`,
         ``,
@@ -1247,7 +1244,7 @@ export function renderJavaChannelFiles(
           (h) => `    private final ${h.dispatcherClass} ${lowerFirst(h.dispatcherClass)};`,
         ),
         hasRedis
-          ? `    private final ExecutorService executor = Executors.newSingleThreadExecutor();`
+          ? `    private final ${javaRef("java.util.concurrent", "ExecutorService")} executor = ${javaRef("java.util.concurrent", "Executors")}.newSingleThreadExecutor();`
           : null,
         `    private volatile boolean running;`,
         ``,

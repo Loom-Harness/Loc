@@ -18,8 +18,10 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { JAVA_IMPORTS } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { renderJavaType } from "../render-expr.js";
 
 /** The tenant registry (`implements tenantRegistry`) facts the
@@ -81,12 +83,7 @@ export function renderAuthFiles(
   // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
   // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
   if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
-  const components = fields
-    .map((f) => {
-      collectAuthImports(f.type, imports);
-      return `${renderJavaType(f.type)} ${f.name}`;
-    })
-    .join(", ");
+  const components = fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
   // Derived `currentUser.orgPath` — the caller's tenant materialized path
   // (multi-tenancy).  An extra record accessor (not a component), so
   // every `new User(...)` site is untouched; stringified null-safely.
@@ -187,6 +184,7 @@ export function renderAuthFiles(
     lines(
       `package ${pkg};`,
       ``,
+      JAVA_IMPORTS,
       ...[...imports].sort().map((i) => `import ${i};`),
       imports.size > 0 ? `` : null,
       `/** Strongly-typed claim shape from the system's user block —`,
@@ -224,7 +222,6 @@ export function renderAuthFiles(
   // principal a null one, so this verifier names the id class and needs the
   // same `<basePkg>.domain.ids.*` import `User` already carries.
   if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
-  for (const f of fields) collectAuthImports(f.type, stubImports);
   const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
   // Dev-claims override carries the shapes the shared classifier admits —
   // `String` and `List<String>`; every other component keeps its built-in
@@ -764,17 +761,6 @@ function javaClaimRead(f: FieldIR, auth: AuthIR): string {
 }
 
 function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {
-  // Imports for any stub-fallback field type (guid/datetime/etc.) plus the
-  // List the string[] reader returns.
-  const imports = new Set<string>(["java.util.List"]);
-  for (const f of fields) {
-    const mappableString =
-      (f.type.kind === "primitive" && f.type.name === "string") ||
-      (f.type.kind === "array" &&
-        f.type.element.kind === "primitive" &&
-        f.type.element.name === "string");
-    if (!mappableString) collectAuthImports(f.type, imports);
-  }
   // Env override first (12-factor): the generated compose repoints
   // OIDC_ISSUER at the bundled dev Keycloak, so a literal issuer must not
   // be baked un-overridably — with it baked, every token from the bundled
@@ -793,8 +779,8 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `import java.net.http.HttpResponse;`,
     `import java.util.ArrayList;`,
     `import java.util.Map;`,
+    `import java.util.List;`,
     `import java.util.Set;`,
-    ...[...imports].sort().map((i) => `import ${i};`),
     ``,
     `import tools.jackson.databind.JsonNode;`,
     `import tools.jackson.databind.ObjectMapper;`,
@@ -1281,18 +1267,6 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
   ];
 }
 
-function collectAuthImports(t: TypeIR, into: Set<string>): void {
-  if (t.kind === "primitive" && t.name === "guid") into.add("java.util.UUID");
-  if (t.kind === "primitive" && t.name === "datetime") into.add("java.time.Instant");
-  if (t.kind === "primitive" && (t.name === "decimal" || t.name === "money"))
-    into.add("java.math.BigDecimal");
-  if (t.kind === "array") {
-    into.add("java.util.List");
-    collectAuthImports(t.element, into);
-  }
-  if (t.kind === "optional") collectAuthImports(t.inner, into);
-}
-
 /** Dev-stub claim values — mirrors the .NET DevStubUserVerifier:
  *  Guid.Empty / "admin" / empty list / zeroes.  Exported for the JUnit
  *  test emitter's stub test user. */
@@ -1304,7 +1278,7 @@ function stubValue(t: TypeIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "guid":
-        return "new UUID(0L, 0L)";
+        return `new ${J.UUID}(0L, 0L)`;
       case "string":
         return '"admin"';
       case "int":
@@ -1313,7 +1287,7 @@ function stubValue(t: TypeIR): string {
       case "bool":
         return "false";
       case "datetime":
-        return "Instant.EPOCH";
+        return `${J.Instant}.EPOCH`;
       case "decimal":
       case "money":
         return "java.math.BigDecimal.ZERO";
@@ -1321,7 +1295,7 @@ function stubValue(t: TypeIR): string {
         return "null";
     }
   }
-  if (t.kind === "array") return "List.of()";
+  if (t.kind === "array") return `${J.List}.of()`;
   // A NON-optional `X id` claim: java compiled either way (a record component
   // takes null), but `null` handed every `currentUser.customerId` read a null
   // strong id where the other four backends carry the zero id — the same

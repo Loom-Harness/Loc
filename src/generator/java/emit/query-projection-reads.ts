@@ -22,6 +22,7 @@ import {
 import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-column.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { joinReadFieldNames } from "../../_projection/join-read.js";
 import { MONEY_WIRE_ZERO } from "../../money-scale.js";
@@ -32,13 +33,9 @@ import {
   promotedCapabilities,
 } from "../capability-filter.js";
 import { jid, jsonProp } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
-import {
-  collectJavaExprImports,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
   JPQL_INTRINSIC_SQL,
   type JpqlCtx,
@@ -48,7 +45,7 @@ import {
 } from "../render-jpql.js";
 import { projectionRepoField } from "./projection-reads.js";
 import { projectionRowClass } from "./projection-state.js";
-import { collectWireImports, domainToWire, javaInstantWire, wireJavaType } from "./wire.js";
+import { domainToWire, javaInstantWire, wireJavaType } from "./wire.js";
 import { workflowStateClass } from "./workflow-state.js";
 
 // ---------------------------------------------------------------------------
@@ -183,7 +180,6 @@ function aggregationScope(
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
   enumsPkg: string,
-  imports: Set<string>,
 ): AggregationScope {
   const principalAccessors = new Set<string>();
   // `EntityManager.createQuery` mode (§F2, Wave 2 packet 2.4): this read runs
@@ -198,7 +194,6 @@ function aggregationScope(
   };
   const filter = proj.query!.filter;
   const ownWhere = filter ? renderJpqlWhere(filter, jpqlCtx) : null;
-  if (filter) collectJavaExprImports(filter, imports);
   const capWheres: string[] = [];
   const sourceAgg = ctx.aggregates.find((a) => a.name === proj.query!.source);
   const bypass = filterBypassOf(proj);
@@ -208,7 +203,6 @@ function aggregationScope(
     const origin = origins[i];
     if (origin !== undefined && bypassDrops(origin, bypass)) continue;
     capWheres.push(`(${renderJpqlWhere(pred, jpqlCtx)})`);
-    collectJavaExprImports(pred, imports);
   }
   // The projection's own `where` is parenthesised only when a capability
   // conjunct joins it — an unparenthesised top-level `or` would otherwise bind
@@ -274,7 +268,7 @@ export function renderJavaQueryProjections(
   if (projections.length === 0) return null;
 
   const out = new Map<string, { category: "view-service" | "api-common"; content: string }>();
-  const imports = new Set<string>(["java.util.List"]);
+  const imports = new Set<string>();
   const explicitImports = new Set<string>();
   const methods: string[] = [];
   const repoAggs = new Set<string>();
@@ -293,7 +287,7 @@ export function renderJavaQueryProjections(
   // ApiExceptionAdvice).  The `currentUser`-only gate binds the principal from a
   // `CurrentUserAccessor` before evaluating.  Exact twin of the repository find
   // gate in `api.ts`.
-  const controllerGateImports = new Set<string>();
+  const accessor = javaRef(`${qpctx.basePkg}.auth`, "CurrentUserAccessor");
   let usesEntityManager = false;
   // Emitted only when some grouped projection carries a TRANSFORMED key (the
   // `function(…)` HQL escape has no static return type) — see the call site.
@@ -333,7 +327,6 @@ export function renderJavaQueryProjections(
         joined.has(f.name) && f.type.kind !== "optional"
           ? { kind: "optional", inner: f.type }
           : f.type;
-      collectWireImports(t, rowImports, "Response");
       return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${jid(f.name)}`;
     });
     out.set(`${rowName}.java`, {
@@ -366,8 +359,6 @@ export function renderJavaQueryProjections(
       // the response is the LIST shape (`List<<P>Row>`), not the one-object
       // read.
       usesEntityManager = true;
-      imports.add("jakarta.persistence.EntityManager");
-      imports.add("jakarta.persistence.PersistenceContext");
       // ONE renderer for all three key positions (select / group by / order by)
       // so they cannot disagree — Postgres matches a grouped select against the
       // GROUP BY expression syntactically.  A COMPUTED key (M-T4.2 date bucket)
@@ -398,7 +389,7 @@ export function renderJavaQueryProjections(
       // The projection's own `where` AND the source aggregate's capability
       // filters — the read reads the table directly, so nothing else applies
       // them (see `aggregationScope`).
-      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
+      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`);
       const jpql =
         `select ${[...keyCols, ...aggCols].join(", ")} from ${docTable ?? source} e${scope.where}` +
         ` group by ${groupCols.join(", ")} order by ${groupCols.join(", ")}`;
@@ -460,8 +451,6 @@ export function renderJavaQueryProjections(
       // `@Query` to the aggregate's repository would make the READ MODEL edit
       // the aggregate's own port for a projection it knows nothing about.
       usesEntityManager = true;
-      imports.add("jakarta.persistence.EntityManager");
-      imports.add("jakarta.persistence.PersistenceContext");
       // M-T4.2 — a `shape: document` source has no JPA entity to name, so the
       // SAME query runs NATIVE over its `(id, data, version)` table.
       const docTable = qpctx.documentTableOf(source);
@@ -469,7 +458,7 @@ export function renderJavaQueryProjections(
         .map((a) => jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined))
         .join(", ");
       // Same scoping as the grouped arm — see `aggregationScope`.
-      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
+      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`);
       const jpql = `select ${cols} from ${docTable ?? source} e${scope.where}`;
       // `getSingleResult()` returns an `Object[]` only for a MULTI-column
       // selection; a SINGLE `select` (`select total = count()`) hands back the
@@ -508,7 +497,6 @@ export function renderJavaQueryProjections(
       const args = shape.map((f) => {
         const sel = selectByField.get(f.name);
         if (!sel) return `null`;
-        collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
           renderJavaExpr(sel.expr, { thisName: "x", accessorProps: true }),
@@ -516,10 +504,7 @@ export function renderJavaQueryProjections(
       });
       const filter = proj.query!.filter;
       const filterLine = filter
-        ? (() => {
-            collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`;
-          })()
+        ? `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`
         : undefined;
       methods.push(
         `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
@@ -544,7 +529,6 @@ export function renderJavaQueryProjections(
       const args = shape.map((f) => {
         const sel = selectByField.get(f.name);
         if (!sel) return `null`;
-        collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
           renderJavaExpr(sel.expr, { thisName: "x", accessorProps: true }),
@@ -552,10 +536,7 @@ export function renderJavaQueryProjections(
       });
       const filter = proj.query!.filter;
       const filterLine = filter
-        ? (() => {
-            collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`;
-          })()
+        ? `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`
         : undefined;
       methods.push(
         `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
@@ -582,11 +563,9 @@ export function renderJavaQueryProjections(
         if (!mapVar) {
           mapVar = `${lowerFirst(join.aggregate)}ById`;
           aggMapVar.set(join.aggregate, mapVar);
-          imports.add("java.util.Map");
-          imports.add("java.util.stream.Collectors");
           mapLines.push(
             `        var ${mapVar} = ${repoField(join.aggregate)}.findAll().stream()`,
-            `            .collect(Collectors.toMap(__a -> __a.id().value(), __a -> __a));`,
+            `            .collect(${javaRef("java.util.stream", "Collectors")}.toMap(__a -> __a.id().value(), __a -> __a));`,
           );
         }
         // The join keys on `<idRef>` rendered off the source row `a`, then `.value()`
@@ -611,7 +590,6 @@ export function renderJavaQueryProjections(
           : shape.map((f) => {
               const sel = selectByField.get(f.name);
               if (!sel) return `null`;
-              collectJavaExprImports(sel.expr, imports);
               return renderSelectWire(f.type, sel.expr, aliasMap);
             });
 
@@ -631,13 +609,12 @@ export function renderJavaQueryProjections(
     const gateLines: string[] = [];
     if (gate) {
       anyGate = true;
-      collectJavaExprImports(gate, controllerGateImports);
       if (exprUsesCurrentUser(gate)) {
         anyGateUsesUser = true;
         gateLines.push(`        var currentUser = currentUserAccessor.user();`);
       }
       gateLines.push(
-        `        if (!(${renderJavaExpr(gate, { thisName: "this" })})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderJavaExpr(gate, { thisName: "this" })})) throw new ${javaRef(`${qpctx.basePkg}.domain.common`, "ForbiddenException")}(${JSON.stringify(
           `Forbidden: projection ${proj.name}`,
         )});`,
       );
@@ -703,6 +680,7 @@ export function renderJavaQueryProjections(
     content: lines(
       `package ${qpctx.pkg};`,
       ``,
+      `import java.util.List;`,
       ...[...imports].sort().map((i) => `import ${i};`),
       ``,
       `import org.springframework.stereotype.Service;`,
@@ -718,7 +696,10 @@ export function renderJavaQueryProjections(
       `public class ${serviceName} {`,
       ...injected.map((d) => `    private final ${d.type} ${d.field};`),
       ...(usesEntityManager
-        ? [`    @PersistenceContext`, `    private EntityManager entityManager;`]
+        ? [
+            `    @${javaRef("jakarta.persistence", "PersistenceContext")}`,
+            `    private ${javaRef("jakarta.persistence", "EntityManager")} entityManager;`,
+          ]
         : []),
       ``,
       `    public ${serviceName}(${injected.map((d) => `${d.type} ${d.field}`).join(", ")}) {`,
@@ -758,9 +739,6 @@ export function renderJavaQueryProjections(
       ``,
       `import org.springframework.web.bind.annotation.*;`,
       ``,
-      ...[...controllerGateImports].sort().map((i) => `import ${i};`),
-      anyGate ? `import ${qpctx.basePkg}.domain.common.ForbiddenException;` : null,
-      anyGateUsesUser ? `import ${qpctx.basePkg}.auth.CurrentUserAccessor;` : null,
       anyGate ? `import ${qpctx.basePkg}.domain.enums.*;` : null,
       anyGate ? `import ${qpctx.basePkg}.domain.ids.*;` : null,
       `import ${qpctx.pkg}.*;`,
@@ -769,9 +747,9 @@ export function renderJavaQueryProjections(
       `@RequestMapping("${qpctx.routePrefix ?? ""}/projections")`,
       `public class ${ctx.name}QueryProjectionsController {`,
       `    private final ${serviceName} queryProjections;`,
-      anyGateUsesUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+      anyGateUsesUser ? `    private final ${accessor} currentUserAccessor;` : null,
       ``,
-      `    public ${ctx.name}QueryProjectionsController(${serviceName} queryProjections${anyGateUsesUser ? ", CurrentUserAccessor currentUserAccessor" : ""}) {`,
+      `    public ${ctx.name}QueryProjectionsController(${serviceName} queryProjections${anyGateUsesUser ? `, ${accessor} currentUserAccessor` : ""}) {`,
       `        this.queryProjections = queryProjections;`,
       anyGateUsesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
       `    }`,
@@ -918,8 +896,7 @@ function groupKeyCoerce(
       case "bool":
         return `(Boolean) ${read}`;
       case "guid":
-        imports.add("java.util.UUID");
-        return `(UUID) ${read}`;
+        return `(${J.UUID}) ${read}`;
     }
   }
   throw new Error(

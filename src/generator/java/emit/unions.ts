@@ -9,8 +9,8 @@ import { lines } from "../../../util/code-builder.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
 import { jid } from "../java-ident.js";
-import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
-import { collectWireImports, domainToWire, wireJavaType } from "./wire.js";
+import { renderJavaType } from "../render-expr.js";
+import { domainToWire, wireJavaType } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Exception-less operation returns (exception-less.md) — an operation
@@ -108,15 +108,12 @@ export function renderJavaDomainUnionFiles(
     },
   ];
   for (const m of spec.members) {
-    const imports = new Set<string>();
-    const params = memberDomainParams(m, imports);
+    const params = memberDomainParams(m);
     files.push({
       name: `${spec.name}_${m.tag}.java`,
       content: lines(
         `package ${pkg};`,
         ``,
-        ...[...imports].sort().map((i) => `import ${i};`),
-        imports.size > 0 ? `` : null,
         `import ${basePkg}.domain.enums.*;`,
         `import ${basePkg}.domain.ids.*;`,
         `import ${basePkg}.domain.valueobjects.*;`,
@@ -161,15 +158,12 @@ export function renderJavaUnionWireFiles(
     },
   ];
   for (const m of spec.members) {
-    const imports = new Set<string>();
-    const params = memberWireParams(m, imports);
+    const params = memberWireParams(m);
     files.push({
       name: `${spec.name}Response_${m.tag}.java`,
       content: lines(
         `package ${pkg};`,
         ``,
-        ...[...imports].sort().map((i) => `import ${i};`),
-        imports.size > 0 ? `` : null,
         `import ${basePkg}.domain.enums.*;`,
         ``,
         `public record ${spec.name}Response_${m.tag}(${params}) implements ${spec.name}Response {`,
@@ -189,30 +183,18 @@ export function unionWireCtorArgs(m: UnionMember): string[] {
   return m.fields.map((f) => domainToWire(eff(f.type, f.optional), `v.${jid(f.name)}()`));
 }
 
-function memberDomainParams(m: UnionMember, imports: Set<string>): string {
+function memberDomainParams(m: UnionMember): string {
   if (m.shape === "none") return "";
-  if (m.shape === "scalar") {
-    collectJavaTypeImports(m.type, imports);
-    return `${renderJavaType(m.type)} value`;
-  }
-  return m.fields
-    .map((f) => {
-      collectJavaTypeImports(f.type, imports);
-      return `${renderJavaType(f.type)} ${f.name}`;
-    })
-    .join(", ");
+  if (m.shape === "scalar") return `${renderJavaType(m.type)} value`;
+  return m.fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
 }
 
-function memberWireParams(m: UnionMember, imports: Set<string>): string {
+function memberWireParams(m: UnionMember): string {
   if (m.shape === "none") return "";
-  if (m.shape === "scalar") {
-    collectWireImports(m.type, imports, "Response");
-    return `${wireJavaType(m.type, "Response")} value`;
-  }
+  if (m.shape === "scalar") return `${wireJavaType(m.type, "Response")} value`;
   return m.fields
     .map((f) => {
       const t = eff(f.type, f.optional);
-      collectWireImports(t, imports, "Response");
       return `${wireJavaType(t, "Response")} ${f.name}`;
     })
     .join(", ");

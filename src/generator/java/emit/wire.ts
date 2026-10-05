@@ -1,5 +1,6 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { javaValueTypeForId } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
@@ -71,6 +72,13 @@ export function bearsNestedRecord(t: TypeIR): boolean {
   }
 }
 
+/** `javaValueTypeForId`, with the `UUID` spelling written as its import
+ *  marker (M-T9.86) so a unit naming it derives `import java.util.UUID;`. */
+export function javaIdValueType(idValueType: string): string {
+  const v = javaValueTypeForId(idValueType);
+  return v === "UUID" ? J.UUID : v;
+}
+
 /** The Java type a domain type takes inside a request/response record. */
 export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
   switch (t.kind) {
@@ -100,16 +108,16 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
           // gives a 400.  A client may send more precision than it reads back,
           // which is already true of every other backend.
           if (dir === "Response") return boxed ? "Double" : "double";
-          return "BigDecimal";
+          return J.BigDecimal;
         case "money":
         case "datetime":
           return "String";
         case "string":
           return "String";
         case "guid":
-          return "UUID";
+          return J.UUID;
         case "json":
-          return "JsonNode";
+          return J.JsonNode;
         case "File":
           // Passive wire-only leaf — the shared FileRef record is both the
           // domain and the wire shape, so no conversion (M-T1.2).
@@ -117,7 +125,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       }
       return "Object";
     case "id":
-      return javaValueTypeForId(t.valueType);
+      return javaIdValueType(t.valueType);
     case "enum":
       return t.name;
     case "valueobject":
@@ -126,7 +134,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       // Containments carry the part's response record.
       return `${t.name}Response`;
     case "array":
-      return `List<${wireJavaType(t.element, dir, true)}>`;
+      return `${J.List}<${wireJavaType(t.element, dir, true)}>`;
     case "optional":
       return wireJavaType(t.inner, dir, true);
     case "genericInstance":
@@ -140,38 +148,6 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       return "Object";
     default:
       return "Object";
-  }
-}
-
-/** Imports the wire type needs (java.* only; generated records are
- *  package-local or wildcard-imported).
- *
- *  Direction-aware for the same reason `wireJavaType` is: a RESPONSE `decimal`
- *  is a `double`/`Double`, so the record must not import a `BigDecimal` it no
- *  longer names (javac warns on nothing, but an unused import is noise the
- *  emitter has never shipped elsewhere).  A REQUEST `decimal` still needs it. */
-export function collectWireImports(t: TypeIR, into: Set<string>, dir: WireDir): Set<string> {
-  switch (t.kind) {
-    case "primitive":
-      if (t.name === "decimal" && dir === "Request") into.add("java.math.BigDecimal");
-      if (t.name === "guid") into.add("java.util.UUID");
-      if (t.name === "json") into.add("tools.jackson.databind.JsonNode");
-      return into;
-    case "id":
-      if (t.valueType === "guid") into.add("java.util.UUID");
-      return into;
-    case "array":
-      into.add("java.util.List");
-      return collectWireImports(t.element, into, dir);
-    case "optional":
-      return collectWireImports(t.inner, into, dir);
-    case "genericInstance":
-      // The carrier itself is a generated `domain.common` record — imported by
-      // the DTO emitter, which knows the base package.  Only its ARGUMENT can
-      // pull in a java.* import.
-      return collectWireImports(t.arg, into, dir);
-    default:
-      return into;
   }
 }
 
@@ -338,7 +314,8 @@ export function wireToDomainGuards(t: TypeIR): boolean {
   }
 }
 
-/** Imports the inbound conversion needs. */
+/** The `WireFormatException` import the inbound conversion's guarded parse
+ *  needs (its `java.*` types derive from the renderers' markers, M-T9.86). */
 export function collectWireToDomainImports(
   t: TypeIR,
   into: Set<string>,
@@ -347,7 +324,6 @@ export function collectWireToDomainImports(
   switch (t.kind) {
     case "primitive":
       if (t.name === "money") {
-        into.add("java.math.BigDecimal");
         // The guarded parse `wireToDomain` emits (M-T6.48).  REQUIRED, and
         // `basePkg` is required with it: emitting the call without the import
         // is a `cannot find symbol` that no string-level test sees — the
@@ -355,7 +331,6 @@ export function collectWireToDomainImports(
         into.add(`${basePkg}.domain.common.WireFormatException`);
       }
       if (t.name === "datetime") {
-        into.add("java.time.Instant");
         // Same reason as `money`: the guarded parse names a type this file has
         // to import, and a missing import is a `cannot find symbol` no
         // string-level test sees — only the generated-java compile does.

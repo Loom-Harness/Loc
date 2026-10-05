@@ -58,20 +58,16 @@ import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { javaRef } from "../_imports/java.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { JAVA_PAGED_QUERY_PARAMS } from "./emit/common.js";
-import { domainToWire } from "./emit/wire.js";
+import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import { javaWorkflowStmtTarget, repoField } from "./emit/workflow.js";
-import {
-  collectJavaExprImports,
-  collectJavaTypeImports,
-  type JavaRenderContext,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "./render-expr.js";
+import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
+
+const JSON_MAPPER = javaRef("tools.jackson.databind.json", "JsonMapper");
 
 /** The aggregates a handler body loads / saves — its injected
  *  `<Agg>Repository` fields (repo-let loads + exit-saves).  Same derivation the
@@ -315,18 +311,11 @@ function renderPagedRunHandlerClass(
   const handlerName = `${h.name}Handler`;
   const run = pagedRunStmt(h, ctx);
   const agg = run.aggName;
-  const imports = new Set<string>();
   const renderCtx = handlerRenderCtx(h, ctx);
-  const critArgs = run.retrievalArgs.map((a) => {
-    collectJavaExprImports(a, imports);
-    return renderJavaExpr(a, renderCtx);
-  });
+  const critArgs = run.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
   const callArgs = [...critArgs, "page", "pageSize", "sort", "dir"].join(", ");
   const params = flatHandlerParams(h, ctx)
-    .map((p) => {
-      collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
-    })
+    .map((p) => `${renderJavaType(p.type)} ${p.name}`)
     .join(", ");
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
     .filter(Boolean)
@@ -340,8 +329,6 @@ function renderPagedRunHandlerClass(
   return lines(
     `package ${appPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
-    imports.size > 0 ? `` : null,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
@@ -385,7 +372,6 @@ function renderHandlerClass(
   domainServicePkg?: string,
 ): string {
   const handlerName = `${h.name}Handler`;
-  const imports = new Set<string>();
 
   // Body — the shared workflow statement spine, rendered at 8-space indent
   // (method-body depth).  The render context carries the handler's `command`/
@@ -395,13 +381,12 @@ function renderHandlerClass(
   const renderCtx = handlerRenderCtx(h, ctx, resources?.classes);
   const bodyLines = renderWorkflowStmtChunks(
     h.statements,
-    javaWorkflowStmtTarget(ctx, imports, renderCtx, undefined, collectUnionFindLets(h.statements)),
+    javaWorkflowStmtTarget(ctx, renderCtx, undefined, collectUnionFindLets(h.statements)),
     "        ",
   ).flat();
   const saveLines = h.savesAtExit.map((s) => `        ${repoField(s.aggName)}.save(${s.name});`);
   const returnLines: string[] = [];
   if (h.returnValue) {
-    collectJavaExprImports(h.returnValue, imports);
     returnLines.push(`        return ${renderJavaExpr(h.returnValue, renderCtx)};`);
   }
 
@@ -413,12 +398,8 @@ function renderHandlerClass(
   // through unchanged, keeping the flat-param handlers byte-identical).
   const internalRet = normalizeHandlerReturn(h.returnType, ctx);
   const retType = internalRet ? renderJavaType(internalRet) : "void";
-  if (internalRet) collectJavaTypeImports(internalRet, imports);
   const params = flatHandlerParams(h, ctx)
-    .map((p) => {
-      collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
-    })
+    .map((p) => `${renderJavaType(p.type)} ${p.name}`)
     .join(", ");
 
   // Domain services this body calls (domain-services.md rev. 4).  A READING
@@ -482,8 +463,6 @@ function renderHandlerClass(
   return lines(
     `package ${appPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
-    imports.size > 0 ? `` : null,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
@@ -603,40 +582,30 @@ function pathParamNames(path: string): Set<string> {
  *  argument for a PATH-bound handler param: id → `UUID`/`long`/`String` path
  *  param wrapped in `new <Agg>Id(...)`; scalar → the rendered domain type
  *  verbatim.  Body params take a separate `@RequestBody` record path below. */
-function wireActionParam(
-  p: ParamIR,
-  imports: Set<string>,
-): { actionParam: string; callArg: string } {
+function wireActionParam(p: ParamIR): { actionParam: string; callArg: string } {
   const t = p.type;
   if (t.kind === "id") {
-    const wire = javaValueTypeForId(t.valueType);
-    if (wire === "UUID") imports.add("java.util.UUID");
+    const wire = javaIdValueType(t.valueType);
     return {
       actionParam: `@PathVariable ${wire} ${p.name}`,
       callArg: `new ${t.targetName}Id(${p.name})`,
     };
   }
-  collectJavaTypeImports(t, imports);
   return { actionParam: `@PathVariable ${renderJavaType(t)} ${p.name}`, callArg: p.name };
 }
 
 /** The `@RequestParam` sibling of `wireActionParam` for a NON-path criterion
  *  param of a paged-run queryHandler: an id → wire type coerced with
  *  `new <Agg>Id(...)`; a scalar → the rendered domain type verbatim. */
-function wireQueryParam(
-  p: ParamIR,
-  imports: Set<string>,
-): { actionParam: string; callArg: string } {
+function wireQueryParam(p: ParamIR): { actionParam: string; callArg: string } {
   const t = p.type;
   if (t.kind === "id") {
-    const wire = javaValueTypeForId(t.valueType);
-    if (wire === "UUID") imports.add("java.util.UUID");
+    const wire = javaIdValueType(t.valueType);
     return {
       actionParam: `@RequestParam ${wire} ${p.name}`,
       callArg: `new ${t.targetName}Id(${p.name})`,
     };
   }
-  collectJavaTypeImports(t, imports);
   return { actionParam: `@RequestParam ${renderJavaType(t)} ${p.name}`, callArg: p.name };
 }
 
@@ -651,7 +620,6 @@ function emitPagedRunAction(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
   field: string,
-  imports: Set<string>,
   responsePkgOf: (agg: string) => string,
   responsePkgs: Set<string>,
 ): string[] {
@@ -663,10 +631,7 @@ function emitPagedRunAction(
   const runFrom = runAgg?.fields.some((f) => f.maskUnless) ? "fromMasked" : "from";
   const pathNames = pathParamNames(r.path);
   const bind = new Map(
-    h.params.map((p) => [
-      p.name,
-      pathNames.has(p.name) ? wireActionParam(p, imports) : wireQueryParam(p, imports),
-    ]),
+    h.params.map((p) => [p.name, pathNames.has(p.name) ? wireActionParam(p) : wireQueryParam(p)]),
   );
   const actionParams = [
     ...h.params.map((p) => bind.get(p.name)!.actionParam),
@@ -770,7 +735,6 @@ export function emitExplicitRouteController(
   if (routes.length === 0) return null;
   const derivedSlots = derivedRouteSlots(contexts);
   const byName = new Map(contexts.map((c) => [c.name, c]));
-  const imports = new Set<string>();
   // Response DTO packages an entity-returning route projects into (C2) — each
   // wildcard-imported so the `<Agg>Response.from(...)` projection resolves.
   const responsePkgs = new Set<string>();
@@ -811,7 +775,6 @@ export function emitExplicitRouteController(
           h,
           ctx,
           field,
-          imports,
           responsePkgOf,
           responsePkgs,
         ),
@@ -831,17 +794,12 @@ export function emitExplicitRouteController(
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
     const pathParams = effParams.filter((p) => pathNames.has(p.name));
     const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
-    const pathArg = new Map(pathParams.map((p) => [p.name, wireActionParam(p, imports)]));
+    const pathArg = new Map(pathParams.map((p) => [p.name, wireActionParam(p)]));
 
     const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
     if (bodyParams.length > 0) {
       const bodyRecName = `${h.name}Body`;
-      const fields = bodyParams
-        .map((p) => {
-          collectJavaTypeImports(p.type, imports);
-          return `${renderJavaType(p.type)} ${p.name}`;
-        })
-        .join(", ");
+      const fields = bodyParams.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", ");
       bodyRecords.push(`record ${bodyRecName}(${fields}) {}`);
       actionParamParts.push(`@RequestBody ${bodyRecName} body`);
     }
@@ -885,16 +843,12 @@ export function emitExplicitRouteController(
     // Every other type (int, bool, BigDecimal, a response DTO) already routes to
     // Jackson, which is why only this arm changes.
     const isBareString = !!retType && renderJavaType(retType) === "String";
-    if (isBareString) {
-      imports.add("org.springframework.http.MediaType");
-      imports.add("tools.jackson.databind.json.JsonMapper");
-      usesJsonString = true;
-    }
+    if (isBareString) usesJsonString = true;
     const callLines = retType
       ? isBareString
         ? [
             `        var result = ${field}.handle(${callArgs});`,
-            `        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)`,
+            `        return ResponseEntity.ok().contentType(${javaRef("org.springframework.http", "MediaType")}.APPLICATION_JSON)`,
             `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
           ]
         : [
@@ -925,8 +879,6 @@ export function emitExplicitRouteController(
     content: lines(
       `package ${basePkg}.api;`,
       ``,
-      ...[...imports].sort().map((i) => `import ${i};`),
-      imports.size > 0 ? `` : null,
       `import org.springframework.http.ResponseEntity;`,
       `import org.springframework.web.bind.annotation.*;`,
       ``,
@@ -956,7 +908,7 @@ export function emitExplicitRouteController(
       // our own carries no risk and needs no bean lookup.  Jackson 3's
       // `JacksonException` is unchecked, so the action signature stays clean.
       usesJsonString
-        ? `    private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();\n`
+        ? `    private static final ${JSON_MAPPER} JSON = ${JSON_MAPPER}.builder().findAndAddModules().build();\n`
         : null,
       ...fields,
       ``,

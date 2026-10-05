@@ -26,15 +26,11 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
-import {
-  collectJavaExprImports,
-  collectJavaTypeImports,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { J } from "../java-symbols.js";
+import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
   javaAuditApiPkg,
   javaHistoryFind,
@@ -51,13 +47,7 @@ import {
   unionFindAsOptionalTwin,
 } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
-import {
-  collectWireImports,
-  collectWireToDomainImports,
-  domainToWire,
-  wireJavaType,
-  wireToDomain,
-} from "./wire.js";
+import { collectWireToDomainImports, domainToWire, wireJavaType, wireToDomain } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Application service per aggregate — the layered style's
@@ -83,6 +73,9 @@ export interface ServiceCtx {
   esCreateParams?: readonly ParamIR[];
 }
 
+const NULL_NODE = javaRef("tools.jackson.databind.node", "NullNode");
+const OFFSET_DATE_TIME = javaRef("java.time", "OffsetDateTime");
+
 export function renderJavaService(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -105,8 +98,6 @@ export function renderJavaService(
   // harmless no-op (the framework always provides the publisher) and keeps the
   // dispatch seam ready for an out-of-process relay (the outbox upgrade path).
   const dispatches = true;
-  const idJava = javaValueTypeForId(agg.idValueType);
-  if (idJava === "UUID") imports.add("java.util.UUID");
   const createInputs = forCreateInput(agg.fields);
   const eff = (t: TypeIR, optional: boolean): TypeIR =>
     optional && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
@@ -132,7 +123,6 @@ export function renderJavaService(
     // the request boundary, because that is where the clock and the principal
     // are — it is not a construction rule the domain could apply.
     if (dflt && isServerSourcedDefault(dflt)) {
-      collectJavaExprImports(dflt, imports);
       return `        var ${jid(f.name)} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
     }
     // Every OTHER default belongs to the factory (`javaFactoryDefault` in
@@ -183,15 +173,15 @@ export function renderJavaService(
     ? [
         `        var __after = ${agg.name}Response.from(aggregate);`,
         `        auditRecords.save(new AuditRecord(`,
-        `            UUID.randomUUID().toString(),`,
+        `            ${J.UUID}.randomUUID().toString(),`,
         `            ${JSON.stringify(`create${agg.name}`)},`,
         `            "create",`,
         `            ${JSON.stringify(agg.name)},`,
         `            aggregate.id().value().toString(),`,
         `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
-        `            NullNode.getInstance(),`,
+        `            ${NULL_NODE}.getInstance(),`,
         `            __after,`,
-        `            OffsetDateTime.now(),`,
+        `            ${OFFSET_DATE_TIME}.now(),`,
         `            "ok",`,
         `            RequestContext.correlationId(),`,
         `            RequestContext.scopeId(),`,
@@ -206,9 +196,7 @@ export function renderJavaService(
   // thin dispatch that holds neither.
   const createGates = lifecycleGates(agg.canonicalCreate);
   const destroyGates = lifecycleGates(agg.canonicalDestroy);
-  if (createGates.length > 0 || destroyGates.length > 0) {
-    imports.add(`${ctx.basePkg}.domain.common.ForbiddenException`);
-  }
+  const forbidden = javaRef(`${ctx.basePkg}.domain.common`, "ForbiddenException");
   /** One line per lifecycle `requires`.  `thisName` is undefined for a create
    *  (no instance exists yet — the guard reads the principal only) and the
    *  loaded local for a destroy.  The gate's own expression imports are
@@ -219,13 +207,12 @@ export function renderJavaService(
     thisName?: string,
   ): readonly string[] =>
     gates.map((g) => {
-      collectJavaExprImports(g.expr, imports);
       // No `thisName` for a create: the guard reads the principal only, so
       // there is nothing to name the (nonexistent) receiver after.
       return `        if (!(${renderJavaExpr(
         g.expr,
         thisName ? { thisName, accessorProps: true } : undefined,
-      )})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+      )})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
   const createLines = emitsRestCreate(agg)
     ? [
@@ -310,9 +297,6 @@ export function renderJavaService(
   // predicates INTO THIS FILE (the mapper is a private static on the service),
   // so `Objects.equals` / `Pattern.compile` / `BigDecimal` / `Instant` must be
   // imported here — nothing else scans a history mask predicate.
-  if (historyFind) {
-    for (const f of maskedHistoryFields(agg)) collectJavaExprImports(f.maskUnless!, imports);
-  }
   // RS-27 — every service throws it from the by-id read now, so the import is
   // unconditional rather than history-gated.
   imports.add(`${ctx.basePkg}.domain.common.AggregateNotFoundException`);
@@ -328,7 +312,6 @@ export function renderJavaService(
       // through to the repository — collect the domain-type import (BigDecimal
       // for decimal, UUID for a bare guid, …) to match the rendered signature,
       // not the wire→domain collector (which only covers money/datetime).
-      for (const p of f.params) collectJavaTypeImports(p.type, imports);
       if (isPagedFind(f)) {
         const pagedParams = [params, "int page, int pageSize, String sort, String dir"]
           .filter(Boolean)
@@ -371,17 +354,12 @@ export function renderJavaService(
   // enum values resolving to `<Enum>.<Value>` — the same expression the
   // can_<op> companion returns.
   const gatedOps = agg.operations.filter((op) => op.visibility === "public" && !!op.when);
-  if (gatedOps.length > 0) imports.add(`${ctx.basePkg}.domain.common.DisallowedException`);
   // …and the predicate's OWN imports, exactly as the hoisted `requires` gate
   // below collects its own (audit A17): the state gate renders here and in the
   // `can_<op>` companion, so `Objects.equals` / `Pattern.compile` / `Instant`
   // must be imported by THIS file — nothing else scans `op.when`.
-  for (const op of gatedOps) collectJavaExprImports(op.when!, imports);
   // The 403 the hoisted `requires` gate throws now lives HERE rather than in
   // the entity (op-gates.ts), so the service pulls the exception in.
-  if (agg.operations.some((op) => operationGates(op).length > 0)) {
-    imports.add(`${ctx.basePkg}.domain.common.ForbiddenException`);
-  }
   /** The hoisted authorization gate — the leading run of `requires` statements,
    *  evaluated by the SERVICE rather than the aggregate (op-gates.ts).
    *
@@ -396,15 +374,14 @@ export function renderJavaService(
       // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
       // over `op.statements` — a `tsc`-green emitter can still emit Java that
       // doesn't compile.
-      collectJavaExprImports(g.expr, imports);
       return `        if (!(${renderJavaExpr(g.expr, {
         thisName: "aggregate",
         accessorProps: true,
-      })})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+      })})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
   const whenGateLine = (op: (typeof agg.operations)[number]): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true })})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
+      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true })})) throw new ${javaRef(`${ctx.basePkg}.domain.common`, "DisallowedException")}("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&
@@ -416,13 +393,6 @@ export function renderJavaService(
   const anyOpAudited = agg.operations.some((op) => op.visibility === "public" && op.audited);
   const anyLifecycleAudited = auditCreate || auditDestroy;
   const anyAudited = anyOpAudited || anyLifecycleAudited;
-  if (anyAudited) {
-    imports.add("java.time.OffsetDateTime");
-    imports.add("java.util.UUID");
-  }
-  if (anyLifecycleAudited) {
-    imports.add("tools.jackson.databind.node.NullNode");
-  }
   // The audit-record actor reads `currentUserAccessor.user()` on an authed
   // system even when no operation otherwise uses the current user, so the
   // accessor must be injected whenever audit + auth are both present — not only
@@ -447,7 +417,7 @@ export function renderJavaService(
   const versioned = aggregateIsVersioned(agg);
   const ifMatchParam = versioned ? ", Integer ifMatch" : "";
   const ifMatchGuard = versioned
-    ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ObjectOptimisticLockingFailureException(${agg.name}.class, id.value());`
+    ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
     : null;
   const unionReturnNames = new Set<string>();
   const opLines = agg.operations
@@ -502,7 +472,6 @@ export function renderJavaService(
       // controller wraps it in `ResponseEntity.ok`).  Void ops (no returnType)
       // stay `void` + discard.
       const scalarReturn = !spec && !!op.returnType;
-      if (scalarReturn) collectWireImports(op.returnType!, imports, "Response");
       const returnsValue = !!spec || scalarReturn;
       const retType = spec
         ? spec.name
@@ -531,7 +500,7 @@ export function renderJavaService(
         `        repository.save(aggregate);`,
         audited ? `        var __after = ${agg.name}Response.from(aggregate);` : null,
         audited ? `        auditRecords.save(new AuditRecord(` : null,
-        audited ? `            UUID.randomUUID().toString(),` : null,
+        audited ? `            ${J.UUID}.randomUUID().toString(),` : null,
         audited ? `            ${JSON.stringify(`${op.name}${agg.name}`)},` : null,
         audited ? `            ${JSON.stringify(op.name)},` : null,
         audited ? `            ${JSON.stringify(agg.name)},` : null,
@@ -539,7 +508,7 @@ export function renderJavaService(
         audited ? `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},` : null,
         audited ? `            __before,` : null,
         audited ? `            __after,` : null,
-        audited ? `            OffsetDateTime.now(),` : null,
+        audited ? `            ${OFFSET_DATE_TIME}.now(),` : null,
         audited ? `            "ok",` : null,
         audited ? `            RequestContext.correlationId(),` : null,
         audited ? `            RequestContext.scopeId(),` : null,
@@ -579,15 +548,15 @@ export function renderJavaService(
             ? [
                 `        var __before = ${agg.name}Response.from(aggregate);`,
                 `        auditRecords.save(new AuditRecord(`,
-                `            UUID.randomUUID().toString(),`,
+                `            ${J.UUID}.randomUUID().toString(),`,
                 `            ${JSON.stringify(`destroy${agg.name}`)},`,
                 `            "destroy",`,
                 `            ${JSON.stringify(agg.name)},`,
                 `            id.value().toString(),`,
                 `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
                 `            __before,`,
-                `            NullNode.getInstance(),`,
-                `            OffsetDateTime.now(),`,
+                `            ${NULL_NODE}.getInstance(),`,
+                `            ${OFFSET_DATE_TIME}.now(),`,
                 `            "ok",`,
                 `            RequestContext.correlationId(),`,
                 `            RequestContext.scopeId(),`,
@@ -639,8 +608,7 @@ export function renderJavaService(
     ``,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
-    dispatches ? `import org.springframework.context.ApplicationEventPublisher;` : null,
-    versioned ? `import org.springframework.orm.ObjectOptimisticLockingFailureException;` : null,
+    `import org.springframework.context.ApplicationEventPublisher;`,
     ``,
     ctx.entityPkg !== ctx.pkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
     ...(ctx.entityPkg !== ctx.pkg
