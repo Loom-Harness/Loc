@@ -445,6 +445,16 @@ async function runCase(c) {
       }
       const depsMs = Date.now() - tDeps;
 
+      // Warnings are fatal, as the elixir build gates compile.  This leg
+      // compiles models no build gate does (the five shared systems/*.ddd)
+      // under MIX_ENV=dev, and `ecto.*` / `phx.server` /
+      // `mix test` compile without the flag (#2994 shipped a warning fatal
+      // only under `--warnings-as-errors`, green here).  FIRST compile of the
+      // case on purpose: `_build/<env>/lib/<app>` is absent when a case starts
+      // (above), and Elixir re-emits a warning only for a module it recompiles,
+      // so the flag on a later, incremental compile would pass vacuously.
+      execFileSync("mix", ["compile", "--warnings-as-errors"], { cwd: deplDir, stdio: "pipe", env: menv() });
+
       // Run the emitted ExUnit domain suite (pure domain — no DB tables — but
       // `mix test` boots the app in :test env, so the `api_test` DB must exist
       // for the Repo pool to connect).  ExUnit has no JUnit dep, so gate on the

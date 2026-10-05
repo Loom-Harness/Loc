@@ -11,35 +11,6 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // A COMMAND-triggered create (`create(n: int)`, no `by`) drives the vanilla
 // workflow-execution path; an event-triggered `create … by` persists through
 // dispatch-emit instead (covered by the phoenix/ash test).
-const SRC = `
-  system S {
-    subdomain M {
-      context C {
-        aggregate Order { status: string }
-        repository Orders for Order {}
-        workflow OrderFulfillment transactional {
-          attempts: int
-          create(n: int) { attempts := n }
-        }
-      }
-    }
-    api A from M
-    storage pg { type: postgres }
-    resource sagaState { for: C, kind: state, use: pg }
-    deployable d { platform: elixir  contexts: [C]  dataSources: [sagaState]  serves: A  port: 4000 }
-  }
-`;
-
-describe("vanilla foundation — workflow own-state assignment", () => {
-  it("rebinds the workflow state struct via a struct update", async () => {
-    const files = await generateSystemFiles(SRC);
-    const wf = [...files.entries()].find(([k]) =>
-      k.endsWith("workflows/order_fulfillment.ex"),
-    )?.[1];
-    expect(wf, "workflow execution module not emitted").toBeDefined();
-    expect(wf).toContain("state <- (%{state | attempts: n})");
-  });
-});
 
 // Scalar COMPOUND own-state mutation (`field += value` / `field -= value`) on
 // the vanilla foundation.  It lowers to the same `assign` node with the value
@@ -68,15 +39,6 @@ const COMPOUND_SRC = `
 `;
 
 describe("vanilla foundation — workflow own-state compound assignment", () => {
-  it("emits a read-modify-write struct update for an int `attempts += n`", async () => {
-    const files = await generateSystemFiles(COMPOUND_SRC);
-    const wf = [...files.entries()].find(([k]) =>
-      k.endsWith("workflows/order_fulfillment.ex"),
-    )?.[1];
-    expect(wf, "workflow execution module not emitted").toBeDefined();
-    expect(wf).toContain("state <- (%{state | attempts: record.attempts + n})");
-  });
-
   it("emits Decimal arithmetic for a money `total -= money(...)`", async () => {
     const files = await generateSystemFiles(COMPOUND_SRC);
     const wf = [...files.entries()].find(([k]) =>

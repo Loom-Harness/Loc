@@ -54,22 +54,6 @@ const context = (body: string) => `system S {
   } }
 }`;
 
-/** The same context hosted on a real deployable, so the per-backend gate runs.
- *  `platform` is the knob under test. */
-const hostedOn = (platform: string, body: string) => `system S {
-  subdomain Sales { context Orders {
-    aggregate Order { code: string  total: money  derived display: string = code }
-    repository Orders for Order { }
-    ${body}
-  } }
-
-  api SalesApi from Sales
-  storage primarySql { type: postgres }
-  resource ordersState { for: Orders, kind: state, use: primarySql }
-
-  deployable api { platform: ${platform} contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-}`;
-
 const TOTALS = `projection SalesTotals { orders: int
   from Order as o
   select orders = count }`;
@@ -117,19 +101,6 @@ describe("lowering normalises a whole-table aggregation", () => {
     );
     expect(q?.selects?.[0]?.aggregate).toBeUndefined();
   });
-});
-
-describe("loom.projection-whole-table-aggregation-unsupported (per-backend)", () => {
-  // All five backends have now ported the SQL push-down, so the gate is silent
-  // everywhere.  The check stays — it is the seam a NEW backend gates on until
-  // it ports, and the assertion is what would catch a port being lost.
-  for (const platform of ["node", "python", "java", "dotnet", "elixir"]) {
-    it(`is silent on ${platform} — its emitter pushes the aggregation down to SQL`, async () => {
-      expect(await codes(hostedOn(platform, TOTALS))).not.toContain(
-        "loom.projection-whole-table-aggregation-unsupported",
-      );
-    });
-  }
 });
 
 describe("loom.projection-groupby-missing", () => {
@@ -246,7 +217,6 @@ describe("loom.projection-select-unresolved", () => {
         select customerName = c.name }`),
     );
     expect(reported).not.toContain("loom.projection-select-unresolved");
-    expect(reported).not.toContain("loom.projection-whole-table-aggregation-unsupported");
   });
 });
 

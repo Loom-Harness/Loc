@@ -1,0 +1,53 @@
+{
+  "policy": {
+    "bundle": { "growTolerance": 0.05, "shrinkTolerance": 0.05 },
+    "boot": { "growTolerance": 0.5, "shrinkTolerance": 0.5 }
+  },
+  "entries": {
+    "bundle:react/mantine": {
+      "kind": "bundle",
+      "baseline": 350025,
+      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+    },
+    "bundle:vue/vuetify": {
+      "kind": "bundle",
+      "baseline": 382972,
+      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+    },
+    "bundle:svelte/flowbite": {
+      "kind": "bundle",
+      "baseline": 339403,
+      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+    },
+    "bundle:angular/primeng": {
+      "kind": "bundle",
+      "baseline": 292617,
+      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 24.21 — the Angular CLI refuses 22.22.2 — ng build, gzip -9 js+css)"
+    },
+    "boot:node": {
+      "kind": "boot",
+      "baseline": null,
+      "measuredOn": "unpinned — the sandbox's docker builds cannot reach the npm registry through its proxy; the first nightly measures it and fails naming the value to pin"
+    },
+    "boot:python": {
+      "kind": "boot",
+      "baseline": null,
+      "measuredOn": "unpinned — the sandbox's docker builds cannot reach PyPI through its proxy; the first nightly pins it"
+    },
+    "boot:dotnet": {
+      "kind": "boot",
+      "baseline": null,
+      "measuredOn": "unpinned — the sandbox's docker builds cannot reach NuGet through its proxy; the first nightly pins it"
+    },
+    "boot:java": {
+      "kind": "boot",
+      "baseline": null,
+      "measuredOn": "unpinned — the sandbox's docker builds cannot reach Maven Central through its proxy; the first nightly pins it"
+    },
+    "boot:elixir": {
+      "kind": "boot",
+      "baseline": null,
+      "measuredOn": "unpinned — the sandbox's docker builds cannot reach hex.pm through its proxy; the first nightly pins it"
+    }
+  }
+}

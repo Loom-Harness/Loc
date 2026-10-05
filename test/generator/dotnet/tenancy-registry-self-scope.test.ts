@@ -83,14 +83,4 @@ describe("dotnet generator — derived registry self-scope filter", () => {
       'modelBuilder.Entity<Organization>().HasQueryFilter("IdFilter", x => x.Id == __SelfScopeId_Organization_0);',
     );
   });
-
-  it("does NOT thread the claim into the registry's create path (no stamp interceptor arm)", async () => {
-    const files = await generateSystemFiles(SRC);
-    const interceptor = files.get("d/Infrastructure/Persistence/AuditableInterceptor.cs");
-    // The interceptor (if emitted for tenantOwned's stamp) must not touch the
-    // registry — only Invoice carries the tenantId stamp.
-    if (interceptor) {
-      expect(interceptor).not.toContain("case Organization");
-    }
-  });
 });

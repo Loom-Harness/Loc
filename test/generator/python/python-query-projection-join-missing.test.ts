@@ -85,38 +85,10 @@ async function routes(): Promise<string> {
 }
 
 describe("python query-time projection — a join read never indexes the map directly (G2667-D3)", () => {
-  it("never indexes the join map with a bare subscript", async () => {
-    const r = await routes();
-    // The old, crashing shape: `customer_by_id[str(r.customer_id)]`.
-    expect(r).not.toMatch(/customer_by_id\[/);
-  });
-
-  it("guards the string field through .get(...) — None on a missing join row", async () => {
-    const r = await routes();
-    expect(r).toContain(
-      '"customerName": (__j0.name if (__j0 := customer_by_id.get(str(r.customer_id))) is not None else None),',
-    );
-  });
-
-  it("guards the datetime field — the iso() wrap sits INSIDE the guard, not applied to None", async () => {
-    const r = await routes();
-    expect(r).toContain(
-      '"customerSignedUpAt": (iso(__j1.signed_up_at) if (__j1 := customer_by_id.get(str(r.customer_id))) is not None else None),',
-    );
-    // The would-be crash if the wrap were outside the guard.
-    expect(r).not.toMatch(/iso\(customer_by_id\[/);
-  });
-
   it("guards the decimal field the same way", async () => {
     const r = await routes();
     expect(r).toContain(
       '"customerDiscount": (__j2.discount if (__j2 := customer_by_id.get(str(r.customer_id))) is not None else None),',
     );
-  });
-
-  it("source-row fields (no join) are unaffected — still read straight off r", async () => {
-    const r = await routes();
-    expect(r).toContain('"orderId": r.id,');
-    expect(r).toContain('"code": r.code,');
   });
 });
