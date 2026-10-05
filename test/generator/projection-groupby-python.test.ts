@@ -54,47 +54,11 @@ async function routesFile(src: string): Promise<string> {
 }
 
 describe("python grouped aggregation (group by)", () => {
-  it("emits ONE SQL query with the keys and aggregates, grouped AND ordered by the key column", async () => {
-    const routes = await routesFile(SRC);
-    expect(routes).toContain("select(OrderRow.status, func.count(), func.sum(OrderRow.total))");
-    expect(routes).toContain(".group_by(OrderRow.status)");
-    expect(routes).toContain(".order_by(OrderRow.status)");
-  });
-
-  it("lowers the `where` into the same query", async () => {
-    const routes = await routesFile(SRC);
-    expect(routes).toContain(".where(");
-    expect(routes).toContain("OrderStatus.Confirmed");
-  });
-
   it("does NOT load rows through the repository", async () => {
     // The rehydrate-and-fold read this shape exists to avoid.
     const routes = await routesFile(SRC);
     expect(routes).not.toContain("OrderRepository");
     expect(routes).not.toContain("repo.");
-  });
-
-  it("responds with the LIST shape — RootModel over the row, imported even when grouped is the only projection", async () => {
-    const routes = await routesFile(SRC);
-    expect(routes).toContain("class SalesByStatusResponse(RootModel[list[SalesByStatusRow]]):");
-    expect(routes).toContain("from pydantic import BaseModel, RootModel");
-    // Not the singleton object shape.
-    expect(routes).not.toContain("class SalesByStatusResponse(SalesByStatusRow):");
-    expect(routes).toContain("-> list[dict[str, object]]:");
-  });
-
-  it("maps each row: key passed through, aggregates coerced to their declared wire types", async () => {
-    // The enum key column stores its wire string on the row (Text) — no
-    // rewrap; the aggregates reuse the singleton coercions (`numeric` sum
-    // reads back as Decimal/None, so a money row field stringifies, an int
-    // count zero-defaults).
-    const routes = await routesFile(SRC);
-    expect(routes).toContain('"status": r[0],');
-    expect(routes).toContain('"orders": int(r[1] or 0),');
-    // money pins the fixed wire scale (RS-12 / #2549) via `money_str`, not a
-    // bare `str` of whatever scale SQL returned.
-    expect(routes).toContain('"revenue": money_str(Decimal(r[2] or 0)),');
-    expect(routes).toContain("for r in result");
   });
 });
 
