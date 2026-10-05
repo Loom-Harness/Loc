@@ -124,12 +124,6 @@ const PINNED: Record<string, Pin> = {
     discipline: "build-once-cache",
     reason: "Parsed stdlib decls, built once; consumers only read.",
   },
-  "src/language/type-system.ts:lettingInFlight": {
-    discipline: "scoped-restore",
-    reason:
-      "Re-entrancy guard for let-type inference; the `add` is paired with a " +
-      "`finally { delete }`, so a throwing initializer cannot leave the node latched.",
-  },
   "src/macros/api/factories-internals.ts:_activeOrigin": {
     discipline: "scoped-restore",
     reason: "`_withOrigin` saves the previous origin and restores it in a `finally`.",
