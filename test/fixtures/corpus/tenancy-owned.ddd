@@ -103,5 +103,21 @@ system TenantOwned {
     let noPlans = api.plans.all()
     expect(noPlans.items.length).toBe(0)
     expect(noPlans.total).toBe(0)
+
+    // The REGISTRY's derived self-scope (PROMOTED from the per-backend
+    // `*-tenancy-registry-self-scope.test.ts` string copies, M-T9.42).
+    // Enrichment ANDs `this.id == currentUser.tenantId` into every root read
+    // of `Organization`, but never into its create — so the claim-less signup
+    // bootstrap stays open (201).  The harness principal's claim is "acme",
+    // which is not a uuid: the registry id is, so each backend must bind the
+    // claim through a well-formedness guard and read EMPTY — a raw bind makes
+    // Postgres reject the statement and answers 500 (M-T3.7(c)).  The row
+    // exists; the self-scope is what hides it, on the by-id read, the list,
+    // and the list's count.
+    let org = api.organizations.create({ name: "Acme" })
+    expect(api.organizations.getById(org)).toThrow(404)
+    let orgs = api.organizations.all()
+    expect(orgs.items.length).toBe(0)
+    expect(orgs.total).toBe(0)
   }
 }

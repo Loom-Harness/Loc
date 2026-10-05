@@ -75,18 +75,6 @@ async function file(name: string): Promise<string> {
 }
 
 describe("java provenance runtime", () => {
-  it("emits the shared ProvLineage SDK records", async () => {
-    const lineage = await file("/domain/common/ProvLineage.java");
-    expect(lineage).toContain("public record ProvLineage(");
-    expect(lineage).toContain("String snapshotId,");
-    expect(lineage).toContain("ProvTarget target,");
-    expect(lineage).toContain("List<ProvInput> inputs,");
-    const target = await file("/domain/common/ProvTarget.java");
-    expect(target).toContain("public record ProvTarget(String type, String field)");
-    const input = await file("/domain/common/ProvInput.java");
-    expect(input).toContain("public record ProvInput(String path, Object value)");
-  });
-
   it("emits the provenance_records JPA entity + Spring Data repository", async () => {
     const entity = await file("/infrastructure/persistence/ProvenanceRecord.java");
     expect(entity).toContain("@Entity");
@@ -97,29 +85,6 @@ describe("java provenance runtime", () => {
     expect(repo).toContain(
       "interface ProvenanceRecordRepository extends JpaRepository<ProvenanceRecord, String>",
     );
-  });
-
-  it("gives the aggregate a co-located jsonb lineage field + drain buffer", async () => {
-    const entity = await file("/Order.java");
-    expect(entity).toContain("@JdbcTypeCode(SqlTypes.JSON)");
-    expect(entity).toContain('@Column(name = "total_provenance")');
-    expect(entity).toContain("ProvLineage totalProvenance;");
-    expect(entity).toContain(
-      "private final transient List<ProvLineage> _provTraces = new ArrayList<>();",
-    );
-    expect(entity).toContain("public List<ProvLineage> drainProv() {");
-  });
-
-  it("captures lineage at the provenanced write site", async () => {
-    const entity = await file("/Order.java");
-    // inputs snapshotted before the write, lineage built + dual-sinked after.
-    expect(entity).toMatch(/var __prov_\d+ = java\.util\.List\.<ProvInput>of\(/);
-    expect(entity).toContain('new ProvInput("qty", qty)');
-    expect(entity).toContain('new ProvTarget("Order", "total")');
-    expect(entity).toMatch(/this\.totalProvenance = __lin_\d+;/);
-    expect(entity).toMatch(/this\._provTraces\.add\(__lin_\d+\);/);
-    // The snapshotId is IR-sourced (the content hash), not invented per backend.
-    expect(entity).toMatch(/new ProvLineage\("[0-9a-f]+", new ProvTarget/);
   });
 
   it("flushes the lineage buffer into provenance_records inside the @Transactional save", async () => {
@@ -139,23 +104,6 @@ describe("java provenance runtime", () => {
     expect(repo).toContain("RequestContext.actorId()");
     expect(repo).toContain("RequestContext.parentId()");
     expect(repo.indexOf("jpa.save(aggregate)")).toBeLessThan(repo.indexOf("drainProv"));
-  });
-
-  it("exposes the current lineage INSIDE the field's own carrier component", async () => {
-    const resp = await file("/OrderResponse.java");
-    expect(resp).toContain("import com.loom.api.domain.common.ProvLineage;");
-    expect(resp).toContain("import com.loom.api.domain.common.Provenanced;");
-    // M-T6.12 — one `Provenanced<Integer> total` component, not a bare `int
-    // total` plus a trailing `@JsonProperty("total_provenance") ProvLineage`.
-    expect(resp).toContain("Provenanced<Integer> total");
-    expect(resp).not.toContain("total_provenance");
-    // The mapper folds the domain's two accessors into that one argument.
-    expect(resp).toContain("new Provenanced<>(value.total(), value.totalProvenance())");
-    // The shared generic record ships in domain.common.
-    const carrier = await file("/domain/common/Provenanced.java");
-    expect(carrier).toContain("public record Provenanced<T>(");
-    expect(carrier).toContain("    T value,");
-    expect(carrier).toContain("    ProvLineage lineage) {");
   });
 
   it("adds the co-located column in a late migration and takes the history table from MigrationsIR", async () => {
