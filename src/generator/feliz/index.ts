@@ -1273,7 +1273,7 @@ function renderAppFs(
   const reads: FelizRead[] = readsForUi(ui, contexts);
   const readFields = new Set(reads.map((r) => r.field));
   for (const target of fkTargets) {
-    const r = felizAllRead(target);
+    const r = felizAllRead(target, { bcByAggregate: bcByAggregateOf(contexts) });
     if (!readFields.has(r.field)) {
       readFields.add(r.field);
       reads.push(r);
@@ -1288,7 +1288,7 @@ function renderAppFs(
   const hasRealtime = backendRealtime && (ui.notifications?.length ?? 0) > 0;
   if (hasRealtime) {
     for (const agg of felizRealtimeRefetchAggregates(ui)) {
-      const r = felizAllRead(agg);
+      const r = felizAllRead(agg, { bcByAggregate: bcByAggregateOf(contexts) });
       if (!readFields.has(r.field)) {
         readFields.add(r.field);
         reads.push(r);

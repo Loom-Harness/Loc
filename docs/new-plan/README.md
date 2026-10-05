@@ -74,7 +74,7 @@ The unsupported-diagnostic register (`src/diagnostics/unsupported-register.ts`) 
 | T5 | 26 | 17 |
 | T6 | 27 | 52 |
 | T7 | 9 | 1 |
-| T8 | 18 | 10 |
+| T8 | 19 | 10 |
 | T9 | 43 | 23 |
 | T10 | 7 | 0 |
 | **all** | **188** | **135** |
