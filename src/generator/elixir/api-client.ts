@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------------------
 // Typed in-system api client (M-T4.8) — the Phoenix/Elixir caller
-// half, and the last one: with this the `REMOTE_API_OP_UNSUPPORTED` set empties
-// and the honest-gap validator that guarded the feature goes away.
+// half, and the last one: every backend now emits a typed in-system client.
 //
 // Same contract as the four siblings; Elixir idiom.  One
 // `<resource>_<operation_id>/N` per operation the CALLEE exposes, replacing the

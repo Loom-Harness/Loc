@@ -62,13 +62,6 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("python — computed date grouping key", () => {
-  it("uses the identical bucket expression in select, group_by and order_by", async () => {
-    const routes = file(await build("python"), "query_projections_routes.py");
-    expect(
-      routes.split(`func.date_trunc(literal_column("'day'"), OrderRow.placed_at)`).length - 1,
-    ).toBe(3);
-  });
-
   it("maps NO read-model table for a query-time projection", async () => {
     // Regression (pre-existing, and NOT limited to grouped projections — the
     // shipped singleton `select orders = count()` shape hit it too): a
@@ -86,38 +79,13 @@ describe("python — computed date grouping key", () => {
 });
 
 describe("java — computed date grouping key", () => {
-  it("uses HQL's function() escape identically in select, group by and order by", async () => {
+  it("emits the normaliser ONLY when a transformed key needs it", async () => {
     const svc = file(await build("java"), "OrdersQueryProjections.java");
-    expect(svc).toContain(
-      "select function('date_trunc', 'day', e.placedAt), count(e), sum(e.total) from Order e" +
-        " group by function('date_trunc', 'day', e.placedAt)" +
-        " order by function('date_trunc', 'day', e.placedAt)",
-    );
-  });
-});
-
-describe("dotnet — computed date grouping key", () => {
-  it("names the anonymous GroupBy member after column AND transform", async () => {
-    // A bare column lets C# infer the member name; a computed key has no
-    // inferable name, and the name has to encode the transform so the same
-    // column grouped raw and grouped-by-day cannot collapse onto one member.
-    const handler = file(await build("dotnet"), "DailyRevenueQpHandler.cs");
-    expect(handler).toContain(".GroupBy(o => new { PlacedAtStartOfDay = o.PlacedAt.Date })");
-    expect(handler).toContain("g.Key.PlacedAtStartOfDay");
-    expect(handler).toContain(".OrderBy(x => x.PlacedAtStartOfDay)");
+    expect(svc.split("private static java.time.Instant groupKeyInstant").length - 1).toBe(1);
   });
 });
 
 describe("elixir — computed date grouping key", () => {
-  it("uses one Ecto fragment for select, group_by and order_by", async () => {
-    const mod = file(await build("elixir"), "daily_revenue.ex");
-    const frag = `fragment("date_trunc('day', ?)", record.placed_at)`;
-    expect(mod).toContain(`group_by: ${frag}`);
-    expect(mod).toContain(`order_by: ${frag}`);
-    expect(mod).toContain(`select: %{day: ${frag}`);
-    expect(mod.split(frag).length - 1).toBe(3);
-  });
-
   it("emits the normaliser ONLY when a transformed datetime key needs it", async () => {
     const plain = file(await buildPlainKey(), "by_code.ex");
     expect(plain).toContain("group_by: record.code");

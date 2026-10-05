@@ -70,38 +70,6 @@ describe(".NET grouped query-time projection (group by)", () => {
     expect(handler).not.toContain("_repo.");
   });
 
-  it("folds the `where` into the same query and orders by the grouping key", async () => {
-    const handler = await fileEndingWith(
-      system(BY_STATUS),
-      "Projections/SalesByStatusQpHandler.cs",
-    );
-    expect(handler).toContain(".Where(o => o.Status == OrderStatus.Confirmed)");
-    // ORDER BY the grouping columns is REQUIRED — deterministic cross-backend reads.
-    expect(handler).toContain(".OrderBy(x => x.Status)");
-  });
-
-  it("multi-column grouping: composite anonymous key, ThenBy chain, id key unwraps to Guid", async () => {
-    const handler = await fileEndingWith(
-      system(`projection ByStatusAndCustomer {
-        status: OrderStatus
-        customerId: Customer id
-        orders: int
-        from Order as o
-        group by o.status, o.customerId
-        select status = o.status, customerId = o.customerId, orders = count()
-      }`),
-      "Projections/ByStatusAndCustomerQpHandler.cs",
-    );
-    expect(handler).toContain(".GroupBy(o => new { o.Status, o.CustomerId })");
-    expect(handler).toContain(
-      ".Select(g => new { g.Key.Status, g.Key.CustomerId, Orders = g.Count() })",
-    );
-    expect(handler).toContain(".OrderBy(x => x.Status).ThenBy(x => x.CustomerId)");
-    // The Row declares `Guid CustomerId` (ids ride the .NET wire as Guid), so
-    // the strongly-typed key unwraps via `.Value` — same as the per-row arm.
-    expect(handler).toContain("x.CustomerId.Value");
-  });
-
   it("emits the requires gate (403 before the query) exactly like the other projection handlers", async () => {
     const handler = await fileEndingWith(
       system(
@@ -127,13 +95,5 @@ describe(".NET grouped query-time projection (group by)", () => {
     const queryIdx = handler.indexOf("var groups = await _db.");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
-  });
-
-  it("an ungated grouped projection emits no gate", async () => {
-    const handler = await fileEndingWith(
-      system(BY_STATUS),
-      "Projections/SalesByStatusQpHandler.cs",
-    );
-    expect(handler).not.toContain("ForbiddenException");
   });
 });

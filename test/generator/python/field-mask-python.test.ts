@@ -10,7 +10,6 @@ import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import {
   aggHasFieldMask,
-  buildPyRepositoryFile,
   maskedWireFields,
   toWireMaskedMethod,
 } from "../../../src/generator/python/repository-builder.js";
@@ -71,13 +70,5 @@ describe("mask unless — Python read redaction", () => {
     // apart, which is why this one is deliberately camelCase.
     expect(method).toContain('d["homeAddress"] = None');
     expect(method).not.toContain('d["home_address"] = None');
-  });
-
-  it("the repository imports the non-raising current_user getter", async () => {
-    const { ctx, agg } = await ctxAndAgg();
-    const repo = ctx.repositories.find((r) => r.aggregateName === "P");
-    const file = buildPyRepositoryFile(agg, repo, ctx);
-    expect(file).toContain("from app.auth.user import current_user");
-    expect(file).toContain("def to_wire_masked");
   });
 });

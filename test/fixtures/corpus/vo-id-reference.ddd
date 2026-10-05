@@ -31,7 +31,7 @@
 system Ports {
   subdomain Harbour {
     context Docking {
-      aggregate Ship {
+      aggregate Ship with crudish {
         name: string
       }
 
@@ -41,7 +41,7 @@ system Ports {
         position: int
         derived assignedShip: Ship id = ship
         function servesShip(other: Ship id): bool = ship == other
-        invariant position > 0
+        invariant position > 0 message "A berth position starts at 1"
       }
 
       aggregate Dock with crudish {
@@ -68,5 +68,32 @@ system Ports {
     dataSources: [dockingState]
     serves: DockingApi
     port: 4000
+  }
+
+  test e2e "a value object's Ship id survives both the embedded and the collection path" against d {
+    let maru = api.ships.create({ name: "Maru" })
+    let vega = api.ships.create({ name: "Vega" })
+    let dock = api.docks.create({ name: "North", berth: { ship: vega.id, position: 1 }, berths: [{ ship: maru.id, position: 2 }, { ship: vega.id, position: 3 }] })
+    let read = api.docks.getById(dock)
+    expect(read.berth.ship).toBe(vega.id)
+    expect(read.berth.position).toBe(1)
+    expect(read.berths.count()).toBe(2)
+    expect(read.berths.first().ship).toBe(maru.id)
+    expect(read.berths.first().position).toBe(2)
+    expect(api.docks.create({ name: "Bad", berth: { ship: maru.id, position: 0 }, berths: [] })).toThrow(422)
+    expect(api.docks.create({ name: "Bad", berth: { ship: maru.id, position: 1 }, berths: [{ ship: vega.id, position: 0 }] })).toThrow(422)
+    api.docks.update(dock, { name: "North", berth: { ship: maru.id, position: 5 }, berths: [{ ship: vega.id, position: 6 }] })
+    let moved = api.docks.getById(dock)
+    expect(moved.berth.ship).toBe(maru.id)
+    expect(moved.berths.count()).toBe(1)
+    expect(moved.berths.first().ship).toBe(vega.id)
+    expect(api.docks.all().total).toBe(1)
+    expect(api.ships.all().total).toBe(2)
+    expect(api.ships.getById(maru).name).toBe("Maru")
+    api.ships.update(maru, { name: "Maru II" })
+    api.docks.destroy(dock)
+    api.ships.destroy(vega)
+    api.ships.destroy(maru)
+    expect(api.docks.getById(dock)).toThrow(404)
   }
 }

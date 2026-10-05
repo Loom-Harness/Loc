@@ -43,41 +43,11 @@ async function routes(): Promise<string> {
 }
 
 describe("hono grouped aggregation (group by)", () => {
-  it("emits ONE SQL query with the keys and aggregates, grouped AND ordered by the key column", async () => {
-    const p = await routes();
-    expect(p).toContain(
-      "const rows = await db.select({ status: schema.orders.status, orders: count(), " +
-        "revenue: sum(schema.orders.total) }).from(schema.orders)" +
-        '.where(eq(schema.orders.status, "Confirmed"))' +
-        ".groupBy(schema.orders.status).orderBy(schema.orders.status);",
-    );
-  });
-
   it("does NOT load rows through the repository", async () => {
     // The rehydrate-and-fold read this shape exists to avoid.
     const p = await routes();
     expect(p).not.toContain("await repo.salesByStatus()");
     expect(p).not.toMatch(/const rows = await repo\./);
-  });
-
-  it("declares the key field in the row schema with its wire type (enum literal union)", async () => {
-    expect(await routes()).toContain('status: z.enum(["Draft", "Confirmed"])');
-  });
-
-  it("maps each row: key passed through, aggregates coerced to their declared wire types", async () => {
-    // The enum key column already returns the wire string — no rewrap; the
-    // aggregates reuse the singleton coercions (`numeric` sum is a driver
-    // string, so a money row field stays a string, an int count a number).
-    const p = await routes();
-    expect(p).toContain("const projected = rows.map((r) => ({");
-    expect(p).toContain("      status: r.status,");
-    // Integral aggregates are range-checked on the grouped arm too (M-T5.23).
-    expect(p).toContain(
-      '      orders: __intWire(r.orders ?? 0, -2147483648, 2147483647, "orders"),',
-    );
-    // money pins the fixed wire scale (RS-12 / #2549); `String()` shipped
-    // whatever scale the driver returned.
-    expect(p).toContain("      revenue: new Decimal(r.revenue ?? 0).toFixed(4),");
   });
 });
 

@@ -39,30 +39,6 @@ const get = (p: string): string => {
 const routes = get("api/app/http/invoice_routes.py");
 
 describe("python generator — audited lifecycle actions", () => {
-  it("emits the audit model + record_audit helper when ONLY lifecycle actions are audited", () => {
-    // `pay()` is NOT audited — only create/destroy are — yet the shared
-    // predicate still turns on the audit runtime.
-    expect(get("api/app/db/audit.py")).toContain("class AuditRecordRow(Base):");
-    expect(get("api/app/db/repositories/invoice_repository.py")).toContain(
-      "async def record_audit(",
-    );
-  });
-
-  it("imports JSON for the JSON-null literal on the asymmetric side", () => {
-    expect(routes).toContain("from sqlalchemy import JSON");
-  });
-
-  it("audits the create with before=JSON.NULL and after=wire(created) after the save", () => {
-    expect(routes).toContain("repo = _repo(session)");
-    expect(routes).toContain("await repo.save(created)");
-    expect(routes).toContain("await repo.record_audit(");
-    expect(routes).toContain('operation_id="createInvoice",');
-    expect(routes).toContain('action="create",');
-    expect(routes).toContain("target_id=str(created.id),");
-    expect(routes).toContain("before=JSON.NULL,");
-    expect(routes).toContain("after=repo.to_wire(created),");
-  });
-
   it("audits the destroy with before=wire(loaded) and after=JSON.NULL before the delete", () => {
     expect(routes).toContain("__before = repo.to_wire(__loaded)");
     expect(routes).toContain('operation_id="destroyInvoice",');

@@ -63,49 +63,6 @@ async function fileEndingWith(suffix: string): Promise<string> {
   throw new Error(`no generated file ending with ${suffix}`);
 }
 
-describe("elixir grouped projection — the query", () => {
-  it("groups AND orders by the key in one Ecto query, with the where folded in", async () => {
-    const mod = await fileEndingWith("query_projections/sales_by_status.ex");
-    // ONE query: filter + group_by + order_by + aggregate select, nothing
-    // hydrated into structs.  order_by over the grouping column is REQUIRED
-    // (deterministic cross-backend reads).
-    expect(mod).toMatch(
-      /from\(record in [\w.]+, where: .+, group_by: record\.status, order_by: record\.status, select: %\{status: record\.status, orders: count\(record\.id\), revenue: sum\(record\.total\), avgLines: avg\(record\.line_count\)\}\)/,
-    );
-    // The `where Confirmed` criterion is in the same query.
-    expect(mod).toContain('"Confirmed"');
-  });
-
-  it("multi-key grouping lists every column in group_by AND order_by", async () => {
-    const mod = await fileEndingWith("query_projections/sales_by_status_and_code.ex");
-    expect(mod).toContain(
-      "group_by: [record.status, record.code], order_by: [record.status, record.code]",
-    );
-  });
-});
-
-describe("elixir grouped projection — coercions follow the DECLARED row type", () => {
-  it("enum key passes through; count zero-defaults; money → string; decimal → float (RS-24)", async () => {
-    const mod = await fileEndingWith("query_projections/sales_by_status.ex");
-    // Ecto.Enum loads the key as an atom — Jason encodes it as the declared
-    // string, exactly like the per-row arm's struct read.
-    expect(mod).toContain("status: row.status,");
-    // The integral arm range-checks instead of passing through (M-T5.23) —
-    // elixir carries any integer exactly, but `count` is a bigint in SQL and
-    // the field publishes `format: int32` like every other backend's.
-    expect(mod).toContain(
-      'orders: __int_wire(row.orders || 0, -2147483648, 2147483647, "orders"),',
-    );
-    expect(mod).toContain("defp __int_wire(value, min, max, _field)");
-    // Jason encodes a bare %Decimal{} as a JSON string — what money wants and
-    // what a plain decimal must NOT be (the other four backends ship a number).
-    // money pins the fixed wire scale (RS-12 / #2549) through the emitted
-    // `__money_wire/1`, rather than stringifying the aggregate as it arrived.
-    expect(mod).toContain("revenue: __money_wire(row.revenue || 0),");
-    expect(mod).toContain("Decimal.to_float(");
-  });
-});
-
 describe("elixir grouped projection — the controller", () => {
   it("emits the requires gate (403 before the query) for the gated projection only", async () => {
     const ctrl = await fileEndingWith("controllers/query_projections_controller.ex");

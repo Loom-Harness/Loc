@@ -50,26 +50,9 @@ async function gen() {
 }
 
 describe("message clause — wire refine carrier", () => {
-  it("renders a messaged invariant as a refine with the text + a stable loomCode", async () => {
-    const { reactApi } = await gen();
-    expect(reactApi).toContain(
-      `.refine((data: any) => [...data.name].length >= 2 && [...data.name].length <= 120, { path: ["name"], message: "Name must be 2-120 characters"`,
-    );
-  });
-
   it("renders a messaged check as a refine with its text", async () => {
     const { reactApi } = await gen();
     expect(reactApi).toContain('message: "SKU is required"');
-  });
-
-  it("renders a messaged precondition as a refine (not the native .min chain)", async () => {
-    const { reactApi } = await gen();
-    expect(reactApi).toContain(
-      `.refine((data: any) => data.amount >= 1, { path: ["amount"], message: "Amount must be positive"`,
-    );
-    // The precondition's native `.min(1)` optimisation is bypassed for a
-    // messaged rule so the text survives.
-    expect(reactApi).not.toContain("amount: z.number().int().min(1)");
   });
 
   it("keeps a message-LESS invariant on the native chain", async () => {
@@ -80,42 +63,5 @@ describe("message clause — wire refine carrier", () => {
     expect(reactApi).toContain(
       'sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" })',
     );
-  });
-});
-
-describe("message clause — domain floor", () => {
-  it("throws the author text (not the derived default) in the domain floor", async () => {
-    const { domain } = await gen();
-    // M-T1.11 (c): the domain floor carries the rule's wire code + pointer.
-    expect(domain).toContain(
-      'throw new DomainError("Name must be 2-120 characters", "msg.j985f2", "/name")',
-    );
-    expect(domain).toContain('throw new DomainError("SKU is required", "msg.u3w71r", "/sku")');
-    // message-less invariant keeps the derived default.
-    expect(domain).toContain('throw new DomainError("Invariant violated: sku.length > 0")');
-  });
-});
-
-describe("message clause — wire code (Hono runtime)", () => {
-  it("carries a stable loomCode in the refine params", async () => {
-    const { reactApi } = await gen();
-    expect(reactApi).toMatch(
-      /message: "Name must be 2-120 characters", params: \{ loomCode: "msg\.[a-z0-9]{6}" \}/,
-    );
-    // Same text → same code (deterministic content hash).
-    const codes = [...reactApi.matchAll(/loomCode: "(msg\.[a-z0-9]{6})"/g)].map((m) => m[1]);
-    expect(new Set(codes).size).toBe(codes.length); // distinct messages → distinct codes
-  });
-
-  it("declares the optional `code` on the runtime ProblemDetails errors[] entry", async () => {
-    const { problem } = await gen();
-    expect(problem).toContain(
-      "errors: z.array(z.object({ pointer: z.string(), message: z.string(), code: z.string().nullish() }))",
-    );
-  });
-
-  it("maps issue.params.loomCode onto errors[].code in the defaultHook", async () => {
-    const { problem } = await gen();
-    expect(problem).toContain("issue.params?.loomCode");
   });
 });

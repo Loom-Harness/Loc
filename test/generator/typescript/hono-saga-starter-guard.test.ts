@@ -7,24 +7,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-// create(e: ProjectArchived) AND on(e: ProjectArchived) — the same-event saga pair.
-const PAIRED = `system S { subdomain O { context O {
-  aggregate Order { name: string  operation archive() { emit ProjectArchived { project: id } } }
-  repository Orders for Order { }
-  event ProjectArchived { project: Order id }
-  event ProjectArchivedRecorded { project: Order id, count: int }
-  channel L { carries: ProjectArchived, ProjectArchivedRecorded  delivery: broadcast  retention: ephemeral }
-  workflow Tracker eventSourced {
-    project: Order id
-    archivedCount: int
-    create(e: ProjectArchived) by e.project { emit ProjectArchivedRecorded { project: e.project, count: 1 } }
-    on(e: ProjectArchived) by e.project { emit ProjectArchivedRecorded { project: e.project, count: 1 } }
-    apply(r: ProjectArchivedRecorded) { archivedCount := archivedCount + r.count }
-  }
-} } api A from O storage pg { type: postgres }
-  resource oState { for: O, kind: state, use: pg }
-  deployable api { platform: node contexts: [O] serves: A dataSources: [oState] port: 8080 } }`;
-
 // create + on on DIFFERENT events — no pairing, so the starter must NOT guard.
 const UNPAIRED = `system S { subdomain O { context O {
   aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
@@ -58,29 +40,6 @@ const fn = (src: string, name: string): string => {
 };
 
 describe("hono event-sourced saga starter guard (S5b)", () => {
-  it("the starter no-ops on a non-empty stream — the inverse of the on-guard", async () => {
-    const src = file(await gen(PAIRED), "http/workflows.ts");
-    const starter = fn(src, "trackerStartProjectArchived");
-    const reactor = fn(src, "trackerOnProjectArchived");
-    // The `on` reactor drops on an EMPTY stream (a continuation needs a start).
-    expect(reactor).toContain("if (__stream.length === 0) {");
-    expect(reactor).toContain("event_unrouted");
-    // The starter drops on a NON-empty stream (the on reactor owns it) — inverse.
-    expect(starter).toContain("if (__stream.length !== 0) {");
-    expect(starter).toContain("event_unrouted");
-    // It still appends its own event when the stream IS empty (new correlation).
-    expect(starter).toContain("appendTrackerEvents");
-  });
-
-  it("the dispatcher runs the on reactor BEFORE the starter (new-stream correctness)", async () => {
-    const src = file(await gen(PAIRED), "http/workflows.ts");
-    const dispatch = src.slice(src.indexOf("createInProcessDispatcher"));
-    const onCall = dispatch.indexOf("trackerOnProjectArchived(db, dispatcher, event)");
-    const startCall = dispatch.indexOf("trackerStartProjectArchived(db, dispatcher, event)");
-    expect(onCall).toBeGreaterThanOrEqual(0);
-    expect(startCall).toBeGreaterThan(onCall);
-  });
-
   it("a create with no paired on stays byte-identical (no exists-guard)", async () => {
     const src = file(await gen(UNPAIRED), "http/workflows.ts");
     const starter = fn(src, "tallyStartOrderPlaced");

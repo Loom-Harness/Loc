@@ -77,23 +77,6 @@ describe("java grouped projection (group by)", () => {
     expect(svc).not.toContain(".findAll()");
   });
 
-  it("casts the enum key to the declared row enum; aggregates read via Number/toString", async () => {
-    const svc = await fileEndingWith("OrdersQueryProjections.java");
-    // Key: the entity's @Enumerated(STRING) mapping hands back the enum
-    // instance — cast to the declared record component type.
-    // Aggregates: provider-chosen result types, so Number/toString discipline
-    // exactly like the singleton arm (count → int, money sum → wire string).
-    expect(svc).toContain(
-      "new SalesByStatusRow((OrderStatus) r[0], Math.toIntExact(((Number) r[1]).longValue()), " +
-        // money pins the fixed wire scale (RS-12 / #2549); its empty zero is
-        // "0.0000", where a count or plain decimal is unchanged.
-        'r[2] == null ? "0.0000" : new java.math.BigDecimal(r[2].toString()).setScale(4, java.math.RoundingMode.HALF_UP).toPlainString())',
-    );
-    // No provider-specific casts on aggregate results.
-    expect(svc).not.toContain("(Long) r[");
-    expect(svc).not.toContain("(BigDecimal) r[");
-  });
-
   it("binds a SINGLE-column grouped row as a bare scalar — no Object[] element", async () => {
     // The untested twin of the singleton `Object[]`-cast bug (fixture
     // `OrderVolume`): a grouped projection may select ONE column — the

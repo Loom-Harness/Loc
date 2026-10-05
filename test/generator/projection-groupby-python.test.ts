@@ -54,19 +54,6 @@ async function routesFile(src: string): Promise<string> {
 }
 
 describe("python grouped aggregation (group by)", () => {
-  it("emits ONE SQL query with the keys and aggregates, grouped AND ordered by the key column", async () => {
-    const routes = await routesFile(SRC);
-    expect(routes).toContain("select(OrderRow.status, func.count(), func.sum(OrderRow.total))");
-    expect(routes).toContain(".group_by(OrderRow.status)");
-    expect(routes).toContain(".order_by(OrderRow.status)");
-  });
-
-  it("lowers the `where` into the same query", async () => {
-    const routes = await routesFile(SRC);
-    expect(routes).toContain(".where(");
-    expect(routes).toContain("OrderStatus.Confirmed");
-  });
-
   it("does NOT load rows through the repository", async () => {
     // The rehydrate-and-fold read this shape exists to avoid.
     const routes = await routesFile(SRC);

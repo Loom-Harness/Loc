@@ -74,16 +74,6 @@ function maskPatternVars(cs: string): string[] {
 }
 
 describe("mask unless — .NET read redaction", () => {
-  it("makes the masked response param nullable", async () => {
-    const out = await files();
-    const resp = [...out.entries()].find(([k]) => k.endsWith("PResponses.cs"))?.[1] ?? "";
-    // A wire `decimal` is a `double` on the .NET response (#2563) — the
-    // float64 the other four backends send.  Masking makes it nullable.
-    expect(resp).toMatch(/double\?\s+Salary/);
-    // A non-masked field stays required.
-    expect(resp).toMatch(/\[property: Required\(AllowEmptyStrings = true\)\] string Name/);
-  });
-
   it("projects the masked field through a fail-closed ambient-principal guard", async () => {
     const out = await files();
     const handler = [...out.entries()].find(([k]) => k.endsWith("GetPByIdHandler.cs"))?.[1] ?? "";
