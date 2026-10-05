@@ -3689,6 +3689,14 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // -at file builds the pair and asserts the code, both directions (it also
   // pins the inert cases that must stay silent).
   "loom.migration-backfill-discarded": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨, same reason (F-3): the warning announcing the drop+add → RENAME
+  // inference fires only when the collapse does, and the collapse needs a
+  // BASELINE SNAPSHOT — one generation's schema, then a source that renames a
+  // field. `validate()` has no baseline, so no fixture here reaches it. The
+  // pointed-at file drives both directions: the warning on a bare drop+add
+  // pair, and NO warning on a pair carrying a declared backfill (which proves
+  // it tracks the COLLAPSE, not merely the diff shape).
+  "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
