@@ -2038,7 +2038,7 @@ export interface LValue extends langium.AstNode {
     args: Array<Expression>;
     call: boolean;
     head: LValueIdent;
-    tail: Array<LValueIdent>;
+    tail: Array<LValueTail>;
     thisRef: boolean;
 }
 
@@ -2059,6 +2059,12 @@ export type LValueIdent = 'contains' | 'create' | 'destroy' | 'id' | 'page' | Co
 
 export function isLValueIdent(item: unknown): item is LValueIdent {
     return isCommonSoftKeywords(item) || item === 'contains' || item === 'create' || item === 'destroy' || item === 'id' || item === 'page' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+}
+
+export type LValueTail = LValueIdent | PluralSlugKeyword;
+
+export function isLValueTail(item: unknown): item is LValueTail {
+    return isLValueIdent(item) || isPluralSlugKeyword(item);
 }
 
 export interface MacroArg extends langium.AstNode {
@@ -2243,10 +2249,10 @@ export function isMatchStmt(item: unknown): item is MatchStmt {
     return reflection.isInstance(item, MatchStmt.$type);
 }
 
-export type MemberName = 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where' | CommonSoftKeywords | string;
+export type MemberName = 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where' | CommonSoftKeywords | PluralSlugKeyword | string;
 
 export function isMemberName(item: unknown): item is MemberName {
-    return isCommonSoftKeywords(item) || item === 'contains' || item === 'create' || item === 'destroy' || item === 'find' || item === 'id' || item === 'ignoring' || item === 'page' || item === 'where' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+    return isCommonSoftKeywords(item) || isPluralSlugKeyword(item) || item === 'contains' || item === 'create' || item === 'destroy' || item === 'find' || item === 'id' || item === 'ignoring' || item === 'page' || item === 'where' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface MemberSuffix extends langium.AstNode {
@@ -2757,6 +2763,12 @@ export type Platform = 'angular' | 'dotnet' | 'elixir' | 'feliz' | 'flutter' | '
 
 export function isPlatform(item: unknown): item is Platform {
     return item === 'dotnet' || item === 'node' || item === 'react' || item === 'svelte' || item === 'vue' || item === 'angular' || item === 'feliz' || item === 'flutter' || item === 'static' || item === 'elixir' || item === 'python' || item === 'java' || (typeof item === 'string' && (/"(\\.|[^"\\])*"/.test(item)));
+}
+
+export type PluralSlugKeyword = 'as' | 'extends' | 'this';
+
+export function isPluralSlugKeyword(item: unknown): item is PluralSlugKeyword {
+    return item === 'as' || item === 'extends' || item === 'this';
 }
 
 export interface PolicyDecl extends langium.AstNode {
