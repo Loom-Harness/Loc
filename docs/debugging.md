@@ -205,9 +205,32 @@ production stack trace you have as text but not a live process.
 
 ### `ddd breakpoints` — `.ddd` line → generated location(s)
 
-The reverse: resolve a `.ddd` source line to the generated `file:line` (or
-`file:line:column`, when the line carries a fine expression region) it
+The reverse: resolve a `.ddd` source line to the generated location(s) it
 produced.
+
+**Granularity is not uniform — know which half you are on.** The map is
+*construct-granular by default* (`source-map-debug-kickoff.md` §2): the recorder
+writes one whole-file region per emitted file, and only **executable bodies**
+layer finer regions on top of it. So:
+
+| A `.ddd` line holding… | resolves to |
+|---|---|
+| an `operation` header | the method's real generated line — `domain/order.ts:155` |
+| a statement inside an operation, or a workflow body | its own generated line (`file:line`), plus a `:column` on TS/Hono |
+| a **property, `invariant`, or `derived` field** of an aggregate | `file:1` — the enclosing whole-file region, once per file the construct fanned out into (42 of them for one property, on `examples/acme.ddd`) |
+| a repository `find` declaration | `file:1`, likewise |
+| an `aggregate Order {` header | `file:1`, which for a whole-declaration line is the right answer |
+| **anything inside a `valueobject`** — the header, a member, an `invariant` | *nothing at all*: `No generated location maps to …`. The emitted file (e.g. `Domain/ValueObjects/Money.cs`) is never recorded, so the valueobject has no map entry to fall back on |
+
+The `file:1` rows are not a resolver failure: those constructs record no region
+of their own, so the enclosing file region is the only true thing the map knows.
+The valueobject row is a plainer omission — no region is recorded at any
+granularity. Both are tracked as mission **M-T8.29** in
+[`docs/new-plan/T8-dx-tooling-ai.md`](new-plan/T8-dx-tooling-ai.md).
+
+A `:column` suffix appears only where a fine expression region exists — today
+that means TS/Hono statement bodies (see **M-T8.2** for the fan-out to the other
+four backends).
 
 ```bash
 node bin/cli.js breakpoints app.ddd --line 42 --map out/.loom/sourcemap.json
@@ -226,7 +249,7 @@ regions, so the raw fan-out answered `label := note` with the real
 targets are listed only for a line that has no finer mapping (an
 `aggregate Order {` header, a plain property), where they are the answer.
 
-**A MEMBER's declaration line is not one of those coarse lines.** Every
+**An OPERATION's declaration line is not one of those coarse lines.** Every
 operation body records a region of its own carrying the member's origin
 (`declarationSubRegion`, `src/generator/_trace/sourcemap.ts`), so
 `operation complete(note: string) when status == InProgress {` resolves to the
@@ -235,6 +258,14 @@ method's real generated line — `domain/workOrder.ts:155`, not
 that line meant (finding F-021). Statement lines inside the member are
 unaffected: their own regions are narrower in origin terms and still win,
 column and all.
+
+**This does not extend to declarative members.** A property, an `invariant`, a
+`derived` field, a repository `find` and a `valueobject` member record no region
+of their own — only operations and workflows do — so their declaration lines
+still answer `file:1`, per the granularity table above (finding F-6, mission
+M-T8.29). `ddd trace` reads the same map and degrades the same way in reverse: a
+stack frame landing inside a generated property annotates to the enclosing
+aggregate rather than the field, which is coarse but not wrong.
 
 ## 4. The `ddd-dap` debug adapter
 

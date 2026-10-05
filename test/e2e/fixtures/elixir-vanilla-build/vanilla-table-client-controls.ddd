@@ -52,7 +52,7 @@ system Sales {
       route: "/search"
       state { q: string = "" }
       body: QueryView {
-        of: SalesApi.Order.all,
+        of: Sales.Order.all,
         data: rows => Table {
           rows: rows,
           filter: q,
