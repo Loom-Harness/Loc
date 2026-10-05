@@ -304,6 +304,21 @@ function irType(t: Ty): TypeIR {
   return toTypeIR(t);
 }
 
+/** The type the single pass recorded for `node` (a postfix suffix, or any
+ *  expression) — undefined inside an inlined criterion / policy / function
+ *  body (one AST, typed per call site: the IR substitutes the arguments) and
+ *  where the pass has no type (its `unknown`: chiefly the `test e2e` handles
+ *  of cutover family 3f), where the caller's own rule still answers. */
+function passTypeOrUndefined(node: AstNode, env: Env): TypeIR | undefined {
+  if (env.criterionStack?.length) return undefined;
+  const t = typingFor(node).synthAt(node);
+  return t && t.kind !== "unknown" ? irType(t) : undefined;
+}
+
+function passType(node: AstNode, env: Env, fallback: () => TypeIR): TypeIR {
+  return passTypeOrUndefined(node, env) ?? fallback();
+}
+
 /**
  * Desugar a nullish-coalescing chain (`a ?? b ?? c`) into the existing
  * `ternary` IR — the whole reason `??` needs NO backend or frontend work:
@@ -1010,7 +1025,7 @@ function applySuffixToRecv(
     // Result type after a method call — `memberType` handles collection
     // ops, entity/VO members, and the string `.length` case; the λ-body
     // refinement `memberType` structurally cannot see is applied on top.
-    let nextType = memberType(recvType, ms.member, env);
+    let nextType = passType(suffix, env, () => memberType(recvType, ms.member, env));
     if (collectionOp) {
       const lam = args[0];
       const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
@@ -1080,13 +1095,16 @@ function applySuffixToRecv(
       receiverType: recvType,
       isCollectionOp: true,
     };
-    return { recv: mcIR, recvType: memberType(recvType, ms.member, env) };
+    return {
+      recv: mcIR,
+      recvType: passType(suffix, env, () => memberType(recvType, ms.member, env)),
+    };
   }
   // Non-call MemberSuffix — preserve `stepInto` semantics on the IR
   // node's `memberType` (matches the legacy MemberAccess lowering),
   // but track the next type using `memberType` so chained access
   // through array.count etc. continues to type correctly.
-  const stepType = stepInto(recvType, ms.member, env);
+  const stepType = passType(suffix, env, () => stepInto(recvType, ms.member, env));
   const memberIR: ExprIR = {
     kind: "member",
     receiver: recv,
@@ -1094,7 +1112,10 @@ function applySuffixToRecv(
     receiverType: recvType,
     memberType: stepType,
   };
-  return { recv: memberIR, recvType: memberType(recvType, ms.member, env) };
+  return {
+    recv: memberIR,
+    recvType: passType(suffix, env, () => memberType(recvType, ms.member, env)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2619,6 +2640,18 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   ) {
     const t = typingFor(expr).synthAt(expr);
     return t ? irType(t) : { kind: "primitive", name: "string" };
+  }
+  // Names, `this`/`id` and member chains (cutover family 3b) — the pass's
+  // answer, except inside an inlined body or where the pass has none.
+  if (
+    isNameRef(expr) ||
+    isThisRef(expr) ||
+    isIdRef(expr) ||
+    isPostfixChain(expr) ||
+    isParenExpr(expr)
+  ) {
+    const t = passTypeOrUndefined(expr, env);
+    if (t) return t;
   }
   if (isListLit(expr)) {
     // Best-effort element-type inference: use the first element's type
