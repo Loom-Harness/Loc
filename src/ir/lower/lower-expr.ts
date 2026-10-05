@@ -318,7 +318,7 @@ function passTypeOrUndefined(node: AstNode, env: Env): TypeIR | undefined {
   return t && t.kind !== "unknown" ? irType(t) : undefined;
 }
 
-function passType(node: AstNode, env: Env, fallback: () => TypeIR): TypeIR {
+export function passType(node: AstNode, env: Env, fallback: () => TypeIR): TypeIR {
   return passTypeOrUndefined(node, env) ?? fallback();
 }
 

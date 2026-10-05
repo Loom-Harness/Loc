@@ -223,6 +223,11 @@ export class Elaborator {
     }
     const inner = this.enterNode(node, scope);
     this.scopes.set(node, inner);
+    // An assignment target (`x := …`, `this.a.b += …`) is not an expression,
+    // but it has a type: the head binding, then one member step per segment.
+    if (node.$type === "LValue" && !(node as LValueNode).call) {
+      this.types.set(node, this.lvalueType(node as LValueNode, inner));
+    }
     if (isProjection(node)) {
       this.visitProjection(node, scope, inner);
       return;
@@ -262,6 +267,20 @@ export class Elaborator {
         this.visit(value, inner);
       }
     }
+  }
+
+  private lvalueType(lv: LValueNode, scope: Scope): Ty {
+    const step = (recv: Ty, member: string): Ty =>
+      this.afterSuffixInner(
+        recv,
+        { $type: "MemberSuffix", member, call: false, args: [] } as never,
+        scope,
+      );
+    let cur = lv.thisRef
+      ? step(this.thisType(scope) ?? Ty.unknown("unresolved-name"), lv.head)
+      : this.synthName(lv.head, scope, lv);
+    for (const seg of lv.tail) cur = step(cur, seg);
+    return cur;
   }
 
   /** A projection's QUERY half (`from` / joins / `where` / `group by` /
@@ -681,6 +700,25 @@ export class Elaborator {
           return m.collection ? Ty.array(t) : t;
         }
         if (isDerivedProp(m)) return this.resolveType(m.type, scope);
+      }
+    }
+    return undefined;
+  }
+
+  /** A value name as the validators' env sees it (`envForNode(…).resolve`):
+   *  a lexical binding in `scope` (param, let, lambda / for / match / if-let
+   *  binding, event param), else a member of the enclosing record. */
+  envBinding(name: string, scope: Scope): { ty: Ty; origin: AstNode } | undefined {
+    const local = scope.lookup(name);
+    if (local) return { ty: local.ty, origin: local.origin };
+    const owner = scope.frame.owner;
+    if (!owner) return undefined;
+    for (const o of ownerChain(owner)) {
+      for (const m of o.members as AstNode[]) {
+        if ((m as { name?: string }).name !== name) continue;
+        if (!isProperty(m) && !isContainment(m) && !isDerivedProp(m)) continue;
+        const ty = this.ownerMember(o, name, scope);
+        if (ty) return { ty, origin: m };
       }
     }
     return undefined;
@@ -1386,6 +1424,14 @@ const QUERY_HANDLE_PROPS: ReadonlySet<string> = new Set([
   "isPending",
   "isSuccess",
 ]);
+
+/** The assignment-target node's shape (`LValue` in the grammar). */
+interface LValueNode extends AstNode {
+  thisRef?: boolean;
+  head: string;
+  tail: string[];
+  call?: boolean;
+}
 
 /** A member of a blessed generic carrier (the field lists of
  *  `src/ir/stdlib/generics.ts`). */

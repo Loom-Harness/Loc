@@ -29,6 +29,9 @@ export interface TypingSession {
   foldsAt(chain: BinaryChain): readonly Fold[] | undefined;
   /** The scope in force at a statement / expression root. */
   scopeAt(node: AstNode): Scope | undefined;
+  /** The binding `name` denotes at `node` (the nearest scoped ancestor's
+   *  scope): a lexical binding, else a member of the enclosing record. */
+  bindingAt(node: AstNode, name: string): { ty: Ty; origin: AstNode } | undefined;
 }
 
 export function typingSession(models: readonly Model[]): TypingSession {
@@ -42,5 +45,12 @@ export function typingSession(models: readonly Model[]): TypingSession {
     foldsAt: (chain) => elab.folds.get(chain),
     resolveType: (t) => elab.resolveType(t, undefined),
     scopeAt: (node) => elab.scopes.get(node),
+    bindingAt: (node, name) => {
+      for (let n: AstNode | undefined = node; n; n = n.$container) {
+        const scope = elab.scopes.get(n);
+        if (scope) return elab.envBinding(name, scope);
+      }
+      return undefined;
+    },
   };
 }
