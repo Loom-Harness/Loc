@@ -205,6 +205,8 @@ on:
       - 'Flake budget (per-leg pass rates)'
       - 'Frontend full-stack e2e (nightly, no docker)'
       - 'Generated a11y (axe-core)'
+      - 'Generated size + boot budget'
+      - 'SAST over generated auth + tenancy'
       - 'Generated Angular build'
       - 'Generated Angular e2e'
       - 'Generated Feliz build'
