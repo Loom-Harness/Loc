@@ -2765,10 +2765,10 @@ export function isPlatform(item: unknown): item is Platform {
     return item === 'dotnet' || item === 'node' || item === 'react' || item === 'svelte' || item === 'vue' || item === 'angular' || item === 'feliz' || item === 'flutter' || item === 'static' || item === 'elixir' || item === 'python' || item === 'java' || (typeof item === 'string' && (/"(\\.|[^"\\])*"/.test(item)));
 }
 
-export type PluralSlugKeyword = 'as' | 'extends' | 'this';
+export type PluralSlugKeyword = 'as' | 'extends' | 'requires' | 'this';
 
 export function isPluralSlugKeyword(item: unknown): item is PluralSlugKeyword {
-    return item === 'as' || item === 'extends' || item === 'this';
+    return item === 'as' || item === 'extends' || item === 'requires' || item === 'this';
 }
 
 export interface PolicyDecl extends langium.AstNode {

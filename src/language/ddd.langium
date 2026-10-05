@@ -2377,14 +2377,17 @@ LValueTail returns string:
 // and fails naming any plural-shaped keyword left out (it is literal:
 // `aggregate A` is `api.as`, `aggregate Extend` is `api.extends`).
 // Only the plural-shaped keywords that are NOT already soft in
-// `CommonSoftKeywords` are listed: #3063 (soft-by-default keywords) made the
-// rest — `claims`, `requires`, `serves`, `targets`, … — admissible through the
-// shared core, and a word spelled in two alternatives of the same rule is an
-// ambiguous alternative.  The slug floor derives its set from every grammar
-// keyword and checks ADMISSIBILITY, not membership in this rule, so a word
-// moving between the two lists is invisible to it.
+// `CommonSoftKeywords` are listed — the rest (`claims`, `serves`, `targets`,
+// …) are admissible through the shared core, and a word spelled in two
+// alternatives of the same rule is an ambiguous alternative.  `requires` is
+// HARD (no statement may start with it: a gate line missing its subject must
+// fail, not parse as a call on a name `requires`), so it is listed here —
+// admitting it only after a `.` cannot start a statement.  The slug floor
+// derives its set from every grammar keyword and checks ADMISSIBILITY, not
+// membership in this rule, so a word moving between the two lists is
+// invisible to it.
 PluralSlugKeyword returns string:
-    'as' | 'extends' | 'this';
+    'as' | 'extends' | 'requires' | 'this';
 
 LValueIdent returns string:
     ID | CommonSoftKeywords
