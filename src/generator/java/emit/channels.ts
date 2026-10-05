@@ -129,9 +129,9 @@ function toDataExpr(access: string, t: TypeIR): string {
 }
 
 /** Java's `WireDecodeTarget` — the leaf half of the shared channel wire codec
- *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the leaves
- *  record the `java.*` imports their expressions need, and the `id` leaf needs
- *  the system's id-value-type lookup.
+ *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the `id`
+ *  leaf needs the system's id-value-type lookup (the leaves' `java.*` types
+ *  are markers, so the unit's import block is derived).
  *
  *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
  *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
@@ -140,10 +140,7 @@ function toDataExpr(access: string, t: TypeIR): string {
  *
  *  Of the five backends this is the codec that was already MOST complete: it
  *  is the only pre-port one with a real optional null-guard. */
-function javaWireDecode(
-  idValueTypeOf: (target: string) => string,
-  imports: Set<string>,
-): WireDecodeTarget {
+function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarget {
   const asString: WireDecodeLeaf = (e) => `(String) ${e}`;
   return {
     lang: "java",
@@ -152,14 +149,8 @@ function javaWireDecode(
       int: (e) => numericEncode(JAVA_NUMERIC, "int", "find-param", e),
       long: (e) => numericEncode(JAVA_NUMERIC, "long", "find-param", e),
       bool: (e) => `(Boolean) ${e}`,
-      decimal: (e) => {
-        imports.add("java.math.BigDecimal");
-        return numericEncode(JAVA_NUMERIC, "decimal", "find-param", e);
-      },
-      money: (e) => {
-        imports.add("java.math.BigDecimal");
-        return numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`);
-      },
+      decimal: (e) => numericEncode(JAVA_NUMERIC, "decimal", "find-param", e),
+      money: (e) => numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`),
       datetime: (e) => `${J.Instant}.parse((String) ${e})`,
       string: asString,
       guid: asString,
@@ -187,16 +178,11 @@ function javaWireDecode(
 
 /** Java expression reconstructing one event record component from the
  *  envelope's `data` map. */
-function fromDataExpr(
-  name: string,
-  t: TypeIR,
-  idValueTypeOf: (target: string) => string,
-  imports: Set<string>,
-): string {
+function fromDataExpr(name: string, t: TypeIR, idValueTypeOf: (target: string) => string): string {
   return decodeField(
     "data",
     { name, type: t, optional: t.kind === "optional" },
-    javaWireDecode(idValueTypeOf, imports),
+    javaWireDecode(idValueTypeOf),
   );
 }
 
@@ -870,7 +856,6 @@ export function renderJavaChannelFiles(
     ),
   );
 
-  const codecImports = new Set<string>();
   const toArms = carried.map((ev) => {
     const puts = ev.fields.map(
       (f) =>
@@ -887,7 +872,7 @@ export function renderJavaChannelFiles(
   const fromArms = carried.map(
     (ev) =>
       `            case ${JSON.stringify(ev.name)} -> new ${ev.name}(${ev.fields
-        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, codecImports))
+        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf))
         .join(", ")});`,
   );
   out.set(
@@ -897,7 +882,6 @@ export function renderJavaChannelFiles(
       ``,
       `import java.util.LinkedHashMap;`,
       `import java.util.Map;`,
-      ...[...codecImports].sort().map((i) => `import ${i};`),
       ``,
       `import ${basePkg}.domain.enums.*;`,
       `import ${basePkg}.domain.events.*;`,

@@ -41,6 +41,7 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import { javaInstantWire } from "./wire.js";
@@ -181,7 +182,7 @@ export function renderJavaHistoryMapper(agg: EnrichedAggregateIR): string[] {
     `    /** One \`audit_records\` row → one history entry.  The diff is derived`,
     `     *  HERE, at read time, from the row's two snapshots — never stored. */`,
     `    private static AuditEntry ${javaHistoryMapperName(agg)}(AuditRecord row) {`,
-    `        var changes = new ArrayList<AuditFieldChange>();`,
+    `        var changes = new ${javaRef("java.util", "ArrayList")}<AuditFieldChange>();`,
   ];
   if (unmasked.length > 0) {
     const keys = unmasked.map((f) => JSON.stringify(f.name)).join(", ");

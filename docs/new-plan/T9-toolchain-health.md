@@ -882,9 +882,15 @@ Every backend decides its import block with a hand-written predicate computed se
 
 Follows M-T9.84's four slices (canonicalize → mirrors → emitters → close) for the node backend. 230 census sites at minting. Handles: named, default, namespace and type-only (`refType` replaces the hand `isValueUsed(n) ? n : \`type ${n}\`` sites). Relative specifiers are computed from the importing file's path. #2939's `drizzle-imports.ts` vocabulary scan is replaced by `ref` at the drizzle render sites. Oracle: `test/system/emitted-symbol-binding.test.ts` (the binder gate) + `npm run test:tsc-corpus`.
 
-## M-T9.86 — Imports derived from use: Java — `open` · **M** · P2
+## M-T9.86 — Imports derived from use: Java — `in-flight` · **M** · P2
 
-M-T9.84's slices for `src/generator/java`. 51 census sites at minting. Same-package and `java.lang` symbols render no import, and a simple-name collision spells the later symbol fully qualified (Java has no import alias). The `exprImports` collectors in `render-expr.ts` / `render-criteria.ts` are the mirrors to delete first. Oracle: `npm run test:java-corpus`.
+M-T9.84's slices for `src/generator/java`. 51 census sites at minting (165 after the collector-shape widening). Same-package, `java.lang` and on-demand-covered (`pkg.*`) symbols render no import, and a simple-name collision fails closed at generation (Java has no import alias). Oracle: `npm run test:java-corpus`.
+
+**Progress (2026-10-05, #3164, stacked on #3144):**
+- **Census 165 → 2.** Every `.java` goes through `JavaOutputMap` → `finalizeJavaUnit` (google-java-format order: statics, blank line, ASCII).
+- **Mirrors deleted:** `collectJavaExprImports` / `addJavaExprImport`, `collectJavaTypeImports` and `collectJavaStmtImports`. `render-criteria`'s `ctx.imports` is gone, and the criteria / channel-codec / query-projection import sets went with it.
+- **Verification:** the canonical reorder was import-equivalent (3,019 files). Every later step is byte-identical except **274 generated files** (corpus 134, examples 140). In each one the only change is a removed import line whose simple name appears nowhere in the file: `UUID` ×256 in services, `BigDecimal`, `Instant`, `ObjectOptimisticLockingFailureException`, `Map`, `Objects`. Those were unused imports the old predicates over-approximated.
+- **Remaining 2:** `entity.ts`'s `persistence ? "import jakarta.persistence.*;" : null`, an on-demand import gated by the persistence adapter. The marker scheme has no on-demand form. Close it by giving `_imports/java.ts` a `javaOnDemand(pkg)` handle written at the annotation sites (`@Entity`, `@Column`, …), or waive it with that reason.
 
 ## M-T9.87 — Imports derived from use: .NET — `open` · **M** · P2
 

@@ -414,12 +414,7 @@ export function renderJavaQueryProjections(
       const groupedCol = (i: number) => (groupedCols === 1 ? "r" : `r[${i}]`);
       const args = [
         ...grouped.keys.map((k, i) =>
-          groupKeyCoerce(
-            k.type,
-            groupedCol(i),
-            imports,
-            groupKeyOf(k.expr)?.transform !== undefined,
-          ),
+          groupKeyCoerce(k.type, groupedCol(i), groupKeyOf(k.expr)?.transform !== undefined),
         ),
         ...grouped.aggregates.map((a, i) => jpqlCoerce(a, groupedCol(grouped.keys.length + i))),
       ];
@@ -850,14 +845,9 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
  *  guid reads cast to that mapping while the numerics keep the same
  *  `Number`/`toString` discipline as the aggregates.  A nullable key (optional
  *  column ⇒ a NULL group) stays null. */
-function groupKeyCoerce(
-  t: TypeIR,
-  read: string,
-  imports: Set<string>,
-  viaFunction = false,
-): string {
+function groupKeyCoerce(t: TypeIR, read: string, viaFunction = false): string {
   if (t.kind === "optional") {
-    return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, imports, viaFunction)}`;
+    return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, viaFunction)}`;
   }
   if (t.kind === "enum") return `(${t.name}) ${read}`;
   if (t.kind === "id") {
@@ -882,8 +872,7 @@ function groupKeyCoerce(
         // money → wire STRING at the fixed money scale (RS-12), matching
         // `domainToWire` — the SAME `projection-read` transform
         // `jpqlCoerce`'s aggregate arm applies, spelled with the short
-        // `BigDecimal` name this file already imports.
-        imports.add("java.math.BigDecimal");
+        // `BigDecimal` name (a marker — the import is derived).
         return javaMoneyProjectionKeyEncode(read);
       case "datetime":
         // Instant → ISO-8601 wire string.  Through HQL's `function(…)` escape

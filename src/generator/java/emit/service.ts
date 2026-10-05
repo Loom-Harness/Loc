@@ -300,9 +300,6 @@ export function renderJavaService(
   // RS-27 — every service throws it from the by-id read now, so the import is
   // unconditional rather than history-gated.
   imports.add(`${ctx.basePkg}.domain.common.AggregateNotFoundException`);
-  if (historyFind) {
-    imports.add("java.util.ArrayList");
-  }
   const findLines = declaredFinds(repo)
     .map((f) => unionFindAsOptionalTwin(f, agg.name))
     .flatMap((f) => {
