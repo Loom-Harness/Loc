@@ -158,8 +158,8 @@ export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     const name = expr.argNames?.[i];
     const arg = expr.args[i]!;
     if (name === "title") {
-      // A user-visible named slot (`modalTitle`) — translated under i18n
-      // (M-T1.11), the raw escaped literal otherwise (byte-identical).
+      // A user-visible named slot (`modalTitle`) — translated under i18n,
+      // the raw escaped literal otherwise (byte-identical).
       title =
         arg.kind === "literal"
           ? renderInTemplate(arg, ctx, "modalTitle")
@@ -303,14 +303,13 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // op-form is ever reached without its Modal wrapper: bail before
   // pushing a bogus `kind:"aggregate"` create binding.
   //
-  // It is REACHED, and it used to `return ""`.  `QueryView { of: X.Agg.all,
-  // single: true, data: row => OperationForm { row.<op> } }` hands the op-form
-  // straight here with no Modal, and the emitted `kitchen_live.ex` rendered an
-  // EMPTY `true ->` arm: no form, no marker, no diagnostic — a blank panel that
-  // reads as "there is nothing here".  Every other target that cannot render
-  // this shape at least says so in the output (Flutter emits
-  // `const SizedBox.shrink() /* OperationForm(row.<op>): … */`); HEEx alone
-  // said nothing.  The marker is the honest minimum until the standalone
+  // It IS reachable: `QueryView { of: X.Agg.all, single: true, data: row =>
+  // OperationForm { row.<op> } }` hands the op-form straight here with no
+  // Modal.  Returning "" would render an EMPTY `true ->` arm — a blank panel
+  // that reads as "there is nothing here".  Every other target that cannot
+  // render this shape says so in the output (Flutter emits
+  // `const SizedBox.shrink() /* OperationForm(row.<op>): … */`), so HEEx emits
+  // a marker too.  The marker is the honest minimum until the standalone
   // instance op-form is rendered on LiveView (it needs the `handle_event` +
   // form-binding half `renderModal` owns, so it is a feature, not a seam fix).
   const positional0 = expr.args.find((_, i) => !expr.argNames?.[i]);
@@ -352,9 +351,8 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // params (`WorkflowIR.params`, the same list the TSX `emitFormRuns` reads).
   // Carried on the binding so `liveview-emit.ts` can both seed `@form` under
   // the workflow's own `as:` prefix and destructure the submitted params in the
-  // `handle_event("run_<wf>", …)` clause — the clause that did not exist at all
-  // until M-T6.56 F61, so `phx-submit="run_<wf>"` raised `FunctionClauseError`
-  // and killed the LiveView.
+  // `handle_event("run_<wf>", …)` clause.  Without that clause
+  // `phx-submit="run_<wf>"` raises `FunctionClauseError` and kills the LiveView.
   const runsWorkflow = runsPascal ? ctx.workflowsByName.get(runsPascal) : undefined;
   if (ofPascal) {
     ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
@@ -376,10 +374,8 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   const inputs: string[] = [];
   if (runsWorkflow) {
     // One `<.input>` per workflow param, typed by `renderFieldInputForField`
-    // exactly as an aggregate create form's fields are — the HEEx form used to
-    // emit a single `<.input field={@form[:_placeholder]} label="Field" />`
-    // while React emitted the real set, so the two frontends asked the user for
-    // different data from the same `.ddd`.
+    // exactly as an aggregate create form's fields are, so HEEx and React ask
+    // the user for the same data from the same `.ddd`.
     for (const pparam of runsWorkflow.params) {
       inputs.push(
         `  ${renderFieldInputForField(
@@ -684,7 +680,7 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   const idAttr = testidArg ? attrValue(testidArg, ctx) : `"data-table${seq > 1 ? `-${seq}` : ""}"`;
   const testidAttr = testIdAttr(expr, ctx);
 
-  // ---- Interactive controls (M-T1.1 / F2-MT640-SORT-DEAD, HEEx leg) -------
+  // ---- Interactive controls (HEEx leg) -------------------------------------
   // `sortKey:`/`sortDir:`/`page:`/`filter:` are bare page-state refs;
   // `serverPaged:` + `totalPages:` come from the scaffold's paged `all`
   // QueryView.  Absent args ⇒ every branch below is skipped and the emitted
@@ -701,12 +697,11 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   //    hand-written `Table`) — the bound rows are the WHOLE list, so the
   //    filter, the sort and the page window are applied IN THE TEMPLATE over
   //    the shared `LoomTable` helper module, which is what the four JSX
-  //    frontends do in the browser for the very same `.ddd`.  Until wave C2
-  //    packet 2m these args were dropped here, so Phoenix rendered an
-  //    unsorted, unpaged, unfiltered table for a model that sorts, pages and
-  //    filters everywhere else (F2-MT640-SORT-DEAD, the ledger's one P1 — the
-  //    dead `sort_key`/`sort_dir`/`page_num` mount assigns were its residue,
-  //    not the defect).  The refetch the hoisted clause performs is the one
+  //    frontends do in the browser for the very same `.ddd`.  Dropping these
+  //    args here would render an unsorted, unpaged, unfiltered table for a
+  //    model that sorts, pages and filters everywhere else (the
+  //    `sort_key`/`sort_dir`/`page_num` mount assigns alone do nothing
+  //    without them).  The refetch the hoisted clause performs is the one
   //    thing client mode must NOT do: `list_<agg>s/0` answers the same rows,
   //    which is why the clauses are emitted reload-less there
   //    (`TableControlBinding.server`).
@@ -793,7 +788,7 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
 
 /** The search box a `Table { filter: <state> }` binds, rendered above the
  *  table — the HEEx leg of the shared walker's `renderFilterInput` seam
- *  (`loom.table-filter-unsupported`, M-T1.1).
+ *  (`loom.table-filter-unsupported`).
  *
  *  Same shape as every other bound input on this target (`controlledInput`):
  *  an `<.input>` whose `phx-change` writes the bound assign, with the
@@ -924,7 +919,7 @@ export function renderTableColumn(
   const labelArg = positionals[0];
   const isLiteralLabel = labelArg?.kind === "literal" && labelArg.lit === "string";
   const label = isLiteralLabel ? labelArg.value : `Column ${index + 1}`;
-  // The header is a user-visible slot (`columnHeader`, M-T1.11): a plain literal
+  // The header is a user-visible slot (`columnHeader`): a plain literal
   // rides `pgettext` through the `{…}` expression-attribute form the `<:col>`
   // slot's `label` takes.  Off i18n it is the quoted literal — byte-identical.
   // A NON-literal header keeps the escaped `Column N` fallback (HEEx has no
@@ -1016,14 +1011,14 @@ function queryCallArgs(arg: ExprIR | undefined, ctx: WalkContext): string[] | un
 
 /** The CONTEXT-MODULE FUNCTION a `QueryView` `of:` aggregate read calls.
  *
- *  The emitter used to derive this from the read's SHAPE alone — list-shaped ⇒
- *  `list_<agg>s`, single-shaped ⇒ `get_<agg>` — which is right only for the two
- *  standard ops and silently wrong for every FILTERED read: a page asking for
- *  `Product.findAllBySellable()` loaded the whole table, and `Item.byState(Live)`
- *  passed the filter value into `list_items/4`'s `page` parameter.  The
- *  operation the author named is the fact that decides this, so it is what gets
- *  consulted — through `resolveAggregateRead`, the same resolution the validator
- *  runs to reject a read that names nothing (`loom.ui-read-unresolved`).
+ *  Deriving this from the read's SHAPE alone — list-shaped ⇒ `list_<agg>s`,
+ *  single-shaped ⇒ `get_<agg>` — is right only for the two standard ops and
+ *  silently wrong for every FILTERED read: `Product.findAllBySellable()` would
+ *  load the whole table, and `Item.byState(Live)` would pass the filter value
+ *  into `list_items/4`'s `page` parameter.  The operation the author named is
+ *  the fact that decides this, so it is what gets consulted — through
+ *  `resolveAggregateRead`, the same resolution the validator runs to reject a
+ *  read that names nothing (`loom.ui-read-unresolved`).
  *
  *  `undefined` means exactly that: the operation resolved to no declaration, so
  *  there is no honest function to call and the load block refuses instead of
@@ -1086,12 +1081,11 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   };
   const ofNode = expr.args[names.indexOf("of")];
   // No `of:` at all — the JSX walker gives up here (`emitQueryView` in
-  // `_walker/primitives/controls.ts`), and HEEx used to fall through to the
-  // `cond` below with `ofExpr === ""`, which renders the loading / error /
-  // empty arms plus an EMPTY `true ->` branch: a framed panel that reads as
-  // "loaded, nothing to show" for a read that was never wired.  Same shape as
-  // the standalone-op-form finding two hundred lines up — HEEx said nothing
-  // where every other target at least said what it could not do.
+  // `_walker/primitives/controls.ts`).  Falling through to the `cond` below
+  // with `ofExpr === ""` would render the loading / error / empty arms plus an
+  // EMPTY `true ->` branch: a framed panel that reads as "loaded, nothing to
+  // show" for a read that was never wired.  Same shape as the standalone
+  // op-form guard in `renderForm` — every target says what it could not do.
   if (!ofNode)
     return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "QueryView: missing 'of:' query expression")} -->`;
   // Entity-history read (`<Agg>.history(id)`, docs/audit.md) — NOT an ordinary
@@ -1115,7 +1109,7 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     listShapedProjections: ctx.listShapedProjections,
   };
   const shape = ofNode ? queryShape(ofNode, detectCtx) : { paged: false, single: false };
-  // Pattern H — `QueryView { of: <api>.<Projection> }` (M-T1.3).  The
+  // Pattern H — `QueryView { of: <api>.<Projection> }`.  The
   // read resolves to the query-time projection's own `run/1`, in-process: a
   // LiveView deployable hosts its contexts in the SAME OTP app, so what the SPA
   // frontends reach over `GET /projections/<slug>` is one function call here.
@@ -1268,9 +1262,9 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   // List query: check for nil (loading), error, empty, then render data.
   // The Table primitive already iterates @items internally via rows={@items},
   // so no Elixir for-loop is needed here.  When the auto-`findAll` is paged
-  // (M-T2.6) the assign is the `%{items, page, …}` envelope, so the emptiness
-  // guard unwraps `.items` (the pager/sort UI itself stays HEEx-pinned per the
-  // M-T1.1 heex-parity reason — this is only the envelope-unwrap the flip forces).
+  // the assign is the `%{items, page, …}` envelope, so the emptiness guard
+  // unwraps `.items` (the pager/sort UI itself is the Table's job — this is
+  // only the envelope-unwrap paging forces).
   const emptyTarget = isPaged ? `@${assignName}.items` : `@${assignName}`;
   return [
     `<%= cond do %>`,
@@ -1294,7 +1288,7 @@ export function renderKeyValueRow(
   const testidAttr = testIdAttr(expr, ctx);
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
   // The row label is a user-visible slot (`keyValue`), so a plain literal rides
-  // the translation runtime under i18n (M-T1.11) and stays raw otherwise.
+  // the translation runtime under i18n and stays raw otherwise.
   const label = positionals[0] ? renderInTemplate(positionals[0], ctx, "keyValue") : "Field";
   // The VALUE is authored prose too, and it rode NO role — so the row's two
   // halves diverged: the label translated and the value shipped in English at
@@ -1332,9 +1326,9 @@ export function renderSkeleton(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wal
   return `<div class="skeleton" aria-hidden="true"${testidAttr}>\n${lines}\n</div>`;
 }
 
-/** A Loom `color:` → the daisyUI alert modifier.  The renderer used to emit the
- *  raw colour (`alert-red`), which matches no class in either HEEx pack's CSS —
- *  so a coloured alert rendered unstyled.  Mirrors the mapping the JSX packs and
+/** A Loom `color:` → the daisyUI alert modifier.  The raw colour (`alert-red`)
+ *  matches no class in either HEEx pack's CSS, so it must be mapped or a
+ *  coloured alert renders unstyled.  Mirrors the mapping the JSX packs and
  *  the (vestigial) `primitive-alert.heex.hbs` templates already use. */
 function alertVariant(color: string): string {
   switch (color) {
@@ -1693,9 +1687,9 @@ export function renderInlineCode(
  *
  *  LiveView has no labelled-divider component, but "no component" is not a
  *  reason to DROP the label: it is a user-visible slot (`dividerLabel`), so it
- *  reached `.loom/messages.en.json` while rendering nowhere — a translator
- *  translating text the app never showed.  Every JSX pack composes the same
- *  three-element form for exactly this reason (#2388), so HEEx does too. */
+ *  reaches `.loom/messages.en.json` — dropping it would have a translator
+ *  translating text the app never shows.  Every JSX pack composes the same
+ *  three-element form for exactly this reason, so HEEx does too. */
 export function renderDivider(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let label = "";
   for (let i = 0; i < expr.args.length; i++) {
@@ -1717,13 +1711,13 @@ export function renderDivider(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
 /** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
  *  quoted strings; refs render as `{@assign}` HEEx expressions. */
 export function renderImage(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  // M-T6.56 / audit F22 — this read ONLY the named `src:`/`alt:`, so the
-  // POSITIONAL shorthand every other target renders (`Image { "/logo.png" }` /
-  // `Image { row.thumbnailUrl }`, the same first-positional-is-the-value rule
-  // Text / Money / EnumBadge follow) emitted an `<img>` with NO `src` on
-  // LiveView alone.  `decorative: true` is read too, for the same reason: the
-  // JSX walker turns it into an explicit empty `alt`, and dropping it here left
-  // a decorative image announcing itself to assistive tech.
+  // Reads the POSITIONAL shorthand as well as the named `src:`/`alt:` — every
+  // other target renders `Image { "/logo.png" }` / `Image { row.thumbnailUrl }`
+  // (the same first-positional-is-the-value rule Text / Money / EnumBadge
+  // follow), and reading only the named args would emit an `<img>` with NO
+  // `src`.  `decorative: true` is read too, for the same reason: the JSX walker
+  // turns it into an explicit empty `alt`, and dropping it here would leave a
+  // decorative image announcing itself to assistive tech.
   let srcArg: ExprIR | undefined;
   let altArg: ExprIR | undefined;
   let decorative = false;
@@ -1874,9 +1868,9 @@ export function renderDestroyForm(
  *  gets a unique `tabs-<n>` id so its toggle selectors stay scoped. */
 export function renderTabs(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   // `body` is EVERY panel child, not just the first: `Tab { "Ovw", Text { "A" },
-  // Text { "B" } }` used to read `pos[1]` alone and drop `B` (the JSX engine's
-  // twin defect — `_walker/primitives/layout.ts`).  A panel is a children
-  // container like `Card`, which this engine already walks correctly.
+  // Text { "B" } }` must render `B` too — reading `pos[1]` alone drops it (the
+  // JSX engine has the same rule in `_walker/primitives/layout.ts`).  A panel is
+  // a children container like `Card`.
   const tabs: Array<{
     label: string;
     /** The caption already rendered for HEEx TEXT position — a `<%= pgettext(…)
@@ -1903,7 +1897,7 @@ export function renderTabs(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
       const label = labelArg && labelArg.kind === "literal" ? labelArg.value : `Tab ${idx}`;
       tabs.push({
         label,
-        // The caption is a user-visible slot (`tabLabel`, M-T1.11): under i18n
+        // The caption is a user-visible slot (`tabLabel`): under i18n
         // it renders through `pgettext`, else as the escaped literal.  The SLUG
         // stays derived from the source literal — a per-locale anchor would
         // break every `JS.show` selector this switcher is built on.
@@ -1986,20 +1980,19 @@ function controlledInput(
     } else if (name === "bind" && arg.kind === "ref") bind = arg.name;
     else if (name === "options") optionsExpr = arg;
   }
-  // The label is a user-visible slot (`inputLabel`, M-T1.11): a plain literal
+  // The label is a user-visible slot (`inputLabel`): a plain literal
   // rides `pgettext` through the `{…}` expression-attribute form, so the
   // most-read prose in any generated form translates like the `Select…`
-  // placeholder beside it already did.  Off i18n it is the quoted literal —
+  // placeholder beside it.  Off i18n it is the quoted literal —
   // byte-identical.
   const labelValue = labelArg ? localizedHeexAttr(labelArg, ctx, "inputLabel") : undefined;
   const labelAttr = labelValue
     ? ` label=${labelValue}`
     : label
       ? // `escapeHeexAttr` is the ONE attribute-escape funnel this target
-        // shares (heex-walker-core.ts).  This site used to carry its own
-        // two-replacement copy (`&`, `"` — missing `<` and `>`): the same
-        // second-implementation-of-the-funnel shape the Wave 1 elixir
-        // hand-off named for `exStr`, and the same way it drifts.
+        // shares (heex-walker-core.ts).  Do not inline a local copy here: a
+        // second implementation of the funnel drifts (a two-replacement
+        // `&`/`"` copy misses `<` and `>`).
         ` label="${escapeHeexAttr(label)}"`
       : "";
   const testidAttr = testIdAttr(expr, ctx);
@@ -2106,7 +2099,7 @@ export function renderFileUpload(
       seenPositional = true;
     } else if (name === "bind" && arg.kind === "ref") bind = arg.name;
   }
-  // The label is a user-visible slot (`inputLabel`, M-T1.11) — rendered in TEXT
+  // The label is a user-visible slot (`inputLabel`) — rendered in TEXT
   // position here (the `<label>` wraps the input), so it rides `renderInTemplate`,
   // which yields `<%= pgettext(…) %>` under i18n and the escaped literal off it.
   const labelText = labelArg ? renderInTemplate(labelArg, ctx, "inputLabel") : "";
@@ -2210,29 +2203,27 @@ export function renderBadge(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
 }
 /** `Button("Save", icon: "plus", iconPosition: "left", loading: <expr>)`.
  *
- *  `icon:` / `iconSvg:` / `iconPosition:` / `loading:` used to be DROPPED here
- *  (G2667-C7): the four are not attrs `<.button>` declares, and an undeclared
- *  attribute on a Phoenix function component is a compile WARNING — a build
- *  failure under `mix compile --warnings-as-errors`.  Both shipping HEEx packs'
- *  buttons do, however, carry an `inner_block` slot and `attr :rest, :global`,
- *  and that is enough to render all four without touching the pack:
+ *  `icon:` / `iconSvg:` / `iconPosition:` / `loading:` are not attrs
+ *  `<.button>` declares, and an undeclared attribute on a Phoenix function
+ *  component is a compile WARNING — a build failure under
+ *  `mix compile --warnings-as-errors`.  Both shipping HEEx packs' buttons do,
+ *  however, carry an `inner_block` slot and `attr :rest, :global`, and that is
+ *  enough to render all four without touching the pack:
  *
  *    - the glyph goes in the CHILDREN slot as a `<span class="loom-icon">`
  *      sibling of the label — the exact shape the shadcn / flowbite /
  *      shadcnSvelte templates emit — positioned by `iconPosition:`
  *      (default `"right"`, matching `_walker/primitives/controls.ts`);
  *    - `loading:` becomes `aria-busy={…}` (the `aria-` prefix is one of
- *      Phoenix's global prefixes, so `:global` accepts it) AND disables the
- *      button, since a busy button that still fires is the defect the drop was
- *      hiding.  With an author `disabled:` the two OR together.
+ *      Phoenix's global prefixes, so `:global` accepts it).  It does not also
+ *      force `disabled` — see the note in the body.
  *
  *  A builtin `icon:` name resolves through the SAME `lookupBuiltinIcon`
  *  registry the JSX walker uses, so the two targets ship the same glyph. */
 export function renderButton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const spec = CLOSED_PRIMITIVE_SPECS.Button!;
   // `icon:` / `iconSvg:` / `iconPosition:` and `loading:` — the four knobs the
-  // TSX `emitButton` consumes that HEEx used to DROP (ledger G2667-C7), and the
-  // reason they were dropped: `<.button>` declares none of them, and an
+  // TSX `emitButton` consumes.  `<.button>` declares none of them, and an
   // undeclared attribute on a Phoenix function component is a compile warning,
   // i.e. a failure under `mix compile --warnings-as-errors`.  Neither needs to
   // be an attribute, so neither has to touch the packs:
@@ -2433,17 +2424,11 @@ export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
       decorative = String(arg.value) === "true";
   }
   // User-supplied SVG wins; falls back to the builtin registry — the SAME
-  // precedence, and now the same lookup, as the TSX emitter
-  // (`_walker/primitives/icon.ts`).
+  // precedence and the same lookup as the TSX emitter
+  // (`_walker/primitives/icon.ts`), so `Icon { name: "check" }` renders the
+  // same glyph on every target rather than an empty `<span class="loom-icon">`.
   //
-  // M-T6.56 / audit F22.  This emitter used to `void name` and render
-  // `<span class="loom-icon">` with an EMPTY body, so `Icon { name: "check" }`
-  // — the ordinary spelling, and the one every other target renders — produced
-  // an empty span on LiveView alone.  The registry was already imported here
-  // (`renderButton`'s `icon:` arm resolves through it), so the divergence was a
-  // missing call, not a missing capability.
-  //
-  // Both refusals now match the JSX walker arm for arm: an author who named
+  // Both refusals match the JSX walker arm for arm: an author who named
   // NOTHING (`Icon { }` — no glyph to look up on any target) and a `name:` the
   // builtin registry does not resolve are separate give-ups with separate
   // codes, rather than one silently-empty element that reads as a rendered
@@ -2480,7 +2465,7 @@ export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
 }
 
 // ---------------------------------------------------------------------------
-// Chart (M-T1.3, HEEx leg).
+// Chart (HEEx leg).
 // ---------------------------------------------------------------------------
 
 /** `Chart { kind: "bar"|"line", of: <api>.<Projection>, x: r => …, y: r => … }`
