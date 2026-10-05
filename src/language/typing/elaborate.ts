@@ -968,12 +968,11 @@ export class Elaborator {
   }
 
   /** A `test e2e` `api.<handle>.<verb>(…)` call: the generated test client's
-   *  CRUD verbs over the aggregate (or projection) the handle names, then the
-   *  aggregate's own finds and operations. */
-  private e2eApiCall(handle: string, verb: string, scope: Scope, node: AstNode): Ty | undefined {
+   *  CRUD verbs over the aggregate (or projection) the handle names. */
+
+  private e2eApiCall(handle: string, verb: string, _scope: Scope, _node: AstNode): Ty | undefined {
     const target = this.index.byApiHandle(handle);
     if (!target) return undefined;
-    void node;
     if (isProjection(target)) {
       const row = Ty.record({ of: "projection", ref: target });
       return verb === "list" || verb === "all" ? Ty.array(row) : row;
@@ -981,9 +980,6 @@ export class Elaborator {
     const row = Ty.record({ of: "aggregate", ref: target });
     if (verb === "create" || verb === "update" || verb === "getById") return row;
     if (verb === "destroy") return Ty.never;
-    const repo = this.repositoryFor(target);
-    const find = repo?.finds.find((f) => f.name === verb);
-    if (find) return this.resolveType(find.returnType, scope);
     if (verb === "all" || verb === "list") {
       const paged =
         target.persistedAs !== "eventLog" &&
@@ -991,13 +987,10 @@ export class Elaborator {
         !target.superType;
       return paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row);
     }
-    for (const o of ownerChain(target)) {
-      for (const m of o.members as AstNode[]) {
-        if (isOperation(m) && m.name === verb)
-          return m.returnType ? this.resolveType(m.returnType, scope) : Ty.never;
-      }
-    }
-    return undefined;
+    // A find / operation answers its WIRE shape through the generated client —
+    // an absence union unwrapped to the row, a primitive in a `{ value }`
+    // envelope — which is not its declared domain type.  Not modelled yet.
+    return Ty.unknown("no-rule");
   }
 
   /** The response of the operation `opId` an api exposes — the operation set
