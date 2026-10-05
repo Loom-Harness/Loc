@@ -104,6 +104,13 @@ import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  NO_FOREIGN_VALUE_TYPES,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+  withForeignValueTypes,
+} from "../../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -113,6 +120,7 @@ import {
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -743,25 +751,20 @@ export function generateTypeScriptForContexts(
   // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const foreignConsumedEvents = system
-    ? [
-        ...new Set([
-          ...mergedSubscriptions.map((s) => s.event),
-          ...channelBindings.flatMap((b) => b.events),
-        ]),
-      ]
-        .filter((name) => !knownEventNames.has(name))
-        .flatMap((name) => {
-          for (const sub of system.sys.subdomains) {
-            for (const c of sub.contexts) {
-              const ev = c.events.find((e) => e.name === name);
-              if (ev) return [ev];
-            }
-          }
-          return [];
-        })
+    ? resolveForeignEvents(
+        [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
+        knownEventNames,
+        system.sys,
+      )
     : [];
+  // …and the value objects / enums those foreign events' fields reach, which
+  // the consumer does not host either: `domain/value-objects.ts` must DECLARE
+  // them, because `domain/events.ts` imports them from it (eval item 11).
+  const foreignValueTypes = system
+    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+    : NO_FOREIGN_VALUE_TYPES;
   const merged: EnrichedBoundedContextIR = {
-    ...mergedBase,
+    ...withForeignValueTypes(mergedBase, foreignValueTypes),
     events: [...mergedBase.events, ...foreignConsumedEvents],
     // Re-derive over the merged union so a reactor in one hosted context can
     // route off a channel declared in another — cross-context choreography
@@ -778,6 +781,7 @@ export function generateTypeScriptForContexts(
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
@@ -1431,7 +1435,10 @@ export function generateTypeScriptForContexts(
   // consumers.  A deployable with no wired bindings stays byte-identical.
   const hasChannels = channelBindings.length > 0;
   if (hasChannels) {
-    out.set("http/channels.ts", renderChannelsModule(channelBindings, merged.events));
+    out.set(
+      "http/channels.ts",
+      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged)),
+    );
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
   // hosted OR wired channel); a pure producer skips the loop and the
