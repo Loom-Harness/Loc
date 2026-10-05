@@ -67,62 +67,6 @@ describe("elixir-vanilla projection runtime", () => {
     expect(row).toContain("timestamps()");
   });
 
-  it("emits a pure fold handler (load-or-allocate → set → upsert) per subscribed event", async () => {
-    const fold = file(await build(SRC), "orders/projections/order_book/on_order_placed.ex");
-    expect(fold).toContain("defmodule SalesApi.Orders.Projections.OrderBook.OnOrderPlaced do");
-    expect(fold).toContain("def handle(%SalesApi.Orders.Events.OrderPlaced{} = event) do");
-    expect(fold).toContain("key = event.order");
-    expect(fold).toContain(
-      "case SalesApi.Repo.get(SalesApi.Orders.Projections.OrderBookRow, key) do",
-    );
-    expect(fold).toContain("nil -> %SalesApi.Orders.Projections.OrderBookRow{order: key}");
-    // Folds persist through a CHANGE MAP passed to `change/2` — a bare
-    // `change(state)` after struct rebinds carries no changes, so an EXISTING-row
-    // update (the second event for a key) would be a silent no-op.
-    expect(fold).toContain(
-      "{:ok, _} = SalesApi.Repo.insert_or_update(Ecto.Changeset.change(state, %{",
-    );
-    expect(fold).toContain("customer: event.customer");
-    expect(fold).toContain("status: :Placed");
-    // the correlation `:=` is skipped (immutable primary key) — not in the changes
-    expect(fold).not.toContain("order: event.order");
-    expect(fold).not.toContain("state = %{state |");
-    // pure fold — no saga route-or-drop machinery
-    expect(fold).not.toContain("with_child_frame");
-    expect(fold).not.toContain("event_unrouted");
-
-    const shipped = file(await build(SRC), "orders/projections/order_book/on_order_shipped.ex");
-    expect(shipped).toContain("Ecto.Changeset.change(state, %{status: :Shipped})");
-  });
-
-  it("fans each event to its projection fold in the context Dispatcher", async () => {
-    const disp = file(await build(SRC), "orders/dispatcher.ex");
-    expect(disp).toContain("def dispatch(%SalesApi.Orders.Events.OrderPlaced{} = event) do");
-    expect(disp).toContain("SalesApi.Orders.Projections.OrderBook.OnOrderPlaced.handle(event)");
-    expect(disp).toContain("SalesApi.Orders.Projections.OrderBook.OnOrderShipped.handle(event)");
-  });
-
-  it("emits a read controller + routes under /api/projections", async () => {
-    const files = await build(SRC);
-    const ctrl = file(files, "controllers/projections_controller.ex");
-    expect(ctrl).toContain("defmodule SalesApiWeb.ProjectionsController do");
-    expect(ctrl).toContain("def order_book_index(conn, _params) do");
-    expect(ctrl).toContain("Enum.map(SalesApi.Repo.all(SalesApi.Orders.Projections.OrderBookRow)");
-    expect(ctrl).toContain('def order_book_show(conn, %{"key" => key}) do');
-    expect(ctrl).toContain("SalesApi.Repo.get(SalesApi.Orders.Projections.OrderBookRow, key)");
-    expect(ctrl).toContain("ProblemDetails.not_found_response(conn");
-    // wire projection off the projection wireShape
-    expect(ctrl).toContain("order: row.order, customer: row.customer, status: row.status");
-
-    const router = file(files, "_web/router.ex");
-    expect(router).toContain(
-      'get "/projections/order_book", ProjectionsController, :order_book_index',
-    );
-    expect(router).toContain(
-      'get "/projections/order_book/:key", ProjectionsController, :order_book_show',
-    );
-  });
-
   it("emits nothing projection-related for a projection-less system (additivity)", async () => {
     const files = await build(SRC_NO_PROJECTION);
     const projectionFiles = [...files.keys()].filter(

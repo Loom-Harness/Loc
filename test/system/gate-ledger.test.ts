@@ -57,11 +57,19 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "auth-id-claim-stub":
     "the NON-optional twin of `auth-id-claim`, and compile-visible for the same reason: four of the five dev-stub principal VALUE tables wrote a raw scalar where the emitted id is a nominal type, and two of those are hard compile errors on the tier that already gates the cell — `TS2322: Type 'string' is not assignable to type 'CustomerId'` (tsc, against the `__brand`) and CS0029 (dotnet build, against `readonly record struct CustomerId(Guid)`).  java's arm compiled but carried a NULL strong id; that one IS a runtime shape — and the oracle for it is the emitted value, which the compile tier reads directly, not a booted round-trip.  A behavioural block would boot the same CRUD round-trip `auth-simple` already boots and mint a wire golden whose only new content is the /auth/me projection of a claim the harness's `x-loom-dev-claims` cannot even set (the shared `devClaimKind` classifier carries `string` and `string[]` only, so the id claim keeps its built-in stub value on every backend).  Same disposition as its sibling: NOT a drain candidate for M-T9.13",
   "enum-collection":
-    "the enum × array crossing is a STATIC type question and its defect is a hard compile error in the emitted project (`** (ArgumentError) invalid type {:array, Ecto.Enum, [values: …]} for field :skills` — `mix compile` fails), so the corpus compile legs ARE the oracle.  A behavioural block would boot a generic CRUD round-trip and mint a wire golden over an enum-array JSON encoding no cross-backend ruling has been asked for",
+    "held on FOUR runtime defects a booted block found (wave C3 3a, defect D3 in `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md`): EF Core reads the `text[]` column as `Int32[]` (no string converter on the enum ARRAY), java persists ordinals (`No enum constant …Skill.2`), mikroorm hydrates the raw array literal (`root.skills.map is not a function`), elixir's operation write fails the `{:array, Ecto.Enum}` dump.  The old reason (a golden over an un-ruled enum-array encoding) did not survive: node, python and dapper agree on member names, in order.  Drains when the four land — the block is in the note",
   "org-context":
     "the subject is a REQUEST HEADER (`x-org-context`) the auth middleware validates before routing, and the `test e2e` vocabulary cannot set one — a behavioural block could only drive the no-switch default, which is indistinguishable from `tenancy-hierarchy`.  The runtime half (in-scope switch stamps the sub-scope `dataKey` and the row is deep-visible from the parent and hidden from a sibling; an out-of-subtree switch and a forged one on an orgPath-less token are 403 with NO write) is the booted `tenancy-org-context*` leg of tenancy-e2e on all five backends; the compile legs prove every backend builds the gate",
-  "principal-read-filter":
-    "both halves of the defect (an UNPINNED `current_user` in the Ecto `where:`, and an actor never threaded into the find/retrieval head) are hard `mix compile` failures, so the compile legs are the oracle.  The runtime half is not assertable from the harness either: a row-level `this.technicianUserId == currentUser.id` needs the principal's id to MATCH a seeded row's, and `devClaimKind` carries `string` / `string[]` claims only — so every assertion would read the empty fail-closed result and prove nothing about the filter.  A drain candidate for M-T9.13 once the harness can seed a row owned by the authenticated principal",
+  // `principal-read-filter`, `extern` and `workflow-primitive-params` LEFT this
+  // list in wave C3 packet 3a (each gained a `test e2e` block and a golden,
+  // green on all seven legs); `numeric-operands` gained its api block too but
+  // was never here (its domain `test` block already scored it `behavioural`).
+  // Their old reasons — "the harness cannot seed a row the principal owns",
+  // "needs a supplied implementation", "the vocabulary cannot pose it" — were
+  // each narrower than the drain: the dev-stub principal's id is the zero guid
+  // on all five, the PRECONDITIONS are generator-owned, and the present-value
+  // half of a workflow call was expressible the whole time.
+  //
   // `projection-agg-filters` LEFT this list in wave-3 row 3.3.  Its signature
   // said the leak "is a RUNTIME value; the compile tier cannot see a wrong
   // number" — true, and it argued for a behavioural block rather than against
@@ -72,9 +80,10 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   // now runs `OrderVolume` vs `AllTimeVolume` at the behavioural tier.  The
   // TENANT conjunct still needs two principals and stays with the generator
   // tests — a narrower claim than the one this entry used to make.
-  outbox: "relay delivery is asynchronous; needs a booted leg that drains the outbox",
+  outbox:
+    "relay delivery is asynchronous; needs a booted leg that drains the outbox — the node leg never starts the relay, the other four run it on its own poll interval, and the `test e2e` vocabulary has no `eventually` form (re-checked wave C3 3a)",
   "channels-broker":
-    "needs a broker container (the channels-e2e legs boot one; the corpus case does not)",
+    "needs a broker container (the channels-e2e legs boot one; the corpus case does not) — and not only for delivery: the four real-process legs cannot BOOT without the broker URL (e.g. python's `init_channel_transports()` raises at startup; re-checked wave C3 3a)",
   "channels-broker-workflow":
     "same broker-container reason as `channels-broker`, and the defect it was minted for is a " +
     "HARD compile error in the emitted project (TS2304 for `createOutboxDispatcher` plus three " +
@@ -87,28 +96,26 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "assert — a projection count — `projection-agg-filters` already boots on one",
   "tenancy-hierarchy":
     "the deep/global/local read ladder is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier",
-  extern: "the user handler is scaffold-once; a booted leg needs a supplied implementation",
-  "extern-handlers": "same scaffold-once shape as `extern`",
+  "extern-handlers":
+    "the scaffold-once shape `extern` had, WITHOUT `extern`'s way out: the two routed handlers carry no precondition, so every call reaches the unimplemented user hook and a golden would pin the scaffold's fail-fast; the mount-path agreement for routed handlers is #3024 (re-checked wave C3 3a, when `extern` drained on its preconditions)",
   "handler-resource-ops": "outbound I/O inside a handler body; needs the resource's container",
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
-  "workflow-primitive-params":
-    "the question is what a request body OMITS, and the `test e2e` vocabulary cannot pose it — a workflow call there is type-checked against the declared params, so an absent required field is not expressible; the compile tier proves every backend still builds with the boxed components, and the 422 itself is the Schemathesis legs' question",
   "collection-op-shapes":
-    "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+    "collection-op VALUE semantics — the exact class a string assertion cannot see, and a booted block (wave C3 3a, defect D1 in `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md`) found the DERIVED ENTITY ARRAY (`byPriceDesc: LineItem[]`) broken on four legs: node serializes the private-field domain instance (the golden's oracle, so no golden can be minted), python 500s on response validation, EF Core cannot build the model, mikroorm binds `int[]` as JSON text.  Drains when node + python + .NET + mikroorm land",
   "workflow-enum-state":
-    'an enum-typed workflow STATE field — both defects it exists for are STATIC and land on the compile tier that already gates it: node named `<Enum>Schema` with the name bound nowhere in the tree (TS2304) and then seeded the fresh saga row with `""` for a column drizzle types as a literal union (TS2345), both caught by corpus-tsc.  The workflow is EVENT-TRIGGERED, so it has no command route to POST and its only api surface is the pair of read-only instance endpoints; reaching them at runtime needs a `ClaimFiled` emitter this fixture deliberately does not have, because the shape under test is the enum in the state row, not the dispatch that fills it — `saga` and `eventsourced-workflow` already boot that dispatch path (#2864 D4/T3)',
+    'an enum-typed workflow STATE field.  The old reason ("nothing an oracle can read — no `ClaimFiled` emitter") did not survive a booted block (wave C3 3a, defect D6): with an emitting operation added, ELIXIR inserts the saga row with `claim_state` NULL (`not_null_violation`) — the "fresh saga row seeded wrong" class this fixture was minted for on node.  The aggregate also needs renaming (`Claim` → `ClaimRecord`) because its e2e slug `claims` is a Loom keyword (D2).  Drains with the elixir fix; block in the note',
   "workflow-command-payload":
-    "the defect (#2864 D7/T2) is on the WORKFLOW command route, and the e2e DSL has no form that calls one — a booted caller could only drive the two crudish aggregates, never the payload wire contract the fixture exists for; the five compile legs are its oracle (M-T9.13 owns the drain: POST the payload from an e2e block once the DSL can call a workflow)",
+    "the e2e DSL CAN call a workflow now (`api.<wf>.run(…)`), and the booted block (wave C3 3a, defect D7) found ELIXIR reading the payload with ATOM keys off a STRING-keyed map (`KeyError: key :cargo not found`) — a 500 on every run.  The aggregate also needs renaming (`Claim` → `ClaimRecord`; slug `claims` is a keyword, D2).  Drains with the elixir fix; block in the note",
   "projection-implicit-sub":
-    "**D-PROJECTION-IMPLICIT-SUB** — the fixture exists to prove the DISPATCH WIRING is emitted for a consumer no `channel` carries, which is a static fact: before the decision `deriveEventSubscriptions` returned `[]` and four backends emitted no handler at all while python emitted no `dispatch.py`, so the five compile legs plus `test/generator/projection-implicit-sub.test.ts` (one named symbol per backend) are its oracle.  Its CARRIED twin `projection.ddd` already boots the same fold through the same dispatch path and asserts the folded rows, so a behavioural block here would re-observe that with the channel block deleted — no new runtime question, one more wire golden",
+    "**D-PROJECTION-IMPLICIT-SUB** — the old reason (its carried twin `projection.ddd` boots the same fold) was wrong: a dropped implicit subscription compiles on every backend, the twin has no workflow, and seeding the original defect back turns this fixture's booted block red while `projection` stays green.  The block (wave C3 3a, defect D8) found ELIXIR 500ing on the reactor: an optional `datetime` workflow-state field is typed `:string` in the Ecto schema (`Ecto.ChangeError … shipped_at … does not match type :string`).  Drains with the elixir fix; block in the note",
   "projection-fold-statements":
     "ledger row F2-XB-4 — the COMPILE tier is the gate that mattered here (a dropped `let` is CS0103 / 'cannot find symbol'), and `test/conformance/projection-fold-statement-parity.test.ts` sweeps every admitted statement kind on all five per-PR.  What a behavioural block would add is the ACCUMULATED VALUE: a dropped `+=` compiles and leaves the column null forever, which only a booted read can tell from a correct fold.  Blocked on a wire golden per backend, not on the fixture",
   "paged-nonrelational":
     "ledger row F2-CB-C1 — the COMPILE tier is likewise the gate that mattered (CS0535 + CS0029 on .NET), with `test/conformance/paged-nonrelational-parity.test.ts` comparing the declaration, the implementation and the caller's arity per-PR.  What a behavioural block would add is the PAGE ITSELF: an in-memory pager that slices before it sorts, or counts the page instead of the match, compiles and answers plausible JSON.  Same blocker",
   "find-bypass":
-    "`find … ignoring tenantOwned` is only observable across TWO principals (does the other tenant's row appear?); the behavioural runners authenticate as one, so a caller would read the same set either way — the same two-principal harness `projection-agg-filters` waits on",
+    "`find … ignoring tenantOwned` is only observable across TWO principals (does the other tenant's row appear?); the behavioural runners authenticate as one, so a caller would read the same set either way — the same two-principal harness `projection-agg-filters` waits on, now claimed by #2976 (re-checked wave C3 3a)",
   envelope:
     'the `envelope` carrier is a COMPILE defect (java named an undeclared `Envelope<Order>`, dotnet returned a bare `Order` from `Task<Envelope<Order>>`); the five compile legs plus the byte-identity gate in `test/generator/envelope-carrier.test.ts` are its oracle, and a booted leg would mint a wire golden across the un-drained find-miss 404 `detail` split (`"not found"` on node, `"not_found"` on the other four)',
   "vo-cross-context":
@@ -118,7 +125,7 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "vo-regex-invariant":
     "minted by the same audit.  The bug class is a MISSING IMPORT in a second emitted file — the regex a `.matches(<regex>)` value-object invariant puts in the wire/request validator beside the domain class that already had one — and a missing import is exactly what a type-checker sees and a wire assertion cannot.  That is the evaluation's F-013: .NET emitted `using System.Text.RegularExpressions;` in `Domain/ValueObjects/*.cs` and omitted it from the FluentValidation request validator, failing `dotnet build` on ordinary modelling (now FIXED, verified under `/warnaserror` on sdk:10.0).  PYTHON still has the same class: `app/http/wire_models.py` emits `re.search(...)` with no `import re` (ruff F821) while the domain half imports it, so python cannot boot and a golden cannot be captured.  What a behavioural block would add is genuine and is written down in the fixture header — the wire boundary must answer 422 on a bad value rather than 500 or silently storing it — so add it, with its golden, in the same PR that adds the import.  python is excluded from this row's `backends:` via the named `WIRE_REGEX_IMPORT` set in the corpus manifest — not a compile-skip, because a generate-only cell is refused by this very file",
   "vo-id-reference":
-    "a value object holding an `X id` — the whole defect class is MISSING IMPORTS (node named `Ids.ShipId` with no import; python branded `ShipId(...)` with none), which only a type-checker sees; the runtime halves it would boot, an embedded VO and a `<VO>[]` collection, are already booted by `embedded` and `value-collections`",
+    'a value object holding an `X id`.  The minted defect class is MISSING IMPORTS (compile-visible), but the old claim that the runtime half is "already booted by `embedded` and `value-collections`" was wrong — those boot SCALAR VO fields.  A booted block (wave C3 3a, defect D4) found java 500ing on the first create (the embedded override targets `ship`, not `ship.value`, so Hibernate selects a `value` column no migration made) and elixir failing `mix ecto.migrate` (an index on the flattened `berth_ship` column of a VO it stores as one `:map`).  Drains with those two; block in the note',
 };
 
 describe("gate ledger", () => {
