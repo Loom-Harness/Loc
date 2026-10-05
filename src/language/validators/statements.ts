@@ -70,8 +70,8 @@ import {
   resolveTypeRef,
   stepInto,
   stepIntoNode,
+  suffixType,
   T,
-  typeAfterSuffix,
   typeOf,
   typeToString,
   withTags,
@@ -504,7 +504,7 @@ export function checkExprCallArgs(
           );
         }
       }
-      curType = typeAfterSuffix(curType, s, env);
+      curType = suffixType(s);
     }
   }
 }

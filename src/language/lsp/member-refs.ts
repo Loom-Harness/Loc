@@ -41,7 +41,7 @@ import {
   iterateEntityMembers,
   stepInto,
   stepIntoNode,
-  typeAfterSuffix,
+  suffixType,
   typeOf,
 } from "../type-system.js";
 
@@ -90,7 +90,7 @@ function receiverTypeForSuffix(ms: MemberSuffix): DddType | undefined {
   const env = envForNode(ms);
   let t = typeOf(chain.head, env);
   for (let i = 0; i < idx; i++) {
-    t = typeAfterSuffix(t, chain.suffixes[i]!, env);
+    t = suffixType(chain.suffixes[i]!);
   }
   return t;
 }

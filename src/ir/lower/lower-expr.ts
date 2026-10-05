@@ -301,6 +301,9 @@ function promoteLiteral(expr: Expression, ir: ExprIR, typing: TypingSession): Ex
 function irType(t: Ty): TypeIR {
   if (t.kind === "optional" && t.inner.kind === "never")
     return { kind: "primitive", name: "string" };
+  // …and the empty list literal (the pass's `never[]`) its `string[]`.
+  if (t.kind === "array" && t.element.kind === "never")
+    return { kind: "array", element: { kind: "primitive", name: "string" } };
   return toTypeIR(t);
 }
 
@@ -2652,6 +2655,13 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   ) {
     const t = passTypeOrUndefined(expr, env);
     if (t) return t;
+  }
+  // Builders, lists, `match`, `await` (cutover family 3c).  A ui element (the
+  // pass's `slot`) keeps the IR's representation: the `entity{<primitive>}`
+  // marker its first-arm / builder rule always produced (design §D7).
+  if (isBuilderCall(expr) || isListLit(expr) || isMatchExpr(expr) || isAwaitExpr(expr)) {
+    const t = passTypeOrUndefined(expr, env);
+    if (t && t.kind !== "slot") return t;
   }
   if (isListLit(expr)) {
     // Best-effort element-type inference: use the first element's type

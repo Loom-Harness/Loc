@@ -963,9 +963,11 @@ export class Elaborator {
           // a value of its own; record what it names for the LSP.
           this.types.set(e.head, this.headNameType(headName, scope, e.head));
         }
-        this.types.set(first, head.t);
         start = head.consumed;
-        if (start > 1) this.types.set(e.suffixes[start - 1]!, head.t);
+        // A multi-segment read (`Sales.Order.byId(id)`): its path segments
+        // name declarations, not values; only the last one carries the result.
+        if (start > 1) this.types.set(first, Ty.unknown("not-a-value"));
+        this.types.set(e.suffixes[start - 1]!, head.t);
       }
     }
     if (!cur) cur = this.synth(e.head, scope);

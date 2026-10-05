@@ -60,9 +60,9 @@ import {
   isAssignable,
   makeEnv,
   resolveTypeRef,
+  suffixType,
   T,
   ternaryJoin,
-  typeAfterSuffix,
   typeOf,
   typeToString,
 } from "../type-system.js";
@@ -150,7 +150,7 @@ export function checkSlotMemberAccess(model: Model, accept: ValidationAcceptor):
         // Cascade suppression for the rest of this chain — one
         // diagnostic per offending access is enough.
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -262,7 +262,7 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
           break;
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -318,7 +318,7 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
           }
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -453,7 +453,7 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
           break;
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }

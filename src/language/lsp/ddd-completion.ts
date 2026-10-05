@@ -36,7 +36,7 @@ import {
   type MemberCompletion,
   membersOfType,
   resolveTypeRef,
-  typeAfterSuffix,
+  suffixType,
   typeOf,
 } from "../type-system.js";
 
@@ -185,7 +185,7 @@ export class DddCompletionProvider extends DefaultCompletionProvider {
     let receiverType = typeOf(chain.head, env);
     if (idx > 0) {
       for (let i = 0; i < idx; i++) {
-        receiverType = typeAfterSuffix(receiverType, chain.suffixes[i]!, env);
+        receiverType = suffixType(chain.suffixes[i]!);
       }
     }
     if (receiverType.kind !== "unknown") {

@@ -2,12 +2,7 @@ import type { AstNode } from "langium";
 import { AstUtils } from "langium";
 import type { PrimitiveName } from "../ir/types/loom-ir.js";
 import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops.js";
-import {
-  intrinsicFor,
-  intrinsicReturnType,
-  intrinsicsForReceiver,
-  isIntrinsicName,
-} from "../util/intrinsics.js";
+import { intrinsicsForReceiver, isIntrinsicName } from "../util/intrinsics.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import type {
@@ -20,7 +15,6 @@ import type {
   Expression,
   FunctionDecl,
   Lambda,
-  MemberSuffix,
   Operation,
   Parameter,
   PayloadDecl,
@@ -36,6 +30,7 @@ import type {
 import {
   isAggregate,
   isApply,
+  isAwaitExpr,
   isBinaryChain,
   isBoolLit,
   isBoundedContext,
@@ -55,11 +50,14 @@ import {
   isIntLit,
   isLambda,
   isLetStmt,
+  isListLit,
+  isMatchExpr,
   isMemberSuffix,
   isModel,
   isNameRef,
   isNowExpr,
   isNullLit,
+  isObjectLit,
   isOnDecl,
   isOperation,
   isPage,
@@ -309,6 +307,9 @@ export function isAssignable(value: DddType, target: DddType): boolean {
         (value.inner.kind === "never" || isAssignable(value.inner, target.inner)))
     );
   }
+  // The empty list literal `[]` (`never[]`, a bottom element) fits any list.
+  if (value.kind === "array" && target.kind === "array" && value.element.kind === "never")
+    return true;
   if (value.kind === "primitive" && target.kind === "primitive") {
     if (value.name === "int" && (target.name === "long" || target.name === "decimal")) return true;
     if (value.name === "long" && target.name === "decimal") return true;
@@ -617,7 +618,7 @@ export function typeOf(expr: Expression | undefined, env: Env): DddType {
   return isNarrowedNonNull(expr, key) ? withTags(t.inner, t.sensitivity) : t;
 }
 
-function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
+function typeOfExpr(expr: Expression | undefined, _env: Env): DddType {
   if (!expr) return T.unknown;
   // Literals and operators are typed by the single typing pass (M-T5.44,
   // cutover family 3a) — the same answer lowering reads.
@@ -637,18 +638,21 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
     isThisRef(expr) ||
     isIdRef(expr) ||
     isNameRef(expr) ||
-    isPostfixChain(expr)
+    isPostfixChain(expr) ||
+    // Cutover family 3c — calls, builders and the value-forming expressions.
+    isBuilderCall(expr) ||
+    isParenExpr(expr) ||
+    isListLit(expr) ||
+    isMatchExpr(expr) ||
+    isAwaitExpr(expr) ||
+    isObjectLit(expr)
   ) {
     const t = typingFor(expr).synthAt(expr);
     return t ? toDddType(t) : T.unknown;
   }
-  if (isParenExpr(expr)) return typeOf(expr.inner, env);
   if (isLambda(expr)) {
     // Lambda type is contextual; without a target type it's unknown.
     return T.unknown;
-  }
-  if (isBuilderCall(expr)) {
-    return typeOfBuilderCall(expr, env);
   }
   return T.unknown;
 }
@@ -887,50 +891,33 @@ export function isDurationBuiltinCall(name: string, env: Env): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// The three member-resolution walkers — and why each is an EXHAUSTIVE switch.
+// The two dotted-path member walkers — and why each is an EXHAUSTIVE switch.
 //
-// `typeAfterSuffix`, `stepInto` and `stepIntoNode` are three parallel walks
-// over the SAME question ("what does `<receiver>.<name>` denote?"), differing
-// only in what they return: the member's type, the member's type via a dotted
-// path, and the member's AST node.  They were written as `if (t.kind === …)`
-// chains falling through to a silent `unknown` / `undefined`, which is exactly
-// the shape M-T5.16 (a) names: **a new `DddType` kind resolves on one walker,
-// silently misses the other two, and nothing fails.**  The divergence is not
-// hypothetical — `userclaim`, `id`, `array` and `primitive` all resolve members
-// in `typeAfterSuffix` and resolve to `unknown` in `stepInto`.
+// `stepInto` and `stepIntoNode` answer "what does `<receiver>.<name>` denote?"
+// along a dotted path (an lvalue, a projection source), returning the member's
+// type and the member's AST node.  The POSTFIX walk (`recv.member` in an
+// expression) was a third such walker; since M-T5.44 it is the single typing
+// pass's, read through `suffixType`.  They were written as `if (t.kind === …)`
+// chains falling through to a silent `unknown` / `undefined` — the shape
+// M-T5.16 (a) names: **a new `DddType` kind resolves on one walker, silently
+// misses the other, and nothing fails.**
 //
-// Each walker is now a `switch (t.kind)` covering EVERY member of the
-// `DddType` union with a `const _exhaustive: never` default (the `walk.ts`
-// idiom).  Adding a kind to `DddType` therefore fails `tsc` at all three sites
-// at once, and a kind that genuinely has no members carries an explicit arm
-// saying so instead of vanishing into a fallthrough.  The arms are a
-// behaviour-preserving transcription of the `if` chains they replace: every
-// kind returns exactly what it returned before.
+// Each walker is a `switch (t.kind)` covering EVERY member of the `DddType`
+// union with a `const _exhaustive: never` default (the `walk.ts` idiom), so
+// adding a kind fails `tsc` at both sites at once, and a kind that genuinely
+// has no members carries an explicit arm saying so.
 //
-// The DIVERGENCE ITSELF is deliberate and is pinned as data, not as silence —
-// `MEMBER_RESOLVING_KINDS` below, asserted by
-// `test/language/type-system-walker-exhaustiveness.test.ts`.
+// The kinds each one resolves ON are pinned as data — `MEMBER_RESOLVING_KINDS`
+// below, asserted by `test/language/type-system/walker-exhaustiveness.test.ts`.
 // ---------------------------------------------------------------------------
 
-/** Which `DddType` kinds each member-resolution walker actually resolves a
- *  member ON (as opposed to answering `unknown` / `undefined`).  This is the
- *  divergence between the three walkers, stated as data so that widening one
- *  of them is a visible edit here rather than an invisible one at the site. */
+/** Which `DddType` kinds each dotted-path walker actually resolves a member ON
+ *  (as opposed to answering `unknown` / `undefined`), stated as data so that
+ *  widening one of them is a visible edit here rather than an invisible one at
+ *  the site. */
 export const MEMBER_RESOLVING_KINDS = {
-  /** Postfix `recv.member` — the widest walker; the one the validators and
-   *  LSP hover route through. */
-  typeAfterSuffix: [
-    "array",
-    "entity",
-    "aggregate",
-    "valueobject",
-    "payload",
-    "userclaim",
-    "primitive",
-    "id",
-  ],
   /** Dotted-path step (`a.b.c` in an lvalue / projection source).  NARROWER
-   *  than `typeAfterSuffix` on purpose: a dotted path is a record walk, so
+   *  than the postfix walk (the typing pass's) on purpose: a dotted path is a record walk, so
    *  collection ops (`array`), scalar intrinsics (`primitive`), `X id`
    *  dereference and the principal (`userclaim`) are not reachable through it
    *  today.  Widening it is a language change, not a bug fix. */
@@ -939,135 +926,11 @@ export const MEMBER_RESOLVING_KINDS = {
   stepIntoNode: ["entity", "aggregate", "valueobject", "payload"],
 } as const satisfies Record<string, ReadonlyArray<DddType["kind"]>>;
 
-export function typeAfterSuffix(recvType: DddType, suffix: PostfixSuffix, env: Env): DddType {
-  if (isCallSuffix(suffix)) {
-    // Invoking a non-NameRef receiver — without a signature the
-    // result is unknown (matches the legacy CallExpr typing for a
-    // non-NameRef callee).
-    return T.unknown;
-  }
-  const ms = suffix as MemberSuffix;
-  const memberName = ms.member;
-  switch (recvType.kind) {
-    // Collection ops on arrays.
-    case "array":
-      return collectionOpType(recvType, memberName, ms, env);
-    case "entity":
-    case "aggregate":
-      return lookupEntityMember(recvType.ref, memberName);
-    case "valueobject":
-      return lookupValueObjectMember(recvType.ref, memberName);
-    case "payload":
-      return lookupPayloadMember(recvType.ref, memberName);
-    case "userclaim":
-      return lookupUserMember(recvType.ref, memberName);
-    case "primitive": {
-      if (recvType.name === "string") {
-        if (memberName === "length") return T.prim("int");
-        if (memberName === "matches" && ms.call) return T.prim("bool");
-      }
-      if (ms.call) {
-        // Scalar intrinsics (src/util/intrinsics.ts) — catalogue-driven, so a
-        // new op types here (and completes, via membersOfType) without code.
-        const sig = intrinsicFor(recvType.name, memberName);
-        if (sig) {
-          const ret = intrinsicReturnType(sig, recvType.name);
-          if (ret.endsWith("[]")) return T.array(T.prim(ret.slice(0, -2) as PrimitiveName));
-          return T.prim(ret as PrimitiveName);
-        }
-      }
-      return T.unknown;
-    }
-    case "id":
-      return lookupEntityMember(recvType.target, memberName);
-    // Kinds with no member surface at all.  `enum` members are resolved as
-    // qualified VALUES by the name resolver, never as a postfix member on an
-    // enum-typed receiver; `optional` must be unwrapped (`if let` / `??`)
-    // before a member is reachable; `slot` / `action` are opaque markers whose
-    // member access the consumer-side validators reject; `any` / `unknown` /
-    // `never` are the placeholder types and stay placeholders.
-    case "enum":
-    case "optional":
-    case "slot":
-    case "action":
-    case "any":
-    case "never":
-    case "unknown":
-      return T.unknown;
-    default: {
-      const _exhaustive: never = recvType;
-      void _exhaustive;
-      return T.unknown;
-    }
-  }
-}
-
-function lookupEntityMember(target: Aggregate | EntityPart, name: string): DddType {
-  if (name === "id") {
-    return { kind: "id", target };
-  }
-  for (const m of target.members) {
-    if (isProperty(m) && m.name === name)
-      return withTags(resolveTypeRef(m.type), propertySensitivity(m));
-    if (isContainment(m) && m.name === name) {
-      const part = m.partType?.ref;
-      if (!part) return T.unknown;
-      const t: DddType = { kind: "entity", ref: part };
-      return m.collection ? T.array(t) : t;
-    }
-    if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
-    if (isFunctionDecl(m) && m.name === name) {
-      // Function reference — without call this is unknown (we treat it as
-      // an unevaluated function symbol).
-      return T.unknown;
-    }
-  }
-  return T.unknown;
-}
-
-function lookupValueObjectMember(target: ValueObject, name: string): DddType {
-  for (const m of target.members) {
-    if (isProperty(m) && m.name === name)
-      return withTags(resolveTypeRef(m.type), propertySensitivity(m));
-    if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
-  }
-  return T.unknown;
-}
-
-/** Member type on a transport record (`event` / `payload`) — a flat list of
- *  `Property` fields, no `id` / containment / derived.  Resolving the field
- *  type lets the binary-operand / comparison / assignment validators check
- *  expressions over event/payload param fields instead of cascading to
- *  `unknown`. */
-function lookupPayloadMember(target: EventDecl | PayloadDecl, name: string): DddType {
-  for (const f of target.fields) {
-    if (f.name === name) return withTags(resolveTypeRef(f.type), propertySensitivity(f));
-  }
-  return T.unknown;
-}
-
-/** Member type on the `currentUser` principal — a claim field from the
- *  `user { … }` block, or one of the derived tenant members (`orgPath` /
- *  `rootOrg`, both string paths).  Mirrors the IR layer's principal typing
- *  (`lower-expr.ts`), including its **fail-open** posture: an unknown member
- *  resolves to `string` rather than `unknown`, so introducing precise typing
- *  here never turns an already-valid `currentUser.<x>` reference into a new
- *  error — it only lets the *known* claim types (arrays, ints, …) reach the
- *  collection-op / comparison checks, which would otherwise see `unknown`.
- *
- *  The fail-open TYPING stays; what is no longer silent is the MEMBERSHIP.
- *  `absentUserClaim` below judges that separately, so an undeclared claim gets
- *  its own diagnostic (`loom.unknown-user-claim`) instead of riding a `string`
- *  all the way into a generated project that then fails its own compile
- *  (audit `docs/audits/2026-09-10-claimshub-dev-experience.md` §D2).  Keeping
- *  the two apart matters: the type is still needed downstream for the very
- *  expression the diagnostic complains about, and only ONE report should come
- *  out of it. */
-function lookupUserMember(target: UserBlock, name: string): DddType {
-  if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return T.prim("string");
-  const f = target.fields.find((f) => f.name === name);
-  if (f) return resolveTypeRef(f.type);
-  return T.prim("string");
+/** The receiver type AFTER `suffix` — what the single typing pass recorded
+ *  for it (M-T5.44): the one member-access walk validators and the LSP read. */
+export function suffixType(suffix: PostfixSuffix): DddType {
+  const t = typingFor(suffix).synthAt(suffix);
+  return t ? toDddType(t) : T.unknown;
 }
 
 /** For the unknown-user-claim validator: `name` is definitively NOT reachable
@@ -1191,115 +1054,6 @@ function aggregateChainHasMember(agg: Aggregate, name: string): boolean {
 // catalogue, consumed by ir/, generator/, system/ as well — keeps the
 // language layer free of back-edges).
 
-function collectionOpType(
-  recv: { kind: "array"; element: DddType },
-  name: string,
-  ms: MemberSuffix,
-  env: Env,
-): DddType {
-  switch (name) {
-    case "count":
-    // `<array>.length` — an ALIAS for `count`, not a catalogue op.  The IR has
-    // typed it as `int` all along (`lower-expr.ts`, the `array` arm), and its
-    // comment there claims this is "exactly as the language type-system already
-    // reports it" — which was NOT true: `collectionOpType` had no `length` case,
-    // so the language layer returned `T.unknown` while the IR and every emitter
-    // handled it (java renders `.size()`, and the corpus relies on it).  That is
-    // the same IR/language disagreement shape as F1, found by this PR's own gate
-    // turning a valid fixture red.
-    //
-    // It is deliberately NOT added to COLLECTION_OP_SIGNATURES: that catalogue
-    // drives `collection-op-completeness`, which requires every backend to
-    // RENDER each entry, and `length` is spelled `count` there.
-    case "length":
-      return T.prim("int");
-    case "sum": {
-      // sum returns the lambda's body type when one is given;
-      // otherwise the element type itself.  Args are CallArg
-      // wrappers — peek through `.value`.
-      const callArg = ms.args[0];
-      const lambdaArg = callArg?.value;
-      if (lambdaArg && isLambda(lambdaArg) && lambdaArg.body) {
-        const lambdaEnv = makeEnv(
-          env,
-          new Map([[lambdaArg.param, { type: recv.element, origin: lambdaArg }]]),
-        );
-        return typeOf(lambdaArg.body, lambdaEnv);
-      }
-      return recv.element;
-    }
-    case "all":
-    case "any":
-    case "contains":
-      return T.prim("bool");
-    case "map": {
-      // map returns an array of the lambda's body type — mirrors `sum`'s
-      // lambda-body typing, then wraps in an array.  Without a lambda arg
-      // fall back to an array of the element type (the identity projection).
-      const callArg = ms.args[0];
-      const lambdaArg = callArg?.value;
-      if (lambdaArg && isLambda(lambdaArg) && lambdaArg.body) {
-        const lambdaEnv = makeEnv(
-          env,
-          new Map([[lambdaArg.param, { type: recv.element, origin: lambdaArg }]]),
-        );
-        return T.array(typeOf(lambdaArg.body, lambdaEnv));
-      }
-      return T.array(recv.element);
-    }
-    case "sortBy":
-    case "distinct":
-    case "take":
-    case "skip":
-      return T.array(recv.element);
-    case "where":
-      return T.array(recv.element);
-    case "join":
-      return T.prim("string");
-    case "first":
-      return recv.element;
-    case "firstOrNull":
-      return T.opt(recv.element);
-    case "min":
-    case "max": {
-      // min/max project the collection through the lambda and return the
-      // PROJECTED value, optional (empty collection → null).  Mirrors `sum`'s
-      // lambda-env typing; falls back to an optional element type with no lambda.
-      const callArg = ms.args[0];
-      const lambdaArg = callArg?.value;
-      if (lambdaArg && isLambda(lambdaArg) && lambdaArg.body) {
-        const lambdaEnv = makeEnv(
-          env,
-          new Map([[lambdaArg.param, { type: recv.element, origin: lambdaArg }]]),
-        );
-        return T.opt(typeOf(lambdaArg.body, lambdaEnv));
-      }
-      return T.opt(recv.element);
-    }
-    case "avg": {
-      // avg projects the collection through the lambda and returns the MEAN,
-      // optional (empty collection → null).  A money projection averages to
-      // `money?`; every other numeric projection (int/long/decimal) to
-      // `decimal?`.  Mirrors `sum`'s lambda-env typing.
-      const callArg = ms.args[0];
-      const lambdaArg = callArg?.value;
-      if (lambdaArg && isLambda(lambdaArg) && lambdaArg.body) {
-        const lambdaEnv = makeEnv(
-          env,
-          new Map([[lambdaArg.param, { type: recv.element, origin: lambdaArg }]]),
-        );
-        const bodyT = typeOf(lambdaArg.body, lambdaEnv);
-        const isMoney = bodyT.kind === "primitive" && bodyT.name === "money";
-        return T.opt(T.prim(isMoney ? "money" : "decimal"));
-      }
-      const isMoney = recv.element.kind === "primitive" && recv.element.name === "money";
-      return T.opt(T.prim(isMoney ? "money" : "decimal"));
-    }
-    default:
-      return T.unknown;
-  }
-}
-
 function lookupFunctionInScope(
   name: string,
   env: Env,
@@ -1343,36 +1097,6 @@ function lookupTopLevelFunction(
   // function (which shadows it), so a call to a prelude function types to its
   // declared return.
   return stdFunction(name);
-}
-
-/** v2 BuilderCall typing.  The type name resolves against the enclosing
- *  bounded context (value objects + aggregates + parts).  Unknown names
- *  type as `unknown` — the validator surfaces the diagnostic. */
-function typeOfBuilderCall(expr: import("./generated/ast.js").BuilderCall, env: Env): DddType {
-  const name = expr.type;
-  const vo = lookupValueObjectByName(name, env);
-  if (vo) return { kind: "valueobject", ref: vo };
-  const ent = lookupEntityByName(name, env);
-  if (ent) {
-    return ent.$type === "Aggregate"
-      ? { kind: "aggregate", ref: ent }
-      : { kind: "entity", ref: ent };
-  }
-  return T.unknown;
-}
-
-function lookupEntityByName(name: string, env: Env): Aggregate | EntityPart | undefined {
-  const ctx = envContext(env);
-  if (!ctx) return undefined;
-  for (const m of ctx.members) {
-    if (isAggregate(m)) {
-      if (m.name === name) return m;
-      for (const inner of m.members) {
-        if (isEntityPart(inner) && inner.name === name) return inner;
-      }
-    }
-  }
-  return undefined;
 }
 
 /** Resolve a criterion by name against the enclosing bounded context.
@@ -1797,7 +1521,7 @@ function lambdaParamElementType(lam: Lambda): DddType | undefined {
   if (idx < 0) return undefined;
   let recvType: DddType = typeOf(chain.head, envForNode(chain.head));
   for (let i = 0; i < idx; i++) {
-    recvType = typeAfterSuffix(recvType, chain.suffixes[i]!, envForNode(chain));
+    recvType = suffixType(chain.suffixes[i]!);
   }
   if (recvType.kind === "array") return recvType.element;
   return undefined;
@@ -2067,7 +1791,7 @@ export function calleeSignature(
     if (!s.call) return undefined;
     let recvType: DddType = typeOf(chain.head, envForNode(chain.head));
     for (let i = 0; i < suffixIdx; i++) {
-      recvType = typeAfterSuffix(recvType, chain.suffixes[i]!, envForNode(chain));
+      recvType = suffixType(chain.suffixes[i]!);
     }
     const decl = stepIntoNode(recvType, s.member);
     if (decl && (isFunctionDecl(decl) || isOperation(decl))) {
