@@ -1,11 +1,16 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
-import { walkStmtExprsDeep } from "../../ir/util/walk.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { jid } from "./java-ident.js";
-import { addJavaExprImport, type JavaRenderContext, renderJavaExpr } from "./render-expr.js";
+import {
+  addJavaExprImport,
+  type JavaRenderContext,
+  renderJavaExpr,
+  withLambdaScope,
+} from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Java / Spring backend.  The 11-kind `StmtIR`
@@ -40,7 +45,7 @@ export function renderJavaStatements(
   ctx: JavaRenderContext = DEFAULT_CTX,
   traceCtx: JavaTraceCtx = NO_TRACE,
 ): string {
-  return renderStmtsWith(stmts, javaStmtTarget(ctx, traceCtx));
+  return renderStmtsWith(stmts, javaStmtTarget(withBodyLets(stmts, ctx), traceCtx));
 }
 
 /** Same rendering as `renderJavaStatements`, but one (possibly multi-line)
@@ -55,7 +60,20 @@ export function renderJavaStatementChunks(
   ctx: JavaRenderContext = DEFAULT_CTX,
   traceCtx: JavaTraceCtx = NO_TRACE,
 ): string[] {
-  return renderStmtChunksWith(stmts, javaStmtTarget(ctx, traceCtx));
+  return renderStmtChunksWith(stmts, javaStmtTarget(withBodyLets(stmts, ctx), traceCtx));
+}
+
+/** `ctx` with every `let` the body declares (in its declared Java spelling)
+ *  added to the lambda scope — a `tags.where(x => …)` after (or inside the
+ *  initializer of) a `let x` would otherwise redeclare it. */
+function withBodyLets(stmts: StmtIR[], ctx: JavaRenderContext): JavaRenderContext {
+  const names: string[] = [];
+  for (const s of stmts) {
+    walkStmtsDeep(s, (st) => {
+      if (st.kind === "let") names.push(ctx.letExpr?.(st.name) ?? escapeJavaIdent(st.name));
+    });
+  }
+  return withLambdaScope(ctx, names);
 }
 
 // `statementSubRegions` lives in src/generator/_trace/sourcemap.ts — it's
@@ -154,7 +172,7 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
 
     call: (s) => {
       const args = s.args.map((a) => renderJavaExpr(a, ctx)).join(", ");
-      return `${INDENT}this.${s.name}(${args});`;
+      return `${INDENT}this.${jid(s.name)}(${args});`;
     },
 
     expression: (s) => `${INDENT}${renderJavaExpr(s.expr, ctx)};`,

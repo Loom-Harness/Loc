@@ -20,7 +20,7 @@ import {
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
-import { isMangled, javaLocals, jid, localOf } from "../java-ident.js";
+import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -125,6 +125,40 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | 
  *  null limit → unbounded).  The .NET document/event repos take the same
  *  hydrate-then-filter shape.  Returns the method lines plus the extra
  *  imports they need (`java.util.Comparator` when any retrieval sorts). */
+/** Names an in-memory (document / event-store) read method spells itself —
+ *  the `x` / `o` lambda parameters of its predicate and comparators, the
+ *  `all` / `items` / `result` / `__cmp` / `__sortField` locals, the paging
+ *  controls, and the principal binding.  A find / retrieval param landing
+ *  here moves to `<name>_` (`javaLocals`); every other param keeps `jid`. */
+export const IN_MEMORY_READ_NAMES: ReadonlySet<string> = new Set([
+  "x",
+  "o",
+  "all",
+  "items",
+  "result",
+  "__cmp",
+  "__sortField",
+  "page",
+  "pageSize",
+  "sort",
+  "dir",
+  "offset",
+  "limit",
+  "currentUser",
+  "currentUserAccessor",
+]);
+
+/** The `paramExpr` render hook for an in-memory read's moved params — spread
+ *  into the render context, and absent (so the context is unchanged) when
+ *  nothing moved. */
+export function inMemoryParamExpr(locals: ReadonlyMap<string, string>): {
+  paramExpr?: (name: string) => string | undefined;
+} {
+  return [...locals].some(([n, l]) => l !== jid(n))
+    ? { paramExpr: (n) => movedLocalOrUndefined(locals, n) }
+    : {};
+}
+
 export function inMemoryRetrievalLines(
   agg: EnrichedAggregateIR,
   retrievals: readonly RetrievalIR[],
@@ -149,12 +183,23 @@ export function inMemoryRetrievalLines(
   if (retrievals.length === 0) return [];
   if (retrievals.some((r) => r.sort.length > 0)) exprImports.add("java.util.Comparator");
   return retrievals.flatMap((r) => {
+    // The params are closed over by the `x ->` predicate / comparator lambdas
+    // and sit beside `offset` / `limit` — a param named like one moves.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
     const declared = r.params.map((p) => {
       collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     });
     collectJavaExprImports(r.where, exprImports);
-    const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
+    const where = renderJavaExpr(r.where, {
+      thisName: "x",
+      agg,
+      accessorProps: true,
+      ...inMemoryParamExpr(locals),
+    });
     const cmp = inMemoryComparator(r.sort, agg.name);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
     const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
@@ -685,7 +730,7 @@ export function renderJavaRepositoryImpl(
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
-    const bareArgs = r.params.map((p) => p.name).join(", ");
+    const bareArgs = r.params.map((p) => jid(p.name)).join(", ");
     if (ctx.isReified?.(r) && r.criterionRef) {
       // A reified `criterion` retrieval reads via
       // JpaSpecificationExecutor.findAll(spec); the scoped findAll/findById

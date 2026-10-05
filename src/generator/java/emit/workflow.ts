@@ -30,15 +30,16 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
-import { javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
+import { javaLocals, jid, jsonProp, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
   type JavaRenderContext,
   renderJavaExpr,
   renderJavaType,
+  withLambdaScope,
 } from "../render-expr.js";
-import { renderJavaStatements } from "../render-stmt.js";
+import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
 import { voRecord } from "./dto.js";
 import type { OpFragment } from "./entity.js";
 import {
@@ -293,10 +294,11 @@ export function javaWorkflowStmtTarget(
   fixedKeyField?: string,
 ): WorkflowStmtTarget {
   // The Java local a body binding (`let` / repo / factory / for-each / if-let
-  // name) is declared under: the `.ddd` spelling, unless the caller's
-  // `withLetLocals` moved it off a name the enclosing method spells itself.
-  // Use sites follow through the same `letExpr` hook in `renderRef`.
-  const bound = (name: string): string => renderCtx.letExpr?.(name) ?? name;
+  // name) is declared under: the keyword-escaped `.ddd` spelling (`jid` —
+  // `let new` → `new_`, the spelling `renderRef` reads it back under), unless
+  // the caller's `withLetLocals` moved it off a name the enclosing method
+  // spells itself.  Use sites follow through the same `letExpr` hook.
+  const bound = (name: string): string => boundLocal(renderCtx, name);
   return {
     indentUnit: "    ",
     precondition: (s, indent) => {
@@ -406,7 +408,7 @@ export function javaWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      return [...gateLines, `${indent}${bound(s.target)}.${s.op}(${callArgs.join(", ")});`];
+      return [...gateLines, `${indent}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`];
     },
     repoDelete: (s, indent) => {
       // `<Repo>.delete(o)` → `<repo>.delete(<entity>)`.  The Spring Data
@@ -598,22 +600,27 @@ export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[
  *  `__key`, the bean fields the body dereferences, …).  A `let request = …`
  *  inside `letW(LetWRequest request)` redeclared the parameter; a
  *  `let ordersRepository = …` shadowed the field the exit save dereferences.
- *  Returns `base` UNCHANGED when nothing collides, so a non-colliding body is
- *  byte-identical. */
+ *  Also seeds the lambda scope with all of them (`withLambdaScope`).  Adds no
+ *  `letExpr` when nothing collides, so a non-colliding body is byte-identical. */
 export function withLetLocals(
   base: JavaRenderContext,
   names: readonly string[],
   reserved: ReadonlySet<string>,
 ): JavaRenderContext {
   const locals = javaLocals(names, reserved);
-  if (!names.some((n) => movedLocalOrUndefined(locals, n) !== undefined)) return base;
-  return { ...base, letExpr: (n) => movedLocalOrUndefined(locals, n) ?? base.letExpr?.(n) };
+  // Every one of those names (and the bindings' declared spellings) is a
+  // local of the method — a body lambda may not redeclare it either.
+  const scoped = withLambdaScope(base, [...reserved, ...names.map((n) => localOf(locals, n))]);
+  if (!names.some((n) => movedLocalOrUndefined(locals, n) !== undefined)) return scoped;
+  return { ...scoped, letExpr: (n) => movedLocalOrUndefined(locals, n) ?? base.letExpr?.(n) };
 }
 
 /** A render context's local for a body binding (`withLetLocals`), else the
- *  `.ddd` spelling — for the exit saves a caller renders outside the spine. */
+ *  keyword-escaped `.ddd` spelling (`jid`) — the one spelling the spine's
+ *  declarations, its uses and the exit saves a caller renders outside it
+ *  share. */
 export function boundLocal(renderCtx: JavaRenderContext, name: string): string {
-  return renderCtx.letExpr?.(name) ?? name;
+  return renderCtx.letExpr?.(name) ?? jid(name);
 }
 
 export function repoField(aggName: string): string {
@@ -895,7 +902,9 @@ export function renderJavaWorkflows(
         if (required) reqImports.add("jakarta.validation.constraints.NotNull");
         const nested = bearsNestedRecord(p.type);
         if (nested) reqImports.add("jakarta.validation.Valid");
-        return `${required ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
+        // A reserved-word param mangles (`case_`) — the `request.<jid>()`
+        // accessor below reads it — and keeps its wire key (`jsonProp`).
+        return `${jsonProp(p.name, reqImports)}${required ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${jid(p.name)}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it
@@ -1061,12 +1070,23 @@ export function renderJavaWorkflows(
     // ordinary workflow render context.  Both the expression form and the pure
     // block form (domain-services.md rev. 4) are supported.
     for (const fn of wf.functions ?? []) {
-      const params = fn.params.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", ");
+      const params = fn.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
       const name = workflowFnCamel(wf.name, fn.name);
+      // The params are method locals a body lambda may not redeclare.
+      const fnCtx = withLambdaScope(
+        renderCtxFor(ctx, wctx),
+        fn.params.map((p) => jid(p.name)),
+      );
+      // The helper's own types / body need their imports too (`List.of` for a
+      // list literal, …) — the shared bean collected only the spine's.
+      for (const p of fn.params) collectJavaTypeImports(p.type, imports);
+      collectJavaTypeImports(fn.returnType, imports);
+      if ("expr" in fn.body) collectJavaExprImports(fn.body.expr, imports);
+      else collectJavaStmtImports(fn.body.stmts, imports);
       const bodyLine =
         "expr" in fn.body
-          ? `        return ${renderJavaExpr(fn.body.expr, renderCtxFor(ctx, wctx))};`
-          : renderJavaStatements(fn.body.stmts, renderCtxFor(ctx, wctx));
+          ? `        return ${renderJavaExpr(fn.body.expr, fnCtx)};`
+          : renderJavaStatements(fn.body.stmts, fnCtx);
       methods.push(
         `    private ${renderJavaType(fn.returnType)} ${name}(${params}) {`,
         bodyLine,

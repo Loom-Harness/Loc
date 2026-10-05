@@ -194,13 +194,6 @@ export function movedLocalOrUndefined(
   return local !== undefined && local !== jid(name) ? local : undefined;
 }
 
-/** The collision-renamed local for `name`, else `name` VERBATIM — for the
- *  emitter sites that have always spelled a `.ddd` name raw (no `jid`), so
- *  adopting `javaLocals` there moves only an actual collision. */
-export function movedLocal(locals: ReadonlyMap<string, string>, name: string): string {
-  return movedLocalOrUndefined(locals, name) ?? name;
-}
-
 /** Enum names in a context with at least one Java-reserved-word value — the
  *  enums whose java constants are mangled and whose columns therefore persist
  *  through the generated `<Enum>.Codec` converter (M-T6.36).  Empty for every

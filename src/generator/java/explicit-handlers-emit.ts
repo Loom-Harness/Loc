@@ -69,7 +69,7 @@ import {
   workflowBodyDerefNames,
   workflowBoundNames,
 } from "./emit/workflow.js";
-import { javaLocals, localOf, movedLocal, movedLocalOrUndefined } from "./java-ident.js";
+import { javaLocals, jid, jsonProp, localOf, movedLocalOrUndefined } from "./java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -188,10 +188,11 @@ const externDomainImports = (basePkg: string): string[] => [
 function externHandleSig(
   h: Handler,
   /** Collision-renamed param locals (`javaLocals`) — the generated handler's
-   *  own; the port / impl pass none and keep the `.ddd` names. */
+   *  own; the port / impl pass none and keep the `.ddd` names (keyword-escaped
+   *  through `jid`, as every name is). */
   locals?: ReadonlyMap<string, string>,
 ): { ret: string; params: string; argNames: string } {
-  const name = (n: string): string => (locals ? movedLocal(locals, n) : n);
+  const name = (n: string): string => (locals ? localOf(locals, n) : jid(n));
   return {
     ret: h.returnType ? renderJavaType(h.returnType) : "void",
     params: h.params.map((p) => `${renderJavaType(p.type)} ${name(p.name)}`).join(", "),
@@ -214,7 +215,7 @@ function renderExternHandlerClass(
   // `handle(...)`'s params share the method with the injected port field it
   // delegates through — a param named `chargePort` shadowed it
   // (`chargePort.handle(chargePort)` on an `int`).  Only a colliding param
-  // moves; the port / impl signatures keep the `.ddd` names.
+  // moves; the port / impl signatures keep the (`jid`-escaped) `.ddd` names.
   const locals = javaLocals(
     h.params.map((p) => p.name),
     new Set([field, portName]),
@@ -359,7 +360,7 @@ function renderPagedRunHandlerClass(
   const params = flat
     .map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${movedLocal(locals, p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     })
     .join(", ");
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
@@ -669,10 +670,11 @@ function pathParamNames(path: string): Set<string> {
 function wireActionParam(
   p: ParamIR,
   imports: Set<string>,
-  /** The Java parameter name, when a collision moved it off `p.name`
-   *  (`javaLocals`) — the URI-template variable is then named explicitly,
-   *  since Spring derives it from the parameter name. */
-  local: string = p.name,
+  /** The Java parameter name: `jid(p.name)`, or a `javaLocals` collision
+   *  rename of it.  Whenever it differs from `p.name` (a reserved word, a
+   *  collision) the URI-template variable is named explicitly, since Spring
+   *  derives it from the parameter name. */
+  local: string = jid(p.name),
 ): { actionParam: string; callArg: string } {
   const t = p.type;
   const annot = local !== p.name ? `@PathVariable("${p.name}")` : "@PathVariable";
@@ -694,8 +696,8 @@ function wireActionParam(
 function wireQueryParam(
   p: ParamIR,
   imports: Set<string>,
-  /** As `wireActionParam`: a collision-moved name keeps its query key. */
-  local: string = p.name,
+  /** As `wireActionParam`: a mangled / collision-moved name keeps its query key. */
+  local: string = jid(p.name),
 ): { actionParam: string; callArg: string } {
   const t = p.type;
   const annot = local !== p.name ? `@RequestParam("${p.name}")` : "@RequestParam";
@@ -743,7 +745,7 @@ function emitPagedRunAction(
   );
   const bind = new Map(
     h.params.map((p) => {
-      const local = movedLocal(locals, p.name);
+      const local = localOf(locals, p.name);
       return [
         p.name,
         pathNames.has(p.name)
@@ -933,7 +935,7 @@ export function emitExplicitRouteController(
       ]),
     );
     const pathArg = new Map(
-      pathParams.map((p) => [p.name, wireActionParam(p, imports, movedLocal(pathLocals, p.name))]),
+      pathParams.map((p) => [p.name, wireActionParam(p, imports, localOf(pathLocals, p.name))]),
     );
 
     const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
@@ -942,7 +944,8 @@ export function emitExplicitRouteController(
       const fields = bodyParams
         .map((p) => {
           collectJavaTypeImports(p.type, imports);
-          return `${renderJavaType(p.type)} ${p.name}`;
+          // A reserved-word name mangles (`case_`) and keeps its wire key.
+          return `${jsonProp(p.name, imports)}${renderJavaType(p.type)} ${jid(p.name)}`;
         })
         .join(", ");
       bodyRecords.push(`record ${bodyRecName}(${fields}) {}`);
@@ -953,7 +956,7 @@ export function emitExplicitRouteController(
     // coerce from the route token, body params read off `body.<name>()` (record
     // accessor).
     const callArgs = effParams
-      .map((p) => (pathNames.has(p.name) ? pathArg.get(p.name)!.callArg : `body.${p.name}()`))
+      .map((p) => (pathNames.has(p.name) ? pathArg.get(p.name)!.callArg : `body.${jid(p.name)}()`))
       .join(", ");
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the

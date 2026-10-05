@@ -35,7 +35,7 @@ import {
   javaLocals,
   jid,
   jsonProp,
-  movedLocal,
+  localOf,
   movedLocalOrUndefined,
   requestParam,
 } from "../java-ident.js";
@@ -367,13 +367,13 @@ export function renderJavaQueryProjections(
         ...(gateUsesUser ? ["currentUser", "currentUserAccessor"] : []),
       ]),
     );
-    const projParamDecls = proj.params.map((p) => paramDecl(p, movedLocal(svcLocals, p.name)));
+    const projParamDecls = proj.params.map((p) => paramDecl(p, localOf(svcLocals, p.name)));
     const projRequestParams = proj.params.map((p) => {
-      const local = movedLocal(routeLocals, p.name);
+      const local = localOf(routeLocals, p.name);
       return `${requestParam(p.name, local)} ${paramDecl(p, local)}`;
     });
-    const projArgNames = proj.params.map((p) => movedLocal(svcLocals, p.name));
-    const routeArgNames = proj.params.map((p) => movedLocal(routeLocals, p.name));
+    const projArgNames = proj.params.map((p) => localOf(svcLocals, p.name));
+    const routeArgNames = proj.params.map((p) => localOf(routeLocals, p.name));
     // In-memory filters (workflow- / projection-sourced) read the params too.
     const svcParamExpr = (n: string): string | undefined => movedLocalOrUndefined(svcLocals, n);
     const rowName = `${upperFirst(proj.name)}Row`;
