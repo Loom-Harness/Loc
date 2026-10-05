@@ -84,3 +84,52 @@ export const DART_OBJECT_MEMBERS: ReadonlySet<string> = new Set([
 export function dartMember(name: string): string {
   return DART_RESERVED_WORDS.has(name) || DART_OBJECT_MEMBERS.has(name) ? `${name}_` : name;
 }
+
+/** Members a generated COMPONENT widget class — or its `State` — already
+ *  declares or inherits, which a same-named component param (a widget FIELD and
+ *  a `State` getter) cannot coexist with.  `key` is `Widget.key` (`Key?`) and
+ *  is a `super.key` ctor param besides; `build`/`createState`/`createElement`
+ *  are the widget's own methods; `widget`/`context`/`mounted`/`setState`/
+ *  `initState`/`dispose`/… are `State` members (overriding `context` with an
+ *  `int` getter is an `invalid_override`, a `setState` getter a
+ *  `conflicting_field_and_method`); `state` is the generated model field, `ref`
+ *  the `ConsumerWidget.build` parameter and `context` the `build` parameter
+ *  (either would SHADOW the param inside `build` — a silent wrong read), and
+ *  `child` the generated `Slot { }` param.  All are legal Loom param names. */
+const FLUTTER_COMPONENT_MEMBERS: ReadonlySet<string> = new Set([
+  "activate",
+  "build",
+  "child",
+  "context",
+  "createElement",
+  "createState",
+  "deactivate",
+  "debugDescribeChildren",
+  "debugFillProperties",
+  "didChangeDependencies",
+  "didUpdateWidget",
+  "dispose",
+  "initState",
+  "key",
+  "mounted",
+  "reassemble",
+  "ref",
+  "setState",
+  "state",
+  "toDiagnosticsNode",
+  "toStringDeep",
+  "toStringShallow",
+  "toStringShort",
+  "widget",
+]);
+
+/** `name` as a Dart identifier INSIDE a generated component widget / `State`
+ *  class — `dartMember`, plus the trailing underscore for a name that collides
+ *  with a Flutter widget/`State` member (`FLUTTER_COMPONENT_MEMBERS`).  Every
+ *  component-scoped declaration (param field / ctor / getter, action method,
+ *  `let`, binder) and every use — including the CALL SITE's named argument in
+ *  the caller's widget tree — spells through here, so they cannot disagree.
+ *  Any other name is `dartMember(name)` unchanged (byte-identical). */
+export function dartComponentMember(name: string): string {
+  return FLUTTER_COMPONENT_MEMBERS.has(name) ? `${name}_` : dartMember(name);
+}

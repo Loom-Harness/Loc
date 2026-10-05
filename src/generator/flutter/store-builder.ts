@@ -28,6 +28,7 @@ import { FLUTTER_NAV_MARKER } from "./nav-runtime.js";
 import {
   buildStateFields,
   buildStateInits,
+  renderNotifierBody,
   renderNotifierStmt,
   renderStateDataClass,
   stateCtx,
@@ -134,9 +135,14 @@ function renderStore(
     // `selfStore` keeps a same-store action call a plain in-class invocation: a
     // provider that reads its OWN notifier is what Riverpod reports as a
     // circular dependency, and the method is right here anyway.
-    const body = action.body.map((s) => renderNotifierStmt(s, ctx, store.name));
+    const body = renderNotifierBody(action.body, ctx, (s, scoped) => [
+      renderNotifierStmt(s, scoped, store.name),
+    ]);
     const sig = param ? `${dartType(param.type)} ${dartMember(param.name)}` : "";
-    out.push("", `  void ${action.name}(${sig}) {`);
+    // `dartMember`: a store action named `switch` / `while` is a Dart-reserved
+    // method name — every call site (`ref.read(…).switch_()`, the page shell's
+    // tear-off, an in-store call) spells it the same way.
+    out.push("", `  void ${dartMember(action.name)}(${sig}) {`);
     for (const b of body) out.push(`    ${b}`);
     out.push("  }");
   }

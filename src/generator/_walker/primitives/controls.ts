@@ -32,7 +32,7 @@ import {
   propagateChildFlags,
   recordStoreUse,
   STANDARD_AGG_OPS,
-  storeLocalFor,
+  storeActionLocalUseSite,
   styleAttr,
   testidAttr,
   tryRenderNavigateCall,
@@ -104,7 +104,7 @@ export function emitButton(
     // handler was silently dropped on every frontend (the ref matched neither
     // `actionRefArg`'s page-action path nor `to:`/lambda).
     recordStoreUse(ctx, onClickAction.storeName, onClickAction.actionName);
-    const local = storeLocalFor(ctx, onClickAction.storeName, onClickAction.actionName);
+    const local = storeActionLocalUseSite(ctx, onClickAction.storeName, onClickAction.actionName);
     onClickHandler = ctx.target.renderEventHandler
       ? ctx.target.renderEventHandler([`${local}();`], undefined)
       : local;

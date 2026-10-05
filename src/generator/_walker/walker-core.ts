@@ -1431,6 +1431,19 @@ export function storeFieldReadUseSite(ctx: WalkContext, storeName: string, field
   return targetIdent(ctx, storeLocalFor(ctx, storeName, field));
 }
 
+/** The use-site spelling of a store ACTION's shell-bound local — the
+ *  store-action twin of `storeFieldReadUseSite`: an action named after a target
+ *  keyword (Dart `while`, F# `fixed`) is spelled through `escapeIdent`, exactly
+ *  as the shells spell the binding.  Every other frontend has no `escapeIdent`,
+ *  so the local is unchanged there. */
+export function storeActionLocalUseSite(
+  ctx: WalkContext,
+  storeName: string,
+  action: string,
+): string {
+  return targetIdent(ctx, storeLocalFor(ctx, storeName, action));
+}
+
 /** The shell-bound local name for a store member referenced from this body
  *  (Stage 5).  Bare member name in the common case; store-qualified
  *  (`cartLines`) when it collides with a page-level binding (state / param /
@@ -1981,7 +1994,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
           {
             storeName: expr.storeAction.store,
             action: expr.storeAction.action,
-            local: storeLocalFor(ctx, expr.storeAction.store, expr.storeAction.action),
+            local: storeActionLocalUseSite(ctx, expr.storeAction.store, expr.storeAction.action),
           },
           callArgs,
         );
@@ -2217,9 +2230,11 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // shell hoists one named function per action.
       if (expr.storeName && ctx.target.renderStoreActionCall) {
         recordStoreUse(ctx, expr.storeName, expr.actionName);
-        return storeLocalFor(ctx, expr.storeName, expr.actionName);
+        return storeActionLocalUseSite(ctx, expr.storeName, expr.actionName);
       }
-      return expr.actionName;
+      // The shell binds the handler under the target's identifier spelling
+      // (Dart `class_`, F# ``member``) — the same one a call site gets.
+      return targetIdent(ctx, expr.actionName);
     }
     case "this":
       // No aggregate instance is in scope on a frontend: a page/component body
@@ -2397,7 +2412,7 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
         // Use-site call form is per-frontend (see the expr-position twin
         // above): React → bound local `clear(args)`; Angular → injected member
         // `this.cart.clear(args)`.
-        return `${ctx.target.renderStoreActionCall({ storeName: stmt.store, action: stmt.name, local: storeLocalFor(ctx, stmt.store, stmt.name) }, callArgs)};`;
+        return `${ctx.target.renderStoreActionCall({ storeName: stmt.store, action: stmt.name, local: storeActionLocalUseSite(ctx, stmt.store, stmt.name) }, callArgs)};`;
       }
       if (ctx.externFunctions?.has(stmt.name)) ctx.usedExternFunctions?.add(stmt.name);
       // `navigate(<Page>)` — the DOCUMENTED home for navigation (docs/actions.md

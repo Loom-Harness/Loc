@@ -61,16 +61,16 @@ import { lines } from "../../util/code-builder.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
-import { dartMember } from "./dart-member.js";
+import { dartComponentMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
-import { flutterTarget } from "./flutter-target.js";
+import { flutterComponentTarget, flutterTarget } from "./flutter-target.js";
 import { usesMoney } from "./money-runtime.js";
 import { FLUTTER_NAV_MARKER } from "./nav-runtime.js";
 import { flutterPack, usesIntl, usesMath } from "./pack.js";
 import {
   buildStateFields,
   buildStateInits,
-  renderNotifierStmt,
+  renderNotifierBody,
   renderStateDataClass,
   stateCtx,
   stateSetterMethods,
@@ -126,9 +126,11 @@ function walkComponent(
 ): ComponentWalkResult {
   const paramNames = new Set(c.params.map((p) => p.name));
   const stateNames = new Set(c.state.map((s) => s.name));
+  // `flutterComponentTarget`: every model-derived identifier in a component
+  // steers clear of the widget/`State` members (`key`, `context`, …) too.
   const r = walkBody(
     c.body!,
-    flutterTarget,
+    flutterComponentTarget,
     flutterPack(),
     paramNames,
     stateNames,
@@ -142,7 +144,7 @@ function walkComponent(
     new Map(), // pageRoutes
     new Set(), // externFunctions
     // `derived` bindings — read BARE (a class getter, see `derivedGetters`),
-    // which is what `flutterTarget.renderDerivedRead` spells.
+    // which is what `flutterComponentTarget.renderDerivedRead` spells.
     new Set(c.derived.map((d) => d.name)),
     false, // authUi
     // i18n key prefix — `component.<Name>` matches the catalog.
@@ -267,8 +269,9 @@ function derivedGetters(
       paramNames: new Set(c.params.map((p) => p.name)),
       apiParamNames: new Map(ctx.apiParams.map((p) => [p.name, p.apiName])),
       userComponents: componentParams,
+      target: flutterComponentTarget,
     });
-    const line = `  ${dartType(d.type)} get ${dartMember(d.name)} => ${emitExpr(d.expr, dctx)};`;
+    const line = `  ${dartType(d.type)} get ${dartComponentMember(d.name)} => ${emitExpr(d.expr, dctx)};`;
     seen.add(d.name);
     return line;
   });
@@ -405,13 +408,15 @@ function renderStatefulComponent(
     paramNames,
     apiParamNames,
     userComponents: componentParams,
+    target: flutterComponentTarget,
   });
   const { entries, constEligible } = buildStateInits(stateFields, initCtx);
   const modelCtor = `${constEligible ? "const " : ""}${modelClass}(${entries.join(", ")})`;
 
   // Param getters — a bare param read in the body/actions resolves here.
   const paramGetters = c.params.map(
-    (p) => `  ${dartType(p.type)} get ${dartMember(p.name)} => widget.${dartMember(p.name)};`,
+    (p) =>
+      `  ${dartType(p.type)} get ${dartComponentMember(p.name)} => widget.${dartComponentMember(p.name)};`,
   );
 
   // Action methods — each body wrapped in `setState` (a write is
@@ -420,7 +425,7 @@ function renderStatefulComponent(
   const actionMethods = c.actions.map((action) => {
     const param = action.params[0];
     const locals = new Map<string, string>();
-    if (param) locals.set(param.name, dartMember(param.name));
+    if (param) locals.set(param.name, dartComponentMember(param.name));
     const actionCtx = stateCtx({
       stateNames,
       derivedNames,
@@ -429,11 +434,15 @@ function renderStatefulComponent(
       paramNames,
       apiParamNames,
       userComponents: componentParams,
+      target: flutterComponentTarget,
     });
+    // The method name is spelled like every component identifier — a call site
+    // reaches it through `flutterComponentTarget.escapeIdent`.
+    const name = dartComponentMember(action.name);
     const sig = param
-      ? `void ${action.name}(${dartType(param.type)} ${dartMember(param.name)})`
-      : `void ${action.name}()`;
-    const body = action.body.map((s) => `      ${renderNotifierStmt(s, actionCtx)}`);
+      ? `void ${name}(${dartType(param.type)} ${dartComponentMember(param.name)})`
+      : `void ${name}()`;
+    const body = renderNotifierBody(action.body, actionCtx).map((b) => `      ${b}`);
     return lines(`  ${sig} {`, "    setState(() {", ...body, "    });", "  }");
   });
 
@@ -513,8 +522,13 @@ export function renderComponentsFile(
   const blocks = used.map((c) => {
     const walked = walkComponent(c, componentParams, ctx);
     const { widget, usesChildren } = walked;
-    const ctorParts = c.params.map((p) => `required this.${dartMember(p.name)}`);
-    const fields = c.params.map((p) => `  final ${dartType(p.type)} ${dartMember(p.name)};`);
+    // `dartComponentMember`: a param named after a widget/`State` member
+    // (`key`, `context`, `build`, …) is respelled `key_` — and so is the
+    // caller's named argument (`flutterTarget.renderUserComponent`).
+    const ctorParts = c.params.map((p) => `required this.${dartComponentMember(p.name)}`);
+    const fields = c.params.map(
+      (p) => `  final ${dartType(p.type)} ${dartComponentMember(p.name)};`,
+    );
     // `Slot { }` in the body reads the `child` param — OPTIONAL (not `required`),
     // so a call site that passes no children still constructs, and the slot's
     // `child ?? const SizedBox.shrink()` renders nothing.

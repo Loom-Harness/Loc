@@ -962,7 +962,9 @@ function storeBindings(
       out.push(
         fields.has(member)
           ? `    final ${dartMember(local)} = ref.watch(${provider}.select((s) => s.${dartMember(member)}));`
-          : `    final ${local} = ref.read(${provider}.notifier).${member};`,
+          : // A store action's method is spelled `dartMember` (`store-builder.ts`),
+            // and the body's call site spells the local the same way.
+            `    final ${dartMember(local)} = ref.read(${provider}.notifier).${dartMember(member)};`,
       );
     }
   }
@@ -1163,10 +1165,13 @@ function renderConsumerPage(
       for (const a of [...b.usedActions].sort()) {
         // An async-effect action's method takes the route id; bind it as an
         // id-capturing closure so the button's `<a>()` call stays unchanged.
+        // Spelled `dartMember` (a Dart-reserved action name: `class` → `class_`),
+        // matching the Notifier method and every body call site.
+        const m = dartMember(a);
         bindings.push(
           asyncEffectActions.has(a)
-            ? `    final ${a} = () => notifier.${a}(id);`
-            : `    final ${a} = notifier.${a};`,
+            ? `    final ${m} = () => notifier.${m}(id);`
+            : `    final ${m} = notifier.${m};`,
         );
       }
       for (const { setter } of boundSetters) {

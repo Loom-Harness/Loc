@@ -57,7 +57,7 @@ import {
   renderDartCollectionOp,
   renderDartIntrinsic,
 } from "./dart-expr.js";
-import { dartMember } from "./dart-member.js";
+import { dartComponentMember, dartMember } from "./dart-member.js";
 import {
   createFormWidgetName,
   destroyFormWidgetName,
@@ -959,8 +959,9 @@ export const flutterTarget: WalkerTarget = {
         continue;
       }
       // The named arg is the widget's constructor param, which
-      // `component-emit.ts` spells through `dartMember` (`default` → `default_`).
-      entries.push(`${dartMember(paramName)}: ${emitExpr(arg, ctx)}`);
+      // `component-emit.ts` spells through `dartComponentMember` (`default` →
+      // `default_`, and a widget/`State` member such as `key` → `key_`).
+      entries.push(`${dartComponentMember(paramName)}: ${emitExpr(arg, ctx)}`);
     }
     if (children.length > 0) {
       // Children are MARKUP, so they walk (not `emitExpr`), in the CALLER's
@@ -1132,4 +1133,20 @@ export const flutterTarget: WalkerTarget = {
   // JavaScript does, so the shared default is already right here — the seam
   // exists for Feliz's `fun p -> body`.
   renderCollectionOp: (spec) => renderDartCollectionOp(spec),
+};
+
+/** `flutterTarget` for a COMPONENT body / action / `derived` walk.  A
+ *  component compiles to a widget class plus (when stateful) a `State` class,
+ *  whose inherited members (`key`, `build`, `context`, `widget`, `mounted`,
+ *  `setState`, …) a same-named param, action, `let` or binder would clash with
+ *  or shadow.  Component scope therefore spells every model-derived identifier
+ *  through `dartComponentMember` — the declaration sites in `component-emit.ts`
+ *  and the caller's named argument (`renderUserComponent`) use the same
+ *  function, so they cannot disagree.  For any other name it is `dartMember`,
+ *  i.e. byte-identical to `flutterTarget`. */
+export const flutterComponentTarget: WalkerTarget = {
+  ...flutterTarget,
+  escapeIdent: (name: string) =>
+    dartComponentMember(name) !== name ? dartComponentMember(name) : undefined,
+  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => dartComponentMember(ref.name),
 };
