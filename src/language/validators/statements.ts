@@ -76,6 +76,8 @@ import {
   typeToString,
   withTags,
 } from "../type-system.js";
+import { toDddType } from "../typing/adapt.js";
+import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 import {
   canPromoteLiteralTo,
@@ -301,7 +303,7 @@ export function checkAssignOrCall(
     checkCallStmt(stmt, agg, op, env, accept);
     return;
   }
-  const targetType = lvalueType(stmt.target, agg, env, accept);
+  const targetType = lvalueType(stmt.target, accept);
   // Reject assignment to a derived property — derived members are
   // computed from other state and writing to them would silently no-op.
   if (lvalueIsDerived(stmt.target, agg)) {
@@ -1025,47 +1027,40 @@ export function checkCallStmt(
   });
 }
 
-export function lvalueType(
-  lv: LValue,
-  agg: Aggregate,
-  env: Env,
-  accept: ValidationAcceptor,
-): DddType {
-  // Resolve the head: a parameter, let-binding, or an aggregate property.
-  //
-  // An EXPLICIT `this.` prefix takes the first two off the table.  Skipping
-  // `env.resolve` is the whole point of the spelling: in
-  // `operation rename(name: string) { this.name := name }` the head and the
-  // parameter share a name, and resolving the head against the parameter would
-  // type-check the assignment against the WRONG member — silently, whenever
-  // the two types happen to be compatible.
-  const headSym = lv.thisRef ? undefined : env.resolve(lv.head);
-  let cur: DddType;
-  if (headSym) {
-    cur = headSym.type;
-  } else {
-    // Check aggregate root members
-    cur = lookupRootMember(agg, lv.head);
-    if (cur.kind === "unknown") {
+export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
+  // The target's receiver chain as the single typing pass typed it (M-T5.44):
+  // `this`, then the type after each segment.  The head resolves lexically
+  // (param, let, …) before the enclosing record's members — except under an
+  // EXPLICIT `this.`, the whole point of which is to skip a same-named
+  // parameter (`operation rename(name: string) { this.name := name }`).
+  const steps = typingFor(lv).lvalueStepsAt(lv) ?? [];
+  const segs = [lv.head, ...lv.tail];
+  for (let i = 0; i < segs.length; i++) {
+    const t = steps[i + 1];
+    if (t && t.kind !== "unknown") continue;
+    // A segment that RESOLVED to a member whose own type did not (a typo'd
+    // or cross-file type) is reported where that type is written, not here.
+    if (
+      t?.kind === "unknown" &&
+      !["unresolved-name", "unresolved-member", "not-a-value"].includes(t.cause)
+    )
+      return T.unknown;
+    if (i === 0) {
       accept("error", diagMessage("loom.unresolved-lvalue-head", { head: lv.head }), {
         node: lv,
         property: "head",
         code: "loom.unresolved-lvalue-head",
       });
-      return T.unknown;
-    }
-  }
-  for (const seg of lv.tail) {
-    cur = stepInto(cur, seg);
-    if (cur.kind === "unknown") {
-      accept("error", diagMessage("loom.unresolved-member", { member: seg }), {
+    } else {
+      accept("error", diagMessage("loom.unresolved-member", { member: segs[i] }), {
         node: lv,
         code: "loom.unresolved-member",
       });
-      return T.unknown;
     }
+    return T.unknown;
   }
-  return cur;
+  // A declared field keeps the declaration view of a generic carrier.
+  return toDddType(steps[segs.length]!, { generic: "arg" });
 }
 
 /**

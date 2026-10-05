@@ -32,6 +32,9 @@ export interface TypingSession {
   /** The binding `name` denotes at `node` (the nearest scoped ancestor's
    *  scope): a lexical binding, else a member of the enclosing record. */
   bindingAt(node: AstNode, name: string): { ty: Ty; origin: AstNode } | undefined;
+  /** An assignment / call target's receiver chain: `this`'s type, then the
+   *  type after each data segment. */
+  lvalueStepsAt(lv: AstNode): readonly Ty[] | undefined;
 }
 
 export function typingSession(models: readonly Model[]): TypingSession {
@@ -45,6 +48,7 @@ export function typingSession(models: readonly Model[]): TypingSession {
     foldsAt: (chain) => elab.folds.get(chain),
     resolveType: (t) => elab.resolveType(t, undefined),
     scopeAt: (node) => elab.scopes.get(node),
+    lvalueStepsAt: (lv) => elab.lvalueChains.get(lv),
     bindingAt: (node, name) => {
       for (let n: AstNode | undefined = node; n; n = n.$container) {
         const scope = elab.scopes.get(n);

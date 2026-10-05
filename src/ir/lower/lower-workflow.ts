@@ -67,7 +67,6 @@ import {
   lowerExpr,
   lowerExprInContext,
   passType,
-  pathType,
 } from "./lower-expr.js";
 import { computeSaves, lowerApply, lowerField, lowerFunction, plural } from "./lower-members.js";
 import {
@@ -1017,7 +1016,7 @@ function lowerWorkflowStatementInner(
       env.workflow?.members.some((m) => isProperty(m) && m.name === lv.head)
     ) {
       const path: PathIR = { segments: [lv.head] };
-      const targetType = passType(lv, env, () => pathType(path, env));
+      const targetType = passType(lv);
       const compound = stmt.op === "+=" || stmt.op === "-=";
       // Collection own-state `+=`/`-=` is out of scope — fall through to
       // `__bad__` (a saga-state list append isn't a recognised form yet).

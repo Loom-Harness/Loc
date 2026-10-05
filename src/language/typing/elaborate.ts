@@ -136,6 +136,7 @@ import {
 } from "../generated/ast.js";
 import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
+import { astProjectionReadShape } from "./projection-shape.js";
 import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
 
 // ---------------------------------------------------------------------------
@@ -217,6 +218,8 @@ export class Elaborator {
   readonly folds = new WeakMap<BinaryChain, Fold[]>();
   /** The scope in force at each statement / expression root. */
   readonly scopes = new WeakMap<AstNode, Scope>();
+  /** Each assignment / call target's receiver chain (see `lvalueSteps`). */
+  readonly lvalueChains = new WeakMap<AstNode, Ty[]>();
 
   constructor(readonly index: DeclIndex) {}
 
@@ -236,8 +239,11 @@ export class Elaborator {
     this.scopes.set(node, inner);
     // An assignment target (`x := …`, `this.a.b += …`) is not an expression,
     // but it has a type: the head binding, then one member step per segment.
-    if (node.$type === "LValue" && !(node as LValueNode).call) {
-      this.types.set(node, this.lvalueType(node as LValueNode, inner));
+    if (node.$type === "LValue") {
+      const lv = node as LValueNode;
+      const steps = this.lvalueSteps(lv, inner);
+      this.lvalueChains.set(lv, steps);
+      if (!lv.call) this.types.set(lv, steps[steps.length - 1]!);
     }
     if (isProjection(node)) {
       this.visitProjection(node, scope, inner);
@@ -280,18 +286,26 @@ export class Elaborator {
     }
   }
 
-  private lvalueType(lv: LValueNode, scope: Scope): Ty {
+  /** The receiver chain of an assignment / call target: `this`'s type, then
+   *  the type after each data segment (every segment of an assignment target;
+   *  all but the called last one of a call target). */
+  private lvalueSteps(lv: LValueNode, scope: Scope): Ty[] {
     const step = (recv: Ty, member: string): Ty =>
       this.afterSuffixInner(
         recv,
         { $type: "MemberSuffix", member, call: false, args: [] } as never,
         scope,
       );
-    let cur = lv.thisRef
-      ? step(this.thisType(scope) ?? Ty.unknown("unresolved-name"), lv.head)
-      : this.synthName(lv.head, scope, lv);
-    for (const seg of lv.tail) cur = step(cur, seg);
-    return cur;
+    const self = this.thisType(scope) ?? Ty.unknown("unresolved-name");
+    const segs = [lv.head, ...lv.tail];
+    const data = lv.call ? segs.slice(0, -1) : segs;
+    const out: Ty[] = [self];
+    let cur = self;
+    data.forEach((seg, i) => {
+      cur = i === 0 && !lv.thisRef ? this.synthName(seg, scope, lv) : step(cur, seg);
+      out.push(cur);
+    });
+    return out;
   }
 
   /** A projection's QUERY half (`from` / joins / `where` / `group by` /
@@ -300,7 +314,11 @@ export class Elaborator {
    *  sees only the context; its fold half (`on`, state fields) sees the
    *  projection row itself. */
   private visitProjection(p: Projection, outer: Scope, own: Scope): void {
-    const src = p.source?.ref;
+    // A macro-built projection's `from` may never link — resolve it by name,
+    // as an unlinked type ref is.
+    const src =
+      p.source?.ref ??
+      (p.source?.$refText ? this.index.find("aggregate", p.source.$refText, p) : undefined);
     const q = outer.child({
       owner: src ?? p,
       candidateAlias: src ? p.sourceAlias : undefined,
@@ -308,7 +326,9 @@ export class Elaborator {
     this.bindParams(q, p.params);
     for (const j of p.joins) {
       this.synth(j.idRef, q);
-      const agg = j.aggregate?.ref;
+      const agg =
+        j.aggregate?.ref ??
+        (j.aggregate?.$refText ? this.index.find("aggregate", j.aggregate.$refText, p) : undefined);
       q.bind(
         j.alias,
         agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
@@ -952,7 +972,7 @@ export class Elaborator {
       const proj = this.index.find("projection", m, of);
       if (proj) {
         if (i !== segs.length - 1) return undefined;
-        const shape = projectionReadShape(proj);
+        const shape = astProjectionReadShape(proj);
         if (!shape) return undefined;
         const row = Ty.record({ of: "projection", ref: proj });
         return shape === "many" ? Ty.array(row) : row;
@@ -1578,15 +1598,6 @@ const ROW_SOURCE_ARG: Readonly<Record<string, string>> = {
   Table: "rows",
   DataGrid: "rows",
 };
-
-/** How a query-time projection rides the wire: one row, a list, or neither. */
-function projectionReadShape(p: Projection): "one" | "many" | undefined {
-  if (!p.source || p.members.some(isProjectionOn)) return undefined;
-  if (p.key !== undefined) return undefined;
-  if (p.groupBys.length > 0) return "many";
-  if (!p.members.some(isProperty) && p.selects.length === 0) return "many";
-  return "one";
-}
 
 function isAstNode(v: unknown): v is AstNode {
   return (
