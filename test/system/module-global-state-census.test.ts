@@ -66,14 +66,7 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",
   },
-  "src/ir/lower/lower-expr.ts:aggregatesByDocument": {
-    discipline: "keyed-cache",
-    reason: "WeakMap keyed by the AST `Model` root whose aggregates it indexes.",
-  },
-  "src/ir/lower/lower-expr.ts:projectionsByDocument": {
-    discipline: "keyed-cache",
-    reason: "WeakMap keyed by the AST `Model` root whose projections it indexes.",
-  },
+
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
@@ -123,12 +116,6 @@ const PINNED: Record<string, Pin> = {
   "src/language/stdlib.ts:cached": {
     discipline: "build-once-cache",
     reason: "Parsed stdlib decls, built once; consumers only read.",
-  },
-  "src/language/type-system.ts:lettingInFlight": {
-    discipline: "scoped-restore",
-    reason:
-      "Re-entrancy guard for let-type inference; the `add` is paired with a " +
-      "`finally { delete }`, so a throwing initializer cannot leave the node latched.",
   },
   "src/macros/api/factories-internals.ts:_activeOrigin": {
     discipline: "scoped-restore",

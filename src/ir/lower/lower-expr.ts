@@ -13,21 +13,17 @@ import type {
   FunctionDecl,
   Lambda,
   MemberSuffix,
-  PayloadDecl,
   PolicyDecl,
   PostfixChain,
   PostfixSuffix,
-  Projection,
   Property,
   ValueObject,
-  Workflow,
 } from "../../language/generated/ast.js";
 import {
   isAggregate,
   isAwaitExpr,
   isBinaryChain,
   isBoolLit,
-  isBoundedContext,
   isBuilderCall,
   isCallSuffix,
   isContainment,
@@ -54,10 +50,7 @@ import {
   isPolicyDecl,
   isPostfixChain,
   isPrimitiveConversion,
-  isProjection,
-  isProjectionOn,
   isProperty,
-  isRepository,
   isStringLit,
   isTemplateStr,
   isTernaryExpr,
@@ -72,13 +65,11 @@ import { typingFor } from "../../language/typing/shared.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
-import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
+import { intrinsicFor } from "../../util/intrinsics.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
   PRINCIPAL_ORG_CONTEXT_PATH,
-  PRINCIPAL_ORG_PATH,
-  PRINCIPAL_ROOT_ORG,
 } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
@@ -87,7 +78,6 @@ import { variantTag } from "../stdlib/unions.js";
 import type {
   BinOp,
   ExprIR,
-  IdValueType,
   PathIR,
   PrimitiveName,
   ProvSite,
@@ -105,13 +95,10 @@ import {
   findApiOperations,
   findDomainServiceByName,
   findEntityByName,
-  findEventByName,
   findFunctionInEnv,
   findOperationInEnv,
   findPayloadByName,
-  findProjectionByName,
   findValueObjectByName,
-  findWorkflowByName,
   inAggregate,
   lowerAtom,
   lowerType,
@@ -119,7 +106,7 @@ import {
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
-import { matchRepoRead, repoReadResultType, runCriterionMatcher } from "./repo-read.js";
+import { matchRepoRead, runCriterionMatcher } from "./repo-read.js";
 
 /** No-arg collection ops that are call-style on every backend (`lines.first()`)
  *  and are NOT special-cased as property-style member access (unlike
@@ -301,7 +288,36 @@ function promoteLiteral(expr: Expression, ir: ExprIR, typing: TypingSession): Ex
 function irType(t: Ty): TypeIR {
   if (t.kind === "optional" && t.inner.kind === "never")
     return { kind: "primitive", name: "string" };
+  // …and the empty list literal (the pass's `never[]`) its `string[]`.
+  if (t.kind === "array" && t.element.kind === "never")
+    return { kind: "array", element: { kind: "primitive", name: "string" } };
   return toTypeIR(t);
+}
+
+const STRING_T: TypeIR = { kind: "primitive", name: "string" };
+
+/** The type the single typing pass recorded for `node` — a postfix suffix (the
+ *  receiver type AFTER it), an assignment target, or any expression — copied
+ *  into the IR.  Lowering infers nothing itself (M-T5.44); the pass's
+ *  `unknown` and a node it never reached both carry the `string` placeholder,
+ *  which the single-typing-pass census pins shrink-only. */
+export function passType(node: AstNode, env?: Env): TypeIR {
+  const t = passSynth(node, env);
+  return t ? irType(t) : STRING_T;
+}
+
+/** The pass's type for `node` — typed against the aggregate being lowered
+ *  when `node` sits in a CONTEXT-level `filter` / `stamp` (one AST, one typing
+ *  per aggregate it lands on). */
+function passSynth(node: AstNode, env: Env | undefined): Ty | undefined {
+  const typing = typingFor(node);
+  return (env?.aggregate && typing.synthAtFor(node, env.aggregate)) || typing.synthAt(node);
+}
+
+/** An assignment / call target's receiver chain as the pass typed it:
+ *  `this`'s type, then the type after each data segment. */
+export function passTargetSteps(lv: AstNode): TypeIR[] {
+  return (typingFor(lv).lvalueStepsAt(lv) ?? []).map(irType);
 }
 
 /**
@@ -1007,16 +1023,7 @@ function applySuffixToRecv(
       ...(ms.throwKind && isThrowKind(ms.throwKind) ? { throwKind: ms.throwKind } : {}),
       ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
     };
-    // Result type after a method call — `memberType` handles collection
-    // ops, entity/VO members, and the string `.length` case; the λ-body
-    // refinement `memberType` structurally cannot see is applied on top.
-    let nextType = memberType(recvType, ms.member, env);
-    if (collectionOp) {
-      const lam = args[0];
-      const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
-      nextType = refineCollectionOpType(ms.member, recvType, bodyT, nextType);
-    }
-    return { recv: mcIR, recvType: nextType };
+    return { recv: mcIR, recvType: passType(suffix, env) };
   }
   // Qualified enum value `EnumName.Value` — when the receiver is an
   // unresolved bare name matching a declared enum and the member names one of
@@ -1080,13 +1087,16 @@ function applySuffixToRecv(
       receiverType: recvType,
       isCollectionOp: true,
     };
-    return { recv: mcIR, recvType: memberType(recvType, ms.member, env) };
+    return {
+      recv: mcIR,
+      recvType: passType(suffix, env),
+    };
   }
   // Non-call MemberSuffix — preserve `stepInto` semantics on the IR
   // node's `memberType` (matches the legacy MemberAccess lowering),
   // but track the next type using `memberType` so chained access
   // through array.count etc. continues to type correctly.
-  const stepType = stepInto(recvType, ms.member, env);
+  const stepType = passType(suffix, env);
   const memberIR: ExprIR = {
     kind: "member",
     receiver: recv,
@@ -1094,7 +1104,10 @@ function applySuffixToRecv(
     receiverType: recvType,
     memberType: stepType,
   };
-  return { recv: memberIR, recvType: memberType(recvType, ms.member, env) };
+  return {
+    recv: memberIR,
+    recvType: stepType,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,7 +1137,11 @@ export function isErrorVariantTag(tag: string, env: Env): boolean {
  *  member accesses and binaries inside the body get the right
  *  receiver/member/left types — backends never re-resolve. */
 function lowerLambda(expr: Lambda, env: Env, paramType: TypeIR): ExprIR {
-  const inner = withLocal(env, expr.param, "lambda", paramType);
+  // The parameter's type is the one the pass bound (cutover family 3d); the
+  // caller's contextual type answers only where the pass has none.
+  const self = passType(expr, env);
+  const param = self.kind === "action" && self.arg ? self.arg : paramType;
+  const inner = withLocal(env, expr.param, "lambda", param);
   // Lambdas can carry either a single expression body
   // (`x => expr`, the only v22 form) OR a brace-block of statements
   // (`x => { stmt; stmt; … }`, new for page event handlers).  The
@@ -1152,58 +1169,6 @@ function lowerLambda(expr: Lambda, env: Env, paramType: TypeIR): ExprIR {
     param: expr.param,
     block,
   };
-}
-
-/** The element type of a collection receiver — unwrapping an outer
- *  `optional` (`xs?.any(...)`) then reading the `array` element.  Returns
- *  `undefined` for a non-collection receiver so the caller can fall back to
- *  the plain lambda path. */
-/** Refine a collection-op's result type with the λ-BODY type the structural
- *  `memberType` pass cannot see (it is handed a `TypeIR` receiver and a member
- *  name; the lambda lives in the AST / the lowered arg list).
- *
- *  This lives in ONE place because both typing paths need it and they used to
- *  disagree: `applySuffixToRecv` refined `map`/`min`/`max` at the call site
- *  while `inferSuffixType` — the path that types a `let` binding through
- *  `inferExprType` — called `memberType` raw.  So `let m = xs.map(λ)` was typed
- *  `string` (`memberType` had no `map` arm at all) and every downstream
- *  collection op on `m` mis-rendered on four of five backends (F2-EXPR-2), and
- *  `sum(λ)`'s money-ness was dropped on BOTH paths because neither refined
- *  `sum` (F2-EXPR-1: `Decimal * number` on node, `Decimal * float` on python).
- *
- *  `fallback` is `memberType`'s structural answer, kept whenever the λ body
- *  types to nothing useful. */
-function refineCollectionOpType(
-  member: string,
-  recvType: TypeIR,
-  bodyT: TypeIR | undefined,
-  fallback: TypeIR,
-): TypeIR {
-  const elem = collectionElementType(recvType) ?? { kind: "primitive", name: "string" };
-  switch (member) {
-    // `map(λ)` yields an array of the λ body's type (identity projection ⇒ the
-    // element type).
-    case "map":
-      return { kind: "array", element: bodyT ?? elem };
-    // `min(λ)`/`max(λ)` yield the PROJECTED value, optional (empty → null).
-    case "min":
-    case "max":
-      return { kind: "optional", inner: bodyT ?? elem };
-    // `sum(λ)` folds the λ BODY, not the element: `lines.sum(l => l.price *
-    // l.qty)` over `Line[]` is money because the body is, even though the
-    // element is an entity.  Keeping the structural answer (`decimal`) made
-    // the IR disagree with the AST type-system, and the money-vs-decimal split
-    // is load-bearing on the two backends where they are different host types
-    // (Hono `Decimal` vs `number`, FastAPI `Decimal` vs `float`).  Non-money
-    // bodies keep the existing decimal widening — the fold is numeric either
-    // way and every backend already renders that shape.
-    case "sum":
-      return bodyT?.kind === "primitive" && bodyT.name === "money"
-        ? { kind: "primitive", name: "money" }
-        : fallback;
-    default:
-      return fallback;
-  }
 }
 
 function collectionElementType(t: TypeIR): TypeIR | undefined {
@@ -1519,15 +1484,6 @@ function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
   return lowerBuilderCallAsCall(expr, env, name, "free");
 }
 
-function inferBuilderCallType(expr: BuilderCall, env: Env): TypeIR {
-  const name = expr.type;
-  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
-  if (vo) return { kind: "valueobject", name };
-  const ent = findEntityByName(env, name);
-  if (ent) return { kind: "entity", name };
-  return { kind: "entity", name };
-}
-
 /**
  * Lower a builder-entry value against its DECLARED slot type, when known.
  *
@@ -1599,208 +1555,6 @@ function rowBindingEnv(
   return { ...env, rowElem: element };
 }
 
-/** Verbs a page-body `of:` read may name that are NOT a declared repository
- *  find — the standard aggregate operations every repository gets for free.
- *  Mirrors `STANDARD_AGG_OPS` in `_walker/walker-core.ts`; kept here because
- *  the generator layer is downstream of `ir/` and cannot be imported from it. */
-const STANDARD_READ_VERBS: ReadonlySet<string> = new Set(["byId", "all", "findAll"]);
-
-/** Per-document aggregate index, built on first use and keyed by the `Model`
- *  root so a page with many reads pays for one stream, not one per read. */
-const aggregatesByDocument = new WeakMap<AstNode, ReadonlyMap<string, Aggregate>>();
-
-/** The aggregate named `name` declared anywhere in `node`'s own document.
- *
- *  Deliberately NOT `findEntityByName`, and the reason is a narrowing, not a
- *  capability: this lookup must answer for the AGGREGATE NAME ALONE, in a ui
- *  body that has no context in scope, and it must not be able to answer for
- *  anything else.  `findEntityByName` consults the project-global ambient
- *  index, whose value-object / enum / domainService halves are deliberately
- *  NOT widened to subdomain-nested declarations (see `indexAggregatesDeep`,
- *  lower.ts — widening them lets a `valueobject Money` shadow the `Money`
- *  walker primitive in every page body); routing the read through a lookup
- *  that CAN see those halves would couple this to that open ruling.
- *
- *  Document-scoped is the honest bound for what it needs: a page body and the
- *  contexts its ui binds are in the same document in every shipped example.
- *  When they are not, this returns undefined and the binding stays exactly as
- *  it was — never a wrong answer, only a missing one.  Once the shadowing
- *  ruling lands, this collapses into `findEntityByName` and the WeakMap goes
- *  with it. */
-function aggregateInDocument(node: AstNode, name: string): Aggregate | undefined {
-  const root = AstUtils.getContainerOfType(node, isModel);
-  if (!root) return undefined;
-  let index = aggregatesByDocument.get(root);
-  if (!index) {
-    const built = new Map<string, Aggregate>();
-    for (const n of AstUtils.streamAllContents(root)) {
-      if (isAggregate(n) && !built.has(n.name)) built.set(n.name, n);
-    }
-    index = built;
-    aggregatesByDocument.set(root, index);
-  }
-  return index.get(name);
-}
-
-/** The declared result type of a page-body `of:` READ — `<apiHandle>.<Agg>.all`,
- *  `<apiHandle>.<Agg>.byId(id)`, `<apiHandle>.<Agg>.<declaredFind>(…)`.
- *
- *  A page-body read is NOT resolved by the ordinary expression path: its head
- *  is a ui-local `api <handle>: <Api>` alias, which links to nothing, so the
- *  whole chain lowers to an untyped `method-call` and every member read off
- *  the `data:` lambda binding falls back to the `string` placeholder.  The
- *  aggregate is nevertheless nameable — it is the suffix before the verb —
- *  and it resolves by name in the document (`aggregateInDocument`), so the
- *  read's result type is recoverable here without linking the alias.
- *
- *  Returns `undefined` whenever the shape isn't recognised, which leaves the
- *  binding exactly as it was. */
-function ofReadResultType(of: Expression, env: Env): TypeIR | undefined {
-  if (!isPostfixChain(of)) return undefined;
-  const members = of.suffixes.filter(isMemberSuffix);
-  // `<handle>.<Agg>.<verb>` — the aggregate is the LAST suffix that names a
-  // declared aggregate, and the verb is whatever follows it.  Scanning for the
-  // aggregate (rather than assuming a fixed depth) keeps `Sales.Order.byId(id)`
-  // and a deeper handle path on the same path, and an aggregate legitimately
-  // named after a verb still resolves because the aggregate lookup wins.
-  let agg: Aggregate | undefined;
-  let aggIdx = -1;
-  for (let i = members.length - 1; i >= 0; i--) {
-    const decl = aggregateInDocument(of, String(members[i]!.member));
-    if (decl) {
-      agg = decl;
-      aggIdx = i;
-      break;
-    }
-  }
-  if (!agg) return projectionReadResultType(of, members);
-  const element: TypeIR = { kind: "entity", name: agg.name };
-  const verb = members[aggIdx + 1] ? String(members[aggIdx + 1]!.member) : undefined;
-  // `<Agg>.all` / no verb at all is the whole collection; `byId` the record.
-  if (verb === undefined || verb === "all" || verb === "findAll") {
-    return { kind: "array", element };
-  }
-  if (verb === "byId") return element;
-  if (STANDARD_READ_VERBS.has(verb)) return { kind: "array", element };
-  // A declared `find` on the aggregate's repository: its return type is the
-  // answer, and it is the only shape that can be a single record, a list or a
-  // paged envelope depending on how the author declared it.
-  const bc = AstUtils.getContainerOfType(agg, isBoundedContext);
-  for (const m of bc?.members ?? []) {
-    if (!isRepository(m) || m.aggregate?.ref?.name !== agg.name) continue;
-    const find = m.finds.find((f) => f.name === verb);
-    if (find) return lowerType(find.returnType, env);
-  }
-  return undefined;
-}
-
-/** The result type of the FIFTH documented `of:` form — `<apiHandle>.<Projection>`
- *  (`docs/page-metamodel.md` §9.3, "What an `of:` read may name").
- *
- *  Until M-T5.33 this form had no arm at all: `ofReadResultType` scanned for a
- *  declared AGGREGATE and returned `undefined` for everything else, so
- *  `queryDataType` could not answer and the `data:` lambda bound at the
- *  `string` placeholder.  Every field read off the row then typed as `string`
- *  — which is why `money` rendered raw into a React text slot (a `Decimal`
- *  into a `ReactNode`, TS2322) and `s.gross.round(2)` missed the `money.round`
- *  intrinsic and emitted decimal.js's zero-argument `.round(n)` (TS2554).
- *
- *  A projection read names no verb — the projection IS the read — so a
- *  trailing suffix means this is not the projection form and the caller's
- *  `undefined` (no binding) stays the honest answer. */
-function projectionReadResultType(
-  of: Expression,
-  members: readonly MemberSuffix[],
-): TypeIR | undefined {
-  for (let i = members.length - 1; i >= 0; i--) {
-    const proj = projectionInDocument(of, String(members[i]!.member));
-    if (!proj) continue;
-    // A suffix AFTER the projection is a verb, and a projection has none.
-    if (i !== members.length - 1) return undefined;
-    const shape = astProjectionReadShape(proj);
-    if (!shape) return undefined;
-    const row: TypeIR = { kind: "entity", name: proj.name };
-    return shape === "many" ? { kind: "array", element: row } : row;
-  }
-  return undefined;
-}
-
-/** The RESPONSE SHAPE a frontend read of this AST `projection` yields, or
- *  `undefined` when a frontend cannot read it at all.
- *
- *  An AST-side MIRROR of `projectionReadShape` / `isFrontendReadableProjection`
- *  (`src/ir/util/projection-read.ts`), which answer the same question over
- *  `ProjectionIR`.  Lowering is where the answer is first needed — a page
- *  body's `data:` lambda binds before any `ProjectionIR` exists — and the IR
- *  predicates cannot be reached from here without lowering the projection
- *  twice.
- *
- *  Two copies of one rule is exactly what `projection-read.ts`'s header warns
- *  against, so the copies are PINNED to agree:
- *  `test/ir/projection-read-shape-parity.test.ts` runs both over every
- *  projection in the shipped corpus and fails on any disagreement — the same
- *  device `adapter-metadata-consistency.test.ts` uses for its pure-data
- *  mirror.  Each clause below cites the IR predicate it mirrors.
- *
- *  Exported for that gate alone: a parity test that re-transcribed these
- *  clauses would pin its own copy against the IR and leave THIS one free to
- *  drift — a green check that never reaches the thing it names. */
-export function astProjectionReadShape(p: Projection): "one" | "many" | undefined {
-  const handlers = p.members.filter(isProjectionOn); // → IR `handlers`
-  const fields = p.members.filter(isProperty); // → IR `stateFields`
-  // isQueryTimeProjection: a query source with no fold handlers.
-  if (!p.source || handlers.length > 0) return undefined;
-  // isSingletonProjection: no `keyed by` ⇒ no correlation field.
-  if (p.key !== undefined) return undefined;
-  // isGroupedProjection / isShorthandProjection — both ride the wire as an
-  // array.  Ask "is it the whole-table aggregation", not "is it grouped":
-  // a shorthand read (no declared fields, no `select`) returns the filtered
-  // SOURCE ROWS, and is unkeyed too.
-  if (p.groupBys.length > 0) return "many";
-  if (fields.length === 0 && p.selects.length === 0) return "many";
-  return "one";
-}
-
-/** Per-document projection index, built on first use and keyed by the `Model`
- *  root — the projection twin of `aggregatesByDocument`. */
-const projectionsByDocument = new WeakMap<AstNode, ReadonlyMap<string, Projection>>();
-
-/** The `projection` named `name` declared anywhere in `node`'s own document.
- *
- *  Same narrowing, and same reason, as `aggregateInDocument` above: a page
- *  body has no context in scope, and the declaration it NAMES is the only
- *  handle on the read's row type. */
-function projectionInDocument(node: AstNode, name: string): Projection | undefined {
-  const root = AstUtils.getContainerOfType(node, isModel);
-  if (!root) return undefined;
-  let index = projectionsByDocument.get(root);
-  if (!index) {
-    const built = new Map<string, Projection>();
-    for (const n of AstUtils.streamAllContents(root)) {
-      if (isProjection(n) && !built.has(n.name)) built.set(n.name, n);
-    }
-    index = built;
-    projectionsByDocument.set(root, index);
-  }
-  return index.get(name);
-}
-
-/** The type a `QueryView`'s `data:` lambda parameter binds: the query result
- *  with any optionality unwrapped — the record for a single read (`Order?`
- *  → `Order`), the array otherwise (`Order[]`), which is what the emitters
- *  bind (`_walker/primitives/controls.ts`).  `undefined` when the `of:`
- *  argument is absent or its read shape isn't recognised. */
-function queryDataType(
-  entries: ReadonlyArray<{ name?: string; value: Expression }>,
-  env: Env,
-): TypeIR | undefined {
-  const of = entries.find((e) => e.name === "of");
-  if (!of) return undefined;
-  const t = ofReadResultType(of.value, env);
-  if (!t) return undefined;
-  return t.kind === "optional" ? t.inner : t;
-}
-
 function lowerBuilderCallAsCall(
   expr: BuilderCall,
   env: Env,
@@ -1828,15 +1582,9 @@ function lowerBuilderCallAsCall(
   // mis-ordered construction into a hard compile failure, which is a worse
   // trade than leaving it exactly as it was.
   const unambiguous = new Set(argNames.filter((n) => n !== undefined)).size === argNames.length;
-  const queryResult =
-    callKind === "free" && name === "QueryView" ? queryDataType(entries, env) : undefined;
+  // (`QueryView { of: q, data: rows => … }` — the `data:` lambda's parameter
+  // is the read result the pass bound; `lowerLambda` copies it.)
   const args = entries.map((e, i) => {
-    // `QueryView { of: q, data: rows => … }` — the `data:` lambda binds the
-    // query result (the record under `single:`, the array otherwise), which
-    // only the `of:` argument's type can supply.
-    if (queryResult && argNames[i] === "data" && isLambda(e.value)) {
-      return lowerLambda(e.value, bodyEnv, queryResult);
-    }
     return slotTypes && unambiguous
       ? lowerInSlot(e.value, slotTypes.get(argNames[i] ?? ""), bodyEnv)
       : lowerExpr(e.value, bodyEnv);
@@ -2601,270 +2349,19 @@ function resolveCallKind(
 // ---------------------------------------------------------------------------
 
 export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
-  if (!expr) return { kind: "primitive", name: "string" };
-  // Literals and operators are typed by the single typing pass (M-T5.44,
-  // cutover family 3a) — the one answer the validators read too.
-  if (
-    isStringLit(expr) ||
-    isTemplateStr(expr) ||
-    isIntLit(expr) ||
-    isDecLit(expr) ||
-    isPrimitiveConversion(expr) ||
-    isBoolLit(expr) ||
-    isNullLit(expr) ||
-    isNowExpr(expr) ||
-    isUnaryExpr(expr) ||
-    isBinaryChain(expr) ||
-    isTernaryExpr(expr)
-  ) {
-    const t = typingFor(expr).synthAt(expr);
-    return t ? irType(t) : { kind: "primitive", name: "string" };
+  if (!expr) return STRING_T;
+  const t = passSynth(expr, env);
+  // A ui element keeps the IR's representation (design §D7): the
+  // `entity{<primitive>}` marker a builder always carried, and a `match` the
+  // type of its first arm.
+  if (t?.kind === "slot") {
+    if (isBuilderCall(expr)) return { kind: "entity", name: expr.type };
+    if (isMatchExpr(expr)) {
+      const first = expr.arms[0]?.value ?? expr.varArms[0]?.value ?? expr.elseExpr;
+      return first ? inferExprType(first, env) : STRING_T;
+    }
   }
-  if (isListLit(expr)) {
-    // Best-effort element-type inference: use the first element's type
-    // as the array's element type.  Empty list / heterogeneous lists
-    // fall back to `string` element — consumers that care (e.g. the
-    // walker's `cols:` reader) inspect element kinds directly off
-    // the IR rather than relying on this approximation.
-    const first = expr.elements?.[0];
-    const elementType: TypeIR = first
-      ? inferExprType(first, env)
-      : { kind: "primitive", name: "string" };
-    return { kind: "array", element: elementType };
-  }
-  if (isThisRef(expr)) return thisTypeOf(env);
-  if (isIdRef(expr)) {
-    // A binding named `id` shadows the implicit identity — type it as the
-    // binding, so a `getById(id)` arg carries the param's own id type rather
-    // than the enclosing aggregate's (or, in a workflow, `string`).
-    if (hasIdBinding(env)) {
-      const bound = resolveNameRef(ID_NAME, env, expr);
-      if ("type" in bound && bound.type) return bound.type;
-      return { kind: "primitive", name: "string" };
-    }
-    if (env.part) return { kind: "id", targetName: env.part.name, valueType: "guid" };
-    if (env.aggregate) {
-      return {
-        kind: "id",
-        targetName: env.aggregate.name,
-        valueType: "guid" as IdValueType,
-      };
-    }
-    // Workflows have no `ids` clause today — their synthetic id defaults to guid.
-    if (env.workflow) return { kind: "id", targetName: env.workflow.name, valueType: "guid" };
-    if (env.projection) return { kind: "id", targetName: env.projection.name, valueType: "guid" };
-    return { kind: "primitive", name: "string" };
-  }
-  if (isParenExpr(expr)) return inferExprType(expr.inner, env);
-  if (isAwaitExpr(expr)) return inferExprType(expr.inner, env);
-  if (isMatchExpr(expr)) {
-    // Match expressions return one arm's value (or the `else`).
-    // Same posture as ternary — inspect the first arm's value type;
-    // soundness across arms is a validator concern (warn / error if
-    // arms disagree).
-    if (expr.arms.length > 0) return inferExprType(expr.arms[0]!.value, env);
-    if (expr.varArms.length > 0) return inferExprType(expr.varArms[0]!.value, env);
-    if (expr.elseExpr) return inferExprType(expr.elseExpr, env);
-    // Empty match — degenerate, falls back to a string-typed
-    // placeholder (same default ternary uses).  Validator reports
-    // this as malformed.
-    return { kind: "primitive", name: "string" };
-  }
-  if (isLambda(expr)) return { kind: "primitive", name: "string" };
-  if (isBuilderCall(expr)) {
-    return inferBuilderCallType(expr, env);
-  }
-  if (isPostfixChain(expr)) {
-    // Probe: a repository READ in a `reading` domain-service body — the SECOND
-    // inference pass over the arm `lowerPostfixChain` opens with.  Without it a
-    // `let hits = Orders.byCode(c)` in a service body binds as `string` (the
-    // fall-through placeholder), so the next line's `hits.count` gets
-    // `receiverType: string` and every backend renders a RECORD-ACCESSOR read
-    // instead of a collection size — java emitted `hits.count()` on a
-    // `List<Order>` ("cannot find symbol", measured on `gradle testClasses`).
-    // The workflow/handler path does not have the bug because it lowers the same
-    // read to a `repo-let` statement, which carries the find's declared type.
-    //
-    // `env.serviceRepos` is set only while lowering a domain-service operation,
-    // so nothing else changes shape.
-    //
-    // The read-shape → type mapping itself lives in `repo-read.ts` beside the
-    // detector, as ONE rule shared with the workflow let-lowerer — see
-    // `repoReadResultType` for why the two must not be spelled twice.  Reading
-    // it off `repo.finds` here instead is what made `getById` (a BUILT-IN
-    // loader, absent from `finds`, so no declared `returnType` to find) fall
-    // into the collection branch and bind `array<Owner>` for a single row.
-    //
-    // No trailing-suffix walk, unlike the probes below: every `matchRepoRead`
-    // matcher requires `suffixes.length === 1`, so a recognised read IS the
-    // whole chain.
-    if (env.serviceRepos) {
-      const read = matchRepoRead(expr, env.serviceRepos, runCriterionMatcher(env.ctx));
-      if (read) return repoReadResultType(read, env);
-    }
-    // Probe: `permissions.<name>` always types as string.
-    const first = expr.suffixes[0];
-    if (
-      first &&
-      isMemberSuffix(first) &&
-      !first.call &&
-      isNameRef(expr.head) &&
-      expr.head.name === "permissions" &&
-      env.modulePermissions
-    ) {
-      let curType: TypeIR = { kind: "primitive", name: "string" };
-      for (let i = 1; i < expr.suffixes.length; i++) {
-        curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-      }
-      return curType;
-    }
-    // Probe: `Aggregate.create(...)` factory — head is `NameRef`
-    // pointing at an aggregate, first suffix is a call MemberSuffix
-    // with member==="create".  Result is the aggregate entity type.
-    let curType: TypeIR;
-    if (
-      first &&
-      isMemberSuffix(first) &&
-      first.call &&
-      first.member === "create" &&
-      isNameRef(expr.head)
-    ) {
-      const target = findEntityByName(env, expr.head.name);
-      if (target && isAggregate(target)) {
-        curType = { kind: "entity", name: target.name };
-        for (let i = 1; i < expr.suffixes.length; i++) {
-          curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-        }
-        return curType;
-      }
-    }
-    // Probe: `<Store>.<field>` / `<Store>.<action>(…)` — head is a `NameRef`
-    // naming an in-scope store (Stage 5).  A field access types as the field's
-    // declared type; a store-action call returns no value (string placeholder).
-    if (first && isMemberSuffix(first) && isNameRef(expr.head) && env.stores?.has(expr.head.name)) {
-      const store = env.stores.get(expr.head.name) as {
-        fields: Map<string, TypeIR>;
-        actions: Map<string, { paramType?: TypeIR }>;
-      };
-      curType = first.call
-        ? { kind: "primitive", name: "string" }
-        : (store.fields.get(first.member) ?? { kind: "primitive", name: "string" });
-      for (let i = 1; i < expr.suffixes.length; i++) {
-        curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-      }
-      return curType;
-    }
-    // Probe: `Pricing.quote(...)` domain-service member call — head is a
-    // `NameRef` resolving to an api-bound resource, first suffix is a call
-    // MemberSuffix naming one of the callee's operations (M-T4.8).  The result
-    // type is the callee's declared response type.  Same reason as the
-    // domain-service arm below: `inferExprType` is a SECOND inference pass the
-    // lowering arm's `recvType` does not feed, so without this a
-    // `let o = orders.getOrderById(id)` binds as `string` and the next line's
-    // `o.code` silently degrades — the untyped behaviour this feature exists
-    // to remove.
-    if (first && isMemberSuffix(first) && first.call && isNameRef(expr.head)) {
-      const boundApi = env.resourceApis?.get(expr.head.name);
-      const opDef = boundApi
-        ? findApiOperations(boundApi)?.find((o) => o.id === first.member)
-        : undefined;
-      if (opDef) {
-        curType = opDef.responseType ?? { kind: "primitive", name: "string" };
-        for (let i = 1; i < expr.suffixes.length; i++) {
-          curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-        }
-        return curType;
-      }
-    }
-    // `NameRef` resolving to a `domainService`, first suffix is a call
-    // MemberSuffix naming an operation.  The result type is the operation's
-    // declared return type (an `or`-union for an exception-less op, so a
-    // `let x = Pricing.applyCoupon(...)?` propagates the error variant).
-    // Mirrors the lowering MemberSuffix arm that stamps the call's
-    // `recvType` — without this `let`-binds would mis-type as `string`.
-    if (first && isMemberSuffix(first) && first.call && isNameRef(expr.head)) {
-      const svc = findDomainServiceByName(env, expr.head.name);
-      if (svc) {
-        const opDecl = svc.operations.find((o) => o.name === first.member);
-        curType = opDecl?.returnType
-          ? lowerType(opDecl.returnType, env)
-          : { kind: "primitive", name: "string" };
-        for (let i = 1; i < expr.suffixes.length; i++) {
-          curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-        }
-        return curType;
-      }
-    }
-    curType = inferExprType(expr.head, env);
-    // Free-call collapse: head is NameRef and first suffix is CallSuffix
-    // — the result type is the function's return type / VO type, then
-    // we walk remaining suffixes.
-    if (first && isCallSuffix(first) && isNameRef(expr.head)) {
-      // Criterion / policy-function call (`InRegion("EU")` / `CanApprove(cap)`)
-      // types as a boolean predicate.
-      if (findCriterionInEnv(env, expr.head.name) || findPolicyFnInEnv(env, expr.head.name)) {
-        curType = { kind: "primitive", name: "bool" };
-        for (let i = 1; i < expr.suffixes.length; i++) {
-          curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-        }
-        return curType;
-      }
-      const fn = findFunctionInEnv(env, expr.head.name);
-      if (fn) curType = lowerType(fn.returnType);
-      else {
-        // An operation call types as the operation's declared return type — an
-        // `or`-union for an exception-less op (so `let x = reserve()` types as
-        // the union, the operand `?` propagation consumes).  A void operation
-        // has no returnType; fall through to the string placeholder.
-        const op = findOperationInEnv(env, expr.head.name);
-        if (op?.returnType) curType = lowerType(op.returnType, env);
-        else {
-          const vo = findValueObjectByName(env, expr.head.name);
-          if (vo) curType = { kind: "valueobject", name: vo.name };
-          // A5 duration constructor — checked after every user-decl
-          // lookup failed, mirroring the lowering's shadowing rule.
-          else if (durationUnitOf(expr.head.name))
-            curType = { kind: "primitive", name: "duration" };
-          else curType = { kind: "primitive", name: "string" };
-        }
-      }
-      for (let i = 1; i < expr.suffixes.length; i++) {
-        curType = inferSuffixType(curType, expr.suffixes[i]!, env);
-      }
-      return curType;
-    }
-    for (const s of expr.suffixes) {
-      curType = inferSuffixType(curType, s, env);
-    }
-    return curType;
-  }
-  if (isNameRef(expr)) {
-    // Criterion-parameter substitution — type of the bound argument.
-    const arg = env.criterionArgs?.get(expr.name);
-    if (arg) return "type" in arg && arg.type ? arg.type : { kind: "primitive", name: "string" };
-    // Absence-match binding alias — type of the narrowed subject ref.
-    const alias = env.refAliases?.get(expr.name);
-    if (alias) {
-      return "type" in alias && alias.type ? alias.type : { kind: "primitive", name: "string" };
-    }
-    // Criterion candidate alias (`of T as o`) — types as the candidate entity,
-    // exactly like `this`, so `o.field` member access resolves against it.
-    if (expr.name === env.candidateAlias) {
-      if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
-      if (env.workflow) return { kind: "entity", name: env.workflow.name };
-      if (env.projection) return { kind: "entity", name: env.projection.name };
-    }
-    // Parameterless criterion / policy-function reference types as a boolean
-    // predicate.
-    const crit = findCriterionInEnv(env, expr.name);
-    if (crit && crit.params.length === 0) return { kind: "primitive", name: "bool" };
-    const policyFn = findPolicyFnInEnv(env, expr.name);
-    if (policyFn && policyFn.params.length === 0) return { kind: "primitive", name: "bool" };
-    const ref = resolveNameRef(expr.name, env, expr);
-    if (ref.kind === "ref" && ref.type) return ref.type;
-    return { kind: "primitive", name: "string" };
-  }
-  return { kind: "primitive", name: "string" };
+  return t ? irType(t) : STRING_T;
 }
 
 /**
@@ -3141,178 +2638,6 @@ function entityHasDisplay(name: string, env: Env): boolean {
   return agg.members.some((m) => isDerivedProp(m) && m.name === "display");
 }
 
-function memberType(t: TypeIR, name: string, env: Env): TypeIR {
-  // `currentUser.<field>` — synthetic entity backed by the system's
-  // user block.  Walked via env.user.fields rather than the
-  // bounded-context registry.  Unknown members fall through to the
-  // string fallback — the AST validator has already rejected a
-  // source-written one (`loom.unknown-user-claim`,
-  // `validators/types.ts` → `absentUserClaim`), so what still reaches
-  // here is a macro/capability splice whose principal side phase ⑥
-  // rebinds (`tenantOwned`'s `currentUser.tenantId` placeholder).
-  if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
-    // `currentUser.orgPath` — the derived tenant materialized-path member
-    // (tenancy.md).  Not a `user {}` claim; computed per
-    // backend from the tenancy claim, typed as the DataKey path (a string).
-    if (
-      name === PRINCIPAL_ORG_PATH ||
-      name === PRINCIPAL_ROOT_ORG ||
-      name === PRINCIPAL_ORG_CONTEXT_PATH
-    )
-      return { kind: "primitive", name: "string" };
-    const f = env.user.fields.find((f) => f.name === name);
-    if (f) return f.optional ? { kind: "optional", inner: f.type } : f.type;
-    return { kind: "primitive", name: "string" };
-  }
-  if (t.kind === "array") {
-    switch (name) {
-      case "count":
-      // `<array>.length` is an int, exactly as the language type-system already
-      // reports it (`type-system.ts`).  Without this arm it fell through to the
-      // `string` default below, and a member whose IR type LIES about being a
-      // string is not merely cosmetic: a `{xs.length}` interpolation then
-      // skipped the `convert` the lowerer inserts for non-string parts, which on
-      // a statically-typed frontend (Feliz/F#) emits `"Selected: " + xs.Length`
-      // — a type error Fable rejects.  The JS frontends coerced it silently, so
-      // the wrong type went unnoticed until a non-JS frontend consumed it.
-      case "length":
-        return { kind: "primitive", name: "int" };
-      case "sum":
-        // Sum preserves the element type for money arrays so the
-        // string-on-wire precision is maintained end-to-end; numeric
-        // element types continue to widen to decimal (the existing
-        // JS-friendly default).
-        if (t.element.kind === "primitive" && t.element.name === "money") {
-          return { kind: "primitive", name: "money" };
-        }
-        return { kind: "primitive", name: "decimal" };
-      // `map` — an array of the ELEMENT type is the honest structural
-      // fallback; the call site refines the element to the λ body's type
-      // (`refineCollectionOpType`).  Without this arm `map` fell through to
-      // the `string` default below, so `let m = xs.map(λ)` bound a
-      // `string`-typed local and every downstream collection op on `m`
-      // mis-rendered (F2-EXPR-2).
-      case "map":
-        return { kind: "array", element: t.element };
-      case "all":
-      case "any":
-      case "contains":
-        return { kind: "primitive", name: "bool" };
-      case "where":
-        return t;
-      case "sortBy":
-      case "distinct":
-      case "take":
-      case "skip":
-        return t;
-      case "join":
-        return { kind: "primitive", name: "string" };
-      case "first":
-        return t.element;
-      case "firstOrNull":
-        return { kind: "optional", inner: t.element };
-      // `min`/`max` project to an optional of the element type (the call
-      // site refines to the lambda-body type).
-      case "min":
-      case "max":
-        return { kind: "optional", inner: t.element };
-      // `avg` desugars to `sum/count` at the call site and never reaches a
-      // renderer as an `avg` node; this arm is the fallback for any structural
-      // path that types a bare `.avg` — an optional decimal (money widens to
-      // decimal here; the call site is the money-preserving path).
-      case "avg":
-        return { kind: "optional", inner: { kind: "primitive", name: "decimal" } };
-      default:
-        return { kind: "primitive", name: "string" };
-    }
-  }
-  if (t.kind === "entity") {
-    const target = findEntityByName(env, t.name);
-    if (target) return memberOnEntity(target, name);
-    // Applier / workflow-command event params carry the event name as an
-    // entity marker — fall back to the event's field set when it isn't an
-    // aggregate/part.
-    const event = findEventByName(env, t.name);
-    if (event) return memberOnEvent(event, name);
-    // Workflow command params may be payload-typed (`handle h(c: SettleOrder)`),
-    // also entity-marked — fall back to the payload's flat field set.
-    const payload = findPayloadByName(env, t.name);
-    if (payload) return memberOnPayload(payload, name);
-    // A workflow `this`/correlation is also entity-marked — fall back to its
-    // state fields (workflow-and-applier.md A2).
-    const wf = findWorkflowByName(env, t.name);
-    if (wf) return memberOnWorkflow(wf, name);
-    const proj = findProjectionByName(env, t.name);
-    if (proj) return memberOnProjection(proj, name);
-  }
-  if (t.kind === "valueobject") {
-    const vo = findValueObjectByName(env, t.name);
-    if (vo) return memberOnValueObject(vo, name);
-  }
-  if (t.kind === "id") {
-    // `X id.member` — follow the typed reference into X's schema.
-    // Mirrors the same case in `stepInto`; both `inferExprType` and
-    // `lowerExpr` need it for projection read expressions to multi-hop.
-    const target = findEntityByName(env, t.targetName);
-    if (target) return memberOnEntity(target, name);
-  }
-  if (t.kind === "primitive" && t.name === "string" && name === "length") {
-    return { kind: "primitive", name: "int" };
-  }
-  if (t.kind === "primitive") {
-    // Scalar intrinsics (src/util/intrinsics.ts) — catalogue-driven.
-    const sig = intrinsicFor(t.name, name);
-    if (sig) {
-      const ret = intrinsicReturnType(sig, t.name);
-      if (ret.endsWith("[]")) {
-        return {
-          kind: "array",
-          element: { kind: "primitive", name: ret.slice(0, -2) as PrimitiveName },
-        };
-      }
-      return { kind: "primitive", name: ret as PrimitiveName };
-    }
-  }
-  return { kind: "primitive", name: "string" };
-}
-
-/** Type after applying one postfix suffix to a receiver of type `t`.
- *  Mirrors `applySuffixToRecv` in the lowering layer, but on TypeIR
- *  only.  For `CallSuffix` on a non-NameRef receiver the result is a
- *  string-typed placeholder (matches the legacy CallExpr typing). */
-function inferSuffixType(declared: TypeIR, suffix: PostfixSuffix, env: Env): TypeIR {
-  if (isCallSuffix(suffix)) {
-    // Invoking the receiver — without knowing the callee's signature
-    // we fall back to string (matches legacy CallExpr typing).
-    return { kind: "primitive", name: "string" };
-  }
-  // Same guarded-optional unwrap the lowering call site applies, for the same
-  // reason the λ-body refinement below is duplicated here: a `let` binding
-  // (typed through `inferExprType` → here) and the inline expression (typed
-  // through `applySuffixToRecv`) must agree.  Without it `let d = ts.startOfDay()`
-  // inside a null-guard bound `string` — `memberType`'s default — while the
-  // inline form bound `datetime`.
-  const t = unwrapGuardedIntrinsicReceiver(declared, suffix);
-  const ms = suffix as MemberSuffix;
-  const base = memberType(t, ms.member, env);
-  // Apply the SAME λ-body refinement the lowering call site applies, so a
-  // `let` binding (typed through `inferExprType` → here) and the inline
-  // expression (typed through `applySuffixToRecv`) agree.  They did not: a
-  // `let` bound to a `map`/`sum(λ)` got the structural answer only.
-  if (t.kind === "array" && isCollectionOp(ms.member)) {
-    const arg = ms.args?.[0]?.value;
-    const bodyT =
-      arg && isLambda(arg) && arg.body
-        ? inferExprType(arg.body, {
-            ...env,
-            locals: new Map(env.locals).set(arg.param, { kind: "lambda", type: t.element }),
-          })
-        : undefined;
-    return refineCollectionOpType(ms.member, t, bodyT, base);
-  }
-  return base;
-}
-
 /** The member-declaration owners a `this.<name>` lookup must consult, nearest
  *  first: the entity itself, then every abstract base it `extends`
  *  (aggregate-inheritance.md), root last.
@@ -3342,79 +2667,6 @@ function memberOwnerChain(target: Aggregate | EntityPart): (Aggregate | EntityPa
     cur = base;
   }
   return out;
-}
-
-function memberOnEntity(target: Aggregate | EntityPart, name: string): TypeIR {
-  if (name === "id") {
-    const idValue: IdValueType = isAggregate(target) ? ("guid" as IdValueType) : "guid";
-    return { kind: "id", targetName: target.name, valueType: idValue };
-  }
-  // Own members shadow a like-named base member — the same precedence the
-  // enrich-pass field merge uses (`mergedFieldsFor`).
-  for (const owner of memberOwnerChain(target)) {
-    for (const m of owner.members) {
-      if (isProperty(m) && m.name === name) return lowerType(m.type);
-      if (isContainment(m) && m.name === name) {
-        const partName = m.partType?.ref?.name ?? "Unknown";
-        return m.collection
-          ? { kind: "array", element: { kind: "entity", name: partName } }
-          : { kind: "entity", name: partName };
-      }
-      if (isDerivedProp(m) && m.name === name) {
-        return lowerType(m.type);
-      }
-    }
-  }
-  return { kind: "primitive", name: "string" };
-}
-
-function memberOnValueObject(vo: ValueObject, name: string): TypeIR {
-  for (const m of vo.members) {
-    if (isProperty(m) && m.name === name) return lowerType(m.type);
-    if (isDerivedProp(m) && m.name === name) {
-      return lowerType(m.type);
-    }
-  }
-  return { kind: "primitive", name: "string" };
-}
-
-/** Member type on an applier's event parameter (`apply(e: E) { … e.f … }`).
- *  An event is a flat payload of `Property` fields (`event E { f: T, … }`),
- *  so resolution is field-only — no `id`, containment, or derived members. */
-function memberOnEvent(event: EventDecl, name: string): TypeIR {
-  for (const f of event.fields) {
-    if (f.name === name) return lowerType(f.type);
-  }
-  return { kind: "primitive", name: "string" };
-}
-
-/** Member type on a workflow command's payload parameter (`handle h(c: C) { …
- *  c.f … }`).  A payload is a flat record of `Property` fields (`command C { f:
- *  T, … }`), so resolution is field-only — the transport-layer twin of
- *  `memberOnEvent`. */
-function memberOnPayload(payload: PayloadDecl, name: string): TypeIR {
-  for (const f of payload.fields) {
-    if (f.name === name) return lowerType(f.type);
-  }
-  return { kind: "primitive", name: "string" };
-}
-
-/** Member type on a workflow `this`/correlation reference — resolution against
- *  the workflow's `Property` state fields (workflow-and-applier.md A2).  Like
- *  `memberOnEvent`, field-only: workflow state has no containment / derived /
- *  function members today. */
-function memberOnWorkflow(wf: Workflow, name: string): TypeIR {
-  for (const m of wf.members) {
-    if (isProperty(m) && m.name === name) return lowerType(m.type);
-  }
-  return { kind: "primitive", name: "string" };
-}
-
-function memberOnProjection(proj: Projection, name: string): TypeIR {
-  for (const m of proj.members) {
-    if (isProperty(m) && m.name === name) return lowerType(m.type);
-  }
-  return { kind: "primitive", name: "string" };
 }
 
 // ---------------------------------------------------------------------------
@@ -3460,95 +2712,4 @@ export function provSiteFor(
     exprText,
     source: { path: docPath, span },
   };
-}
-
-/**
- * Type of the `this` receiver in the current env — the enclosing entity part,
- * aggregate, value object, workflow or projection, in that shadowing order.
- * Shared by `inferExprType`'s `ThisRef` arm and the statement lowerer's
- * `this.<prop>.<verb>(…)` path so the two cannot disagree about what `this` is.
- */
-export function thisTypeOf(env: Env): TypeIR {
-  if (env.part) return { kind: "entity", name: env.part.name };
-  if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
-  if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
-  if (env.workflow) return { kind: "entity", name: env.workflow.name };
-  if (env.projection) return { kind: "entity", name: env.projection.name };
-  return { kind: "primitive", name: "string" };
-}
-
-/**
- * Type of an assignment target path.
- *
- * `thisRooted` says the SOURCE spelled the path `this.x` rather than `x`.  A
- * `PathIR` is always rooted in `this` either way (see its doc comment), but the
- * two spellings resolve their HEAD differently: the implicit form has always
- * consulted locals first — which is what lets `count := count + 1` read a
- * `let count` — while the explicit form must not, because naming the field is
- * the entire reason to write it.  Without the distinction,
- * `this.total := 0.50` inside `operation adjust(total: decimal)` would take the
- * PARAMETER's `decimal` as its target type and drop the money elaboration the
- * `total: money` field calls for.
- */
-export function pathType(path: PathIR, env: Env, thisRooted = false): TypeIR {
-  if (path.segments.length === 0) return { kind: "primitive", name: "string" };
-  const head = path.segments[0]!;
-  let cur: TypeIR;
-  // Try locals — unless the source rooted the path in `this.` explicitly.
-  const local = thisRooted ? undefined : env.locals.get(head);
-  if (local) cur = local.type;
-  else if (env.aggregate) cur = memberOnEntity(env.aggregate, head);
-  else if (env.workflow) cur = memberOnWorkflow(env.workflow, head);
-  else if (env.projection) cur = memberOnProjection(env.projection, head);
-  else cur = { kind: "primitive", name: "string" };
-  for (let i = 1; i < path.segments.length; i++) {
-    cur = stepInto(cur, path.segments[i]!, env);
-  }
-  return cur;
-}
-
-function stepInto(t: TypeIR, name: string, env: Env): TypeIR {
-  // Same user-shape special case as `memberType` — keeps assignment-
-  // path typing (used by the validator's containing-aggregate walks)
-  // consistent with the read side.  In practice paths never actually
-  // step into currentUser because it's read-only, but the symmetric
-  // case keeps the two functions in sync.
-  if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
-    if (
-      name === PRINCIPAL_ORG_PATH ||
-      name === PRINCIPAL_ROOT_ORG ||
-      name === PRINCIPAL_ORG_CONTEXT_PATH
-    )
-      return { kind: "primitive", name: "string" };
-    const f = env.user.fields.find((f) => f.name === name);
-    if (f) return f.optional ? { kind: "optional", inner: f.type } : f.type;
-    return { kind: "primitive", name: "string" };
-  }
-  if (t.kind === "entity") {
-    const target = findEntityByName(env, t.name);
-    if (target) return memberOnEntity(target, name);
-    const event = findEventByName(env, t.name);
-    if (event) return memberOnEvent(event, name);
-    const payload = findPayloadByName(env, t.name);
-    if (payload) return memberOnPayload(payload, name);
-    const wf = findWorkflowByName(env, t.name);
-    if (wf) return memberOnWorkflow(wf, name);
-    const proj = findProjectionByName(env, t.name);
-    if (proj) return memberOnProjection(proj, name);
-  }
-  if (t.kind === "valueobject") {
-    const vo = findValueObjectByName(env, t.name);
-    if (vo) return memberOnValueObject(vo, name);
-  }
-  if (t.kind === "id") {
-    // `customerId.name` where `customerId: Customer id` — follow the
-    // typed reference into the target aggregate's schema.  Used by
-    // projection read expressions to project across `X id` references
-    // without an explicit join clause.  Single-hop only; the
-    // resulting member type comes from the target aggregate's
-    // declared shape (property / containment / derived).
-    const target = findEntityByName(env, t.targetName);
-    if (target) return memberOnEntity(target, name);
-  }
-  return { kind: "primitive", name: "string" };
 }

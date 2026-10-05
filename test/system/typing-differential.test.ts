@@ -70,7 +70,11 @@ import { parseString } from "../_helpers/index.js";
  *  module setting where `import … with { type: "json" }` does not typecheck). */
 const BASELINE = JSON.parse(
   fs.readFileSync(new URL("./typing-differential.baseline.json", import.meta.url), "utf8"),
-) as { floors: { docs: number; expressions: number }; classes: Record<string, number> };
+) as {
+  floors: { docs: number; expressions: number };
+  classes: Record<string, number>;
+  unknownCauses: Record<string, number>;
+};
 
 /** Classes pinned exactly / pinned as a ceiling (see the two gates below). */
 const EXACT = ["unreached", "new-differs"] as const;
@@ -284,7 +288,7 @@ async function differential(): Promise<Tally> {
   return tally;
 }
 
-describe("M-T5.44 shadow mode — three-way typing differential", () => {
+describe("M-T5.44 — three-way typing differential (and the unknown ratchet)", () => {
   let tally: Tally;
 
   it("runs over the whole fleet", async () => {
@@ -339,5 +343,24 @@ describe("M-T5.44 shadow mode — three-way typing differential", () => {
         `${k}: pinned ${pinned}, allowed up to ${allowed}`,
       ).toBeLessThanOrEqual(allowed);
     }
+  });
+
+  // M-T5.44 slice 4: lowering copies the pass's types, so every `unknown` the
+  // pass leaves is a node that reaches the IR as the `string` placeholder (or a
+  // validator that fails open on it).  Each carries its cause; per cause the
+  // count may only SHRINK (same band as above, for fixtures other PRs add).
+  // `not-a-value` is not a hole — it is the head name of `Orders.getById(…)`.
+  it("the pass's unknowns do not grow, cause by cause", () => {
+    for (const [cause, pinned] of Object.entries(BASELINE.unknownCauses)) {
+      const allowed = Math.ceil(pinned * 1.02) + 25;
+      expect(
+        tally.newUnknownByCause[cause] ?? 0,
+        `unknown{${cause}}: pinned ${pinned}, allowed up to ${allowed}`,
+      ).toBeLessThanOrEqual(allowed);
+    }
+    const unpinned = Object.keys(tally.newUnknownByCause).filter(
+      (c) => !(c in BASELINE.unknownCauses),
+    );
+    expect(unpinned, "a new unknown cause appeared — pin it (or fix it)").toEqual([]);
   });
 });

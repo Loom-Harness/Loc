@@ -46,6 +46,7 @@ import {
   isRequiresStmt,
   isReturnStmt,
   isTernaryExpr,
+  isTestE2E,
   isUi,
   isValueObject,
 } from "../generated/ast.js";
@@ -60,9 +61,9 @@ import {
   isAssignable,
   makeEnv,
   resolveTypeRef,
+  suffixType,
   T,
   ternaryJoin,
-  typeAfterSuffix,
   typeOf,
   typeToString,
 } from "../type-system.js";
@@ -150,7 +151,7 @@ export function checkSlotMemberAccess(model: Model, accept: ValidationAcceptor):
         // Cascade suppression for the rest of this chain — one
         // diagnostic per offending access is enough.
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -186,6 +187,10 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
     // admits `.orgPath` only; it types against the principal record, so
     // without this an unknown member would ALSO read as an undeclared claim.
     if (isNameRef(chain.head) && chain.head.name === ORG_CONTEXT_ACCESSOR) continue;
+    // A `test e2e` body reads RESPONSE fields through the generated client;
+    // `loom.e2e-unknown-response-field` (IR) owns those, and its message names
+    // the call and what the body can carry.
+    if (AstUtils.getContainerOfType(chain, isTestE2E)) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
     for (const suffix of chain.suffixes) {
@@ -196,6 +201,16 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // type (a value-object `expect(Money{…}).toThrow()` included), so the
         // matcher terminates the chain rather than reporting an unknown member.
         if (intrinsicMatcherSig(ms.member)) break;
+        // `expect(x).not.<matcher>(…)` — the negation surface of the same.
+        const next = chain.suffixes[chain.suffixes.indexOf(suffix) + 1];
+        if (
+          ms.member === "not" &&
+          !ms.call &&
+          next &&
+          isMemberSuffix(next) &&
+          intrinsicMatcherSig(next.member)
+        )
+          break;
         // Bare collection aggregation (`prices.sum`, no lambda call) — admitted
         // by the type system but unrenderable.  Reject with the lambda form (C11).
         if (
@@ -252,7 +267,7 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
           break;
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -308,7 +323,7 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
           }
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -443,7 +458,7 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
           break;
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }

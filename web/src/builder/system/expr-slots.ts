@@ -40,7 +40,7 @@ import {
   withLocal,
   type Env,
 } from "../../../../src/ir/lower/lower-types.js";
-import { calleeSignature, envForNode, membersOfType, typeAfterSuffix, typeOf } from "../../../../src/language/type-system.js";
+import { calleeSignature, envForNode, membersOfType, suffixType, typeOf } from "../../../../src/language/type-system.js";
 import { applyEdits } from "../edit-engine";
 import { buildLinkedModel } from "./linked-doc";
 import { parseDdd } from "../parse";
@@ -684,7 +684,7 @@ function collectPostfixHints(node: PostfixChain, path: string, h: ExprHints): vo
   const recvTypes: Array<typeof curType> = [];
   for (const s of suffixes) {
     recvTypes.push(curType);
-    curType = typeAfterSuffix(curType, s, env);
+    curType = suffixType(s);
   }
   // Emit hints from outermost suffix inward.  At each step the editor
   // path appends `r` (member.receiver) or `c` (call.callee) to descend.

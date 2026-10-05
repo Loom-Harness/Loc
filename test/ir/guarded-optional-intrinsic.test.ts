@@ -96,21 +96,22 @@ describe("F2 — a guarded optional receiver keeps its intrinsic lowering (IR)",
     expect(call.receiverType).toEqual({ kind: "primitive", name: "string" });
   });
 
-  it("does NOT unwrap a non-CALL member on an optional receiver", async () => {
-    // Narrowness. The unwrap must not quietly re-type every optional member
-    // access — only the catalogue CALLS the validator's recommended form is
-    // about.  `.length` is a bare member, not a catalogue row, so the wrapper
-    // survives and nothing downstream of it changes shape.
+  it("types a bare member under the guard as the NARROWED receiver", async () => {
+    // Since names read the single typing pass (M-T5.44 cutover 3b) a guarded
+    // read is typed as narrowed — `note2` is `string` inside
+    // `note2 != null ? … : …`, for a bare member exactly as for a call.  It
+    // used to keep the `optional` wrapper here, so `.length` missed the
+    // string-length intrinsic and rendered verbatim: `self._note2.length` on
+    // python and `record.note2.length` on elixir (both raise — a string has
+    // no `length` attribute), and the UTF-16 `length()` on java where every
+    // other backend counts code points.
     const { model } = await parseString(NARROW_SRC, { validate: false });
     const note = allAggregates(lowerModel(model)).find((a) => a.name === "Note")!;
     const len = note.derived.find((x) => x.name === "len")!;
     const ternary = len.expr as Extract<ExprIR, { kind: "ternary" }>;
     const member = ternary.then as Extract<ExprIR, { kind: "member" }>;
     expect(member.kind).toBe("member");
-    expect(member.receiverType).toEqual({
-      kind: "optional",
-      inner: { kind: "primitive", name: "string" },
-    });
+    expect(member.receiverType).toEqual({ kind: "primitive", name: "string" });
   });
 });
 

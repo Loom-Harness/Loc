@@ -23,7 +23,7 @@ import {
   type MemberSuffix,
   type NameRef,
 } from "../generated/ast.js";
-import { envForNode, stepIntoNode, typeAfterSuffix, typeOf } from "../type-system.js";
+import { envForNode, stepIntoNode, suffixType, typeOf } from "../type-system.js";
 
 // ---------------------------------------------------------------------------
 // DddSemanticTokenProvider — layers resolved-meaning colour over the
@@ -81,7 +81,7 @@ export class DddSemanticTokenProvider extends AbstractSemanticTokenProvider {
     const env = envForNode(node);
     let recvType = typeOf(chain.head, env);
     for (let i = 0; i < idx; i++) {
-      recvType = typeAfterSuffix(recvType, chain.suffixes[i]!, env);
+      recvType = suffixType(chain.suffixes[i]!);
     }
     const decl = stepIntoNode(recvType, node.member);
     const type =

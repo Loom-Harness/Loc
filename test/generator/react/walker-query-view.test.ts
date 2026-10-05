@@ -20,7 +20,7 @@
 //   4. Plain (non-lambda) `data:` bodies render unchanged.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFiles, parseString } from "../../_helpers/index.js";
 
 const buildAndGenerate = generateSystemFiles;
 
@@ -174,18 +174,31 @@ describe("QueryView macro", () => {
         error:   Alert { "err" },
         empty:   Empty { "none" },
         data:    rows => Stack {
-          Text { rows.pageSize }, Text { rows.totalPages },
-          Text { rows.items }
+          Text { rows.pageSize }, Text { rows.totalPages }
         }
       }`),
     );
     const tsx = files.get("web/src/pages/orders_list.tsx")!;
     expect(tsx).toContain("{orderAll.data.pageSize}");
     expect(tsx).toContain("{orderAll.data.totalPages}");
-    // `items` is deliberately left alone: on an unwrapped binding `rows` IS the
-    // array, so re-rooting it would silently repair the author's own mistake
-    // into something that looks right and reads a different value.
-    expect(tsx).toContain("{orderAll.data.items.items}");
+  });
+
+  // `items` is deliberately NOT re-rooted: on an unwrapped binding `rows` IS
+  // the array, so re-rooting it would silently repair the author's own mistake
+  // into something that looks right and reads a different value.  Since the
+  // single typing pass types the binding (M-T5.44), the mistake is refused at
+  // the AST instead of reaching the walker as `orderAll.data.items.items`.
+  it("auto-paged: `rows.items` is refused — the binding is already the row array", async () => {
+    const { errors } = await parseString(
+      ordersListBody(`QueryView {
+        of:      Sales.Order.all,
+        loading: Skeleton {},
+        error:   Alert { "err" },
+        empty:   Empty { "none" },
+        data:    rows => Text { rows.items }
+      }`),
+    );
+    expect(errors.join("\n")).toContain("'items' is not a member of 'Order[]'");
   });
 
   it("explicit `paged: true`: the binding is already the envelope, so metadata reads pass straight through", async () => {

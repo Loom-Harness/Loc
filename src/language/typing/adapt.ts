@@ -9,7 +9,11 @@
 import type { DddType } from "../type-system.js";
 import type { Ty } from "./ty.js";
 
-export function toDddType(t: Ty): DddType {
+/** `generic: "arg"` keeps the language layer's old view of a DECLARED carrier
+ *  type (`T paged` reads as `T`); an expression's carrier type defaults to
+ *  `unknown` — this layer never typed one, and reading it as its argument
+ *  would invent members (`rows.items` as a member of the row). */
+export function toDddType(t: Ty, opts: { generic?: "arg" | "unknown" } = {}): DddType {
   const s = t.sensitivity ? { sensitivity: t.sensitivity } : {};
   switch (t.kind) {
     case "primitive":
@@ -41,15 +45,22 @@ export function toDddType(t: Ty): DddType {
           return { kind: "unknown", ...s };
       }
     case "array":
-      return { kind: "array", element: toDddType(t.element), ...s };
+      return {
+        kind: "array",
+        element: toDddType(t.element, opts),
+        ...(t.pagedMeta ? { pagedMeta: true as const } : {}),
+        ...s,
+      };
     case "optional":
-      return { kind: "optional", inner: toDddType(t.inner), ...s };
+      return { kind: "optional", inner: toDddType(t.inner, opts), ...s };
     case "union":
-      return t.variants[0] ? toDddType(t.variants[0]) : { kind: "unknown", ...s };
+      return t.variants[0] ? toDddType(t.variants[0], opts) : { kind: "unknown", ...s };
     case "generic":
-      return toDddType(t.arg);
+      return opts.generic === "arg" ? toDddType(t.arg, opts) : { kind: "unknown", ...s };
     case "action":
-      return t.arg ? { kind: "action", arg: toDddType(t.arg), ...s } : { kind: "action", ...s };
+      return t.arg
+        ? { kind: "action", arg: toDddType(t.arg, opts), ...s }
+        : { kind: "action", ...s };
     case "slot":
     case "any":
     case "never":
