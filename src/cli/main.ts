@@ -1028,6 +1028,22 @@ async function runGenerate(
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
+  // NAME the hand-edited files, not just count them (eval item #40a): the
+  // count alone told the reader edits were lost but not WHICH, so the one
+  // remedy the summary offers — pin it in `.loomignore` — had no path to pin.
+  // Capped, so a bulk edit does not bury the summary; same list under
+  // `--dry-run`, where it is the preview of exactly what a real run clobbers.
+  if (locallyModifiedPaths.length > 0) {
+    const shown = locallyModifiedPaths.slice(0, LOCALLY_MODIFIED_LIST_CAP);
+    console.log(
+      options.dryRun
+        ? `Would overwrite local modifications in (add a path to ${path.join(outDir, ".loomignore")} to keep your version):`
+        : `Overwrote local modifications in (add a path to ${path.join(outDir, ".loomignore")} so the next run leaves it alone):`,
+    );
+    for (const p of shown) console.log(`  ${p}`);
+    const rest = locallyModifiedPaths.length - shown.length;
+    if (rest > 0) console.log(`  … and ${rest} more`);
+  }
   return {
     hadError: false,
     written,
@@ -1038,6 +1054,48 @@ async function runGenerate(
     locallyModified: locallyModifiedPaths.length,
   };
 }
+
+/** The closed `status` vocabulary of a `--results` document (docs/verify.md). */
+const RESULT_STATUSES: ReadonlySet<string> = new Set(["pass", "fail", "skip"]);
+/** The runner spellings people reach for, mapped to the one they meant. */
+const RESULT_STATUS_HINTS: Readonly<Record<string, string>> = {
+  passed: "pass",
+  failed: "fail",
+  skipped: "skip",
+  pending: "skip",
+  todo: "skip",
+};
+
+/** Shape-check every `--results` entry before it reaches the join.  Without it
+ *  a runner spelling (`"failed"`) is neither a pass nor a fail to the rollup, so
+ *  a FAILED test left its requirement merely unverified and the gate could exit
+ *  0 (eval item #36).  Throws — the caller turns that into exit 2. */
+function checkResultEntries(results: readonly unknown[]): TestOutcome[] {
+  results.forEach((entry, i) => {
+    const e = entry as { name?: unknown; status?: unknown } | null;
+    if (e == null || typeof e !== "object") {
+      throw new Error(`results[${i}] is not an object`);
+    }
+    if (typeof e.name !== "string") {
+      throw new Error(`results[${i}] has no string "name"`);
+    }
+    if (typeof e.status !== "string" || !RESULT_STATUSES.has(e.status)) {
+      const got = JSON.stringify(e.status);
+      const hint =
+        typeof e.status === "string" ? RESULT_STATUS_HINTS[e.status.toLowerCase()] : undefined;
+      throw new Error(
+        `results[${i}] ("${e.name}") has status ${got}; expected "pass", "fail" or "skip"` +
+          (hint ? ` — did you mean "${hint}"?` : "") +
+          ` (a vitest/jest JSON report can be passed as-is with --from-vitest)`,
+      );
+    }
+  });
+  return results as TestOutcome[];
+}
+
+/** How many locally-modified paths the regenerate summary names before it
+ *  collapses the rest into "… and N more". */
+const LOCALLY_MODIFIED_LIST_CAP = 10;
 
 /** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
  *  unreadable, truncated, or a newer schema version — degrades to `null`,
@@ -1446,7 +1504,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
               : ""),
         );
       }
-      outcomes = parsed.results;
+      outcomes = checkResultEntries(parsed.results);
     }
   } catch (err) {
     const what = err instanceof VitestReportError ? "vitest report" : "results file";

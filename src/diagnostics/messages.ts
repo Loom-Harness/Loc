@@ -1777,6 +1777,9 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/api-checks.ts
   // ----------------------------------------------------------------------
+  /** An `api` no backend deployable `serves:` — dead declaration (#29). */
+  "loom.api-unserved": (p: { name: unknown; backends: unknown }) =>
+    `api '${p.name}' is declared but no backend deployable serves it, so no deployable mounts its routes or carries its contract. Add it to a backend deployable's 'serves:' list (backends: ${p.backends}), or remove the declaration.`,
   "loom.handler-param-reserved-id": (p: { name: unknown; kind: unknown; hName: unknown }) =>
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
@@ -1954,6 +1957,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/system/migrations-builder.ts — phase ⑨ (migration derivation)
   // ----------------------------------------------------------------------
+  /** A same-table drop+add the rename heuristic could not collapse (a rename
+   *  that also changed type, or two renames at once).  The remedy is a
+   *  `migration` block, which is a TOP-LEVEL declaration — placed inside
+   *  `system { }` it is a parse error — so the text says where it goes. */
+  "loom.migration-ambiguous-rename": (p: { module: unknown; renames: unknown }) =>
+    `migration for module "${p.module}" drops and adds column(s) on the same table that look like an unannotated rename — emitting them as drop+add would DESTROY the renamed column's data:\n${p.renames}\n` +
+    `If this is a rename, declare it explicitly so the data is preserved. Add this block at the TOP LEVEL of the .ddd file — outside \`system { … }\`, as a sibling of it (inside it is a parse error):\n` +
+    `  migration "<name>" { <Aggregate>.<oldField> -> <newField> }\n` +
+    `(one line per renamed field; this handles both a rename that also changes type and two renames at once.)\n` +
+    `If you really mean to drop the old column and add a new empty one — losing the data — re-run \`generate system\` with --allow-destructive.`,
+
   /** A declared backfill whose column is arriving in THIS migration, yet no
    *  step consumed it — the silent-discard shape (F-018). A backfill is
    *  legitimately inert once its column is in the baseline; this fires only
