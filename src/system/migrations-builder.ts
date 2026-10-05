@@ -1146,6 +1146,35 @@ function indexRenamed(
 }
 
 // ---------------------------------------------------------------------------
+// Advisory (non-fatal) migration diagnostics.
+// ---------------------------------------------------------------------------
+
+/** One non-fatal `loom.*` diagnostic raised while deriving a module's
+ *  migration (phase ⑨).
+ *
+ *  Every other migration diagnostic in this file is a THROW, because every
+ *  other one is a refusal: the migration is not written and the operator has
+ *  to decide something.  A guess the pass makes DELIBERATELY is a different
+ *  animal — it must not stop the run (that would break every model relying on
+ *  the rename collapse), and it must not be silent either.  So it needs a
+ *  channel that carries a diagnostic out without an exception, which is what
+ *  this is: the caller passes a sink, the pass appends, and `src/cli/main.ts`
+ *  prints them the way it already prints the walkers' give-ups.
+ *
+ *  Phase ⑨ runs long after the phase-⑦ validator, and it needs a snapshot
+ *  baseline no validator has, so these cannot be `LoomDiagnostic`s from
+ *  `validateLoomModel` — the diff is the only thing that knows the collapse
+ *  fired. */
+export interface MigrationWarning {
+  /** The stable `loom.*` code; its text lives in `src/diagnostics/messages.ts`. */
+  readonly code: string;
+  /** The module whose migration was being derived. */
+  readonly module: string;
+  /** Rendered via `diagMessage(code, …)` — never an inline literal. */
+  readonly message: string;
+}
+
+// ---------------------------------------------------------------------------
 // Destructive-change gate (audit finding 19).
 // ---------------------------------------------------------------------------
 
@@ -1288,7 +1317,16 @@ function isBlockingNotNullAdd(s: MigrationStep): boolean {
 export function applyDestructivePolicy(
   steps: MigrationStep[],
   baseline: SchemaSnapshot | null,
-  opts: { allowDestructive: boolean; module: string; backfills?: readonly ResolvedBackfill[] },
+  opts: {
+    allowDestructive: boolean;
+    module: string;
+    backfills?: readonly ResolvedBackfill[];
+    /** Sink for the advisory diagnostics this pass GUESSES rather than gates —
+     *  today only `loom.migration-rename-inferred`.  Optional: a caller that
+     *  omits it keeps the pass's return value byte-identical, which is what
+     *  lets every existing unit test stay unchanged. */
+    warnings?: MigrationWarning[];
+  },
 ): MigrationStep[] {
   if (baseline === null) return steps; // Initial migration — nothing pre-exists.
 
@@ -1413,6 +1451,28 @@ export function applyDestructivePolicy(
       from: d.name,
       to: a.column.name,
       type: a.column.type,
+    });
+    // ANNOUNCE THE GUESS (F-3).  Everything above is about which shapes the
+    // collapse may fire on; this is about the one it does fire on.  The three
+    // contrary signals narrow the guess, they cannot eliminate it — a rename
+    // and an unrelated drop+add of the same shape are byte-identical here, so
+    // whatever the heuristic does, one of the two authors is not being served.
+    // Before this, that author heard `0 error(s), 0 warning(s)` and shipped a
+    // migration that moved their old column's rows under a new name.
+    //
+    // A WARNING, deliberately, not an error: the inference is load-bearing (an
+    // unannounced real rename would otherwise lose its column) and every model
+    // relying on it would break. The warning costs the correct author one line
+    // of stderr and removes the "silent" from the incorrect author's
+    // misattribution — which is the whole residual.
+    opts.warnings?.push({
+      code: "loom.migration-rename-inferred",
+      module: opts.module,
+      message: diagMessage("loom.migration-rename-inferred", {
+        module: opts.module,
+        from: `${qualifiedName(a.schema, a.table)}.${d.name}`,
+        to: a.column.name,
+      }),
     });
   }
 
@@ -1830,6 +1890,13 @@ export interface BuildMigrationsOptions {
    *  the module the owning block's other intents pin (or the system's single
    *  owner module; ambiguous scope raises {@link MigrationSqlScopeError}). */
   sqlSteps?: readonly SqlStepIR[];
+  /** Sink for the non-fatal diagnostics the derivation raises — currently only
+   *  `loom.migration-rename-inferred`, announcing the drop+add → RENAME guess
+   *  (F-3).  A caller that omits it loses the warnings, which is why the two
+   *  production callers (`src/system/index.ts`, and through it the CLI) pass
+   *  one: the guess is still made either way, and being unable to hear about it
+   *  was the whole defect. */
+  warnings?: MigrationWarning[];
 }
 
 /** One resolved column rename (M-T2.1).  `from`/`to` are already snake-cased
@@ -2088,6 +2155,7 @@ export function buildMigrations(
         allowDestructive,
         module: m.name,
         backfills,
+        warnings: options.warnings,
       },
     );
     // Raw sql steps + ledgered data fix-ups (M-T2.3): emitted exactly once —

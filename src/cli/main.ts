@@ -51,6 +51,7 @@ import {
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
+  type MigrationWarning,
 } from "../system/migrations-builder.js";
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
@@ -673,6 +674,10 @@ async function runGenerate(
    *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
    *  under `0 error(s), 0 warning(s)` (F-019). */
   let giveUps: GiveUpReport[] = [];
+  /** Non-fatal diagnostics from the migration derivation (phase ⑨).  Printed
+   *  beside the give-ups below — same shape of problem: a fact known inside a
+   *  pure pass with no console, which used to reach nobody. */
+  let migrationWarnings: MigrationWarning[] = [];
   // The migration-history ledger lives beside the `.ddd` SOURCE, not under
   // `-o`: it is the only record of "this module already has migrations" that
   // survives being read in an output tree that carries none of them (F-029).
@@ -716,6 +721,14 @@ async function runGenerate(
       files = emission.files;
       giveUps = emission.giveUps;
       ledgerToWrite = emission.migrationLedger;
+      // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
+      // RENAME inference the migration builder makes deliberately: it fired,
+      // and before this the run said `0 error(s), 0 warning(s)` about it, so
+      // an author whose two columns were unrelated was never told their old
+      // column's data was about to land under the new name.  A WARNING — the
+      // inference is load-bearing, so it must not fail the run, and the
+      // migration IS written.
+      migrationWarnings = emission.migrationWarnings;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -745,6 +758,16 @@ async function runGenerate(
       );
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
+    }
+    for (const w of migrationWarnings) {
+      console.error(`${w.code} warning: ${w.message}`);
+    }
+    if (migrationWarnings.length > 0) {
+      // Its own footer, for the same reason the give-ups have one: the
+      // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
+      // already printed before generation ran, so without this the run reports
+      // `0 warning(s)` and then prints a warning.
+      console.error(`${migrationWarnings.length} warning(s) in derived migrations.`);
     }
     // Lift the walkers' give-ups.  They were already in the output, named by
     // code, three characters from the defect — this is the only place with both

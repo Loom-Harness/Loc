@@ -187,10 +187,14 @@ docker `conformance-full` leg (`LOOM_E2E=1`). Everything per-PR is
 it *behaves*. This tier promotes the behavioral layer (for the Hono/TS
 backend + pure domain) to a **fast, per-PR, docker-free gate**.
 
-It reuses the **playground's own** runners (`web/src/testing/*`,
-`web/src/runtime/ddl.ts`) and the same `createHarness()` the in-browser
-*Tests* tab uses — so the node tier and the browser tier share one
-execution path. The cross-backend (.NET/Java/Phoenix/Python) and
+It reuses the **playground's own** test runners (`web/src/testing/*`) and
+the same `createHarness()` the in-browser *Tests* tab uses — so the node
+tier and the browser tier share one execution path. The **database** is
+the exception, deliberately: the harness applies the deployable's EMITTED
+migrations (`db/migrations/*.sql`, via `emitted-schema.mjs`) — what the
+shipped `index.ts` runs at boot — never the playground's `synthDDL`, which
+derives DDL from the drizzle schema object and dropped every FK, unique
+and CHECK (#2773, #2988). `harness-schema-source.test.ts` pins this. The cross-backend (.NET/Java/Phoenix/Python) and
 cross-pack UI behavioral coverage stays in the docker/nightly legs; this
 tier is *additive*.
 
@@ -333,6 +337,28 @@ generate + migrate + boot each; the folded read model is populated by an
 walk is **surface-major** — all three rungs per surface — so a mutating
 surface's authorized arm cannot disturb the next surface's denial arms.
 
+A surface may also carry its **own `seed`** (wave C3 packet 3c): run under
+the authorized principal immediately before that surface's arms, its first
+returned id is what that surface's `{id}` substitutes. That is how one spec
+addresses a second aggregate's row (`lifecycle-guard`'s `Shipment.destroy`),
+and how an update and a destroy each get a fresh row instead of acting on
+one another's leftovers. Append such surfaces LAST so the recorded ordinals
+the golden aligns on do not move. A surface's `note` names why one of its
+arms is `null` (a same-tenant DELETE with no `requires` to fail would
+succeed and make the cross-tenant arm after it meaningless).
+
+Every 401/403 arm additionally asserts the refusal's **envelope** against
+the RFCs (M-T9.25): `application/problem+json`, a `status` member equal to
+the HTTP status, the RFC 9110 reason phrase as `title`, `type` and `detail`
+present, and — on a 401 — a `WWW-Authenticate: Bearer` challenge. The
+recorded golden pins the body; it records no headers, so this is the only
+runtime witness of the content type and the challenge.
+
+The **cross-tenant** rung (`arms.otherTenant`, `DEV_CLAIMS_OTHER_TENANT`)
+counts as a refusal in the census only for a surface whose sole gate is the
+tenancy predicate — on a surface that also carries a `requires`, it would
+stand in for a gate it never exercised.
+
 Slice 1 hand-writes `AUTHZ_LADDERS`. Slice 2 replaces that map with a
 census **derived from the enriched IR** — every `requires`, `policy`
 ladder, `mask unless` field and tenancy stance — so a gated surface with no
@@ -342,8 +368,9 @@ probe fails the gate.
 
 Per case: `generate system` → locate the one node deployable → esbuild
 bundles a tiny boot entry (its `createApp` + `schema` + drizzle/pglite +
-the repo's `synthDDL`/runners) → PGlite → `exec(synthDDL)` →
-`drizzle(pglite,{schema})` → **`runSeeds(db)`** (only when the system
+the repo's runners) → PGlite → `drizzle(pglite,{schema})` → apply the
+emitted `db/migrations` (drizzle's own `readMigrationFiles`, each chunk via
+`exec`) → **`runSeeds(db)`** (only when the system
 emitted `db/seed.ts`) → `createApp(db)` → run the emitted suites
 against `app.fetch`. All third-party deps stay external (resolved from
 this dir's `node_modules`), so there is one drizzle instance and PGlite's

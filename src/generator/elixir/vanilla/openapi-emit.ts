@@ -307,7 +307,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
       `${schemaDir}/${snake(agg.name)}_list_response.ex`,
       renderAggregateListResponseSchema(agg, webModule),
     );
-    // Paged envelope schema (M-T2.6) — emitted when this aggregate's implicit
+    // Paged envelope schema — emitted when this aggregate's implicit
     // `findAll` (or an explicit find) returns the `paged` wire, so the list
     // endpoint's 200 references `<Agg>Paged` (an object envelope) instead of
     // the bare-array `<Agg>ListResponse`.  Only reaches the served spec when a
@@ -391,9 +391,9 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // Declared record payloads a workflow param names — the
   // `create(c: FileClaim)` explicit-command form.  The workflow request
   // schema below references `<Payload>Response` (the `entity` spelling
-  // `schemaRefFor` produces), and nothing emitted that module: a payload has
-  // no owning aggregate, so no per-aggregate pass reaches it and the request
-  // schema named an undefined module (#2864 D7/T2).  Deduplicated by name
+  // `schemaRefFor` produces), and a payload has no owning aggregate, so no
+  // per-aggregate pass emits that module — without this pass the request
+  // schema names an undefined module.  Deduplicated by name
   // like the value objects above, since a payload is context-scoped but the
   // schema directory is per-project.
   const emittedPayloads = new Set<string>();
@@ -463,7 +463,7 @@ function errorResponseEntries(
   kind: OpErrorKind,
   schemasModule: string,
   guarded = false,
-  /** Structural-conflict resolver (M-T3.4a) — routes the destroy FK-restrict
+  /** Structural-conflict resolver — routes the destroy FK-restrict
    *  409 (`ReferencedInUse`) through the `httpStatus` mapper so the OpenAPI
    *  declaration moves with the runtime arm.  Omitted ⇒ literal 409. */
   resolve?: (name: string) => number,
@@ -650,7 +650,7 @@ function renderApiSpec(
           }
         }`
       : "";
-    // The implicit findAll is paged (M-T2.6) for plain single-table relational
+    // The implicit findAll is paged for plain single-table relational
     // aggregates: the list 200 carries the `<Agg>Paged` envelope and the
     // endpoint accepts `page`/`pageSize`/`sort`/`dir` query controls — matching
     // the Hono/.NET/Java/Python paged list.  A non-paged findAll (document /
@@ -701,9 +701,8 @@ ${pagingQueryParams()}
         }${
           // DELETE /<aggs>/{id} — documented iff the ROUTER mounts it: the
           // derived destroy entry AND the elixir-local `emitsRestDelete`
-          // stance (ES exclusion).  The spec used to gate on
-          // `canonicalDestroy` alone, documenting a DELETE the router refused
-          // for event-sourced aggregates.
+          // stance (ES exclusion).  Gating on `canonicalDestroy` alone would
+          // document a DELETE the router refuses for event-sourced aggregates.
           derivedOps.some((o) => o.kind === "destroy") && emitsRestDelete(agg)
             ? `,
         delete: %OpenApiSpex.Operation{
@@ -1016,11 +1015,10 @@ function openApiType(t: TypeIR, schemasModule: string): string {
       // part schema is registered in components.
       return `${schemasModule}.${info.base}Response`;
     case "provenanced": {
-      // The `Provenanced<T>` carrier (M-T6.12), inlined like a value object —
-      // the value's own schema plus the opaque nullable lineage object.  Before
-      // this arm the Phoenix spec published a provenanced field as a bare `T`
-      // and never mentioned the lineage at all, so its OpenAPI document
-      // disagreed with the JSON the controller actually served.
+      // The `Provenanced<T>` carrier, inlined like a value object — the
+      // value's own schema plus the opaque nullable lineage object.  Publishing
+      // a provenanced field as a bare `T` would make the OpenAPI document
+      // disagree with the JSON the controller actually serves.
       const props = provenancedEntries(
         openApiType(info.carried!, schemasModule),
         `${OPENAPI_PRIMITIVE.json}`,
@@ -1032,12 +1030,12 @@ function openApiType(t: TypeIR, schemasModule: string): string {
   }
 }
 
-/** Declare a nullable property `nullable: true` (F2-W-12).
+/** Declare a nullable property `nullable: true`.
  *
  *  Absence from `required[]` says the key may be OMITTED; it does not say the
  *  value may be `null`.  The emitted serializer builds `"sku" => record.sku` for
  *  every row, nil included, so an optional field's key is ALWAYS present and its
- *  value is `null` — a body this app's own published schema forbade.  The three
+ *  value is `null` — a body the published schema would otherwise forbid.  The three
  *  backends that declare it: node `z.string().nullish()` (a null union), .NET
  *  `string?` under `SupportNonNullableReferenceTypes()` (`nullable: true`), and
  *  python `str | None` (a pydantic anyOf-with-null).
@@ -1052,8 +1050,8 @@ function openApiType(t: TypeIR, schemasModule: string): string {
  *  object or containment part).  3.0 forbids a sibling keyword beside `$ref`, so
  *  the valid spelling is `allOf: [$ref] + nullable: true` — and `propTypeSig`
  *  does not fold `allOf`, so it would read as `object` where the other backends
- *  read `ref:<Name>` and the parity gate would report a divergence this change
- *  invented.  Those properties keep the pre-existing bare `$ref`. */
+ *  read `ref:<Name>` and the parity gate would report a spurious divergence.
+ *  Those properties keep the bare `$ref`. */
 function nullableSchema(schema: string, isNullable: boolean): string {
   if (!isNullable) return schema;
   if (!schema.startsWith("%OpenApiSpex.Schema{") || !schema.endsWith("}")) return schema;
@@ -1097,19 +1095,17 @@ function renderProperties(
     // RS-26: scoped to CREATE.  An omitted create bool is well-defined
     // (`hasImplicitDefault`), but on an OPERATION body — `update` included —
     // there is nothing to construct, so an omitted field is a missing required
-    // one.  Marking it optional here made the SPEC disagree with this
+    // one.  Marking it optional here would make the SPEC disagree with this
     // backend's own runtime: `@update_required` in the emitted changeset
-    // already lists every bool, so a client trusting the spec and omitting
-    // `active` gets a 422 the spec said would not happen.
-    // Consume the create-input seam rather than re-deciding from the type.
-    // This used to hand-roll the bool arm of `hasImplicitDefault`, which is why
-    // it did not pick up the `array` arm when that was added (#2864 G4) — the
-    // served spec went on calling a COLLECTION required while this backend's own
-    // runtime accepted its omission (`cast_assoc` over an absent key casts no
-    // children; a scalar array takes the changeset `__default`).  That is the
-    // same "document promising what the runtime does not check" failure the
-    // RS-26 note above describes, inverted, and it showed up as
-    // `required-only-elixir=[legs,tags]` against java's dropped required-set.
+    // lists every bool, so a client trusting the spec and omitting
+    // `active` would get a 422 the spec said would not happen.
+    // Consume the create-input seam rather than re-deciding from the type: a
+    // hand-rolled copy of `hasImplicitDefault`'s bool arm misses its `array`
+    // arm, so the served spec would call a COLLECTION required while this
+    // backend's own runtime accepts its omission (`cast_assoc` over an absent
+    // key casts no children; a scalar array takes the changeset `__default`).
+    // That is the same "document promising what the runtime does not check"
+    // failure the RS-26 note above describes, inverted.
     const optionalCreateInput =
       slot === "create" && !isRequiredCreateInput({ optional: f.optional, type: f.type });
     // An explicitly-defaulted request field is optional input (Ash applies
@@ -1267,13 +1263,13 @@ function renderAggregateResponseSchema(
   payloads: readonly PayloadIR[] = [],
 ): string {
   const moduleName = `${webModule}.Api.Schemas.${agg.name}Response`;
-  // M-T5.10: when a `response <Agg>Response` record is declared, READ its
+  // When a `response <Agg>Response` record is declared, READ its
   // fields (in declared order) instead of re-deriving from `wireShape`.  The
   // record omits `id` (grammar-reserved) — re-prepend it exactly as
   // `forApiRead` surfaces it — and a containment field carries its already-wire
   // `<Part>Response` name, so its type is peeled back to the part name before
   // `openApiType` re-appends `Response` (never `<Part>ResponseResponse`).
-  // Byte-identical to the wireShape path for a scaffolded record.
+  // Identical to the wireShape path for a scaffolded record.
   const declared = payloads.find((p) => p.kind === "response" && p.name === `${agg.name}Response`);
   const props = declared
     ? declaredResponseProps(agg, declared, payloads)
@@ -1314,7 +1310,7 @@ function declaredResponseProps(
   // A declared record names DOMAIN types, so a field the aggregate declares
   // `provenanced` is wrapped in the wire carrier here — the same wrap
   // `wireTypeForField` applies on the wireShape path, so both paths publish the
-  // identical schema (M-T6.12).
+  // identical schema.
   const provenanced = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
   for (const f of payload.fields) {
     const declaredType = normalizeDeclaredType(f.type, payloads);
@@ -1438,7 +1434,7 @@ function pagingQueryParams(): string {
   ].join(",\n");
 }
 
-/** The `<Agg>Paged` envelope schema (M-T2.6) — an object of
+/** The `<Agg>Paged` envelope schema — an object of
  *  `{ items: <Agg>Response[], page, pageSize, total, totalPages }` with all
  *  five fields required.  Mirrors the Hono zod / .NET `Paged<T>` / Python
  *  `PagedResult` shapes so the conformance-parity property-type + required

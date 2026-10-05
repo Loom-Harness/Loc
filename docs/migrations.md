@@ -190,6 +190,11 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   `dropColumn` is destructive, so the run **aborts** and names the
   explicit-rename remedy rather than writing anything.
 
+  **And when the collapse does fire, it says so** — `loom.migration-rename-inferred`,
+  a warning naming the table and both columns (§ The inferred rename announces
+  itself). The signals narrow the guess; the warning is what makes the guess
+  it still has to make audible.
+
   **Expressing a genuine drop + unrelated add in one change** is therefore the
   ordinary destructive path — declare the new column's value and pass
   `--allow-destructive`:
@@ -274,6 +279,50 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
 ddd generate system app.ddd -o out                       # aborts on a destructive delta
 ddd generate system app.ddd -o out --allow-destructive   # applies it (drops; NOT-NULL → 3-step)
 ```
+
+### The inferred rename announces itself — `loom.migration-rename-inferred`
+
+The three contrary signals above narrow the guess; they cannot eliminate it,
+because nothing can. A rename and an unrelated drop+add of the same shape reach
+`applyDestructivePolicy` as a byte-identical diff, so whichever way the
+heuristic jumps, one of the two authors is not being served. Collapsing is the
+right default — the author who *did* rename would otherwise lose the column —
+but it leaves a residual: the author who did **not** rename gets the old
+column's rows under the new column's name.
+
+What made that residual dangerous was not the guess, it was the **silence**.
+The collapse used to fire and the run to report `0 error(s), 0 warning(s)`, so
+nothing ever told that author to look. It now emits
+**`loom.migration-rename-inferred`** every time it fires, naming the table, both
+column names, and the way to declare the intent either way:
+
+```
+loom.migration-rename-inferred warning: migration for module "Cat": inferred a RENAME of
+  shop.products.title -> description (one dropped column, one added column, same type and
+  nullability, no backfill and no default). If these are unrelated columns, the old column's
+  data will land under the new name. Declare the intent either way:
+    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename
+    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get
+```
+
+It is a **warning**, deliberately, and it does not gate the exit code: the
+inference is load-bearing, so an error would break every model that relies on
+it, and the migration *is* written. Declaring the intent — either way — silences
+it, because both declarations are contrary signals the collapse already yields
+to:
+
+- `migration "…" { Agg.old -> new }` — yes, a rename. The explicit intent feeds
+  `diffSchema`, so no drop+add pair ever reaches the heuristic and there is
+  nothing left to guess.
+- `migration "…" { Agg.new = <value> }` — no, a new column. The declared
+  backfill is contrary signal 2, so the pair stays drop+add and falls under
+  `--allow-destructive` (§ Rename detection, *Expressing a genuine drop +
+  unrelated add in one change*).
+
+A scalar-literal field default on the added column (contrary signal 3) silences
+it for the same reason as the backfill. A nullability difference (signal 1)
+never reaches the warning either — it raises
+`loom.migration-ambiguous-rename` instead, which is an error.
 
 ## Data migrations (M-T2.3)
 

@@ -1049,6 +1049,98 @@ describe("validation", () => {
         ),
       ).toBe(true);
     });
+
+    // Flutter self-hosts and has no `.hbs` pack pipeline, so `expectedPackFormatFor`
+    // returns undefined for it and the Case-1a format cross-check has nothing to
+    // compare against.  Before the dedicated arm, THIS source validated clean:
+    // `design: mantine` — a tsx pack every other non-react framework rejects —
+    // was accepted on a Flutter deployable and generated a byte-identical tree
+    // to `design: shadcn` and to no `design:` at all.
+    const flutterSource = (designLine: string) => `
+      system S {
+        subdomain M { context T { aggregate Item with crudish { name: string } } }
+        ui WebApp with scaffold(subdomains: [M]) { }
+        storage primary { type: postgres }
+        resource tState { for: T, kind: state, use: primary }
+        deployable api { platform: node, contexts: [T], dataSources: [tState], port: 3000 }
+        deployable mobile {
+          platform: flutter
+          targets: api
+          ui: WebApp
+          port: 3006
+          ${designLine}
+        }
+      }
+    `;
+
+    it("warns that 'design:' on a Flutter deployable has no effect", async () => {
+      const { errors, warnings } = await parse(flutterSource("design: mantine"));
+      expect(errors).toEqual([]);
+      expect(
+        warnings.some((w) =>
+          /Design 'mantine' on Flutter deployable 'mobile' has no effect.*no design-pack menu/.test(
+            w,
+          ),
+        ),
+        warnings.join("\n"),
+      ).toBe(true);
+    });
+
+    it("warns for a Flutter 'design:' the format check would otherwise have matched", async () => {
+      // Not just the wrong-format names: Flutter's slot is inert for EVERY pack
+      // family, so a tsx pack that a react deployable accepts is still a no-op
+      // here.  Pins the arm as "no menu", not "wrong menu entry".
+      const { errors, warnings } = await parse(flutterSource('design: "mantine@v7"'));
+      expect(errors).toEqual([]);
+      expect(warnings.some((w) => /Flutter deployable 'mobile' has no effect/.test(w))).toBe(true);
+    });
+
+    it("stays silent on a Flutter deployable with no 'design:'", async () => {
+      const { errors, warnings } = await parse(flutterSource(""));
+      expect(errors).toEqual([]);
+      expect(
+        warnings.some((w) => /has no effect/.test(w)),
+        warnings.join("\n"),
+      ).toBe(false);
+    });
+
+    it("leaves a react deployable's design handling unchanged", async () => {
+      // Negative control for the new arm: the react path must still ERROR on a
+      // format mismatch and stay silent on a matching pack.
+      const { errors: bad } = await parse(`
+        system S {
+          subdomain M { context T { } }
+          ui WebApp { }
+          deployable api { platform: node, contexts: [T], port: 3000 }
+          deployable web {
+            platform: react
+            targets: api
+            ui: WebApp
+            port: 3001
+            design: coreComponents
+          }
+        }
+      `);
+      expect(bad.some((e) => /is a heex pack but framework 'react' renders tsx/.test(e))).toBe(
+        true,
+      );
+      const { errors: good, warnings: goodWarnings } = await parse(`
+        system S {
+          subdomain M { context T { } }
+          ui WebApp { }
+          deployable api { platform: node, contexts: [T], port: 3000 }
+          deployable web {
+            platform: react
+            targets: api
+            ui: WebApp
+            port: 3001
+            design: mantine
+          }
+        }
+      `);
+      expect(good).toEqual([]);
+      expect(goodWarnings.some((w) => /has no effect/.test(w))).toBe(false);
+    });
   });
 
   describe("type-position references (X id vs bare name)", () => {

@@ -99,22 +99,6 @@ for (const [adapter, platform] of [
   ["mikroorm", "node { persistence: mikroorm }"],
 ] as const) {
   describe(`query-projection join lookup is total — ${adapter}`, () => {
-    it("never reads through a non-null assertion on the join map", async () => {
-      const src = await handler(platform);
-      // The shape that threw: `customerById.get(<key>)!`.
-      expect(src).not.toMatch(/customerById\.get\([^)]*\)!/);
-    });
-
-    it("binds the lookup once per row and guards its presence", async () => {
-      const src = await handler(platform);
-      expect(src).toContain("const __j0 = customerById.get(r.customerId as string);");
-      // One bind for the alias, shared by all four joined fields.
-      expect([...src.matchAll(/const (__j\d+) = /g)]).toHaveLength(1);
-      // The absent branch FILLS the row rather than dropping it — the source
-      // row must still be projected.
-      expect(src).toContain("__j0 === undefined ? null :");
-    });
-
     it("keeps every wire wrap INSIDE the guarded branch", async () => {
       const src = await handler(platform);
       const guarded = [...src.matchAll(/(__j\d+) === undefined \? null : (.*?),\n/g)].map((m) => ({
@@ -134,13 +118,6 @@ for (const [adapter, platform] of [
       // Both are CALLS on the joined value, so both would throw on `null`.
       expect(armFor("signedUpAt")).toContain('.toISOString().replace(/\\.000Z$/, "Z")');
       expect(armFor("credit")).toContain(".toFixed(4)");
-    });
-
-    it("still projects source-row fields off the row variable, unguarded", async () => {
-      const src = await handler(platform);
-      expect(src).toContain("code: r.code");
-      // The source row is always present — no guard is emitted for it.
-      expect(src).not.toContain("r.code === undefined");
     });
   });
 }

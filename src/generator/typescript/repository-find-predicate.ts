@@ -107,12 +107,6 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
 // the last trace of the old behaviour.
 // ---------------------------------------------------------------------------
 
-/** The `null` literal on either side of a comparison — the operand that turns
- *  an `eq`/`ne` into an `IS NULL` / `IS NOT NULL` test (F-039). */
-function isNullLiteral(e: ExprIR): boolean {
-  return e.kind === "literal" && e.lit === "null";
-}
-
 const COMPARE_OP_TO_DRIZZLE: Record<string, string> = {
   "==": "eq",
   "!=": "ne",
@@ -313,7 +307,10 @@ export function lowerToDrizzle(
       const orientedFn = COMPARE_OP_TO_DRIZZLE[oriented.op];
       if (!orientedFn) return null;
       const colExpr = renderColumnRef(oriented.column);
-      const valueExpr = renderValue(oriented.value);
+      // Column vs column (`this.qty > this.cap`): Drizzle's comparison
+      // operators take a column in the value position as readily as a bound
+      // value, so the other side renders as its column reference.
+      const valueExpr = renderValue(oriented.value) ?? renderColumnRef(oriented.value);
       if (colExpr === null || valueExpr === null) return null;
       ops.add(orientedFn);
       return `${orientedFn}(${colExpr}, ${valueExpr})`;
