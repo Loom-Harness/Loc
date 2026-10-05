@@ -563,6 +563,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // lists under `apiSurfaceCoverage.notLifted`.  Lifting projection queries into
   // the derivation would make this attributable — and this entry stale.
   "corpus/projection": ["api.orderBoard.byKey (no such aggregate)"],
+  // Same not-yet-lifted class as `corpus/projection` above: the value-object
+  // read model is read through `GET /api/projections/order_board/{key}`, which
+  // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
+  "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
