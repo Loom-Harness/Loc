@@ -14,6 +14,7 @@ import type {
   SubdomainIR,
   SystemIR,
   TestE2EIR,
+  TestIR,
   TestStmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
@@ -57,7 +58,7 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
       checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
         checkThrowKindReadable(stmt, agg, ctx, test.name, diags);
-        const reason = invalidTestStmt(stmt);
+        const reason = testStmtRefusal(stmt, UNIT_TEST_STMT_KINDS);
         if (!reason) continue;
         diags.push({
           severity: "error",
@@ -268,6 +269,87 @@ function invalidTestStmt(s: TestStmtIR): string | null {
     default:
       return null;
   }
+}
+
+/** The statement kinds a unit `test` (on an aggregate, value object or domain
+ *  service) renders on every backend: each `emit/tests.ts` handles exactly
+ *  `let` / `expression` / `call` / `expect` / `expect-throws`, and throws on
+ *  anything else. */
+const UNIT_TEST_STMT_KINDS: ReadonlySet<TestStmtIR["kind"]> = new Set([
+  "let",
+  "expression",
+  "call",
+  "expect",
+  "expect-throws",
+]);
+
+/** The statement kinds a context-level integration `test` renders on every
+ *  backend: each `integration-tests.ts` handles `let` / `expression` /
+ *  `expect` / `expect-throws`, and throws on anything else. */
+const INTEGRATION_TEST_STMT_KINDS: ReadonlySet<TestStmtIR["kind"]> = new Set([
+  "let",
+  "expression",
+  "expect",
+  "expect-throws",
+]);
+
+/** Why `s` can't appear in a test of this tier, or null when it can. Reuses
+ *  the specific aggregate-test wording where there is one. */
+function testStmtRefusal(s: TestStmtIR, allowed: ReadonlySet<TestStmtIR["kind"]>): string | null {
+  const specific = invalidTestStmt(s);
+  if (specific) return specific;
+  if (allowed.has(s.kind)) return null;
+  return `a '${s.kind}' statement has no test rendering.`;
+}
+
+// ---------------------------------------------------------------------------
+// Test-statement vocabulary for the test tiers `validateAggregateTestBodies`
+// never looked at: value-object and domain-service unit tests, and
+// context-level integration tests (`loom.test-statement-invalid`).
+//
+// Before this gate, a `precondition` / `emit` / `:=` in any of them was
+// `0 error(s)` at parse and then crashed `generate` on every backend:
+// `unsupported integration-test statement 'precondition'` (node / java /
+// python / elixir / .NET) and `aggregate test body contains 'emit'` (.NET /
+// java / python unit renderers). The aggregate tier keeps its own code
+// (`loom.aggregate-test-context`); its vocabulary is the same unit set.
+// ---------------------------------------------------------------------------
+
+export function validateTestStatementVocabulary(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+): void {
+  const check = (
+    owner: string,
+    tests: readonly TestIR[],
+    allowed: ReadonlySet<TestStmtIR["kind"]>,
+    tier: string,
+  ): void => {
+    for (const test of tests) {
+      for (const stmt of test.statements) {
+        const reason = testStmtRefusal(stmt, allowed);
+        if (!reason) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.test-statement-invalid",
+          message: diagMessage("loom.test-statement-invalid", {
+            owner,
+            testName: test.name,
+            reason,
+            tier,
+            allowed: [...allowed].join(" / "),
+          }),
+          source: `${owner}.test:${test.name}`,
+        });
+      }
+    }
+  };
+  for (const vo of ctx.valueObjects)
+    check(`value object '${vo.name}'`, vo.tests, UNIT_TEST_STMT_KINDS, "unit");
+  for (const svc of ctx.domainServices) {
+    check(`domain service '${svc.name}'`, svc.tests, UNIT_TEST_STMT_KINDS, "unit");
+  }
+  check(`context '${ctx.name}'`, ctx.tests, INTEGRATION_TEST_STMT_KINDS, "integration");
 }
 
 export function validateE2ETest(

@@ -151,19 +151,17 @@ export function collectCsExprUsings(
   into: Set<string>,
   /** Project root namespace — a `domain-service` call adds
    *  `${ns}.Domain.Services` so the hosting file resolves the static class
-   *  the call leaf emits (`Pricing.Quote(...)`).  **Required**: it used to be
-   *  optional "for collectors that never sit beside a domain-service call",
-   *  and every collector that took that exemption was wrong — a `requires`
-   *  gate on a `destroy`, a value-object invariant and a projection gate all
-   *  admit `Svc.Op(...)`, and each shipped C# that does not compile (CS0103).
-   *  A caller cannot opt out any more; every emitter that renders an
-   *  expression knows its own root namespace. */
+   *  the call leaf emits (`Pricing.Quote(...)`).  **Required**, not optional:
+   *  no collector can assume it never sits beside a domain-service call — a
+   *  `requires` gate on a `destroy`, a value-object invariant and a projection
+   *  gate all admit `Svc.Op(...)`, and without the using each ships C# that
+   *  does not compile (CS0103).  Every emitter that renders an expression
+   *  knows its own root namespace. */
   ns: string,
 ): Set<string> {
-  // Rides `walkExprDeep` (M-T6.50 class, wave-2 packet 2.3): the hand-rolled
-  // switch it replaced skipped a block-body lambda's statements, so a
-  // `matches`/domain-service call hidden inside one never triggered its
-  // `using` — `walkExprDeep` closes that gap.
+  // Rides `walkExprDeep` rather than a hand-rolled switch: a shallow walk
+  // skips a block-body lambda's statements, so a `matches`/domain-service call
+  // hidden inside one would never trigger its `using`.
   walkExprDeep(e, (x) => addCsExprUsing(x, into, ns));
   return into;
 }
@@ -300,7 +298,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   binary: (left, right, e) => renderCsBinary(left, right, e, false),
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
   convert: (value, e) => renderCsConvert(e.target, e.from, value, nullableValueOperand(e)),
-  // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
+  // Transparent i18n wrapper — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
   // A5 temporal: a Loom ABSOLUTE duration value is a `TimeSpan` on this
   // backend, so `duration ± duration` / `duration * int` fall through to
@@ -405,7 +403,7 @@ const CS_TARGET_EF: ExprTarget<CsRenderContext> = {
 };
 
 export function renderCsExpr(e: ExprIR, ctx: CsRenderContext = DEFAULT): string {
-  // Authorization/tenancy filter sentinels (M-T9.9) must be intercepted BEFORE
+  // Authorization/tenancy filter sentinels must be intercepted BEFORE
   // the shared `renderExprWith` dispatch — which throws on the `authz-filter`
   // kind (it is not a domain expression).  A discriminated node so a missing
   // arm is a `tsc` error here, not a silent authorization bypass.
@@ -421,7 +419,7 @@ export function renderCsExpr(e: ExprIR, ctx: CsRenderContext = DEFAULT): string 
   return renderExprWith(e, ctx.efQuery ? CS_TARGET_EF : CS_TARGET, ctx);
 }
 
-/** The `authz-filter` sentinels as EF-query-filter-expressible C# (M-T9.9). */
+/** The `authz-filter` sentinels as EF-query-filter-expressible C#. */
 function renderCsAuthzFilter(
   e: Extract<ExprIR, { kind: "authz-filter" }>,
   ctx: CsRenderContext,
@@ -435,8 +433,8 @@ function renderCsAuthzFilter(
     // descendant-or-self materialized-path scope with the NULL-dataKey fallback
     // to the tenant floor (see `DEEP_SCOPE_SEMANTICS`).  Rendered as a
     // static-expressible EF query-filter lambda: `.StartsWith(...)` translates
-    // to SQL LIKE, `== null` to IS NULL — no host call inside the filter (#1676
-    // pattern).
+    // to SQL LIKE, `== null` to IS NULL — no host call inside the filter (EF
+    // cannot translate one inside a global query filter).
     case "scope": {
       const t = ctx.thisName;
       const col = `${t}.${upperFirst(TENANT_OWNED_DATA_KEY_FIELD)}`;
@@ -463,7 +461,7 @@ function renderCsAuthzFilter(
       const startsWith = ctx.efQuery
         ? `${col}.StartsWith(${org} + ${prefix})`
         : `${col}.StartsWith(${org} + ${prefix}, StringComparison.Ordinal)`;
-      // SARGABLE PREFILTER (M-T3.17), EF-query positions only.  A parameterized
+      // SARGABLE PREFILTER, EF-query positions only.  A parameterized
       // `StartsWith` lowers to `left(col, length(@p)) = @p` (see the
       // `string.startsWith` row in CS_INTRINSIC_QUERY_RENDERERS) — escaping-free
       // and therefore correct, but a function of the column, so the planner
@@ -642,7 +640,7 @@ function staticScalarTypeOf(e: ExprIR): string | null {
  */
 /** The declared IR type of an access-shaped operand, where the node carries
  *  one.  Only used to spot a NULLABLE operand below; anything else answers
- *  `undefined` and the conversion renders exactly as it always has. */
+ *  `undefined` and the conversion renders unchanged. */
 function operandType(e: ExprIR): TypeIR | undefined {
   if (e.kind === "ref") return e.type;
   if (e.kind === "member") return e.memberType;
@@ -753,7 +751,7 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
     case "param":
       // Same rule as `let`/`lambda`: a `.ddd` param named after a C# keyword
       // (`case`, `do`, `lock`, …) reaches the generated signature as a
-      // verbatim identifier, so its USES have to match it (F2-ADP-7).
+      // verbatim identifier, so its USES have to match it.
       return ctx.paramExpr?.(e.name) ?? escapeCsharpIdent(e.name);
     case "this-prop":
     case "this-vo-prop":
@@ -824,15 +822,14 @@ export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   //
   // This table is the SINGLE domain-position spelling, and there is exactly one
   // other place `ToUpper()` may legitimately appear: the EF-query override
-  // below.  A `ToUpper()` in a DOMAIN body was never a second opinion — it was
+  // below.  A `ToUpper()` in a DOMAIN body is never a second opinion — it is
   // the fallback at the bottom of `renderMethodCall` (`upperFirst(e.member)`)
-  // firing because the intrinsic table had not been consulted at all.  That is
-  // what a guarded optional receiver used to do (2026-09-03 audit F2): the
-  // lowerer stamped `receiverType` as `optional`, the `kind === "primitive"`
-  // check below said no, and `x != null ? x.toUpper() : …` silently became
-  // culture-sensitive while the unguarded `x.toUpper()` stayed invariant.
-  // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` closes it;
-  // both forms now land here.
+  // firing because the intrinsic table was not consulted at all.  A guarded
+  // optional receiver (`x != null ? x.toUpper() : …`) is the trap: if the
+  // lowerer stamps `receiverType` as `optional`, the `kind === "primitive"`
+  // check below says no and the call silently becomes culture-sensitive.
+  // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` unwraps
+  // it, so both forms land here.
   "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
   // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):
@@ -943,10 +940,9 @@ function renderMethodCall(
   e: MethodCallExpr,
   ctx: CsRenderContext,
 ): string {
-  // (The `deep` / DENY authorization filter sentinels moved to the
-  // discriminated `authz-filter` kind in M-T9.9 — handled by
-  // `renderCsAuthzFilter` before the shared dispatch, not a `method-call`
-  // marker here.)
+  // (The `deep` / DENY authorization filter sentinels are the discriminated
+  // `authz-filter` kind — handled by `renderCsAuthzFilter` before the shared
+  // dispatch, not a `method-call` marker here.)
   // `this.<refColl>.contains(x)` — membership over a reference
   // collection.  Lowers to a join-table subquery, mirroring TS's
   // `inArray(roots.id, ...)` shape.  Detection is structural: the
@@ -1108,7 +1104,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
       // handler/reactor classes, so a static class avoids a receiver + dupes).
       return `${upperFirst(e.wfScope!)}Functions.${upperFirst(e.name)}(${argList})`;
     case "remote-api-op": {
-      // A typed in-system call (M-T4.8).  `Resources/ApiClients.cs` exposes one
+      // A typed in-system call.  `Resources/ApiClients.cs` exposes one
       // `<Resource>_<OperationId>` static per operation the callee exposes.
       // Self-awaiting and parenthesised — like `repo-read` — so it composes in
       // any expression position without every await site having to know about
@@ -1194,7 +1190,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // `getById` is contractually NON-NULL — it throws rather than returning
         // absent, which is what `loom.handler-load-nullable-unsupported`
         // prescribes as the remedy for a nullable read ("Use getById (throws →
-        // 404)") and what `repoReadResultType` (#2968) types it as (a bare
+        // 404)") and what `repoReadResultType` types it as (a bare
         // entity, not `T?`).  On node/java/python the read PORT carries that
         // contract in its own signature (`Promise<Owner>` / `Owner getById` /
         // `-> Owner`, each with a nullable `findById` sibling).  .NET has no
@@ -1202,13 +1198,12 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // load-or-null primitive (`Task<T?>`), and CQRS query handlers depend on
         // that null (`found is null ? null : project(found)` 404s without an
         // exception).  So on .NET the contract is upheld HERE, at the
-        // dereference — exactly as the workflow tier already does it
+        // dereference — exactly as the workflow tier does it
         // (`workflow-emit.ts`'s `repoLet`: "Without the guard the deref is a
         // CS8602 under /warnaserror") and as every generated command handler
         // does.  `AggregateNotFoundException` maps to 404 in
         // `Api/DomainExceptionFilter.cs`, so "throws → 404" is literally true.
-        // A declared find keeps its own declared nullability and stays
-        // byte-identical.
+        // A declared find keeps its own declared nullability.
         const call = `await ${handle}.${method}(${ctArg})`;
         if (read.readKind === "named" && read.method === "getById") {
           const idArg = argList.length > 0 ? ` {${argList}}` : "";

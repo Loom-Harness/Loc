@@ -1,0 +1,272 @@
+// The Vue full-stack UI cell's fixture (M-T9.15) — the `sales-system-vue` case
+// of test/behavioral/corpus.json, driven by run-ui.mjs: generate → `vite build`
+// the generated Vue/Vuetify client → serve it and the generated Hono backend
+// (PGlite, in-process) from ONE origin → run the EMITTED `*.ui.spec.ts`
+// page-object round-trips in headless Chromium.
+//
+// It is `web/src/examples/sales-system-vue.ddd` (the playground example and the
+// generated-vue-build input, left untouched) plus the NUMERIC surface the two
+// self-hosting frontends' legs gained in M-T9.38: one `Product` field per
+// numeric host type, filled through the real create FORM and read back off both
+// the detail page and the LIST.  It lives here rather than in web/src/examples
+// so the per-PR Vue leg owns its subject — the playground example can change
+// shape without silently hollowing this gate, and this gate can grow without
+// widening every design-pack build of the playground corpus.  The expected
+// rendered texts come from test/behavioral/numeric-ui-contract.mjs, and
+// numeric-ui-legs.test.ts ratchets this file against that table.
+
+requirement US-001 {
+  type: UserStory
+  title: "A customer can place an order"
+  status: InProgress
+}
+
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "An order can only be confirmed when it has at least one line"
+}
+
+requirement AC-002 parent US-001 {
+  type: AcceptanceCriteria
+  title: "Lines can only be added while the order is still a draft"
+}
+
+requirement AC-003 parent US-001 {
+  type: AcceptanceCriteria
+  title: "An order can be placed and confirmed end-to-end through the UI"
+}
+
+system SalesSystem {
+
+  // Visual identity for the Vue frontend — design tokens land in the generated
+  // theme as a Vuetify config.
+  theme {
+    primary: "#0ea5e9"
+    neutral: "#64748b"
+    radius: "md"
+    fontFamily: "Inter, system-ui, sans-serif"
+  }
+
+  subdomain Sales {
+    context Sales {
+
+      enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
+
+      valueobject Money {
+        amount: decimal
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+      }
+
+      event OrderConfirmed { order: Order id, at: datetime }
+
+      aggregate Customer with crudish {
+        name: string
+        email: string
+        invariant email.length > 0
+        derived display: string = name
+      }
+
+      aggregate Product with crudish {
+        sku: string
+        price: Money
+        // The NUMERIC surface (M-T9.15, after M-T9.38).  Four host types whose
+        // WIRE spellings differ: `money` is a fixed-scale-4 STRING (RS-12),
+        // `decimal` a JSON number (RS-24), `int` and `long` JSON integers.  The
+        // UI round-trip below fills each through the real create FORM and reads
+        // each back off the detail page; run-ui.mjs's list probe (corpus.json
+        // `numericList`) reads the same four back off the LIST.  A decoder that
+        // takes the money STRING as a number, a column that reads the wrong wire
+        // key, or a column the emitter dropped typechecks under `vue-tsc` and
+        // fails only there.
+        listPrice: money
+        weight: decimal
+        stock: int
+        barcode: long
+        invariant sku.length > 0
+        derived display: string = sku
+      }
+
+      aggregate Order with crudish {
+        customerId: Customer id
+        status: OrderStatus
+        placedAt: datetime
+        contains lines: OrderLine[]
+
+        invariant lines.count > 0 when status == Confirmed
+
+        function isMutable(): bool = status == Draft
+
+        operation addLine(productId: Product id, qty: int) {
+          precondition isMutable()
+          precondition qty > 0
+          lines += OrderLine { productId: productId, quantity: qty }
+        }
+
+        operation confirm() {
+          precondition isMutable()
+          precondition lines.count > 0
+          status := Confirmed
+          emit OrderConfirmed { order: id, at: now() }
+        }
+
+        entity OrderLine {
+          productId: Product id
+          quantity: int
+          invariant quantity > 0
+        }
+
+        test "adding a line then confirming yields a confirmed order" verifies TC-001 {
+          let order = Order.create({
+            customerId: "00000000-0000-0000-0000-000000000001",
+            status: Draft,
+            placedAt: "2024-01-01T00:00:00Z"
+          })
+          order.addLine("00000000-0000-0000-0000-000000000002", 2)
+          order.confirm()
+          expect(order.status).toBe(Confirmed)
+          expect(order.lines.count).toBe(1)
+        }
+
+        test "lines cannot be added once the order is confirmed" verifies TC-002 {
+          let order = Order.create({
+            customerId: "00000000-0000-0000-0000-000000000001",
+            status: Draft,
+            placedAt: "2024-01-01T00:00:00Z"
+          })
+          order.addLine("00000000-0000-0000-0000-000000000002", 2)
+          order.confirm()
+          expect(order.addLine("00000000-0000-0000-0000-000000000002", 1)).toThrow()
+        }
+      }
+
+      repository Customers for Customer { }
+      repository Products for Product { }
+      repository Orders for Order { }
+
+      workflow placeOrder transactional {
+        create(customerId: Customer id, productId: Product id, qty: int) {
+          precondition qty > 0
+          let customer = Customers.getById(customerId)
+          let product = Products.getById(productId)
+          let order = Order.create({
+            customerId: customer.id,
+            status: Draft,
+            placedAt: now()
+          })
+          order.addLine(productId, qty)
+          order.confirm()
+        }
+      }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Sales]) {
+  }
+
+  storage primary { type: postgres }
+  resource salesState { for: Sales, kind: state, use: primary }
+
+  deployable api {
+    platform: node
+    contexts: [Sales]
+    dataSources: [salesState]
+    port: 3000
+  }
+
+  // Vue frontend — the only structural difference from the react twin.
+  deployable webApp {
+    platform: vue
+    targets: api
+    ui: WebApp
+    port: 3001
+  }
+
+  // System e2e tests.  `against api` (Hono) lowers to a vitest + fetch suite;
+  // `against webApp` (Vue) lowers to Playwright page objects driven against the
+  // built Vue bundle wired to the real Hono backend.
+  test e2e "create a product and read it back" against api {
+    let p = api.products.create({ sku: "WIDGET-1", price: { amount: 9.99, currency: "USD" }, listPrice: money("12.5000"), weight: 1.25, stock: 7, barcode: 1234567890123456 })
+    let read = api.products.getById(p)
+    expect(read.sku).toBe("WIDGET-1")
+  }
+
+  test e2e "create, add a line to, and confirm an order" against api {
+    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.00, currency: "USD" }, listPrice: money("5.0000"), weight: 0.50, stock: 3, barcode: 1234567890123457 })
+    let cust = api.customers.create({ name: "Buyer", email: "buyer@acme.test" })
+    let ord = api.orders.create({ customerId: cust.id, status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
+    api.orders.addLine(ord, { productId: prod.id, qty: 3 })
+    api.orders.confirm(ord)
+    let read = api.orders.getById(ord)
+    expect(read.status).toBe("Confirmed")
+    expect(read.lines.length).toBe(1)
+  }
+
+  // The NUMERIC round-trip (M-T9.15).  Each of the four numeric host types is
+  // filled through the REAL create form and read back off the detail page with a
+  // web-first `toHaveText`, so the assertion sees what the Vue client decoded and
+  // rendered rather than what the emitter intended.  `money` is the load-bearing
+  // one: it arrives as a fixed-scale-4 STRING (RS-12) while `weight` arrives as a
+  // JSON number (RS-24) — a zod schema that treats the two alike typechecks
+  // under `vue-tsc` and fails only here.  The expected strings are the `vue`
+  // column of test/behavioral/numeric-ui-contract.mjs — MEASURED, not guessed.
+  test e2e "a product's numeric fields survive the UI round-trip" against webApp {
+    let prod = ui.products.create({ sku: "NUM-WIDGET", price: { amount: 1.00, currency: "USD" }, listPrice: money("98.7600"), weight: 1.25, stock: 4242, barcode: 1234567890123456 })
+    let read = ui.products.getById(prod)
+    // "98.76", not "98.7600" — and that is a FINDING, not a preference.  The
+    // backend returns "98.7600"; the Vue read schema turns it into a decimal.js
+    // instance, which stringifies without trailing zeros, so the scale is lost
+    // before the verbatim `formatMoney` ever sees it (Feliz keeps "98.7600",
+    // Flutter drops it too).  Measured, not assumed: the first run of this leg
+    // received "98.76" against an expected "98.7600".  Handed off from wave C3
+    // packet 3b; when the read path keeps the scale, this line and the
+    // contract's `vue` cell flip together.
+    expect(read.listPrice).toHaveText("98.76")
+    expect(read.weight).toHaveText("1.25")
+    expect(read.stock).toHaveText("4242")
+    expect(read.barcode).toHaveText("1234567890123456")
+  }
+
+  test e2e "place and confirm an order through the UI" against webApp verifies TC-003 {
+    let prod = ui.products.create({ sku: "UI-WIDGET", price: { amount: 5.00, currency: "USD" }, listPrice: money("5.0000"), weight: 0.50, stock: 3, barcode: 1234567890123457 })
+    let cust = ui.customers.create({ name: "UI Buyer", email: "ui@buyer.test" })
+    let ord = ui.orders.create({ customerId: cust.id, status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
+    ui.orders.addLine(ord, { productId: prod.id, qty: 2 })
+    ui.orders.confirm(ord)
+    let read = ui.orders.getById(ord)
+    expect(read.status).toBe("Confirmed")
+    expect(read.lines.length).toBe(1)
+  }
+}
+
+solution SOL-001 for US-001 {
+  title: "Ordering flows through the Order aggregate and the placeOrder workflow"
+  entitles [
+    Sales.Sales.Order.addLine,
+    Sales.Sales.Order.confirm,
+    Sales.Sales.placeOrder
+  ]
+}
+
+testCase TC-001 verifies AC-001 {
+  title: "Add a line then confirm the order"
+  covers [
+    Sales.Sales.Order.addLine,
+    Sales.Sales.Order.confirm
+  ]
+}
+
+testCase TC-002 verifies AC-002 {
+  title: "Adding a line to a confirmed order is rejected"
+  covers [ Sales.Sales.Order.addLine ]
+}
+
+testCase TC-003 verifies AC-003 {
+  title: "Place and confirm an order end-to-end via the UI"
+  covers [
+    Sales.Sales.Order.addLine,
+    Sales.Sales.Order.confirm,
+    Sales.Sales.placeOrder
+  ]
+}
