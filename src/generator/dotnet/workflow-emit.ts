@@ -8,9 +8,12 @@ import {
   type WorkflowStmtIR,
   workflowCanAnswerNotFound,
   workflowIsGuarded,
-  workflowUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
-import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
+import {
+  operationBodyUsesCurrentUser,
+  operationGates,
+  workflowNeedsCurrentUser,
+} from "../../ir/util/op-gates.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
@@ -1354,7 +1357,10 @@ function renderHandler(
 ): string {
   const cmdName = `${upperFirst(wf.name)}Command`;
   const handlerName = `${upperFirst(wf.name)}Handler`;
-  const usesUser = workflowUsesCurrentUser(wf);
+  // Not `workflowUsesCurrentUser(wf)`: a hoisted `requires` gate is rendered at
+  // the INLINE op-call site inside this body, so the principal can be needed by
+  // a workflow that never spells `currentUser` itself (CS0103 otherwise).
+  const usesUser = workflowNeedsCurrentUser(wf, ctx);
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a

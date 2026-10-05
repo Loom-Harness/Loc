@@ -27,8 +27,9 @@ export type ColumnType =
   // A plain `decimal` is unconstrained Postgres `DECIMAL`; `money` carries the
   // canonical `NUMERIC(19,4)` bounds (`MONEY_PRECISION`/`MONEY_WIRE_SCALE`).
   // Both are the same column FAMILY, which is why they share a kind — but the
-  // bounds are load-bearing: without them the created column accepted whatever
-  // scale each backend happened to write, which is the storage half of #2549.
+  // bounds are load-bearing: without them the created column accepts whatever
+  // scale each backend happens to write, and the stored money diverges across
+  // backends.
   | { kind: "decimal"; precision?: number; scale?: number }
   | { kind: "datetime" }
   | { kind: "json" }
@@ -58,21 +59,20 @@ export interface ColumnShape {
    *  `diffTable` filters it off both sides of the column diff
    *  (`isDiffableColumn`).  Absent on ordinary columns.
    *
-   *  Treat that as an invariant, not an incidental.  Phoenix DID once store
-   *  the array inline as a single `{:array, :map}` column and render this one
-   *  normally; it now emits the child table like everyone else.  Letting the
-   *  column back into any DDL path resurrects M-T2.15 (#2864 D1): the diff
-   *  emitted `ADD COLUMN … JSONB[]` + `SET NOT NULL` for it beside the correct
-   *  child table, and since no ORM maps the column, every later INSERT failed
-   *  the NOT NULL constraint permanently. */
+   *  Treat that as an invariant, not an incidental.  Every backend, Phoenix
+   *  included, stores the elements in the child table, never inline.  Letting
+   *  the column back into any DDL path makes the diff emit
+   *  `ADD COLUMN … JSONB[]` + `SET NOT NULL` for it beside the correct child
+   *  table, and since no ORM maps the column, every later INSERT fails the
+   *  NOT NULL constraint permanently. */
   valueArrayChildTable?: string;
   /** A DSL field default (`status: string = "pending"`) rendered as a Postgres
-   *  scalar literal — carried for the **add-column diff alone** (M-T2.16 /
-   *  #2864 G1, decision D-3).  It is NOT a column default and must never be
+   *  scalar literal — carried for the **add-column diff alone** (decision
+   *  D-3).  It is NOT a column default and must never be
    *  read as one:
    *
    *   - no `CREATE TABLE` renderer reads it, so the initial DDL stays exactly
-   *     as it is today (`renderColumnDef` / `renderEctoColumn` read `default`);
+   *     unaffected (`renderColumnDef` / `renderEctoColumn` read `default`);
    *   - `diffTable` never compares it, so editing a `.ddd` default on a column
    *     that already exists emits nothing — there is no DB default to alter;
    *   - the one consumer is `applyDestructivePolicy`, which copies it into the
@@ -95,8 +95,7 @@ export interface ColumnShape {
    *  default.  Every generation re-derives it, so nothing reads a baseline's
    *  copy.  (Contrast `savingShape` / `valueArrayChildTable`, which ARE read
    *  back from the baseline and so are written out.)  Optional ⇒
-   *  `schemaVersion` stays 1, and an existing project's committed snapshot is
-   *  byte-unchanged by this feature. */
+   *  `schemaVersion` stays 1, and a committed snapshot never carries it. */
   addColumnDefault?: string;
 }
 
@@ -207,18 +206,18 @@ export interface TableShape {
    *  reads as "no checks", so the diff adds them as a normal non-destructive
    *  step on the next regen. */
   checks?: CheckShape[];
-  /** Reshape-detection stamp (M-T2.4): the effective saving shape of the
+  /** Reshape-detection stamp: the effective saving shape of the
    *  aggregate whose ROOT table this is (`relational` / `embedded` /
    *  `document`).  Stamped on the aggregate root only (not parts / joins /
    *  saga / event-log / outbox).  The diff compares a matched pair's
    *  `savingShape`; a flip (relational → document) is a *reshape* — a
    *  full-table data move the column-churn diff can't express — so it raises
    *  `loom.migration-shape-change` instead of the generic destructive listing.
-   *  Optional ⇒ `schemaVersion` stays 1; an UNstamped baseline (pre-M-T2.4
+   *  Optional ⇒ `schemaVersion` stays 1; an UNstamped baseline (an older
    *  snapshot) simply isn't compared, so the flip falls to the generic
-   *  destructive gate as before (backward-compatible grace). */
+   *  destructive gate (backward-compatible grace). */
   savingShape?: SavingShape;
-  /** Reshape-detection stamp (M-T2.4): the inheritance strategy + root base
+  /** Reshape-detection stamp: the inheritance strategy + root base
    *  of an inheritance table — `sharedTable` on a TPH shared base table,
    *  `ownTable` on each TPC concrete's own table.  Keyed by the root base
    *  name so a TPH↔TPC flip (whose table NAMES change, so no matched pair
@@ -256,7 +255,7 @@ export interface SchemaSnapshot {
    *  framework migration tables (`schema_migrations`, `__EFMigrationsHistory`)
    *  track runtime state.  Empty / absent on a fresh snapshot. */
   migrationHistory?: MigrationHistoryEntry[];
-  /** Applied-data-migration ledger (M-T2.3).  Keys `"<block>#<index>"` for
+  /** Applied-data-migration ledger.  Keys `"<block>#<index>"` for
    *  every raw `sql` migration-block step already emitted against this
    *  baseline.  Raw SQL has no structural condition to guard on (unlike
    *  renames/backfills, which are naturally inert once baked in), so the
@@ -264,16 +263,16 @@ export interface SchemaSnapshot {
    *  once.  Absent / empty when no raw steps have been emitted.  Optional
    *  ⇒ `schemaVersion` stays 1; old snapshots read fine. */
   appliedDataMigrations?: string[];
-  /** Per-module VERSION BLOCK index (fleet-bug-hunt I1).  Every backend that
+  /** Per-module VERSION BLOCK index.  Every backend that
    *  serves >1 module writes all their migrations into ONE directory, and Ecto
    *  refuses a directory with a duplicated integer version prefix — so each
-   *  module needs a disjoint slice of the version space.  The Elixir emitter
-   *  used to derive that slice from the module's POSITION in the migrations
-   *  array, which (a) was computed only for INITIAL migrations, so every
-   *  module's first delta collided at the same version and sorted before its
-   *  own create-table, and (b) would shift under a later module insertion.
+   *  module needs a disjoint slice of the version space.  Deriving that slice
+   *  from the module's POSITION in the migrations array is wrong twice: a
+   *  position computed only for INITIAL migrations makes every module's first
+   *  delta collide at the same version (sorting before its own create-table),
+   *  and a position shifts under a later module insertion.
    *
-   *  Recording the block in the snapshot fixes both: a module keeps its block
+   *  Recording the block in the snapshot avoids both: a module keeps its block
    *  for life, and a NEW module is allocated a block above every existing one.
    *  Absent on snapshots that predate the field — the builder then
    *  falls back to the legacy position-derived index, so existing projects
@@ -320,7 +319,7 @@ export interface MigrationHistoryEntry {
 export type MigrationStep =
   | { op: "createTable"; table: TableShape }
   | { op: "dropTable"; name: string; schema?: string }
-  // Whole-table rename (M-T2.1 aggregate/table rename) — `from`/`to` are the
+  // Whole-table rename (aggregate/table rename) — `from`/`to` are the
   // bare (unqualified) old + new table names; `schema` is the relation's
   // Postgres schema (both ends share it — a rename never crosses schemas).
   // Postgres/Ecto keep every FK constraint pointing at the table valid across
@@ -368,10 +367,9 @@ export type MigrationStep =
       to: ColumnType;
     }
   // A column's DEFAULT changed (added, removed, or its literal edited) with
-  // the column's type/nullability unchanged — `default` was previously
-  // compared nowhere in `diffSchema`, so a `.ddd` default edit emitted no
-  // migration and the database silently kept the old default
-  // (verification-waves-2026-09.md G2.5). `from`/`to` are pre-rendered
+  // the column's type/nullability unchanged — without this step a `.ddd`
+  // default edit emits no migration and the database silently keeps the old
+  // default. `from`/`to` are pre-rendered
   // Postgres scalar literals (the `ColumnShape.default` convention —
   // `"gen_random_uuid()"`, `"0"`, …); `undefined` means no default (an add
   // drops it, a remove sets it). Non-destructive: existing rows keep their
@@ -386,7 +384,7 @@ export type MigrationStep =
     }
   | { op: "addIndex"; index: IndexShape; schema?: string }
   | { op: "dropIndex"; table: string; schema?: string; name: string }
-  // Rename an index in place (M-T2.1 a) — `from`/`to` are the bare (unqualified)
+  // Rename an index in place — `from`/`to` are the bare (unqualified)
   // old + new index names; `schema` is the owning table's Postgres schema (an
   // index lives in its table's schema).  Emitted by `diffSchema` when a table or
   // column rename changes only the DERIVED index name (the index is otherwise
@@ -401,7 +399,7 @@ export type MigrationStep =
   // operator must perform between adding a nullable column and setting it NOT
   // NULL.  Renders to a no-op comment on every backend.
   | { op: "sqlComment"; comment: string }
-  // Data backfill (M-T2.3): `UPDATE <table> SET <column> = <valueSql>`
+  // Data backfill: `UPDATE <table> SET <column> = <valueSql>`
   // [`WHERE <column> IS NULL` when `onlyNull`].  `valueSql` is a pre-rendered
   // Postgres scalar expression (the `IndexShape.predicate` precedent — SQL
   // text in the platform-neutral IR), produced by `renderSqlScalarExpr` from
@@ -433,7 +431,7 @@ export type MigrationStep =
   // Optional ⇒ a step replayed from a pre-`kind` baseline reads as
   // `voNullConsistent`, which is what every check in such a baseline is.
   | { op: "dropCheck"; table: string; schema?: string; name: string; kind?: CheckKind }
-  // Raw one-shot DML (M-T2.3): a `sql "…"` step from a `migration` block,
+  // Raw one-shot DML: a `sql "…"` step from a `migration` block,
   // emitted verbatim.  NOT naturally inert — the builder records the step's
   // `<block>#<index>` key in the snapshot's `appliedDataMigrations` so it is
   // emitted exactly once.  Ordered after the generation's structural steps.
