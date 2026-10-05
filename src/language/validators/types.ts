@@ -46,6 +46,7 @@ import {
   isRequiresStmt,
   isReturnStmt,
   isTernaryExpr,
+  isTestE2E,
   isUi,
   isValueObject,
 } from "../generated/ast.js";
@@ -186,6 +187,10 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
     // admits `.orgPath` only; it types against the principal record, so
     // without this an unknown member would ALSO read as an undeclared claim.
     if (isNameRef(chain.head) && chain.head.name === ORG_CONTEXT_ACCESSOR) continue;
+    // A `test e2e` body reads RESPONSE fields through the generated client;
+    // `loom.e2e-unknown-response-field` (IR) owns those, and its message names
+    // the call and what the body can carry.
+    if (AstUtils.getContainerOfType(chain, isTestE2E)) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
     for (const suffix of chain.suffixes) {

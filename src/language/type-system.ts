@@ -14,7 +14,6 @@ import type {
   EventDecl,
   Expression,
   FunctionDecl,
-  Lambda,
   Operation,
   Parameter,
   PayloadDecl,
@@ -29,27 +28,22 @@ import type {
 } from "./generated/ast.js";
 import {
   isAggregate,
-  isApply,
   isAwaitExpr,
   isBinaryChain,
   isBoolLit,
   isBoundedContext,
   isBuilderCall,
   isCallSuffix,
-  isComponent,
   isContainment,
   isCriterion,
   isDecLit,
   isDerivedProp,
-  isDomainServiceOperation,
   isEntityPart,
   isFindDecl,
   isFunctionDecl,
-  isHandleDecl,
   isIdRef,
   isIntLit,
   isLambda,
-  isLetStmt,
   isListLit,
   isMatchExpr,
   isMemberSuffix,
@@ -58,9 +52,8 @@ import {
   isNowExpr,
   isNullLit,
   isObjectLit,
-  isOnDecl,
   isOperation,
-  isPage,
+  isParameter,
   isParenExpr,
   isPolicyDecl,
   isPostfixChain,
@@ -74,8 +67,6 @@ import {
   isThisRef,
   isUnaryExpr,
   isValueObject,
-  isWorkflow,
-  isWorkflowCreateDecl,
 } from "./generated/ast.js";
 import { stdFunction } from "./stdlib.js";
 import { toDddType } from "./typing/adapt.js";
@@ -645,14 +636,12 @@ function typeOfExpr(expr: Expression | undefined, _env: Env): DddType {
     isListLit(expr) ||
     isMatchExpr(expr) ||
     isAwaitExpr(expr) ||
-    isObjectLit(expr)
+    isObjectLit(expr) ||
+    // Cutover family 3d — lambdas (typed by the context that binds them).
+    isLambda(expr)
   ) {
     const t = typingFor(expr).synthAt(expr);
     return t ? toDddType(t) : T.unknown;
-  }
-  if (isLambda(expr)) {
-    // Lambda type is contextual; without a target type it's unknown.
-    return T.unknown;
   }
   return T.unknown;
 }
@@ -1183,56 +1172,6 @@ export function makeEnv(
   };
 }
 
-// Re-entrancy guard for let-type inference.  Computing a let's initializer
-// type can, for an exotic initializer (a collection-op lambda whose element
-// type resolves via `envForNode`), recurse back into `envForNode` for a node
-// inside the SAME body — which re-enters this inference.  The guard bounds a
-// self- / mutual-cycle to `T.unknown` for the let currently in flight so the
-// walk always terminates.
-const lettingInFlight = new Set<import("./generated/ast.js").LetStmt>();
-
-/**
- * Bind each `let` in `stmts` to the type of its initializer, threaded
- * sequentially through `bindings` so a later let — and every downstream
- * operand check that reads these bindings via `envForNode` — sees the
- * precise types of the params, members, and earlier lets already bound.
- * Mutates `bindings` in place.
- *
- * This computes the SAME type `checkStatement` (validators/statements.ts)
- * derives when it threads an operation body, so the two env builders agree.
- * Binding every let to `T.unknown` here instead silently disengages every
- * operand check on a `let` operand (`let s = "hi" requires s > 5` produces no
- * diagnostic, because `s` types as `unknown`).
- */
-function addTypedLets(
-  bindings: Map<string, { type: DddType; origin: AstNode }>,
-  stmts: import("./generated/ast.js").Statement[],
-  ctx: {
-    aggregate?: Aggregate;
-    part?: EntityPart;
-    valueObject?: ValueObject;
-    context?: BoundedContext;
-  },
-): void {
-  // `env` reads `bindings` live (makeEnv closes over the map by reference),
-  // so each let is typed against everything bound so far — params, members,
-  // and the lets that lexically precede it.
-  const env = makeEnv(undefined, bindings, ctx);
-  for (const s of stmts) {
-    if (!isLetStmt(s)) continue;
-    let t: DddType = T.unknown;
-    if (!lettingInFlight.has(s)) {
-      lettingInFlight.add(s);
-      try {
-        t = typeOf(s.expr, env);
-      } finally {
-        lettingInFlight.delete(s);
-      }
-    }
-    bindings.set(s.name, { type: t, origin: s });
-  }
-}
-
 // ---------------------------------------------------------------------------
 // AST-walk helpers used by the validator and other consumers.  Imports
 // for Aggregate / FunctionDecl / Operation already exist at the top of
@@ -1358,32 +1297,11 @@ export function findOperation(agg: Aggregate, name: string): Operation | undefin
 export function envForNode(node: AstNode): Env {
   const part = AstUtils.getContainerOfType(node, isEntityPart);
   const vo = AstUtils.getContainerOfType(node, isValueObject);
-  const fn = AstUtils.getContainerOfType(node, isFunctionDecl);
-  const op = AstUtils.getContainerOfType(node, isOperation);
-  // A `domainService` operation is its OWN grammar rule (`DomainServiceOperation`,
-  // `stmts+=Statement*`), NOT an `Operation` — so `isOperation` never matches one and
-  // without this arm a service body bound no params and typed no lets.  Every receiver
-  // in it came back `unknown`, and because each type-based validator suppresses on
-  // `unknown` (the deliberate anti-double-reporting rule), EVERY type gate failed open
-  // inside `domainService` bodies (testability audit F1, language half).
-  const dsop = AstUtils.getContainerOfType(node, isDomainServiceOperation);
   const find = AstUtils.getContainerOfType(node, isFindDecl);
-  const _wf = AstUtils.getContainerOfType(node, isWorkflow);
-  // UI-side containers — pages and components carry typed params
-  // (route-params for pages, slot/aggregate-typed for components) that
-  // need to flow through `typeOf` so the binary-operand validator and
-  // LSP can reason about expressions inside their bodies.
-  const page = AstUtils.getContainerOfType(node, isPage);
-  const component = AstUtils.getContainerOfType(node, isComponent);
-  // Predicate-spec containers: a `criterion`/`retrieval` binds the candidate
-  // aggregate its `of <T>` names as `this` + its declared params; a FUNCTION-form
-  // `policy` binds only its params (it has no `this`).  Without these arms a
-  // predicate body typed every `this.field` / param / nested predicate call as
-  // `unknown`, so the M-T6.18 arg-type checks over these slots would silently
-  // fail open.
+  // A `criterion`/`retrieval` body's `this` is the candidate aggregate its
+  // `of <T>` names.
   const crit = AstUtils.getContainerOfType(node, isCriterion);
   const retr = AstUtils.getContainerOfType(node, isRetrieval);
-  const policy = AstUtils.getContainerOfType(node, isPolicyDecl);
 
   // The `this`/root aggregate: an enclosing aggregate container, else the
   // repository's `for` aggregate (find filters) — reached through a
@@ -1396,103 +1314,11 @@ export function envForNode(node: AstNode): Env {
     (crit ? typeRefAggregate(crit.target) : undefined) ??
     (retr ? typeRefAggregate(retr.target) : undefined);
 
-  const bindings = new Map<string, { type: DddType; origin: AstNode }>();
-
-  // 1. Member bindings — innermost wins, so build outer→inner.
-  if (agg && !part) addEntityMembers(agg.members, bindings);
-  if (part) addEntityMembers(part.members, bindings);
-  if (vo) {
-    for (const m of vo.members) {
-      if (isProperty(m))
-        bindings.set(m.name, {
-          type: withTags(resolveTypeRef(m.type), propertySensitivity(m)),
-          origin: m,
-        });
-      else if (isDerivedProp(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
-    }
-  }
-
-  // 2. Function / operation / find / workflow / page / component
-  //    parameter bindings.  Page + component params come last so a
-  //    nested component's param can shadow an outer ui-scope name —
-  //    today no such nesting exists, but the order matches the lexical
-  //    expectation if it ever does.
-  // A2-S5f: a workflow body is members-only — params + statements live inside
-  // the enclosing `create`/`handle` member, not on the workflow.
-  const create = AstUtils.getContainerOfType(node, isWorkflowCreateDecl);
-  const handle = AstUtils.getContainerOfType(node, isHandleDecl);
-  const params =
-    fn?.params ??
-    op?.params ??
-    dsop?.params ??
-    find?.params ??
-    create?.params ??
-    handle?.params ??
-    component?.params ??
-    page?.params ??
-    crit?.params ??
-    retr?.params ??
-    policy?.params ??
-    [];
-  for (const p of params) bindings.set(p.name, { type: paramType(p), origin: p });
-
-  // 3. let-bindings from the enclosing executable body (operation / workflow
-  //    create / handle / on reactor).  Typed sequentially against the members
-  //    + params already bound (so a let sees earlier lets / params) — the
-  //    same type `checkStatement` computes when threading the body.
-  const letCtx = {
-    aggregate: agg ?? undefined,
-    part: part ?? undefined,
-    valueObject: vo ?? undefined,
-    // The bounded-context anchor — so a let initializer in a workflow body
-    // (`let o = Order.create({ … })`) resolves context-level names (the
-    // aggregate `Order`) even though the workflow has no `this`.
-    context: AstUtils.getContainerOfType(node, isBoundedContext),
-  };
-  if (op) {
-    addTypedLets(bindings, op.body, letCtx);
-  } else if (dsop) {
-    // `stmts`, not `body` — the rule spells its statement list differently.
-    addTypedLets(bindings, dsop.stmts, letCtx);
-  } else if (create) {
-    addTypedLets(bindings, create.body, letCtx);
-  } else if (handle) {
-    addTypedLets(bindings, handle.body, letCtx);
-  }
-  // An `on(e: Event) { … }` reactor / `apply(e: Event) { … }` fold bind their
-  // event instance as a typed `payload` local (these params are a LooseName +
-  // event cross-ref, not a `Parameter`, so they're bound here rather than via
-  // the param list).  Without this the binding types as `unknown` and every
-  // field-level check on `e.field` is silently suppressed.  The event param is
-  // bound BEFORE the lets so a let initializer can read `e.field`.
-  const on = AstUtils.getContainerOfType(node, isOnDecl);
-  if (on) {
-    if (on.event?.ref)
-      bindings.set(on.param, { type: { kind: "payload", ref: on.event.ref }, origin: on });
-    addTypedLets(bindings, on.body, letCtx);
-  }
-  const apply = AstUtils.getContainerOfType(node, isApply);
-  if (apply) {
-    if (apply.event?.ref) {
-      bindings.set(apply.param, { type: { kind: "payload", ref: apply.event.ref }, origin: apply });
-    }
-    addTypedLets(bindings, apply.body, letCtx);
-  }
-
-  // 4. Lambda params — a lambda used as a collection-op arg binds its param to
-  //    the receiver collection's element type (`xs.all(x => …)` ⇒ x : element).
-  //    Walk innermost→outermost so a nested lambda's param wins on a clash.
-  for (
-    let lam = AstUtils.getContainerOfType(node, isLambda);
-    lam;
-    lam = AstUtils.getContainerOfType(lam.$container, isLambda)
-  ) {
-    if (bindings.has(lam.param)) continue;
-    const elem = lambdaParamElementType(lam);
-    if (elem) bindings.set(lam.param, { type: elem, origin: lam });
-  }
-
-  return makeEnv(undefined, bindings, {
+  // One environment model (M-T5.44 cutover 3e): a name resolves through the
+  // single typing pass's scope at `node` — params, lets, lambda / for / match
+  // / if-let bindings and event params bound lexically, then the enclosing
+  // record's members — not through a second, hand-assembled binding map.
+  return {
     aggregate: agg ?? undefined,
     part: part ?? undefined,
     valueObject: vo ?? undefined,
@@ -1500,52 +1326,15 @@ export function envForNode(node: AstNode): Env {
     // (value objects, criteria, policy fns, aggregate names) use when there is
     // no `this` aggregate/part/vo, e.g. inside a workflow body.
     context: AstUtils.getContainerOfType(node, isBoundedContext),
-  });
-}
-
-/** Element type bound to a collection-op lambda's param (`xs.all(p => …)` ⇒ the
- *  element type of `xs`), or undefined when the lambda isn't a collection-op arg. */
-function lambdaParamElementType(lam: Lambda): DddType | undefined {
-  // Lambda → CallArg → MemberSuffix → PostfixChain.  The lambda is
-  // an argument to a method-call suffix on the postfix chain; the
-  // element type is the chain's effective receiver-type at the point
-  // before this suffix is applied.
-  const ms = lam.$container?.$container; // Lambda → CallArg → MemberSuffix (or CallSuffix)
-  if (!ms || !isMemberSuffix(ms)) return undefined;
-  if (!isCollectionOp(ms.member)) return undefined;
-  const chain = ms.$container; // MemberSuffix → PostfixChain
-  if (!chain || !isPostfixChain(chain)) return undefined;
-  // The receiver type at this suffix is the type after walking head +
-  // all suffixes before `ms`.
-  const idx = chain.suffixes.indexOf(ms);
-  if (idx < 0) return undefined;
-  let recvType: DddType = typeOf(chain.head, envForNode(chain.head));
-  for (let i = 0; i < idx; i++) {
-    recvType = suffixType(chain.suffixes[i]!);
-  }
-  if (recvType.kind === "array") return recvType.element;
-  return undefined;
-}
-
-function addEntityMembers(
-  members: ReadonlyArray<AstNode>,
-  bindings: Map<string, { type: DddType; origin: AstNode }>,
-): void {
-  for (const m of members) {
-    if (isProperty(m))
-      bindings.set(m.name, {
-        type: withTags(resolveTypeRef(m.type), propertySensitivity(m)),
-        origin: m,
-      });
-    else if (isDerivedProp(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
-    else if (isContainment(m)) {
-      const partRef = m.partType?.ref;
-      if (partRef) {
-        const t: DddType = { kind: "entity", ref: partRef };
-        bindings.set(m.name, { type: m.collection ? T.array(t) : t, origin: m });
-      }
-    }
-  }
+    resolve(name) {
+      const b = typingFor(node).bindingAt(node, name);
+      if (!b) return undefined;
+      // A declared type keeps the declaration view of a generic carrier
+      // (`T paged` reads as `T`), exactly as `resolveTypeRef` does.
+      const declared = isParameter(b.origin) || isProperty(b.origin) || isDerivedProp(b.origin);
+      return { type: toDddType(b.ty, declared ? { generic: "arg" } : {}), origin: b.origin };
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
