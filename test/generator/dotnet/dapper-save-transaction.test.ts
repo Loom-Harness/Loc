@@ -96,7 +96,7 @@ describe("Dapper SaveAsync is transactional", () => {
     expect(cut).toBeLessThan(commitIdx);
 
     // Commit happens before events are dispatched (a rolled-back save must not fire events).
-    const eventsIdx = save.indexOf("_events.DispatchAsync");
+    const eventsIdx = save.indexOf("DomainEventDeferral.DispatchAsync(_events");
     expect(commitIdx).toBeGreaterThan(0);
     expect(commitIdx).toBeLessThan(eventsIdx);
   });
