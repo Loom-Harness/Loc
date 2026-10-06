@@ -46,6 +46,10 @@ interface JobInfo {
 interface Workflow {
   readonly onKeys: readonly string[];
   readonly jobs: readonly JobInfo[];
+  /** The `types:` list of the `pull_request:` trigger, if one is declared. */
+  readonly prTypes?: readonly string[];
+  /** True when a `push:` trigger names `main` — the post-merge regression net. */
+  readonly pushesMain: boolean;
 }
 
 /**
@@ -61,6 +65,8 @@ function parseWorkflow(source: string): Workflow {
   const lines = source.split("\n");
   const onKeys: string[] = [];
   const jobs: JobInfo[] = [];
+  let prTypes: string[] | undefined;
+  let pushesMain = false;
 
   let section: "on" | "jobs" | null = null;
   let job: { id: string; name?: string; needs: string[]; ifExpr?: string } | null = null;
@@ -88,6 +94,10 @@ function parseWorkflow(source: string): Workflow {
     if (section === "on") {
       const m = line.match(/^ {2}([A-Za-z_][A-Za-z0-9_]*):/);
       if (m) onKeys.push(m[1]);
+      const trigger = onKeys.at(-1);
+      const types = line.match(/^ {4}types:\s*\[([^\]]*)\]/);
+      if (types && trigger === "pull_request") prTypes = types[1].split(",").map((t) => t.trim());
+      if (trigger === "push" && /^ {4}branches:.*\bmain\b/.test(line)) pushesMain = true;
       continue;
     }
 
@@ -134,7 +144,7 @@ function parseWorkflow(source: string): Workflow {
     }
   }
   flush();
-  return { onKeys, jobs };
+  return { onKeys, jobs, prTypes, pushesMain };
 }
 
 function stripQuotes(s: string): string {
@@ -330,7 +340,7 @@ describe("merge-queue readiness", () => {
       // docs/ci-gating.md's activation runbook tells the operator to paste
       // exactly this many names.  A row flipped without updating the doc is a
       // runbook that mis-instructs a human doing an admin action.
-      expect(QUEUE_REQUIRED_CHECKS).toHaveLength(22);
+      expect(QUEUE_REQUIRED_CHECKS).toHaveLength(24);
       expect(REQUIRED_CHECKS.filter((c) => !c.queueRequired)).toHaveLength(18);
     });
   });
@@ -443,7 +453,7 @@ describe("merge-queue readiness", () => {
   // "Not required" does NOT stop a workflow running: GitHub runs everything
   // carrying the trigger, and `pr-gate` then counts every check run present on
   // the SHA, so a re-added trigger makes the gate binding in the queue again
-  // as well as expensive.  Hence a two-way ratchet — invariant 1 for the 22,
+  // as well as expensive.  Hence a two-way ratchet — invariant 1 for the 24,
   // this for the 18.
   describe("the not-required gates stay OUT of the queue", () => {
     const notRequired = REQUIRED_CHECKS.filter((c) => !c.queueRequired);
@@ -463,6 +473,97 @@ describe("merge-queue readiness", () => {
         `${workflow} is queueRequired: false, so its queue run is redundant — ` +
           "drop the merge_group: trigger, or flip the row to queueRequired: true",
       ).not.toContain("merge_group");
+    });
+  });
+
+  // ── No post-merge leg outside both pre-merge tiers ──────────────────────
+  //
+  // A workflow that runs on `push: main` is a regression net: whatever it
+  // catches, it catches on a `main` that is already red.  It is only a GATE if
+  // it also runs before the merge — per-PR (a `pull_request:` trigger that
+  // fires on `opened`, with an entry job behind nothing but the draft guard)
+  // or in the merge queue (`merge_group:`).  A leg in neither is a blind spot
+  // with a green check mark, which is how `channels-e2e`, `api-call-e2e` and
+  // `phoenix-ui-e2e` sat for months.
+  //
+  // A leg may stay out, but only as a WAIVER: a reason, and the date the
+  // evidence behind it was measured.  The claim expires — a waiver older than
+  // NEVER_GATING_MAX_AGE_DAYS fails until someone re-measures and re-dates it,
+  // so "it stays out" is re-decided against current numbers instead of
+  // becoming permanent in silence.  A waiver whose leg now gates fails too:
+  // the fix deletes its waiver in the same change.
+  describe("no post-merge leg sits outside both the per-PR set and the queue", () => {
+    const DRAFT_GUARD_LITERAL =
+      "github.event_name != 'pull_request' || github.event.pull_request.draft == false";
+    const NEVER_GATING_MAX_AGE_DAYS = 90;
+
+    /** Legs that run on `push: main` but neither per-PR nor in the queue. */
+    const NEVER_GATING_WAIVERS: Record<string, { reason: string; measured: string }> = {
+      "playground-e2e.yml": {
+        reason:
+          "the browser playground's network-gated specs (bundle/boot through esm.sh, jsdelivr and npm); " +
+          "their pass/fail rides third-party CDN availability, so a queue entry or a PR would be ejected by " +
+          "an outage nobody here can fix. The network-free half (`playground-e2e-no-network.yml`) gates " +
+          "every PR; first-attempt pass rate on main 20/20 (Actions API).",
+        measured: "2026-10-05",
+      },
+    };
+
+    const runsPerPr = (wf: Workflow): boolean =>
+      wf.onKeys.includes("pull_request") &&
+      (wf.prTypes === undefined || wf.prTypes.includes("opened")) &&
+      wf.jobs.some(
+        (j) => j.needs.length === 0 && (j.ifExpr === undefined || j.ifExpr === DRAFT_GUARD_LITERAL),
+      );
+    const runsInQueue = (wf: Workflow): boolean => wf.onKeys.includes("merge_group");
+
+    const files = readdirSync(workflowsDir)
+      .filter((f) => f.endsWith(".yml"))
+      .sort();
+    const postMerge = files.filter((f) => load(f).pushesMain);
+
+    it("finds the post-merge population (the reader still works)", () => {
+      // Guards the vacuous pass: a broken `push:` reader empties the list.
+      expect(postMerge.length).toBeGreaterThan(40);
+    });
+
+    it("every `push: main` leg gates pre-merge, or carries a dated waiver", () => {
+      const blind = postMerge.filter((f) => {
+        const wf = load(f);
+        return !runsPerPr(wf) && !runsInQueue(wf) && !(f in NEVER_GATING_WAIVERS);
+      });
+      expect(
+        blind,
+        `post-merge-only legs with no pre-merge run and no waiver: ${blind.join(", ")} — give each a ` +
+          "per-PR `pull_request:` block (draft guard) or a `merge_group:` trigger, or a dated " +
+          "NEVER_GATING_WAIVERS entry",
+      ).toEqual([]);
+    });
+
+    it("no waiver is stale — a leg that now gates, or no longer exists, drops its entry", () => {
+      const stale = Object.keys(NEVER_GATING_WAIVERS).filter((f) => {
+        if (!files.includes(f)) return true;
+        const wf = load(f);
+        return !wf.pushesMain || runsPerPr(wf) || runsInQueue(wf);
+      });
+      expect(stale, `stale NEVER_GATING_WAIVERS entries: ${stale.join(", ")}`).toEqual([]);
+    });
+
+    it("every waiver carries a reason and a measurement no older than the budget", () => {
+      const now = Date.now();
+      const bad: string[] = [];
+      for (const [f, w] of Object.entries(NEVER_GATING_WAIVERS)) {
+        const at = Date.parse(`${w.measured}T00:00:00Z`);
+        if (w.reason.trim().length < 40) bad.push(`${f}: reason too thin to review`);
+        if (Number.isNaN(at)) bad.push(`${f}: measured "${w.measured}" is not an ISO date`);
+        else if (at > now) bad.push(`${f}: measured "${w.measured}" is in the future`);
+        else if ((now - at) / 86_400_000 > NEVER_GATING_MAX_AGE_DAYS)
+          bad.push(
+            `${f}: measured ${w.measured}, over ${NEVER_GATING_MAX_AGE_DAYS} days ago — re-measure ` +
+              "and re-date it, or promote the leg",
+          );
+      }
+      expect(bad, bad.join("\n")).toEqual([]);
     });
   });
 
