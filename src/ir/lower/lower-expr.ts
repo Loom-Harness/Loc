@@ -854,6 +854,7 @@ function applySuffixToRecv(
           verb: ms.member,
           capability: verbDef?.capability ?? "",
           ...(verbDef?.interfaceOverride ? { interface: verbDef.interfaceOverride } : {}),
+          ...(recv.resourceApiName ? { boundApi: recv.resourceApiName } : {}),
         },
       };
       const resultType = verbResultType(verbDef);
@@ -2339,6 +2340,14 @@ function hasIdBinding(env: Env): boolean {
     env.refAliases?.has(ID_NAME) === true ||
     env.locals.has(ID_NAME)
   );
+}
+
+/** `{ boundApi }` when the resource handle `name` binds an in-system `api`
+ *  (M-T4.8), else `{}` — spread into a `resourceOp` so the IR validator can
+ *  refuse a raw verb on such a resource (`loom.resource-verb-invalid`). */
+export function boundApiOf(name: string, env: Env): { boundApi?: string } {
+  const api = env.resourceApis?.get(name);
+  return api ? { boundApi: api } : {};
 }
 
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {

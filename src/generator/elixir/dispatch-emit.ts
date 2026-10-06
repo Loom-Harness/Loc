@@ -1145,10 +1145,15 @@ function renderStmt(
         },
       ];
     }
+    case "resource-call":
+      // `files.put(k, v)` → `_ = <App>.Resources.<Type>.files_put(k, v)`, the
+      // command path's shape.  A `dispatch` line, so it runs in the success
+      // do-branch in source order — skipped when an earlier clause fails, like
+      // an `emit`.
+      return [{ kind: "dispatch", text: `_ = ${renderExpr(st.call, renderCtx)}` }];
     default:
-      // repo-delete / if-let / resource-call / domain-service-call don't appear
-      // in validated reactor / starter bodies today; guard against silently
-      // emitting nothing.
+      // repo-delete / if-let / domain-service-call don't appear in validated
+      // reactor / starter bodies today; guard against silently emitting nothing.
       throw new Error(`dispatch-emit: unsupported reactor statement kind '${st.kind}'`);
   }
 }

@@ -1690,7 +1690,9 @@ function checkResourceOpExpr(
 ): void {
   if (expr.kind !== "call" || expr.callKind !== "resource-op" || !expr.resourceOp) return;
   const op = expr.resourceOp;
-  if (op.capability === "") {
+  // An api-bound resource has no verb vocabulary at all; its `#api-bound`
+  // refusal is raised (at every position) by `resource-op-positions.ts`.
+  if (op.capability === "" && !op.boundApi) {
     diags.push({
       severity: "error",
       code: "loom.resource-verb-invalid",

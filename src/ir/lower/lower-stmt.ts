@@ -13,6 +13,7 @@ import { findVerb } from "../resource-verbs.js";
 import { typeKey, variantTag as unionVariantTag } from "../stdlib/unions.js";
 import type { ExprIR, PathIR, StmtIR, TypeIR } from "../types/loom-ir.js";
 import {
+  boundApiOf,
   inferExprType,
   isErrorVariantTag,
   lowerEmitFields,
@@ -362,6 +363,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
             verb,
             capability: verbDef?.capability ?? "",
             ...(verbDef?.interfaceOverride ? { interface: verbDef.interfaceOverride } : {}),
+            ...boundApiOf(lv.head, env),
           },
         };
         return { stmt: { kind: "expression", expr }, envAfter: env };

@@ -519,7 +519,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "resource-op inside a commandHandler / queryHandler body — the second legal site for outbound I/O",
     doc: "resources",
     backends: ALL,
-    note: "Four of five emitters could not render this LEGAL site: node / python emitted the helper call with no import (TS2304 / F821), .NET and java THREW 'reached the renderer without a resource class mapping' at generate time; only elixir was correct (it fully-qualifies the module). The handler loads via a declared FIND rather than `byId`, so the fixture isolates the resource-op leg from the unrelated `Agg id` path-param coercion.",
+    note: "Four of five emitters could not render this LEGAL site: node / python emitted the helper call with no import (TS2304 / F821), .NET and java THREW 'reached the renderer without a resource class mapping' at generate time; only elixir was correct (it fully-qualifies the module). The handler loads via a declared FIND rather than `byId`, so the fixture isolates the resource-op leg from the unrelated `Agg id` path-param coercion. Also carries the DISPATCHER leg — an event-triggered `create` starter and an `on(e)` reactor calling resource ops — which java and elixir threw on and node emitted unimported (the position × backend census in test/system/resource-op-positions.test.ts found it).",
   },
   {
     id: "handler-triad",
