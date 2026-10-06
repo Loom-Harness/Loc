@@ -112,6 +112,19 @@ jobs:
             case: sales-system-flutter
             runner: run-ui-flutter.mjs
             experimental: false
+          # The runtime auth-UI leg: the session gate, `requires` page guards,
+          # the op-gated Action button (and its backend 403), and — on feliz —
+          # the menu-link gates, driven through the backend's dev-stub
+          # principals (`x-loom-dev-claims`).  run-ui-auth.mjs carries a
+          # ratcheting KNOWN_DEFECTS register (flutter has one entry).
+          - frontend: feliz-auth
+            case: feliz
+            runner: run-ui-auth.mjs
+            experimental: false
+          - frontend: flutter-auth
+            case: flutter
+            runner: run-ui-auth.mjs
+            experimental: false
     # Non-blocking for cells not yet locally verified; flip by dropping the flag.
     continue-on-error: ${{ matrix.experimental || false }}
     name: ${{ matrix.frontend }} → real Hono backend
@@ -127,7 +140,7 @@ jobs:
       # fable`), so the Feliz cell needs the .NET SDK on PATH.  Gated so the
       # JSX-family cells don't pay for it.
       - name: Set up .NET (Feliz/Fable only)
-        if: matrix.frontend == 'feliz'
+        if: startsWith(matrix.frontend, 'feliz')
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0'
@@ -135,8 +148,8 @@ jobs:
       # The Flutter cell builds with the SDK (`flutter pub get` + `flutter build
       # web`), so it needs it on PATH — the same action `generated-flutter-build`
       # uses.  Gated so the npm-built cells don't pay for the SDK download.
-      - name: Set up Flutter (flutter cell only)
-        if: matrix.frontend == 'flutter'
+      - name: Set up Flutter (flutter cells only)
+        if: startsWith(matrix.frontend, 'flutter')
         uses: subosito/flutter-action@v2
         with:
           channel: stable

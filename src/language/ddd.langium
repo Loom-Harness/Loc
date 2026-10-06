@@ -1140,14 +1140,16 @@ MacroCall:
 MacroArg:
     name=MacroArgName ':' value=MacroArgValue;
 
-// Macro-arg names — `with crudish(requires: CatalogManager)` names the
-// authorization gate with the same word the gate itself uses.  `requires`
-// was once admitted HERE ONLY; the reserved-keyword sweep moved it into
-// `CommonSoftKeywords` (no statement or expression starts with it, and a
-// header gate clause is introduced after the callable's `)`), so this rule
-// is now just `LooseName` and stays as the macro-arg seam.
+// Macro-arg names, and ONLY macro-arg names, additionally admit
+// `requires` — so `with crudish(requires: CatalogManager)` names the
+// authorization gate with the same word the gate itself uses.  It is
+// deliberately NOT folded into `LooseName`: that rule also backs
+// `Parameter.name`, `Property.name`, `CallArg.name` and friends, and
+// `requires` has to stay a hard keyword everywhere a statement or a
+// header gate clause can start.  Inside a macro call's parentheses
+// nothing else can begin with it, so the widening is ambiguity-free.
 MacroArgName returns string:
-    LooseName;
+    LooseName | 'requires';
 
 // Macro arg ref-list elements are bare IDs, not Langium cross-
 // references.  We don't use the [Target:ID] form because:
@@ -2049,8 +2051,11 @@ Parameter:
 //     `decimal` `long` `guid` `datetime` `json` `File` `Self` `id` `true`
 //     `false` `null` `this` `now` `if` `else` `match` `find` `in` `as` `with`
 //     `where` `when` `unless` `from` `let` `return` `emit` `persist` `expect`
-//     `for`, and the HTTP verbs.  Admitting them as a name makes an expression
-//     or statement ambiguous.
+//     `for` `requires` `precondition`, and the HTTP verbs.  Admitting them as
+//     a name makes an expression or statement ambiguous — and, for a
+//     statement head, silently so: with `requires` soft, a gate line missing
+//     its subject (`requires .permissions.contains(x)`) parsed as a CALL
+//     statement on a name `requires` instead of failing (review of the sweep).
 //   * the heads of members that share a body with `Property` — `contains`
 //     `derived` `invariant` `private` `unique` `function` `operation` `create`
 //     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
@@ -2090,10 +2095,10 @@ CommonSoftKeywords returns string:
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'policy'
-      | 'port' | 'postgres' | 'precondition' | 'primeng' | 'projection' | 'provenanced' | 'provider'
+      | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
       | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
-      | 'required' | 'requirement' | 'requires' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
+      | 'required' | 'requirement' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
       | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
       | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
       | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
@@ -2358,8 +2363,36 @@ AssignOrCallStmt:
 // target's type is computed.  `'this'` is already a token (`ThisRef`) and the
 // same `('this' '.')?` prefix is already spelled on `LoadPath`.
 LValue:
-    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueIdent)*
+    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueTail)*
       (call?='(' (args+=Expression (',' args+=Expression)*)? ')')?;
+
+// A segment AFTER the head: the plural-slug keywords are admissible here (a
+// call statement `api.claims.file(rec)` names an aggregate slug), but not as
+// the head — `this` there is the `thisRef` prefix.
+LValueTail returns string:
+    LValueIdent | PluralSlugKeyword;
+
+// Plural-shaped HARD keywords (wave C3 D2).  An aggregate's e2e slug is
+// `snake(plural(Name))`, so `aggregate Claim` is addressed as `api.claims` —
+// and `claims` is the `auth { claims: … }` keyword, so the declarable
+// aggregate was unaddressable from a `test e2e` block.  Every keyword that is
+// the plural of some aggregate name is admitted after a `.` (MemberName, and
+// LValueTail for a call statement); the SLUG FLOOR in
+// `keyword-identifier-completeness.test.ts` derives the set from the grammar
+// and fails naming any plural-shaped keyword left out (it is literal:
+// `aggregate A` is `api.as`, `aggregate Extend` is `api.extends`).
+// Only the plural-shaped keywords that are NOT already soft in
+// `CommonSoftKeywords` are listed — the rest (`claims`, `serves`, `targets`,
+// …) are admissible through the shared core, and a word spelled in two
+// alternatives of the same rule is an ambiguous alternative.  `requires` is
+// HARD (no statement may start with it: a gate line missing its subject must
+// fail, not parse as a call on a name `requires`), so it is listed here —
+// admitting it only after a `.` cannot start a statement.  The slug floor
+// derives its set from every grammar keyword and checks ADMISSIBILITY, not
+// membership in this rule, so a word moving between the two lists is
+// invisible to it.
+PluralSlugKeyword returns string:
+    'as' | 'extends' | 'requires' | 'this';
 
 LValueIdent returns string:
     ID | CommonSoftKeywords
@@ -2638,7 +2671,8 @@ MemberName returns string:
     // MemberName-only extras (structural keywords not in the shared
     // value core; member access after `.`).  Composing CommonSoftKeywords here also closes the
     // "declarable-but-unreadable" class (M-T5.18 Track C, BUG-004: `e.resource`).
-    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where';
+    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where'
+    | PluralSlugKeyword;
 
 // Lambdas accept either a single expression body or a brace-wrapped block of
 // statements.  Block bodies are required for multi-statement event handlers in

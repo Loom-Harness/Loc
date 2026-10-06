@@ -124,10 +124,8 @@ const ALLOWLIST = new Set<string>([
   // The query-time projection comprehension (read-path-architecture.md rev.13,
   // § "projection generalises") — `join <Agg> as <c> on <idRef>` follows and
   // `select <field> = <expr>` projections.  The query-time emit has since
-  // landed on all five backends (node/python/elixir/java/dotnet); the
-  // `loom.projection-query-time-unsupported` gate now only fires for a
-  // hypothetical future backend that hasn't ported it (belt-and-suspenders,
-  // not a live gap).  Excluded from the shared showcase for the same
+  // landed on all five backends (node/python/elixir/java/dotnet), so it has
+  // no per-backend gate.  Excluded from the shared showcase for the same
   // parity/blast-radius reason as folded `Projection` above.
   "ProjectionJoin",
   "ProjectionSelect",

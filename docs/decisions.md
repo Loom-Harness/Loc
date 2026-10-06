@@ -4543,3 +4543,64 @@ of the rest.
 M-T5.10 and M-T5.40;
 `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 and its coordination
 note's item 3.
+
+## D-KAFKA-START-OFFSET — a new kafka group starts at earliest on a work queue, latest on a log
+
+**Status:** decided (owner ruling D3 of the 2026-09-28 eval-closure review,
+item 13).
+
+**Question.** Every backend's kafka consumer started a NEW consumer group at
+the `latest` offset. On a work-queue channel (`delivery: queue` /
+`retention: work`) that loses every event published before the consuming
+deployable's group first joins — a fresh deploy whose producer boots first, or
+a rejoin after the broker expired the group's offsets. The rabbit twin
+(F-112) was fixed as a bug; kafka was not.
+
+**Decision.** A new group on a work-queue channel starts at the **earliest**
+offset; a `retention: log` (broadcast) channel keeps **latest**. A group with
+committed offsets resumes from them in both cases, so this only decides the
+first join. The predicate is `kafkaStartsAtEarliest`
+(`src/generator/_channels/bindings.ts`); each backend reads it into its binding
+row and passes it to the kafka driver only (node kafkajs `fromBeginning`, java
+`AUTO_OFFSET_RESET_CONFIG`, .NET `AutoOffsetReset`, python
+`auto_offset_reset`, elixir brod `begin_offset`). The other drivers have no
+offsets and do not see it.
+
+**Why.** `retention: work` promises a work item is delivered; a silent drop on
+first boot breaks that promise. A replay of already-handled records is safe on
+a work queue because consumers dedupe on the envelope id. On a log, a fresh
+deployable replaying the whole history is a semantic change of its own
+(the replay cursor, M-T4.2), so it stays out of this ruling.
+
+## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
+
+**Status:** PINNED (owner rulings D4 and D6, 2026-09-29; eval-closure items #20
+and #23, `docs/audits/2026-09-28-eval-closure-review/VERIFIED-AND-WAVES.md`).
+
+**D4 — the 403 body.** Every `requires` gate throws `Forbidden: <gate source>`.
+That text always goes to the backend's `forbidden` log line. The RFC 7807
+`detail` repeats it **only** when the deployable runs the dev-stub verifier
+(`auth: required` + a `user { … }` block + no `auth { oidc … }` block); under a
+real verifier — and on a deployable with no verifier at all — the body is the
+constant `Forbidden`. One compile-time predicate decides it for all five
+backends, `echoesDenialDetail` (`src/ir/util/denial-detail.ts`), derived from
+the same facts that choose the verifier, so the body cannot disagree with the
+verifier actually shipped. Every forbidden response funnels through one place
+per backend (node `ForbiddenError.detail`, .NET `DomainExceptionFilter`, Java
+`ApiExceptionAdvice`, Python `install_error_handlers`, Phoenix
+`ProblemDetails.problem_response/4`); the ~21 throw sites are unchanged.
+Wire-visible: `test/behavioral/wire-golden/auth-oidc.json` was re-baselined.
+
+**D6 — the dev-claims header.** A present, non-empty `x-loom-dev-claims` header
+that does not decode to a base64 JSON **object** answers `400 Bad Request` with
+the detail `malformed x-loom-dev-claims header: expected a base64-encoded JSON
+object` on all five dev stubs, including a stub whose user shape has no
+carryable claim. It used to fall back silently to the built-in identity.
+
+**Scope choices recorded with them.** "Otherwise" in D4 includes the
+no-verifier deployable (not dev-stub auth, so no echo). The Phoenix LiveView
+create form's denial flash follows the same rule as the HTTP body.
+
+**Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
+backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
+`test/generator/dev-claims-parity.test.ts`.
