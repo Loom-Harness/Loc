@@ -56,6 +56,7 @@ export function validateUiBackendBindings(sys: SystemIR, diags: LoomDiagnostic[]
         count: sources.length,
       }),
       source: `${d.name}/${d.uiName ?? "ui"}`,
+      origin: d.origin,
     });
   }
 }
