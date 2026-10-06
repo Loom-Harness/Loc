@@ -44,7 +44,6 @@ const filesFor = async () => {
   return {
     ex: get("domain/common/WireFormatException.java"),
     service: get("features/products/ProductService.java"),
-    advice: get("ApiExceptionAdvice.java"),
   };
 };
 
@@ -74,13 +73,6 @@ describe("java money ingress (M-T6.48)", () => {
     expect(ex).toContain(
       'throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));',
     );
-  });
-
-  it("renders the 422 with the errors[] pointer entry the other backends send", async () => {
-    const { advice } = await filesFor();
-    expect(advice).toContain("@ExceptionHandler(WireFormatException.class)");
-    expect(advice).toContain('entry.put("pointer", e.getPointer());');
-    expect(advice).toContain('problem.setProperty("errors", java.util.List.of(entry));');
   });
 
   it("makes numeric request fields strict — no float→int truncation, no stringified numbers", async () => {

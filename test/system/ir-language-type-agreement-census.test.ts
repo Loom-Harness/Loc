@@ -399,8 +399,8 @@ async function runCensus(): Promise<{
 /** `<container>/<class>` → exact count of joined lets that disagree. */
 const DISAGREEMENT_BASELINE: Record<string, number> = {
   // ── language-fails-open: the let is never BOUND (`envForNode` has no arm) ──
-  // (Unit `test` and `test e2e` lets are pinned as TOTAL gaps in
-  // TOTAL_GAP_CONTAINERS below, not counted here.)
+  // (`test e2e` lets are pinned as a TOTAL gap in TOTAL_GAP_CONTAINERS
+  // below, not counted here.)
   // No CommandHandler / QueryHandler / FunctionDecl arm (params AND lets
   // unbound). Owned by Track A of the census work.
   "CommandHandler/language-fails-open": 28,
@@ -412,7 +412,8 @@ const DISAGREEMENT_BASELINE: Record<string, number> = {
   // `addTypedLets` binds only a body's TOP-LEVEL lets; a let inside a `for` /
   // `if` block of a workflow `create` or an `on` reactor is never bound.
   "WorkflowCreateDecl+nested/language-fails-open": 6,
-  "OnDecl+nested/language-fails-open": 2,
+  // OnDecl: `for f in follows { let n = Notification.create(..) }` reactors.
+  "OnDecl+nested/language-fails-open": 5,
   // ── language-fails-open: bound, but `typeOf` returns `unknown` ──
   // Top-level workflow lets whose INITIALIZER the language cannot type:
   // `Repo.run(<Retrieval>(..))` (44, IR: [rec:X]), a `match` expression (5,
@@ -423,6 +424,10 @@ const DISAGREEMENT_BASELINE: Record<string, number> = {
   // `let x = Foos.getById(f)` where `Foos` is another context's repository
   // (eval/repro/wf-cross-context-repo.ddd) — unresolved, defaulted to string.
   "WorkflowCreateDecl/ir-string-fallback": 1,
+  // unit `test` (env arm landed in #3092; ~103 lets now agree): `let found =
+  // Order.findById(o.id)` (context-integration/shop.ddd) — no such static on
+  // an aggregate, so the IR defaults it to string.
+  "TestBlock/ir-string-fallback": 1,
   // ── both-concrete-differ ──
   // `let o = Orders.locate(ref)`: the IR types the `locate` find as
   // `union(Order|NotFound)`; the language says `Order`. `DddType` has NO union
@@ -452,15 +457,6 @@ const TOTAL_GAP_CONTAINERS: Record<string, { classes: string[]; minRows: number;
     classes: ["ir-string-fallback"],
     minRows: 500,
     why: "neither layer types e2e lets (empty lowering scope; no envForNode arm)",
-  },
-  // unit `test`: no `envForNode` arm, so no let is bound (the IR types them:
-  // `Order.create(..)` → rec:Order, `Money(..)` → vo:Money) — owned by #3092.
-  // The one ir-string-fallback is `let found = Order.findById(o.id)`: no such
-  // static on an aggregate, so the IR defaults it to string. ~102 lets.
-  TestBlock: {
-    classes: ["language-fails-open", "ir-string-fallback"],
-    minRows: 50,
-    why: "no envForNode arm for a unit test body (#3092 adds it)",
   },
 };
 

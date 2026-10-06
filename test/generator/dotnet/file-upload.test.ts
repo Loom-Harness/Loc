@@ -93,7 +93,7 @@ describe("dotnet File upload (slice 2b)", () => {
     expect(disk).toContain(
       "public static async Task<(byte[] Bytes, string ContentType)?> DocFiles_GetBytes(string key)",
     );
-    expect(disk).toContain("public static async Task DocFiles_Put(string key, string body)");
+    expect(disk).toContain("public static async Task DocFiles_Put(string key, object body)");
   });
 
   it("adds raw-bytes verbs to the s3 resource class", async () => {

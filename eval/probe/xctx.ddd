@@ -1,0 +1,2 @@
+context A { aggregate Alpha { name: string  derived display: string = name } repository Alphas for Alpha { } }
+context B { aggregate Beta { ref: Alpha id  derived display: string = "b" } repository Betas for Beta { } }

@@ -1,0 +1,81 @@
+// The SAST ruleset's leak-shape fixture (M-T3.14).  The corpus carries each
+// authorization feature on its own; it does not carry the two shapes the
+// historical leaks lived in, so the ruleset's mutation proof needs them here:
+//
+//   F2-ADP-1 (#2668 wave 1) — `find … ignoring *` on an aggregate with a
+//     `policy { deny }` carve-out: the bypass must NOT lift the deny.
+//   audit A1 (`projection-agg-filters`' minting defect) — a query-time
+//     AGGREGATION over a `tenantOwned` source must AND in the tenant floor.
+//
+// Mirrors the `census/leak-shapes` system of `test/ir/authz-emitted-census.test.ts`
+// (wave C3 packet 3c), which proves the same two leaks by a different
+// mechanism — a read-site census over the same emitted text.
+system LeakShapes {
+  user { id: guid  tenantId: string  role: string }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Vault {
+    context Store {
+      enum OrderStatus { Draft Confirmed }
+
+      aggregate Organization with tenantRegistry, crudish {
+        name: string
+      }
+
+      aggregate Secret with tenantOwned, crudish {
+        code: string
+      }
+
+      aggregate Order with tenantOwned, crudish {
+        code: string
+        total: money
+        status: OrderStatus
+      }
+
+      repository Organizations for Organization { }
+
+      repository Secrets for Secret {
+        find byCode(c: string): Secret[] where this.code == c
+        find everything(c: string): Secret[] where this.code == c ignoring *
+      }
+
+      repository Orders for Order {
+        find allTenants(c: string): Order[] where this.code == c ignoring *
+      }
+
+      projection OrderVolume {
+        total: int
+        from Order as o
+        select total = count()
+      }
+
+      projection RevenueByStatus {
+        status: OrderStatus
+        orders: int
+        revenue: money
+        from Order as o
+        group by o.status
+        select status = o.status,
+               orders = count(),
+               revenue = sum(o.total)
+      }
+
+      policy {
+        deny on Secret
+      }
+    }
+  }
+
+  api VaultApi from Vault
+  storage db { type: postgres }
+  resource st { for: Store, kind: state, use: db }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Store]
+    dataSources: [st]
+    serves: VaultApi
+    auth: required
+    port: 8080
+  }
+}
