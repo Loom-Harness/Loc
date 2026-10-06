@@ -69,6 +69,7 @@ import { emitVanillaChangesets } from "./changeset-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
 import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./denial.js";
+import { needsPureDomainCore, renderEventSourcedPureCore } from "./domain-core-emit.js";
 import { emitVanillaEventModules } from "./events-emit.js";
 import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
@@ -386,6 +387,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       sys ? resolveContextSchema(ctx, sys) : undefined,
       channelsCfg,
       wiredForeignChannels,
+      (agg) =>
+        needsPureDomainCore(agg, ctx) ? renderEventSourcedPureCore(appModule, ctx, agg) : [],
     );
     emitVanillaContextModule(
       appModule,
@@ -486,7 +489,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     });
     if (seedMod) seedModules.push(seedMod.module);
     // Domain `test "..."` blocks → ExUnit (pure-subset; see tests-emit.ts).
-    if (emitAggregateTests(ctx, appModule, out)) hasDomainTests = true;
+    if (emitAggregateTests(ctx, appModule, out, sys)) hasDomainTests = true;
   }
   if (hasDomainTests) emitTestHelper(out);
   // Realtime SSE wire (channels.md Part I) — one deployable-level

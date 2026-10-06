@@ -101,7 +101,13 @@ export function emitVanillaSchemas(
       ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
       : undefined;
     const schemaModule = isVanillaDocAgg(agg, ctx, sys)
-      ? renderDocSchema(appModule, ctxModule, agg, schemaPrefix)
+      ? renderDocSchema(
+          appModule,
+          ctxModule,
+          agg,
+          schemaPrefix,
+          needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [],
+        )
       : renderSchema(appModule, ctxModule, agg, enumsByName, schemaPrefix, ctx, sys, pool);
     // Append the Inspect-protocol redaction impl (sensitive-field leak guard)
     // after the schema module — emitted only for an aggregate carrying a
