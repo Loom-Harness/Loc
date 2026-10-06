@@ -15,7 +15,12 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
-const opts = { name: "myApp", platform: "node", design: "mantine" } as const;
+const opts = {
+  name: "myApp",
+  platform: "node",
+  design: "mantine",
+  invocation: "node /loom/bin/cli.js",
+} as const;
 const readme = renderReadme(opts);
 const starter = renderStarter({ ...opts, template: "crud" });
 

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { cliInvocation } from "../../src/cli/new-templates.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -148,6 +149,36 @@ describe("ddd new — guards and ergonomics", () => {
     const r = runCli(["new", "app", "-o", path.join(tmp, "p")]);
     expect(r.stdout).toContain("platform: node (default)");
     fs.rmSync(tmp, { recursive: true });
+  });
+
+  // Item 37 / ruling D11: `npx ddd` outside the clone resolves the unrelated
+  // public npm package `ddd`, so every regenerate hint `ddd new` writes names
+  // the invocation that actually ran (`node /abs/bin/cli.js`).
+  it("prints the invocation that ran, never `npx ddd`, in the hint, README and main.ddd", () => {
+    const tmp = tmpdir();
+    const out = path.join(tmp, "p");
+    const r = runCli(["new", "app", "-o", out]);
+    expect(r.status).toBe(0);
+    const ran = `node ${cli}`;
+    const readme = fs.readFileSync(path.join(out, "README.md"), "utf8");
+    const header = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
+    expect(r.stdout).toContain(`next: cd ${out} && ${ran} generate system main.ddd -o .`);
+    expect(readme).toContain(`${ran} generate system main.ddd -o .`);
+    expect(header).toContain(`//   ${ran} generate system main.ddd -o .`);
+    for (const text of [r.stdout, readme, header]) {
+      expect(text).not.toMatch(/npx ddd generate/);
+    }
+    fs.rmSync(tmp, { recursive: true });
+  });
+
+  it("cliInvocation derives the command from argv and quotes a path with spaces", () => {
+    expect(cliInvocation(["/usr/bin/node", "/opt/loom/bin/cli.js", "new"])).toBe(
+      "node /opt/loom/bin/cli.js",
+    );
+    expect(cliInvocation(["/usr/bin/node", "/my loom/bin/cli.js"])).toBe(
+      "node '/my loom/bin/cli.js'",
+    );
+    expect(cliInvocation(["/usr/bin/node"])).toBe("ddd");
   });
 
   it("rejects --design coreComponents with a non-elixir platform", () => {

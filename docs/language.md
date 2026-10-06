@@ -1008,6 +1008,14 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
+  **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
+  drops the number/date formatting — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
+  `derived`, `function` or `operation` body) every backend renders a formatted
+  hole as its bare value: `{qty, number, ::currency/USD}` loses its formatting,
+  and `{qty, plural, one {# item} other {# items}}` / `select` / `selectordinal`
+  lose their branch text entirely (`"3"`, not `"3 items"`) — which the warning
+  `loom.interp-format-dropped-in-domain` reports.  Spell the branches with
+  `match` or a ternary in domain code.
 - **Escaping** — a literal brace or backtick in the text is `\{` / `\}` / `` \` ``;
   `\n` / `\t` / `\\` behave as in a string literal.
 - **Not queryable** — an interpolated string desugars to `+`/`convert`, so (like any

@@ -1438,6 +1438,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unsupported template format '${p.format}'. Supported ICU formats are ` +
     `\`number\` (incl. \`::currency/USD\`, \`::percent\`), \`date\`/\`time\`, ` +
     `\`plural\`/\`selectordinal\`, and \`select\`.`,
+  "loom.interp-format-dropped-in-domain": (p: { format: unknown; host: unknown }) =>
+    `This '${p.format}' hole sits in a '${p.host}' body, which runs as backend domain code: ` +
+    `every backend renders the hole as its bare value and DROPS the branch text ` +
+    `(\`{n, plural, one {# item} other {# items}}\` yields "3", not "3 items"). ` +
+    `Only a ui page slot renders ICU '${p.format}' (through the i18n runtime). ` +
+    `Spell the branches with \`match\` or a ternary here, or move the template into the page.`,
   "loom.interp-hole-type#select-format": (p: { t: unknown }) =>
     `A 'select' format expects a string or enum value, but this hole is '${p.t}'.`,
   "loom.interp-hole-type#date-format": (p: { kind: unknown; t: unknown }) =>
