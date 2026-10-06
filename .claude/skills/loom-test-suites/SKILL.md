@@ -45,6 +45,9 @@ npm run test:svelte-e2e   # LOOM_SVELTE_E2E=1
 npm run test:angular-e2e  # LOOM_ANGULAR_E2E=1 (pack via LOOM_ANGULAR_E2E_PACK)
 npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects
 npm run test:java         # LOOM_JAVA_BUILD=1 — `gradle testClasses bootJar` against generated Spring Boot projects (JDK 25 + Gradle 9.1+)
+                          # CI runs it with javac at -Xlint:all -Werror: copy test/e2e/support/java-werror.init.gradle into
+                          # ~/.gradle/init.d/ to reproduce (remove it after — init.d applies to every Gradle build), or pass
+                          # `-I <that file>` to a hand-run gradle.  A host with /opt/jdk25 + /opt/gradle-9 needs no container.
 npm run test:python       # LOOM_PYTHON_BUILD=1 — `uv sync` + `ruff check` + `mypy --strict` + `pytest` against generated FastAPI projects (uv)
 npm run test:phoenix      # LOOM_PHOENIX_VANILLA_BUILD=1 — `mix compile --warnings-as-errors` against plain Ecto/Phoenix in Elixir docker
 
@@ -58,7 +61,8 @@ npm run test:python-corpus  # LOOM_PYTHON_BUILD=1
 npm run test:elixir-corpus  # LOOM_ELIXIR_BUILD=1 — mix compile per feature in the hexpm/elixir image (needs LOOM_HEX_MIRROR)
 
 # Tenancy runtime e2e — flat isolation + registry self-scope/signup bootstrap, all five backends
-# (shared harness; docker postgres sidecar, or LOOM_TENANCY_PG_URL to skip it):
+# (shared harness; docker postgres sidecar, or LOOM_TENANCY_PG_URL to skip it).  CI: the flat cells run
+# per-PR (tenancy-e2e.yml's `tenancy-e2e-flat` job); every other cell below runs in the merge queue:
 npm run test:tenancy               # LOOM_TENANCY_E2E=1 — Hono
 npm run test:tenancy-{python,java,dotnet,elixir}   # LOOM_TENANCY_E2E_<BACKEND>=1 — same assertions per backend
 # Hierarchy siblings (tenantRegistry TREE: materialized-path setPath + per-request orgPath resolver + row stamp
@@ -74,7 +78,8 @@ npm run test:tenancy-org-context{,-python,-java,-dotnet,-elixir}
 # Migration-evolution runtime e2e — proves migrations EVOLVE on data, not just emit/first-boot: per SQL
 # backend, (1) migrate-chain schema ≡ fresh-create schema, and (2) seed v1 → evolve .ddd → forward-migrate
 # → the row survives with correct values (rename preserved, backfill populated, nullable add NULL).  Shared
-# harness (one pg server, chain+fresh DBs, order-independent schema fingerprint via host psql):
+# harness (one pg server, chain+fresh DBs, order-independent schema fingerprint via host psql).  CI: per-PR
+# path-scoped AND in the merge queue:
 npm run test:migration-evolution{,-python,-java,-dotnet,-elixir}   # LOOM_MIGRATION_E2E[_<BACKEND>]=1
 
 # Schema-load gate — does the emitted DDL actually LOAD?  The compile tiers are blind to the
@@ -91,10 +96,12 @@ npm run test:schema-load           # LOOM_SCHEMA_LOAD=1 (docker sidecar, or LOOM
 # ROOT-CAUSE rules in test/behavioral/schemathesis-waivers.json (unattributed finding fails the run;
 # a rule that stops reproducing fails it too), documented in docs/audits/schemathesis-findings-2026-08.md.
 # Needs `uv tool install schemathesis` + `cd test/behavioral && npm ci`.  ~1 min; nightly in CI.
-npm run test:schemathesis          # LOOM_SCHEMATHESIS=1 (node/Hono leg; other four backends are follow-ups)
+npm run test:schemathesis          # LOOM_SCHEMATHESIS=1 (node/Hono leg)
+npm run test:schemathesis-{python,java,dotnet,elixir}   # booted legs; the elixir one is a discovery cell (not binding)
 
 # Channels runtime e2e — cross-deployable eventing (redis/rabbitmq/kafka, CloudEvents + outbox relay);
-# per-broker × per-backend legs, each behind its own LOOM_CHANNELS_E2E[_<BROKER>][_<BACKEND>] var:
+# per-broker × per-backend legs, each behind its own LOOM_CHANNELS_E2E[_<BROKER>][_<BACKEND>] var.
+# CI: the merge queue runs every cell (and `api-call-e2e` below); a `run-channels` label runs them on a PR:
 npm run test:channels                                    # redis, Hono
 npm run test:channels-{python,dotnet,java,elixir}        # redis, other backends
 npm run test:channels-rabbit{,-python,-dotnet,-java,-elixir}
@@ -118,7 +125,7 @@ npm run test:obs-dotnet   # LOOM_OBS_E2E_DOTNET=1 — same for the .NET backend 
 npm run test:obs-phoenix  # LOOM_OBS_E2E_PHOENIX_VANILLA=1 — same for the Phoenix backend (postgres sidecar via docker)
 npm run test:obs-java     # LOOM_OBS_E2E_JAVA=1 — same for the Java backend (docker postgres, or LOOM_OBS_PG_URL override)
 npm run test:obs-python   # LOOM_OBS_E2E_PYTHON=1 — same for the Python backend (docker postgres, or LOOM_OBS_PG_URL override)
-npm run test:phoenix-ui-e2e # LOOM_PHOENIX_UI_E2E=1 — LiveView UI smoke against the booted Phoenix backend
+npm run test:phoenix-ui-e2e # LOOM_PHOENIX_UI_E2E=1 — LiveView UI smoke against the booted Phoenix backend (per-PR, path-scoped in CI)
 npm run test:biome-gen    # LOOM_BIOME=1 — Biome lint against emitted TS/TSX (already run in `test.yml`)
 npm run test:contrast     # per-pack WCAG-AA design-token contrast gate (runs in test.yml's lint job)
 npm run test:k8s          # LOOM_K8S=1 — `generate system --k8s` → helm lint + helm template | kubeconform (+ raw k8s/); needs helm + kubeconform on PATH
