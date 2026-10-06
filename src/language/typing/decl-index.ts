@@ -98,16 +98,23 @@ export class DeclIndex {
   readonly users: UserBlock[] = [];
   readonly resources: Resource[] = [];
 
-  /** `composed` — the other documents of the project's import closure.  Only
-   *  their `user { }` block is read: the principal folds into the project's
-   *  single system wherever it is written (implicit-system-composition), so a
-   *  `currentUser` in one file types against a claim block in another. */
+  /** Declarations of the rest of the project's import closure — consulted by
+   *  `find` only when this unit declares no candidate, so a local name always
+   *  wins.  (`Money { … }` in one file builds the value object another file
+   *  declares; without it a name that is also a walker primitive types `slot`.) */
+  private readonly composedIndex: DeclIndex | undefined;
+
+  /** `composed` — the other documents of the project's import closure.  Their
+   *  `user { }` block folds into the project's single system wherever it is
+   *  written (implicit-system-composition), so a `currentUser` in one file
+   *  types against a claim block in another; their declarations back `find`. */
   constructor(
     readonly models: readonly Model[],
     composed: readonly Model[] = [],
   ) {
     for (const m of models) this.collect(m.members ?? []);
     for (const m of composed) this.collectUsers(m.members ?? []);
+    this.composedIndex = composed.length > 0 ? new DeclIndex(composed) : undefined;
   }
 
   private collectUsers(members: readonly AstNode[]): void {
@@ -170,10 +177,9 @@ export class DeclIndex {
     from: AstNode | undefined,
   ): DeclKinds[K] | undefined {
     const all = this.byName.get(name);
-    if (!all) return undefined;
     const guard = GUARDS[kind];
-    const cands = all.filter((n): n is DeclKinds[K] => guard(n));
-    if (cands.length === 0) return undefined;
+    const cands = (all ?? []).filter((n): n is DeclKinds[K] => guard(n));
+    if (cands.length === 0) return this.composedIndex?.find(kind, name, from);
     if (cands.length === 1 || !from) return cands[0];
     const ctx = from && AstUtils.getContainerOfType(from, isBoundedContext);
     if (ctx) {
