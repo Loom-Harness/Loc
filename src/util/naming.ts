@@ -269,8 +269,13 @@ const JAVA_KEYWORDS = new Set([
   "null",
 ]);
 
-/** Python keywords + soft keywords unsafe as a plain binding.  Escaped with a
- *  trailing underscore. */
+/** Python's HARD keywords — the words that cannot be an identifier anywhere.
+ *  Escaped with a trailing underscore.  The soft keywords (`match`, `case`,
+ *  `type`, `_`) are deliberately absent: PEP 634/695 keep them legal as a
+ *  binding, attribute, parameter and `def` name, so `case: string` stays
+ *  `case` on python exactly as it does on node/elixir (pinned by
+ *  `java-reserved-identifier.test.ts`), and a declaration and its reads —
+ *  `pythonIdent` vs `escapePythonIdent` — always agree. */
 const PYTHON_KEYWORDS = new Set([
   "False",
   "None",
@@ -307,8 +312,6 @@ const PYTHON_KEYWORDS = new Set([
   "while",
   "with",
   "yield",
-  "match",
-  "case",
 ]);
 
 /** Elixir reserved words / special forms unsafe as a plain variable binding.
