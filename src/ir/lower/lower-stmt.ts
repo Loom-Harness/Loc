@@ -13,6 +13,7 @@ import { findVerb } from "../resource-verbs.js";
 import { typeKey, variantTag as unionVariantTag } from "../stdlib/unions.js";
 import type { ExprIR, PathIR, StmtIR, TypeIR } from "../types/loom-ir.js";
 import {
+  ambientResourceKind,
   inferExprType,
   isErrorVariantTag,
   lowerEmitFields,
@@ -347,8 +348,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // spellings of one call now produce one IR shape.  (Workflow bodies take
       // their own `resource-call` path in `lower-workflow.ts` and are
       // unaffected.)
-      if (lv.call && lv.tail.length === 1 && env.resources?.has(lv.head)) {
-        const resourceKind = env.resources.get(lv.head)!;
+      const stmtResourceKind =
+        lv.call && lv.tail.length === 1 ? ambientResourceKind(lv.head, env) : undefined;
+      if (stmtResourceKind) {
+        const resourceKind = stmtResourceKind;
         const verb = lv.tail[0]!;
         const args = (lv.args ?? []).map((a) => lowerExpr(a, env));
         const verbDef = findVerb(resourceKind, verb);
