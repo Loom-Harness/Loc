@@ -1,11 +1,13 @@
-import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { voHasConstraints } from "./vanilla/changeset-validators.js";
+import { pureCoreShape } from "./vanilla/domain-core-emit.js";
 import { renderVanillaContextIntegrationTest } from "./vanilla/integration-tests-emit.js";
 import {
   renderVanillaAggregateTestModule,
   renderVanillaServiceTestModule,
   renderVanillaVoTestModule,
+  type ShapeFacts,
 } from "./vanilla/tests-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -26,8 +28,21 @@ export function emitAggregateTests(
   ctx: EnrichedBoundedContextIR,
   appModule: string,
   out: Map<string, string>,
+  sys?: SystemIR,
 ): boolean {
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  // Which pure core each aggregate gets (`domain-core-emit.ts`) — a test body
+  // may construct any aggregate of the context, not only its own subject.
+  const shapes: ShapeFacts = {
+    esCreates: new Map(
+      ctx.aggregates
+        .filter((a) => pureCoreShape(a, ctx, sys) === "eventSourced")
+        .map((a) => [a.name, a.creates?.[0]]),
+    ),
+    docAggs: new Set(
+      ctx.aggregates.filter((a) => pureCoreShape(a, ctx, sys) === "document").map((a) => a.name),
+    ),
+  };
   // Value objects with a validating constructor (F5) — the emitter lowers
   // `expect(VO{bad}).toThrow()` against these.
   const validatableVos = new Set(
@@ -38,7 +53,13 @@ export function emitAggregateTests(
     if (agg.tests.length === 0) continue;
     // Vanilla ports the full idiom onto the aggregate's pure domain core
     // (vanilla/tests-emit.ts + domain-core-emit.ts).
-    const content = renderVanillaAggregateTestModule(agg, contextModule, appModule, validatableVos);
+    const content = renderVanillaAggregateTestModule(
+      agg,
+      contextModule,
+      appModule,
+      validatableVos,
+      shapes,
+    );
     out.set(`test/${snake(ctx.name)}/${snake(agg.name)}_test.exs`, content);
     emitted = true;
   }
@@ -50,7 +71,7 @@ export function emitAggregateTests(
     if (vo.tests.length === 0) continue;
     out.set(
       `test/${snake(ctx.name)}/${snake(vo.name)}_test.exs`,
-      renderVanillaVoTestModule(vo, contextModule, appModule, validatableVos),
+      renderVanillaVoTestModule(vo, contextModule, appModule, validatableVos, shapes),
     );
     emitted = true;
   }
@@ -58,7 +79,7 @@ export function emitAggregateTests(
     if (svc.tests.length === 0) continue;
     out.set(
       `test/${snake(ctx.name)}/${snake(svc.name)}_test.exs`,
-      renderVanillaServiceTestModule(svc, contextModule, appModule, validatableVos),
+      renderVanillaServiceTestModule(svc, contextModule, appModule, validatableVos, shapes),
     );
     emitted = true;
   }

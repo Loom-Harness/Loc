@@ -36,7 +36,7 @@ import {
 import { partConstraintLines } from "./changeset-validators.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
-import { renderAggregatePureCore } from "./domain-core-emit.js";
+import { needsPureDomainCore, renderAggregatePureCore } from "./domain-core-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import {
   isTpcBase,
@@ -101,7 +101,13 @@ export function emitVanillaSchemas(
       ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
       : undefined;
     const schemaModule = isVanillaDocAgg(agg, ctx, sys)
-      ? renderDocSchema(appModule, ctxModule, agg, schemaPrefix)
+      ? renderDocSchema(
+          appModule,
+          ctxModule,
+          agg,
+          schemaPrefix,
+          needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [],
+        )
       : renderSchema(appModule, ctxModule, agg, enumsByName, schemaPrefix, ctx, sys, pool);
     // Append the Inspect-protocol redaction impl (sensitive-field leak guard)
     // after the schema module — emitted only for an aggregate carrying a
@@ -375,10 +381,11 @@ function renderSchema(
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
 
   // Pure domain core (`create/1` + `<op>/2`) — emitted only for an aggregate
-  // that declares `test "..."` blocks, so the generated ExUnit suite can run
-  // the domain logic in memory (no DB).  See `domain-core-emit.ts`.
+  // a unit test reaches (its own `test "..."` blocks, or a sibling's test body
+  // that constructs it), so the generated ExUnit suite can run the domain
+  // logic in memory (no DB).  See `domain-core-emit.ts`.
   const pureCore =
-    ctx && agg.tests.length > 0 ? renderAggregatePureCore(appModule, ctx, agg, sys) : [];
+    ctx && needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [];
   const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
 
   return `# Auto-generated.
