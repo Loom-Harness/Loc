@@ -218,6 +218,13 @@ const DELIBERATELY_INVALID = [
   "eval/adversarial/05-missing-ctor-field.ddd",
   "eval/probe/rowlevel.ddd",
   "eval/probe/searchstore.ddd",
+  // The helpdesk evaluation's H-24, kept as written: `openTicket` passes the
+  // `Customer id?` claim `currentUser.customerId` into the non-optional
+  // `Ticket.requester` behind a `requires … != null` that does not narrow.  It
+  // validated clean while the generated .NET failed CS1503; `loom.create-field-type`
+  // now refuses it at that line, and the control below keeps that refusal live.
+  "eval-helpdesk/v2/main.ddd",
+  "eval-helpdesk/v3/main.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,

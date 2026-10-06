@@ -572,7 +572,7 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
       // or let, the `null` literal — into a non-optional create-input field is the
       // same error `:=` / construction / call args report.  A `requires x != null`
       // does not narrow it, and the backends' typed create inputs reject it
-      // (.NET CS1503 `CustomerId?` → `CustomerId`, H-24).
+      // (.NET CS1503 `CustomerId?` → `CustomerId`).
       if (expected.kind !== "optional" && expected.kind !== "unknown" && expected.kind !== "any") {
         const value = typeOf(entry.value, env);
         if (value.kind === "optional" || value.kind === "never") {

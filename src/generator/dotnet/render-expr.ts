@@ -661,9 +661,9 @@ function operandType(e: ExprIR): TypeIR | undefined {
  *  type-checks into a non-optional `T` slot.  C# does not narrow a
  *  `Nullable<T>`: for a VALUE-typed `T` (ids are `readonly record struct`s,
  *  enums, numerics, …) the conditional's type stays `T?`, and passing it where
- *  a `T` is expected is CS1503 — the generated `Ticket.Create(…, requester:
- *  currentUser.CustomerId != null ? currentUser.CustomerId : …)` did not build
- *  (H-24).  `.Value` on the proven branch makes the conditional a `T`.
+ *  a `T` is expected is CS1503 (`Ticket.Create(…, requester:
+ *  currentUser.CustomerId != null ? currentUser.CustomerId : …)`).  `.Value` on
+ *  the proven branch makes the conditional a `T`.
  *
  *  Reference-typed `T` (`string`, value objects) needs nothing — `T?` there is
  *  only an annotation.  A bare `null` on the other branch keeps the
