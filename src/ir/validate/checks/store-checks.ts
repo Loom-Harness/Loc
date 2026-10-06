@@ -501,13 +501,12 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     //
     // `classifyFelizAsyncEffect` (`ir/util/feliz-async-effect.ts`) was already
     // an IR-pure, target-neutral classifier of exactly this predicate; this is
-    // the promotion the audit asked for, not a new analysis.  The statement
-    // form cannot instead reuse `loom.match-non-union-subject`
-    // (`variant-match-shape.ts`): a `StmtIR.variant-match`'s `subjectType`
-    // comes from `inferExprType`, whose catch-all is `string`, so an awaited
-    // api-handle call is indistinguishable from a genuine string there — the
-    // defect `test/ir/variant-match-subject-type.test.ts` pins.  This gate is
-    // SHAPE-based and needs no type resolution.
+    // the promotion the audit asked for, not a new analysis.  It stays the
+    // owner of a bad statement SUBJECT: the statement form's `subjectType` is
+    // resolved only for the supported awaited-op shape (`awaitedOpReturnType`,
+    // lower-stmt.ts — M-T5.43 V14), so `validateVariantMatch` runs the variant
+    // gates on a union subject and leaves every other subject to this
+    // SHAPE-based gate, which needs no type resolution.
     //
     // Scoped by the SET of mounted ui names, not by deployable × ui: two
     // deployables can serve the same bundle (a react host embedding the ui its

@@ -3474,6 +3474,17 @@ function memberOwnerChain(target: Aggregate | EntityPart): (Aggregate | EntityPa
   return out;
 }
 
+/** True when `target` (or a base it extends) declares a member named `name` —
+ *  a property, a containment or a derived member: `memberOnEntity`'s own
+ *  lookup, minus its `string` fallback. */
+function entityDeclaresMember(target: Aggregate | EntityPart, name: string): boolean {
+  return memberOwnerChain(target).some((owner) =>
+    owner.members.some(
+      (m) => (isProperty(m) || isContainment(m) || isDerivedProp(m)) && m.name === name,
+    ),
+  );
+}
+
 function memberOnEntity(target: Aggregate | EntityPart, name: string): TypeIR {
   if (name === "id") {
     const idValue: IdValueType = isAggregate(target) ? ("guid" as IdValueType) : "guid";
@@ -3624,8 +3635,15 @@ export function pathType(path: PathIR, env: Env, thisRooted = false): TypeIR {
   if (path.segments.length === 0) return { kind: "primitive", name: "string" };
   const head = path.segments[0]!;
   let cur: TypeIR;
-  // Try locals — unless the source rooted the path in `this.` explicitly.
-  const local = thisRooted ? undefined : env.locals.get(head);
+  // Try locals — unless the source rooted the path in `this.` explicitly, or
+  // the head names a member of the enclosing aggregate.  Every backend emits an
+  // assignment path as a write to the MEMBER, so a shadowing parameter / `let`
+  // of the same name must not type the target (M-T5.42, V4 — the validator's
+  // `lvalueType` makes the same call).
+  const local =
+    thisRooted || (env.aggregate && entityDeclaresMember(env.aggregate, head))
+      ? undefined
+      : env.locals.get(head);
   if (local) cur = local.type;
   else if (env.aggregate) cur = memberOnEntity(env.aggregate, head);
   else if (env.workflow) cur = memberOnWorkflow(env.workflow, head);

@@ -317,8 +317,8 @@ export function checkAssignOrCall(
   if (stmt.op === ":=") {
     const valueType = typeOf(stmt.value, env);
     if (
-      targetType.kind !== "unknown" &&
-      valueType.kind !== "unknown" &&
+      !partlyUnknown(targetType) &&
+      !partlyUnknown(valueType) &&
       !isAssignable(valueType, targetType) &&
       !canPromoteLiteralTo(stmt.value, targetType)
     ) {
@@ -1092,7 +1092,15 @@ export function lvalueType(
   // parameter share a name, and resolving the head against the parameter would
   // type-check the assignment against the WRONG member — silently, whenever
   // the two types happen to be compatible.
-  const headSym = lv.thisRef ? undefined : env.resolve(lv.head);
+  //
+  // A BARE head that names a member of the aggregate is that member, too, even
+  // when a parameter / `let` of the same name is in scope (M-T5.42, V4): every
+  // backend emits an assignment as a write to the member (`this._name = …`),
+  // so type-checking `name := name` against the shadowing int parameter
+  // accepted a write its own target language rejects (TS2322 / CS0029).
+  const memberHead = lv.thisRef ? undefined : lookupRootMember(agg, lv.head);
+  const headSym =
+    lv.thisRef || (memberHead && memberHead.kind !== "unknown") ? undefined : env.resolve(lv.head);
   let cur: DddType;
   if (headSym) {
     cur = headSym.type;
@@ -1150,5 +1158,18 @@ export function lvalueIsDerived(lv: LValue, agg: Aggregate): boolean {
       if (isDerivedProp(m) && m.name === lastSegment) return true;
     }
   }
+  return false;
+}
+
+/** `unknown`, or a collection/optional whose element is — the value every
+ *  downstream check suppresses on.  A macro-emitted parameter can type as
+ *  `unknown[]` (crudish's `update(items: LineItem[])` over a value-object
+ *  array), and since a bare assignment head now resolves to the MEMBER
+ *  (M-T5.42 V4) that parameter meets a fully-typed target — reporting
+ *  `unknown[]` vs `LineItem[]` would blame the author for an unresolved type. */
+function partlyUnknown(t: DddType): boolean {
+  if (t.kind === "unknown") return true;
+  if (t.kind === "array") return partlyUnknown(t.element);
+  if (t.kind === "optional") return partlyUnknown(t.inner);
   return false;
 }

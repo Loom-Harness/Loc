@@ -63,6 +63,9 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.a11y-missing-alt": (p: { type: unknown }) =>
     `'${p.type}' renders an image but has no text alternative. Add 'alt: "…"' describing it, or 'decorative: true' if it conveys nothing (renders alt=""). Alt text is human content Loom can't derive — a missing alt fails WCAG 1.1.1.`,
   "loom.a11y-icon-only-no-name": `Icon-only 'Button' has no accessible name — a screen reader announces the meaningless default "Button". Add visible text ('Button { "Delete", icon: "trash" }') or an accessible name ('label: "Delete"', emitted as aria-label). A control without a name fails WCAG 4.1.2.`,
+  // M-T5.42, V8 — the button emitter renders NO glyph on a registry miss.
+  "loom.button-icon-unknown": (p: { name: unknown; known: unknown }) =>
+    `'Button { icon: "${p.name}" }' names no builtin icon, so the button renders with no glyph at all. The builtin names are: ${p.known}. Pick one of those, or pass your own SVG with 'iconSvg: "<svg …/>"'.`,
   "loom.a11y-theme-contrast": (p: {
     name: unknown;
     hex: unknown;
@@ -196,6 +199,10 @@ export const DIAGNOSTIC_MESSAGES = {
     label: unknown;
   }) =>
     `'${p.feature}' is not allowed on ${p.label}. A page or component 'action' runs in the browser, where the server-side modifiers mean nothing and nothing is enforceable. A page's own gate is the 'requires' page property; authorize the operation the action calls.`,
+  // A default on a site whose lowerer drops it (`defaults: false`) — refused
+  // rather than silently discarded (M-T5.42, V2).
+  "loom.param-default-unsupported": (p: { name: unknown; label: unknown }) =>
+    `Parameter '${p.name}' declares a default, but ${p.label} does not support parameter defaults: the default would be dropped and every generated signature would still require the argument. Remove '= …' and pass the value at each call site (an aggregate operation, create or destroy, or a workflow create, does honour a default).`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/channel.ts
@@ -3371,6 +3378,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' has 'audited' ${p.kind}(s) ${p.names}, but no backend deployable ` +
     `hosts this context, so no audit record is emitted for them. Host the context on a backend ` +
     `deployable, or drop the 'audited' modifier. Tracked in audit-and-logging.md.`,
+  // M-T5.42, V9 — a storage type the sourceType registry binds to no kind.
+  "loom.storage-type-unbound": (p: { name: unknown; type: unknown }) =>
+    `storage '${p.name}' has 'type: ${p.type}', which binds to no kind today — no dataSource, ` +
+    `channelSource or resource can use it, and no backend emits anything for it.  The declaration ` +
+    `is a no-op.  Use a supported type (postgres / inMemory for state, redis for a cache, ` +
+    `rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / ` +
+    `sendgrid), or drop the declaration.`,
   "loom.datasource-knob-unwired": (p: { name: unknown; property: unknown; description: unknown }) =>
     `resource '${p.name}' sets '${p.property}', but ${p.description}.  ` +
     `The value is accepted by validation and persisted in the IR but no current ` +
@@ -3448,6 +3462,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
     `own wording.  \`${p.primitive}\` walks a nested primitive in that slot, so wrap it in ` +
     `place: \`Money { ${p.path} }\`.  That is also what renders the amount WITH its currency.`,
+  // The value-object sibling of `loom.money-in-text-slot` (M-T5.42, V7).
+  "loom.valueobject-in-text-slot": (p: {
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+    valueObject: unknown;
+  }) =>
+    `\`${p.primitive}\` renders \`${p.path}\` — a \`${p.valueObject}\` value object ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) — as TEXT.  A value object crosses ` +
+    `the wire as a JSON OBJECT, which is not a renderable node: the generated frontend fails to ` +
+    `TYPECHECK (\`TS2322: Type '${p.valueObject}' is not assignable to type 'ReactNode'\`), and ` +
+    `the other frontends have the same hole in their own wording.  Render one of its fields ` +
+    `(\`${p.path}.<field>\`), or add a \`derived\` string member that formats it.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-gate-checks.ts

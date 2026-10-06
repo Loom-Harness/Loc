@@ -314,3 +314,13 @@ Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workfl
 **Verification when it lands.** The G4 repro pair (value-object vs entity spelling of one aggregate, both clean); the required-set asserted per backend rather than inferred from node; the wire-golden differential and the 5-way OpenAPI parity diff run, not skipped; mutation-proved by file-copy revert.
 
 Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
+
+## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `done` ([#3106](https://github.com/Loom-Harness/Loc/pull/3106), L1-V2) · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](../leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
+
+Item **V14** (#2838). The expression form of a variant `match` carries its resolved union type; the statement form lowers with `subjectType` left as `string`, so the four shape gates keyed on the subject type (exhaustiveness, unknown variant, binding arity, the error-variant binding) are skipped for it. Pinned as a known gap at `test/ir/variant-match-subject-type.test.ts:70`.
+
+**The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
+
+**Verification.** The pinned case flips; one negative case per gate on the statement form.

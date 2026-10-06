@@ -923,6 +923,41 @@ export function validateVariantMatch(loom: EnrichedLoomModel, diags: LoomDiagnos
   forEachModelExpr(loom, ({ expr, source }) => {
     visit(source)(expr);
   });
+
+  // The STATEMENT form (`match await <api>.<Agg>.<op>(…) { … }` in a page /
+  // component / store action).  `variant-match` is frontend-only, so the three
+  // `ActionIR` carriers are its whole surface.  Its `subjectType` is now the
+  // awaited operation's declared return type (`awaitedOpReturnType`,
+  // lower-stmt.ts — M-T5.43 V14), so the unknown / duplicate / non-exhaustive
+  // gates run on it exactly as on the expression form.  A NON-union subject is
+  // deliberately not reported here: every such statement subject is already
+  // refused by the shape gate `loom.async-effect-subject-unsupported`
+  // (store-checks.ts) or is an op returning a single type, and reporting
+  // `loom.match-non-union-subject` too would name two blockers for one line.
+  for (const sys of loom.systems) {
+    for (const ui of sys.uis) {
+      const hosts = [
+        ...ui.pages.map((h) => ({ where: `page '${h.name}'`, actions: h.actions })),
+        ...ui.components.map((h) => ({ where: `component '${h.name}'`, actions: h.actions })),
+        ...ui.stores.map((h) => ({ where: `store '${h.name}'`, actions: h.actions })),
+      ];
+      for (const host of hosts) {
+        for (const action of host.actions) {
+          const source = `${ui.name}/${host.where} action '${action.name}'`;
+          for (const top of action.body) {
+            walkStmtsDeep(top, (s) => {
+              if (s.kind !== "variant-match" || s.subjectType?.kind !== "union") return;
+              checkVariantMatchShape(
+                { subjectType: s.subjectType, arms: s.arms, hasElse: s.elseBody !== undefined },
+                source,
+                diags,
+              );
+            });
+          }
+        }
+      }
+    }
+  }
 }
 
 /** Flag every expression in a function body — the expression form walks the

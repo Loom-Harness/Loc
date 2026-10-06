@@ -1,10 +1,12 @@
 import type { LValue, Statement } from "../../language/generated/ast.js";
 import {
+  isAggregate,
   isAssignOrCallStmt,
   isEmitStmt,
   isIfStmt,
   isLetStmt,
   isMatchStmt,
+  isOperation,
   isPreconditionStmt,
   isRequiresStmt,
   isReturnStmt,
@@ -27,9 +29,12 @@ import {
   cstText,
   type Env,
   findDomainServiceByName,
+  findEntityByName,
   findFunctionInEnv,
   findOperationInEnv,
+  inAggregate,
   lowerAtom,
+  lowerType,
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
@@ -103,7 +108,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     // each arm's statement block, binding the (optional) narrowed variant value
     // as a real local (`match-binding`) so member reads inside the arm resolve.
     const subject = lowerExpr(stmt.subject, env);
-    const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+    const subjectType =
+      subject.kind === "ref"
+        ? subject.type
+        : (awaitedOpReturnType(subject, env) ?? inferExprType(stmt.subject, env));
     const arms = stmt.varArms.map((arm) => {
       const varType = lowerAtom(arm.varType, env);
       const armEnv = arm.binding ? withLocal(env, arm.binding, "match-binding", varType) : env;
@@ -459,4 +467,29 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     stmt: { kind: "call", target: "function", name: "<unknown>", args: [] },
     envAfter: env,
   };
+}
+
+/** The declared return type of the aggregate operation an awaited `match`
+ *  subject calls — `<apiHandle>.<Agg>.<op>(…)` or bare `<Agg>.<op>(…)`, the two
+ *  shapes every frontend resolves (`classifyFelizAsyncEffect`).  `inferExprType`
+ *  cannot type that call (the api handle is not a local, so the method-call
+ *  falls to its `string` catch-all), which left `variant-match.subjectType` a
+ *  `string` and kept the four type-grounded `match` gates off the statement
+ *  form (audit F56, M-T5.43 V14).  Undefined for any other subject — the
+ *  shape gate `loom.async-effect-subject-unsupported` owns those. */
+function awaitedOpReturnType(subject: ExprIR, env: Env): TypeIR | undefined {
+  if (subject.kind !== "method-call") return undefined;
+  const recv = subject.receiver;
+  const aggName =
+    recv.kind === "member" && recv.receiver.kind === "ref"
+      ? recv.member
+      : recv.kind === "ref" && !env.locals.has(recv.name)
+        ? recv.name
+        : undefined;
+  if (!aggName) return undefined;
+  const agg = findEntityByName(env, aggName);
+  if (!agg || !isAggregate(agg)) return undefined;
+  const op = agg.members.find((m) => isOperation(m) && m.name === subject.member);
+  if (!op || !isOperation(op) || !op.returnType) return undefined;
+  return lowerType(op.returnType, inAggregate(env, agg));
 }

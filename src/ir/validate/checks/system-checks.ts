@@ -25,6 +25,7 @@ export {
   validateDataSourceUnwiredKnobs,
   validateFileFieldObjectStorage,
   validateSavingShapeSupport,
+  validateStorageTypeBinding,
   validateVanillaDocumentScope,
 } from "./datasource-checks.js";
 export { validateDefaultDeny } from "./default-deny-checks.js";

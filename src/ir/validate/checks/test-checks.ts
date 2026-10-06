@@ -4,6 +4,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import type {
   AggregateIR,
@@ -53,6 +54,27 @@ import { walkExpr } from "./shared.js";
 // ---------------------------------------------------------------------------
 
 export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  // The value-object and domain-service unit tests are not walked by
+  // `checkMatcherSubjects`; the locator-matcher gate still owes them coverage
+  // (it lived in the AST validator, which saw every `expect`).
+  for (const vo of ctx.valueObjects) {
+    for (const test of vo.tests) {
+      checkLocatorMatcherReceivers(
+        test.statements,
+        `${ctx.name}/${vo.name}.test:${test.name}`,
+        diags,
+      );
+    }
+  }
+  for (const svc of ctx.domainServices) {
+    for (const test of svc.tests) {
+      checkLocatorMatcherReceivers(
+        test.statements,
+        `${ctx.name}/${svc.name}.test:${test.name}`,
+        diags,
+      );
+    }
+  }
   for (const agg of ctx.aggregates) {
     for (const test of agg.tests) {
       checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
@@ -618,6 +640,64 @@ export function checkMatcherSubjects(
       checkAbsentReceiver(e, source, diags, seen);
     });
   }
+  checkLocatorMatcherReceivers(statements, source, diags);
+}
+
+/** `loom.locator-matcher-receiver` — a LOCATOR matcher (`toHaveText` /
+ *  `toHaveCount` / `toBeVisible`) asserts against a live DOM node, so its
+ *  subject must be something the ui e2e renderer can turn into a Playwright
+ *  `Locator`: `<row>.<field>` where `<row>` is `let`-bound in the same body to
+ *  `ui.<aggregate>.getById(…)` or `ui.<aggregate>.create(…)` (the two calls
+ *  that put a row on screen — `renderExplicitMatcher` / `pageHandleExpr` in
+ *  `ui-e2e-render.ts`), and `<field>` is not the page object's own `id`.
+ *  Anything else reached `renderExpectStmt`'s compiler-invariant throw and
+ *  killed `generate system` (audit 2026-09-03 F6).  In a unit / integration
+ *  test, or an api e2e body, no such row exists, so every locator matcher is
+ *  refused.  Moved here from the AST validator (`validators/match.ts`), which
+ *  re-derived the handle rule from syntax (M-T5.42 V15). */
+export function checkLocatorMatcherReceivers(
+  statements: readonly TestStmtIR[],
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const rows = new Set<string>();
+  for (const stmt of statements) {
+    if (stmt.kind === "let" && isUiRowCall(stmt.expr)) rows.add(stmt.name);
+  }
+  for (const stmt of statements) {
+    if (stmt.kind !== "expect") continue;
+    const e = stmt.expr;
+    if (e.kind !== "method-call" || !e.isIntrinsicMatcher) continue;
+    if (intrinsicMatcherSig(e.member)?.on !== "locator") continue;
+    const { subject } = matcherSubject(e);
+    const isRowField =
+      subject.kind === "member" &&
+      subject.member !== "id" &&
+      subject.receiver.kind === "ref" &&
+      rows.has(subject.receiver.name);
+    if (isRowField) continue;
+    diags.push({
+      severity: "error",
+      code: "loom.locator-matcher-receiver",
+      message: diagMessage("loom.locator-matcher-receiver", {
+        matcher: e.member,
+        actual: exprLabel(subject),
+      }),
+      source,
+    });
+  }
+}
+
+/** `ui.<slug>.getById(…)` / `ui.<slug>.create(…)`. */
+function isUiRowCall(e: ExprIR): boolean {
+  if (e.kind !== "method-call" || (e.member !== "getById" && e.member !== "create")) return false;
+  const r = e.receiver;
+  return (
+    r.kind === "member" &&
+    r.member !== "workflows" &&
+    r.receiver.kind === "ref" &&
+    r.receiver.name === "ui"
+  );
 }
 
 function checkMagicCall(

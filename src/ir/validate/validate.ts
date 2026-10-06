@@ -99,6 +99,7 @@ import {
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
+  validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
   validateTphFilterExpressibility,
@@ -202,6 +203,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
     validateDataSourceUnwiredKnobs(sys, diags);
+    validateStorageTypeBinding(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);
