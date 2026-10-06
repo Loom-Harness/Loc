@@ -95,7 +95,9 @@ describe("LSP adapters", () => {
     expect(after.ok).toBe(true);
 
     // …and it matches what the patch applier produces from the same patch.
-    const viaPatch = await applyPatches(BARE, [report.diagnostics[0]!.fixHint!.patch!]);
+    const viaPatch = await applyPatches(BARE, [
+      report.diagnostics.find((d) => d.fixHint)!.fixHint!.patch!,
+    ]);
     expect(fixed).toBe(viaPatch.text);
   });
 
