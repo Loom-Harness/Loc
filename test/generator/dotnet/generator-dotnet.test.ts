@@ -276,7 +276,9 @@ describe(".NET generator", () => {
       // Trace correlation now rides the x-request-id response header (off
       // the RFC 7807 body); each arm returns a ProblemDetails via Problem(...).
       expect(filter).toMatch(/Response\.Headers\["x-request-id"\] = traceId;/);
-      expect(filter).toMatch(/Problem\(context, 403, "Forbidden", fe\.Message, trace_id\)/);
+      // No dev-stub verifier here, so the 403 body is the constant `Forbidden`
+      // (ruling D4, #20) — the gate text stays in the log line.
+      expect(filter).toMatch(/Problem\(context, 403, "Forbidden", "Forbidden", trace_id\)/);
       expect(filter).toMatch(
         /Problem\(context, 422, "Unprocessable Entity", de\.Message, trace_id\)/,
       );

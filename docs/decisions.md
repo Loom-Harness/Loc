@@ -4579,3 +4579,36 @@ only a `loc`, and one field name can carry different bounds on two models.
 `validation-messages` wire golden (seq 14/15). .NET, Java and Elixir still send
 their own text — mission M-T6.86, held by four waivers in
 `test/_helpers/wire-waivers.ts`.
+
+## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
+
+**Status:** PINNED (owner rulings D4 and D6, 2026-09-29; eval-closure items #20
+and #23, `docs/audits/2026-09-28-eval-closure-review/VERIFIED-AND-WAVES.md`).
+
+**D4 — the 403 body.** Every `requires` gate throws `Forbidden: <gate source>`.
+That text always goes to the backend's `forbidden` log line. The RFC 7807
+`detail` repeats it **only** when the deployable runs the dev-stub verifier
+(`auth: required` + a `user { … }` block + no `auth { oidc … }` block); under a
+real verifier — and on a deployable with no verifier at all — the body is the
+constant `Forbidden`. One compile-time predicate decides it for all five
+backends, `echoesDenialDetail` (`src/ir/util/denial-detail.ts`), derived from
+the same facts that choose the verifier, so the body cannot disagree with the
+verifier actually shipped. Every forbidden response funnels through one place
+per backend (node `ForbiddenError.detail`, .NET `DomainExceptionFilter`, Java
+`ApiExceptionAdvice`, Python `install_error_handlers`, Phoenix
+`ProblemDetails.problem_response/4`); the ~21 throw sites are unchanged.
+Wire-visible: `test/behavioral/wire-golden/auth-oidc.json` was re-baselined.
+
+**D6 — the dev-claims header.** A present, non-empty `x-loom-dev-claims` header
+that does not decode to a base64 JSON **object** answers `400 Bad Request` with
+the detail `malformed x-loom-dev-claims header: expected a base64-encoded JSON
+object` on all five dev stubs, including a stub whose user shape has no
+carryable claim. It used to fall back silently to the built-in identity.
+
+**Scope choices recorded with them.** "Otherwise" in D4 includes the
+no-verifier deployable (not dev-stub auth, so no echo). The Phoenix LiveView
+create form's denial flash follows the same rule as the HTTP body.
+
+**Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
+backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
+`test/generator/dev-claims-parity.test.ts`.
