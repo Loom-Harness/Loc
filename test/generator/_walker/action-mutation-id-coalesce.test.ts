@@ -74,7 +74,7 @@ function find(files: Map<string, string>, suffix: string): string {
  *  longer proves anything). */
 const HOOK_SIGNATURE: Record<string, string> = {
   react: "export function useSoftDeleteProject(id: string) {",
-  vue: "export function useSoftDeleteProject(id: string) {",
+  vue: "export function useSoftDeleteProject(id: MaybeRefOrGetter<string>) {",
   svelte: "export function useSoftDeleteProject(id: () => string) {",
 };
 
@@ -88,8 +88,9 @@ const CASES: Array<{ framework: string; page: string; hoist: string; unfixed: st
   {
     framework: "vue",
     page: "src/pages/projects/detail.vue",
-    hoist: 'const softDeleteProject = reactive(useSoftDeleteProject(projectById.data?.id ?? ""));',
-    unfixed: "useSoftDeleteProject(projectById.data?.id)",
+    hoist:
+      'const softDeleteProject = reactive(useSoftDeleteProject(() => projectById.data?.id ?? ""));',
+    unfixed: "useSoftDeleteProject(() => projectById.data?.id)",
   },
   {
     framework: "svelte",

@@ -41,11 +41,14 @@ describe("vue component action-button mutation id", () => {
   it("passes the prop instance id to the mutation hook", async () => {
     const c = find(await generateSystemFiles(SYS), "OrderActions.vue");
     // The instance is a component prop, so `order.id` → `props.order.id`.
-    // The id is optional-chained (the receiver may be pending query data) AND
-    // coalesced (`useConfirmOrder` is typed `(id: string)`) — see
+    // The id is a getter (read when the mutation runs, not once at `setup`),
+    // optional-chained (the receiver may be pending query data) AND coalesced
+    // (`useConfirmOrder` takes a `MaybeRefOrGetter<string>`) — see
     // `test/generator/_walker/action-mutation-id-coalesce.test.ts` for the
     // Detail-page shape where the missing `?? ""` was an actual TS2345.
-    expect(c).toContain('const confirmOrder = reactive(useConfirmOrder(props.order?.id ?? ""));');
+    expect(c).toContain(
+      'const confirmOrder = reactive(useConfirmOrder(() => props.order?.id ?? ""));',
+    );
     // Never the arg-less form (the bug).
     expect(c).not.toContain("reactive(useConfirmOrder())");
   });

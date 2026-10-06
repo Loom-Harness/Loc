@@ -182,9 +182,9 @@ function gatedOpTrigger(
   const provider = canProbeProviderName(agg.name, op.name);
   return (
     `Consumer(builder: (context, ref, _) { ` +
-    `final __blocked = ref.watch(${provider}(${idExpr})).valueOrNull == false; ` +
-    `final __button = ElevatedButton(onPressed: __blocked ? null : () async { await ${openDialog}; if (context.mounted) ref.invalidate(${provider}(${idExpr})); }, child: Text(${labelExpr})); ` +
-    `return __blocked ? Tooltip(message: ${gate.reasonExpr}, child: __button) : __button; })`
+    `final opBlocked = ref.watch(${provider}(${idExpr})).valueOrNull == false; ` +
+    `final opButton = ElevatedButton(onPressed: opBlocked ? null : () async { await ${openDialog}; if (context.mounted) ref.invalidate(${provider}(${idExpr})); }, child: Text(${labelExpr})); ` +
+    `return opBlocked ? Tooltip(message: ${gate.reasonExpr}, child: opButton) : opButton; })`
   );
 }
 
@@ -708,12 +708,27 @@ export const flutterTarget: WalkerTarget = {
     // Feliz, and sidesteps the QueryView data-param rename (`p` → the provider var).
     ctx.usesRouteId = true;
     const label = humanize(op.name);
-    const button =
-      `ElevatedButton(onPressed: () async { ` +
+    // A `when`-gated op watches its `can_<op>` probe (`gates.dart`) through a
+    // `Consumer` — the page may have no `ref` of its own — disables while the
+    // probe answers false (reason as tooltip), and re-queries it after a
+    // successful POST.
+    const gate = opGateFor(ctx, agg, op);
+    const provider = canProbeProviderName(agg.name, op.name);
+    const onSuccess =
+      (gate ? `ref.invalidate(${provider}(id)); ` : "") +
+      `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)}))); `;
+    const press =
+      `() async { ` +
       `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}')); ` +
       `if (res.statusCode >= 200 && res.statusCode < 300 && context.mounted) { ` +
-      `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)}))); ` +
-      `} }, child: Text(${dartString(label)}))`;
+      onSuccess +
+      `} }`;
+    const button = gate
+      ? `Consumer(builder: (context, ref, _) { ` +
+        `final opBlocked = ref.watch(${provider}(id)).valueOrNull == false; ` +
+        `final opButton = ElevatedButton(onPressed: opBlocked ? null : ${press}, child: Text(${dartString(label)})); ` +
+        `return opBlocked ? Tooltip(message: ${gate.reasonExpr}, child: opButton) : opButton; })`
+      : `ElevatedButton(onPressed: ${press}, child: Text(${dartString(label)}))`;
     if (ctx.authUi) {
       const gate = opActionGate(op);
       if (gate) {
