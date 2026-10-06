@@ -83,7 +83,7 @@ export function needsPureDomainCore(agg: AggregateIR, ctx: BoundedContextIR): bo
  *  aggregate, value object or domain service) calls — `<Agg>.create(...)`,
  *  the receiver a bare aggregate name.  The same receiver shape `renderCreate`
  *  in `tests-emit.ts` keys the emitted module on. */
-export function aggregatesCreatedInUnitTests(ctx: BoundedContextIR): Set<string> {
+function aggregatesCreatedInUnitTests(ctx: BoundedContextIR): Set<string> {
   const aggNames = new Set(ctx.aggregates.map((a) => a.name));
   const created = new Set<string>();
   const visit = (e: ExprIR): void => {
