@@ -24,9 +24,7 @@
 // `GET /api/projections/<slug>` action per projection (sibling of
 // `ViewsController`; the folded read model keeps its own `ProjectionsController`
 // at the same `/projections` prefix — distinct projection names ⇒ distinct
-// slugs ⇒ no route collision).  Only backends in `PROJECTION_QT_SUPPORTED`
-// (`src/ir/validate/checks/system-checks.ts`) are permitted a query-time
-// projection by the IR validator; elixir joins node/python here.
+// slugs ⇒ no route collision).  Every backend emits query-time projections.
 // ---------------------------------------------------------------------------
 
 import type {

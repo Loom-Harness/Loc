@@ -3,6 +3,11 @@ import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { whereToMikroFilter } from "../../../generator/typescript/emit/mikroorm.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
+import {
+  isInstantWireType,
+  RAW_INSTANT_FN,
+  renderRawInstantHelper,
+} from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import {
   allContextFilterEntries,
@@ -68,9 +73,8 @@ import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 //
 // One file per context — `http/projections.ts` — mounted under `/projections`
 // in `http/index.ts` (the folded projection
-// read model keeps its own by-key route elsewhere).  Only backends that have
-// ported this emit are permitted a query-time projection by the IR validator
-// (`loom.projection-query-time-unsupported`); node is the first.
+// read model keeps its own by-key route elsewhere).  Every backend emits the
+// query-time projection read; node was the first.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -142,7 +146,7 @@ export function buildQueryProjectionsFile(
   // neither contributes here.
   const sourceAggs = new Set<string>();
   const followAggs = new Set<string>();
-  const isRawTableSource = (kind?: string) => kind === "workflow" || kind === "projection";
+
   for (const p of projections) {
     if (p.query?.source && !isRawTableSource(p.query.sourceKind)) sourceAggs.add(p.query.source);
     for (const aux of p.query?.auxiliaries ?? []) followAggs.add(aux.aggName);
@@ -328,6 +332,7 @@ export function buildQueryProjectionsFile(
   }
   lines.push("");
   if (anyIntegralAggregate(projections)) lines.push(...INT_WIRE_HELPER);
+  if (anyRawInstantSelect(projections)) lines.push(...renderRawInstantHelper(), "");
 
   // Per-projection row / response schema (the declared `<Proj>Row` shape).
   for (const p of projections) {
@@ -692,8 +697,16 @@ function emitQueryProjectionRoute(
   if (mikro && rawRead) {
     const rowClass = mikroRowClassFor(p, source, ctx);
     out.push(`    const rows = await db.find(${rowClass}, ${mikro.where ?? "{}"});`);
+    // A `datetime` column hydrates to a `Date` on a mikro ENTITY exactly as it
+    // does on a drizzle row, so the same RS-4 canonicalisation applies — see the
+    // drizzle twin below.
     const projectedFields = (p.query!.selects ?? [])
-      .map((sel) => `      ${sel.field}: ${renderProjectionSelect(sel.expr, aliasMap)}`)
+      .map((sel) => {
+        const rendered = renderProjectionSelect(sel.expr, aliasMap);
+        const t = rowFieldType.get(sel.field);
+        const value = t && isInstantWireType(t) ? `${RAW_INSTANT_FN}(${rendered})` : rendered;
+        return `      ${sel.field}: ${value}`;
+      })
       .join(",\n");
     out.push(`    const projected = rows.map((r) => ({\n${projectedFields},\n    }));`);
     out.push(`    return httpCtx.json(projected as z.infer<typeof ${T}Response>, 200);`);
@@ -718,12 +731,20 @@ function emitQueryProjectionRoute(
     // churned — the defect that motivated the coercion (a domain `Decimal`
     // reaching the wire unscaled) cannot occur on this arm.
     //
-    // A selected `datetime` DOES arrive as a `Date` here, which is the one case
-    // this arm might still need; no fixture selects one, so it is stated rather
-    // than speculatively "fixed" — a change with no witness is how the last two
-    // bugs in this file got in.
+    // EXCEPT a selected `datetime`, which DOES arrive as a `Date` — the one case
+    // this arm's own note flagged as still open ("no fixture selects one").  The
+    // witness arrived: the folded-projection read routes shipped `.000Z` off the
+    // very same raw `<Proj>Row` (`behavioral-mikroorm`, #3023), so the same
+    // `Date` reaching `JSON.stringify` here would spell it the same wrong way.
+    // Nothing else on this arm is touched, so a `select` with no datetime stays
+    // byte-identical.
     const projectedFields = (p.query!.selects ?? [])
-      .map((s) => `      ${s.field}: ${renderProjectionSelect(s.expr, aliasMap)}`)
+      .map((s) => {
+        const rendered = renderProjectionSelect(s.expr, aliasMap);
+        const t = rowFieldType.get(s.field);
+        const value = t && isInstantWireType(t) ? `${RAW_INSTANT_FN}(${rendered})` : rendered;
+        return `      ${s.field}: ${value}`;
+      })
       .join(",\n");
     out.push(`    const projected = rows.map((r) => ({\n${projectedFields},\n    }));`);
     out.push(`    return httpCtx.json(projected as z.infer<typeof ${T}Response>, 200);`);
@@ -1070,6 +1091,28 @@ function anyIntegralAggregate(projections: readonly ProjectionIR[]): boolean {
     return aggs.some((a) => {
       const kind = numericKindOf(a.type);
       return kind === "int" || kind === "long";
+    });
+  });
+}
+
+/** A projection `source` that is another read MODEL (a workflow's saga-state row
+ *  or a folded projection's `<Proj>Row`) rather than an aggregate — read straight
+ *  off the table, with no repository in between.  Module-level so the route
+ *  builder and `anyRawInstantSelect` cannot answer it differently. */
+const isRawTableSource = (kind?: string): boolean => kind === "workflow" || kind === "projection";
+
+/** Whether any RAW-TABLE-sourced projection here `select`s a `datetime` — the
+ *  gate for the canonical-instant helper the two raw-read arms call.  A
+ *  `<Proj>Row` / saga-state row hands that column back as a JS `Date` under both
+ *  adapters, and emitting the call without the declaration is a `TS2304`, so the
+ *  flag and the call sites stay adjacent (`anyMoneyAggregate`'s discipline). */
+function anyRawInstantSelect(projections: readonly ProjectionIR[]): boolean {
+  return projections.some((p) => {
+    if (!isRawTableSource(p.query?.sourceKind)) return false;
+    const typeOf = new Map(p.stateFields.map((f) => [f.name, f.type] as const));
+    return (p.query?.selects ?? []).some((sel) => {
+      const t = typeOf.get(sel.field);
+      return !!t && isInstantWireType(t);
     });
   });
 }

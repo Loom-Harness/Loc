@@ -56,10 +56,9 @@ const REGISTERED: Ratchet[] = [
     // 14: +ProjectionJoin +ProjectionSelect — the query-time projection
     // comprehension grammar nodes (read-path-architecture.md rev.13).
     //
-    // NOT gated: `PROJECTION_QT_SUPPORTED` (`system-checks.ts`) is 5/5
-    // (node/python/elixir/java/dotnet), so
-    // `loom.projection-query-time-unsupported` fires only for a hypothetical
-    // un-ported future backend.  These two stay allowlisted for the SHOWCASE
+    // NOT gated: the query-time emit ships on all five backends
+    // (node/python/elixir/java/dotnet), and its per-backend support gate was
+    // deleted for that reason.  These two stay allowlisted for the SHOWCASE
     // reason the allowlist itself gives (see the entries' comment in
     // `showcase-completeness.test.ts`): the same parity/blast-radius grounds
     // that keep folded `Projection` out of the shared single-file fixture, not
@@ -591,6 +590,16 @@ const REGISTERED: Ratchet[] = [
     // backend by the `tenancy-org-context*` cells of tenancy-e2e (tracker:
     // **M-T3.6**; the behavioural drain of the no-switch half rides **M-T9.13**
     // once #2976's registry-row principal lands).
+    //
+    // 26 -> 23 (2026-09-28, wave C3 packet 3a, M-T9.13): `principal-read-filter`,
+    // `extern` and `workflow-primitive-params` each gained a `test e2e` block
+    // and a node-minted golden, green on all seven behavioural legs and
+    // mutation-proved.  (`numeric-operands` drained from the E2E-less register
+    // in the same packet but was never here — its domain `test` block already
+    // scored it behavioural.)  Six more blocks were written and booted and are
+    // HELD here on the runtime defects they found — the hand-off note
+    // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
+    // and its repro, and each row's reason above now names its defect.
     // 25 -> 27, SECOND raise at this merge (#3024 — `dotnet-bcl-type-collision`).
     //
     // READ THIS BEFORE TOUCHING THE NUMBER.  `main` and this branch BOTH raised
@@ -624,7 +633,107 @@ const REGISTERED: Ratchet[] = [
     // Nothing to drain (same disposition as `auth-id-claim`): this is not a tier
     // gap.  If the entry ever stops paying for itself the honest move is to
     // delete the fixture, not to boot it.
-    max: 27,
+    //
+    // 27 / 23 -> 24, RE-DERIVED at the Wave C3 fold's `main` merge (2026-09-29):
+    // `main` carried 27 (its raises above) while this branch carried 23 (packet
+    // 3a's three drains off the 26 both sides forked from: 26 + 1 - 3 = 24);
+    // neither literal is the answer after a merge — the register itself is.  The
+    // merged `BEHAVIOURAL_ABSENT` in `test/system/gate-ledger.test.ts` holds
+    // exactly 24 rows by this file's own counter, so the bound is pinned to that
+    // count and mutation-proved (23 fails naming 24).
+    // 27 -> 26 (2026-09-29, M-T6.73): `handler-triad` DRAINED, on the THIRD
+    // attempt.  #2984 made a routed handler addressable and drained this cell;
+    // booting it showed four of five backends did not serve an explicit route
+    // where the caller asks, so #2984 reverted its own drain and put the row
+    // back — correctly, since `gate-ledger` refuses a feature that boots on some
+    // declared backends and not others, with no allowlist, and
+    // `BEHAVIOURAL_SKIP` is at `max: 0`.  The emitter half of #3024 then fixed
+    // six defects and got FOUR legs to 0 wire divergences, but left the row in
+    // place rather than waive the fifth.
+    //
+    // What makes the drain legitimate now is that nothing is hidden: the last
+    // four divergences were the tier's malformed-body probe landing on a POST
+    // this create-less `Order` does not serve, where it cannot reach the parser
+    // it exists to test and measures whichever layer answers first instead.  The
+    // probe steps aside there now — the same step-aside its PATCH sibling
+    // already makes — so all five legs are green with NO per-backend waiver, no
+    // `BEHAVIOURAL_SKIP` entry, and no wire waiver.
+    //
+    // Re-derived against `main`'s CURRENT value at each merge, never carried:
+    // this branch was cut at 24 (-> 23), re-merged at 26 (-> 25), and is now
+    // re-merged at 27 (-> 26).  Each of those numbers was right on the tree it
+    // landed on and wrong one merge later — which is how this PR was ejected
+    // from the merge queue once already, on exactly this line.
+    //
+    // 24 / 26 -> 23, RE-DERIVED at the Wave C3 3-A branch's `main` merge of
+    // #3024 (2026-09-29): `main` carried 26 (27 minus the `handler-triad` drain
+    // above) and this branch 24 (27 minus packet 3a's three drains); the merged
+    // register holds exactly 23 rows by this file's own counter (27 - 3 - 1),
+    // so the bound is that count, mutation-proved both ways (22 fails naming
+    // 23; 999 fails as slack).
+    // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
+    // — a RAISE of three, and the reviewed line this ratchet exists to force.
+    // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
+    // `vo-regex-invariant`) carry value-object shapes NO model in the repo had:
+    // a VO resolved from a sibling context, a root-level (shared-kernel) VO
+    // nested in a context-local one, and a `.matches(<regex>)` invariant.  None
+    // can carry a `test e2e` block YET, and the reason is unusual enough to be
+    // worth the raise rather than hidden by it: on each of them at least one
+    // backend CANNOT BOOT, so there is no stack to record a wire golden from and
+    // a captured golden would enshrine the defect as the reviewed answer key.
+    // (node's routes module makes a temporal-dead-zone read, TS2448/TS2454;
+    // python names columns its own schema never created, and emits `re.search`
+    // with no `import re`.)  Each broken backend is excluded BY NAME from its
+    // row's `backends:` in the corpus manifest — not skip-listed, because a
+    // generate-only cell is refused by gate-ledger's own
+    // "no cell is held up by generation alone".
+    //
+    // These three ARE a tier gap, unlike the two entries above, and each fixture
+    // header writes down the runtime assertion it wants so the drain does not
+    // have to re-derive it.  They drain when the emitters are fixed: the same PR
+    // that lands the fix returns the excluded backend key, adds the e2e block,
+    // captures its golden, and deletes the entry here — lowering this number.
+    //
+    // MERGE RESOLUTION (fixture-shape audit, 2026-09-29): main's drain and this
+    // branch's raise landed on the same line and ejected this PR from the merge
+    // queue — the collision the note above predicts in its own last sentence.
+    // Re-DERIVED on the combined tree rather than carried from either side:
+    // main's 26 (27 minus the drained `handler-triad`) plus this branch's 3
+    // (`vo-cross-context`, `vo-root-kernel`, `vo-regex-invariant`) = 29.  Counted
+    // off `BEHAVIOURAL_ABSENT`'s actual keys after the merge, not arithmetic done
+    // from memory of either branch.
+    //
+    // 23 / 29 -> 26, RE-DERIVED at the Wave C3 3-A branch's `main` merge of the
+    // fixture-shape audit (#3077, 2026-09-29): `main` carried 29 (its raise of
+    // three above) and this branch 23 (27 minus packet 3a's three drains minus
+    // `handler-triad`); the merged register holds exactly 26 rows by this file's
+    // own counter (29 - 3), mutation-proved both ways (25 fails naming 26;
+    // 999 fails as slack).
+    // 23 -> 20 (2026-09-28, wave C3 packet 3g): three of those six held
+    // blocks drained with the `src/` fixes for the defects they found —
+    // `collection-op-shapes` (D1), `enum-collection` (D3), `vo-id-reference`
+    // (D4) — each green on all seven legs against a node-minted golden.
+    // 20 -> 17 (same packet): the remaining three — `workflow-enum-state`
+    // (D2 + D6), `workflow-command-payload` (D2 + D7) and
+    // `projection-implicit-sub` (D8) — drained with the elixir workflow fixes
+    // and the plural-slug grammar fix, so all six blocks 3a held are home.
+    // 24 / 17 -> 18, RE-DERIVED at the 3g fold onto the Wave C3 3-A tree
+    // (2026-09-29): 3-A carried 24 (above) and 3g's branch 17 (its six drains
+    // off the 23 it forked from); the merged register holds exactly 18 rows by
+    // this file's own counter (24 - 6), so the bound is that count,
+    // mutation-proved both ways (17 fails naming 18; 999 fails as slack).
+    // 23 / 18 -> 17, RE-DERIVED again when the 3g fold took the 3-A branch's
+    // later `main` merges (2026-09-29): 3-A now carries 23 (#3024's
+    // `handler-triad` drain) and 3g's six drains come off that — the merged
+    // register holds exactly 17 rows by this file's own counter (23 - 6),
+    // mutation-proved both ways (16 fails naming 17; 999 fails as slack).
+    //
+    // 26 / 17 -> 20, RE-DERIVED when the 3g fold took the 3-A branch's #3077
+    // merge (2026-09-29): 3-A carries 26 (the fixture-shape audit's raise of
+    // three) and 3g's six drains come off that — the merged register holds
+    // exactly 20 rows by this file's own counter (26 - 6), mutation-proved
+    // both ways (19 fails naming 20; 999 fails as slack).
+    max: 20,
   },
 ];
 

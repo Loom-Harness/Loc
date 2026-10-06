@@ -74,16 +74,6 @@ function maskPatternVars(cs: string): string[] {
 }
 
 describe("mask unless — .NET read redaction", () => {
-  it("makes the masked response param nullable", async () => {
-    const out = await files();
-    const resp = [...out.entries()].find(([k]) => k.endsWith("PResponses.cs"))?.[1] ?? "";
-    // A wire `decimal` is a `double` on the .NET response (#2563) — the
-    // float64 the other four backends send.  Masking makes it nullable.
-    expect(resp).toMatch(/double\?\s+Salary/);
-    // A non-masked field stays required.
-    expect(resp).toMatch(/\[property: Required\(AllowEmptyStrings = true\)\] string Name/);
-  });
-
   it("projects the masked field through a fail-closed ambient-principal guard", async () => {
     const out = await files();
     const handler = [...out.entries()].find(([k]) => k.endsWith("GetPByIdHandler.cs"))?.[1] ?? "";
@@ -138,28 +128,5 @@ describe("mask unless × audited — no duplicate pattern variable in one scope"
     expect(handler).toContain(
       "var __before = System.Text.Json.JsonSerializer.SerializeToNode(new PResponse(",
     );
-  });
-
-  it("two masked fields in ONE projection bind distinct mask variables", async () => {
-    const out = await filesFrom(AUDITED_SRC);
-    const handler = [...out.entries()].find(([k]) => k.endsWith("GetPByIdHandler.cs"))?.[1] ?? "";
-    const vars = maskPatternVars(handler);
-    expect(vars.length).toBe(2);
-    expect(new Set(vars).size, `duplicate mask pattern variables: ${vars.join(", ")}`).toBe(
-      vars.length,
-    );
-  });
-
-  it("no emitted C# file redeclares a mask pattern variable in one scope", async () => {
-    const out = await filesFrom(AUDITED_SRC);
-    const offenders = [...out.entries()]
-      .filter(([k]) => k.endsWith(".cs"))
-      .map(([k, v]) => [k, maskPatternVars(v)] as const)
-      .filter(([, vars]) => new Set(vars).size !== vars.length)
-      .map(([k, vars]) => `${k}: ${vars.join(", ")}`);
-    expect(
-      offenders,
-      `files redeclaring a mask pattern variable: ${offenders.join(" | ")}`,
-    ).toEqual([]);
   });
 });

@@ -1,6 +1,11 @@
 import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { voConstraintLines, voEctoType, voHasConstraints } from "./changeset-validators.js";
+import {
+  messageCodeTagging,
+  voConstraintLines,
+  voEctoType,
+  voHasConstraints,
+} from "./changeset-validators.js";
 
 // ---------------------------------------------------------------------------
 // Validating value-object constructor (Ecto/Phoenix)
@@ -53,7 +58,9 @@ function renderValueObjectModule(
 ): string {
   const moduleName = voModule(appModule, ctx, vo);
   const typeEntries = vo.fields.map((f) => `${snake(f.name)}: ${voEctoType(f.type)}`).join(", ");
-  const validators = voConstraintLines(vo).join("\n");
+  const tagging = messageCodeTagging(vo);
+  const validators = [...voConstraintLines(vo), ...(tagging.pipe ? [tagging.pipe] : [])].join("\n");
+  const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc false
@@ -72,6 +79,6 @@ ${validators}
   def new(attrs) when is_map(attrs) do
     apply_action(changeset(attrs), :insert)
   end
-end
+${tagDefs}end
 `;
 }

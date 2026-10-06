@@ -111,10 +111,51 @@ export function structEvaluable(
     // the same mechanism the `lambda` refKind above already reads.
     case "method-call":
       return rec(e.receiver) && e.args.every((a) => structEvaluableArg(a, scope, opaque));
-    default:
-      // call / match / new / object / list / convert / this / action-ref —
-      // domain logic, a constructor, or a shape a changeset cannot reproduce.
+    // All REJECT: domain logic, a constructor, or a shape a changeset cannot
+    // reproduce.  `false` is the conservative answer — the invariant simply is
+    // not lifted into the changeset, never emitted wrongly.
+    //
+    // NAMED rather than left to a `default:`, and closed with the `never` check
+    // below, because a `default:` here answers for kinds that do not exist yet:
+    // the next `ExprIR` kind would be silently REJECTED, so an invariant using
+    // it would go quietly undiagnosed instead of failing this file's typecheck.
+    // (CLAUDE.md's no-hand-rolled-IR-walks rule; `ir-walk-census.test.ts` pins
+    // it.)  This drain was applied by wave CR1 to the judgement's previous home
+    // in `elixir/vanilla/changeset-invariant-emit.ts`; #3023 relocated the
+    // function here and the `default:` came with it, so it is re-applied where
+    // the code now lives.
+    case "call":
+    case "match":
+    case "new":
+    case "object":
+    case "list":
+    case "convert":
+    case "this":
+    case "action-ref":
+    case "lambda":
+    case "authz-filter":
+    case "duration":
       return false;
+    // `i18nFormat` is a TRANSPARENT wrapper (`` `{total, currency}` ``): its
+    // `inner` carries the real expression, so the consistent answer here is
+    // `rec(e.inner)` the way `paren` is handled — rejecting it refuses an
+    // invariant this seam could lift.  Left as a rejection anyway, because
+    // changing it changes EMISSION (a currently-diagnosed invariant would start
+    // being enforced) and that is not a rebase conflict's business.
+    //
+    // Recorded rather than silently inherited: this is the third instance of the
+    // same hole wave CR1 found in `loom.method-call-unresolved-receiver`, where
+    // a missing `i18nFormat` arm made every gate that module raises blind to
+    // anything inside a `{x, format}` hole. A corpus without `, format` holes
+    // cannot see it, which is why it keeps surviving. Follow-up, deliberately
+    // not bundled here.
+    case "i18nFormat":
+      return false;
+    default: {
+      const never: never = e;
+      void never;
+      return false;
+    }
   }
 }
 
