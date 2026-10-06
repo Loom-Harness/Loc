@@ -923,6 +923,28 @@ export interface ScaffoldColumn {
    *  `<row>.<field>.value`, not `<row>.<field>` (which would render the whole
    *  carrier object). */
   provenanced?: boolean;
+  /** The column is on the server's `?sort=` whitelist (`sortableFields`,
+   *  src/ir/util/sortable-fields.ts), so a SERVER-paged list may mark it
+   *  `sortable:`.  See `serverSortable`. */
+  serverSortable?: boolean;
+}
+
+/** The AST-side twin of `sortableFields` (src/ir/util/sortable-fields.ts) —
+ *  the server's `?sort=` whitelist, which the macro cannot import (it reads the
+ *  enriched IR wire shape; the macro runs on the AST).  A declared property is
+ *  sortable iff it is a single orderable root column the read surface shows:
+ *  a required, non-array primitive or enum, not `provenanced` (the wire carries
+ *  a `{ value, lineage }` object), not the `token` access (`version`), not
+ *  `secret`/`internal`, and not `mask unless` (ordering would leak the hidden
+ *  value).  `test/macro/scaffold-sortable-allowlist.test.ts` pins the two lists
+ *  equal over one aggregate exercising every exclusion. */
+function serverSortable(p: Property): boolean {
+  if (p.access === "token" || p.access === "secret" || p.access === "internal") return false;
+  if (p.maskUnless || p.provenanced) return false;
+  const t = p.type;
+  if (t.array || t.optional || t.alternatives.length > 0 || t.ctors.length > 0) return false;
+  if (t.base.$type === "PrimitiveType") return true;
+  return t.base.$type === "NamedType" && t.base.target.ref?.$type === "EnumDecl";
 }
 
 /** A type-dispatched cell renderer rooted at an arbitrary receiver — the
@@ -993,7 +1015,13 @@ function columnsFromProperties(props: readonly Property[]): ScaffoldColumn[] {
   const out: ScaffoldColumn[] = [];
   for (const p of props) {
     const kind = columnKindForType(p.type);
-    if (kind) out.push({ name: String(p.name), kind, provenanced: !!p.provenanced });
+    if (kind)
+      out.push({
+        name: String(p.name),
+        kind,
+        provenanced: !!p.provenanced,
+        serverSortable: serverSortable(p),
+      });
   }
   return out;
 }
@@ -1303,11 +1331,15 @@ export function scaffoldList(
   // One Column per field; the ID column links to the detail page, the rest
   // dispatch their cell renderer by type (`columnAccessor`).  Rebuilt per
   // QueryView so the filter `match`'s several views never share nodes.
-  // Every scaffold column is `sortable:` — a click on its header sorts the
-  // list client-side (M-T1.1).  `field:` names the row property to sort by
-  // (the accessor may wrap it — money/date cells — so it's passed explicitly);
-  // the ID column sorts by `"id"`.
-  const makeCols = (): Array<{ name?: string; value: Expression }> => [
+  // A CLIENT-paged table (a filter query's unbounded array) sorts every
+  // column in the browser (M-T1.1).  A SERVER-paged one posts the key as
+  // `?sort=`, which the backend validates against its whitelist
+  // (`sortableFields`) — so there only a whitelisted column is `sortable:`;
+  // a `version`, masked, optional or reference column would emit a header
+  // the server refuses (M-T1.36 F4).  `field:` names the row property to sort
+  // by (the accessor may wrap it — money/date cells — so it's passed
+  // explicitly); the ID column sorts by `"id"`, always whitelisted.
+  const makeCols = (serverPaged: boolean): Array<{ name?: string; value: Expression }> => [
     {
       value: callExpr("Column", [
         { value: stringLit("ID") },
@@ -1328,8 +1360,12 @@ export function scaffoldList(
       value: callExpr("Column", [
         { value: stringLit(humanize(c.name)) },
         { value: lambda("o", columnAccessor(c.name, c.kind, "o", c.provenanced)) },
-        { name: "sortable", value: boolLit(true) },
-        { name: "field", value: stringLit(c.name) },
+        ...(!serverPaged || c.serverSortable
+          ? [
+              { name: "sortable", value: boolLit(true) },
+              { name: "field", value: stringLit(c.name) },
+            ]
+          : []),
       ]),
     })),
   ];
@@ -1343,7 +1379,7 @@ export function scaffoldList(
   // array, sliced/sorted in the browser.
   const makeTable = (serverPaged: boolean): Expression =>
     callExpr("Table", [
-      ...makeCols(),
+      ...makeCols(serverPaged),
       {
         name: "rows",
         value: serverPaged ? memberAccess(nameRefExpr("rows"), "items") : nameRefExpr("rows"),

@@ -282,6 +282,8 @@ export function renderVuePage(input: VuePageShellInput): string {
     stateNames,
     repointDerived,
     result.usedStores,
+    input.stores ?? [],
+    new Set([...stateNames, ...page.params.map((p) => p.name), ...page.derived.map((d) => d.name)]),
   );
   const derivedLines = derivedResult.lines;
   if (derivedLines.length > 0) vueImports.add("computed");
@@ -862,6 +864,25 @@ function renderStoreWiring(
   return { imports, decls, usesComputed };
 }
 
+/** The `computed` locals `renderStoreWiring` binds for the store FIELD reads
+ *  recorded so far (actions bind plain callables and are excluded). */
+function storeFieldLocals(
+  usedStores: Map<string, Set<string>> | undefined,
+  stores: readonly StoreIR[],
+  reserved: ReadonlySet<string>,
+): string[] {
+  if (!usedStores) return [];
+  const storesByName = new Map(stores.map((s) => [s.name, s]));
+  const out: string[] = [];
+  for (const [storeName, members] of usedStores) {
+    const actionNames = new Set((storesByName.get(storeName)?.actions ?? []).map((a) => a.name));
+    for (const member of members) {
+      if (!actionNames.has(member)) out.push(storeMemberLocal(storeName, member, reserved));
+    }
+  }
+  return out;
+}
+
 /** Relative prefix from the page's emit dir up to `src/` —
  *  `src/pages/x.vue` → `../`; `src/pages/orders/list.vue` → `../../`. */
 function relPrefix(input: VuePageShellInput): string {
@@ -1145,6 +1166,8 @@ export function renderVueComponentFile(
     stateNames,
     rewriteScript,
     result.usedStores,
+    stores,
+    new Set([...stateNames, ...paramNames, ...derivedNames]),
   );
   const derivedLines = derivedResult.lines;
   if (derivedLines.length > 0) vueImports.add("computed");
@@ -1516,9 +1539,14 @@ function buildDerivedLines(
   stateNames: ReadonlySet<string>,
   repointToScript: (s: string) => string,
   usedStores?: Map<string, Set<string>>,
+  /** The ui's stores + the page-level names `renderStoreWiring` reserves —
+   *  together they name the `computed` local each store FIELD read binds to. */
+  stores: readonly StoreIR[] = [],
+  reserved: ReadonlySet<string> = new Set(),
 ): { lines: string[]; usesState: boolean } {
   const lines: string[] = [];
   const seenDerived = new Set<string>();
+  const allDerived = new Set(derived.map((d) => d.name));
   let usesState = false;
   for (const d of derived) {
     const dctx: WalkContext = {
@@ -1529,7 +1557,11 @@ function buildDerivedLines(
       usedParams: new Set(),
       usesNavigate: false,
       stateNames,
-      derivedNames: seenDerived,
+      // EVERY derived name, not just the ones seen so far: `storeLocalFor`
+      // reads this set to decide a store member's local, and it must match
+      // the full reserved set `renderStoreWiring` binds with (a derived named
+      // like the member it reads → `cartCount`, not a self-reference).
+      derivedNames: allDerived,
       authUi: false,
       usesState: false,
       usesCurrentUser: false,
@@ -1562,6 +1594,16 @@ function buildDerivedLines(
     // in SCRIPT position the read must `.value`-deref — same as state.
     for (const prior of seenDerived) {
       exprStr = exprStr.replace(new RegExp(`\\b${prior}\\b(?!\\.value)`, "g"), `${prior}.value`);
+    }
+    // A store FIELD read lands as the bare member local too, and that local
+    // is a `ComputedRef` (`const count = computed(() => cart.state.count)`),
+    // so in script position it needs the same `.value` deref — else the
+    // derived holds the ref itself, not the number.
+    for (const local of storeFieldLocals(usedStores, stores, reserved)) {
+      exprStr = exprStr.replace(
+        new RegExp(`(?<![.\\w$])${local}\\b(?!\\.value)`, "g"),
+        `${local}.value`,
+      );
     }
     lines.push(`const ${d.name} = computed(() => ${exprStr});`);
     seenDerived.add(d.name);
