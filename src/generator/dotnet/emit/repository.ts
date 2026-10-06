@@ -18,6 +18,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
+import { csLocalNamer } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -28,6 +29,18 @@ import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from 
 import { csClaimStampsFor } from "./entity.js";
 import { eventDbSetName, eventRecordClass } from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
+
+/** The locals an EF relational `find` method (plain + paged) declares for
+ *  itself — each yields to a same-named find param. */
+const EF_FIND_LOCALS = [
+  "offset",
+  "sortColumn",
+  "total",
+  "totalPages",
+  "ordered",
+  "items",
+  "result",
+];
 
 // Repository interface (Domain layer) + EF-backed implementation
 // (Infrastructure layer).  Both surfaces own a `GetByIdAsync` /
@@ -259,6 +272,12 @@ export function renderRepositoryImpl(
     const ignore = body?.ignoreClause ?? "";
     const projection = body?.projectionClause ?? ".ToListAsync(cancellationToken)";
     const usesUser = findUsesCurrentUser(f);
+    // The method's own locals yield (`__`-prefixed) to a same-named find param
+    // (CS0136) — only on a collision, so every other model is byte-identical.
+    const L = csLocalNamer(
+      f.params.map((p) => p.name),
+      EF_FIND_LOCALS,
+    );
     // Paged (P3b): a count query + a `Skip`/`Take` page query (the find's
     // `where` threaded into both), returning the domain `Paged<Agg>`
     // envelope (1-based).  The query handler maps items to response DTOs.
@@ -272,36 +291,36 @@ export function renderRepositoryImpl(
         .map((wf) => `"${wf}" => "${upperFirst(wf)}"`)
         .join(", ");
       const orderExpr = (asc: boolean): string =>
-        `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, sortColumn))`;
+        `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
-        "        var offset = (page - 1) * pageSize;",
-        `        var sortColumn = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "Id" };`,
-        `        var total = await _db.${setName}${ignore}${filter}.CountAsync(cancellationToken);`,
-        "        var totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)total / pageSize) : 0;",
-        `        var ordered = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
-        `        var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);`,
+        `        var ${L("offset")} = (page - 1) * pageSize;`,
+        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "Id" };`,
+        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(cancellationToken);`,
+        `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
+        `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
+        `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(cancellationToken);`,
         `        ${renderDotnetLogCall("findExecuted", [
           { name: "aggregate", valueExpr: `"${agg.name}"` },
           { name: "find", valueExpr: `"${f.name}"` },
-          { name: "rows", valueExpr: "items.Count" },
+          { name: "rows", valueExpr: `${L("items")}.Count` },
         ])}`,
-        `        return new Paged<${agg.name}>(items, page, pageSize, total, totalPages);`,
+        `        return new Paged<${agg.name}>(${L("items")}, page, pageSize, ${L("total")}, ${L("totalPages")});`,
         "    }",
       ];
     }
-    const rowsExpr = findRowsExpr(f.returnType);
+    const rowsExpr = findRowsExpr(f.returnType, L("result"));
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
-      `        var result = await _db.${setName}${ignore}${filter}${projection};`,
+      `        var ${L("result")} = await _db.${setName}${ignore}${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
         { name: "rows", valueExpr: rowsExpr },
       ])}`,
-      "        return result;",
+      `        return ${L("result")};`,
       "    }",
     ];
   });
@@ -336,27 +355,29 @@ export function renderRepositoryImpl(
   // enumerated by name instead — or the branch disappears entirely when the
   // deny carve-out is the only filter.
   const allBypassNames = hasNonBypassableFilter(agg) ? bypassableFilterNames(agg, pool) : null;
-  const bypassAllLines =
+  // `q` is the method's IQueryable local (`__q` unless a retrieval param takes
+  // that name — see csLocalNamer).
+  const bypassAllLines = (q: string): string[] =>
     allBypassNames === null
-      ? ["        if (bypass.All) __q = __q.IgnoreQueryFilters();"]
+      ? [`        if (bypass.All) ${q} = ${q}.IgnoreQueryFilters();`]
       : allBypassNames.length > 0
         ? [
-            `        if (bypass.All) __q = __q.IgnoreQueryFilters([${allBypassNames
+            `        if (bypass.All) ${q} = ${q}.IgnoreQueryFilters([${allBypassNames
               .map((n) => JSON.stringify(n))
               .join(", ")}]);`,
           ]
         : [];
-  const bypassBody = [
-    ...bypassAllLines,
+  const bypassBody = (q: string): string[] => [
+    ...bypassAllLines(q),
     ...(bypassPairs.length > 0
       ? [
-          `        ${bypassAllLines.length > 0 ? "else if" : "if"} (bypass.Capabilities is { Count: > 0 })`,
+          `        ${bypassAllLines(q).length > 0 ? "else if" : "if"} (bypass.Capabilities is { Count: > 0 })`,
           "        {",
           `            var __ignore = new (string Capability, string Filter)[] { ${bypassPairs
             .map((p) => `(${JSON.stringify(p.cap)}, ${JSON.stringify(p.filter)})`)
             .join(", ")} }`,
           "                .Where(m => bypass.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();",
-          "            if (__ignore.Length > 0) __q = __q.IgnoreQueryFilters(__ignore);",
+          `            if (__ignore.Length > 0) ${q} = ${q}.IgnoreQueryFilters(__ignore);`,
           "        }",
         ]
       : []),
@@ -364,7 +385,12 @@ export function renderRepositoryImpl(
   const retrievalMethodLines = retrievals.flatMap((r) => {
     // The retrieval is a reified Ardalis Specification (where + sort, emitted
     // by spec-emit.ts); the method applies it and layers call-site paging.
-    const specArgs = r.params.map((p) => p.name).join(", ");
+    const specArgs = r.params.map((p) => escapeCsharpIdent(p.name)).join(", ");
+    // `result` / `__q` yield to a same-named retrieval param (CS0136).
+    const L = csLocalNamer(
+      r.params.map((p) => p.name),
+      ["__q", "result"],
+    );
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -372,15 +398,15 @@ export function renderRepositoryImpl(
       // to the base IQueryable BEFORE the spec composes its WHERE/ORDER.  The
       // domain `bypass` (capability names) is translated to EF filter names
       // adapter-side, above.
-      `        var __q = _db.${setName}.AsQueryable();`,
-      ...bypassBody,
-      `        var result = await __q.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(page).ToListAsync(cancellationToken);`,
+      `        var ${L("__q")} = _db.${setName}.AsQueryable();`,
+      ...bypassBody(L("__q")),
+      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(page).ToListAsync(cancellationToken);`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
-        { name: "rows", valueExpr: "result.Count" },
+        { name: "rows", valueExpr: `${L("result")}.Count` },
       ])}`,
-      "        return result;",
+      `        return ${L("result")};`,
       "    }",
     ];
   });
@@ -808,7 +834,9 @@ export function renderDocumentRepositoryImpl(
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
       .replace(".FirstAsync(cancellationToken)", ".First()");
     const usesUser = findUsesCurrentUser(f);
-    const rowsExpr = findRowsExpr(f.returnType);
+    // `result` yields to a same-named find param (CS0136).
+    const result = csLocalNamer(f.params.map((p) => p.name))("result");
+    const rowsExpr = findRowsExpr(f.returnType, result);
     // The capability filter narrows the visible set BEFORE the find's own
     // predicate runs, so a find never returns a capability-hidden (foreign
     // tenant, soft-deleted) document.
@@ -827,13 +855,13 @@ export function renderDocumentRepositoryImpl(
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        ${loadAll}`,
-      `        var result = __all${filter}${projection};`,
+      `        var ${result} = __all${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
         { name: "rows", valueExpr: rowsExpr },
       ])}`,
-      "        return result;",
+      `        return ${result};`,
       "    }",
     ];
   });
@@ -1118,7 +1146,9 @@ export function renderEventSourcedRepositoryImpl(
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
       .replace(".FirstAsync(cancellationToken)", ".First()");
     const usesUser = findUsesCurrentUser(f);
-    const rowsExpr = findRowsExpr(f.returnType);
+    // `result` yields to a same-named find param (CS0136).
+    const result = csLocalNamer(f.params.map((p) => p.name))("result");
+    const rowsExpr = findRowsExpr(f.returnType, result);
     const loadAll = "var __all = await _LoadAllAsync(cancellationToken);";
     // `find … paged` over an event-log carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
@@ -1128,13 +1158,13 @@ export function renderEventSourcedRepositoryImpl(
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        ${loadAll}`,
-      `        var result = __all${filter}${projection};`,
+      `        var ${result} = __all${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
         { name: "rows", valueExpr: rowsExpr },
       ])}`,
-      "        return result;",
+      `        return ${result};`,
       "    }",
     ];
   });
@@ -1324,6 +1354,8 @@ export function inMemoryPagedFindLines(
   f: FindIR,
   opts: { loadAll: string; filter: string; usesUser: boolean; log?: boolean },
 ): string[] {
+  // `items` yields to a same-named find param (CS0136).
+  const items = csLocalNamer(f.params.map((p) => p.name))("items");
   const sortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
     .map((wf) => `"${wf}" => (object?)__x.${upperFirst(wf)}`)
@@ -1343,7 +1375,7 @@ export function inMemoryPagedFindLines(
       sortArms ? ", " : ""
     }_ => (object?)__x.Id.Value };`,
     '        var __ordered = dir == "desc" ? __matched.OrderByDescending(__key) : __matched.OrderBy(__key);',
-    "        var items = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();",
+    `        var ${items} = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();`,
     // The Dapper mirrors carry no `_log` (no Dapper repository logs a read
     // today), so the caller can drop the event rather than reference a field
     // the class does not declare (CS0103).
@@ -1353,17 +1385,17 @@ export function inMemoryPagedFindLines(
           `        ${renderDotnetLogCall("findExecuted", [
             { name: "aggregate", valueExpr: `"${agg.name}"` },
             { name: "find", valueExpr: `"${f.name}"` },
-            { name: "rows", valueExpr: "items.Count" },
+            { name: "rows", valueExpr: `${items}.Count` },
           ])}`,
         ]),
-    `        return new Paged<${agg.name}>(items, page, pageSize, __total, __totalPages);`,
+    `        return new Paged<${agg.name}>(${items}, page, pageSize, __total, __totalPages);`,
     "    }",
   ];
 }
 
-function findRowsExpr(returnType: TypeIR): string {
-  if (returnType.kind === "array") return "result.Count";
-  return returnType.kind === "optional" ? "result == null ? 0 : 1" : "1";
+function findRowsExpr(returnType: TypeIR, result = "result"): string {
+  if (returnType.kind === "array") return `${result}.Count`;
+  return returnType.kind === "optional" ? `${result} == null ? 0 : 1` : "1";
 }
 
 function renderParamsWithCt(
