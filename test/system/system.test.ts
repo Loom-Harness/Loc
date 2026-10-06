@@ -189,9 +189,7 @@ describe("system / module / deployable", () => {
       expect(idx).toMatch(/baseLogger\.info\(\{ event: "migrations_starting" \}\)/);
       expect(idx).toMatch(/await migrate\(db, \{ migrationsFolder: "\.\/db\/migrations" \}\)/);
       expect(idx).toMatch(/baseLogger\.info\(\{ event: "migrations_complete" \}\)/);
-      expect(idx).toMatch(
-        /baseLogger\.error\(\{ event: "migration_failed", error: err instanceof Error \? err\.message : String\(err\) \}\)/,
-      );
+      expect(idx).toMatch(/baseLogger\.error\(\{ event: "migration_failed", error: message \}\)/);
     });
 
     it(".NET Program.cs brackets the EF boot migrate with catalog events (per-id applied)", async () => {

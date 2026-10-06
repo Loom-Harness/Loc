@@ -1035,8 +1035,9 @@ public sealed class UserMiddleware
         "/swagger",
         // The dev-only state reset (src/util/test-reset.ts) — infra, not
         // domain surface, so an auth-bearing system's e2e suite need not mint
-        // a principal just to empty a table.  Costs nothing: where the route
-        // is not mapped there is no handler behind the bypassed path.
+        // a principal just to empty a table.  Not an auth bypass: the route
+        // is mapped only with LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN,
+        // and refuses (403) a request without that secret.
         "${TEST_RESET_PATH}",${handshakeBypass}
     };
 

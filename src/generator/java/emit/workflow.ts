@@ -887,7 +887,7 @@ export function renderJavaWorkflows(
       // A workflow is a per-dispatch boundary: run it in a child execution frame
       // (fresh scope_id, parent_id ← the request's root scope) so its audit /
       // provenance rows record their call-structure position.
-      `        try (var __frame = RequestContext.openChild()) {`,
+      `        try (var _ = RequestContext.openChild()) {`,
       ...(usesUser && authed ? [`            var currentUser = currentUserAccessor.user();`] : []),
       // Workflow narrative — `workflow_started` at method entry; shared catalog
       // identity (field `workflow`) across every backend.

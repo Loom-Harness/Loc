@@ -4544,6 +4544,34 @@ M-T5.10 and M-T5.40;
 `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 and its coordination
 note's item 3.
 
+## D-KAFKA-START-OFFSET — a new kafka group starts at earliest on a work queue, latest on a log
+
+**Status:** decided (owner ruling D3 of the 2026-09-28 eval-closure review,
+item 13).
+
+**Question.** Every backend's kafka consumer started a NEW consumer group at
+the `latest` offset. On a work-queue channel (`delivery: queue` /
+`retention: work`) that loses every event published before the consuming
+deployable's group first joins — a fresh deploy whose producer boots first, or
+a rejoin after the broker expired the group's offsets. The rabbit twin
+(F-112) was fixed as a bug; kafka was not.
+
+**Decision.** A new group on a work-queue channel starts at the **earliest**
+offset; a `retention: log` (broadcast) channel keeps **latest**. A group with
+committed offsets resumes from them in both cases, so this only decides the
+first join. The predicate is `kafkaStartsAtEarliest`
+(`src/generator/_channels/bindings.ts`); each backend reads it into its binding
+row and passes it to the kafka driver only (node kafkajs `fromBeginning`, java
+`AUTO_OFFSET_RESET_CONFIG`, .NET `AutoOffsetReset`, python
+`auto_offset_reset`, elixir brod `begin_offset`). The other drivers have no
+offsets and do not see it.
+
+**Why.** `retention: work` promises a work item is delivered; a silent drop on
+first boot breaks that promise. A replay of already-handled records is safe on
+a work queue because consumers dedupe on the envelope id. On a log, a fresh
+deployable replaying the whole history is a semantic change of its own
+(the replay cursor, M-T4.2), so it stays out of this ruling.
+
 ## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
 
 **Status:** PINNED (owner rulings D4 and D6, 2026-09-29; eval-closure items #20
@@ -4576,6 +4604,52 @@ create form's denial flash follows the same rule as the HTTP body.
 **Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
 `test/generator/dev-claims-parity.test.ts`.
+
+## D-DEFAULT-DENY-LIST-WARN — under `denyByDefault` an ungated list read is a warning; a cross-context policy call is a named error
+
+**Status:** ruled by the owner (eval closure review 2026-09-28, rulings D5 and
+D9; items 22 and 39 of
+`docs/audits/2026-09-28-eval-closure-review/reverified-items.json`).
+
+**D5: the list read.** Every aggregate serves `GET /api/<plural>`, which is
+backed by the repository find named `all`. Unless the author declares that
+find, enrichment injects it without a gate. Under `denyByDefault` the list
+read therefore served every row to any authenticated caller. The by-id
+warning fired, but the list did not. `default-deny-checks.ts` had exempted it
+as "compiler-synthesized, no author source line". That reason was weaker
+than the by-id one, because the author can write
+`find all(): T[] requires <expr>`, and all five backends enforce it
+(`src/ir/util/read-gates.ts`).
+
+The ruling is a **warning**, `loom.default-deny-list-ungated`, at the same
+tier as `loom.default-deny-by-id-ungated`. Existing models keep building, and
+the message names the line that silences the warning. An author-declared
+`find all` with no gate gets the same warning. The declared-find error arm
+still skips `all`, so leaving it out would bring back the silent case.
+Promoting the warning to an error is left to the runtime-gating mission
+(M-T3.19 / #3109).
+
+**D9: cross-context policy calls.** Function-form policies are
+context-local. Before this ruling, a `requires P()` naming a policy declared
+in another context reported only `'requires' must be of type 'bool', got
+'unknown'`. It now reports `loom.policy-out-of-scope`: "policy P is declared
+in context A; policies are context-local — redeclare it in B". The type
+system types such a call `bool` (`outOfScopePolicyCall`,
+`src/language/type-system.ts`), so the named error is the only one raised.
+The detection has two limits:
+
+- It covers only the call form `P(args)`. A bare name has too many other
+  readings.
+- It sees only one document. In a multi-file model, a context declared in
+  another file is not searched, and that case keeps the old wording.
+
+Sharing a policy across contexts (at subdomain or system level) needs its own
+language decision. It is a separate mission.
+
+**Touches:** `src/ir/validate/checks/default-deny-checks.ts`,
+`src/language/validators/policy-fn.ts`, `src/language/type-system.ts`,
+`src/diagnostics/messages.ts`, `docs/auth.md`,
+`docs/language-reference/17-auth.md`, `docs/language.md`.
 
 ## D-TARGET-RESERVED-NAMES — a member named like a target keyword, or a generated helper, is escaped per backend
 
