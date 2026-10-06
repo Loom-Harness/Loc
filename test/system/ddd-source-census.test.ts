@@ -180,11 +180,11 @@ const DELIBERATELY_INVALID = [
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
   // they belong here rather than being fixed or untracked.  Only the seven
-  // that fail at the AST layer are listed, plus `b05` — see below; `b09` (a
-  // typo'd field in a page body) still validates CLEAN and is a finding in its
-  // own right (F-041), so it stays in the positive population
-  // above — the day either starts being refused, its pin is what should be
-  // added, not this comment.
+  // that fail at the AST layer are listed, plus `b05` — see below. `b09` (a
+  // typo'd field in a page body, F-041) is still AST-clean, so it stays in the
+  // positive population above, but it is now refused one phase later by the IR
+  // backstop `loom.member-unresolved` (#3133, pinned in
+  // `test/ir/member-unresolved.test.ts`). This census is AST-only.
   //
   // Listing them here also puts them under the negative control below, which
   // turns the corpus into a standing ratchet: a gate that stops firing fails

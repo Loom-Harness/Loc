@@ -104,6 +104,13 @@ import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  NO_FOREIGN_VALUE_TYPES,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+  withForeignValueTypes,
+} from "../../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -113,6 +120,7 @@ import {
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -743,25 +751,20 @@ export function generateTypeScriptForContexts(
   // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const foreignConsumedEvents = system
-    ? [
-        ...new Set([
-          ...mergedSubscriptions.map((s) => s.event),
-          ...channelBindings.flatMap((b) => b.events),
-        ]),
-      ]
-        .filter((name) => !knownEventNames.has(name))
-        .flatMap((name) => {
-          for (const sub of system.sys.subdomains) {
-            for (const c of sub.contexts) {
-              const ev = c.events.find((e) => e.name === name);
-              if (ev) return [ev];
-            }
-          }
-          return [];
-        })
+    ? resolveForeignEvents(
+        [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
+        knownEventNames,
+        system.sys,
+      )
     : [];
+  // …and the value objects / enums those foreign events' fields reach, which
+  // the consumer does not host either: `domain/value-objects.ts` must DECLARE
+  // them, because `domain/events.ts` imports them from it (eval item 11).
+  const foreignValueTypes = system
+    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+    : NO_FOREIGN_VALUE_TYPES;
   const merged: EnrichedBoundedContextIR = {
-    ...mergedBase,
+    ...withForeignValueTypes(mergedBase, foreignValueTypes),
     events: [...mergedBase.events, ...foreignConsumedEvents],
     // Re-derive over the merged union so a reactor in one hosted context can
     // route off a channel declared in another — cross-context choreography
@@ -778,6 +781,7 @@ export function generateTypeScriptForContexts(
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
@@ -1431,7 +1435,10 @@ export function generateTypeScriptForContexts(
   // consumers.  A deployable with no wired bindings stays byte-identical.
   const hasChannels = channelBindings.length > 0;
   if (hasChannels) {
-    out.set("http/channels.ts", renderChannelsModule(channelBindings, merged.events));
+    out.set(
+      "http/channels.ts",
+      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged)),
+    );
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
   // hosted OR wired channel); a pure producer skips the loop and the
@@ -1529,7 +1536,7 @@ export function generateTypeScriptForContexts(
     ),
   );
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
-  out.set("Dockerfile", DOCKERFILE_TS);
+  out.set("Dockerfile", renderDockerfileTs(hasMigrations));
   out.set(".dockerignore", DOCKERIGNORE_TS);
   out.set("certs/.gitkeep", "");
   // Pooled domain-side repository PORTS (audit S7) — the `<Agg>RepositoryPort`
@@ -2088,7 +2095,27 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 // Multi-stage Dockerfile: build stage installs all deps and compiles
 // TypeScript; runtime stage uses a smaller production-only image.
-export const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
+/** The runtime stage's copy of the drizzle migration folder.  Present iff the
+ *  project emits `db/migrations` — the same `hasMigrations` predicate that
+ *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
+ *  (schema via `orm.schema.updateSchema()`) and a node deployable that owns no
+ *  module's migrations emit none, and an unconditional `COPY` of a missing
+ *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
+const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
+# from disk; without these the process crashes on boot with
+# "Can't find meta/_journal.json file".
+COPY --from=build /app/db/migrations ./db/migrations
+`;
+
+/** The generated Dockerfile; `copyMigrations` mirrors `hasMigrations`. */
+function renderDockerfileTs(copyMigrations: boolean): string {
+  return DOCKERFILE_TS_TEMPLATE.replace(
+    "__MIGRATIONS_COPY__",
+    copyMigrations ? MIGRATIONS_COPY : "",
+  );
+}
+
+const DOCKERFILE_TS_TEMPLATE = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM node:24-alpine AS build
@@ -2105,6 +2132,10 @@ COPY package.json ./
 # keeps the build log clean and skips two registry round-trips.
 RUN npm install --no-audit --no-fund
 COPY . .
+# Type-check before bundling: tsup strips types without checking them, so
+# without this step a type error in the generated (or hand-edited) sources
+# ships in an image that builds green and fails only at runtime.
+RUN npm run typecheck
 RUN npm run build
 
 FROM node:24-alpine AS runtime
@@ -2113,11 +2144,7 @@ ENV NODE_ENV=production PORT=3000
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
-# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
-# from disk; without these the process crashes on boot with
-# "Can't find meta/_journal.json file".
-COPY --from=build /app/db/migrations ./db/migrations
-EXPOSE 3000
+__MIGRATIONS_COPY__EXPOSE 3000
 # --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
 # without it every stack-trace frame names dist/index.js and \`ddd trace\`
 # resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
@@ -2126,6 +2153,9 @@ EXPOSE 3000
 # against.  The flag costs a one-off map parse on first throw.
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 `;
+
+/** The drizzle (migrations-shipping) Dockerfile — the common case. */
+export const DOCKERFILE_TS = renderDockerfileTs(true);
 
 const DOCKERIGNORE_TS = `# Auto-generated.
 node_modules

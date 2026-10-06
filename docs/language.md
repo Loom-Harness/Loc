@@ -1046,6 +1046,10 @@ the scalar intrinsics (`s.trim()`, `n.abs()`, `d.round(2)`, `t.startOfDay()`,
 …) are in the same document — an unknown intrinsic, a wrong arity /
 argument type, or a call on a nullable receiver is rejected
 (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-nullable-receiver`).
+A member *read* on a primitive is judged against the same catalogue plus the
+one field-shaped scalar member (`string.length`): `m.amount` on a `money`
+field, or any other invented member on a primitive, is
+`loom.unknown-primitive-member` (see the validation list below).
 
 ### Numeric widening
 
@@ -1589,6 +1593,16 @@ on the generated repository plus a Mediator query in the .NET backend.
 - **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
   pass through EF Core to SQL.
 
+**Null semantics.** A comparison against a *nullable value* — a
+`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+null-aware on every backend: `this.col == v` with `v` null matches the rows
+whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
+ordering (`<`, `>`, …) against null matches no row.  So
+`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
+returns the unassigned orders for a principal with no `technicianId` rather
+than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
+fail-closed.
+
 A repository `where` clause may use `this.<refColl>.contains(param)` to
 query membership over an `X id[]` reference collection — for example,
 `find holdingInParty(pokemon: Pokemon id): Trainer[] where
@@ -1643,8 +1657,21 @@ The validator runs after parsing and reports errors for:
   receiver — `order.totl`, `paid.amont`, `this.noField` (`loom.unknown-member`).
   Covers aggregates (including fields inherited via `extends`), entity
   parts, value objects, events / payloads, and `X id` references; it does
-  not fire on collection ops (`lines.first`), string members (`s.length`),
-  or receivers whose type couldn't be resolved.
+  not fire on collection ops (`lines.first`), on `string.length`, or on
+  receivers whose type couldn't be resolved.  A primitive receiver has its
+  own code, immediately below.
+- Access to a member a **primitive** doesn't have — `s.totallyMadeUp`,
+  `n.alsoInvented`, `m.amount` (`loom.unknown-primitive-member`).  A primitive
+  is a value, not a record: its whole surface is `string.length` plus the
+  scalar-intrinsic catalogue, both enumerable, so the message lists what *is*
+  reachable.  `money` is the case that bites — it is a precise decimal, not a
+  `{ amount, currency }` record, and `invariant limit.amount > deductible.amount`
+  used to validate clean and reach the emitters verbatim: node/.NET/Java then
+  failed their *own* compile, python and elixir did not, leaving a business
+  rule that can never fire.  If you wanted the record, declare it —
+  `valueobject Money { amount: money  currency: string }`.  A reachable name
+  written without its parens (`s.trim`) stays `loom.intrinsic-bare`, and an
+  unknown *call* stays `loom.intrinsic-unknown`.
 - Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
   where the system's `user { … }` block never declares it
   (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
@@ -1705,7 +1732,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.macro-*`, `loom.unknown-macro`, `loom.scaffold-*`, `loom.softdelete-*`, `loom.capability-*`, `loom.stamp-*`, `loom.filter-*`, `loom.ignoring-clause-placement` | Macro args / targets, scaffold params, capability hosts, filters / stamps, `ignoring` placement | [`scaffold-macros.md`](scaffold-macros.md), [`capabilities.md`](capabilities.md) |
 | `loom.abstract-*`, `loom.extends-*`, `loom.tph-*`, `loom.polymorphic-*` | Inheritance, TPH / TPC layout | [`inheritance.md`](inheritance.md) |
 | `loom.intrinsic-*`, `loom.duration-*`, `loom.interp-*`, `loom.ternary-*`, `loom.call-arg-*`, `loom.construction-*`, `loom.unknown-*`, `loom.bare-collection-accessor`, `loom.user-visible-concat` | Expression typing — intrinsics, durations, interpolation formats, ternaries, calls, record construction, names / members | this document, [`stdlib.md`](stdlib.md) |
-| `loom.function-*`, `loom.when-unsupported`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
+| `loom.function-*`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
 | `loom.ui-*`, `loom.page-primitive*`, `loom.store-*`, `loom.datagrid-*`, `loom.chart-*`, `loom.table-*`, `loom.a11y-*`, `loom.slot-*`, `loom.component-*`, `loom.action-*`, `loom.missing-effect-marker`, `loom.match-await*`, `loom.feliz-*`, `loom.flutter-*`, `loom.heex-*`, `loom.frontend-*` | Page metamodel, primitive arity / args, stores and lifetimes, grids / charts, accessibility, slots, actions and effect markers, per-frontend support gaps | [`page-metamodel.md`](page-metamodel.md), [`actions.md`](actions.md) |
 | `loom.e2e-*`, `loom.test-*`, `loom.context-test-unsupported` | e2e bodies, test placement | this document, [`testing.md`](testing.md) |
 | `loom.domain-service-*` | Domain-service purity / read rules | [`domain-services.md`](domain-services.md) |

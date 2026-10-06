@@ -5,8 +5,8 @@ import { parseString } from "../../_helpers/parse.js";
 // ---------------------------------------------------------------------------
 // Phase 3-core placement (test-placement.md): a `test` nested in a `context`
 // (no `for`) or hoisted with `for <Context>` is a context integration test.
-// It's honestly gated (`loom.context-test-unsupported`) until the integration
-// renderer lands. The `for` placement rules extend: `for <that context>` is
+// It warns (`loom.context-test-unsupported`) only when no backend deployable
+// hosts the context. The `for` placement rules extend: `for <that context>` is
 // redundant, but `for <Agg>` inside a context stays a legit hoisted subject test.
 // ---------------------------------------------------------------------------
 
@@ -47,6 +47,21 @@ describe("validator: context integration test placement (Phase 3-core)", () => {
     );
     expect(codes(diagnostics)).toContain("loom.test-redundant-for");
   });
+
+  // The warning is about NO backend hosting the context — every backend family
+  // emits context integration tests, so any backend deployable (a bareword or a
+  // `family@version` pin) silences it, while a frontend-only host does not.
+  const hosted = (platform: string): string =>
+    build({ ctxBody: `test "cross" { expect(1).toBe(1) }` }).replace(
+      "    } }\n  }",
+      `    } }\n    deployable d { platform: ${platform}, contexts: [Ordering], port: 4000 }\n  }`,
+    );
+  for (const platform of ["node", "dotnet", "python", "java", "elixir", '"node@v4"']) {
+    it(`no context-test warning when a ${platform} deployable hosts the context`, async () => {
+      const { diagnostics } = await parseString(hosted(platform));
+      expect(codes(diagnostics)).not.toContain("loom.context-test-unsupported");
+    });
+  }
 
   it("a context-nested `test … for <Aggregate>` stays a hoisted aggregate test (no context warning, no error)", async () => {
     const { diagnostics } = await parseString(

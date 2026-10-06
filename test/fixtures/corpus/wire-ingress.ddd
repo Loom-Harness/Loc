@@ -1,0 +1,80 @@
+// A malformed MONEY at the wire is the CLIENT's fault: 422 with an `errors[]`
+// entry naming the field by JSON pointer and node's message — never a 500 from
+// a parse inside the controller (M-T6.48).
+//
+// PROMOTED (M-T9.42) from the four per-backend `wire-numeric-ingress.test.ts`
+// string copies, which pinned each backend's SPELLING of the guard — .NET's
+// `TryParse ? v : throw WireFormatException`, java's pointer-carrying
+// `wireToDomain`, python's constrained `Annotated[str, …]`, elixir's guard in
+// the with-chain.  What only a booted backend can answer is whether the
+// refusal really is a 422 and whether every backend's body is the same one —
+// the wire golden this fixture carries compares the error BODIES across every
+// leg, pointer and message included, on an operation param — the one route
+// where all seven legs answer the same body.
+//
+// Four claims the copies carry are NOT asserted here, because promoting them
+// found defects (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
+//   - on the crudish CREATE and UPDATE, elixir refuses a malformed money with
+//     Ecto's "is invalid" where every other leg sends `Invalid decimal: "…"`
+//     (its operation-param guard does send node's message);
+//   - a decimal COMMA ("12,50") is accepted as 1250 on .NET and Dapper — the
+//     guard parses with `NumberStyles.Number`, which allows the invariant
+//     thousands separator — where every other leg answers 422;
+//   - a malformed money INSIDE a value object (`best: { price: "1.2.3" }`) is
+//     accepted on elixir;
+//   - an int past int32 has no cross-backend refusal: node and python answer
+//     422 with their validators' own wording, java and .NET 400.
+system WireIngress {
+  subdomain Shop {
+    context Shop {
+      valueobject Offer { price: money  note: string? }
+      aggregate Product with crudish {
+        name: string
+        price: money
+        qty: int
+        best: Offer
+        operation reprice(newPrice: money) { price := newPrice }
+      }
+      repository Products for Product { }
+    }
+  }
+  api ShopApi from Shop
+  storage primary { type: postgres }
+  resource shopState { for: Shop, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "a malformed money is a 422 naming the field, not a 500" against d {
+    let p = api.products.create({ name: "Lamp", price: money("12.50"), qty: 3, best: { price: money("11.00") } })
+    let read = api.products.getById(p)
+    expect(decimal(read.price)).toBe(12.5)
+    expect(decimal(read.best.price)).toBe(11)
+
+    // Two malformed shapes on an operation param — a second decimal point and
+    // no digits at all — each refused with the field's pointer.
+    expect(api.products.reprice(p, { newPrice: "1.2.3" })).toThrow(422)
+    expect(api.products.reprice(p, { newPrice: "twelve" })).toThrow(422)
+
+    // Nothing above wrote anything.
+    let unchanged = api.products.getById(p)
+    expect(decimal(unchanged.price)).toBe(12.5)
+    expect(api.products.all().total).toBe(1)
+
+    // The controls: the same route accepts a well-formed value, and so does
+    // the update.
+    api.products.reprice(p, { newPrice: money("9.99") })
+    expect(decimal(api.products.getById(p).price)).toBe(9.99)
+    api.products.update(p, { name: "Lamp", price: money("8.00"), qty: 3, best: { price: money("7.50") } })
+    let updated = api.products.getById(p)
+    expect(decimal(updated.price)).toBe(8)
+    expect(decimal(updated.best.price)).toBe(7.5)
+
+    api.products.destroy(p)
+    expect(api.products.getById(p)).toThrow(404)
+  }
+}

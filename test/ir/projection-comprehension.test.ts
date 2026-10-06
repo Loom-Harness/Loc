@@ -1,8 +1,7 @@
 // Lowering + validation coverage for the generalised `projection` query-time
-// comprehension (read-path-architecture.md rev.13).  The front-half lands the
-// surface + IR + validation gates; the per-backend emit is a follow-up, so a
-// query-time / `join` projection lowers fully but is HONESTLY rejected by
-// `loom.projection-query-time-unsupported` until a backend ports it.
+// comprehension (read-path-architecture.md rev.13): the surface + IR +
+// validation gates.  Every backend emits the query-time read, so a query-time /
+// `join` projection lowers fully and validates clean on every backend.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -174,11 +173,9 @@ async function sysErrorCodes(platform: string): Promise<string[]> {
 
 describe("projection comprehension — validation gates", () => {
   it("emits a query-time projection on every backend (all five have ported it)", async () => {
-    // node (PR-C), python (PR-D), elixir (PR-E), java (PR-F), dotnet (PR-G) —
-    // the honest gate `loom.projection-query-time-unsupported` now fires for no
-    // backend (every backend-owning platform is in PROJECTION_QT_SUPPORTED).
+    // node (PR-C), python (PR-D), elixir (PR-E), java (PR-F), dotnet (PR-G).
     for (const platform of ["node", "python", "elixir", "java", "dotnet"]) {
-      expect(await sysErrorCodes(platform)).not.toContain("loom.projection-query-time-unsupported");
+      expect(await sysErrorCodes(platform)).toEqual([]);
     }
   });
 
@@ -192,8 +189,6 @@ describe("projection comprehension — validation gates", () => {
       }
     `);
     expect(codes).toContain("loom.projection-query-and-fold-invalid");
-    // the specific reserved-combo gate fires INSTEAD of the generic honest gate
-    expect(codes).not.toContain("loom.projection-query-time-unsupported");
   });
 
   // A projection's `where` is a SELECTION position — pushed down to SQL by
@@ -253,7 +248,6 @@ describe("projection comprehension — validation gates", () => {
         on(e: OrderPlaced) { order := e.order  status := Confirmed }
       }
     `);
-    expect(codes).not.toContain("loom.projection-query-time-unsupported");
     expect(codes).not.toContain("loom.projection-query-and-fold-invalid");
   });
 });

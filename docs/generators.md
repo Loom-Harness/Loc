@@ -57,21 +57,21 @@ The dated baseline write-up is
 remaining gaps + sequencing are in
 [`plans/backend-parity-plan.md`](old/plans/backend-parity-plan.md).
 
-| Feature | node | dotnet | java | python | elixir | Gate set |
+| Feature | node | dotnet | java | python | elixir | Gate |
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
-| Event-sourced storage `persistedAs: eventLog` | ✓ | ✓ | ✓ | ✓ | ✓ | `EVENT_SOURCING_BACKENDS` |
-| Event-sourced **workflow** (saga appliers) | ✓ | ✓ | ✓ | ✓ | ✓ | `EVENT_SOURCING_WORKFLOW_BACKENDS` |
-| TPH inheritance `inheritanceUsing: sharedTable` | ✓ | ✓ | ✓ | ✓ | ✓ | `TPH_CAPABLE` |
+| Event-sourced storage `persistedAs: eventLog` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+| Event-sourced **workflow** (saga appliers) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+| TPH inheritance `inheritanceUsing: sharedTable` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | TPC inheritance `inheritanceUsing: ownTable` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
-| Discriminated unions / the `paged` carrier | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_UNION_BACKENDS` |
+| Discriminated unions / the `paged` carrier | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | The `envelope` carrier — a **single-row find** (see below) | ✓ | ✓ | ✓ | ✓ | ✓ | corpus `envelope` + `test/generator/envelope-carrier.test.ts` |
-| `when` canCommand gate + `can_<op>` query | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_WHEN_BACKENDS` |
-| Exception-less returns (`op(): X or NotFound`) | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_RETURN_BACKENDS` |
+| `when` canCommand gate + `can_<op>` query | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+| Exception-less returns (`op(): X or NotFound`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Capability `filter` — relational (non-principal) | ✓ | ✓ | ✓ | ✓ | ✓ | `LIMITED_FAMILIES` |
 | Capability `filter` — principal (`currentUser`/tenancy) | ✓ | ✓ | ✓ | ✓ | ✓ | system-checks.ts |
-| Provenanced fields (runtime trace) | ✓ | ✓ | ✓ | ✓ | ✓ | `PROVENANCE_BACKENDS` |
-| Per-operation `audited` | ✓ | ✓ | ✓ | ✓ | ✓ | `AUDIT_OP_BACKENDS` |
-| Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | `AUDIT_LIFECYCLE_BACKENDS` |
+| Provenanced fields (runtime trace) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+| Per-operation `audited` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+| Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Audit/context stamping (`with audit`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 
 > **`envelope` is a single-row find (M-T6.57, ratified 2026-09-10).** `find
@@ -92,9 +92,10 @@ remaining gaps + sequencing are in
 > construction, which is why `test/fixtures/corpus/envelope.ddd` now exists.
 
 **Re-verified 2026-08-23 against `src/ir/validate/checks/system-checks.ts`: every
-gate set in this table now holds all five backends** — `EVENT_SOURCING_WORKFLOW_BACKENDS`,
-`LIMITED_FAMILIES` + `supportsPrincipalFilter`, `AUDIT_OP_BACKENDS` and
-`AUDIT_LIFECYCLE_BACKENDS` each list `node, dotnet, java, python, elixir`. The
+gate set in this table held all five backends** — so the per-backend support
+sets (`EVENT_SOURCING_BACKENDS`, `SUPPORTED_UNION_BACKENDS`, `AUDIT_OP_BACKENDS`,
+…) were later deleted outright; `(universal)` means no per-backend gate exists,
+and `test/platform/backend-parity-gates.test.ts` pins the emission per backend. The
 former open gaps (principal Python filters W1b, per-op/lifecycle `audited`
 beyond node/dotnet W3, event-sourced workflow on Elixir W4) are **closed**. The
 gaps that remain are language-level rather than per-backend — see
@@ -1163,9 +1164,8 @@ Discriminated unions (payload fields / operation returns; union *finds* take
 the untagged optional-style path — see `payloads.md`), `shape: document` /
 `shape: embedded` persistence, event-sourced (`persistedAs: eventLog`)
 JPA streams, and non-principal capability filters on those non-relational
-shapes are all **implemented** (java is in `SUPPORTED_UNION_BACKENDS`
-and `EVENT_SOURCING_BACKENDS`; `PLATFORM_SAVING_SHAPES.java` carries all
-three shapes).
+shapes are all **implemented** (no per-backend gate refuses them on java;
+`PLATFORM_SAVING_SHAPES.java` carries all three shapes).
 
 ### Names that are Java reserved words
 
@@ -1243,7 +1243,7 @@ outbox tier, `--trace` domain instrumentation, and provenance/audited
 (gated — no runtime emitted; the node and .NET backends do implement
 these).  `shape: document` / `shape: embedded` persistence (all three
 shapes are in `PLATFORM_SAVING_SHAPES.python`) and `when` can-queries
-(python is in `SUPPORTED_WHEN_BACKENDS`) are **implemented**.
+are **implemented**.
 
 ### Names that are Python keywords
 
