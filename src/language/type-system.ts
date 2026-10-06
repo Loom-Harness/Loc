@@ -44,6 +44,7 @@ import {
   isBoundedContext,
   isBuilderCall,
   isCallSuffix,
+  isCommandHandler,
   isComponent,
   isContainment,
   isCriterion,
@@ -78,6 +79,7 @@ import {
   isPrimitiveConversion,
   isPrimitiveType,
   isProperty,
+  isQueryHandler,
   isRepository,
   isRetrieval,
   isSlotType,
@@ -1987,6 +1989,14 @@ export function envForNode(node: AstNode): Env {
   // `unknown` (the deliberate anti-double-reporting rule), EVERY type gate failed open
   // inside `domainService` bodies (testability audit F1, language half).
   const dsop = AstUtils.getContainerOfType(node, isDomainServiceOperation);
+  // `commandHandler` / `queryHandler` — context-level callables with their own
+  // `params` + `body`, and the exact twin of the `DomainServiceOperation` gap
+  // above: neither is an `Operation`, so without these arms a handler body bound
+  // no params and typed no lets, every receiver came back `unknown`, and every
+  // type gate failed open there (found by the IR-vs-language type census, #3125).
+  // Handlers are context-level, so — like a domain service — they get no `this`.
+  const cmd = AstUtils.getContainerOfType(node, isCommandHandler);
+  const qry = AstUtils.getContainerOfType(node, isQueryHandler);
   const find = AstUtils.getContainerOfType(node, isFindDecl);
   const _wf = AstUtils.getContainerOfType(node, isWorkflow);
   // UI-side containers — pages and components carry typed params
@@ -2045,6 +2055,8 @@ export function envForNode(node: AstNode): Env {
     fn?.params ??
     op?.params ??
     dsop?.params ??
+    cmd?.params ??
+    qry?.params ??
     find?.params ??
     create?.params ??
     handle?.params ??
@@ -2074,6 +2086,15 @@ export function envForNode(node: AstNode): Env {
   } else if (dsop) {
     // `stmts`, not `body` — the rule spells its statement list differently.
     addTypedLets(bindings, dsop.stmts, letCtx);
+  } else if (cmd) {
+    addTypedLets(bindings, cmd.body, letCtx);
+  } else if (qry) {
+    addTypedLets(bindings, qry.body, letCtx);
+  } else if (fn) {
+    // A BLOCK-bodied `function` keeps its statements in `block` (the expression
+    // form uses `body=Expression` and has no lets). Its params were always bound
+    // above; its lets never were, so they typed `unknown` in every consumer.
+    addTypedLets(bindings, fn.block, letCtx);
   } else if (create) {
     addTypedLets(bindings, create.body, letCtx);
   } else if (handle) {

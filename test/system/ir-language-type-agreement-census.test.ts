@@ -401,11 +401,17 @@ const DISAGREEMENT_BASELINE: Record<string, number> = {
   // ── language-fails-open: the let is never BOUND (`envForNode` has no arm) ──
   // (`test e2e` lets are pinned as a TOTAL gap in TOTAL_GAP_CONTAINERS
   // below, not counted here.)
-  // No CommandHandler / QueryHandler / FunctionDecl arm (params AND lets
-  // unbound). Owned by Track A of the census work.
-  "CommandHandler/language-fails-open": 28,
-  "QueryHandler/language-fails-open": 25,
-  "FunctionDecl/language-fails-open": 3,
+  // CommandHandler / QueryHandler / FunctionDecl: #3130 gave `envForNode` the
+  // missing arms, so these lets are now BOUND (28 → 1, 25 → 4, 3 → 2). What is
+  // left is NOT an env gap — the let is bound but `typeOf` cannot type its
+  // INITIALIZER, the same class as the workflow row below:
+  //   CommandHandler (1): `Orders.run(Coded(code), page: …)`        (IR: [rec:Order])
+  //   QueryHandler (4):   `Appts.run(ForPrac(p))`, a showcase `.run(..)` (IR: [rec:X]);
+  //                       `match found { … }` and `salesFiles.get(..)` (IR: string)
+  //   FunctionDecl (2):   a list literal `[q, 2, 3]` (IR: [int]); `match { … }` (IR: int)
+  "CommandHandler/language-fails-open": 1,
+  "QueryHandler/language-fails-open": 4,
+  "FunctionDecl/language-fails-open": 2,
   // A projection's `on(e: E) { … }` is `ProjectionOn`, not `OnDecl`, so the
   // OnDecl arm never matches it: `let stamped = e.at` (IR: datetime).
   "ProjectionOn/language-fails-open": 1,
@@ -436,6 +442,11 @@ const DISAGREEMENT_BASELINE: Record<string, number> = {
   // gap (there is no faithful key to normalise either side to).
   // examples/showcase.ddd ×1, elixir-vanilla-build/vanilla-workflow-unused-let.ddd ×4.
   "WorkflowCreateDecl/both-concrete-differ": 5,
+  // Same `locate` union shape, newly VISIBLE once #3130 bound queryHandler lets:
+  // `let found = Orders.locate(ref)` in vanilla-workflow-unused-let.ddd. It was
+  // `unknown` before (hidden), so this is an existing limit surfacing, not a
+  // regression.
+  "QueryHandler/both-concrete-differ": 1,
 };
 
 /** Containers where EVERY let fails for one structural reason. These are pinned
