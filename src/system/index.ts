@@ -43,7 +43,6 @@ import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-ad
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
-import { TEST_RESET_ENV } from "../util/test-reset.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { renderE2EFile } from "./e2e-render.js";
@@ -1435,6 +1434,12 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   const lines: string[] = [];
   lines.push(`${slug}:`);
   lines.push(`  build: ./${slug}`);
+  // Restart policy (eval item #24): `depends_on: … service_healthy` only
+  // orders the FIRST `up`; a backend whose boot migration exhausts its
+  // DB-connect retry (`BOOT_DB_RETRY`), or that crashes later, must come back
+  // on its own instead of leaving the stack half-dead.  `unless-stopped`, not
+  // `always`, so a deliberate `docker compose stop` stays stopped.
+  lines.push(`  restart: unless-stopped`);
   if (
     shape.dependsOnDb ||
     oidc ||
@@ -1476,20 +1481,11 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   }
   lines.push(`  environment:`);
   for (const [k, v] of shape.env) lines.push(`    ${k}: ${JSON.stringify(v)}`);
-  // The dev-only state reset the emitted `e2e/` suite calls between tests
-  // (`src/util/test-reset.ts`).  Opted into BY NAME here rather than inferred,
-  // because each backend's container image correctly pins a PRODUCTION
-  // profile — and this compose file is the LOCAL dev stack built from that
-  // image, the one the run recipe in `docs/tools.md` starts.  Without this
-  // line the documented recipe would be red on its second run, which is the
-  // whole of F3.  A reader who does not want the surface deletes the line.
-  //
-  // Emitted only when the system declares `test e2e` api blocks — i.e. exactly
-  // when the `e2e/` project that calls it is emitted — so a system without one
-  // is byte-identical to before.
-  if (!platform.isFrontend && sys.e2eTests.some((t) => t.kind === "api")) {
-    lines.push(`    ${TEST_RESET_ENV}: "1"`);
-  }
+  // Deliberately NO `LOOM_TEST_RESET` here (finding H-30).  The dev-only
+  // state reset (`src/util/test-reset.ts`) truncates every table, and this
+  // stack publishes the api on 0.0.0.0 — enabling it from the default compose
+  // file made one unauthenticated curl erase a dev database.  A harness that
+  // wants it opts in in its OWN environment/override, with a token.
   for (const b of brokerBindings) {
     // Credentialed URL (§7): the deployable's own broker
     // identity rides the URL — the one seam every driver already consumes,

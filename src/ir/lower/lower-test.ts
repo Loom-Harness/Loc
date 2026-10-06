@@ -30,6 +30,7 @@ import type { ExprIR, TestIR, TestStmtIR } from "../types/loom-ir.js";
 import { lowerExpr } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env } from "./lower-types.js";
+import { originFor } from "./origin.js";
 
 /** The declaration kinds a `test` may anchor to (aggregate, value object,
  *  domain service, bounded context). */
@@ -91,7 +92,12 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
       inner = r.envAfter;
     }
   }
-  return { name: block.name, statements, verifiesTestCase: block.verifies?.ref?.name };
+  return {
+    name: block.name,
+    statements,
+    verifiesTestCase: block.verifies?.ref?.name,
+    origin: originFor(block),
+  };
 }
 
 /** Build the `TestStmtIR` for an `expect(...)` test statement.  The

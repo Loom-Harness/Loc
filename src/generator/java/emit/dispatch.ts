@@ -739,7 +739,7 @@ function renderHandler(
   return [
     `    @EventListener`,
     `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
-    `        try (var __frame = RequestContext.openChild()) {`,
+    `        try (var _ = RequestContext.openChild()) {`,
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -890,7 +890,7 @@ function renderEsHandler(
   return [
     `    @EventListener`,
     `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
-    `        try (var __frame = RequestContext.openChild()) {`,
+    `        try (var _ = RequestContext.openChild()) {`,
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -1056,7 +1056,7 @@ function renderEsMergedHandler(
   return [
     `    @EventListener`,
     `    public void on${upperFirst(wf.name)}${upperFirst(createSub.event)}(${createSub.event} ${param}) {`,
-    `        try (var __frame = RequestContext.openChild()) {`,
+    `        try (var _ = RequestContext.openChild()) {`,
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,

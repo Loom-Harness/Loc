@@ -70,6 +70,17 @@ export const LogEvents = {
   // wrapper can fire it without a schema change.
   dbPoolExhausted: { event: "db_pool_exhausted", level: "warn", fields: ["waiters"] },
   dbError: { event: "db_error", level: "error", fields: ["error", "query"] },
+  // The boot-time migration runner could not reach the database (connection
+  // refused, DNS not yet resolvable, "the database system is starting up") and
+  // will try again after `delay_ms`.  Every backend bounds the retry the same
+  // way (`BOOT_DB_RETRY` in `src/generator/_obs/boot-db-retry.ts`), so a
+  // database that comes up a few seconds late no longer kills the container on
+  // first boot — and one that never comes up still fails boot, loudly.
+  dbConnectRetry: {
+    event: "db_connect_retry",
+    level: "warn",
+    fields: ["attempt", "max_attempts", "delay_ms", "error"],
+  },
   // Migration-runner events are reserved for when the generated backend
   // gains an in-process runner (drizzle-orm's `migrate(db, …)`).  Today's
   // emitted project ships migrations via the drizzle-kit CLI as a build

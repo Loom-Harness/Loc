@@ -6,7 +6,7 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
-import type { BrokerBinding } from "../../_channels/bindings.js";
+import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
 import {
   decodeField,
   type WireDecodeLeaf,
@@ -240,7 +240,7 @@ export function renderDotnetChannels(
   const bindingLines = unique
     .map(
       (b) =>
-        `        new(${JSON.stringify(b.csName)}, ${JSON.stringify(b.address)}, ${JSON.stringify(b.envVar)}, ${JSON.stringify(b.contextName)}, ${JSON.stringify(b.transport)}, ${JSON.stringify(b.group)}, ${b.delivery === "queue"}${hasKafka ? `, ${b.key === undefined ? "null" : JSON.stringify(b.key)}` : ""}),`,
+        `        new(${JSON.stringify(b.csName)}, ${JSON.stringify(b.address)}, ${JSON.stringify(b.envVar)}, ${JSON.stringify(b.contextName)}, ${JSON.stringify(b.transport)}, ${JSON.stringify(b.group)}, ${b.delivery === "queue"}${hasKafka ? `, ${b.key === undefined ? "null" : JSON.stringify(b.key)}, ${kafkaStartsAtEarliest(b)}` : ""}),`,
     )
     .join("\n");
   const routingLines = [...ephemeralRouting.entries()]
@@ -588,7 +588,10 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
         });
     }
 
-    public async Task SubscribeAsync(string address, string? group, Func<LoomEventEnvelope, Task> handler)
+    public Task SubscribeAsync(string address, string? group, Func<LoomEventEnvelope, Task> handler) =>
+        SubscribeAsync(address, group, false, handler);
+
+    public async Task SubscribeAsync(string address, string? group, bool fromBeginning, Func<LoomEventEnvelope, Task> handler)
     {
         await EnsureTopicAsync(address);
         // Completed by the rebalance callback below — see the await at the
@@ -600,7 +603,11 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
             BootstrapServers = _bootstrap,
             GroupId = group ?? address,
             EnableAutoCommit = false,
-            AutoOffsetReset = AutoOffsetReset.Latest,
+            // A NEW group's start offset (D3): a work-queue channel starts at
+            // the earliest offset so events published before the group's first
+            // join are not lost; a log channel starts at the latest.  A group
+            // with committed offsets resumes from them either way.
+            AutoOffsetReset = fromBeginning ? AutoOffsetReset.Earliest : AutoOffsetReset.Latest,
         }))
             .SetPartitionsAssignedHandler((_, _parts) => assigned.TrySetResult())
             .Build();
@@ -708,7 +715,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
   // Queue (rabbit) subscriptions get the STRICT handler — a failed dispatch
   // must propagate so the driver's bounded-retry/park owns it.  Broadcast
   // (redis) subscriptions keep the logged handler (fire-and-forget contract).
-  const strictSubscribe = `await transport.SubscribeAsync(binding.Address, binding.Group,
+  const strictSubscribe = `await transport.SubscribeAsync(binding.Address, binding.Group,${hasKafka ? " binding.FromBeginning," : ""}
                     envelope => ConsumeAsync(binding, envelope, _stopping.Token));`;
   const loggedSubscribe = `await transport.SubscribeAsync(binding.Address, null, async envelope =>
                 {
@@ -871,12 +878,21 @@ public sealed record LoomEventEnvelope(
 public interface IChannelTransport
 {
     Task PublishAsync(string address, LoomEventEnvelope envelope);
-    Task SubscribeAsync(string address, string? group, Func<LoomEventEnvelope, Task> handler);
+    Task SubscribeAsync(string address, string? group, Func<LoomEventEnvelope, Task> handler);${
+      hasKafka
+        ? `
+    /// <summary>Kafka only: <c>fromBeginning</c> starts a NEW consumer group at
+    /// the earliest offset (work-queue channels) instead of the latest (log
+    /// channels).  Other transports have no offsets and ignore it.</summary>
+    Task SubscribeAsync(string address, string? group, bool fromBeginning, Func<LoomEventEnvelope, Task> handler) =>
+        SubscribeAsync(address, group, handler);`
+        : ""
+    }
     Task CloseAsync();
 }
 ${redisDriver}${rabbitDriver}${kafkaDriver}
 public sealed record ChannelBinding(
-    string CsName, string Address, string EnvVar, string Context, string Transport, string Group, bool Queue${hasKafka ? ", string? Key" : ""});
+    string CsName, string Address, string EnvVar, string Context, string Transport, string Group, bool Queue${hasKafka ? ", string? Key, bool FromBeginning" : ""});
 
 public static class ChannelBindings
 {

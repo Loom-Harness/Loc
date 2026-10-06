@@ -37,6 +37,7 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
         severity: "error",
         message: diagMessage("loom.dapper-unsupported", { name: dep.name, subject, reason }),
         source: `${sys.name}/${dep.name}`,
+        origin: dep.origin,
         code: "loom.dapper-unsupported",
       });
     };
