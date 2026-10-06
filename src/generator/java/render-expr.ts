@@ -63,6 +63,28 @@ export interface JavaRenderContext {
    *  aggregate SERVICE needs no mapping: it already binds each param as a
    *  `var <name> = …` local above the call.)  Unset everywhere else. */
   paramExpr?: (name: string) => string | undefined;
+  /** The Java local a `let`-bound name (`refKind: "let"`) renders as, when
+   *  the binding had to be moved off a name the enclosing generated METHOD
+   *  spells itself (`javaLocals`, java-ident.ts).  The binding sites (the
+   *  statement renderers' `var <name> = …`, the workflow spine's
+   *  repo/factory/for-each/if-let bindings and exit saves) consult the same
+   *  hook, so declaration and use cannot disagree.  Unset — or `undefined` for
+   *  a name — leaves the default spelling, so a model with no collision is
+   *  byte-identical. */
+  letExpr?: (name: string) => string | undefined;
+  /** The Java locals (parameters + `let`s, already in their declared
+   *  spelling) of the METHOD the expression renders in.  A Java lambda
+   *  parameter may not redeclare one ("variable x is already defined"), while
+   *  a Loom lambda parameter legally shadows an outer name — so a lambda whose
+   *  parameter lands here renders under `<name>_` (`lambdaLocal`), and its
+   *  body's lambda-bound refs follow.  Unset → no rename (byte-identical). */
+  lambdaScope?: ReadonlySet<string>;
+  /** Loom lambda param name → the Java binder its innermost enclosing lambda
+   *  declared (`lambdaBodyCtx`).  A `refKind: "lambda"` ref resolves here
+   *  first, so a nested lambda renamed off an enclosing lambda's binder
+   *  (`x -> … x_ -> x_ …`) and the outer body's own refs each name their
+   *  own binder.  Unset outside a lambda body. */
+  lambdaBinders?: ReadonlyMap<string, string>;
   /** Aggregate whose bodies we're lowering — used by `new <Part>` to
    *  order the part's constructor arguments by declared field order. */
   agg?: EnrichedAggregateIR;
@@ -81,6 +103,11 @@ export interface JavaRenderContext {
    *  canonical-constructor parameters carry the values and `this` is not
    *  yet available. */
   bareProps?: boolean;
+  /** With `bareProps`: the local a `this`-rooted property ref renders as,
+   *  overriding the default `jid(name)` — set by the wire validator when a
+   *  field's parse-local had to be renamed off a name the method itself uses
+   *  (`javaLocals`, java-ident.ts).  Unset everywhere else. */
+  propExpr?: (name: string) => string | undefined;
   /** Render `this`-rooted property / id refs through the public
    *  accessors (`a.name()`, `a.id()`).  Needed when the receiver is an
    *  aggregate read from OUTSIDE its package (query-projection reads in the
@@ -122,6 +149,30 @@ export function javaRepoField(aggName: string): string {
 }
 
 const DEFAULT: JavaRenderContext = { thisName: "this" };
+
+/** The Java spelling of a lambda parameter: `jid(name)`, suffixed `_` until it
+ *  clears the enclosing method's locals (`ctx.lambdaScope`).  Deterministic in
+ *  (name, scope), so the `x ->` binder and every `refKind: "lambda"` use of it
+ *  agree.  (Loom resolves a lambda-bound name to the INNERMOST binder, so a
+ *  ref to the shadowed outer local inside the body is a `param` / `let` ref
+ *  and keeps rendering the outer name — the rename preserves the meaning.) */
+function lambdaLocal(name: string, ctx: JavaRenderContext): string {
+  let local = jid(name);
+  const scope = ctx.lambdaScope;
+  if (scope) while (scope.has(local)) local = `${local}_`;
+  return local;
+}
+
+/** `ctx` with `names` (Java local spellings) added to its `lambdaScope`.
+ *  Returns `ctx` itself when `names` is empty. */
+export function withLambdaScope(
+  ctx: JavaRenderContext,
+  names: Iterable<string>,
+): JavaRenderContext {
+  const add = [...names];
+  if (add.length === 0) return ctx;
+  return { ...ctx, lambdaScope: new Set([...(ctx.lambdaScope ?? []), ...add]) };
+}
 
 /** Imports a rendered domain expression needs beyond `java.lang`.
  *  Pure mirror of the triggers in the leaf table below — file emitters
@@ -328,10 +379,22 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   call: renderCall,
   domainServiceCall(args, serviceRef) {
     // `Pricing.quote(cart, customer)` — generated static utility class.
-    return `${upperFirst(serviceRef.service)}.${lowerFirst(serviceRef.op)}(${args.join(", ")})`;
+    return `${upperFirst(serviceRef.service)}.${jid(lowerFirst(serviceRef.op))}(${args.join(", ")})`;
   },
-  lambda(param, body) {
-    const p = escapeJavaIdent(param);
+  lambdaBodyCtx(param, ctx) {
+    // The body sees this binder: a nested lambda reusing a name already bound
+    // (by this lambda or any enclosing one) renames off it — Java forbids a
+    // lambda param shadowing an enclosing lambda's ("variable x is already
+    // defined").  Loom resolves a lambda ref to the INNERMOST binder.
+    const binder = lambdaLocal(param, ctx);
+    return {
+      ...ctx,
+      lambdaScope: new Set([...(ctx.lambdaScope ?? []), binder]),
+      lambdaBinders: new Map([...(ctx.lambdaBinders ?? []), [param, binder]]),
+    };
+  },
+  lambda(param, body, ctx) {
+    const p = lambdaLocal(param, ctx);
     if (body !== undefined) return `${p} -> ${body}`;
     return `${p} -> { /* block-body lambda — not Java-renderable */ }`;
   },
@@ -434,15 +497,17 @@ function renderLiteral(lit: string, value: string): string {
 function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
   switch (e.refKind) {
     case "let":
+      // A body-introduced local; escape keyword collisions so the use matches
+      // the (also-escaped) binding (`let class` → `class_`) — or the
+      // collision-renamed local the binding site declared (`letExpr`).
+      return ctx.letExpr?.(e.name) ?? escapeJavaIdent(e.name);
     case "lambda":
-      // Locals introduced inside the body; escape keyword collisions so the
-      // use matches the (also-escaped) binding (`let class` → `class_`).
-      return escapeJavaIdent(e.name);
+      return ctx.lambdaBinders?.get(e.name) ?? lambdaLocal(e.name, ctx);
     case "param":
       return ctx.paramExpr?.(e.name) ?? jid(e.name);
     case "this-prop":
     case "this-vo-prop":
-      if (ctx.bareProps) return jid(e.name);
+      if (ctx.bareProps) return ctx.propExpr?.(e.name) ?? jid(e.name);
       if (ctx.accessorProps) return `${ctx.thisName}.${jid(e.name)}()`;
       return `${ctx.thisName}.${jid(e.name)}`;
     case "this-derived":
@@ -479,7 +544,9 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return jid(e.member);
+    // The flat param may have been collision-renamed (`javaLocals`); the
+    // handler's `paramExpr` knows the local it was declared under.
+    return ctx.paramExpr?.(e.member) ?? jid(e.member);
   }
   // Collections lower to `List<T>` (`.size()`); the DSL admits both
   // `.count` and `.length` on arrays.
@@ -756,8 +823,8 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       const ref = e.serviceRef!;
       const reading = ctx.serviceReading?.(ref.service, ref.op) ?? false;
       return reading
-        ? `${lowerFirst(ref.service)}.${lowerFirst(ref.op)}(${argList})`
-        : `${upperFirst(ref.service)}.${lowerFirst(ref.op)}(${argList})`;
+        ? `${lowerFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`
+        : `${upperFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`;
     }
     case "repo-read": {
       // A read-only repository query in a `reading` domain-service body

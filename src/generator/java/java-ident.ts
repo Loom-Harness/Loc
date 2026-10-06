@@ -134,9 +134,64 @@ interface MangleScanAggregate {
 /** `@RequestParam` binding annotation for a `.ddd` param.  Spring derives the
  *  query-parameter key from the Java parameter NAME, so a mangled identifier
  *  has to name its wire key explicitly — `@RequestParam("case") String case_`.
- *  Bare `@RequestParam` for every non-keyword name (output unmoved). */
-export function requestParam(name: string): string {
-  return isMangled(name) ? `@RequestParam("${name}")` : "@RequestParam";
+ *  Bare `@RequestParam` for every non-keyword name (output unmoved).
+ *
+ *  `local` is the Java parameter name actually declared when it differs from
+ *  `jid(name)` (a `javaLocals` collision rename) — the wire key is then named
+ *  explicitly for the same reason. */
+export function requestParam(name: string, local: string = jid(name)): string {
+  return local !== name ? `@RequestParam("${name}")` : "@RequestParam";
+}
+
+/** Collision-safe METHOD-LOCAL identifiers for `.ddd`-named fields / params.
+ *
+ *  The Java emitters bind each request field to a local named after it
+ *  (`var quantity = request.quantity();`) inside a method that ALSO spells
+ *  fixed names of its own — the `request` parameter, the injected
+ *  `repository` field, the `aggregate` / `result` / `found` locals, …  A
+ *  `.ddd` field named like one of those shadows or redeclares it
+ *  (`var repository = request.repository();` then `repository.save(aggregate)`
+ *  → javac "cannot find symbol").
+ *
+ *  `reserved` is the set of names the emitting METHOD itself uses; each
+ *  `.ddd` name whose host identifier (`jid`) lands in it gets a trailing `_`
+ *  (repeated until it is free of both the reserved set and its siblings).
+ *  Every other name maps to plain `jid(name)`, so a model with no collision
+ *  is byte-identical.  ONLY the local moves — the wire accessor
+ *  (`request.<jid(name)>()`) and every record component keep `jid(name)`. */
+export function javaLocals(
+  names: readonly string[],
+  reserved: ReadonlySet<string>,
+): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  const used = new Set<string>(names.map(jid));
+  for (const n of names) {
+    let local = jid(n);
+    if (reserved.has(local)) {
+      do local = `${local}_`;
+      while (reserved.has(local) || used.has(local));
+      used.add(local);
+    }
+    out.set(n, local);
+  }
+  return out;
+}
+
+/** Lookup into a `javaLocals` map, falling back to `jid` for a name the map
+ *  does not carry. */
+export function localOf(locals: ReadonlyMap<string, string>, name: string): string {
+  return locals.get(name) ?? jid(name);
+}
+
+/** The local a `javaLocals` map MOVED `name` to (a collision rename), else
+ *  `undefined` — for render hooks (`paramExpr` / `letExpr`) whose fallback
+ *  must stay the site's existing spelling. */
+export function movedLocalOrUndefined(
+  locals: ReadonlyMap<string, string>,
+  name: string,
+): string | undefined {
+  const local = locals.get(name);
+  return local !== undefined && local !== jid(name) ? local : undefined;
 }
 
 /** Enum names in a context with at least one Java-reserved-word value — the
