@@ -59,11 +59,11 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *  context — i.e. that emit every artifact the VO needs, not just the reference
  *  to it.
  *
- *  `python` and `elixir` are absent, and this is the NAME of that exclusion.  One
- *  root cause, two shapes: both emitters resolve a VO name through
- *  `ctx.valueObjects` only, so the CALL SITE (derived from the aggregate's wire
- *  shape, which spans contexts) is emitted while the DEFINITION (derived from the
- *  context's own VO list) is not.
+ *  `python` is absent, and this is the NAME of that exclusion: its emitter
+ *  resolves a VO name through `ctx.valueObjects` only, so the CALL SITE (derived
+ *  from the aggregate's wire shape, which spans contexts) is emitted while the
+ *  DEFINITION (derived from the context's own VO list) is not.  elixir resolves
+ *  its wire serializers through `valueObjectPool` (own ∪ siblings) and is in.
  *
  *    python  `db/schema.py` and the migration create `ship_to_line1` /
  *            `ship_to_geo_lat` / `ship_to_geo_lng`, while `receipt_repository.py`
@@ -73,27 +73,11 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *            context's aggregate fails.  `mypy --strict` sees only the hydrate
  *            site (the two bind sites are untyped dict literals), so the compile
  *            tier catches 1 of the 3.
- *    elixir  `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and
- *            defines neither `serialize_addr/1` nor the nested `serialize_geo/1`,
- *            while the OWNING context's `person_controller.ex` defines both —
- *            `** (CompileError) undefined function serialize_addr/1`, so
- *            `mix compile --warnings-as-errors` fails outright.
  *
- *  This is the platform evaluation's F-008.  The fix on both is to resolve through
- *  the sibling pool (as `findValueObjectInScope` already does elsewhere); each key
- *  returns the day its emitter does.
- *
- *  NOTE FOR THE NEXT READER — elixir was first recorded here as FREE, on the
- *  reasoning that a VO is one `:map`/jsonb cell there so there is no flattening to
- *  get wrong.  That reasoning was sound and the conclusion was wrong: flattening
- *  is not the only artifact a VO needs, and the claim came from INSPECTING the
- *  emitted schema rather than compiling the project.  `mix compile` in CI found it
- *  in minutes.  Same correction the commons dev-experience audit had to make for
- *  the same reason (grading a target by inspection); see
- *  docs/audits/2026-09-29-fixture-shape-coverage.md. */
-const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter(
-  (b) => b !== "python" && b !== "vanilla",
-);
+ *  This is the platform evaluation's F-008.  The fix is to resolve through the
+ *  sibling pool (as `findValueObjectInScope` already does elsewhere); python's key
+ *  returns the day its emitter does. */
+const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter((b) => b !== "python");
 
 /** The backends that emit a ROOT-LEVEL (shared-kernel) value object's declaration
  *  BEFORE the context-local one whose field is typed by it.
