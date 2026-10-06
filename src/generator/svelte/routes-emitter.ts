@@ -39,6 +39,7 @@ import {
   pageConstructId,
   pageEmitName,
 } from "../../ir/util/page-kind.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
@@ -152,7 +153,7 @@ function buildBcByWorkflow(ctx: SveltePageEmitContext): Map<string, BoundedConte
 }
 
 export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/svelte/routes-emitter");
 
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of ctx.topLevelComponents) userComponents.set(c.name, c.params);
@@ -431,7 +432,7 @@ export function emitSveltePageObjectsForUi(
   ui: UiIR,
   ctx: SveltePageEmitContext,
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/svelte/routes-emitter");
   const pageCtx = sveltePageNameCtx(ctx);
   const seenAggregates = new Set<string>();
   const seenWorkflows = new Set<string>();

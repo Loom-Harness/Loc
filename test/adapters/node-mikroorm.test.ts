@@ -597,7 +597,9 @@ describe("mikroorm capability gating (loom.mikroorm-unsupported)", () => {
     expect(errors.filter((e) => /persistence: mikroorm/.test(e))).toEqual([]);
     expect(files.size).toBeGreaterThan(0);
     const entities = files.get("api/db/entities.ts")!;
-    expect(entities).toContain('tags: { type: "string", array: true },');
+    expect(entities).toContain(
+      'tags: { type: "string", columnType: "text[]", customType: new ArrayType() },',
+    );
     // The same field on drizzle still generates (native Postgres array).
     const drizzle = await emit(sys("drizzle", "tags: string[]"));
     expect(drizzle.errors).toEqual([]);

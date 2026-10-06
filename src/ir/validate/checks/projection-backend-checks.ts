@@ -1,119 +1,27 @@
 // -------------------------------------------------------------------------
-// Per-backend support gates for the query-time / grouped / columnless /
-// document-aggregation / paged / workflow-source / projection-source
-// projection shapes (read-path-architecture.md).  Split out of
-// system-checks.ts by packet 2.6 (wave-2) — mechanical move, no logic
-// change.
+// Universal (not per-backend) gates on the query-time projection shapes
+// (read-path-architecture.md): column-less direct-table sources and
+// capability-filtered document aggregations — plus the universal paged
+// queryHandler body-shape refusal.  Split out of system-checks.ts by
+// packet 2.6 (wave-2).  The per-backend support gates that used to live here
+// (paged queryHandler, query-time / whole-table-aggregation / group-by /
+// workflow-source / projection-source projections) were deleted once every
+// backend emitted them: a support set naming all five backends gates nothing.
+// When partial support reappears, a `loom.*-unsupported` code is the honest
+// place for it.
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { platformOwnsBackend } from "../../../language/validators/data/platform-rules.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { SystemIR } from "../../types/loom-ir.js";
-import { isGroupedProjection, isQueryTimeProjection } from "../../types/loom-ir.js";
+import { isQueryTimeProjection } from "../../types/loom-ir.js";
+import { pagedRetrievalRunStmt, pagedRunStmt } from "../../util/paged-run.js";
 import {
   columnlessProjectionSource,
   documentAggregationSource,
   unappliedCapabilityFilters,
 } from "../../util/query-projection-arm.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-
-// paged-run (paged-queryHandler): a `queryHandler H(...): <Agg> paged` is
-// emitted by each backend whose explicit-handler emitter has grown the paged
-// branch (mirroring Hono's `emitPagedRunHandler`).  A backend NOT in
-// `PAGED_QH_SUPPORTED` would crash on the `paged` generic carrier at its
-// return-type render, so gate a paged queryHandler hosted on such a deployable
-// with an honest diagnostic until its emitter fans out — a reviewed gap rather
-// than a silent codegen crash.
-
-export const PAGED_QH_SUPPORTED = new Set(["node", "python", "java", "dotnet", "elixir"]);
-
-// query-time projection (read-path-architecture.md rev.13): the always-current
-// read model (`projection X { from … where … join … select … }`, no folds) is
-// emitted by each backend whose emitter has ported the query-time read.
-// A backend NOT in `PROJECTION_QT_SUPPORTED` has no emitter for it, so gate a
-// query-time projection hosted on such a deployable with an honest diagnostic
-// until its port lands — the same reviewed-gap discipline as the paged gate.
-// All five backends have ported it: node (PR-C), python (PR-D), elixir (PR-E),
-// java (PR-F), dotnet (PR-G).
-
-export const PROJECTION_QT_SUPPORTED = new Set(["node", "python", "elixir", "java", "dotnet"]);
-
-// Whole-table aggregation in a query-time projection's `select`
-// (`select orders = count`, `select revenue = sum(o.total)`) — the SINGLETON
-// read model of read-path-architecture.md rev. 8, whose motivating use is a
-// dashboard total / running count.  It pushes the aggregation down to SQL
-// (`COUNT(*)` / `SUM(col)`) instead of loading and folding rows, so it is a
-// distinct emit path from the per-row `select` every backend already renders.
-// Backends in `PROJECTION_AGG_SUPPORTED` have ported it; the rest gate HONESTLY
-// rather than emit the operator name as a free identifier.  Same reviewed-gap
-// discipline as `validateQueryTimeProjectionBackend` above; node is first.
-// Every shipping backend emits the SQL push-down, so the set is currently
-// exhaustive.  It is kept — not deleted — because it is the seam a new backend
-// gates on until it ports, and the diagnostic below is its message.
-
-export const PROJECTION_AGG_SUPPORTED = new Set(["node", "python", "dotnet", "java", "elixir"]);
-
-export function validateWholeTableAggregationBackend(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const d of sys.deployables) {
-    if (!platformOwnsBackend(d.platform) || PROJECTION_AGG_SUPPORTED.has(d.platform)) continue;
-    for (const cn of d.contextNames) {
-      const c = ctxByName.get(cn);
-      if (!c) continue;
-      for (const p of c.projections ?? []) {
-        for (const s of p.query?.selects ?? []) {
-          if (!s.aggregate) continue;
-          diags.push({
-            severity: "error",
-            code: "loom.projection-whole-table-aggregation-unsupported",
-            message: diagMessage("loom.projection-whole-table-aggregation-unsupported", {
-              name: p.name,
-              field: s.field,
-              op: s.aggregate.op,
-              dName: d.name,
-              platform: d.platform,
-            }),
-            source: `${c.name}/${p.name}`,
-          });
-        }
-      }
-    }
-  }
-}
-
-// GROUPED projection (`group by`, M-T4.2) — one row per distinct grouping-key
-// combination, aggregates computed per group in SQL, the LIST response shape.
-// A distinct emit arm from both the singleton aggregation (one row) and the
-// per-row read (rows mapped in the app), so a new backend gates on it
-// separately until its port lands — the same reviewed-gap discipline as
-// `PROJECTION_AGG_SUPPORTED` above.  All five current backends emit it.
-
-export const PROJECTION_GROUPBY_SUPPORTED = new Set(["node", "python", "dotnet", "java", "elixir"]);
-
-export function validateGroupedProjectionBackend(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const d of sys.deployables) {
-    if (!platformOwnsBackend(d.platform) || PROJECTION_GROUPBY_SUPPORTED.has(d.platform)) continue;
-    for (const cn of d.contextNames) {
-      const c = ctxByName.get(cn);
-      if (!c) continue;
-      for (const p of c.projections ?? []) {
-        if (!isGroupedProjection(p)) continue;
-        diags.push({
-          severity: "error",
-          code: "loom.projection-groupby-unsupported-backend",
-          message: diagMessage("loom.projection-groupby-unsupported-backend", {
-            name: p.name,
-            dName: d.name,
-            platform: d.platform,
-          }),
-          source: `${c.name}/${p.name}`,
-        });
-      }
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // COLUMN-LESS direct-table projection source — universal, not per-backend.
@@ -226,141 +134,34 @@ export function validateDocumentAggregationFilters(sys: SystemIR, diags: LoomDia
   }
 }
 
-export function validatePagedQueryHandlerBackend(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const d of sys.deployables) {
-    // Only backend platforms emit application-layer handlers; the ones in
-    // `PAGED_QH_SUPPORTED` render the paged branch.  Frontends / non-backend
-    // platforms are skipped (they host no handlers).
-    if (!platformOwnsBackend(d.platform) || PAGED_QH_SUPPORTED.has(d.platform)) continue;
-    for (const cn of d.contextNames) {
-      const c = ctxByName.get(cn);
-      if (!c) continue;
+// paged-run body shape (item 7): every backend's paged branch renders exactly
+// `let r = Repo.run(<Criterion>(args)); return r` — a criterion-backed run
+// the enrich pass turns into a paged FIND repo method.  Any other body — most
+// commonly `Repo.run(<Retrieval>(args))`, whose `where`/`sort` bundle has no
+// paged FIND — passed validation and then crashed `generate` on all five
+// backends with an `internal: … Please file a bug`.  Refuse it here instead.
+// Platform-independent (no backend renders another shape), so it is keyed on
+// the context, not the deployable.  An `extern` handler has no body to check.
+
+export function validatePagedQueryHandlerShape(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const sd of sys.subdomains) {
+    for (const c of sd.contexts) {
       for (const h of c.queryHandlers ?? []) {
-        if (!pagedReturn(h.returnType)) continue;
+        if (h.extern || !pagedReturn(h.returnType) || pagedRunStmt(h)) continue;
+        const retRun = pagedRetrievalRunStmt(h);
+        const crit = retRun
+          ? (c.retrievals ?? []).find((r) => r.name === retRun.retrievalName)?.criterionRef?.name
+          : undefined;
+        const hint = !retRun
+          ? "Bind the criterion run to a `let` at the top of the body and return that name."
+          : crit
+            ? `\`${retRun.repoName}.run(${retRun.retrievalName}(…))\` runs a retrieval, which has no paged form — run its criterion instead: \`let ${retRun.name} = ${retRun.repoName}.run(${crit}(…))\` (the client picks the order through the paged route's \`sort\`/\`dir\` query params).`
+            : `\`${retRun.repoName}.run(${retRun.retrievalName}(…))\` runs a retrieval, which has no paged form — declare its \`where\` as a \`criterion\` and run that instead (the client picks the order through the paged route's \`sort\`/\`dir\` query params).`;
         diags.push({
           severity: "error",
-          code: "loom.paged-query-handler-unsupported-backend",
-          message: diagMessage("loom.paged-query-handler-unsupported-backend", {
-            name: h.name,
-            dName: d.name,
-            platform: d.platform,
-          }),
+          code: "loom.paged-query-handler-shape",
+          message: diagMessage("loom.paged-query-handler-shape", { name: h.name, hint }),
           source: `${c.name}/${h.name}`,
-        });
-      }
-    }
-  }
-}
-
-export function validateQueryTimeProjectionBackend(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const d of sys.deployables) {
-    // Only backend platforms emit read routes; the ones in
-    // `PROJECTION_QT_SUPPORTED` have ported the query-time emit.  Frontends /
-    // non-backend platforms host no read model and are skipped.
-    if (!platformOwnsBackend(d.platform) || PROJECTION_QT_SUPPORTED.has(d.platform)) continue;
-    for (const cn of d.contextNames) {
-      const c = ctxByName.get(cn);
-      if (!c) continue;
-      for (const p of c.projections ?? []) {
-        if (!isQueryTimeProjection(p)) continue;
-        diags.push({
-          severity: "error",
-          code: "loom.projection-query-time-unsupported",
-          message: diagMessage("loom.projection-query-time-unsupported", {
-            name: p.name,
-            dName: d.name,
-            platform: d.platform,
-          }),
-          source: `${c.name}/${p.name}`,
-        });
-      }
-    }
-  }
-}
-
-// A query-time projection sourced `from <Workflow>` (its persisted instance /
-// saga-state rows, `instanceWireShape`) reads the workflow store, not an
-// aggregate repository — a distinct per-backend emit path.  Backends in
-// `PROJECTION_WF_SOURCE_SUPPORTED` have ported it; others gate the read HONESTLY
-// (rather than emit a broken reference to a non-existent workflow repository)
-// until their port lands.  Mirrors `validateQueryTimeProjectionBackend`.
-
-export const PROJECTION_WF_SOURCE_SUPPORTED = new Set([
-  "node",
-  "python",
-  "java",
-  "dotnet",
-  "elixir",
-]);
-
-export function validateWorkflowSourceProjectionBackend(
-  sys: SystemIR,
-  diags: LoomDiagnostic[],
-): void {
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const d of sys.deployables) {
-    if (!platformOwnsBackend(d.platform) || PROJECTION_WF_SOURCE_SUPPORTED.has(d.platform))
-      continue;
-    for (const cn of d.contextNames) {
-      const c = ctxByName.get(cn);
-      if (!c) continue;
-      for (const p of c.projections ?? []) {
-        if (p.query?.sourceKind !== "workflow") continue;
-        diags.push({
-          severity: "error",
-          code: "loom.projection-workflow-source-unsupported-backend",
-          message: diagMessage("loom.projection-workflow-source-unsupported-backend", {
-            name: p.name,
-            source: p.query.source,
-            dName: d.name,
-            platform: d.platform,
-          }),
-          source: `${c.name}/${p.name}`,
-        });
-      }
-    }
-  }
-}
-
-// A query-time projection sourced `from <OtherProjection>` reads that
-// projection's persisted `<Proj>Row` read-model table, not an aggregate
-// repository — a distinct per-backend emit path.  Backends in
-// `PROJECTION_PROJ_SOURCE_SUPPORTED` have ported it; others gate the read
-// HONESTLY until their port lands.  Mirrors `validateWorkflowSourceProjectionBackend`.
-
-export const PROJECTION_PROJ_SOURCE_SUPPORTED = new Set([
-  "node",
-  "python",
-  "java",
-  "dotnet",
-  "elixir",
-]);
-
-export function validateProjectionSourceProjectionBackend(
-  sys: SystemIR,
-  diags: LoomDiagnostic[],
-): void {
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const d of sys.deployables) {
-    if (!platformOwnsBackend(d.platform) || PROJECTION_PROJ_SOURCE_SUPPORTED.has(d.platform))
-      continue;
-    for (const cn of d.contextNames) {
-      const c = ctxByName.get(cn);
-      if (!c) continue;
-      for (const p of c.projections ?? []) {
-        if (p.query?.sourceKind !== "projection") continue;
-        diags.push({
-          severity: "error",
-          code: "loom.projection-source-unsupported-backend",
-          message: diagMessage("loom.projection-source-unsupported-backend", {
-            name: p.name,
-            source: p.query.source,
-            dName: d.name,
-            platform: d.platform,
-          }),
-          source: `${c.name}/${p.name}`,
         });
       }
     }

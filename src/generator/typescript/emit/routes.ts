@@ -429,7 +429,8 @@ export function renderHttpIndex(
     "    if (err instanceof ForbiddenError) {",
     `      ${renderHonoBaseLogCall("forbidden", `message: err.message, status: ${rootForbiddenStatus}`)}`,
     '      recordDomainFault("forbidden");',
-    `      return problem(${rootForbiddenStatus}, ${JSON.stringify(problemTitle(rootForbiddenStatus))}, err.message);`,
+    // `err.detail` (ruling D4, #20): echoed only under the dev-stub verifier.
+    `      return problem(${rootForbiddenStatus}, ${JSON.stringify(problemTitle(rootForbiddenStatus))}, err.detail);`,
     "    }",
     "    if (err instanceof DisallowedError) {",
     `      ${renderHonoBaseLogCall("disallowed", `message: err.message, status: ${rootDisallowedStatus}`)}`,

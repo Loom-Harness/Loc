@@ -133,23 +133,23 @@ export interface StateRef {
 }
 
 /** The data a target needs to render a sortable `Table` column header
- *  (M-T1.1 — the `renderSortableHeader` seam). */
+ *  (the `renderSortableHeader` seam). */
 export interface SortableHeaderSpec {
   /** Already-escaped header content (the column's display label) — under i18n
    *  the already-rendered interpolation of the translation call (`{t(…)}`),
    *  which the four JSX/markup targets splice into the button exactly as they
-   *  splice the raw text (M-T1.11, the `columnHeader` slot). */
+   *  splice the raw text (the `columnHeader` slot). */
   header: string;
   /** The header as a target-native TRANSLATION expression (`t("page.…", "Job
    *  Name")`), or `undefined` when there is nothing to translate — i18n off, or
-   *  a dynamic header with no source string (M-T1.11, the `columnHeader` slot).
+   *  a dynamic header with no source string (the `columnHeader` slot).
    *
    *  Every target renders the header as the sort button's CONTENT, but they
    *  disagree on what content is: the four JSX/markup targets splice markup and
    *  need the interpolated form, while Feliz and Flutter splice a STRING into
    *  their own syntax (`prop.text ("…" + arrow)`, `Text('…')`) and need the bare
    *  expression.  Handing both keeps the i18n-off path byte-identical: a target
-   *  that ignores this field emits exactly what it emitted before. */
+   *  that ignores this field emits its plain header unchanged. */
   headerValue?: string;
   /** Row property this column sorts by (`"name"`, `"id"`, …). */
   field: string;
@@ -158,7 +158,7 @@ export interface SortableHeaderSpec {
   /** Page-state field holding the active direction (`"asc"` / `"desc"`). */
   sortDir: StateRef;
   /** The header's accessible NAME as a target-native expression, or `undefined`
-   *  with i18n off (M-T1.11) — the same `undefined`-means-keep-your-own-sentence
+   *  with i18n off — the same `undefined`-means-keep-your-own-sentence
    *  contract {@link PagerChrome.pageOfValue} uses.
    *
    *  Only FLUTTER reads it: a Dart widget has no implicit accessible name, so it
@@ -169,16 +169,15 @@ export interface SortableHeaderSpec {
   sortByLabel?: string;
 }
 
-/** What a target needs to sort a `Table`'s rows client-side (M-T1.1 — the
+/** What a target needs to sort a `Table`'s rows client-side (the
  *  `renderSortedRows` seam).
  *
  *  `columns` is the load-bearing field for a STATICALLY-TYPED target.  The sort
  *  key is a RUNTIME string, so JS just indexes (`row[sortKey]`) — but F# and
  *  Dart records cannot be indexed by a runtime string, so those targets have to
  *  emit a `match` over the key with one arm per sortable column.  That needs
- *  the column list, which the original positional signature did not carry: the
- *  seam was unimplementable off the JSX family however the rest of the Table
- *  behaved. */
+ *  the column list; without it the seam is unimplementable off the JSX family
+ *  however the rest of the Table behaves. */
 export interface SortedRowsSpec {
   /** The rows expression to sort, AFTER any filter. */
   rowsExpr: string;
@@ -192,7 +191,7 @@ export interface SortedRowsSpec {
   columns: readonly string[];
   /** The subset of `columns` whose field is `money` — the one primitive a
    *  target may not hold as a comparable number.  On Flutter money is the wire
-   *  STRING (M-T1.21), so a text comparison there sorts `'10.0000'` BEFORE
+   *  STRING, so a text comparison there sorts `'10.0000'` BEFORE
    *  `'9.0000'`; that target compares these columns through its money runtime
    *  instead.  Resolved from the row aggregate the enclosing `QueryView`
    *  recorded — the same lookup `DataGrid`'s `numericSort` makes
@@ -202,7 +201,7 @@ export interface SortedRowsSpec {
   moneyColumns: readonly string[];
 }
 
-/** What a target needs to filter a `Table`'s rows client-side (M-T1.1 — the
+/** What a target needs to filter a `Table`'s rows client-side (the
  *  `renderFilteredRows` seam).
  *
  *  `columns` is here for the same reason it is on `SortedRowsSpec`: JS reads
@@ -247,6 +246,26 @@ export interface OptionalSplitSpec {
   present: string;
 }
 
+/** What {@link WalkerTarget.renderRefLabelWrap} needs to label an `IdLink`
+ *  with the referenced record's `display` instead of its truncated id. */
+export interface RefLabelSpec {
+  /** The referenced aggregate's collection route RELATIVE to the api base,
+   *  with a trailing slash (`/projects/`) — the same `snake(plural(<Agg>))`
+   *  tag every frontend's by-id read already GETs. */
+  apiPath: string;
+  /** The rendered id expression the link points at (`row.project`). */
+  idExpr: string;
+}
+
+/** The two halves a target wraps around a pack's id-link label.  Whatever the
+ *  pack renders between them (its truncated-id `IdValue` / `shortId` / `Text`)
+ *  becomes the FALLBACK the child shows while loading, on error, or when the
+ *  record carries no `display`. */
+export interface RefLabelWrap {
+  open: string;
+  close: string;
+}
+
 export interface MemberReadSpec {
   /** The already-rendered receiver. */
   receiver: string;
@@ -272,7 +291,7 @@ export interface PagedEnvelopeMemberSpec {
 }
 
 /** The data a target needs to render a pager control below a paged `Table`
- *  (M-T1.1 / M-T2.6 — the `renderPager` seam). */
+ *  (the `renderPager` seam). */
 export interface PagerSpec {
   /** Page-state field holding the current 1-based page number. */
   page: StateRef;
@@ -282,7 +301,7 @@ export interface PagerSpec {
    *  server mode passes the envelope's `totalPages`.  Always ≥ 1. */
   totalPagesExpr: string;
   /** The pager's three user-visible strings, already resolved against the
-   *  active i18n decision (M-T1.11) — see {@link PagerChrome}. */
+   *  active i18n decision — see {@link PagerChrome}. */
   chrome: PagerChrome;
 }
 
@@ -323,7 +342,7 @@ export interface PagerChrome {
 }
 
 /** What a target needs to build the CLIENT-side page window under a paged
- *  `Table` (M-T1.1 — the `renderClientPaging` seam).
+ *  `Table` (the `renderClientPaging` seam).
  *
  *  The arithmetic is a seam with the JS form as its default.  Building the
  *  window generically in `primitives/table.ts` with literal JavaScript
@@ -387,7 +406,7 @@ export interface DataGridColumn {
   header: string;
   /** The header as a target-native TRANSLATION expression (`t("page.…", "Job
    *  Name")`), or `undefined` when there is nothing to translate — i18n off, or
-   *  a dynamic header (M-T1.11, the `columnHeader` slot).
+   *  a dynamic header (the `columnHeader` slot).
    *
    *  A grid header is a VALUE inside a TanStack-shaped column definition, not
    *  markup, so every child renderer spells it `header: <value>` and reads this
@@ -438,7 +457,7 @@ export interface DataGridSpec {
   selection?: string;
   /** `data-testid` attribute string for the grid root, or `""`. */
   testidAttr: string;
-  /** The row-selection checkboxes' accessible names (M-T1.11) — complete
+  /** The row-selection checkboxes' accessible names — complete
    *  `aria-label` attribute fragments, no leading space, already resolved
    *  against this walk's i18n decision.  Empty strings when the grid renders no
    *  selection column, which is also when no target reads them.
@@ -452,7 +471,7 @@ export interface DataGridSpec {
    *  props instead of markup (Feliz's `prop.ariaLabel`). */
   selectAllRowsAriaValue: string;
   selectRowAriaValue: string;
-  /** The sortable header button's accessible name (M-T1.11) — a complete
+  /** The sortable header button's accessible name — a complete
    *  `aria-label` attribute fragment, no leading space, already resolved
    *  against this walk's i18n decision (`localizedChromeIcuAria`).
    *
@@ -634,7 +653,7 @@ export interface TargetHookUse {
   reactiveQuery?: boolean;
 }
 
-/** One call into the generated translation runtime (M-T1.11), handed to the
+/** One call into the generated translation runtime, handed to the
  *  optional `renderTranslate` seam.  `key` is the D-I18N-KEY content hash
  *  (`page.<Page>.<role>.<hash>`), identical to the catalog entry; `message` is
  *  the SOURCE-language default (the fallback when the active locale carries no
@@ -941,7 +960,7 @@ export interface WalkerTarget {
   escapeAttrExpr?(jsExpr: string): string;
 
   /** Prefix a bound HTML ATTRIBUTE (aria-*, data-*) needs before its name when
-   *  it rides `renderAttrBinding` (M-T1.11 i18n aria labels).  Angular binds
+   *  it rides `renderAttrBinding` (i18n aria labels).  Angular binds
    *  plain element attributes as `[attr.aria-label]="…"` — a bare
    *  `[aria-label]` targets a non-existent property and fails `ng build` — so
    *  the Angular target sets this to `"attr."`; every other frontend binds the
@@ -963,7 +982,7 @@ export interface WalkerTarget {
   navAttrAlwaysBound?: boolean;
 
   /** OPTIONAL — the SPELLING of a plain STRING LITERAL in the target's own
-   *  expression language (M-T1.11).  Needed only where a user-visible string
+   *  expression language.  Needed only where a user-visible string
    *  reaches a pack as a VALUE rather than as an HTML-ish attribute fragment —
    *  the `localizedNamedValue` seam, whose two consumers are the frontends
    *  whose markup is not HTML (Feliz's F# `"…"`, Flutter's Dart `'…'`).
@@ -974,19 +993,19 @@ export interface WalkerTarget {
   renderStringLiteral?(text: string): string;
 
   /** OPTIONAL — a string built from alternating LITERAL and EXPRESSION pieces,
-   *  in the target's own expression language (M-T1.11).
+   *  in the target's own expression language.
    *
-   *  The missing third of the trio.  `renderStringLiteral` spells a constant,
+   *  The third of the trio.  `renderStringLiteral` spells a constant,
    *  `renderInterpolation` splices an expression into markup TEXT position — but
    *  a holed message in an ATTRIBUTE (`aria-label="Sort by <column>"`) is
    *  neither: it is one string EXPRESSION assembled from both.  Without a seam
    *  for it, the i18n-off form of such a message could only be spelled by
-   *  whichever pack template happened to contain it, which is exactly what made
-   *  those labels untranslatable in the first place.
+   *  whichever pack template happened to contain it, which leaves those labels
+   *  untranslatable.
    *
    *  The default is a JS template literal (`` `a${e}b` ``), so the three targets
-   *  that already spelled these labels that way — React, Svelte, Vue — stay
-   *  byte-identical without implementing anything.  Angular overrides because
+   *  that spell these labels that way — React, Svelte, Vue — need not implement
+   *  it.  Angular overrides because
    *  its template grammar has no template literals; Feliz and Flutter override
    *  because their markup is not JS at all.
    *
@@ -995,7 +1014,7 @@ export interface WalkerTarget {
   renderStringConcat?(parts: ReadonlyArray<StringPart>): string;
 
   /** OPTIONAL — the SPELLING of a call into the generated translation runtime
-   *  (M-T1.11).  The four JS frontends share one `t(key, default, values?)`
+   *  The four JS frontends share one `t(key, default, values?)`
    *  shim, so an omitted seam yields exactly that JavaScript call and those
    *  targets stay BYTE-IDENTICAL.  A frontend whose runtime is a different
    *  LANGUAGE (Feliz's F#, Flutter's Dart) overrides it to spell the same call
@@ -1017,7 +1036,7 @@ export interface WalkerTarget {
   renderConditionalChild(cond: string, thenS: string, elseS: string, depth: number): string;
 
   /** OPTIONAL — spell the present/absent split around ONE optional VALUE, for a
-   *  target whose language cannot test an optional for truthiness (M-T1.33).
+   *  target whose language cannot test an optional for truthiness.
    *
    *  {@link renderConditionalChild} is the JS/markup family's whole answer to
    *  "guard this nullable": `row.lastKnownLocation` is itself a usable
@@ -1037,12 +1056,28 @@ export interface WalkerTarget {
    *  target too, because "nothing here" has no cross-language spelling: the
    *  markup family's `<span>—</span>` is not F# and not a Dart widget.  Every
    *  implementation renders the same USER-VISIBLE thing — a plain em dash, no
-   *  link — which is the placeholder `FileLink` already established for an
-   *  unset `File?`.
+   *  link — the same placeholder `FileLink` renders for an unset `File?`.
    *
    *  A target that omits this seam keeps the truthiness path and stays
    *  byte-identical. */
   renderOptionalSplit?(spec: OptionalSplitSpec): string;
+
+  /** OPTIONAL — wrap an `IdLink`'s label in a per-cell CHILD that reads the
+   *  referenced record's `display` (fleet slice B).
+   *
+   *  The lookup cannot be a hook in the page: an `IdLink` usually sits in a
+   *  `Table` row loop, and one `useXById` per row in the page body breaks
+   *  React's rules-of-hooks (and has no equivalent at all in an Angular
+   *  template or an Elmish view).  A child component owns its own read, so the
+   *  hook is legal on every target, and the per-framework query cache (TanStack
+   *  on the JS family, a Riverpod `.family` on Flutter, a keyed promise cache on
+   *  Feliz) collapses repeated ids to ONE request each.
+   *
+   *  The walker only asks when the referenced aggregate carries a `display`
+   *  on the wire; a target that omits the seam keeps the truncated-id label,
+   *  byte-identical.  The target is responsible for its own import / component
+   *  registration of the child. */
+  renderRefLabelWrap?(spec: RefLabelSpec, ctx: WalkContext): RefLabelWrap;
 
   /** OPTIONAL — the markup for "render NOTHING" in a child position: what the
    *  walker hands a pack template for an ABSENT optional slot (a `QueryView`
@@ -1300,6 +1335,16 @@ export interface WalkerTarget {
   renderOperationForm?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
   renderModal?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
+  /** OPTIONAL — the boolean expression that DISABLES a `when`-gated operation's
+   *  trigger, given the page-scope local bound to its `can_<op>` probe query
+   *  (`canComplete`).  True only once the probe has answered `allowed: false`
+   *  — a pending or failed probe leaves the trigger enabled, so the server's
+   *  409 stays the backstop.  Absent ⇒ the TanStack-object spelling
+   *  `<local>.data?.allowed === false` (React, Vue's `reactive(…)` wrap,
+   *  Svelte's runes query); a target whose query handle reads differently
+   *  (Angular's signal `data()`) overrides it. */
+  renderOpGateDisabled?(local: string): string;
+
   /** OPTIONAL — whole-primitive override for `WorkflowForm(runs: <Wf>)`.  The
    *  shared `emitWorkflowForm` delegates here first; a non-null return is used
    *  verbatim and the RHF `emitFormRuns` path (which records a `formOfs` sink)
@@ -1461,7 +1506,7 @@ export interface WalkerTarget {
     renderedArgs: string,
   ): string;
 
-  // --- Interactive-table seam (M-T1.1) ------------------------------------
+  // --- Interactive-table seam ---------------------------------------------
   //
   // A `Table` gains client-side column sort when it carries `sortKey:` /
   // `sortDir:` state refs and one or more `Column(..., sortable: true)`.  The
@@ -1470,7 +1515,7 @@ export interface WalkerTarget {
   // rows expression.  Both are OPTIONAL: a target that omits them renders the
   // plain header + unsorted rows (byte-identical to a table with no sort args),
   // so the feature degrades gracefully instead of emitting broken framework
-  // syntax on a target that hasn't been ported yet.
+  // syntax on a target that does not implement them.
 
   /** Render a sortable column header.  React returns a clickable
    *  `<span onClick=…>` that toggles `sortDir` when the column is already
@@ -1522,14 +1567,11 @@ export interface WalkerTarget {
    *  server-ORDERED page it already is — correct, just not interactive —
    *  rather than emitting a control that lies.
    *
-   *  **NO TARGET SETS THIS TODAY.**  Feliz was the one that did (its wire layer
-   *  decoded only the envelope's `items`, so `rows.totalPages` didn't
-   *  type-check); M-T2.6's Feliz leg landed both halves — a controlled `.all`
-   *  decodes the page count into a sibling Model field and the control setters
-   *  refetch — and the flag came off (`test/generator/feliz/table-controls.test.ts`
-   *  §"feliz server-paged scaffold list").  The slot stays for the NEXT
-   *  non-JS target that arrives without an envelope unwrap.  Omitted → server
-   *  mode is supported, which is every target as things stand. */
+   *  **NO TARGET SETS THIS.**  Every target decodes the paged envelope's page
+   *  count and refetches from its control setters (Feliz's coverage:
+   *  `test/generator/feliz/table-controls.test.ts` §"feliz server-paged
+   *  scaffold list").  The slot exists for a non-JS target that arrives
+   *  without an envelope unwrap.  Omitted → server mode is supported. */
   serverPagedControls?: boolean;
 
   /** Clamp the SERVER-supplied page count to at least 1.  Omitted → the JS
@@ -1577,7 +1619,7 @@ export interface WalkerTarget {
    *  untouched either way. */
   joinRoots?(parts: readonly string[]): string;
 
-  // --- DataGrid seam (M-T1.1) ------------------------------------
+  // --- DataGrid seam ---------------------------------------------
   //
   // Unlike the `Table` seams above, a `DataGrid` cannot be expressed as markup
   // around a rows expression: it is a TanStack row model driven by a component
@@ -1708,7 +1750,7 @@ export interface WalkerTarget {
    *  JSX targets, an F# `decimal` on Feliz) the host's operators already mean
    *  the right thing and those targets leave this seam undefined — byte-identical
    *  output.  Where money is a STRING (Flutter, whose Dart has no decimal type
-   *  and holds the wire's digits verbatim — M-T1.21), the host's operators are
+   *  and holds the wire's digits verbatim), the host's operators are
    *  not merely unavailable, they are SILENTLY WRONG: `+` concatenates and `==`
    *  compares text, so `'1.5'` and `'1.5000'` — the same amount — differ.
    *

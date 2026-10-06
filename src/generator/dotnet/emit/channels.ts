@@ -1,4 +1,10 @@
-import type { EventIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type {
+  EventIR,
+  FieldIR,
+  SystemIR,
+  TypeIR,
+  ValueObjectIR,
+} from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
 import {
@@ -48,9 +54,17 @@ function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
 
 /** C# expression serialising one event property into its envelope-data value
  *  (DSL-keyed JSON; parity with the Hono/Python codecs). */
-function toDataExpr(prop: string, t: TypeIR): string {
+function toDataExpr(prop: string, t: TypeIR, vos: VoFields = new Map()): string {
   const inner = t.kind === "optional" ? t.inner : t;
   const access = t.kind === "optional" ? `${prop}?` : prop;
+  const voFields = inner.kind === "valueobject" ? vos.get(inner.name) : undefined;
+  if (inner.kind === "valueobject" && voFields) {
+    // A self-referential VO stops at its first level (no generate-time loop).
+    const rest = new Map(vos);
+    rest.delete(inner.name);
+    const record = voToDataExpr(prop, voFields, rest);
+    return t.kind === "optional" ? `(${prop} is null ? null : ${record})` : record;
+  }
   if (inner.kind === "primitive" && inner.name === "datetime") return `${access}.ToString("o")`;
   // money pins the FIXED wire scale (RS-12) — a bare `.ToString(culture)` echoes
   // whatever scale the domain `decimal` happens to carry rather than the
@@ -104,12 +118,39 @@ function csWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarg
       return `new ${targetName}Id(Guid.Parse(${e}.GetString()!))`;
     },
     enumValue: (e, name) => `Enum.Parse<${name}>(${e}.GetString()!)`,
-    // No `optional` leaf: a JSON null would already fail the typed reader, and
-    // the pre-port codec had no guard either — keeping that gap explicit and
-    // in one place rather than inventing a new behaviour inside a refactor.
+    // An optional field may arrive as JSON `null` (the node producer spells
+    // every absent optional that way) or not at all: `GetProperty` throws
+    // `KeyNotFoundException` on the second and every typed reader throws on
+    // the first (eval item 12).  `Opt` reads an absent key as the default
+    // (`Undefined`) element, and the guard runs BEFORE the typed reader.
+    readOptional: (payload, field) => `Opt(${payload}, ${JSON.stringify(field)})`,
+    optional: (e, decoded) =>
+      `(${e}.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? null : ${decoded})`,
     passthrough: asString,
+    // A value object crosses as a JSON object keyed by its DSL field names
+    // and is rebuilt through its constructor (declaration order) — never
+    // handed to the VO-typed parameter as a string (eval item 11).
+    valueObject: {
+      view: (e) => e,
+      build: (name, fields) => `new ${name}(${fields.map((f) => f.decoded).join(", ")})`,
+    },
   };
 }
+
+/** C# expression serialising a value object into its wire RECORD — a
+ *  DSL-keyed dictionary, so the JSON is `{"amount": …}` and not the
+ *  PascalCase property names `JsonSerializer` would emit for the record
+ *  itself (the key every other backend's decoder reads). */
+function voToDataExpr(access: string, fields: readonly FieldIR[], vos: VoFields): string {
+  return `new Dictionary<string, object?> { ${fields
+    .map(
+      (f) =>
+        `[${JSON.stringify(f.name)}] = ${toDataExpr(`${access}.${upperFirst(f.name)}`, f.type, vos)}`,
+    )
+    .join(", ")} }`;
+}
+
+type VoFields = ReadonlyMap<string, readonly FieldIR[]>;
 
 export function renderDotnetChannels(
   ns: string,
@@ -132,8 +173,15 @@ export function renderDotnetChannels(
    *  no-op.  `durableBroker`: hosted durable events ride a broker-bound
    *  `queue`/`work` channel — emit the `ChannelRelayPublisher` the outbox
    *  relay publishes through (design §5). */
-  opts: { hasOutbox: boolean; durableBroker: boolean } = { hasOutbox: false, durableBroker: false },
+  opts: {
+    hasOutbox: boolean;
+    durableBroker: boolean;
+    /** The value objects in scope (hosted + the foreign-event closure) — a
+     *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
+    valueObjects?: readonly ValueObjectIR[];
+  } = { hasOutbox: false, durableBroker: false },
 ): string {
+  const vos: VoFields = new Map((opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -166,7 +214,8 @@ export function renderDotnetChannels(
       (ev) =>
         `            ${ev.name} e => new Dictionary<string, object?> { ${ev.fields
           .map(
-            (f) => `[${JSON.stringify(f.name)}] = ${toDataExpr(`e.${upperFirst(f.name)}`, f.type)}`,
+            (f) =>
+              `[${JSON.stringify(f.name)}] = ${toDataExpr(`e.${upperFirst(f.name)}`, f.type, vos)}`,
           )
           .join(", ")} },`,
     )
@@ -175,10 +224,19 @@ export function renderDotnetChannels(
     .map(
       (ev) =>
         `            ${JSON.stringify(ev.name)} => new ${ev.name}(${ev.fields
-          .map((f) => decodeField("data", f, csWireDecode(idValueTypeOf)))
+          .map((f) => decodeField("data", f, csWireDecode(idValueTypeOf), vos))
           .join(", ")}),`,
     )
     .join("\n");
+  const usesOpt = fromArms.includes("Opt(");
+  // A carried VO is named (rebuilt) by the decoder — its namespace joins the
+  // usings only then, so a VO-free transport keeps a using-clean header.
+  const usesVo = carried.some((ev) =>
+    ev.fields.some((f) => {
+      const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+      return inner.kind === "valueobject" && vos.has(inner.name);
+    }),
+  );
   const bindingLines = unique
     .map(
       (b) =>
@@ -785,7 +843,7 @@ ${hasKafka ? "using Confluent.Kafka;\nusing Confluent.Kafka.Admin;\n" : ""}${has
 using ${ns}.Domain.Enums;
 using ${ns}.Domain.Events;
 using ${ns}.Domain.Ids;
-using ${ns}.Infrastructure.Events;
+${usesVo ? `using ${ns}.Domain.ValueObjects;\n` : ""}using ${ns}.Infrastructure.Events;
 
 namespace ${ns}.Infrastructure.Channels;
 
@@ -862,7 +920,17 @@ ${toArms}
         {
 ${fromArms}
             _ => throw new InvalidOperationException($"unknown carried event type: {eventType}"),
-        };
+        };${
+          usesOpt
+            ? `
+
+    // An optional field's read: an ABSENT key is the default (Undefined)
+    // element rather than a KeyNotFoundException, so the caller's null guard
+    // covers both a JSON null and an omitted field.
+    private static JsonElement Opt(JsonElement data, string name)
+        => data.TryGetProperty(name, out var value) ? value : default;`
+            : ""
+        }
 }
 
 /// <summary>Envelope construction shared by the inline tee and the outbox

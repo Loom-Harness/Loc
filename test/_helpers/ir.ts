@@ -8,7 +8,7 @@ import type {
   RawLoomModel,
 } from "../../src/ir/types/loom-ir.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { parseValid } from "./parse.js";
+import { parseString, parseValid } from "./parse.js";
 
 /** Lower + enrich an already-parsed AST Model into the canonical Loom IR.
  *
@@ -28,6 +28,34 @@ export const toLoomModel = (model: Model): EnrichedLoomModel => enrichLoomModel(
  */
 export async function buildLoomModel(source: string): Promise<EnrichedLoomModel> {
   return toLoomModel(await parseValid(source));
+}
+
+/**
+ * Lower + enrich a source the product REFUSES, for a test whose subject is the
+ * lowering itself.  The IR twin of `generateSystemFilesUnchecked`, and it takes
+ * a reason for the same purpose: this is the only record of why a fixture is
+ * allowed to be one no user could compile.
+ *
+ * The motivating shape is a PROBE MEMBER — `lines.min(λ).p`, where `.p` exists
+ * only so the derived expression lowers to a `member` node whose `receiverType`
+ * the test can read.  That was silently fine while nothing checked member
+ * membership; `loom.unknown-primitive-member` now refuses it, correctly (`.p`
+ * is not a member of `money?` on any backend). The probe is still the clearest
+ * way to assert a reduction's result type, so it stays — declared invalid
+ * rather than quietly relying on a gap.
+ */
+export async function buildLoomModelUnchecked(
+  source: string,
+  why: string,
+): Promise<EnrichedLoomModel> {
+  if (why.trim().length < 15) {
+    throw new Error(
+      `buildLoomModelUnchecked needs a real reason, not "${why}" — it is the only ` +
+        `record of why this fixture is allowed to be one the product refuses.`,
+    );
+  }
+  const { model } = await parseString(source, { validate: false });
+  return toLoomModel(model);
 }
 
 /** Every bounded context of an ENRICHED model, keeping the enriched type.

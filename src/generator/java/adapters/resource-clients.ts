@@ -1,5 +1,6 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
 
@@ -44,6 +45,34 @@ export function javaResourceClassName(sourceType: string): string {
   return `${upperFirst(sourceType)}Resources`;
 }
 
+/** The `put(key, json)` serializer both object-store adapters emit.
+ *
+ *  `docs/resources.md` types the second argument as a JSON VALUE — a record
+ *  literal (`{ a: x, b: y }`) reaches the call site as a `Map.of(...)`, an id
+ *  as its wrapper record, a number as a boxed primitive.  Serializing inside
+ *  the helper is what lets the PARAMETER be `Object`, which is the whole fix:
+ *  a `String` parameter made every record-literal call a javac
+ *  `incompatible types`, on a model that had just validated `0 error(s)`.
+ *
+ *  Jackson 3 is already on a Spring Boot classpath (`spring-boot-starter-web`
+ *  pulls `jackson-databind`), so this adds no dependency. */
+function jsonHelper(): string[] {
+  return [
+    `    private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();`,
+    ``,
+    `    private static String toJson(Object body) {`,
+    `        if (body instanceof String s) {`,
+    `            return s;`,
+    `        }`,
+    `        try {`,
+    `            return JSON.writeValueAsString(body);`,
+    `        } catch (tools.jackson.core.JacksonException e) {`,
+    `            throw new IllegalArgumentException("resource put: body is not JSON-serializable", e);`,
+    `        }`,
+    `    }`,
+  ];
+}
+
 const s3JavaAdapter: JavaResourceAdapter = {
   name: "s3",
   gradleDeps: () => ({ "software.amazon.awssdk:s3": "2.29.52" }),
@@ -56,10 +85,16 @@ const s3JavaAdapter: JavaResourceAdapter = {
         `        System.getenv().getOrDefault("${envVar(n)}_BUCKET", ${JSON.stringify(bucket)});`,
         `    private static final S3Client ${n}Client = S3Client.create();`,
         ``,
-        `    public static void ${n}Put(String key, String body) {`,
+        // `put(key, json)` (docs/resources.md): the body is a JSON VALUE, not a
+        // pre-rendered string -- a record literal at the call site renders as a
+        // `Map.of(...)`.  Typing the param `String` made every such call a
+        // javac `incompatible types: Map<K,V> cannot conform to String`, so the
+        // param is `Object` and the helper serializes, exactly as the node
+        // (`JSON.stringify(body)`) and python (`json.dumps(body)`) adapters do.
+        `    public static void ${n}Put(String key, Object body) {`,
         `        ${n}Client.putObject(`,
         `            PutObjectRequest.builder().bucket(${n}Bucket).key(key).contentType("application/json").build(),`,
-        `            RequestBody.fromString(body));`,
+        `            RequestBody.fromString(toJson(body)));`,
         `    }`,
         ``,
         `    public static String ${n}Get(String key) {`,
@@ -116,6 +151,8 @@ const s3JavaAdapter: JavaResourceAdapter = {
       `import java.time.Duration;`,
       `import java.util.List;`,
       ``,
+      `import tools.jackson.databind.json.JsonMapper;`,
+      ``,
       `import software.amazon.awssdk.core.sync.RequestBody;`,
       `import software.amazon.awssdk.services.s3.S3Client;`,
       `import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;`,
@@ -130,6 +167,8 @@ const s3JavaAdapter: JavaResourceAdapter = {
       `public final class S3Resources {`,
       `    private S3Resources() {`,
       `    }`,
+      ``,
+      ...jsonHelper(),
       ``,
       `    /** Raw object bytes + their stored content-type. */`,
       `    public record ObjectBytes(byte[] bytes, String contentType) {`,
@@ -524,8 +563,11 @@ const localDiskJavaAdapter: JavaResourceAdapter = {
         ``,
         // Vendor-neutral JSON verbs (parity with s3's Put/Get/List/Delete) so
         // workflow bodies reaching the store keep working against localDisk.
-        `    public static void ${n}Put(String key, String body) {`,
-        `        ${n}PutBytes(key, body.getBytes(StandardCharsets.UTF_8), "application/json");`,
+        // `Object body` + serialize, matching the s3 adapter and the node /
+        // python contract: `put(key, json)` takes a JSON value, and a record
+        // literal at the call site renders as a `Map.of(...)`.
+        `    public static void ${n}Put(String key, Object body) {`,
+        `        ${n}PutBytes(key, toJson(body).getBytes(StandardCharsets.UTF_8), "application/json");`,
         `    }`,
         ``,
         `    public static String ${n}Get(String key) {`,
@@ -569,9 +611,13 @@ const localDiskJavaAdapter: JavaResourceAdapter = {
       `import java.nio.file.Path;`,
       `import java.util.List;`,
       ``,
+      `import tools.jackson.databind.json.JsonMapper;`,
+      ``,
       `public final class LocalDiskResources {`,
       `    private LocalDiskResources() {`,
       `    }`,
+      ``,
+      ...jsonHelper(),
       ``,
       `    /** Raw object bytes + their stored content-type. */`,
       `    public record ObjectBytes(byte[] bytes, String contentType) {`,
@@ -607,7 +653,7 @@ export function emitJavaResourceFiles(
   wiredNames: ReadonlySet<string>,
   pkg: string,
 ): { files: Map<string, string>; deps: Record<string, string>; classes: Map<string, string> } {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/java/adapters/resource-clients");
   const deps: Record<string, string> = {};
   const classes = new Map<string, string>();
   if (!sys) return { files, deps, classes };

@@ -10,6 +10,19 @@
 //   Pattern F: `member(member(ref:<Workflow>, "instances"), "all")`        — `Fulfillment.instances.all`
 //   Pattern G: `method-call(member(ref:<Workflow>, "instances"), "byId", args)` — `Fulfillment.instances.byId(id)`
 //   Pattern H: `member(ref:apiParam, <Projection>)`                        — `Sales.SalesTotals`
+//   Pattern I: `ref:<Projection>`                                          — `SalesTotals`   (no api-param prefix)
+//
+// Pattern I is to H what D is to A: the same read with no api handle in front
+// of it.  Its absence was a HOLE, not a design — every other pattern already
+// had its bare twin, and the one read that lacked one is the read the
+// dashboard scaffold emits.  `scaffoldHome`'s KPI row builds
+// `QueryView { of: <Projection> }` as a BARE ref whenever the `ui` declares no
+// `api X: Y` param (`_body-builders.ts::kpiRow`), so on such a ui the read
+// bound to nothing, fell through to the shared walker's last-resort `ref` arm,
+// and shipped `/* unresolved: <Projection> */ undefined` into the page while
+// `ddd generate system` reported `0 error(s), 0 warning(s)`.  Six markers on a
+// 26-line model; ZERO across the whole shipped corpus, because every example
+// in it declares an api param — which is why no build gate ever saw it.
 //
 // Detection is PURE IR analysis — no framework assumptions, no
 // emission.  Kept out of `react/walker/api-hooks.ts` so any walker
@@ -46,7 +59,8 @@ export interface DetectedApiCall {
    *    `"workflow-instance"` — Patterns F/G (`<Workflow>.instances.all` /
    *                            `.byId(id)`); `aggregateName` carries the
    *                            workflow name, `operation` is `all`/`byId`.
-   *    `"projection"`        — Pattern H (`<apiHandle>.<Projection>`);
+   *    `"projection"`        — Patterns H / I (`<apiHandle>.<Projection>` and
+   *                            the bare `<Projection>`);
    *                            `aggregateName` carries the projection name and
    *                            `operation` is `read` — a projection read takes
    *                            no operation, since the projection IS the row. */
@@ -74,7 +88,7 @@ export interface ApiHookDetectorContext {
    *  not supply it. */
   workflowsByName?: { has(name: string): boolean };
   /** Container of READABLE projection names — the query-time projections the
-   *  served backend exposes a route for.  Pattern H matches against this set.
+   *  served backend exposes a route for.  Patterns H and I match against it.
    *  Optional, so a caller that never reads a projection (and every target
    *  whose frontend client isn't ported) leaves the pattern inert and keeps
    *  its previous output byte-for-byte. */
@@ -159,6 +173,21 @@ export function tryDetectApiHook(
       args: [],
       kind: "projection",
     };
+  }
+  // Pattern I: ref:<Projection> — a projection read with no api-param prefix,
+  // the bare twin of Pattern H exactly as D is the bare twin of A.
+  //
+  // `refKind: "unknown"` is the whole guard, and it is the right one: lowering
+  // resolves a page-body name against locals / lambda params / state / derived
+  // / actions / criteria / enum members FIRST, and only a name it bound to
+  // nothing keeps `"unknown"` (`lower-expr.ts::resolveRef`).  So a `state {}`
+  // field, a `let`, or a lambda binding that happens to share a projection's
+  // name still shadows it here, for the same reason and by the same mechanism
+  // that makes the ui-body enum-member arm safe.  Matching on the NAME alone
+  // would have inverted that shadowing, because this detector runs at the top
+  // of `emitExpr`, ahead of the ref arm's own scope lookups.
+  if (expr.kind === "ref" && expr.refKind === "unknown" && ctx.projectionsByName?.has(expr.name)) {
+    return { aggregateName: expr.name, operation: "read", args: [], kind: "projection" };
   }
   // Pattern D: member(ref:<Aggregate>, op) without api-param prefix.
   // Lets UIs without a `api X: Y` binding still get auto-injected

@@ -3,6 +3,7 @@ import type {
   ChannelIR,
   CreateIR,
   EnrichedBoundedContextIR,
+  EnumIR,
   ExprIR,
   IdValueType,
   OnIR,
@@ -25,9 +26,10 @@ import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
-import { stateDefault } from "./state-default.js";
+import { type StateDefaultDecls, stateDefault } from "./state-default.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
+import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import { lookupOp, opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 
@@ -217,7 +219,7 @@ export function emitWorkflowStateSchemas(
     if (!wf.correlationField || wf.eventSourced) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, schema, durable),
+      renderStateSchema(contextModule, wf, ctx.enums, schema, durable),
     );
   }
 }
@@ -270,7 +272,7 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, dispatchSchema, durable),
+      renderStateSchema(contextModule, wf, ctx.enums, dispatchSchema, durable),
     );
   }
 
@@ -334,33 +336,44 @@ export function ectoIdType(vt: IdValueType): string {
   }
 }
 
-/** Plain (non-id) state-field Ecto type.  Only the handful of primitive
- *  saga-column shapes the migrations builder emits are mapped; anything
- *  exotic falls back to `:string` (no saga fixture exercises it yet). */
-function ectoStateFieldType(t: import("../../ir/types/loom-ir.js").TypeIR): string {
+/** Plain (non-correlation) state-field Ecto type — it must agree with the
+ *  column the migrations builder derives for the same field
+ *  (`workflowStateTableShape` → `renderInitialStateFile`):
+ *
+ *  - `optional` is unwrapped first — nullability is a column option, not a type
+ *    (an optional `datetime` fell through to `:string`, so every reactor write
+ *    of a DateTime was an `Ecto.ChangeError` — wave C3 D8).
+ *  - an id is typed by its value type (`ectoIdType`), as the PK is.
+ *  - an enum holds the member ATOM the body assigns (`claimState := Filed`
+ *    renders `:Filed`), which `:string` cannot dump (wave C3 D6); the column
+ *    stays text, `Ecto.Enum` stores the member name.
+ *  - a reference collection (`X id[]`) is a jsonb column holding the id list,
+ *    so its elements are the id's JSON form (a guid is a string there, never
+ *    Ecto's 16-byte `:binary_id` dump, which Jason cannot encode).
+ *  - everything else rides the aggregate schema mapping (`mapTypeToEcto`): a
+ *    value object is ONE `:map` column (the migration collapses its flattened
+ *    leaf columns, `collapseVoGroups`), a `datetime` is the millisecond
+ *    `Loom.Datetime` every declared datetime column uses (RS-38). */
+function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
+  if (t.kind === "optional") return ectoStateFieldType(t.inner, enums);
   if (t.kind === "id") return ectoIdType(t.valueType);
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return ":integer";
-      case "bool":
-        return ":boolean";
-      case "decimal":
-      case "money":
-        return ":decimal";
-      case "datetime":
-        return ":utc_datetime";
-      default:
-        return ":string";
-    }
+  if (t.kind === "enum") {
+    const values = enums.find((e) => e.name === t.name)?.values ?? [];
+    if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
+    return ":string";
   }
-  return ":string";
+  if (t.kind === "array" && t.element.kind === "id") {
+    const el =
+      t.element.valueType === "int" || t.element.valueType === "long" ? ":integer" : ":string";
+    return `{:array, ${el}}`;
+  }
+  return mapTypeToEcto(t, new Map()) ?? ":string";
 }
 
 function renderStateSchema(
   contextModule: string,
   wf: WorkflowIR,
+  enums: readonly EnumIR[],
   schema?: string,
   /** Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
    *  channel maps the shared `last_event_id` column the migrations add. */
@@ -373,7 +386,7 @@ function renderStateSchema(
   const table = plural(snake(wf.name));
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
-    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type)}`);
+    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`);
   if (durable) fieldLines.push(`    field :last_event_id, :string`);
   // `@schema_prefix` targets the workflow's context schema, matching the
   // migration `prefix:`.  Omitted ⇒ public, byte-identical.
@@ -534,7 +547,7 @@ function renderHandler(
   const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
-    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable)
+    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable, ctx)
     : indent(body, 4).join("\n");
 
   // Module names render fully-qualified throughout the body, so the only
@@ -589,6 +602,9 @@ function renderPersistedBody(
    *  marker (check the process-dictionary event id against the loaded row, and
    *  stamp it after the fold) — dispatch-delivery-semantics.md §3. */
   durable = false,
+  /** The context's declarations — a required value-object / enum state field
+   *  allocates its zero (`stateDefault`), never a NOT NULL-violating `nil`. */
+  decls: StateDefaultDecls = {},
 ): string {
   const corr = wf.correlationField as string;
   const stateMod = stateModule(contextModule, wf);
@@ -619,7 +635,7 @@ function renderPersistedBody(
     const allocFields = [`${snake(corr)}: key`];
     for (const f of wf.stateFields ?? []) {
       if (f.name === corr || f.optional) continue;
-      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type)}`);
+      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type, decls)}`);
     }
     const load = [
       `    key = ${keyExpr}`,
