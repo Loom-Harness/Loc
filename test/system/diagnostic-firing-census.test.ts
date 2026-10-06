@@ -519,6 +519,18 @@ system TestVocab {
     test "t" { emit Pinged { n: 1 } }
   } }
 }`,
+  // A paged find's own `page` parameter: the paged read adds a `page` query
+  // control of its own, so the key would arrive twice and every generated
+  // repository signature would declare `page` twice.
+  "loom.paged-param-reserved": `
+system PagedParam {
+  subdomain S { context Shop {
+    aggregate Thing with crudish { rank: int }
+    repository Things for Thing {
+      find byRank(page: int): Thing paged where this.rank == page
+    }
+  } }
+}`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:
