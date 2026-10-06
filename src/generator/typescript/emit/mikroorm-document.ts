@@ -24,6 +24,7 @@ import {
   entityFromDocFn,
   entityToDocFn,
   findPredicate,
+  inMemoryPagedLocals,
   inMemoryPagedTailLines,
   PAGED_TAIL_PARAMS,
   pagedReturnType,
@@ -134,11 +135,12 @@ export function renderMikroDocumentRepository(
     if (pagedReturn(f.returnType)) {
       const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
       const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+      const L = inMemoryPagedLocals(f.params);
       return lines(
         `  async ${f.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
         ...loadLines,
-        `    const matched = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-        ...inMemoryPagedTailLines(agg, "matched", f.name),
+        `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
+        ...inMemoryPagedTailLines(agg, L, f.name),
         `  }`,
       );
     }

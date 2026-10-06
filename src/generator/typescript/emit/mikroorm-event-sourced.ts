@@ -20,6 +20,7 @@ import {
   deserializeField,
   docFieldType,
   findPredicate,
+  inMemoryPagedLocals,
   inMemoryPagedTailLines,
   PAGED_TAIL_PARAMS,
   pagedReturnType,
@@ -97,11 +98,12 @@ export function renderMikroEventSourcedRepository(
         const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(
           ", ",
         );
+        const L = inMemoryPagedLocals(find.params);
         return lines(
           `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
           "    const all = await this._loadAll();",
-          `    const matched = ${pred ? `all.filter(${pred})` : "all"};`,
-          ...inMemoryPagedTailLines(agg, "matched", find.name),
+          `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
+          ...inMemoryPagedTailLines(agg, L, find.name),
           "  }",
         );
       }

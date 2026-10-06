@@ -17,6 +17,7 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import {
@@ -212,21 +213,26 @@ export function renderMikroEmbeddedRepository(
       const sortable = sortableFields(agg)
         .map((s) => JSON.stringify(s))
         .join(", ");
+      // The paged-only locals step aside for a same-named find param.
+      const L = pagedLocalNames(
+        ["sortable", "sortField", "orderBy", "total", "totalPages", "items"] as const,
+        findParamBindings(f.params),
+      );
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const sortable = new Set<string>([${sortable}]);`,
-        `    const sortField = sortable.has(sort) ? sort : "id";`,
-        `    const orderBy: Record<string, "asc" | "desc"> = { [sortField]: dir === "desc" ? "desc" : "asc" };`,
-        `    const total = await em.count(${row}, ${filter});`,
-        `    const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;`,
-        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, orderBy });`,
+        `    const ${L.sortable} = new Set<string>([${sortable}]);`,
+        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.total} = await em.count(${row}, ${filter});`,
+        `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
+        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,
         dbg(f.name, "rows.length"),
-        `    const items = rows.map((row) => {`,
+        `    const ${L.items} = rows.map((row) => {`,
         ...embeddedHydrateLocals(agg, "row", "      ", ctx),
         `      return ${hydrateRootExpr(agg, "row", ctx)};`,
         `    });`,
-        `    return { items, page, pageSize, total, totalPages };`,
+        `    return ${pagedEnvelopeLiteral(L)};`,
         `  }`,
       );
     }
