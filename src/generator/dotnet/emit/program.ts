@@ -8,7 +8,9 @@ import { plural, upperFirst } from "../../../util/naming.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
+  TEST_RESET_HEADER,
   TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import {
   DEBIAN_CERTS_BLOCK,
@@ -464,27 +466,40 @@ using (var seedScope = app.Services.CreateScope())
     : "";
   // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
   //
-  // The endpoint is mapped inside a runtime `if`, so outside a dev profile the
-  // route does not exist at all and a request falls through to ASP.NET's own
-  // not-found handling having touched nothing.  `IsProduction()` reads
-  // ASPNETCORE_ENVIRONMENT, which an operator already sets and the generated
-  // Dockerfile leaves at its Production default; the generated compose file,
-  // which is the LOCAL dev stack, opts in with LOOM_TEST_RESET=1.
+  // The endpoint is mapped inside a runtime `if`, so unless an operator sets
+  // BOTH LOOM_TEST_RESET=1 and a LOOM_TEST_RESET_TOKEN the route does not exist
+  // and a request falls through to ASP.NET's own not-found handling having
+  // touched nothing.  Nothing is inferred from ASPNETCORE_ENVIRONMENT (finding
+  // H-30: an implied default exposed an unauthenticated truncate), and the
+  // generated compose file does not opt in.  Each request must carry the token
+  // in `x-loom-test-reset`, compared with FixedTimeEquals; otherwise 403.
   //
   // Both persistence adapters reach the same ADO.NET connection: EF Core hands
   // one over through `Database.GetDbConnection()`, the Dapper path opens one
   // off the NpgsqlDataSource.  Only those two lines diverge, so the handler
   // body below is shared.
-  const testResetBlock = `// Dev-only state reset for the emitted e2e suite.  Mapped ONLY outside a
-// production profile (or with ${TEST_RESET_ENV}=1), so this surface does not
-// exist in a real deployment.  See docs/tools.md.
-var loomTestReset = System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}");
-if (loomTestReset == "1" || (loomTestReset != "0" && !app.Environment.IsProduction()))
+  const testResetBlock = `// Dev-only state reset for the emitted e2e suite.  Mapped ONLY with an
+// explicit ${TEST_RESET_ENV}=1 AND a ${TEST_RESET_TOKEN_ENV}, so this surface
+// does not exist in a real deployment.  See docs/tools.md.
+var loomTestResetToken = System.Environment.GetEnvironmentVariable("${TEST_RESET_TOKEN_ENV}") ?? "";
+if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loomTestResetToken.Length == 0)
 {
-    app.MapPost("${TEST_RESET_PATH}", async (${
+    app.Logger.LogWarning("${TEST_RESET_ENV}=1 but ${TEST_RESET_TOKEN_ENV} is unset; ${TEST_RESET_PATH} is NOT mapped.");
+}
+if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loomTestResetToken.Length > 0)
+{
+    app.MapPost("${TEST_RESET_PATH}", async (HttpRequest request, ${
       usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
     }, IServiceProvider sp, CancellationToken cancellationToken) =>
     {
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(request.Headers["${TEST_RESET_HEADER}"].ToString()),
+                System.Text.Encoding.UTF8.GetBytes(loomTestResetToken)))
+        {
+            return Results.Json(
+                new { status = "forbidden", detail = "missing or wrong reset token" },
+                statusCode: 403);
+        }
 ${
   usingDapper
     ? "        await using var conn = await db.OpenConnectionAsync(cancellationToken);"
