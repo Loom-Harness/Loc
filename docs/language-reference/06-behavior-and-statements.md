@@ -443,7 +443,7 @@ Java (`Wallet.create(...)` behind `WalletService.createWallet` + a `@DeleteMappi
 
 ## `apply(e: Event)` — the event-sourcing fold
 
-On a `persistedAs: eventLog` aggregate, `apply(e: SomeEvent) { body }` is the fold that turns an emitted event into state. Applier bodies are **pure folds** — assignments and `let` only: an `emit` is `loom.applier-emits`, a guard is `loom.applier-guard`, a call is `loom.applier-impure-call`. Every emitted event needs an applier (`loom.emitted-event-no-applier` / `loom.emitted-event-unhandled`). The command bodies decide and `emit`; the appliers own the actual state transition. (`apply` lowers to its own `ApplyIR` and never joins `agg.operations`.)
+On a `persistedAs: eventLog` aggregate, `apply(e: SomeEvent) { body }` is the fold that turns an emitted event into state. Applier bodies are **pure folds** — `:=` / `+=` / `-=`, `let` and `if` only: an `emit` is `loom.applier-emits`, a guard is `loom.applier-guard`, a call is `loom.applier-impure-call`, and a `return` or a bare call statement is `loom.applier-stmt-invalid` (an applier yields nothing and calls nothing for its effect). Phoenix renders no `if` in a fold (`loom.elixir-if-stmt-unsupported`). Every emitted event needs an applier (`loom.emitted-event-no-applier` / `loom.emitted-event-unhandled`). The command bodies decide and `emit`; the appliers own the actual state transition. (`apply` lowers to its own `ApplyIR` and never joins `agg.operations`.)
 
 ```ddd
 aggregate Account persistedAs: eventLog {

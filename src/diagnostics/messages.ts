@@ -1090,6 +1090,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `Break the loop: drop this containment, or reference the other aggregate's root with '<Aggregate> id' instead of containing '${p.target}'.`,
   "loom.cross-aggregate-entity-part": (p: { name: unknown; ownerName: unknown }) =>
     `Entity part '${p.name}' belongs to aggregate '${p.ownerName}'; cross-aggregate references must go through the root: use '${p.ownerName} id'.`,
+  "loom.cross-aggregate-entity-part#construct": (p: {
+    where: unknown;
+    name: unknown;
+    ownerName: unknown;
+  }) =>
+    `${p.where} constructs '${p.name} { … }', an entity part of aggregate '${p.ownerName}'. ` +
+    `An entity part is built only inside the aggregate that owns it — outside it there is nothing to hold it: ` +
+    `call an operation on '${p.ownerName}' that adds the part, passing its fields as plain parameters.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
     `Ambiguous entity-part reference '${p.name} id' — '${p.name}' is declared in ${p.list}. ` +
     `Entity parts are aggregate-local; reference the owning aggregate's root instead (e.g. '${p.names} id'), ` +
@@ -1325,16 +1333,27 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' ${p.label} emits '${p.eventName}' but no applier folds it. ` +
     `Every emitted event needs a matching apply(${p.eventName}: ${p.eventName}) on the aggregate, ` +
     `or the event is recorded but never reflected in state.`,
-  "loom.applier-emits": (p: { name: unknown; event: unknown }) =>
-    `aggregate '${p.name}' apply(${p.event}) emits an event. ` +
+  "loom.applier-emits": (p: { owner: unknown; event: unknown }) =>
+    `${p.owner} apply(${p.event}) emits an event. ` +
     `An applier reacts to an event by folding it into state — it must not emit. ` +
     `Move the 'emit' to the command body that decides it.`,
-  "loom.applier-impure-call": (p: { name: unknown; event: unknown; stmtName: unknown }) =>
-    `aggregate '${p.name}' apply(${p.event}) calls '${p.stmtName}'. ` +
+  "loom.applier-impure-call": (p: { owner: unknown; event: unknown; stmtName: unknown }) =>
+    `${p.owner} apply(${p.event}) calls '${p.stmtName}'. ` +
     `Applier bodies must be deterministic, replayable folds — assignments and 'let' only, no side-effecting calls.`,
-  "loom.applier-guard": (p: { name: unknown; event: unknown; kind: unknown }) =>
-    `aggregate '${p.name}' apply(${p.event}) contains a '${p.kind}' statement. ` +
+  "loom.applier-guard": (p: { owner: unknown; event: unknown; kind: unknown }) =>
+    `${p.owner} apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
+  // The statement vocabulary of a body position (`body-stmt-vocabulary.ts`).
+  "loom.applier-stmt-invalid": (p: {
+    owner: unknown;
+    event: unknown;
+    kind: unknown;
+    allowed: unknown;
+  }) =>
+    `${p.owner} apply(${p.event}) contains a ${p.kind} statement. ` +
+    `An applier is a pure fold of the event into state — it yields no value and calls nothing for its effect — ` +
+    `so its body holds ${p.allowed} statements only. ` +
+    `Compute a value with 'let', or move the statement to the command body that decides the event.`,
   "loom.ambiguous-enum-value": (p: { value: unknown; enums: unknown; qualified: unknown }) =>
     `bare enum value '${p.value}' is declared by more than one enum in scope ('${p.enums}'), ` +
     `and this use has no expected type to choose between them. ` +

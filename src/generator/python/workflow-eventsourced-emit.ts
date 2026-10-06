@@ -6,7 +6,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { renderPyExpr } from "./render-expr.js";
 import { fromData, toData } from "./repository-eventsourced-builder.js";
@@ -135,12 +135,20 @@ function esZero(t: TypeIR): string {
 }
 
 /** Render one applier statement against the public `state` object — the
- *  `this.<field>` seam resolves to `state.<field>`.  Applier bodies are pure
- *  folds (A1 discipline), so only assigns / collection mutations appear. */
+ *  `this.<field>` seam resolves to `state.<field>`.  An applier is a pure fold:
+ *  state writes, local bindings, a bare expression and a branch.  Everything
+ *  else (`emit` / a call statement / a guard / `return`) is refused at
+ *  validation for every backend (structural-checks.ts, the applier rules, and
+ *  `src/ir/validate/checks/body-stmt-vocabulary.ts`), so reaching that arm is
+ *  an internal invariant violation. */
 export function renderApplierStmt(s: StmtIR, indent: string): string {
   const target = (segments: readonly string[]): string =>
     `state.${segments.map((x) => snake(x)).join(".")}`;
   const rctx = { thisName: "state" } as const;
+  const nested = (stmts: readonly StmtIR[]): string =>
+    stmts.length === 0
+      ? `${indent}    pass`
+      : stmts.map((b) => renderApplierStmt(b, `${indent}    `)).join("\n");
   switch (s.kind) {
     case "assign":
       return `${indent}${target(s.target.segments)} = ${renderPyExpr(s.value, rctx)}`;
@@ -148,10 +156,29 @@ export function renderApplierStmt(s: StmtIR, indent: string): string {
       return `${indent}${target(s.target.segments)}.append(${renderPyExpr(s.value, rctx)})`;
     case "remove":
       return `${indent}${target(s.target.segments)} = [__e for __e in ${target(s.target.segments)} if __e != (${renderPyExpr(s.value, rctx)})]`;
-    default:
+    case "let":
+      // Escaped like every `refKind: "let"` use site (`let from` → `from_`).
+      return `${indent}${escapePythonIdent(snake(s.name))} = ${renderPyExpr(s.expr, rctx)}`;
+    case "expression":
+      return `${indent}${renderPyExpr(s.expr, rctx)}`;
+    case "if": {
+      const head = `${indent}if ${renderPyExpr(s.cond, rctx)}:\n${nested(s.thenBody)}`;
+      if (!s.elseBody) return head;
+      return `${head}\n${indent}else:\n${nested(s.elseBody)}`;
+    }
+    case "precondition":
+    case "requires":
+    case "return":
+    case "emit":
+    case "call":
+    case "variant-match":
       throw new Error(
         `python es-workflow applier: unexpected statement kind '${s.kind}' (appliers are pure folds)`,
       );
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 

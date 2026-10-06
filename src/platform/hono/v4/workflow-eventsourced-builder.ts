@@ -12,7 +12,7 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced workflows on Hono (workflow-and-applier.md A2-S5b) — the saga
@@ -90,12 +90,17 @@ function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
 
 /** Render one applier statement against the folded `state` object — the
  *  `this.<field>` seam resolves to `state.<field>` (a plain mutable record, not
- *  the aggregate's private-field class).  Applier bodies are pure (the A1
- *  discipline forbids emit / calls / I/O), so only assigns / collection
- *  mutations appear; anything else is a lowering bug and throws. */
+ *  the aggregate's private-field class).  An applier is a pure fold: state
+ *  writes, local bindings, a bare expression and a branch.  Every other kind
+ *  (`emit` / a call statement / a guard / `return`) is refused at validation
+ *  for every backend (structural-checks.ts, the applier rules, and
+ *  `src/ir/validate/checks/body-stmt-vocabulary.ts`), so reaching that arm is
+ *  an internal invariant violation. */
 function renderApplierStmt(s: StmtIR, indent: string): string {
   const target = (segments: readonly string[]): string => `state.${segments.join(".")}`;
   const ES = { thisName: "state" } as const;
+  const nested = (stmts: readonly StmtIR[]): string =>
+    stmts.map((b) => `${renderApplierStmt(b, `${indent}  `)}\n`).join("");
   switch (s.kind) {
     case "assign":
       return `${indent}${target(s.target.segments)} = ${renderTsExpr(s.value, ES)};`;
@@ -106,20 +111,25 @@ function renderApplierStmt(s: StmtIR, indent: string): string {
       const value = renderTsExpr(s.value, ES);
       return `${indent}{ const __i = ${path}.findIndex((e) => e === (${value})); if (__i >= 0) ${path}.splice(__i, 1); }`;
     }
-    // Every remaining `StmtIR` kind is refused: an applier is a PURE FOLD over
-    // the saga's own state.  Enumerated rather than left to a bare `default` so
-    // a new statement kind is a COMPILE error here (the `never` below) and has
-    // to be classified — fold-able or refused — instead of silently inheriting
-    // the refusal.
+    case "let":
+      // Escaped like every `refKind: "let"` use site (`let new` → `new_`).
+      return `${indent}const ${escapeTsIdent(s.name)} = ${renderTsExpr(s.expr, ES)};`;
+    case "expression":
+      return `${indent}${renderTsExpr(s.expr, ES)};`;
+    case "if": {
+      const head = `${indent}if (${renderTsExpr(s.cond, ES)}) {\n${nested(s.thenBody)}${indent}}`;
+      if (!s.elseBody) return head;
+      return `${head} else {\n${nested(s.elseBody)}${indent}}`;
+    }
+    // Enumerated rather than left to a bare `default` so a new statement kind
+    // is a COMPILE error here (the `never` below) and has to be classified —
+    // fold-able or refused — instead of silently inheriting the refusal.
     case "precondition":
     case "requires":
-    case "let":
-    case "expression":
     case "return":
     case "emit":
     case "call":
     case "variant-match":
-    case "if":
       throw new Error(
         `es-workflow applier: unexpected statement kind '${s.kind}' (appliers are pure folds)`,
       );
