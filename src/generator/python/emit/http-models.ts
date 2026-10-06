@@ -1,4 +1,5 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
@@ -469,7 +470,8 @@ function contextHasRequestMoney(ctx: BoundedContextIR): boolean {
 
 export function renderPyWireModels(ctx: BoundedContextIR): string {
   const needsMoney = contextHasRequestMoney(ctx);
-  const models = ctx.valueObjects.map((vo) => {
+  // Dependency order — see the value-object emitter (`emit/value-objects.ts`).
+  const models = orderValueObjectsByDependency(ctx.valueObjects).map((vo) => {
     // A VO's own `invariant`s ride the SAME wire carriers the aggregate
     // command DTOs use (`Field(...)` + `@model_validator`).  Pydantic
     // validates a nested VO model on request parse, so a malformed VO field

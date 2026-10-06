@@ -78,7 +78,11 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
-import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
@@ -626,8 +630,9 @@ export function buildExplicitRoutesFile(
     return [...seen.values()];
   };
   const usedEnums: EnumIR[] = dedupeByName(allEnums.filter((e) => reachable.enums.has(e.name)));
-  const usedVOs: ValueObjectIR[] = dedupeByName(
-    allVOs.filter((v) => reachable.valueObjects.has(v.name)),
+  // Dependency order — see `collectUsedValueObjects` in routes-builder.ts.
+  const usedVOs: ValueObjectIR[] = orderValueObjectsByDependency(
+    dedupeByName(allVOs.filter((v) => reachable.valueObjects.has(v.name))),
   );
   const schemaDecls: string[] = [];
   for (const e of usedEnums) {

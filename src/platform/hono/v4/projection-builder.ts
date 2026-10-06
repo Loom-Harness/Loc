@@ -20,7 +20,11 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
-import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
@@ -211,7 +215,8 @@ function collectUsedValueObjects(
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(projectionSchemaSeeds(folded), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order — see `collectUsedValueObjects` in routes-builder.ts.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 /** The response DTO (one row) + its list carrier, over the projection's wire

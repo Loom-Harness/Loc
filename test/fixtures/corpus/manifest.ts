@@ -95,24 +95,6 @@ const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter(
   (b) => b !== "python" && b !== "vanilla",
 );
 
-/** The backends that emit a ROOT-LEVEL (shared-kernel) value object's declaration
- *  BEFORE the context-local one whose field is typed by it.
- *
- *  `node` and `python` are absent, and this is the NAME of that exclusion — one
- *  emission-order bug reached from one shape on two backends.  node's
- *  `http/<agg>.routes.ts` initialises `const OuterSchema` from `UnLocodeSchema`
- *  four lines before that `const` is declared (`TS2448` + `TS2454`), a temporal
- *  dead-zone read that is fatal at module evaluation — the generated API does not
- *  boot.  python's `app/domain/value_objects.py` and `app/http/wire_models.py`
- *  both emit `class Outer` ahead of `class UnLocode` (`ruff F821`, four times).
- *  This is the evaluation's F-007, whose FRONTEND half is already fixed
- *  (`web/src/api/<agg>.ts` orders correctly) while both backend halves are open.
- *  `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) exists for
- *  exactly this; both keys return when the emitters route through it. */
-const ORDERED_ROOT_VO_EMISSION: readonly Backend[] = ALL.filter(
-  (b) => b !== "node" && b !== "python",
-);
-
 /** The backends that import the regex machinery into EVERY file they lift a
  *  `.matches(<regex>)` value-object invariant into.
  *
@@ -476,8 +458,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a ROOT-LEVEL (ambient / shared-kernel) value object nested inside a CONTEXT-LOCAL one — the third VO lookup pool, and the emission ORDER it forces",
     doc: "language",
-    backends: ORDERED_ROOT_VO_EMISSION,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).  A root-level VO is the documented shared kernel and the third pool a name resolves through (`ctx.valueObjects`, `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  Only FOUR models in the repo declared one, all under `web/src/examples/`, and all four are MULTI-FILE — while `react-build-cases.ts` is single-file-only by construction, so NO compile gate on any backend or frontend had ever seen a shared kernel, and the corpus had none.  Carries both nesting directions because different code emits them: root VO -> aggregate field (`Shipment.tag`, the direction the examples had) and root VO -> CONTEXT-LOCAL VO field (`Outer.origin`, which nothing had, and which is the ordering-sensitive one).  This is the evaluation's F-007, whose halves have since diverged: react/vue/svelte are FIXED (the frontend api module emits the root VO's schema first), while NODE IS STILL BROKEN — `http/shipment.routes.ts` emits the context-local `OuterSchema` before the root-level `UnLocodeSchema` it initialises from, a temporal-dead-zone read (`TS2448` + `TS2454`).  Same defect the evaluation reported on the frontends, surviving on the backend after the frontend half was fixed, which is why the SHAPE and not the symptom is what a fixture must carry.  PYTHON IS BROKEN THE SAME WAY, in two more files: `app/domain/value_objects.py` and `app/http/wire_models.py` both emit `class Outer` (annotating `origin: UnLocode`) before `class UnLocode`, so ruff reports `F821 Undefined name 'UnLocode'` four times.  ONE emission-order bug, TWO backends — which is the argument for carrying the shape in the shared corpus rather than per-backend.  node and python are therefore excluded from `backends:` here via the named `ORDERED_ROOT_VO_EMISSION` set above (a reasoned exclusion, not a compile-skip — see `gate-ledger.test.ts`); `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) already exists to fix both, and both keys return with it.  dotnet/java are free (declarations hoist — a record/class has no initialisation order) and elixir is free (a VO is one `:map` cell, no schema const); all three ride as the contrast.",
+    backends: ALL,
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).  A root-level VO is the documented shared kernel and the third pool a name resolves through (`ctx.valueObjects`, `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  Only FOUR models in the repo declared one, all under `web/src/examples/`, and all four are MULTI-FILE — while `react-build-cases.ts` is single-file-only by construction, so NO compile gate on any backend or frontend had ever seen a shared kernel, and the corpus had none.  Carries both nesting directions because different code emits them: root VO -> aggregate field (`Shipment.tag`, the direction the examples had) and root VO -> CONTEXT-LOCAL VO field (`Outer.origin`, which nothing had, and which is the ordering-sensitive one).  This is the evaluation's F-007, whose halves have since diverged: react/vue/svelte are FIXED (the frontend api module emits the root VO's schema first), while NODE IS STILL BROKEN — `http/shipment.routes.ts` emits the context-local `OuterSchema` before the root-level `UnLocodeSchema` it initialises from, a temporal-dead-zone read (`TS2448` + `TS2454`).  Same defect the evaluation reported on the frontends, surviving on the backend after the frontend half was fixed, which is why the SHAPE and not the symptom is what a fixture must carry.  PYTHON IS BROKEN THE SAME WAY, in two more files: `app/domain/value_objects.py` and `app/http/wire_models.py` both emit `class Outer` (annotating `origin: UnLocode`) before `class UnLocode`, so ruff reports `F821 Undefined name 'UnLocode'` four times.  ONE emission-order bug, TWO backends — which is the argument for carrying the shape in the shared corpus rather than per-backend.  RESOLVED (F-007 backend halves): node's four `<Vo>Schema`-emitting builders (routes, workflow, projection, explicit handlers) and python's two class emitters (`emit/value-objects.ts`, `emit/http-models.ts`) now route through `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) — the helper the frontends already used — so node and python rejoined `backends:` and the named exclusion was deleted.  dotnet/java are free (declarations hoist — a record/class has no initialisation order) and elixir is free (a VO is one `:map` cell, no schema const); all three ride as the contrast.",
   },
   {
     id: "vo-cross-context",

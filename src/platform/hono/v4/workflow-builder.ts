@@ -63,7 +63,11 @@ import {
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
@@ -2518,7 +2522,8 @@ function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
 function collectUsedValueObjects(ctx: BoundedContextIR) {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order — see `collectUsedValueObjects` in routes-builder.ts.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 function collectUsedEnums(ctx: BoundedContextIR) {
