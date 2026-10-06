@@ -121,7 +121,7 @@ describe("vanilla elixir event-sourced workflows", () => {
       "events = [%Api.Fulfillment.Events.PaymentRegistered{order: event.order, amount: 0}]",
     );
     expect(h).toContain("OrderFulfillmentStream.append(sid, events)");
-    expect(h).toContain("Enum.each(events, &Api.Fulfillment.Dispatcher.dispatch/1)");
+    expect(h).toContain("Enum.each(events, &Api.Fulfillment.Dispatcher.AfterCommit.dispatch/1)");
   });
 
   it("the on-reactor drops + logs on an empty stream and reads folded state", async () => {

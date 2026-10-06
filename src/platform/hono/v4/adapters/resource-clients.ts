@@ -12,7 +12,7 @@
 
 import type { Lines, ResourceAdapter } from "../../../../generator/_adapters/index.js";
 import type { DataSourceIR, StorageIR } from "../../../../ir/types/loom-ir.js";
-import { resourceEnvBase } from "../../../../util/resource-env.js";
+import { resourceEnvBase, resourceSidecarUrl } from "../../../../util/resource-env.js";
 
 /** Read a string `config` value from a storage by key. */
 function cfg(store: StorageIR | undefined, key: string): string | undefined {
@@ -34,6 +34,13 @@ function envVar(resourceName: string): string {
 /** Resolve each resource to the physical store it `use:`s. */
 function storeOf(resource: DataSourceIR, stores: readonly StorageIR[]): StorageIR | undefined {
   return stores.find((s) => s.name === resource.storageName);
+}
+
+/** The fallback connection URL for a sidecar-backed resource: the address
+ *  compose gives the bound STORAGE's service (H-27 — the resource name is not
+ *  a host). */
+function sidecarUrl(r: DataSourceIR, type: "smtp" | "rabbitmq"): string {
+  return resourceSidecarUrl(type, r.storageName) as string;
 }
 
 export const s3ResourceAdapter: ResourceAdapter = {
@@ -266,7 +273,7 @@ export const rabbitmqResourceAdapter: ResourceAdapter = {
     for (const r of resources) {
       out.push(`// queue '${r.name}' — channel opened lazily and cached.`);
       out.push(
-        `export const ${r.name}Url = process.env.${envVar(r.name)} ?? "amqp://guest:guest@${r.name}:5672";`,
+        `export const ${r.name}Url = process.env.${envVar(r.name)} ?? ${JSON.stringify(sidecarUrl(r, "rabbitmq"))};`,
       );
       out.push(`let ${r.name}Channel: amqp.Channel | undefined;`);
       out.push(`async function ${r.name}$channel(): Promise<amqp.Channel> {`);
@@ -358,7 +365,7 @@ export const smtpResourceAdapter: ResourceAdapter = {
       out.push(`// mailer '${r.name}' — SMTP transport (dev: Mailpit on :1025).`);
       out.push(mailFromLine(r, stores));
       out.push(
-        `export const ${r.name}Transport = nodemailer.createTransport(process.env.${envVar(r.name)} ?? "smtp://${r.name}:1025");`,
+        `export const ${r.name}Transport = nodemailer.createTransport(process.env.${envVar(r.name)} ?? ${JSON.stringify(sidecarUrl(r, "smtp"))});`,
       );
       out.push(``);
       out.push(

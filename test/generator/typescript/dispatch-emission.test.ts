@@ -47,10 +47,10 @@ describe("in-process event dispatch emission", () => {
     // The dispatcher factory routes by event.type and passes itself (re-entrant).
     expect(wf).toContain("export function createInProcessDispatcher(");
     expect(wf).toMatch(
-      /case "OrderPlaced": \{\s*await orderFulfillmentStartOrderPlaced\(db, dispatcher, event\);/,
+      /case "OrderPlaced": \{\s*await runReactor\(opts, "orderFulfillmentStartOrderPlaced", event, \(\) => orderFulfillmentStartOrderPlaced\(db, dispatcher, event\)\);/,
     );
     expect(wf).toMatch(
-      /case "ShipmentRequested": \{\s*await orderFulfillmentOnShipmentRequested\(db, dispatcher, event\);/,
+      /case "ShipmentRequested": \{\s*await runReactor\(opts, "orderFulfillmentOnShipmentRequested", event, \(\) => orderFulfillmentOnShipmentRequested\(db, dispatcher, event\)\);/,
     );
   });
 
@@ -63,7 +63,7 @@ describe("in-process event dispatch emission", () => {
     // The fixture's channel is `delivery: broadcast`, so the default
     // dispatcher rides through the realtime SSE tee.
     expect(idx).toContain(
-      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db)),",
+      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
     // Noop import is dropped when the in-process dispatcher is wired.
     expect(idx).not.toContain("NoopDomainEventDispatcher");

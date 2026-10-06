@@ -226,6 +226,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   {
+    id: "reactor-failure",
+    title:
+      "a reactor that throws AFTER its triggering command committed — the command keeps its 2xx, the failure is isolated + logged `reactor_failed`",
+    doc: "workflow",
+    backends: ALL,
+    note: "H-28 (helpdesk eval, #3126): an event-triggered `create(e) by` starter that threw turned the committed `resolve` into a 500 (node, elixir) / 422 (.NET), and the client's retry then hit the state gate; java / python instead rolled the command back with the reactor.  The behavioural `test e2e` drives one reactor that succeeds and one the reactor refuses, and pins the command's 2xx + committed write on both.",
+  },
+  {
     id: "workflow-enum-state",
     title: "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
     doc: "workflow",

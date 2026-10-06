@@ -108,7 +108,7 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
       "startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }))",
     );
     expect(index).toContain(
-      "createApp(db, channelPublishTee(channelTransports, createOutboxDispatcher(db, inProcessEvents)))",
+      "createApp(db, channelPublishTee(channelTransports, createOutboxDispatcher(db, requestEvents)))",
     );
   });
 

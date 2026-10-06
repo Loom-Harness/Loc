@@ -105,7 +105,9 @@ describe("realtime SSE wire — Python (delivery: broadcast)", () => {
     expect(rt).toContain("        publish_realtime(event)");
     const dispatch = get(files, "app/dispatch.py");
     expect(dispatch).toContain("def make_dispatcher(session: AsyncSession) -> RealtimeDispatcher:");
-    expect(dispatch).toContain("return RealtimeDispatcher(InProcessDispatcher(session))");
+    expect(dispatch).toContain(
+      "return RealtimeDispatcher(InProcessDispatcher(session, isolate=True))",
+    );
     const main = get(files, "app/main.py");
     expect(main).toContain("from app.realtime import realtime_router");
     expect(main).toContain('app.include_router(realtime_router, prefix="/api")');
@@ -116,7 +118,7 @@ describe("realtime SSE wire — Python (delivery: broadcast)", () => {
     expect([...files.keys()].some((k) => k.endsWith("app/realtime.py"))).toBe(false);
     const dispatch = get(files, "app/dispatch.py");
     expect(dispatch).not.toContain("RealtimeDispatcher");
-    expect(dispatch).toContain("return InProcessDispatcher(session)");
+    expect(dispatch).toContain("return InProcessDispatcher(session, isolate=True)");
     const main = get(files, "app/main.py");
     expect(main).not.toContain("realtime_router");
   });

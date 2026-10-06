@@ -342,9 +342,19 @@ export function renderJavaDispatcher(
   const handlers: { method: string; event: string }[] = [];
   const relayDelivered = (event: string): boolean =>
     !!dctx.brokerEvents?.has(event) || !!dctx.localDurableEvents?.has(event);
-  const pushHandler = (method: string, event: string, ls: string[]): void => {
+  // Workflow reactors / event-creates that the LOCAL application event reaches
+  // (not relay- or broker-delivered).  They lose their own @EventListener and
+  // are driven instead by the nested `ReactorListener` (H-28, workflow.md
+  // § "Reactor failures"): after the command's commit, each in its own
+  // transaction, a failure logged `reactor_failed` rather than propagated.
+  // The methods themselves still throw — the broker consumer and outbox relay
+  // call them directly and retry / redeliver on the throw.
+  const afterCommit: { method: string; event: string }[] = [];
+  const pushHandler = (method: string, event: string, ls: string[], reactor = false): void => {
     handlers.push({ method, event });
-    methods.push(...(relayDelivered(event) ? ls.filter((l) => l !== "    @EventListener") : ls));
+    const local = !relayDelivered(event);
+    if (reactor && local) afterCommit.push({ method, event });
+    methods.push(...(!local || reactor ? ls.filter((l) => l !== "    @EventListener") : ls));
   };
   for (const sub of subs) {
     // Projection fold (projection.md): a pure read-model upsert, not a saga.
@@ -392,6 +402,7 @@ export function renderJavaDispatcher(
           construct,
           opFragments,
         ),
+        true,
       );
       continue;
     }
@@ -413,6 +424,7 @@ export function renderJavaDispatcher(
             opFragments,
           )
         : renderHandler(ctx, wf, sub, resolved, imports, construct, opFragments),
+      true,
     );
   }
   if (methods.length === 0) return null;
@@ -556,10 +568,57 @@ export function renderJavaDispatcher(
       `    }`,
       ``,
       ...methods,
+      ...renderReactorListener(className, afterCommit),
       `}`,
       ``,
     ),
   };
+}
+
+/** The application-event entry for this context's reactors (H-28): runs each
+ *  one AFTER the publishing command committed (`fallbackExecution` covers an
+ *  event published outside a transaction — a timer tick), in a fresh
+ *  `REQUIRES_NEW` transaction through the dispatcher's proxy, so a failure
+ *  rolls back the reaction alone and is logged instead of reaching the
+ *  already-committed command.  Static nested `@Component` — picked up by the
+ *  same component scan, kept beside the methods it drives. */
+function renderReactorListener(
+  dispatcherClass: string,
+  afterCommit: readonly { method: string; event: string }[],
+): string[] {
+  if (afterCommit.length === 0) return [];
+  const out: string[] = [
+    ``,
+    `    @Component`,
+    `    public static class ReactorListener {`,
+    `        private final ${dispatcherClass} dispatcher;`,
+    `        private final org.springframework.transaction.support.TransactionTemplate tx;`,
+    ``,
+    `        public ReactorListener(${dispatcherClass} dispatcher, org.springframework.transaction.PlatformTransactionManager txManager) {`,
+    `            this.dispatcher = dispatcher;`,
+    `            this.tx = new org.springframework.transaction.support.TransactionTemplate(txManager);`,
+    `            this.tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);`,
+    `        }`,
+    ``,
+    `        private void react(String handler, Object event, Runnable run) {`,
+    `            try {`,
+    `                tx.executeWithoutResult(status -> run.run());`,
+    `            } catch (RuntimeException ex) {`,
+    `                CatalogLog.event(${javaLogEvent("reactorFailed")}, "handler", handler, "event_type", event.getClass().getSimpleName(), "event_id", java.util.UUID.randomUUID().toString(), "error", String.valueOf(ex.getMessage()));`,
+    `            }`,
+    `        }`,
+  ];
+  for (const h of afterCommit) {
+    out.push(
+      ``,
+      `        @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_COMMIT, fallbackExecution = true)`,
+      `        public void ${h.method}(${upperFirst(h.event)} e) {`,
+      `            react("${h.method}", e, () -> dispatcher.${h.method}(e));`,
+      `        }`,
+    );
+  }
+  out.push(`    }`);
+  return out;
 }
 
 function renderHandler(

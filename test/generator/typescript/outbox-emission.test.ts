@@ -61,7 +61,7 @@ describe("transactional outbox emission (retention: log)", () => {
     // The fixture's channel is `delivery: broadcast`, so the in-process leg
     // rides through the realtime tee (durable events reach SSE via the relay).
     expect(idx).toContain(
-      "events: DomainEventDispatcher = createOutboxDispatcher(db, realtimeTee(createInProcessDispatcher(db))),",
+      "events: DomainEventDispatcher = createOutboxDispatcher(db, realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))),",
     );
     const boot = files.get("index.ts") ?? "";
     expect(boot).toContain("const inProcessEvents = realtimeTee(createInProcessDispatcher(db));");
@@ -74,7 +74,7 @@ describe("transactional outbox emission (retention: log)", () => {
     expect(files.get("db/schema.ts") ?? "").not.toContain("__loom_outbox");
     expect(files.get("http/workflows.ts") ?? "").not.toContain("createOutboxDispatcher");
     expect(files.get("http/index.ts") ?? "").toContain(
-      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db)),",
+      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
     expect(files.get("index.ts") ?? "").not.toContain("startOutboxRelay");
   });
