@@ -844,6 +844,10 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `    /** Retarget every plain-string property whose name maps unambiguously to`,
     `     *  an enum onto that enum's $ref — across every component schema (the`,
     `     *  other backends reference the named enum, not a bare string). */`,
+    // swagger-core's `Schema.getProperties()` is declared over the RAW `Schema`, so
+    // the map type spelled here must be raw too; javac's `rawtypes` lint (the java
+    // compile gate runs `-Xlint:all -Werror`) is answered at this one method.
+    `    @SuppressWarnings("rawtypes")`,
     `    private static void retargetEnumProps(OpenAPI openApi) {`,
     `        Components components = openApi.getComponents();`,
     `        if (components == null || components.getSchemas() == null) return;`,

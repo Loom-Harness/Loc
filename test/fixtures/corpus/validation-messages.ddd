@@ -91,6 +91,24 @@ system MessagedRules {
 
   test e2e "a messaged rule answers 422 with its authored text and its stable code" against d {
     let p = api.products.create({ name: "Widget", sku: { code: "WID" }, quantity: 2, reorderLevel: 1 })
+    // Every CREATE-time carrier refuses at the wire (PROMOTED from the
+    // per-backend `message-clause.test.ts` / `vo-invariant-422.test.ts` string
+    // copies, M-T9.42 — each pinned its emitter's carrier spelling: zod refine,
+    // FluentValidation `.WithMessage`/`.WithErrorCode` + a `<Vo>RequestValidator`,
+    // a Spring `Validator` + `rejectValue`, pydantic `PydanticCustomError`, an
+    // Ecto `validate_invariants` residual).  The golden pins each 422 body —
+    // the authored text, the stable `msg.<hash>` code and the pointer — so the
+    // five carriers are compared as what they ANSWER.
+    //   the messaged aggregate invariant.
+    expect(api.products.create({ name: "Gadget", sku: { code: "GAD" }, quantity: -1, reorderLevel: 1 })).toThrow(422)
+    // Two sibling carriers are NOT driven, and both were tried (handed off in
+    // docs/new-plan/waves/handoffs/wave-c3-3d-promote.md): the messaged inline
+    // `check name.length > 0` can only be tripped by "", and elixir answers
+    // that create with a 500 (D16); the messaged VALUE-OBJECT invariant
+    // (`sku.code` of "G") answers the right 422 text on all seven legs but
+    // elixir drops its `errors[].code` (D17).
+    let stillOne = api.products.all()
+    expect(stillOne.total).toBe(1)
     let read = api.products.getById(p)
     expect(read.quantity).toBe(2)
     api.products.restock(p, { amount: 3 })

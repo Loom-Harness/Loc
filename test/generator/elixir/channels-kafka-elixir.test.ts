@@ -133,7 +133,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const wiring = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     // Consumption is ALWAYS on the deployable's group.
     expect(wiring).toContain(
-      '{:ok, _} = ShipApi.KafkaConsumer.start("LOOM_CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi")',
+      '{:ok, _} = ShipApi.KafkaConsumer.start("LOOM_CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :latest)',
     );
     expect(wiring).toContain("def route_decoded(ev), do: route(ev)");
     const consumer = files.get("ship_api/lib/ship_api/kafka_consumer.ex") ?? "";
@@ -157,8 +157,24 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     );
     expect(consumer).toContain("retry_park(client, address, key, raw, 5)");
     expect(consumer).toContain('"channel_dead_lettered"');
-    // The consumer joins from a latest offset, not a full-log replay.
-    expect(consumer).toContain("consumer_config: [begin_offset: :latest]");
+    // The new-group start offset is per binding (D3): this `retention: log`
+    // channel passes :latest — a fresh group does not replay the whole log.
+    expect(consumer).toContain("consumer_config: [begin_offset: begin_offset]");
+  });
+
+  it("starts a NEW group at :earliest on a work-queue channel (D3, item 13)", async () => {
+    // retention: work is a work queue: an event published before the
+    // consuming deployable's group first joins must still be delivered.
+    const files = await generateSystemFiles(
+      FIXTURE.replace("delivery: broadcast", "delivery: queue").replace(
+        "retention: log",
+        "retention: work",
+      ),
+    );
+    const wiring = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
+    expect(wiring).toContain(
+      '{:ok, _} = ShipApi.KafkaConsumer.start("LOOM_CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :earliest)',
+    );
   });
 
   it("gates the brod hex dep + Dockerfile cmake (crc32cer NIF) on the kafka wiring", async () => {
@@ -231,7 +247,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const consumer = files.get("ship_api/lib/ship_api/kafka_consumer.ex") ?? "";
 
     const startBody = consumer.slice(
-      consumer.indexOf("def start(env_var, client, address, group) do"),
+      consumer.indexOf("def start(env_var, client, address, group, begin_offset) do"),
       consumer.indexOf(":brod.start_link_group_subscriber_v2"),
     );
     expect(startBody).not.toBe("");

@@ -36,7 +36,7 @@
 system CollectionOpShapes {
   subdomain Sales {
     context Sales {
-      aggregate Order {
+      aggregate Order with crudish {
         customer: string
         discount: money
         codes: int[]
@@ -100,5 +100,43 @@ system CollectionOpShapes {
     dataSources: [salesState]
     serves: SalesApi
     port: 4000
+  }
+
+  test e2e "collection-op shapes evaluate to the right VALUES, not merely compile" against d {
+    let o = api.orders.create({ customer: "Ada", discount: money("2.50"), codes: [7, 2, 9] })
+    let empty = api.orders.getById(o)
+    expect(empty.hasLines).toBe(false)
+    expect(decimal(empty.lineTotal)).toBe(0)
+    expect(empty.dearest).toBe(null)
+    expect(empty.uniquePrices.count()).toBe(0)
+    expect(decimal(empty.owed)).toBe(-2.5)
+    api.orders.addLine(o, { sku: "A", qty: 2, price: money("1.50") })
+    api.orders.addLine(o, { sku: "B", qty: 1, price: money("10.00") })
+    api.orders.addLine(o, { sku: "C", qty: 4, price: money("1.50") })
+    let full = api.orders.getById(o)
+    expect(full.hasLines).toBe(true)
+    expect(full.lines.count()).toBe(3)
+    expect(decimal(full.lineTotal)).toBe(19)
+    expect(decimal(full.dearest)).toBe(10)
+    expect(full.byPriceDesc.count()).toBe(3)
+    expect(full.byPriceDesc.first().sku).toBe("B")
+    expect(full.linePrices.count()).toBe(3)
+    expect(full.uniquePrices.count()).toBe(2)
+    api.orders.dropCode(o, { code: 2 })
+    let dropped = api.orders.getById(o)
+    expect(dropped.codes.count()).toBe(2)
+    expect(dropped.codes.contains(9)).toBe(true)
+    expect(dropped.codes.contains(2)).toBe(false)
+    api.orders.addCode(o, { code: 4 })
+    expect(api.orders.getById(o).codes.count()).toBe(3)
+    api.orders.update(o, { customer: "Ada", discount: money("0.75"), codes: [1] })
+    let updated = api.orders.getById(o)
+    expect(decimal(updated.owed)).toBe(-0.75)
+    expect(updated.codes.count()).toBe(1)
+    expect(decimal(updated.lineTotal)).toBe(19)
+    let listed = api.orders.all()
+    expect(listed.total).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
   }
 }

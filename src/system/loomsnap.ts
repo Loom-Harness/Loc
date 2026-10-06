@@ -8,6 +8,7 @@ import type {
   TypeIR,
 } from "../ir/types/loom-ir.js";
 import { hasAnyProvSite, stmtHasProv } from "../ir/util/prov-id.js";
+import { emissionSink } from "../util/emission-sink.js";
 
 // ---------------------------------------------------------------------------
 // Provenance rule-snapshot capture — the `ddd snapshot` prebuild step.
@@ -124,7 +125,7 @@ function typeName(t: TypeIR): string {
  * system.  Shared by the CLI `snapshot` command and the playground.
  */
 export function captureSnapshots(loom: LoomModel): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("system/loomsnap");
   const commitHash = resolveCommitHash();
   const capturedAt = new Date().toISOString();
   const stamp = compactStamp(capturedAt);
