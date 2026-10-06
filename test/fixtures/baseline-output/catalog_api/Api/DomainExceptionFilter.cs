@@ -118,7 +118,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "forbidden", fe.Message, 403);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("forbidden");
-            context.Result = Problem(context, 403, "Forbidden", fe.Message, trace_id);
+            context.Result = Problem(context, 403, "Forbidden", "Forbidden", trace_id);
             context.ExceptionHandled = true;
             return;
         }

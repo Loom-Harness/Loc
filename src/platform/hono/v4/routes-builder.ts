@@ -1475,8 +1475,10 @@ export function buildRoutesFile(
     `      ${renderHonoLogCall("forbidden", `aggregate: "${agg.name}", message: err.message, status: ${forbiddenStatus}`)}`,
   );
   lines.push(`      recordDomainFault("forbidden");`);
+  // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
+  // the gate's source text; the body echoes it only under the dev-stub verifier.
   lines.push(
-    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.message);`,
+    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.detail);`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DisallowedError) {`);
