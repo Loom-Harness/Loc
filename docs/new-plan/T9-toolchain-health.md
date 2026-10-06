@@ -766,12 +766,6 @@ Owner of the `PINNED_HONO` (32 files / 58 call sites) and `PINNED_DOTNET` (38 fi
 
 **The drain:** move each file to `generateSystemFiles` — the path the CLI ships, and the only one that can host a capability (see the ratchet's header: the legacy path emits from loose contexts and so has no backend deployable) — deleting its pin in the same commit; the per-file counts are pinned exactly.
 
-## M-T9.77 — Paged `queryHandler` body shape crashes generate on all five backends — `open` · **S** · P1
-
-*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
-
-Any `queryHandler H(…): Agg paged` whose body is not exactly `let r = Repo.run(Crit(args)); return r`, e.g. `return Orders.run(InRegion(rgn))`, reaches `pagedRunStmt` (.NET / Java / Python / Elixir) or `emitPagedRunHandler` (node) and throws. **#3084 already adds the refusal** (`loom.paged-query-handler-shape`). When it merges, re-classify the five census entries `guardedBy: ["loom.paged-query-handler-shape"]` and close this mission.
-
 ## M-T9.78 — An event-sourced workflow with no id-typed correlation field crashes .NET / Java / Elixir — `open` · **S** · P1
 
 *Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*

@@ -78,6 +78,7 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { pagedRunStmt as sharedPagedRunStmt } from "../../../ir/util/paged-run.js";
 import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
@@ -199,11 +200,8 @@ function emitPagedRunHandler(
   // (synthCriterion) statement — the shape enrich synthesized the paged FIND
   // for.  Locate it to recover the repo/aggregate + the paged find method name
   // (`retrievalName` = `findAllBy<Criterion>`) + the criterion args.
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
+  // The one predicate phase ⑦ `loom.paged-query-handler-shape` enforces.
+  const run = sharedPagedRunStmt(h);
   if (!run) {
     throw new Error(
       `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
