@@ -529,6 +529,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is now refused at phase ⑦ (`loom.handler-load-nullable-unsupported`), so this fixture carries the non-optional spelling and the refusal is pinned separately.",
   },
+  {
+    id: "handler-aggregate-ops",
+    title:
+      "routed command/query handlers over a live row — load/mutate/save, scalar + aggregate return, value-object body param, repository delete, not-found",
+    doc: "language",
+    backends: ALL,
+    note: "Promoted from the five per-backend `explicit-handlers.test.ts` string copies (M-T9.42 slice 2), which pinned each emitter's spelling of the handler body — `await orders.save(o)`, `new OrderResponse(...)`, `@RequestBody` record splits — and could not tell whether a handler that compiled actually saved, projected or deleted. `handler-triad` already drives mount + param binding on an EMPTY table; this fixture is the half that needs a row: every effect is read BACK through a different route (the derived getById, or a sibling handler), so a missed save, a raw-entity return, a dropped body param or a no-op delete is a wrong value, not a 200.",
+  },
   { id: "seeding", title: "seed datasets — default / demo / wired-raw", doc: "language", backends: ALL },
   {
     id: "seed-values",

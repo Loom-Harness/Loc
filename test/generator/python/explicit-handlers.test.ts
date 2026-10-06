@@ -1,205 +1,26 @@
 // Python / FastAPI emission for the explicit application/transport layer
-// (unfoldable-api-derivation.md, A2 — the Python sibling of the .NET A1 gate):
-// `commandHandler` / `queryHandler` context members → `app/application/<name>.py`
-// async handlers, and `route <M> "<path>" -> <Ctx>.<Handler>` api bindings → one
-// `app/http/<api>_routes.py` APIRouter that coerces wire path params and calls
-// the handler.  FastAPI has no mediator, so the router→handler split stands in
-// for .NET's controller→Mediator dispatch.  The generated project's real
-// uv/ruff/mypy/pytest gate is LOOM_PYTHON_BUILD (verified separately).
+// (`commandHandler` / `queryHandler` → `app/application/<name>.py`, and
+// `route <M> "<path>" -> <Ctx>.<Handler>` → one APIRouter per served api).
+//
+// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
+// the handler modules (load → mutate → save → return), the router registered
+// under `/api` in main.py, the `<Handler>Body` model carrying non-path params
+// incl. a value object, and an aggregate return projected through `to_wire` —
+// are now driven on all five backends by the corpus fixtures
+// `handler-aggregate-ops` (a live row) and `handler-triad` (an empty table)
+// against one wire golden.  What stays here is what no booted request can
+// observe:
+//   • the `extern` scaffold-once impl (a user-owned stub that raises by design);
+//   • scaffolded record-param flattening and the paged-run shape, which neither
+//     fixture declares (the next promotion candidates, not covered yet).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
-
-const SRC = `
-system Shop {
-  subdomain Sales {
-    context Ordering {
-      aggregate Order { code: string  status: string  operation cancel() { status := "cancelled" } }
-      repository Orders for Order { }
-      commandHandler CancelOrder(orderId: Order id): Order id { let o = Orders.getById(orderId)  o.cancel()  return o.id }
-      queryHandler GetStatus(orderId: Order id): string { let o = Orders.getById(orderId)  return o.status }
-    }
-  }
-  api SalesApi from Sales {
-    route POST "/orders/{orderId}/cancellations" -> Ordering.CancelOrder
-    route GET  "/orders/{orderId}/status"        -> Ordering.GetStatus
-  }
-  storage pg { type: postgres }
-  resource st { for: Ordering, kind: state, use: pg }
-  deployable api { platform: python, contexts: [Ordering], dataSources: [st], serves: SalesApi, port: 5001 }
-}
-`;
-
-async function files(): Promise<Map<string, string>> {
-  return generateSystemFiles(SRC);
-}
 
 function fileEndingWith(m: Map<string, string>, suffix: string): string {
   const key = [...m.keys()].find((k) => k.endsWith(suffix));
   expect(key, `${suffix} not emitted`).toBeDefined();
   return m.get(key!)!;
 }
-
-describe("python — explicit commandHandler/queryHandler → FastAPI", () => {
-  it("emits the command handler: repo build, guarded-less load, mutate, save, return", async () => {
-    const h = fileEndingWith(await files(), "app/application/cancel_order.py");
-    // Domain-typed param (the router coerces the wire id → OrderId before calling).
-    expect(h).toContain(
-      "async def cancel_order(session: AsyncSession, order_id: OrderId) -> OrderId:",
-    );
-    // Repo constructed with the Noop dispatcher (no live channel in this system).
-    expect(h).toContain("orders = OrderRepository(session, NoopDomainEventDispatcher())");
-    // Load (repos raise inside get_by_id — no synthesized `?? throw`), mutate, save, return.
-    expect(h).toContain("o = await orders.get_by_id(order_id)");
-    expect(h).toContain("o.cancel()");
-    expect(h).toContain("await orders.save(o)");
-    expect(h).toContain("return o.id");
-    // Every referenced symbol is imported (no NameError / F821).
-    expect(h).toContain("from app.db.repositories.order_repository import OrderRepository");
-    expect(h).toContain("from app.domain.events import NoopDomainEventDispatcher");
-    expect(h).toContain("from app.domain.ids import OrderId");
-  });
-
-  it("emits the query handler returning the resolved value (no __bad__)", async () => {
-    const h = fileEndingWith(await files(), "app/application/get_status.py");
-    expect(h).toContain("async def get_status(session: AsyncSession, order_id: OrderId) -> str:");
-    expect(h).toContain("o = await orders.get_by_id(order_id)");
-    expect(h).toContain("return o.status");
-    // A query neither mutates nor saves.
-    expect(h).not.toContain(".save(");
-    expect(h).not.toContain("__bad__");
-  });
-
-  it("emits one APIRouter per api dispatching each route to its handler", async () => {
-    const ctrl = fileEndingWith(await files(), "app/http/sales_api_routes.py");
-    expect(ctrl).toContain("router = APIRouter()");
-    // Path placeholders snake-cased so FastAPI params bind; wire id coerced → OrderId.
-    expect(ctrl).toContain(
-      '@router.post("/orders/{order_id}/cancellations", operation_id="cancelOrder")',
-    );
-    // `-> Any` and the value returned UNWRAPPED (M-T6.73).  This route used to
-    // answer `{"result": <value>}`, making python the lone backend to send
-    // `{"result": "hi"}` where the other four send `"hi"`; node is the wire
-    // oracle the behavioural goldens are captured from.  `Any` rather than
-    // `dict[str, object]` because FastAPI reads the return annotation as the
-    // response_model and would validate a bare scalar against a mapping.
-    expect(ctrl).toContain(
-      "async def cancel_order_route(order_id: UuidStr, session: SessionDep) -> Any:",
-    );
-    expect(ctrl).toContain("result = await cancel_order(session, OrderId(order_id))");
-    expect(ctrl).toContain("    return result");
-    expect(ctrl).not.toContain('return {"result"');
-    expect(ctrl).toContain("from typing import Annotated, Any");
-    // Query route.
-    expect(ctrl).toContain('@router.get("/orders/{order_id}/status", operation_id="getStatus")');
-    expect(ctrl).toContain("result = await get_status(session, OrderId(order_id))");
-    // Handlers + coercion helpers imported.
-    expect(ctrl).toContain("from app.application.cancel_order import cancel_order");
-    expect(ctrl).toContain("from app.application.get_status import get_status");
-    expect(ctrl).toContain("from app.domain.ids import OrderId");
-  });
-
-  it("registers the explicit-route router in main.py", async () => {
-    const main = fileEndingWith(await files(), "app/main.py");
-    expect(main).toContain("from app.http.sales_api_routes import router as sales_api_router");
-    expect(main).toContain('app.include_router(sales_api_router, prefix="/api")');
-  });
-});
-
-// C2 — the Python slice of the aggregate-return wire projection (mirrors .NET
-// C1/#1830): a handler whose return type resolves to an aggregate/entity must
-// project the domain (SQLAlchemy) instance to its wire shape via the repo's
-// `to_wire(...)` — the same projection the auto-derived read routes use — and
-// annotate `-> dict[str, object]` (NOT the aggregate class, which the module
-// never imports and which would mismatch the dict returned). Id / scalar returns
-// stay unchanged.
-const AGG_RETURN_SRC = `
-system Shop {
-  subdomain Sales {
-    context Ordering {
-      aggregate Order { code: string  status: string  operation cancel() { status := "cancelled" } }
-      repository Orders for Order { }
-      queryHandler GetOrder(orderId: Order id): Order { let o = Orders.getById(orderId)  return o }
-    }
-  }
-  api SalesApi from Sales {
-    route GET "/orders/{orderId}" -> Ordering.GetOrder
-  }
-  storage pg { type: postgres }
-  resource st { for: Ordering, kind: state, use: pg }
-  deployable api { platform: python, contexts: [Ordering], dataSources: [st], serves: SalesApi, port: 5001 }
-}
-`;
-
-describe("python — explicit handler returning an aggregate → to_wire projection", () => {
-  it("projects the domain entity to its wire dict via repo.to_wire, annotated dict[str, object]", async () => {
-    const m = await generateSystemFiles(AGG_RETURN_SRC);
-    const h = fileEndingWith(m, "app/application/get_order.py");
-    // The return annotation is the wire dict, NOT `-> Order` (which the module
-    // never imports and which would mismatch the projected dict).
-    expect(h).toContain(
-      "async def get_order(session: AsyncSession, order_id: OrderId) -> dict[str, object]:",
-    );
-    expect(h).not.toContain("-> Order:");
-    // Load, then project via the repo's to_wire instead of returning the raw row.
-    expect(h).toContain("orders = OrderRepository(session, NoopDomainEventDispatcher())");
-    expect(h).toContain("o = await orders.get_by_id(order_id)");
-    expect(h).toContain("return orders.to_wire(o)");
-    expect(h).not.toContain("    return o\n");
-    // No stray domain-aggregate import (the annotation is a dict now).
-    expect(h).not.toContain("import Order\n");
-  });
-});
-
-// B2 — the Python slice of the [FromBody] fan-out (mirrors .NET B1/#1822):
-// a handler param NOT bound by a `{token}` in the route path must ride in one
-// `body: <Handler>Body` request model, not as a bare FastAPI param (which binds
-// a scalar from the query string and a Pydantic model as THE top-level body).
-const BODY_SRC = `
-system Shop {
-  subdomain Sales {
-    context Ordering {
-      valueobject Money { amount: int  currency: string }
-      aggregate Order { code: string  status: string  operation discount(amount: Money, reason: string) { status := reason } }
-      repository Orders for Order { }
-      commandHandler Discount(orderId: Order id, amount: Money, reason: string): Order id { let o = Orders.getById(orderId)  o.discount(amount, reason)  return o.id }
-    }
-  }
-  api SalesApi from Sales {
-    route POST "/orders/{orderId}/discounts" -> Ordering.Discount
-  }
-  storage pg { type: postgres }
-  resource st { for: Ordering, kind: state, use: pg }
-  deployable api { platform: python, contexts: [Ordering], dataSources: [st], serves: SalesApi, port: 5001 }
-}
-`;
-
-describe("python — explicit handler body params → single request model", () => {
-  it("collects non-path params into one <Handler>Body model bound as `body`", async () => {
-    const m = await generateSystemFiles(BODY_SRC);
-    const ctrl = fileEndingWith(m, "app/http/sales_api_routes.py");
-    // The request model: path param (orderId) excluded, body params snake-cased
-    // with their request wire types (Money → its wire model MoneyModel).
-    expect(ctrl).toContain("class DiscountBody(BaseModel):");
-    expect(ctrl).toContain("    amount: MoneyModel");
-    expect(ctrl).toContain("    reason: WireStr");
-    // Route signature: real path param stays a `str` path param; the rest ride
-    // in the single `body: DiscountBody`.
-    expect(ctrl).toContain(
-      "async def discount_route(order_id: UuidStr, body: DiscountBody, session: SessionDep) -> Any:",
-    );
-    // Call args stay in declared order; body params read off `body.<snake>`,
-    // then coerce to the DOMAIN class (Money(...) constructed from body fields).
-    expect(ctrl).toContain(
-      "result = await discount(session, OrderId(order_id), Money(body.amount.amount, body.amount.currency), body.reason)",
-    );
-    // Imports: the wire model (X as XModel) for the field type, the domain class
-    // for the coercion, BaseModel for the model, and OrderId for the path coerce.
-    expect(ctrl).toContain("from pydantic import BaseModel");
-    expect(ctrl).toContain("from app.http.wire_models import Money as MoneyModel");
-    expect(ctrl).toContain("from app.domain.value_objects import Money");
-    expect(ctrl).toContain("from app.domain.ids import OrderId");
-  });
-});
 
 // M-T5.10 handler-param rewrite — a scaffolded handler takes a SINGLE
 // `command`/`query` RECORD param.  The Python handler FLATTENS the record into

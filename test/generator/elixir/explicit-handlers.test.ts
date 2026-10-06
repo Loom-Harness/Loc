@@ -1,15 +1,21 @@
 // Plain Ecto/Phoenix emission for the explicit application/transport layer
-// (unfoldable-api-derivation.md, A2 — the Phoenix sibling of the .NET A1 test):
-// `commandHandler` / `queryHandler` context members + `route <M> "<path>" ->
-// <Ctx>.<Handler>` api bindings emit `<App>.<Ctx>.Handlers.<Name>` `run/1`
-// modules (reusing the bespoke `with`-chain workflow engine) + one
-// `<Api>RoutesController` spliced into `scope "/api"` ahead of the derived
-// aggregate routes (M-T6.73 — an explicit route is a domain route and serves
-// under `API_BASE_PATH`; a route whose `/api` slot an auto-derived route already
-// holds keeps the historical root mounting, see the scaffold case at the bottom
-// of this file).  The generated project compiles clean under
-// `mix compile --warnings-as-errors` (gated on demand via
-// LOOM_PHOENIX_VANILLA_BUILD).
+// (`commandHandler` / `queryHandler` → `<App>.<Ctx>.Handlers.<Name>` `run/1`
+// modules + one `<Api>RoutesController` spliced into `scope "/api"`).
+//
+// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
+// the handler modules' with-chains (load → mutate → return), the controller
+// dispatching each route through `run/1` and `respond/2` — are now driven on
+// all five backends by the corpus fixtures `handler-aggregate-ops` (a live row)
+// and `handler-triad` (an empty table) against one wire golden.  That golden
+// found two defects this file's `respond/2` assertions had pinned as correct: a
+// void handler answered `200 "ok"` (now 204), and a `getById` miss answered the
+// generic "Resource not found" (now "Order <id> not found").  What stays here is
+// what no booted request can observe:
+//   • route ORDER in router.ex (ahead of the derived routes) and the root-scoped
+//     scaffold-duplicate DELETE — collisions neither fixture declares;
+//   • the `extern` scaffold-once impl (a user-owned stub that raises by design);
+//   • scaffolded record-param flattening and the paged-run shape, which neither
+//     fixture declares (the next promotion candidates, not covered yet).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -55,48 +61,6 @@ function fileEndingWith(m: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix", () => {
-  it("emits the command handler module: run/1, param destructure, with-chain, {:ok, o.id}", async () => {
-    const h = fileEndingWith(await files(), "lib/api/ordering/handlers/cancel_order.ex");
-    expect(h).toContain("defmodule Api.Ordering.Handlers.CancelOrder do");
-    expect(h).toContain("alias Api.Ordering, as: Context");
-    expect(h).toContain("def run(params) when is_map(params) do");
-    // referenced param destructured off the string-keyed run/1 map:
-    expect(h).toContain('%{"order_id" => order_id} = params');
-    // repo-let getById → context get_<agg>; op-call → context <op>_<agg> (which
-    // itself persists via persist_change — no redundant update clause):
-    expect(h).toContain("with {:ok, o} <- Context.get_order(order_id)");
-    expect(h).toContain("{:ok, _} <- Context.cancel_order(o, %{})");
-    expect(h).not.toContain("update_order");
-    // return projects the aggregate id:
-    expect(h).toContain("{:ok, o.id}");
-    expect(h).not.toContain("__bad__");
-  });
-
-  it("emits the query handler module returning the resolved returnValue (no __bad__)", async () => {
-    const h = fileEndingWith(await files(), "lib/api/ordering/handlers/get_status.ex");
-    expect(h).toContain("defmodule Api.Ordering.Handlers.GetStatus do");
-    expect(h).toContain("with {:ok, o} <- Context.get_order(order_id) do");
-    expect(h).toContain("{:ok, o.status}");
-    expect(h).not.toContain("__bad__");
-  });
-
-  it("emits one RoutesController per api dispatching each route through the handler's run/1", async () => {
-    const ctrl = fileEndingWith(
-      await files(),
-      "lib/api_web/controllers/sales_api_routes_controller.ex",
-    );
-    expect(ctrl).toContain("defmodule ApiWeb.SalesApiRoutesController do");
-    expect(ctrl).toContain("use ApiWeb, :controller");
-    // one action per route calling the target handler module's run/1:
-    expect(ctrl).toContain("def cancel_order(conn, params) do");
-    expect(ctrl).toContain("respond(conn, Api.Ordering.Handlers.CancelOrder.run(params))");
-    expect(ctrl).toContain("def get_status(conn, params) do");
-    expect(ctrl).toContain("respond(conn, Api.Ordering.Handlers.GetStatus.run(params))");
-    // shared respond/2 maps the typed result tuples to HTTP:
-    expect(ctrl).toContain("def respond(conn, {:ok, result}) do");
-    expect(ctrl).toContain("def respond(conn, {:error, :not_found})");
-  });
-
   it('splices the explicit routes into `scope "/api"`, ahead of the derived routes (braces → :snake path params)', async () => {
     // M-T6.73 — an explicit route is a DOMAIN route, so it serves under
     // `API_BASE_PATH` like every other route class.  It used to land in the root
@@ -231,7 +195,7 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
     // orderId (path scalar) + newTotal (flattened from RepriceOrderCommand), in
     // declaration order, both off the same string-keyed map.
     expect(h).toContain('%{"order_id" => order_id, "new_total" => new_total} = params');
-    expect(h).toContain("with {:ok, o} <- Context.get_order(order_id)");
+    expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
     // op-call keyed by the DECLARED op param name, valued by the flat local.
     expect(h).toContain('{:ok, _} <- Context.reprice_order(o, %{"newTotal" => new_total})');
     expect(h).not.toContain("cmd");
@@ -244,7 +208,7 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
     );
     // query.orderId → the flat `order_id` off the same key an id param used.
     expect(h).toContain('%{"order_id" => order_id} = params');
-    expect(h).toContain("with {:ok, o} <- Context.get_order(order_id) do");
+    expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
     // The body returns the raw entity (returnType is OrderResponse — normalised
     // back to the entity); the boundary projects it via the controller serialize.
     expect(h).toContain("{:ok, o}");
