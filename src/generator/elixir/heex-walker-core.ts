@@ -137,6 +137,10 @@ export interface WalkResult {
    *  read `options={@<x_snake>_options}`.  Empty when no `X id` form
    *  field appears. */
   idOptionsBindings: string[];
+  /** Aggregates (PascalCase) whose `IdLink` renders read `@<x_snake>_labels`
+   *  — the LiveView assigns that map (`ref-label.ts`).  Empty when no rendered
+   *  reference targets an aggregate with a `display`. */
+  refLabelBindings: string[];
   /** Store names (PascalCase) this page/component body uses — a `Cart.<field>`
    *  read or a `Cart.<action>(…)` call anywhere in the body (Stage 5).  The
    *  LiveView emitter seeds one `assign(:<store_snake>, %<Store>{})` per used
@@ -189,6 +193,14 @@ export interface FormBinding {
   /** kind:"operation" only — the operation's params, for `<.input>`
    *  emission and the changeset-backed form. */
   params?: readonly { name: string; type: TypeIR }[];
+  /** kind:"operation" only — the op carries a `when` state gate the façade
+   *  probes with `can_<op>_<agg>(record)` (`servesCanProbe`).  The LiveView
+   *  assigns `@can_<op>` from it and the trigger renders `disabled` while the
+   *  gate refuses. */
+  gated?: boolean;
+  /** kind:"operation" only — submit runs `<op>_<agg>(record, %{})` itself
+   *  (`liveViewCallsOp`) instead of the CRUD `update_<agg>`. */
+  callsOp?: boolean;
 }
 
 export interface QueryBinding {
@@ -346,6 +358,13 @@ export interface WalkContext {
    *  so the rendered select's `options={@<x_snake>_options}` resolves.
    *  Populated lazily as the walker visits Form / OperationForm bodies. */
   idOptionsBindings: Set<string>;
+  /** Aggregates whose context façade serves the batch `<x>_labels/1`
+   *  (`servesRefLabels`) — an `IdLink(of: X)` for one of these renders the
+   *  label map lookup.  Undefined (component bodies, legacy callers) ⇒ the
+   *  link text stays the raw id. */
+  refLabelTargets?: ReadonlySet<string>;
+  /** The subset of `refLabelTargets` this body's `IdLink`s actually read. */
+  refLabelBindings: Set<string>;
   /** Form bindings discovered as the walker visits `Form(...)` calls. */
   formBindings: FormBinding[];
   /** Query bindings discovered as the walker visits `QueryView(...)`. */
@@ -542,6 +561,8 @@ export function walkBodyToHeex(
    *  without colliding in the host LiveView.  Undefined for a page body ⇒
    *  byte-identical to the pre-lift output. */
   stateOwner: string | undefined = undefined,
+  /** See `WalkContext.refLabelTargets` — passed for page bodies only. */
+  refLabelTargets: ReadonlySet<string> | undefined = undefined,
 ): WalkResult {
   const stateNames = new Set<string>(page.state.map((f) => snake(f.name)));
   const stateFields = new Map<string, StateFieldIR>(page.state.map((f) => [snake(f.name), f]));
@@ -573,6 +594,8 @@ export function walkBodyToHeex(
     enumsByName,
     valueObjectsByName,
     idOptionsBindings: new Set(),
+    refLabelTargets,
+    refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
     page,
@@ -660,6 +683,7 @@ export function walkBodyToHeex(
     usesChart: ctx.chartUsed.value,
     usesTableHelpers: ctx.tableHelpersUsed.value,
     idOptionsBindings: [...ctx.idOptionsBindings],
+    refLabelBindings: [...ctx.refLabelBindings],
     usedStores: [...ctx.usedStores],
     uploadBindings: ctx.uploadBindings,
     tableControls: ctx.tableControls,
@@ -2536,6 +2560,7 @@ function renderRequiresGuardAt(
     enumsByName: new Map(),
     valueObjectsByName: new Map(),
     idOptionsBindings: new Set(),
+    refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
     page,

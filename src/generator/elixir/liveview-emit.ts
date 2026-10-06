@@ -80,6 +80,7 @@ import {
   vanillaHistoryMapperName,
   vanillaHistoryMapperTakesPrincipal,
 } from "./vanilla/audit-history-emit.js";
+import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
 
 /** One router entry the orchestrator splices into router.ex. */
 export interface LiveRoute {
@@ -194,6 +195,13 @@ export function emitLiveViewPages(args: {
   // `CreateForm(of: Agg)` resolves to the aggregate's fields.
   const aggregatesByName = new Map<string, AggregateIR>();
   const contextByAggName = new Map<string, BoundedContextIR>();
+  // Aggregates whose façade serves `<agg>_label/1` (picker option labels) and
+  // the batch `<agg>_labels/1` (`IdLink` text) — `ref-label.ts`.
+  const refLabelAggs = new Set<string>();
+  const refLabelBatchAggs = new Set<string>();
+  // Aggregates whose loaded rows are plain Ecto structs carrying each field
+  // as a key — the only rows `__loom_label_rows` may read a reference off.
+  const refLabelSourceAggs = new Set<string>();
   // Module-qualified context name per aggregate, e.g.
   // "PhoenixApp.Sales" — used by the LiveView mount stub to build the
   // `change_<agg>(%PhoenixApp.Sales.Customer{})` create-form changeset.
@@ -253,6 +261,9 @@ export function emitLiveViewPages(args: {
     for (const agg of ctx.aggregates) {
       aggregatesByName.set(agg.name, agg);
       contextByAggName.set(agg.name, ctx);
+      if (servesRefLabel(agg, ctx, sys)) refLabelAggs.add(agg.name);
+      if (servesRefLabels(agg, ctx, sys)) refLabelBatchAggs.add(agg.name);
+      if (isRelationalRowAgg(agg, ctx, sys)) refLabelSourceAggs.add(agg.name);
       contextModuleByAggName.set(agg.name, ctxModule);
       for (const part of agg.parts) partContextModule.set(part.name, ctxModule);
       // The LIST read's `requires` gate — the same one `index` evaluates in
@@ -410,6 +421,9 @@ export function emitLiveViewPages(args: {
       authEnabled,
       echoForbiddenDetail: echoesDenialDetail(deployable, sys),
       i18nEnabled,
+      refLabelAggs,
+      refLabelBatchAggs,
+      refLabelSourceAggs,
     });
     anyChart ||= usesChart;
     anyTableHelpers ||= usesTableHelpers;
@@ -551,6 +565,14 @@ interface RenderArgs {
   /** True when the deployable runs `auth: required` — drives currentUser
    *  action-button gating in the page body (off ⇒ byte-identical). */
   authEnabled: boolean;
+  /** Aggregates whose façade serves `<agg>_label/1` — the id-select picker
+   *  labels its options through it. */
+  refLabelAggs: ReadonlySet<string>;
+  /** Aggregates whose façade serves the batch `<agg>_labels/1` — an `IdLink`
+   *  to one renders its `display` (`ref-label.ts`). */
+  refLabelBatchAggs: ReadonlySet<string>;
+  /** Aggregates whose rows a label load may read references off. */
+  refLabelSourceAggs: ReadonlySet<string>;
   /** Ruling D4 (#20): true only under the dev-stub verifier — a denied
    *  create's flash then names the failed gate; otherwise it says `Forbidden`,
    *  the same text the HTTP 403 body carries. */
@@ -850,8 +872,21 @@ function renderLiveView(a: RenderArgs): {
     // role-scoped `page.name`, not the router emit name); undefined when the ui
     // has no extractable strings (byte-identical to pre-i18n).
     a.i18nEnabled ? `page.${page.name}` : undefined,
+    undefined,
+    a.refLabelBatchAggs,
   );
   const heex = walked.heex;
+  // `__loom_ref_labels/1` — re-loads every `@<x>_labels` map the page's
+  // `IdLink`s read, from the rows its reads loaded.  Empty when the page
+  // renders no labelled reference; every load path then stays byte-identical.
+  const refLabelsHelper = renderRefLabelsHelper(
+    walked.refLabelBindings,
+    walked.queryBindings,
+    aggregatesByName,
+    contextModuleByAggName,
+    a.refLabelSourceAggs,
+  );
+  const refreshLabels = refLabelsHelper !== "";
   const handlers: HandleEventClause[] = walked.handlers;
 
   // Stores this page touches (Stage 5) — its own body's `usedStores` plus
@@ -887,6 +922,8 @@ function renderLiveView(a: RenderArgs): {
     walked.uploadBindings,
     subscribeRealtime ? appModule : null,
     liftedState,
+    a.refLabelAggs,
+    walked.refLabelBindings,
   );
   const handleParams = renderHandleParams(
     page,
@@ -898,6 +935,7 @@ function renderLiveView(a: RenderArgs): {
     a.projectionReads,
     a.listReadGateByAggName,
     a.historyReads,
+    refreshLabels,
   );
   const detailBaseRoute = page.route ? page.route.replace(/\/:[^/]+$/, "") : null;
   // Hoist `Action(...)` handlers from the page body + every component
@@ -929,6 +967,7 @@ function renderLiveView(a: RenderArgs): {
         walked.queryBindings,
         contextModuleByAggName,
         a.listReadGateByAggName,
+        refreshLabels,
       ),
       ...actionHandlers,
       ...componentHandlers,
@@ -940,13 +979,20 @@ function renderLiveView(a: RenderArgs): {
       aggregatesByName,
       echoForbiddenDetail,
     ) +
-    renderOperationEventClauses(walked.formBindings, detailBaseRoute, contextModuleByAggName) +
+    renderOperationEventClauses(
+      walked.formBindings,
+      detailBaseRoute,
+      contextModuleByAggName,
+      refreshLabels,
+      aggregatesByName,
+    ) +
     renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
     renderTableControlClauses(
       walked.tableControls,
       walked.queryBindings,
       contextModuleByAggName,
       a.listReadGateByAggName,
+      refreshLabels,
     );
   // Realtime `handle_info` clauses — one per subscribed event type, each
   // rendering the handler's `toast(…)` as `put_flash(:info, …)` and re-loading
@@ -958,6 +1004,7 @@ function renderLiveView(a: RenderArgs): {
     appModule,
     contextModuleByAggName,
     a.listReadGateByAggName,
+    refreshLabels,
   );
 
   // `FileUpload` progress consumers — one `handle_<field>_progress/3` per
@@ -983,7 +1030,7 @@ ${aliasLines.length > 0 ? `\n${aliasLines}\n` : ""}
 ${mount}
 
 ${handleParams}
-${handleEventClauses}${uploadHandlers}${realtimeClauses}${projectionLoaders}${historyLoaders}
+${handleEventClauses}${uploadHandlers}${realtimeClauses}${projectionLoaders}${historyLoaders}${refLabelsHelper}
   @impl true
   def render(assigns) do
     ~H"""
@@ -993,6 +1040,62 @@ ${indent(heex, 4)}
 end
 `,
   };
+}
+
+/** The line every load path appends once its reads have re-assigned — re-loads
+ *  the page's reference labels from the fresh rows (`renderRefLabelsHelper`). */
+const REF_LABELS_RELOAD = "\n\n    socket = __loom_ref_labels(socket)";
+
+/** `defp __loom_ref_labels/1` — one `<Ctx>.<x>_labels(ids)` query per labelled
+ *  target, over the ids of every `X id` field on the rows the page's reads
+ *  loaded (`@data` record, `@items` page/list).  Batching is the point: an
+ *  `IdLink` per table row reads the map, so a page costs one extra query per
+ *  target, never one per row.  Empty when no read loads a row carrying a
+ *  reference to a labelled target — the `IdLink` then falls back to the id
+ *  against the empty map `mount` seeds. */
+function renderRefLabelsHelper(
+  labelTargets: readonly string[],
+  queryBindings: readonly QueryBinding[],
+  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  contextModuleByAggName: ReadonlyMap<string, string>,
+  sourceAggs: ReadonlySet<string>,
+): string {
+  const assigns: string[] = [];
+  for (const target of [...labelTargets].sort()) {
+    const ctxModule = contextModuleByAggName.get(target);
+    if (!ctxModule) continue;
+    const sources: string[] = [];
+    const seen = new Set<string>();
+    for (const qb of queryBindings) {
+      if (qb.source === "projection" || qb.source === "history") continue;
+      const agg = aggregatesByName.get(qb.aggregate);
+      if (!agg || !sourceAggs.has(agg.name)) continue;
+      for (const f of agg.fields) {
+        const t = f.type.kind === "optional" ? f.type.inner : f.type;
+        if (t.kind !== "id" || t.targetName !== target) continue;
+        const src = `Enum.map(__loom_label_rows(socket.assigns[:${qb.assign}]), & &1.${snake(f.name)})`;
+        if (seen.has(src)) continue;
+        seen.add(src);
+        sources.push(src);
+      }
+    }
+    if (sources.length === 0) continue;
+    assigns.push(
+      `    |> assign(:${snake(target)}_labels, ${ctxModule}.${snake(target)}_labels(${sources.join(" ++ ")}))`,
+    );
+  }
+  if (assigns.length === 0) return "";
+  return `
+  defp __loom_ref_labels(socket) do
+    socket
+${assigns.join("\n")}
+  end
+
+  defp __loom_label_rows(%{__struct__: _} = record), do: [record]
+  defp __loom_label_rows(%{items: items}) when is_list(items), do: items
+  defp __loom_label_rows(items) when is_list(items), do: items
+  defp __loom_label_rows(_), do: []
+`;
 }
 
 function renderHandleEventClauses(handlers: HandleEventClause[]): string {
@@ -1043,6 +1146,7 @@ function withQueryReload(
   queryBindings: readonly QueryBinding[],
   contextModuleByAggName: ReadonlyMap<string, string>,
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+  refreshLabels = false,
 ): HandleEventClause[] {
   // Aggregate list reads only — the same set the sort/page reload re-runs; a
   // query-time projection takes no arguments and has no state to depend on.
@@ -1067,13 +1171,14 @@ function withQueryReload(
       .filter((b): b is string => b !== null)
       .join("\n\n");
     if (reload === "") return h;
+    const labels = refreshLabels ? REF_LABELS_RELOAD : "";
     // The write first, so the reload's gates and arguments read the NEW value.
     return {
       ...h,
       body: [
         ...h.body.map((l) => l.replace(/^(\s*)\{:noreply, (.+)\}$/, "$1socket = $2")),
         "",
-        reload,
+        reload + labels,
         "",
         "    {:noreply, socket}",
       ],
@@ -1105,6 +1210,7 @@ function renderTableControlClauses(
   queryBindings: readonly QueryBinding[],
   contextModuleByAggName: ReadonlyMap<string, string>,
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+  refreshLabels = false,
 ): string {
   // Aggregate list reads only — a query-time projection has no page/sort
   // surface to re-run (its `run/1` takes no arguments).
@@ -1146,7 +1252,7 @@ function renderTableControlClauses(
   // In client mode the clause is just the assign + `{:noreply, socket}`; the
   // blank-line-wrapped reload block collapses away rather than leaving the
   // three-blank-line hole a `""` splice would.
-  const reloadBlock = reload === "" ? "" : `\n${reload}\n`;
+  const reloadBlock = reload === "" ? "" : `\n${reload}${refreshLabels ? REF_LABELS_RELOAD : ""}\n`;
 
   const clauses: string[] = [];
   if (sortKey && sortDir) {
@@ -1206,6 +1312,7 @@ function renderRealtimeHandleInfo(
   appModule: string,
   contextModuleByAggName: ReadonlyMap<string, string>,
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+  refreshLabels = false,
 ): string {
   const notifications = ui.notifications ?? [];
   if (notifications.length === 0) return "";
@@ -1252,12 +1359,15 @@ function renderRealtimeHandleInfo(
     const reloadAggs = [
       ...new Set(handlers.flatMap((h) => (h.refetches ?? []).map((r) => r.aggregate))),
     ].sort();
+    let reloaded = false;
     for (const agg of reloadAggs) {
       const qb = qbByAgg.get(agg);
       const ctxModule = contextModuleByAggName.get(agg);
       if (!qb || !ctxModule) continue; // page doesn't load it → no-op reload
       body.push(renderQueryLoadBlock(qb, ctxModule, [], listReadGateByAggName.get(agg)));
+      reloaded = true;
     }
+    if (reloaded && refreshLabels) body.push(REF_LABELS_RELOAD.replace(/^\n+/, ""));
     // Toasts → chained put_flash(:info, …).
     const flashes = toastExprs.map((e) => `put_flash(:info, ${renderMessageExprElixir(e, bind)})`);
     if (flashes.length > 0) {
@@ -1308,6 +1418,12 @@ function renderMount(
    *  page's own state.  Empty ⇒ byte-identical to a page that renders no
    *  stateful component. */
   liftedState: readonly { assign: string; field: StateFieldIR }[] = [],
+  /** Aggregates whose façade serves `<agg>_label/1` — a picker over one
+   *  labels its options with the target's `display`, not its id. */
+  refLabelAggs: ReadonlySet<string> = new Set(),
+  /** Targets whose `IdLink`s read `@<x>_labels` — seeded `%{}` here so the
+   *  template resolves before (or without) a load filling it. */
+  refLabelBindings: readonly string[] = [],
 ): string {
   // `if connected?(socket), do: subscribe` — only the live (websocket-
   // connected) mount subscribes; the initial static render skips it.  Prepended
@@ -1349,9 +1465,20 @@ function renderMount(
     const ctxModule = contextModuleByAggName.get(aggName);
     if (!ctxModule) continue;
     const aggSnake = snake(aggName);
-    const tupleFn = `fn r -> {to_string(r.id), r.id} end`;
+    const tupleFn = refLabelAggs.has(aggName)
+      ? `fn r -> {${ctxModule}.${aggSnake}_label(r), r.id} end`
+      : `fn r -> {to_string(r.id), r.id} end`;
     const listCall = `(case ${ctxModule}.list_${aggSnake}s() do {:ok, %{items: items}} -> items; {:ok, items} -> items; _ -> [] end)`;
     assigns.push(`      |> assign(:${aggSnake}_options, ${listCall} |> Enum.map(${tupleFn}))`);
+  }
+  for (const target of [...refLabelBindings].sort()) {
+    assigns.push(`      |> assign(:${snake(target)}_labels, %{})`);
+  }
+  // A `when`-gated op's trigger reads `@can_<op>` — re-probed against the
+  // record in `handle_params`; until then (or on a page with no record load)
+  // the trigger stays enabled, as before, and the server gate still refuses.
+  for (const fb of formBindings) {
+    if (fb.kind === "operation" && fb.gated) assigns.push(`      |> assign(:can_${fb.op}, true)`);
   }
   // @form assignment — one per CreateForm / WorkflowForm call in the page body.
   // For aggregate-of: a blank Ecto changeset off the schema struct via the
@@ -1431,10 +1558,12 @@ function renderQueryLoadBlock(
   if (isAggregateRead && qb.readFn === undefined) return renderUnresolvedRead(qb);
   const readFn = qb.readFn ?? (qb.kind === "single" ? `get_${aggSnake}` : `list_${aggSnake}s`);
   if (qb.kind === "single") {
-    const opAssigns = opFbs.map(
-      (fb) =>
-        `        |> assign(:${fb.op}_form, ${ctxModule}.change_${aggSnake}(record) |> to_form())`,
-    );
+    const opAssigns = opFbs.flatMap((fb) => [
+      `        |> assign(:${fb.op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})`,
+      ...(fb.gated
+        ? [`        |> assign(:can_${fb.op}, ${ctxModule}.can_${fb.op}_${aggSnake}(record))`]
+        : []),
+    ]);
     // `get_<agg>(id)` is a plain-Ecto fetch returning
     // `{:ok, record} | {:error, :not_found}`.  The `:not_found` / `:error`
     // sentinels feed the 4-way `cond`.  Operation forms (seeded from the
@@ -1686,6 +1815,7 @@ function renderHandleParams(
   projectionReads: ReadonlyMap<string, ProjectionRead>,
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
   historyReads: ReadonlyMap<string, HistoryRead>,
+  refreshLabels = false,
 ): string {
   const paramAssigns: string[] = [];
   for (const p of page.params) {
@@ -1740,6 +1870,7 @@ function renderHandleParams(
     );
   }
   if (hasLoad) bodyParts.push(loadBlocks.join("\n\n"));
+  if (hasLoad && refreshLabels) bodyParts.push(REF_LABELS_RELOAD.replace(/^\n+/, ""));
   bodyParts.push(`    {:noreply, socket}`);
   const coreBody = bodyParts.join("\n\n");
 
@@ -1783,6 +1914,10 @@ function renderOperationEventClauses(
   /** Module-qualified context per aggregate PascalCase name — resolves the
    *  `<Ctx>.update_<agg>` / `<Ctx>.change_<agg>` calls. */
   contextModuleByAggName: ReadonlyMap<string, string>,
+  /** The page renders reference labels — re-load them after a submit (an
+   *  update can re-point a reference). */
+  refreshLabels = false,
+  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
 ): string {
   const ops = formBindings.filter((fb) => fb.kind === "operation");
   if (ops.length === 0) return "";
@@ -1797,38 +1932,83 @@ function renderOperationEventClauses(
           : "";
         // Op-form lifecycle: validate builds a changeset off the CURRENT @data
         // record with the incoming params + `action: :validate` (so the form
-        // shows errors); submit persists via `update_<agg>` and re-seeds the op
-        // form from the saved record.
+        // shows errors); submit persists and re-seeds the op form from the
+        // saved record.
         const ctxModule = contextModuleByAggName.get(fb.name);
         const aggSnake = snake(fb.name);
         if (!ctxModule) return ""; // unresolved — validator catches upstream
+        // Every `when` gate of this aggregate on the page is re-probed against
+        // the SAVED record — any submit (not just this op's) can flip one.
+        const gateRefresh = ops
+          .filter((g) => g.gated && g.name === fb.name)
+          .map(
+            (g) =>
+              `\n         |> assign(:can_${g.op}, ${ctxModule}.can_${g.op}_${aggSnake}(record))`,
+          )
+          .join("");
+        const labelRefresh = refreshLabels ? "\n         |> __loom_ref_labels()" : "";
+        // A parameterless named operation runs ITSELF — its body, its `when`
+        // gate, its preconditions — rather than a field update that skips all
+        // three.  A refused gate (or any non-changeset error) flashes instead
+        // of crashing the LiveView on an unmatched clause.
+        const opIR = aggregatesByName.get(fb.name)?.operations.find((o) => snake(o.name) === op);
+        // A principal-reading op takes the actor the same way the `Action`
+        // seam passes it (nil when the deployable runs no auth).
+        const cu = fb.callsOp && opIR && opUsesCurrentUser(opIR);
+        const submitCall = fb.callsOp
+          ? `${ctxModule}.${op}_${aggSnake}(socket.assigns.data, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`
+          : `${ctxModule}.update_${aggSnake}(socket.assigns.data, params)`;
+        const errorArm = fb.callsOp
+          ? `
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}`
+          : "";
         return `  @impl true
-  def handle_event("validate_${op}", %{"${op}" => params}, socket) do
+  def handle_event("validate_${op}", params, socket) do
+    params = Map.get(params, "${op}", %{})
+
     changeset =
       socket.assigns.data
       |> ${ctxModule}.change_${aggSnake}(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :${op}_form, to_form(changeset))}
+    {:noreply, assign(socket, :${op}_form, to_form(changeset, as: "${op}"))}
   end
 
   @impl true
-  def handle_event("submit_${op}", %{"${op}" => params}, socket) do
-    case ${ctxModule}.update_${aggSnake}(socket.assigns.data, params) do
+  def handle_event("submit_${op}", params, socket) do
+    params = Map.get(params, "${op}", %{})
+
+    case ${submitCall} do
       {:ok, record} ->
         {:noreply,
          socket
          |> put_flash(:info, "${human} succeeded")
          |> assign(:data, record)
-         |> assign(:${op}_form, ${ctxModule}.change_${aggSnake}(record) |> to_form())${reload}}
+         |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh}${labelRefresh}${reload}}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign(socket, :${op}_form, to_form(changeset))}
+        {:noreply, assign(socket, :${op}_form, to_form(changeset, as: "${op}"))}${errorArm}
     end
   end\n`;
       })
       .join("\n")
   );
+}
+
+/** The `@<op>_form` value seeded from a loaded record.  `as: "<op>"` names the
+ *  form so its inputs submit as `%{"<op>" => …}` — the key the
+ *  `validate_<op>` / `submit_<op>` clauses read.  Left to `to_form/1`, Ecto
+ *  names the form after the SCHEMA (`"task"`), and the clause's key never
+ *  arrived. */
+function opFormExpr(
+  fb: import("./heex-walker.js").FormBinding,
+  ctxModule: string,
+  aggSnake: string,
+  record: string,
+): string {
+  return `${ctxModule}.change_${aggSnake}(${record}) |> to_form(as: "${fb.op}")`;
 }
 
 /** Create-form (`CreateForm(of: Agg)`) submit handler — `save_<agg>`.  The
