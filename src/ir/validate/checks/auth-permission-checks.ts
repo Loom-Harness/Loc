@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { PRINCIPAL_CAUSED_BY, PRINCIPAL_IS_SYSTEM } from "../../../util/principal.js";
 import type { SystemIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -45,6 +46,17 @@ export function validateAuth(sys: SystemIR, diags: LoomDiagnostic[]): void {
         });
       }
       seen.add(f.name);
+      // `isSystem` / `causedBy` are the system principal's built-in members
+      // (ruling D1): every backend's principal record carries them, so a
+      // claim of the same name would collide in the generated User type.
+      if (f.name === PRINCIPAL_IS_SYSTEM || f.name === PRINCIPAL_CAUSED_BY) {
+        diags.push({
+          severity: "error",
+          code: "loom.user-reserved-field",
+          message: diagMessage("loom.user-reserved-field", { name: sys.name, fName: f.name }),
+          source: `${sys.name}/user`,
+        });
+      }
     }
   }
   // (2) `auth: required` deployables MUST have a user block.  Without

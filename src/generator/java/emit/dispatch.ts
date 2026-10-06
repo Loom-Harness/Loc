@@ -11,6 +11,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -510,6 +511,11 @@ export function renderJavaDispatcher(
   if (methods.some((m) => m.includes("RequestContext.openChild"))) {
     imports.add(`${dctx.basePkg}.config.RequestContext`);
   }
+  // A reactor that reads the principal binds the system principal (ruling D1).
+  if (methods.some((m) => m.includes("User.systemPrincipal("))) {
+    imports.add(`${dctx.basePkg}.auth.CurrentUserAccessor`);
+    imports.add(`${dctx.basePkg}.auth.User`);
+  }
   // Handler bodies can guard with `precondition` / `requires`, which throw the
   // domain.common exceptions — import them when a body uses one (the stmt target
   // emits the `throw` but leaves the import to the host).
@@ -681,6 +687,7 @@ function renderHandler(
     `    @EventListener`,
     `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
+    ...principalBinding([resolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -832,6 +839,7 @@ function renderEsHandler(
     `    @EventListener`,
     `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
+    ...principalBinding([resolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -998,11 +1006,28 @@ function renderEsMergedHandler(
     `    @EventListener`,
     `    public void on${upperFirst(wf.name)}${upperFirst(createSub.event)}(${createSub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
+    ...principalBinding([createResolved.statements, onResolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
     ``,
   ];
+}
+
+/** A reactor has no request principal: it runs as the SYSTEM principal
+ *  (ruling D1) — `User.systemPrincipal(...)`, carrying the dispatching
+ *  request's tenant and recording its user as `causedBy`.  Bound only when a
+ *  body — or an operation it calls, hoisted gate included — reads
+ *  `currentUser`; before this the gate named a `currentUser` nothing declared
+ *  (javac: cannot find symbol).  The listener runs on the publishing thread,
+ *  so `CurrentUserAccessor.currentOrNull()` is the dispatching request's. */
+function principalBinding(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  return bodies.some((b) => reactorNeedsPrincipal(b, ctx))
+    ? [`            var currentUser = User.systemPrincipal(CurrentUserAccessor.currentOrNull());`]
+    : [];
 }
 
 function bodyHasEmit(statements: WorkflowStmtIR[]): boolean {

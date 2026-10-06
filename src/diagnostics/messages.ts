@@ -3412,6 +3412,33 @@ export const DIAGNOSTIC_MESSAGES = {
     `not served at all.`,
   "loom.user-duplicate-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}' more than once.`,
+  // src/ir/validate/checks/reactor-principal-checks.ts (ruling D1)
+  "loom.reactor-gate-unsatisfiable": (p: {
+    reactor: unknown;
+    event: unknown;
+    where: unknown;
+    gate: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs as the system principal (no request user: every claim is empty, ` +
+    `\`currentUser.isSystem\` is true), but ${p.where} is gated by \`requires ${p.gate}\`, which reads ` +
+    `\`currentUser\` and never admits the system principal — so every '${p.event}' this reactor ` +
+    `handles will be refused with 403.  If the reactor is allowed to do this, say so in the gate: ` +
+    `\`requires currentUser.isSystem || ${p.gate}\`; otherwise call an ungated operation, or move the ` +
+    `check onto the command that emits '${p.event}'.`,
+  "loom.timer-tenant-read": (p: {
+    reactor: unknown;
+    timer: unknown;
+    agg: unknown;
+    read: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
+    `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
+    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
+    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+  "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
+    `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
+    `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
+    `event reactor records for audit).  Rename the claim.`,
   "loom.auth-no-user-block": (p: { name: unknown; sysName: unknown }) =>
     `deployable '${p.name}' has 'auth: required' but system '${p.sysName}' declares no 'user { ... }' block. ` +
     `Add a system-level user block describing the JWT claim shape (e.g. 'user { id: string, role: string }').`,

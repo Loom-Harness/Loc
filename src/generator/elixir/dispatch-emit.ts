@@ -15,9 +15,11 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { operationUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { escapeElixirIdent, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
@@ -493,12 +495,18 @@ function renderHandler(
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
   const usesThis = persisted && bodyUsesThis(sub.statements);
+  // A reactor has no request principal: it runs as the SYSTEM principal
+  // (ruling D1) — `<Web>.Auth.system_principal/0`, carrying the originating
+  // request's tenant and recording its user as `caused_by`.  Bound only when
+  // the body — or an operation it calls — reads `currentUser`.
+  const bindsPrincipal = reactorNeedsPrincipal(sub.statements, ctx);
   const renderCtx: RenderCtx = {
     thisName: "state",
     contextModule,
     typesModule: `${appModule}.Types`,
     resourceModules: buildPhoenixResourceModules(sys, appModule),
     paramRenames: { [sub.param]: "event" },
+    reactorPrincipal: bindsPrincipal,
   };
 
   // Body statements → ordered Elixir lines (0-indented), woven into a
@@ -536,7 +544,7 @@ ${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? 
     # (parent_id <- the dispatching request's scope) so its audit / provenance
     # rows record their call-structure position.
     ${appModule}.RequestContext.with_child_frame(fn ->
-${inner}
+${bindsPrincipal ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n` : ""}${inner}
     end)
   end
 end
@@ -1034,7 +1042,13 @@ function renderStmt(
       const op = lookupOp(ctx, st.aggName, st.op);
       const argTexts = st.args.map((arg) => renderExpr(arg, renderCtx));
       const fields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
-      const call = `${contextModule}.${action}(${target}, %{${fields}})`;
+      // A `currentUser`-reading operation's context function takes a trailing
+      // `current_user` (its `ensure(...)` gate reads it).  Without it the
+      // reactor called the arity-2 form, the gate saw `nil`, and
+      // `nil.permissions` raised — so thread the bound system principal.
+      const actor =
+        renderCtx.reactorPrincipal && op && operationUsesCurrentUser(op) ? ", current_user" : "";
+      const call = `${contextModule}.${action}(${target}, %{${fields}}${actor})`;
       return [{ kind: "with-clause", text: `{:ok, _} <- ${call}` }];
     }
     case "emit": {
