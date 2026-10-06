@@ -159,4 +159,16 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
     // An emitted-but-uncalled private function fails `--warnings-as-errors`.
     expect(sweep).not.toContain("__wf_param");
   });
+
+  it("flashes a coded domain-floor denial's `detail`, not its `inspect`ed map (L1-E / E5)", async () => {
+    const { live } = await emitted();
+    // A messaged precondition in an operation the workflow runs denies with
+    // `{:precondition_failed, %{detail: …, code: …, pointer: …}}`
+    // (`denialTerm`); without this clause the flash read
+    // `Place order failed: {:precondition_failed, %{code: "msg.…", …}}`.
+    const clause = live.indexOf("{:error, {_kind, %{detail: detail}}} when is_binary(detail) ->");
+    expect(clause, "no clause for the coded domain-floor map").toBeGreaterThan(-1);
+    // It must sit BEFORE the inspect fallback, or it never matches.
+    expect(clause).toBeLessThan(live.indexOf("#{inspect(reason)}"));
+  });
 });

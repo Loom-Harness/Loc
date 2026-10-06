@@ -9,6 +9,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
@@ -364,6 +365,17 @@ function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): 
           "(`validate_invariants/1`), which no in-memory op call reaches",
       );
     }
+    if (kind === undefined && !opMayRaiseGuard(findOp(inner.member, env), env)) {
+      // A BARE `toThrow()` over an op with no guard anywhere on its path can
+      // only mean an INVARIANT rejection (L1-E / E8) — and that is the rung the
+      // pure core does not run (above).  `assert_raise GuardError` there could
+      // never fire, so the test failed on a correct app; degrade honestly, the
+      // same as the explicit `toThrow(invariant)`.
+      throw new UnsupportedTestShapeError(
+        "bare toThrow() over an aggregate operation with no precondition/requires: the " +
+          "rejection can only be an invariant, which the vanilla pure op core does not run",
+      );
+    }
     if (kind === "precondition") {
       // THE structural form, and the reason this backend needs no message
       // prefix: `GuardError` is `defexception [:message, :kind]`, so the rung
@@ -586,6 +598,37 @@ function renderOp(e: ExprIR, env: Env): string {
 
 function findOp(member: string, env: Env): OperationIR | undefined {
   return env.agg?.operations.find((o) => o.name === member);
+}
+
+/** Can the pure core of `op` raise `<App>.GuardError`?  True when a
+ *  `precondition` / `requires` statement (an op's `requires` clause lowers to
+ *  one) is reachable from its body — directly, nested, or through a sibling
+ *  operation it calls, as a statement or an expression (the pure core runs the
+ *  callee's guards inside `__op_<name>`).  Conservative on an unresolvable private
+ *  call: it answers true, keeping the `assert_raise` that was emitted before. */
+function opMayRaiseGuard(
+  op: OperationIR | undefined,
+  env: Env,
+  seen: Set<string> = new Set(),
+): boolean {
+  if (!op || seen.has(op.name)) return false;
+  seen.add(op.name);
+  let found = false;
+  for (const top of op.statements) {
+    walkStmtsDeep(top, (s) => {
+      if (s.kind === "precondition" || s.kind === "requires") found = true;
+      if (s.kind === "call" && s.target === "private-operation") {
+        const callee = findOp(s.name, env);
+        if (!callee || opMayRaiseGuard(callee, env, seen)) found = true;
+      }
+      walkStmtExprsDeep(s, (e) => {
+        if (e.kind !== "call" || e.callKind !== "private-operation") return;
+        const callee = findOp(e.name, env);
+        if (!callee || opMayRaiseGuard(callee, env, seen)) found = true;
+      });
+    });
+  }
+  return found;
 }
 
 function isCreate(e: ExprIR): boolean {

@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
-import type { ChannelIR } from "../../../ir/types/loom-ir.js";
+import { type ChannelIR, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -177,7 +177,13 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
-    ) || contextsHavePagedReads(contexts);
+    ) ||
+    contextsHavePagedReads(contexts) ||
+    // …OR a command workflow with params: a request omitting one answers the
+    // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
+    contexts.some((c) =>
+      c.workflows.some((w) => workflowEmitsCommandRoute(w) && (w.params ?? []).length > 0),
+    );
   out.set(
     `lib/${appName}_web/problem_details.ex`,
     renderVanillaProblemDetailsModule(

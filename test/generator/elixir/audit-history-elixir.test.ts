@@ -90,7 +90,7 @@ describe("entity history — elixir route surface", () => {
     // the PathItem ride ONE predicate (`servesHistory`); this pins that.
     const files = await emit(MASKED);
     const spec = fileEndingWith(files, "lib/api_web/api/a_spec.ex");
-    expect(spec).toContain('"/employees/{id}/history" => %OpenApiSpex.PathItem{');
+    expect(spec).toContain('"/api/employees/{id}/history" => %OpenApiSpex.PathItem{');
     // Same operationId helper the node port uses — one name across backends.
     expect(spec).toContain('operationId: "historyEmployee"');
     // The gate exists, so the 403 it produces is declared.
@@ -208,7 +208,7 @@ describe("entity history — the LiveView (in-process) read seam", () => {
 
   it("carries guard 2 — reachability rides the entity read", async () => {
     const loader = (await liveView()).split("defp load_employee_history")[1] ?? "";
-    expect(loader).toContain("case Api.C.get_employee(id) do");
+    expect(loader).toContain("{:ok, _record} <- Api.C.get_employee(id) do");
     expect(loader.indexOf("Api.C.get_employee(id)")).toBeLessThan(
       loader.indexOf("Audit.History.for_target"),
     );

@@ -446,7 +446,7 @@ than refusing) and to
 [M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
 
 *Wave L1-C (leftover-waves-2026-09-28), item P19 — rides [M-T6.75](#m-t675)'s .NET packet.*
-## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
+## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108)) · **S** · P1 ⚠ verify-first
 
 Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
 ([`waves/handoffs/wave-c0-schemathesis.md`](waves/handoffs/wave-c0-schemathesis.md)), statically, on the
@@ -472,7 +472,7 @@ findings are not statements about the elixir API surface, and it must stay `disc
 
 *Wave L1-E (leftover-waves-2026-09-28), item **E9** — rides [M-T6.77](#m-t677)'s elixir packet.*
 
-## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
+## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108)) · **S** · P2 ⚠ verify-first
 
 Diagnosed 2026-09-11 alongside M-T6.70, statically on the emitted tree (E2 of the elixir schemathesis cell).
 
@@ -596,7 +596,7 @@ One packet over `src/generator/{java,python}/`, plus X3's python sites if [M-T6.
 
 **Verification.** Corpus fixtures through `corpus-java-build` / `corpus-python-build` (mypy strict); the unbound-symbol gate port ([M-T9.67](T9-toolchain-health.md#m-t967)) is what would have caught J1 and should go red on it.
 
-## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `open` · **M–L** · P1
+## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108): E1, E5–E10) · **M–L** · P1
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-E (leftover-waves-2026-09-28).**
 
@@ -615,12 +615,16 @@ One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the exist
 
 **Verification.** Corpus fixtures through `corpus-elixir-build`; E4 through the migration-evolution leg and the RS-38 conformance row; E7 through the wire-golden differential.
 
-**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080 once it merges):**
+**Status (#3108, 2026-10-04).** E1, E5, E6, E7, E8, E9 (M-T6.70: path keys embed `/api`, no `servers` base) and E10 (M-T6.71: the LiveView by-id load and history loader cast the id first → the page's not-found arm) are in #3108; E7/E9/E10 boot-verified on a generated app. E8 lands as an honest skip, not an assertion: a bare `toThrow()` over an op with no reachable `precondition`/`requires` degrades like `toThrow(invariant)`. **E3** is fixed on `main` by #3080. Still open: **E2** (fenced by #3101/#3103; #3082 has merged), **E4** — the schema half alone is unsafe (a `:utc_datetime_usec` field over the `timestamp(0)` column `timestamps()` migrates to would round on write, so the insert response and the read-back disagree), and the migration step lives in `elixir/migrations-emit.ts`, which #3101 edits (#3082 has merged); build it after #3101 lands. Two findings filed here from the E8 investigation:
+- **E11** — an elixir named-operation persist re-runs only the RESIDUAL (cross-field) invariants (`context-emit.ts` `aggregateHasResidualInvariants`); a single-field invariant on the native chain (`invariant qty >= 0` → `validate_number` in `base_changeset`) is bypassed by `change(%{}) |> force_change`, so `setQty(-1)` commits. The root cause of E8. **M**.
+- **E12** — the context-nested (integration) test emitter maps only an object-literal op argument (`integration-tests-emit.ts` `attrsMap`); a positional `c.setQty(-1)` renders `set_qty_counter(c, %{})`, so `expect(…).toThrow()` passes on the missing param, and a success-path op call fails. Fix together with E11 (fixing E12 alone turns those generated tests red on E11). **S**.
+
+**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080, merged; ported as E9/E10, renumbered E13/E14 on the 2026-10-06 re-sync of #3108 because E9/E10 already name M-T6.70/M-T6.71 in this packet):**
 
 | id | Item | Evidence | Sz |
 |---|---|---|---|
-| E9 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
-| E10 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
+| E13 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
+| E14 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
 
 ## M-T6.78 — A query-time projection over a TPH subtype names a table that does not exist — `open` · **M** · P1
 

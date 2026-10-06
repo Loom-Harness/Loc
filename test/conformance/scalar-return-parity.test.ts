@@ -79,10 +79,10 @@ describe("scalar-return operations — 200-with-value across all five backends (
     const spec = fileEndingWith(files, "o_api_spec.ex");
     // Slice the describe operation's PathItem so the assertions bind to IT, not
     // to some unrelated 200 elsewhere in the single spec module.
-    const start = spec.indexOf('"/orders/{id}/describe"');
+    const start = spec.indexOf('"/api/orders/{id}/describe"');
     expect(start, "expected the describe path in the OpenAPI spec").toBeGreaterThanOrEqual(0);
     const rest = spec.slice(start);
-    const end = rest.indexOf('"/orders/{id}', 1);
+    const end = rest.indexOf('"/api/orders/{id}', 1);
     const block = end > 0 ? rest.slice(0, end) : rest;
     // 200 with an inline :string schema — the scalar body — and no 204 discard.
     expect(block).toMatch(/200 => %OpenApiSpex\.Response\{/);
