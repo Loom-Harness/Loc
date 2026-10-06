@@ -39,10 +39,12 @@
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
 import { opGateFor } from "../_walker/op-gate.js";
+import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
@@ -97,6 +99,23 @@ function namedArg(call: ExprIR, name: string): ExprIR | undefined {
   return idx >= 0 ? call.args[idx] : undefined;
 }
 
+/** An `Action`'s `then:` effect as a Dart STATEMENT, run inside the button's
+ *  success branch (M-FT.5) — in the widget tree, so it has a `BuildContext`.
+ *  `toast(<msg>)` shows a snackbar with the author's message; anything else —
+ *  `navigate(<Page>)` included — goes through the walker's shared
+ *  `emitActionThen`, exactly what the JSX frontends run after the mutation. */
+function flutterActionThen(then: ExprIR, ctx: WalkContext): string {
+  if (then.kind === "call" && then.name === "toast" && then.args.length === 1) {
+    const arg = then.args[0]!;
+    const msg = emitExpr(arg, ctx);
+    // A string literal is already a `String`; anything else is interpolated,
+    // the coercion the JS frontends get for free.
+    const text = arg.kind === "literal" && arg.lit === "string" ? msg : `'\${${msg}}'`;
+    return `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${text})));`;
+  }
+  return `${emitActionThen(then, ctx)};`;
+}
+
 /** The aggregate a form primitive's `of:` arg refers to (a bare aggregate ref),
  *  resolved through the walker's `aggregatesByName`, or undefined. */
 function formOfAggregate(
@@ -127,7 +146,7 @@ function routeIdArg(ctx: WalkContext): string {
 function instanceOperation(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
-): { agg: AggregateIR; op: AggregateIR["operations"][number]; idExpr: string } | undefined {
+): OpFormTarget | undefined {
   const argNames = call.argNames ?? [];
   const inst = (call.args ?? []).find((_, i) => !argNames[i]);
   if (inst?.kind !== "member" || inst.receiver.kind !== "ref") return undefined;
@@ -138,7 +157,31 @@ function instanceOperation(
   const idExpr = ctx.paramNames.has(inst.receiver.name)
     ? `${emitExpr(inst.receiver, ctx)}.id`
     : routeIdArg(ctx);
-  return { agg, op, idExpr };
+  // #27 — the instance IS the loaded record, so its `version` is the
+  // optimistic-concurrency precondition the widget sends as `If-Match` (the
+  // Dart twin of the JS clients' `ifMatch(loaded?.version)`).  The receiver
+  // renders through the walker's own scope (a QueryView `data:` binding maps to
+  // the unwrapped provider value), so it names the record in scope here.
+  const versionExpr = sendsIfMatchPrecondition(agg, op)
+    ? `${emitExpr(inst.receiver, ctx)}.version`
+    : undefined;
+  return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
+}
+
+/** A resolved op-form reference: the aggregate + op, the Dart expression for the
+ *  record id, and — for a `versioned` update — the loaded record's version. */
+interface OpFormTarget {
+  agg: AggregateIR;
+  op: AggregateIR["operations"][number];
+  idExpr: string;
+  versionExpr?: string;
+}
+
+/** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
+ *  `expectedVersion:` when the call site holds the loaded record. */
+function opFormWidgetCall(r: OpFormTarget, extra = ""): string {
+  const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${extra})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or
@@ -148,22 +191,16 @@ function instanceOpFormWidget(
   ctx: WalkContext,
 ): string | undefined {
   const r = instanceOperation(call, ctx);
-  return r ? gatedOpFormWidget(r.agg, r.op, r.idExpr, ctx) : undefined;
+  return r ? gatedOpFormWidget(r, ctx) : undefined;
 }
 
 /** `<Op><Agg>Form(id: …)`, or — for a `when`-gated op — the same widget inside
  *  a `Consumer` that watches its `can_<op>` probe and passes `blocked:` (the
  *  page may be a plain `StatelessWidget` with no `ref` of its own). */
-function gatedOpFormWidget(
-  agg: AggregateIR,
-  op: AggregateIR["operations"][number],
-  idExpr: string,
-  ctx: WalkContext,
-): string {
-  const widget = operationFormWidgetName(agg.name, op.name);
-  if (!opGateFor(ctx, agg, op)) return `${widget}(id: ${idExpr})`;
-  const provider = canProbeProviderName(agg.name, op.name);
-  return `Consumer(builder: (context, ref, _) => ${widget}(id: ${idExpr}, blocked: ref.watch(${provider}(${idExpr})).valueOrNull == false))`;
+function gatedOpFormWidget(r: OpFormTarget, ctx: WalkContext): string {
+  if (!opGateFor(ctx, r.agg, r.op)) return opFormWidgetCall(r);
+  const provider = canProbeProviderName(r.agg.name, r.op.name);
+  return `Consumer(builder: (context, ref, _) => ${opFormWidgetCall(r, `, blocked: ref.watch(${provider}(${r.idExpr})).valueOrNull == false`)})`;
 }
 
 /** A `when`-gated op's dialog trigger: watches the `can_<op>` probe, disables
@@ -658,7 +695,7 @@ export const flutterTarget: WalkerTarget = {
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return null;
     ctx.usesRouteId = true;
-    return gatedOpFormWidget(agg, op, "id", ctx);
+    return gatedOpFormWidget({ agg, op, idExpr: "id" }, ctx);
   },
   // `DestroyForm(of: <Agg>)` → `DeleteAggForm(id: id)` (a confirm→DELETE button).
   renderDestroyForm: (call, ctx) => {
@@ -711,17 +748,21 @@ export const flutterTarget: WalkerTarget = {
     // A `when`-gated op watches its `can_<op>` probe (`gates.dart`) through a
     // `Consumer` — the page may have no `ref` of its own — disables while the
     // probe answers false (reason as tooltip), and re-queries it after a
-    // successful POST.
+    // successful POST.  The author's `then:` effect runs on success in place
+    // of the default "<Op> done" snackbar.
     const gate = opGateFor(ctx, agg, op);
     const provider = canProbeProviderName(agg.name, op.name);
+    const thenArg = namedArg(call, "then");
     const onSuccess =
       (gate ? `ref.invalidate(${provider}(id)); ` : "") +
-      `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)}))); `;
+      (thenArg
+        ? flutterActionThen(thenArg, ctx)
+        : `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)})));`);
     const press =
       `() async { ` +
       `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}')); ` +
       `if (res.statusCode >= 200 && res.statusCode < 300 && context.mounted) { ` +
-      onSuccess +
+      `${onSuccess} ` +
       `} }`;
     const button = gate
       ? `Consumer(builder: (context, ref, _) { ` +
@@ -792,7 +833,6 @@ export const flutterTarget: WalkerTarget = {
       );
     }
     const { agg, op } = resolved;
-    const widget = operationFormWidgetName(agg.name, op.name);
     // Trigger label — the Button's first positional string literal, else the op.
     const triggerNames = trigger.argNames ?? [];
     const firstPositional = (trigger.args ?? []).find((_, i) => !triggerNames[i]);
@@ -816,7 +856,7 @@ export const flutterTarget: WalkerTarget = {
     const openDialog =
       `showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
-      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${widget}(id: ${resolved.idExpr})))))`;
+      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)}))))`;
     return (
       gatedOpTrigger(agg, op, resolved.idExpr, openDialog, labelExpr, ctx) ??
       `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`

@@ -55,6 +55,7 @@ import type {
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
@@ -200,6 +201,14 @@ export interface FlutterFormSpec {
   /** Whether this form styles its submit as a destructive (error-coloured)
    *  action (destroy forms). */
   destructive: boolean;
+  /** Whether the submit sends the optimistic-concurrency `If-Match`
+   *  precondition (`sendsIfMatchPrecondition` — a `versioned` aggregate's
+   *  `update`).  The widget then takes an optional `expectedVersion` — the
+   *  version of the record the call site has loaded — and quotes it into the
+   *  header.  Left null (no loaded record at the call site) it sends no header,
+   *  exactly like the JS clients' `ifMatch(undefined)`.  Optional so every
+   *  other spec stays byte-identical. */
+  ifMatch?: boolean;
   /** A `when`-gated operation's `can_<op>` probe provider (declared in
    *  `gates.dart`, see {@link renderGatesFile}).  The widget takes a `blocked`
    *  flag that disables its submit; the call site watches the provider.
@@ -616,6 +625,7 @@ export function flutterOperationForm(
     fields,
     dropped,
     destructive: false,
+    ...(agg && sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
     ...(op.when ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
   };
 }
@@ -1500,7 +1510,12 @@ function submitMethod(spec: FlutterFormSpec): string[] {
     ...bodyAssembly(spec.fields),
     "    try {",
     `      final res = await http.post(apiUri('${spec.pathExpr}'),`,
-    "          headers: const {'Content-Type': 'application/json'},",
+    // #27 / F-023 — a `versioned` update carries the loaded record's version as
+    // a QUOTED entity-tag (RFC 9110 §8.8.3, the spelling every backend parses),
+    // so a concurrent edit is refused (409/412) instead of silently overwritten.
+    spec.ifMatch
+      ? "          headers: {'Content-Type': 'application/json', if (widget.expectedVersion != null) 'If-Match': '\"${widget.expectedVersion}\"'},"
+      : "          headers: const {'Content-Type': 'application/json'},",
     "          body: jsonEncode(body));",
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
@@ -1560,12 +1575,14 @@ function submitButton(spec: FlutterFormSpec): string {
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
 export function renderFormWidget(spec: FlutterFormSpec): string {
   const w = spec.widgetName;
-  const ctorArgs = spec.gateProbe
-    ? "{super.key, required this.id, this.blocked = false}"
-    : spec.needsId
-      ? "{super.key, required this.id}"
+  const ctorArgs =
+    spec.needsId || spec.gateProbe
+      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}}`
       : "{super.key}";
-  const idField = spec.needsId ? ["  final String id;"] : [];
+  const idField = spec.needsId || spec.gateProbe ? ["  final String id;"] : [];
+  // The loaded record's `version` (the `versioned` capability's synthetic `int`
+  // token), threaded in by the call site for the `If-Match` precondition.
+  if (spec.ifMatch) idField.push("  final int? expectedVersion;");
   // A `when`-gated op: the call site passes the `can_<op>` probe's verdict.
   if (spec.gateProbe) idField.push("  final bool blocked;");
 

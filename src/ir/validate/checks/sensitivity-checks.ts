@@ -90,6 +90,7 @@ export function validateSensitiveWireSupport(
             tags: tags.join(", "),
           }),
           source: `${prefix}${ctx.name}/${agg.name}.${f.name}`,
+          origin: f.origin,
         });
       }
     }

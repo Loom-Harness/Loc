@@ -4604,3 +4604,49 @@ create form's denial flash follows the same rule as the HTTP body.
 **Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
 `test/generator/dev-claims-parity.test.ts`.
+
+## D-DEFAULT-DENY-LIST-WARN — under `denyByDefault` an ungated list read is a warning; a cross-context policy call is a named error
+
+**Status:** ruled by the owner (eval closure review 2026-09-28, rulings D5 and
+D9; items 22 and 39 of
+`docs/audits/2026-09-28-eval-closure-review/reverified-items.json`).
+
+**D5: the list read.** Every aggregate serves `GET /api/<plural>`, which is
+backed by the repository find named `all`. Unless the author declares that
+find, enrichment injects it without a gate. Under `denyByDefault` the list
+read therefore served every row to any authenticated caller. The by-id
+warning fired, but the list did not. `default-deny-checks.ts` had exempted it
+as "compiler-synthesized, no author source line". That reason was weaker
+than the by-id one, because the author can write
+`find all(): T[] requires <expr>`, and all five backends enforce it
+(`src/ir/util/read-gates.ts`).
+
+The ruling is a **warning**, `loom.default-deny-list-ungated`, at the same
+tier as `loom.default-deny-by-id-ungated`. Existing models keep building, and
+the message names the line that silences the warning. An author-declared
+`find all` with no gate gets the same warning. The declared-find error arm
+still skips `all`, so leaving it out would bring back the silent case.
+Promoting the warning to an error is left to the runtime-gating mission
+(M-T3.19 / #3109).
+
+**D9: cross-context policy calls.** Function-form policies are
+context-local. Before this ruling, a `requires P()` naming a policy declared
+in another context reported only `'requires' must be of type 'bool', got
+'unknown'`. It now reports `loom.policy-out-of-scope`: "policy P is declared
+in context A; policies are context-local — redeclare it in B". The type
+system types such a call `bool` (`outOfScopePolicyCall`,
+`src/language/type-system.ts`), so the named error is the only one raised.
+The detection has two limits:
+
+- It covers only the call form `P(args)`. A bare name has too many other
+  readings.
+- It sees only one document. In a multi-file model, a context declared in
+  another file is not searched, and that case keeps the old wording.
+
+Sharing a policy across contexts (at subdomain or system level) needs its own
+language decision. It is a separate mission.
+
+**Touches:** `src/ir/validate/checks/default-deny-checks.ts`,
+`src/language/validators/policy-fn.ts`, `src/language/type-system.ts`,
+`src/diagnostics/messages.ts`, `docs/auth.md`,
+`docs/language-reference/17-auth.md`, `docs/language.md`.

@@ -41,13 +41,48 @@ baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "
 // lifecycle events (observability.md) — drizzle's migrator runs the
 // whole batch in one opaque call, so there's no per-migration
 // `migration_applied` seam (Hono limitation; Python/.NET emit it).
+// A database that is not reachable YET (refused / DNS / starting up) is
+// retried up to 10 attempts with capped exponential backoff, so a
+// late db no longer kills the container on first boot.
+const BOOT_DB_RETRYABLE = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "57P03", // cannot_connect_now — "the database system is starting up"
+]);
+// The connection-shaped link of the error chain (drizzle wraps the driver
+// error as `cause`), rendered for the retry log — undefined when none is.
+function bootDbUnreachableReason(err: unknown): string | undefined {
+  for (let e: unknown = err; e instanceof Error; e = e.cause) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && BOOT_DB_RETRYABLE.has(code)) {
+      return `${code}: ${e.message}`;
+    }
+    if (/Connection terminated/i.test(e.message)) return e.message;
+  }
+  return undefined;
+}
 baseLogger.info({ event: "migrations_starting" });
-try {
-  await migrate(db, { migrationsFolder: "./db/migrations" });
-  baseLogger.info({ event: "migrations_complete" });
-} catch (err) {
-  baseLogger.error({ event: "migration_failed", error: err instanceof Error ? err.message : String(err) });
-  throw err;
+for (let attempt = 1, maxAttempts = 10; ; attempt++) {
+  try {
+    await migrate(db, { migrationsFolder: "./db/migrations" });
+    baseLogger.info({ event: "migrations_complete" });
+    break;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const reason = bootDbUnreachableReason(err);
+    if (attempt < maxAttempts && reason !== undefined) {
+      const delay_ms = Math.min(500 * 2 ** (attempt - 1), 10000);
+      baseLogger.warn({ event: "db_connect_retry", attempt, max_attempts: maxAttempts, delay_ms, error: reason });
+      await new Promise((resolve) => setTimeout(resolve, delay_ms));
+      continue;
+    }
+    baseLogger.error({ event: "migration_failed", error: message });
+    throw err;
+  }
 }
 const app = createApp(db);
 const server = serve({ fetch: app.fetch, port });
