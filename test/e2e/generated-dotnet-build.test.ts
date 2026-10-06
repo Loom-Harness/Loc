@@ -31,6 +31,64 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_DOTNET_BUILD === "1";
 
+interface UnitTestCounts {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
+/** Build (`/warnaserror`) and RUN the xUnit project a .NET backend emits under
+ *  `<proj>/Tests/<Ns>.Tests/`, and return its TRX counters.  Returns `null`
+ *  when the project emitted no Tests csproj (no `test` blocks).
+ *
+ *  This exists because the root `dotnet build` every case runs never compiles
+ *  the tests: `<Ns>.csproj` carries `<Compile Remove="Tests/**" />`, so a test
+ *  project that does not compile still left this gate green (testability
+ *  re-audit 2026-10-04, N4).  A run with zero tests also fails here: an empty
+ *  `dotnet test` exits 0, and that is a false green.  The restore needs xunit /
+ *  AwesomeAssertions from NuGet, which the behavioural .NET leg already pulls
+ *  in CI. */
+function runEmittedUnitTests(proj: string): UnitTestCounts | null {
+  const testsDir = path.join(proj, "Tests");
+  if (!fs.existsSync(testsDir)) return null;
+  const csprojs = fs
+    .readdirSync(testsDir)
+    .map((d) => path.join(testsDir, d, `${d}.csproj`))
+    .filter((p) => fs.existsSync(p));
+  if (csprojs.length === 0) return null;
+  const counts: UnitTestCounts = { total: 0, passed: 0, failed: 0 };
+  for (const csproj of csprojs) {
+    execSync(`dotnet build "${csproj}" --nologo /warnaserror`, {
+      cwd: proj,
+      stdio: "inherit",
+      timeout: 300_000,
+    });
+    const trxDir = path.join(path.dirname(csproj), ".loom-trx");
+    fs.rmSync(trxDir, { recursive: true, force: true });
+    let runError: unknown = null;
+    try {
+      execSync(
+        `dotnet test "${csproj}" --no-build --nologo --logger "trx;LogFileName=unit.trx" --results-directory "${trxDir}"`,
+        { cwd: proj, stdio: "inherit", timeout: 300_000 },
+      );
+    } catch (e) {
+      runError = e;
+    }
+    const trx = path.join(trxDir, "unit.trx");
+    expect(fs.existsSync(trx), `${csproj}: dotnet test wrote no TRX (${String(runError)})`).toBe(
+      true,
+    );
+    const counters = /<Counters\b[^>]*>/.exec(fs.readFileSync(trx, "utf8"))?.[0] ?? "";
+    const n = (attr: string) => Number(new RegExp(`\\b${attr}="(\\d+)"`).exec(counters)?.[1] ?? 0);
+    counts.total += n("total");
+    counts.passed += n("passed");
+    counts.failed += n("failed");
+  }
+  expect(counts.total, `${proj}: the emitted xUnit project ran no tests`).toBeGreaterThan(0);
+  expect(counts.failed, `${proj}: emitted xUnit tests failed (see the output above)`).toBe(0);
+  return counts;
+}
+
 describe.skipIf(!ENABLED)(
   "generated .NET project compiles under `dotnet build /warnaserror` (LOOM_DOTNET_BUILD=1)",
   () => {
@@ -135,6 +193,43 @@ describe.skipIf(!ENABLED)(
           ? fs.readdirSync(binDir).filter((f) => f.endsWith(".dll"))
           : [];
         expect(builtDlls.length, "expected at least one built .dll").toBeGreaterThan(0);
+        // The emitted xUnit project, when the example declares `test` blocks
+        // (`examples/sales.ddd` does): the build above never compiles it.
+        runEmittedUnitTests(outDir);
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 600_000);
+
+    // The emitted xUnit project — `Tests/<Ns>.Tests/`, its OWN csproj — must
+    // compile under /warnaserror AND pass.  The root build every other case
+    // runs cannot reach it (`<Compile Remove="Tests/**" />`), which is how a
+    // unit test omitting a plain-optional `create({…})` input shipped CS7036 on
+    // every model with that shape (testability re-audit 2026-10-04, N4), and
+    // how `expect(<VO literal>).toThrow()` asserted the wrong exception type
+    // and failed only at run time.  The fixture pins both, and the exact count
+    // pins that the tests RAN: `dotnet test` on a project with no tests exits
+    // 0, which is the false green the generated README's recipe gave.
+    it("system emitted xUnit project — `create({…})` omissions + VO `toThrow()` compile and pass", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-unit-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/dotnet-build/unit-test-create-omission.ddd -o ${outDir}`,
+          { stdio: "inherit", cwd: repoRoot },
+        );
+        const proj = path.join(outDir, "api");
+        execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
+        execSync(`dotnet build --no-restore --nologo /warnaserror`, {
+          cwd: proj,
+          stdio: "inherit",
+          timeout: 180_000,
+        });
+        // 5 Ticket tests + 3 Window tests.
+        expect(runEmittedUnitTests(proj)).toEqual({ total: 8, passed: 8, failed: 0 });
       } finally {
         try {
           fs.rmSync(outDir, { recursive: true, force: true });
@@ -762,19 +857,15 @@ describe.skipIf(!ENABLED)(
           ? fs.readdirSync(binDir).filter((f) => f.endsWith(".dll"))
           : [];
         expect(builtDlls.length, "expected at least one built .dll").toBeGreaterThan(0);
-        // The generated xUnit `Tests/` project is a SEPARATE csproj. Its
-        // emission + compile-readiness (currentUser actor + no void→var) is
-        // guarded by the fast generator test
-        // (test/generator/dotnet/aggregate-test-currentuser.test.ts), which
-        // needs no toolchain.  We assert it's emitted here, but do NOT
-        // `dotnet build` it in CI: the Tests project pulls test-only packages
-        // (AwesomeAssertions/xunit) that this runner's NuGet environment does
-        // not have cached, and build-time restore of them isn't reliable here.
-        // Actually compiling the Tests project is a Tier-1 follow-up (see
-        // docs/old/plans/runtime-conformance-harness.md) once the CI NuGet feed
-        // carries the test packages.
+        // The generated xUnit `Tests/` project is a SEPARATE csproj that the
+        // build above never compiles.  This case used to only assert it was
+        // emitted, on the grounds that the runner could not restore xunit /
+        // AwesomeAssertions.  The behavioural .NET leg restores them in CI, and
+        // an un-compiled test project is how N4 (testability re-audit
+        // 2026-10-04) shipped.  Build it and run it.
         const testProj = path.join(proj, "Tests", "DotnetApi.Tests", "DotnetApi.Tests.csproj");
         expect(fs.existsSync(testProj), "generated Tests project").toBe(true);
+        runEmittedUnitTests(proj);
       } finally {
         try {
           fs.rmSync(outDir, { recursive: true, force: true });

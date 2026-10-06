@@ -1,9 +1,10 @@
-import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   DomainServiceIR,
   ExprIR,
+  FieldIR,
   TestIR,
   TestStmtIR,
   TypeIR,
@@ -12,6 +13,7 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import {
   coerceMatcherExpected,
   coerceTestLiteral,
@@ -51,7 +53,8 @@ const TEST_ACTOR = 'new User(System.Guid.Empty, "admin", new List<string> { "*" 
 //   expect(x).not.toBeLessThanOrEqual(0)  → x.Should().NotBeLessThanOrEqualTo(0);
 //
 // Every `expect` carries a matcher (no bare-boolean fallback);
-// `expect(call).toThrow()` emits `Assert.Throws<DomainException>` (xUnit +
+// `expect(call).toThrow()` emits `Assert.Throws<DomainException>` (a value-
+// object construction: `Assert.Throws<ValueObjectInvariantException>`) (xUnit +
 // AwesomeAssertions coexist).
 // ---------------------------------------------------------------------------
 
@@ -178,21 +181,6 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
   return out;
 }
 
-/** Render an aggregate `Agg.create({...})` factory call as a named-arg
- *  `Agg.Create(...)` — the same shape the workflow `factory-let` emitter
- *  produces.  Emits exactly the inputs the test author named.
- *
- *  The factory's OMITTABLE parameters carry `= null` and materialize their
- *  declared default in the body (`csFactoryDefault` in emit/entity.ts), so
- *  naming a subset compiles.  Filling each omission instead would make
- *  `test "an omitted default is applied at construction"` assert a value the
- *  emitter just passed in.  Named args keep the source field order free of the
- *  CS1737 required-before-optional reordering.
- *
- *  Returns `null` when the expression isn't an aggregate create call, so
- *  the caller falls back to the generic expression renderer (a bare
- *  `object` literal would otherwise render as a C# `new { … }`, which is
- *  not a valid argument to `Create(...)`). */
 /** Coerce a raw test literal to a strongly-typed C# factory / operation
  *  parameter.  The domain surface takes strong types (`CustomerId` — a
  *  `record struct CustomerId(Guid Value)` — / `DateTime` / …) where the test
@@ -204,6 +192,31 @@ function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: st
   return coerceTestLiteral(type, v, rendered, CS_TEST_LITERAL);
 }
 
+/** Render an aggregate `Agg.create({...})` factory call as a named-arg
+ *  `Agg.Create(...)` — the same shape the workflow `factory-let` emitter
+ *  produces.  Emits the inputs the test author named, plus an explicit value
+ *  for each omitted input the factory has NO C# default for.
+ *
+ *  The factory's DEFAULTABLE parameters (a declared `= default`, a bare
+ *  `bool`, a non-nullable collection) carry `= null` and materialize their
+ *  value in the body (`csFactoryDefault` in emit/entity.ts), so those stay
+ *  omitted.  Filling them would make
+ *  `test "an omitted default is applied at construction"` assert a value the
+ *  emitter just passed in.  Named args keep the source field order free of the
+ *  CS1737 required-before-optional reordering.
+ *
+ *  Two kinds of omission have no factory default and must be spelled out,
+ *  or the call is CS7036 (testability re-audit 2026-10-04, N4):
+ *    - a PLAIN optional (`note: string?`) is a required `string? note`
+ *      parameter, so it gets `null`, which is what omitting it means;
+ *    - a SERVER-sourced default (`now()`, `currentUser.*`) is coalesced per
+ *      request rather than by the factory, so it gets its rendered expression.
+ *  The Java test emitter (`java/emit/tests.ts`) uses the same rule, positionally.
+ *
+ *  Returns `null` when the expression isn't an aggregate create call, so
+ *  the caller falls back to the generic expression renderer (a bare
+ *  `object` literal would otherwise render as a C# `new { … }`, which is
+ *  not a valid argument to `Create(...)`). */
 export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | null {
   if (e.kind !== "method-call" || e.member !== "create" || e.args.length !== 1) return null;
   const objArg = e.args[0];
@@ -217,14 +230,33 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
     const rendered = renderCsExpr(f.value);
     return `${f.name}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
   });
-  // Emit EXACTLY what the test author wrote.  Appending every omitted create
-  // input from `createOmissionValue` makes the assertion vacuous:
-  // `test "an omitted default is applied at construction"` writes
-  // `Item.Create(name: "N")` and checks `Qty == 1`, and the fill would emit
-  // `Item.Create(name: "N", qty: 1, …)`, passing the value it then asserts.
-  // The factory defaults omittable inputs itself (`csFactoryDefault` in
-  // emit/entity.ts), so the omission compiles AND exercises the domain rule.
-  return `${agg.name}.Create(${provided.join(", ")})`;
+  // Do NOT append every omitted create input from `createOmissionValue`: that
+  // makes the assertion vacuous.  `test "an omitted default is applied at
+  // construction"` writes `Item.Create(name: "N")` and checks `Qty == 1`, and
+  // a full fill would emit `Item.Create(name: "N", qty: 1, …)`, passing the
+  // value it then asserts.  Fill only the omissions the factory cannot default.
+  const named = new Set(objArg.fields.map((f) => f.name));
+  const omitted = createInputFields(agg)
+    .filter((f) => !named.has(f.name))
+    .flatMap((f) => {
+      const v = csUndefaultedOmission(f);
+      return v === undefined ? [] : [`${escapeCsharpIdent(f.name)}: ${v}`];
+    });
+  return `${agg.name}.Create(${[...provided, ...omitted].join(", ")})`;
+}
+
+/** The value a unit test passes for an omitted create input that the domain
+ *  factory has NO C# parameter default for, or `undefined` when the factory
+ *  defaults it itself, in which case the argument stays omitted.  These are
+ *  the undefaulted arms of `csFactoryDefault` (emit/entity.ts): a plain
+ *  optional (`null` omission) and a server-sourced default. */
+function csUndefaultedOmission(f: FieldIR): string | undefined {
+  const omission = createOmissionValue(f);
+  if (omission.kind === "null") return "null";
+  if (omission.kind === "default" && isServerSourcedDefault(omission.expr)) {
+    return renderCsExpr(omission.expr);
+  }
+  return undefined;
 }
 
 /** Lower an explicit intrinsic value-matcher (`expect(x).toBe(y)`,
@@ -307,7 +339,17 @@ function renderTestStmt(
     // binding a void call to `var` is a CS0815 error, so never do it for calls.
     const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
     const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    const thrown = `Assert.Throws<DomainException>(() => { ${body} })`;
+    // `Assert.Throws<T>` matches the EXACT type, and a value object's invariant
+    // throws its own `ValueObjectInvariantException` (enums-vos.ts), a sibling
+    // of `DomainException` rather than a subclass.  So `expect(Money { amount:
+    // -1 … }).toThrow()` asserted the wrong type and failed at run time even
+    // though the invariant fired.  It went unnoticed until the gate compiled
+    // and ran this project.
+    const exceptionType =
+      s.expr.kind === "call" && s.expr.callKind === "value-object-ctor"
+        ? "ValueObjectInvariantException"
+        : "DomainException";
+    const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
     // `toThrow(<kind>)` — pin WHICH rung rejected.  `Assert.Throws` returns the
     // caught exception, so the rung is one local plus `Assert.StartsWith` over
     // the derived message prefix.  The local carries the statement index so
