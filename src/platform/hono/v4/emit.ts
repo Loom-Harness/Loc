@@ -7,12 +7,12 @@
 // only the framework-neutral helpers (render-expr/stmt, templates,
 // zod-refine) in core.
 
-// Hono-framework builders now live in this package (P2b) — siblings.
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../../../generator/_i18n/validation-catalog.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
+import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
@@ -103,7 +103,15 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
+import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  NO_FOREIGN_VALUE_TYPES,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+  withForeignValueTypes,
+} from "../../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -113,6 +121,7 @@ import {
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -123,6 +132,9 @@ import { hasValueObjectInvariants } from "../../../ir/util/value-object-invarian
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
+import { lines } from "../../../util/code-builder.js";
+// Hono-framework builders now live in this package (P2b) — siblings.
+import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -257,7 +269,19 @@ function errorsTs(
   emitNotImplemented: boolean,
   emitValueObjectInvariant = false,
   emitDomainFloorCodes = false,
+  /** Ruling D4 (#20): true only under the dev-stub verifier — see
+   *  `src/ir/util/denial-detail.ts`. */
+  echoForbiddenDetail = false,
 ): string {
+  // `message` names the failed gate and feeds the `forbidden` log line every
+  // onError arm writes; `detail` is what the 403 BODY says.  Under a real
+  // verifier the body must not tell the caller which predicate it failed.
+  const forbiddenDetailInit = echoForbiddenDetail
+    ? "message"
+    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
+  const forbiddenDetailDoc = echoForbiddenDetail
+    ? "the same text: this deployable runs the dev-stub verifier, where naming the gate is the useful answer"
+    : "the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log";
   return `// Auto-generated.
 ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectInvariantErrorTs(emitDomainFloorCodes) : ""}export class AggregateNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "AggregateNotFoundError"; }
@@ -265,9 +289,13 @@ ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectIn
 /** Authorization failure — raised by \`requires\` expressions in
  *  operation / workflow bodies when the resolved currentUser
  *  doesn't satisfy the gate.  The per-route catch maps this to
- *  HTTP 403 (Forbidden). */
+ *  HTTP 403 (Forbidden).
+ *
+ *  \`message\` names the failed gate and goes to the \`forbidden\` log line;
+ *  \`detail\` is the 403 body's \`detail\` — ${forbiddenDetailDoc}. */
 export class ForbiddenError extends Error {
-  constructor(message: string) { super(message); this.name = "ForbiddenError"; }
+  readonly detail: string;
+  constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = ${forbiddenDetailInit}; }
 }
 /** State-gate failure — raised when an operation's 'when' predicate
  *  (the canCommand gate, criterion.md use site 2) evaluates false
@@ -657,7 +685,7 @@ export function generateTypeScriptForContexts(
 ): Map<string, string> {
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
-  const out = new Map<string, string>();
+  const out = emissionSink("platform/hono/v4/emit");
   const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the
@@ -743,25 +771,20 @@ export function generateTypeScriptForContexts(
   // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const foreignConsumedEvents = system
-    ? [
-        ...new Set([
-          ...mergedSubscriptions.map((s) => s.event),
-          ...channelBindings.flatMap((b) => b.events),
-        ]),
-      ]
-        .filter((name) => !knownEventNames.has(name))
-        .flatMap((name) => {
-          for (const sub of system.sys.subdomains) {
-            for (const c of sub.contexts) {
-              const ev = c.events.find((e) => e.name === name);
-              if (ev) return [ev];
-            }
-          }
-          return [];
-        })
+    ? resolveForeignEvents(
+        [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
+        knownEventNames,
+        system.sys,
+      )
     : [];
+  // …and the value objects / enums those foreign events' fields reach, which
+  // the consumer does not host either: `domain/value-objects.ts` must DECLARE
+  // them, because `domain/events.ts` imports them from it (eval item 11).
+  const foreignValueTypes = system
+    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+    : NO_FOREIGN_VALUE_TYPES;
   const merged: EnrichedBoundedContextIR = {
-    ...mergedBase,
+    ...withForeignValueTypes(mergedBase, foreignValueTypes),
     events: [...mergedBase.events, ...foreignConsumedEvents],
     // Re-derive over the merged union so a reactor in one hosted context can
     // route off a channel declared in another — cross-context choreography
@@ -778,6 +801,7 @@ export function generateTypeScriptForContexts(
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
@@ -804,7 +828,14 @@ export function generateTypeScriptForContexts(
   const emitDomainFloorCodes = hasDomainFloorMessages(merged);
   out.set(
     "domain/errors.ts",
-    errorsTs(emitConcurrency, emitNotImplemented, emitVoInvariant, emitDomainFloorCodes),
+    errorsTs(
+      emitConcurrency,
+      emitNotImplemented,
+      emitVoInvariant,
+      emitDomainFloorCodes,
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(system?.deployable, system?.sys),
+    ),
   );
   // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
   // SERVER-side against this project's catalog, so a localised client is no
@@ -1431,7 +1462,10 @@ export function generateTypeScriptForContexts(
   // consumers.  A deployable with no wired bindings stays byte-identical.
   const hasChannels = channelBindings.length > 0;
   if (hasChannels) {
-    out.set("http/channels.ts", renderChannelsModule(channelBindings, merged.events));
+    out.set(
+      "http/channels.ts",
+      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged)),
+    );
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
   // hosted OR wired channel); a pure producer skips the loop and the
@@ -1529,7 +1563,7 @@ export function generateTypeScriptForContexts(
     ),
   );
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
-  out.set("Dockerfile", DOCKERFILE_TS);
+  out.set("Dockerfile", renderDockerfileTs(hasMigrations));
   out.set(".dockerignore", DOCKERIGNORE_TS);
   out.set("certs/.gitkeep", "");
   // Pooled domain-side repository PORTS (audit S7) — the `<Agg>RepositoryPort`
@@ -1836,6 +1870,69 @@ export default defineConfig({
 });
 `;
 
+/** The boot-time drizzle migrate call, retried with capped exponential backoff
+ *  while the database is unreachable (`BOOT_DB_RETRY`, eval item #24).  Only a
+ *  connection-shaped failure is retried — drizzle 0.45 wraps driver errors in
+ *  `DrizzleQueryError`, so the code is read off `err` or its `cause` chain; a
+ *  migration whose SQL fails logs `migration_failed` and aborts boot at once. */
+function renderHonoBootMigrate(): string {
+  const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
+  return lines(
+    "",
+    "// Apply pending schema migrations before serving traffic.  Drizzle's",
+    "// runtime migrator reads db/migrations/meta/_journal.json + each",
+    "// referenced .sql file, tracking state in `__drizzle_migrations`;",
+    "// idempotent across boots.  Bracketed with the catalog migration",
+    "// lifecycle events (observability.md) — drizzle's migrator runs the",
+    "// whole batch in one opaque call, so there's no per-migration",
+    "// `migration_applied` seam (Hono limitation; Python/.NET emit it).",
+    "// A database that is not reachable YET (refused / DNS / starting up) is",
+    `// retried up to ${maxAttempts} attempts with capped exponential backoff, so a`,
+    "// late db no longer kills the container on first boot.",
+    "const BOOT_DB_RETRYABLE = new Set([",
+    '  "ECONNREFUSED",',
+    '  "ECONNRESET",',
+    '  "ENOTFOUND",',
+    '  "EAI_AGAIN",',
+    '  "ETIMEDOUT",',
+    '  "EHOSTUNREACH",',
+    '  "57P03", // cannot_connect_now — "the database system is starting up"',
+    "]);",
+    "// The connection-shaped link of the error chain (drizzle wraps the driver",
+    "// error as `cause`), rendered for the retry log — undefined when none is.",
+    "function bootDbUnreachableReason(err: unknown): string | undefined {",
+    "  for (let e: unknown = err; e instanceof Error; e = e.cause) {",
+    "    const code = (e as { code?: unknown }).code;",
+    '    if (typeof code === "string" && BOOT_DB_RETRYABLE.has(code)) {',
+    "      return `${code}: ${e.message}`;",
+    "    }",
+    "    if (/Connection terminated/i.test(e.message)) return e.message;",
+    "  }",
+    "  return undefined;",
+    "}",
+    renderHonoBaseLogCall("migrationsStarting"),
+    `for (let attempt = 1, maxAttempts = ${maxAttempts}; ; attempt++) {`,
+    "  try {",
+    '    await migrate(db, { migrationsFolder: "./db/migrations" });',
+    `    ${renderHonoBaseLogCall("migrationsComplete")}`,
+    "    break;",
+    "  } catch (err) {",
+    "    const message = err instanceof Error ? err.message : String(err);",
+    "    const reason = bootDbUnreachableReason(err);",
+    "    if (attempt < maxAttempts && reason !== undefined) {",
+    `      const delay_ms = Math.min(${baseDelayMs} * 2 ** (attempt - 1), ${maxDelayMs});`,
+    `      ${renderHonoBaseLogCall("dbConnectRetry", "attempt, max_attempts: maxAttempts, delay_ms, error: reason")}`,
+    "      await new Promise((resolve) => setTimeout(resolve, delay_ms));",
+    "      continue;",
+    "    }",
+    `    ${renderHonoBaseLogCall("migrationFailed", "error: message")}`,
+    "    throw err;",
+    "  }",
+    "}",
+    "",
+  );
+}
+
 function renderProjectIndexTs(
   runMigrationsAtBoot: boolean,
   userShape?: UserIR,
@@ -1861,9 +1958,7 @@ function renderProjectIndexTs(
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait runSeeds(db);\n`
     : "";
-  const migCall = runMigrationsAtBoot
-    ? `\n// Apply pending schema migrations before serving traffic.  Drizzle's\n// runtime migrator reads db/migrations/meta/_journal.json + each\n// referenced .sql file, tracking state in \`__drizzle_migrations\`;\n// idempotent across boots.  Bracketed with the catalog migration\n// lifecycle events (observability.md) — drizzle's migrator runs the\n// whole batch in one opaque call, so there's no per-migration\n// \`migration_applied\` seam (Hono limitation; Python/.NET emit it).\n${renderHonoBaseLogCall("migrationsStarting")}\ntry {\n  await migrate(db, { migrationsFolder: "./db/migrations" });\n  ${renderHonoBaseLogCall("migrationsComplete")}\n} catch (err) {\n  ${renderHonoBaseLogCall("migrationFailed", "error: err instanceof Error ? err.message : String(err)")}\n  throw err;\n}\n`
-    : "";
+  const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
   // With an `auth { oidc }` block (D-AUTH-OIDC) we register the generated
   // OIDC verifier; otherwise we emit a permissive dev stub so the stack
@@ -2088,7 +2183,27 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 // Multi-stage Dockerfile: build stage installs all deps and compiles
 // TypeScript; runtime stage uses a smaller production-only image.
-export const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
+/** The runtime stage's copy of the drizzle migration folder.  Present iff the
+ *  project emits `db/migrations` — the same `hasMigrations` predicate that
+ *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
+ *  (schema via `orm.schema.updateSchema()`) and a node deployable that owns no
+ *  module's migrations emit none, and an unconditional `COPY` of a missing
+ *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
+const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
+# from disk; without these the process crashes on boot with
+# "Can't find meta/_journal.json file".
+COPY --from=build /app/db/migrations ./db/migrations
+`;
+
+/** The generated Dockerfile; `copyMigrations` mirrors `hasMigrations`. */
+function renderDockerfileTs(copyMigrations: boolean): string {
+  return DOCKERFILE_TS_TEMPLATE.replace(
+    "__MIGRATIONS_COPY__",
+    copyMigrations ? MIGRATIONS_COPY : "",
+  );
+}
+
+const DOCKERFILE_TS_TEMPLATE = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM node:24-alpine AS build
@@ -2105,6 +2220,10 @@ COPY package.json ./
 # keeps the build log clean and skips two registry round-trips.
 RUN npm install --no-audit --no-fund
 COPY . .
+# Type-check before bundling: tsup strips types without checking them, so
+# without this step a type error in the generated (or hand-edited) sources
+# ships in an image that builds green and fails only at runtime.
+RUN npm run typecheck
 RUN npm run build
 
 FROM node:24-alpine AS runtime
@@ -2113,11 +2232,7 @@ ENV NODE_ENV=production PORT=3000
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
-# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
-# from disk; without these the process crashes on boot with
-# "Can't find meta/_journal.json file".
-COPY --from=build /app/db/migrations ./db/migrations
-EXPOSE 3000
+__MIGRATIONS_COPY__EXPOSE 3000
 # --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
 # without it every stack-trace frame names dist/index.js and \`ddd trace\`
 # resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
@@ -2126,6 +2241,9 @@ EXPOSE 3000
 # against.  The flag costs a one-off map parse on first throw.
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 `;
+
+/** The drizzle (migrations-shipping) Dockerfile — the common case. */
+export const DOCKERFILE_TS = renderDockerfileTs(true);
 
 const DOCKERIGNORE_TS = `# Auto-generated.
 node_modules

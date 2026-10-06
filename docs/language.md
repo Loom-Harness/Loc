@@ -340,7 +340,7 @@ order:
 | `test "name" for <Aggregate\|ValueObject\|DomainService\|Context> { … }` | A unit test hoisted beside its subject (`for` names the home; a test nested inside its subject needs no `for` — `loom.test-redundant-for` / `loom.test-needs-target`). |
 | `policy [Name] { allow [write] local\|deep\|global on Aggregate … }` | Read/write-scope ladder for `tenantOwned` aggregates under a tenant hierarchy — widens the tenant floor to the caller's org subtree (`deep`) or root-org subtree (`global`); the optional `write` verb gates instance mutations. The name is optional; one rule per aggregate. See [tenancy.md](tenancy.md) → "The `policy {}` read ladder". |
 | `policy [Name] { deny [write] on Aggregate … }` | **Deny-wins carve-out** (Phase 4): removes access to an aggregate. `deny on X` denies READ (X becomes invisible → empty / 404; writes fail too since the write load reuses the read filter); `deny write on X` denies WRITE only (reads stay, mutations 404). All-or-nothing at the aggregate (no level word); applied after the `allow` passes, so deny wins. Not restricted to `tenantOwned`. Diagnostics: `loom.policy-deny-unknown-aggregate`, `loom.policy-deny-duplicate`, `loom.policy-deny-shadows-allow` (warning). See [auth.md](auth.md) → "Deny carve-outs". |
-| `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (the `requires` there reports `must be of type 'bool', got 'unknown'`), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
+| `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (a call there reports `loom.policy-out-of-scope`: *policy X is declared in context A; policies are context-local — redeclare it in B*), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
 
 ### Identity and `X id`
 
@@ -1079,6 +1079,10 @@ the scalar intrinsics (`s.trim()`, `n.abs()`, `d.round(2)`, `t.startOfDay()`,
 …) are in the same document — an unknown intrinsic, a wrong arity /
 argument type, or a call on a nullable receiver is rejected
 (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-nullable-receiver`).
+A member *read* on a primitive is judged against the same catalogue plus the
+one field-shaped scalar member (`string.length`): `m.amount` on a `money`
+field, or any other invented member on a primitive, is
+`loom.unknown-primitive-member` (see the validation list below).
 
 ### Numeric widening
 
@@ -1182,7 +1186,7 @@ decimal`.
 | Form | Purpose |
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
-| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not on `create`** — the grammar has no `requires` slot there (`'create' (name=ID)? '(' params ')' (audited?='audited')? '{'`), so a hand-written `create` cannot carry its own gate; under `enforcement: denyByDefault` (the default) reach it with `with crudish(requires: <Policy>)`, or gate the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
+| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
 | `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
@@ -1622,6 +1626,16 @@ on the generated repository plus a Mediator query in the .NET backend.
 - **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
   pass through EF Core to SQL.
 
+**Null semantics.** A comparison against a *nullable value* — a
+`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+null-aware on every backend: `this.col == v` with `v` null matches the rows
+whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
+ordering (`<`, `>`, …) against null matches no row.  So
+`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
+returns the unassigned orders for a principal with no `technicianId` rather
+than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
+fail-closed.
+
 A repository `where` clause may use `this.<refColl>.contains(param)` to
 query membership over an `X id[]` reference collection — for example,
 `find holdingInParty(pokemon: Pokemon id): Trainer[] where
@@ -1676,8 +1690,21 @@ The validator runs after parsing and reports errors for:
   receiver — `order.totl`, `paid.amont`, `this.noField` (`loom.unknown-member`).
   Covers aggregates (including fields inherited via `extends`), entity
   parts, value objects, events / payloads, and `X id` references; it does
-  not fire on collection ops (`lines.first`), string members (`s.length`),
-  or receivers whose type couldn't be resolved.
+  not fire on collection ops (`lines.first`), on `string.length`, or on
+  receivers whose type couldn't be resolved.  A primitive receiver has its
+  own code, immediately below.
+- Access to a member a **primitive** doesn't have — `s.totallyMadeUp`,
+  `n.alsoInvented`, `m.amount` (`loom.unknown-primitive-member`).  A primitive
+  is a value, not a record: its whole surface is `string.length` plus the
+  scalar-intrinsic catalogue, both enumerable, so the message lists what *is*
+  reachable.  `money` is the case that bites — it is a precise decimal, not a
+  `{ amount, currency }` record, and `invariant limit.amount > deductible.amount`
+  used to validate clean and reach the emitters verbatim: node/.NET/Java then
+  failed their *own* compile, python and elixir did not, leaving a business
+  rule that can never fire.  If you wanted the record, declare it —
+  `valueobject Money { amount: money  currency: string }`.  A reachable name
+  written without its parens (`s.trim`) stays `loom.intrinsic-bare`, and an
+  unknown *call* stays `loom.intrinsic-unknown`.
 - Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
   where the system's `user { … }` block never declares it
   (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
@@ -1738,7 +1765,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.macro-*`, `loom.unknown-macro`, `loom.scaffold-*`, `loom.softdelete-*`, `loom.capability-*`, `loom.stamp-*`, `loom.filter-*`, `loom.ignoring-clause-placement` | Macro args / targets, scaffold params, capability hosts, filters / stamps, `ignoring` placement | [`scaffold-macros.md`](scaffold-macros.md), [`capabilities.md`](capabilities.md) |
 | `loom.abstract-*`, `loom.extends-*`, `loom.tph-*`, `loom.polymorphic-*` | Inheritance, TPH / TPC layout | [`inheritance.md`](inheritance.md) |
 | `loom.intrinsic-*`, `loom.duration-*`, `loom.interp-*`, `loom.ternary-*`, `loom.call-arg-*`, `loom.construction-*`, `loom.unknown-*`, `loom.bare-collection-accessor`, `loom.user-visible-concat` | Expression typing — intrinsics, durations, interpolation formats, ternaries, calls, record construction, names / members | this document, [`stdlib.md`](stdlib.md) |
-| `loom.function-*`, `loom.when-unsupported`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
+| `loom.function-*`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
 | `loom.ui-*`, `loom.page-primitive*`, `loom.store-*`, `loom.datagrid-*`, `loom.chart-*`, `loom.table-*`, `loom.a11y-*`, `loom.slot-*`, `loom.component-*`, `loom.action-*`, `loom.missing-effect-marker`, `loom.match-await*`, `loom.feliz-*`, `loom.flutter-*`, `loom.heex-*`, `loom.frontend-*` | Page metamodel, primitive arity / args, stores and lifetimes, grids / charts, accessibility, slots, actions and effect markers, per-frontend support gaps | [`page-metamodel.md`](page-metamodel.md), [`actions.md`](actions.md) |
 | `loom.e2e-*`, `loom.test-*`, `loom.context-test-unsupported` | e2e bodies, test placement | this document, [`testing.md`](testing.md) |
 | `loom.domain-service-*` | Domain-service purity / read rules | [`domain-services.md`](domain-services.md) |

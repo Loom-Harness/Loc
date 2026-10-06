@@ -1,0 +1,222 @@
+// Helpdesk v2 — after pilot feedback round 1:
+//  * "anyone can close a ticket from the edit form"      -> server-owned state
+//  * "customers must only see their own tickets"         -> auth + row scoping
+//  * "internal notes are visible to customers!"          -> split notes, mask
+//  * "comment author is free text"                       -> currentUser
+//  * "agents need My queue / Unassigned, by priority"    -> finds + custom page
+//  * "SLA: due date by priority, flag overdue"           -> derived
+//  * "tell the customer when it is resolved"             -> events
+system Helpdesk {
+
+  user {
+    id: string
+    name: string
+    role: string                 // "customer" | "agent" | "admin"
+    customerId: Customer id?
+    agentId: Agent id?
+    permissions: string[]
+  }
+
+  auth {
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: "helpdesk-web"
+      audience: "helpdesk-api"
+    }
+    sessions: jwt
+  }
+
+  subdomain Support {
+    permissions {
+      ticketsWork,
+      ticketsAdmin
+    }
+
+    context Desk {
+
+      policy IsAdmin(): bool = currentUser.permissions.contains(permissions.ticketsAdmin)
+      policy IsAgent(): bool = currentUser.permissions.contains(permissions.ticketsWork)
+
+      enum TicketStatus { New, Open, Pending, Resolved, Closed }
+      enum Priority { Low, Normal, High, Urgent }
+
+      aggregate Customer with crudish(requires: IsAdmin) {
+        name: string
+        email: string
+        company: string?
+        invariant name.length > 0
+        invariant email.contains("@") message "Email must contain @"
+        derived display: string = name
+      }
+
+      aggregate Agent with crudish(requires: IsAdmin) {
+        name: string
+        email: string
+        active: bool = true
+        derived display: string = name
+      }
+
+      event TicketOpened { ticket: Ticket id, requester: Customer id, priority: Priority }
+      event TicketResolved { ticket: Ticket id, requester: Customer id, at: datetime }
+
+      aggregate Ticket {
+        subject: string
+        description: string
+        status: TicketStatus immutable = New
+        priority: Priority = Normal
+        requester: Customer id immutable
+        assignee: Agent id? immutable
+        openedAt: datetime managed = now()
+        resolvedAt: datetime? managed
+        contains replies: Reply[]
+
+        invariant subject.length > 0
+        derived display: string = subject
+        derived dueAt: datetime = openedAt + (priority == Urgent ? hours(4) : priority == High ? hours(24) : days(3))
+        derived overdue: bool = status != Resolved && status != Closed && now() > dueAt
+
+        entity Reply {
+          body: string
+          author: string
+          fromAgent: bool
+          postedAt: datetime
+        }
+
+        operation assign(agent: Agent id) when status != Closed {
+          requires currentUser.permissions.contains(permissions.ticketsWork)
+          assignee := agent
+          if status == New {
+            status := Open
+          }
+        }
+
+        operation takeIt() when assignee == null {
+          requires currentUser.agentId != null
+          assignee := currentUser.agentId
+          status := Open
+        }
+
+        operation reply(body: string) when status != Closed {
+          requires currentUser.customerId == requester || currentUser.permissions.contains(permissions.ticketsWork)
+          precondition body.length > 0 message "Reply cannot be empty"
+          replies += Reply { body: body, author: currentUser.name, fromAgent: currentUser.agentId != null, postedAt: now() }
+          if currentUser.agentId != null && status == New {
+            status := Open
+          }
+        }
+
+        operation changePriority(p: Priority) {
+          requires currentUser.permissions.contains(permissions.ticketsWork)
+          priority := p
+        }
+
+        operation resolve() when status == Open || status == Pending {
+          requires currentUser.permissions.contains(permissions.ticketsWork)
+          status := Resolved
+          resolvedAt := now()
+          emit TicketResolved { ticket: id, requester: requester, at: now() }
+        }
+
+        operation reopen() when status == Resolved {
+          requires currentUser.customerId == requester || currentUser.permissions.contains(permissions.ticketsWork)
+          status := Open
+          resolvedAt := null
+        }
+
+        operation close() when status == Resolved {
+          requires currentUser.permissions.contains(permissions.ticketsWork)
+          status := Closed
+        }
+      }
+
+      // Internal notes can't be a masked containment (mask is not allowed on a
+      // `contains` field) -> separate aggregate, readable by agents only.
+      aggregate InternalNote {
+        ticket: Ticket id immutable
+        body: string
+        author: string managed
+        postedAt: datetime managed = now()
+        create(ticket: Ticket id, body: string) {
+          requires IsAgent()
+        }
+      }
+      repository InternalNotes for InternalNote {
+        find all(): InternalNote paged requires currentUser.permissions.contains(permissions.ticketsWork)
+        find forTicket(t: Ticket id): InternalNote[] requires IsAgent() where ticket == t
+      }
+
+      repository Customers for Customer { }
+      repository Agents for Agent { }
+      repository Tickets for Ticket {
+        find all(): Ticket paged requires currentUser.permissions.contains(permissions.ticketsWork)
+        find mine(): Ticket[] requires currentUser.customerId != null
+          where requester == currentUser.customerId
+        find myQueue(): Ticket[] requires currentUser.agentId != null
+          where assignee == currentUser.agentId && status != Closed && status != Resolved
+        find unassigned(): Ticket[] requires currentUser.permissions.contains(permissions.ticketsWork)
+          where assignee == null && status != Closed
+      }
+
+      // A customer opens a ticket for themselves; an agent may open on behalf of a customer.
+      workflow openTicket {
+        create(subject: string, description: string, priority: Priority) {
+          requires currentUser.customerId != null
+          let t = Ticket.create({
+            subject: subject,
+            description: description,
+            priority: priority,
+            requester: currentUser.customerId
+          })
+          emit TicketOpened { ticket: t.id, requester: t.requester, priority: priority }
+        }
+      }
+    }
+  }
+
+  api DeskApi from Support
+
+  ui Web with scaffold(subdomains: [Support]) {
+    api Desk: DeskApi
+
+    page MyQueue {
+      route: "/my-queue"
+      title: "My queue"
+      requires currentUser.role == "agent"
+      body: Stack {
+        Heading { "My queue", level: 1 },
+        QueryView {
+          of: Desk.Ticket.myQueue(),
+          data: rows => Table {
+            rows: rows,
+            Column { "Subject", t => t.subject },
+            Column { "Priority", t => EnumBadge { t.priority } },
+            Column { "Due", t => DateDisplay { t.dueAt } },
+            Column { "Overdue", t => t.overdue ? "YES" : "" }
+          }
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary, index: [Ticket.status, Ticket.assignee, Ticket.requester] }
+
+  deployable api {
+    platform: node,
+    contexts: [Desk],
+    dataSources: [deskState],
+    serves: DeskApi,
+    port: 3000,
+    auth: required
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: Web { Desk: api },
+    port: 3001,
+    design: mantine,
+    auth: ui
+  }
+}

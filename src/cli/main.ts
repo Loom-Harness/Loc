@@ -12,7 +12,12 @@ import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel, ExecTestRef, TestOutcome } from "../ir/types/loom-ir.js";
-import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
+import {
+  irDiagnosticSourceRef,
+  type LoomDiagnostic,
+  offsetToPosition,
+  validateLoomModel,
+} from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -51,6 +56,7 @@ import {
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
+  type MigrationWarning,
 } from "../system/migrations-builder.js";
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
@@ -183,9 +189,25 @@ async function parseProject(entryFile: string): Promise<ProjectParseResult> {
   // lone `system { }` block plus top-level `subdomain` / `context`
   // declarations from any file fold into a single system (see
   // docs/old/proposals/implicit-system-composition.md).
-  const merged = lowerProject(all.map((doc) => doc.parseResult.value as Model));
-  const loom = enrichLoomModel(merged);
-  return { loom, diagnostics, errorCount, warningCount, sourceTexts };
+  //
+  // LAZY, and only ever forced after the caller has checked `errorCount`.  A
+  // document with a parse error carries a RECOVERED AST — a required cross-ref
+  // like `apply Opened {`'s `event` is simply absent — and lowering it threw a
+  // `TypeError` out of `lowerApply` before the command could print the parse
+  // error it had already collected.  Every caller aborts on `errorCount > 0`
+  // first, so an erroneous model is never lowered at all.
+  const models = all.map((doc) => doc.parseResult.value as Model);
+  let loom: EnrichedLoomModel | undefined;
+  return {
+    get loom() {
+      loom ??= enrichLoomModel(lowerProject(models));
+      return loom;
+    },
+    diagnostics,
+    errorCount,
+    warningCount,
+    sourceTexts,
+  };
 }
 
 /** The phase-⑦ WARNING footer, shared by every command that runs
@@ -264,6 +286,38 @@ function printAstDiagnostics(result: {
   return { errors: result.errorCount, warnings: result.warningCount };
 }
 
+/** The `path:line:col ` prefix for a phase-⑦ diagnostic that carries an
+ *  `origin` (eval item 28) — the same shape the AST-phase lines lead with, so
+ *  an editor / terminal link jumps to the construct the diagnostic is about.
+ *  Empty when the check attached no origin (a system-level construct) or the
+ *  source text is unavailable.  Texts come from the loaded documents; a path
+ *  outside that map is read from disk once and cached. */
+function irDiagnosticLocator(
+  sourceTexts: ReadonlyMap<string, string> | undefined,
+): (d: LoomDiagnostic) => string {
+  const cache = new Map<string, string | undefined>(sourceTexts ?? []);
+  const textOf = (p: string): string | undefined => {
+    if (!cache.has(p)) {
+      let text: string | undefined;
+      try {
+        text = fs.readFileSync(p, "utf8");
+      } catch {
+        text = undefined;
+      }
+      cache.set(p, text);
+    }
+    return cache.get(p);
+  };
+  return (d) => {
+    const ref = irDiagnosticSourceRef(d);
+    if (!ref) return "";
+    const text = textOf(ref.path);
+    if (text === undefined) return `${ref.path} `;
+    const pos = offsetToPosition(text, ref.span.start);
+    return `${ref.path}:${pos.line + 1}:${pos.character + 1} `;
+  };
+}
+
 /** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
  *  `generate system`.
  *
@@ -283,13 +337,17 @@ function printAstDiagnostics(result: {
  *
  *  Returns the split so the caller can tally it and decide about exit codes
  *  (errors gate; warnings and suggestions never do). */
-function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
+function printIrDiagnostics(
+  diagnostics: readonly LoomDiagnostic[],
+  sourceTexts?: ReadonlyMap<string, string>,
+): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
   hints: LoomDiagnostic[];
 } {
+  const at = irDiagnosticLocator(sourceTexts);
   const errors = diagnostics.filter((d) => d.severity === "error");
-  for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
+  for (const d of errors) console.error(`${at(d)}${d.code} ${d.source}: ${d.message}`);
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
@@ -299,7 +357,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   // here: with a literal, the second advisory code to arrive silently came out
   // labelled `warning` and inflated the count.)
   const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
-  for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
+  for (const d of warnings) console.error(`${at(d)}${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // and the update-gate lint (audit D3) keep their own footer and never fail
@@ -307,7 +365,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   const hints = diagnostics.filter((d) => isAdvisoryCode(d.code));
   if (hints.length > 0) {
     console.error(`\nSuggestions (${hints.length}):`);
-    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
+    for (const d of hints) console.error(`  ${at(d)}${d.source}: ${d.message}`);
   }
   return { errors, warnings, hints };
 }
@@ -358,7 +416,10 @@ async function runParse(file: string) {
   // filtered down to the single allow-listed `loom.index-suggestion`.  The
   // shared printer is now the only thing that decides what a phase-⑦
   // diagnostic looks like on either command's stderr.
-  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(irDiagnostics);
+  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(
+    irDiagnostics,
+    result.sourceTexts,
+  );
   // Both phases have run — ONE footer, counting both.  It has to come after
   // the IR phase, or it is a verdict on half the file (M-T9.60).
   printSummary(ast, { errors: irErrors.length, warnings: irWarnings.length });
@@ -649,7 +710,7 @@ async function runGenerate(
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
   // (`generate-diagnostic-parity.test.ts`).
@@ -673,6 +734,10 @@ async function runGenerate(
    *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
    *  under `0 error(s), 0 warning(s)` (F-019). */
   let giveUps: GiveUpReport[] = [];
+  /** Non-fatal diagnostics from the migration derivation (phase ⑨).  Printed
+   *  beside the give-ups below — same shape of problem: a fact known inside a
+   *  pure pass with no console, which used to reach nobody. */
+  let migrationWarnings: MigrationWarning[] = [];
   // The migration-history ledger lives beside the `.ddd` SOURCE, not under
   // `-o`: it is the only record of "this module already has migrations" that
   // survives being read in an output tree that carries none of them (F-029).
@@ -716,6 +781,14 @@ async function runGenerate(
       files = emission.files;
       giveUps = emission.giveUps;
       ledgerToWrite = emission.migrationLedger;
+      // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
+      // RENAME inference the migration builder makes deliberately: it fired,
+      // and before this the run said `0 error(s), 0 warning(s)` about it, so
+      // an author whose two columns were unrelated was never told their old
+      // column's data was about to land under the new name.  A WARNING — the
+      // inference is load-bearing, so it must not fail the run, and the
+      // migration IS written.
+      migrationWarnings = emission.migrationWarnings;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -745,6 +818,16 @@ async function runGenerate(
       );
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
+    }
+    for (const w of migrationWarnings) {
+      console.error(`${w.code} warning: ${w.message}`);
+    }
+    if (migrationWarnings.length > 0) {
+      // Its own footer, for the same reason the give-ups have one: the
+      // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
+      // already printed before generation ran, so without this the run reports
+      // `0 warning(s)` and then prints a warning.
+      console.error(`${migrationWarnings.length} warning(s) in derived migrations.`);
     }
     // Lift the walkers' give-ups.  They were already in the output, named by
     // code, three characters from the defect — this is the only place with both
@@ -989,6 +1072,22 @@ async function runGenerate(
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
+  // NAME the hand-edited files, not just count them (eval item #40a): the
+  // count alone told the reader edits were lost but not WHICH, so the one
+  // remedy the summary offers — pin it in `.loomignore` — had no path to pin.
+  // Capped, so a bulk edit does not bury the summary; same list under
+  // `--dry-run`, where it is the preview of exactly what a real run clobbers.
+  if (locallyModifiedPaths.length > 0) {
+    const shown = locallyModifiedPaths.slice(0, LOCALLY_MODIFIED_LIST_CAP);
+    console.log(
+      options.dryRun
+        ? `Would overwrite local modifications in (add a path to ${path.join(outDir, ".loomignore")} to keep your version):`
+        : `Overwrote local modifications in (add a path to ${path.join(outDir, ".loomignore")} so the next run leaves it alone):`,
+    );
+    for (const p of shown) console.log(`  ${p}`);
+    const rest = locallyModifiedPaths.length - shown.length;
+    if (rest > 0) console.log(`  … and ${rest} more`);
+  }
   return {
     hadError: false,
     written,
@@ -999,6 +1098,48 @@ async function runGenerate(
     locallyModified: locallyModifiedPaths.length,
   };
 }
+
+/** The closed `status` vocabulary of a `--results` document (docs/verify.md). */
+const RESULT_STATUSES: ReadonlySet<string> = new Set(["pass", "fail", "skip"]);
+/** The runner spellings people reach for, mapped to the one they meant. */
+const RESULT_STATUS_HINTS: Readonly<Record<string, string>> = {
+  passed: "pass",
+  failed: "fail",
+  skipped: "skip",
+  pending: "skip",
+  todo: "skip",
+};
+
+/** Shape-check every `--results` entry before it reaches the join.  Without it
+ *  a runner spelling (`"failed"`) is neither a pass nor a fail to the rollup, so
+ *  a FAILED test left its requirement merely unverified and the gate could exit
+ *  0 (eval item #36).  Throws — the caller turns that into exit 2. */
+function checkResultEntries(results: readonly unknown[]): TestOutcome[] {
+  results.forEach((entry, i) => {
+    const e = entry as { name?: unknown; status?: unknown } | null;
+    if (e == null || typeof e !== "object") {
+      throw new Error(`results[${i}] is not an object`);
+    }
+    if (typeof e.name !== "string") {
+      throw new Error(`results[${i}] has no string "name"`);
+    }
+    if (typeof e.status !== "string" || !RESULT_STATUSES.has(e.status)) {
+      const got = JSON.stringify(e.status);
+      const hint =
+        typeof e.status === "string" ? RESULT_STATUS_HINTS[e.status.toLowerCase()] : undefined;
+      throw new Error(
+        `results[${i}] ("${e.name}") has status ${got}; expected "pass", "fail" or "skip"` +
+          (hint ? ` — did you mean "${hint}"?` : "") +
+          ` (a vitest/jest JSON report can be passed as-is with --from-vitest)`,
+      );
+    }
+  });
+  return results as TestOutcome[];
+}
+
+/** How many locally-modified paths the regenerate summary names before it
+ *  collapses the rest into "… and N more". */
+const LOCALLY_MODIFIED_LIST_CAP = 10;
 
 /** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
  *  unreadable, truncated, or a newer schema version — degrades to `null`,
@@ -1407,7 +1548,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
               : ""),
         );
       }
-      outcomes = parsed.results;
+      outcomes = checkResultEntries(parsed.results);
     }
   } catch (err) {
     const what = err instanceof VitestReportError ? "vitest report" : "results file";

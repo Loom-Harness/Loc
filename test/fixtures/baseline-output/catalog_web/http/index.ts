@@ -17,6 +17,7 @@ import { customerRoutes } from "./customer.routes";
 import { CustomerRepository } from "../db/repositories/customer-repository";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema";
+import { timingSafeEqual } from "node:crypto";
 import { type DomainEventDispatcher, NoopDomainEventDispatcher } from "../domain/events";
 
 // The verbs a method-mismatch probe asks about (see `allowedFor` below).
@@ -99,13 +100,21 @@ export function createApp(
     return c.text(body, 200, { "Content-Type": registry.contentType });
   });
   // Dev-only state reset for the emitted e2e suite — see the note on
-  // `renderTestResetRoute`.  Registered only when asked for, so this
-  // surface does not exist in a real deployment.
-  const testResetEnabled =
-    process.env.LOOM_TEST_RESET === "1" ||
-    (process.env.LOOM_TEST_RESET !== "0" && process.env.NODE_ENV !== "production");
-  if (testResetEnabled) {
+  // `renderTestResetRoute`.  Registered only when an operator opts in by
+  // name AND supplies a shared secret; never inferred from a profile.
+  const testResetToken = process.env.LOOM_TEST_RESET_TOKEN ?? "";
+  if (process.env.LOOM_TEST_RESET === "1" && testResetToken === "") {
+    console.warn(
+      "LOOM_TEST_RESET=1 but LOOM_TEST_RESET_TOKEN is unset — the /__loom/test-reset route is NOT registered.",
+    );
+  }
+  if (process.env.LOOM_TEST_RESET === "1" && testResetToken !== "") {
     app.post("/__loom/test-reset", async (c) => {
+      const given = Buffer.from(c.req.header("x-loom-test-reset") ?? "");
+      const expected = Buffer.from(testResetToken);
+      if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+        return c.json({ status: "forbidden", detail: "missing or wrong reset token" }, 403);
+      }
       const found = (
         await db.execute(sql.raw("select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')"))
       ).rows as Array<{ schemaname: string; tablename: string }>;
@@ -163,7 +172,7 @@ export function createApp(
     if (err instanceof ForbiddenError) {
       baseLogger.warn({ event: "forbidden", message: err.message, status: 403 });
       recordDomainFault("forbidden");
-      return problem(403, "Forbidden", err.message);
+      return problem(403, "Forbidden", err.detail);
     }
     if (err instanceof DisallowedError) {
       baseLogger.warn({ event: "disallowed", message: err.message, status: 409 });

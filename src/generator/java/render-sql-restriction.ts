@@ -1,6 +1,7 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { snake } from "../../util/naming.js";
+import { MAKE_INTERVAL_ARG, temporalInterval } from "../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { sqlRestrictionIdent } from "./sql-ident.js";
 
@@ -45,6 +46,14 @@ export function renderSqlRestriction(e: ExprIR): string {
         return `${renderSqlRestriction(e.left)} and ${renderSqlRestriction(e.right)}`;
       if (e.op === "||")
         return `(${renderSqlRestriction(e.left)} or ${renderSqlRestriction(e.right)})`;
+      // `this.placedAt + days(1)`: Postgres interval arithmetic, the same
+      // `make_interval` fragment the dapper and drizzle lowerings emit.
+      const interval = temporalInterval(e);
+      if (interval) {
+        const side = renderSqlRestriction(interval.operand);
+        const amount = renderSqlRestriction(interval.duration.amount);
+        return `(${side} ${interval.op} make_interval(${MAKE_INTERVAL_ARG[interval.duration.unit]} => ${amount}))`;
+      }
       const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
       if ((e.op === "==" || e.op === "!=") && (isNull(e.left) || isNull(e.right))) {
         const operand = isNull(e.left) ? e.right : e.left;
@@ -105,6 +114,10 @@ export function renderSqlRestriction(e: ExprIR): string {
           return e.value;
         case "bool":
           return e.value;
+        // `@SQLRestriction` is SQL text appended to every query, so `now()` is
+        // read at query time, not when the entity class loads.
+        case "now":
+          return "now()";
         default:
           throw unsupported(`literal '${e.lit}'`);
       }

@@ -14,7 +14,11 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
-import { devClaimFields } from "../_auth/dev-claims.js";
+import {
+  DEV_CLAIMS_HEADER,
+  devClaimFields,
+  MALFORMED_DEV_CLAIMS_DETAIL,
+} from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { dapperAggregateTable } from "./emit/dapper.js";
@@ -165,6 +169,12 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   const audienceExpr = auth.oidc.audience
     ? csEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience)
     : 'Environment.GetEnvironmentVariable("OIDC_AUDIENCE")';
+  // The doc comment names only the checks this file performs: `aud` is
+  // validated against the declared audience (env-overridable), or — with no
+  // `audience:` — only when OIDC_AUDIENCE is set at runtime (G8-04).
+  const checksDoc = auth.oidc.audience
+    ? "checks iss / aud / exp"
+    : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
   const args = user.fields.map((f) => csClaimRead(f, auth)).join(",\n            ");
   return `// Auto-generated.
 using System.Text.Json;
@@ -180,7 +190,7 @@ namespace ${ns}.Auth;
 
 /// <summary>Generated OIDC verifier.  Validates the bearer
 /// token's signature against the issuer's JWKS (discovered + cached via
-/// <see cref="ConfigurationManager{T}"/>), checks iss / aud / exp, then
+/// <see cref="ConfigurationManager{T}"/>), ${checksDoc}, then
 /// projects the configured claims onto the <see cref="User"/> shape.
 /// Returns null to reject (→ 401).</summary>
 public sealed class OidcUserVerifier : IUserVerifier
@@ -577,8 +587,46 @@ function renderDevStubVerifier(user: UserIR, ns: string): string {
     devClaimFields(user.fields).map(({ field, kind }) => [field.name, kind]),
   );
   const stringFields = user.fields.filter((f) => claimKinds.has(f.name));
+  // Ruling D6 (#23): a present-but-undecodable header is refused — the stub
+  // throws, and UserMiddleware answers 400 — instead of silently running the
+  // request as the built-in identity.  Shared by both stub shapes below, so a
+  // stub with no carryable claim refuses a malformed header too.
+  const decodeHelper = `
+    /// <summary>Decode the header as a base64 JSON OBJECT, or throw
+    /// <see cref="MalformedDevClaimsException"/>.</summary>
+    private static JsonDocument DecodeDevClaims(string injected)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(injected)));
+        }
+        catch (Exception e) when (e is FormatException or JsonException)
+        {
+            throw new MalformedDevClaimsException();
+        }
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            doc.Dispose();
+            throw new MalformedDevClaimsException();
+        }
+        return doc;
+    }
+`;
+  const malformedException = `
+/// <summary>A present-but-undecodable <c>${DEV_CLAIMS_HEADER}</c> header (dev stub
+/// only).  UserMiddleware answers it 400 — refused rather than ignored, because
+/// ignoring it ran the request as the built-in identity.</summary>
+public sealed class MalformedDevClaimsException : Exception
+{
+    public MalformedDevClaimsException() : base(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)}) { }
+}
+`;
   if (stringFields.length === 0) {
     return `// Auto-generated.
+using System;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -592,19 +640,25 @@ public sealed class DevStubUserVerifier : IUserVerifier
 {
     public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
     {
+        // No declared claim is carryable, but a malformed header still refuses.
+        var injected = httpContext.Request.Headers["${DEV_CLAIMS_HEADER}"].ToString();
+        if (!string.IsNullOrEmpty(injected))
+        {
+            DecodeDevClaims(injected).Dispose();
+        }
         return Task.FromResult<User?>(new User(
             ${args}));
     }
-}
-`;
+${decodeHelper}}
+${malformedException}`;
   }
   const arms = stringFields
     .map((f) =>
       claimKinds.get(f.name) === "stringList"
         ? // Element-checked: a non-array, or an array holding a non-string,
           // leaves the field at its built-in value rather than half-filling it.
-          `                    "${f.name}" => DevClaimStringList(prop.Value) is { } __${f.name} ? user with { ${upperFirst(f.name)} = __${f.name} } : user,`
-        : `                    "${f.name}" => prop.Value.ValueKind == JsonValueKind.String ? user with { ${upperFirst(f.name)} = prop.Value.GetString()! } : user,`,
+          `                "${f.name}" => DevClaimStringList(prop.Value) is { } __${f.name} ? user with { ${upperFirst(f.name)} = __${f.name} } : user,`
+        : `                "${f.name}" => prop.Value.ValueKind == JsonValueKind.String ? user with { ${upperFirst(f.name)} = prop.Value.GetString()! } : user,`,
     )
     .join("\n");
   const needsListHelper = [...claimKinds.values()].includes("stringList");
@@ -650,27 +704,20 @@ public sealed class DevStubUserVerifier : IUserVerifier
         {
             return Task.FromResult<User?>(user);
         }
-        try
+        // A malformed header throws MalformedDevClaimsException → 400 (ruling D6).
+        using var doc = DecodeDevClaims(injected);
+        foreach (var prop in doc.RootElement.EnumerateObject())
         {
-            var payload = Encoding.UTF8.GetString(Convert.FromBase64String(injected));
-            using var doc = JsonDocument.Parse(payload);
-            foreach (var prop in doc.RootElement.EnumerateObject())
+            user = prop.Name switch
             {
-                user = prop.Name switch
-                {
 ${arms}
-                    _ => user,
-                };
-            }
-        }
-        catch (Exception)
-        {
-            // Malformed dev-claims header → fall back to the built-in identity.
+                _ => user,
+            };
         }
         return Task.FromResult<User?>(user);
     }
-${listHelper}}
-`;
+${listHelper}${decodeHelper}}
+${malformedException}`;
 }
 
 function stubCsharpValueFor(f: { name: string; type: TypeIR; optional: boolean }): string {
@@ -988,8 +1035,9 @@ public sealed class UserMiddleware
         "/swagger",
         // The dev-only state reset (src/util/test-reset.ts) — infra, not
         // domain surface, so an auth-bearing system's e2e suite need not mint
-        // a principal just to empty a table.  Costs nothing: where the route
-        // is not mapped there is no handler behind the bypassed path.
+        // a principal just to empty a table.  Not an auth bypass: the route
+        // is mapped only with LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN,
+        // and refuses (403) a request without that secret.
         "${TEST_RESET_PATH}",${handshakeBypass}
     };
 
@@ -1015,6 +1063,13 @@ public sealed class UserMiddleware
         try
         {
             user = await verifier.VerifyAsync(ctx, ctx.RequestAborted);
+        }
+        catch (MalformedDevClaimsException e)
+        {
+            // Dev stub only (ruling D6): a present-but-undecodable dev-claims
+            // header is a malformed REQUEST, not missing credentials.
+            await MalformedDevClaimsAsync(ctx, e.Message);
+            return;
         }
         catch
         {
@@ -1048,6 +1103,21 @@ public sealed class UserMiddleware
             Type = "about:blank",
             Title = "Unauthorized",
             Status = 401,
+            Detail = detail,
+            Instance = ctx.Request.Path,
+        }, (JsonSerializerOptions?)null, "application/problem+json");
+    }
+
+    /// <summary>RFC 7807 400 for a present-but-undecodable dev-claims header
+    /// (the dev stub's <see cref="MalformedDevClaimsException"/>).</summary>
+    private static async Task MalformedDevClaimsAsync(HttpContext ctx, string detail)
+    {
+        ctx.Response.StatusCode = 400;
+        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Bad Request",
+            Status = 400,
             Detail = detail,
             Instance = ctx.Request.Path,
         }, (JsonSerializerOptions?)null, "application/problem+json");
