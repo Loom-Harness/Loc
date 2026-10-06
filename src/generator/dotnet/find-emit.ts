@@ -11,6 +11,7 @@ import type { AggPool } from "../../ir/util/inheritance.js";
 import { upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
+import { csLocalNamer } from "./local-names.js";
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
@@ -154,7 +155,10 @@ function retrievalWhereClause(
       .join(", ");
     return `.Where(new ${upperFirst(r.criterionRef.name)}Criterion(${args}).ToExpression())`;
   }
-  return `.Where(x => ${renderCsExpr(r.where, { thisName: "x", agg, efQuery: true })})`;
+  // The lambda parameter yields to a same-named retrieval param, which the
+  // predicate reads (`x => x.Name == x` would compare the row to itself).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  return `.Where(${x} => ${renderCsExpr(r.where, { thisName: x, agg, efQuery: true })})`;
 }
 
 /** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms (empty
@@ -191,6 +195,9 @@ export function collectRetrievalBodyUsings(
 }
 
 function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedContextIR): string {
+  // The predicate lambda's parameter yields to a same-named find param, which
+  // the predicate reads (`x => x.Name == x` would compare the row to itself).
+  const x = csLocalNamer(find.params.map((p) => p.name))("x");
   // A `where` that is exactly a named, eligible criterion consumes its
   // reified `ToExpression` (symmetric to the retrieval path).
   if (ctx && find.criterionRef && canEmitToExpressionFor(find.criterionRef.name, ctx, agg.name)) {
@@ -204,7 +211,7 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
     // `this.<refColl>.contains(param)` predicate to its
     // AssociationIR and emit a join-table subquery.  See
     // `render-expr.ts:renderMethodCall`.
-    return `.Where(x => ${renderCsExpr(find.filter, { thisName: "x", agg, efQuery: true })})`;
+    return `.Where(${x} => ${renderCsExpr(find.filter, { thisName: x, agg, efQuery: true })})`;
   }
   if (find.params.length === 0) return "";
   const conditions: string[] = [];
@@ -213,11 +220,11 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
       (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
     );
     if (matchedField) {
-      conditions.push(`x.${upperFirst(matchedField.name)} == ${p.name}`);
+      conditions.push(`${x}.${upperFirst(matchedField.name)} == ${p.name}`);
     }
   }
   if (conditions.length === 0) return "";
-  return `.Where(x => ${conditions.join(" && ")})`;
+  return `.Where(${x} => ${conditions.join(" && ")})`;
 }
 
 function projectionClauseFor(t: TypeIR): string {

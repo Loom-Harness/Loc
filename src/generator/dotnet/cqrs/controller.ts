@@ -326,6 +326,7 @@ export function emitController(
           isRoot: isAllFind(entry),
           apiOp: entry,
           responseType: isUnion ? `${agg.name}Response` : undefined,
+          paramNames: find.params.map((p) => p.name),
           queryRouteParams: [
             ...find.params.map((p) => {
               // A required find param must bind required so Swashbuckle emits

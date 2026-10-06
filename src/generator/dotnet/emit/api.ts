@@ -23,6 +23,7 @@ import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
+import { csLocalNamer } from "../local-names.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
 
 /** Controller action method name = PascalCase of the shared operationId,
@@ -144,6 +145,9 @@ export interface ControllerShape {
     /** The derived `kind: "find"` entry — route template + declared error
      *  statuses come from it. */
     apiOp: ApiOperationIR;
+    /** The find's declared param names (the action's own parameters) — the
+     *  action's locals (`result`, `problem`) step aside for a same-named one. */
+    paramNames: readonly string[];
     queryRouteParams: string;
     queryConstructorArgs: string;
     /** Cardinality of the response, derived from the IR find's
@@ -223,6 +227,8 @@ function absentReturnLines(
     | Extract<ControllerShape["finds"][number]["unionAbsent"], { kind: "error" }>
     | { kind: "none" },
   ns: string,
+  /** The action's `problem` local (renamed only on a param collision). */
+  problem = "problem",
 ): string[] {
   // RS-22/RS-27 — a `none` absence THROWS, so `DomainExceptionFilter` renders
   // the envelope.  A bare `return NotFound();` never reaches the filter and is
@@ -237,10 +243,10 @@ function absentReturnLines(
   if (!ua.resource) {
     return [
       "        {",
-      `            var problem = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+      `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
         ua.title,
       )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
-      `            return new ObjectResult(problem) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
+      `            return new ObjectResult(${problem}) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
       "        }",
     ];
   }
@@ -249,11 +255,11 @@ function absentReturnLines(
     // `Instance` set explicitly — this arm builds the ProblemDetails by hand
     // (rather than via ControllerBase.Problem/ProblemDetailsFactory), so nothing
     // fills it in, and the other four backends all send the request path.
-    `            var problem = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+    `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
       ua.title,
     )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
-    `            problem.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
-    `            return new ObjectResult(problem) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
+    `            ${problem}.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
+    `            return new ObjectResult(${problem}) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
     "        }",
   ];
 }
@@ -294,6 +300,10 @@ export function renderController(
   );
 
   const findBlocks = shape.finds.flatMap((f) => {
+    // The action's own locals yield to a same-named find param (CS0136): a
+    // `find one(result: string)` binds `result` as a query parameter.
+    const L = csLocalNamer(f.paramNames, ["result", "problem"]);
+    const result = L("result");
     const responseType =
       f.returnShape === "union"
         ? f.responseType!
@@ -318,19 +328,19 @@ export function renderController(
             // (`find byEmail(...): Customer?`) is wire-identical to
             // `Customer option`, so its miss must carry the same five-member
             // envelope rather than ASP.NET's framework-default one.
-            `        if (result is null) ${dotnetFindAbsenceThrow(ns)}`,
-            "        return Ok(result);",
+            `        if (${result} is null) ${dotnetFindAbsenceThrow(ns)}`,
+            `        return Ok(${result});`,
           ]
         : ua
           ? [
               // Union find: the handler yields the success `<Agg>Response` or
               // null; a null maps to the absent variant's status (exception-less
               // §4), a value returns the success variant directly at 200.
-              "        if (result is null)",
-              ...absentReturnLines(ua, ns),
-              "        return Ok(result);",
+              `        if (${result} is null)`,
+              ...absentReturnLines(ua, ns, L("problem")),
+              `        return Ok(${result});`,
             ]
-          : ["        return Ok(result);"];
+          : [`        return Ok(${result});`];
     // Non-nullable success type for [ProducesResponseType] (typeof can't
     // carry a `?` nullable annotation).
     const successType =
@@ -351,7 +361,7 @@ export function renderController(
       ...problemDecls,
       `    public async Task<ActionResult<${responseType}>> ${actionName(opFind(agg.name, f.name))}(${f.queryRouteParams})`,
       "    {",
-      `        var result = await _mediator.Send(new ${upperFirst(f.name)}Query(${f.queryConstructorArgs}));`,
+      `        var ${result} = await _mediator.Send(new ${upperFirst(f.name)}Query(${f.queryConstructorArgs}));`,
       ...returnLines,
       "    }",
       "",
