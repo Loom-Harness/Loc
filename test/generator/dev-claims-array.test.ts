@@ -66,7 +66,7 @@ function stubSource(files: Map<string, string>, match: RegExp): string {
 
 describe("dev-stub claim mapper carries a declared string[] claim", () => {
   it("python reads the array claim, still reads the string claim, and skips the int", async () => {
-    const src = stubSource(await filesFor("python"), /\.py$/);
+    const src = stubSource(await filesFor("python"), /app\/main\.py$/);
     expect(src).toContain('claims.get("permissions")');
     expect(src).toContain("isinstance(_e, str) for _e in _v");
     expect(src).toContain('overrides["permissions"] = list(_v)');

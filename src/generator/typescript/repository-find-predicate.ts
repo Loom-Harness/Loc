@@ -313,6 +313,30 @@ export function lowerToDrizzle(
       const valueExpr = renderValue(oriented.value) ?? renderColumnRef(oriented.value);
       if (colExpr === null || valueExpr === null) return null;
       ops.add(orientedFn);
+      // A NULLABLE value operand — `this.techId == currentUser.techId` with the
+      // claim declared `Technician id?`, or an optional find param.  Drizzle
+      // types the value slot `column | value` with no `null`, so binding it
+      // straight failed the generated project's `tsc` (TS2769), and a
+      // `col = NULL` would match nothing anyway.  Branch in JS on the runtime
+      // value: null takes SQL's IS [NOT] NULL (Loom's `null == null` is true);
+      // an ordering against null matches no row (the `deny` arm's always-false
+      // term); otherwise the ordinary comparison, where TS has narrowed the
+      // value to non-null.  Value renderings here are side-effect-free member
+      // / identifier reads, so evaluating twice is safe.
+      if (isNullableValue(oriented.value)) {
+        let onNull: string;
+        if (oriented.op === "==") {
+          ops.add("isNull");
+          onNull = `isNull(${colExpr})`;
+        } else if (oriented.op === "!=") {
+          ops.add("isNotNull");
+          onNull = `isNotNull(${colExpr})`;
+        } else {
+          for (const op of ["and", "isNull", "isNotNull"]) ops.add(op);
+          onNull = `and(isNull(${colExpr}), isNotNull(${colExpr}))`;
+        }
+        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${valueExpr}))`;
+      }
       return `${orientedFn}(${colExpr}, ${valueExpr})`;
     }
     if (e.kind === "unary" && e.op === "!") {
@@ -475,6 +499,15 @@ export function lowerToDrizzle(
       return `schema.${tableName}.${e.name}`;
     }
     return null;
+  }
+
+  /** Whether a value operand's static type admits null — a `currentUser.<x>`
+   *  claim declared `T?`, or a param / let typed `T?`. */
+  function isNullableValue(e: ExprIR): boolean {
+    if (e.kind === "paren") return isNullableValue(e.inner);
+    if (e.kind === "member") return e.memberType.kind === "optional";
+    if (e.kind === "ref") return e.type?.kind === "optional";
+    return false;
   }
 
   function renderValue(e: ExprIR): string | null {

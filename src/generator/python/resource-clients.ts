@@ -1,6 +1,7 @@
 import type { DataSourceIR, StorageIR, SystemIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
 import { resourceEnvBase } from "../../util/resource-env.js";
 
@@ -514,7 +515,7 @@ export function emitPyResourceFiles(
   sys: SystemIR,
   dataSourceNames: readonly string[],
 ): PyResourceEmission {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/python/resource-clients");
   const deps: string[] = [];
   const devDeps: string[] = [];
   const modules: string[] = [];

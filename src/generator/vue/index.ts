@@ -19,6 +19,7 @@ import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/p
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
@@ -146,7 +147,7 @@ export function generateVueForContexts(
   deployable: DeployableIR,
   options: GenerateVueOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/vue/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Same-origin relative `/api` base; `vite dev` proxies it to the
@@ -754,7 +755,7 @@ export function generateVueForContexts(
   // React generator) so every emitter above stays path-agnostic.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/vue/index");
   for (const [path, content] of out) {
     prefixed.set(`${pathPrefix}${path}`, content);
   }
