@@ -3,7 +3,7 @@
 // detection (via emitExpr), navigation, lambda handlers, and aggregate
 // lookups, so they pull the core walk/expr/stmt helpers.
 
-import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { tryRenderGate } from "../../_frontend/gate-expr.js";
@@ -12,6 +12,7 @@ import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
 import { localizedAriaLabelAttr, localizedNamedValue, localizedText } from "../i18n-emit.js";
 import { lookupBuiltinIcon } from "../icons.js";
+import { opGateFor } from "../op-gate.js";
 import { queryShape } from "../paged-query.js";
 import { renderPrimitive } from "../render-primitive.js";
 import {
@@ -71,12 +72,36 @@ export function emitIdLink(
   const agg = ctx.aggregatesByName.get(aggName);
   const slug = agg ? plural(snake(agg.name)) : plural(snake(aggName));
   ctx.usesRouterLink = true;
+  // The link LABEL is the referenced record's `display` when it has one, read
+  // by a per-cell child the target wraps around the pack's truncated-id label
+  // (which stays as the loading / error / no-display fallback).  Not for a
+  // row's link to ITSELF (`IdLink(row.id, of: <own aggregate>)`, the scaffold's
+  // id column): that column is the id by name, and the row already holds the
+  // display, so a by-id read there would be a pure N+1.
+  const wrap =
+    agg && id && carriesDisplay(agg) && !isSelfIdRead(id)
+      ? ctx.target.renderRefLabelWrap?.({ apiPath: `/${snake(plural(agg.name))}/`, idExpr }, ctx)
+      : undefined;
   return renderPrimitive(ctx, "primitive-id-link", {
     idExpr,
     pathPrefix: `/${slug}/`,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
+    refOpen: wrap?.open ?? "",
+    refClose: wrap?.close ?? "",
   });
+}
+
+/** Whether the aggregate ships a `display` member on the wire — the
+ *  `derived display` the scaffold and the id-select picker label by, or a
+ *  plain field of that name. */
+function carriesDisplay(agg: AggregateIR): boolean {
+  return agg.displayDerived !== undefined || agg.fields.some((f) => f.name === "display");
+}
+
+/** `<receiver>.id` — the row's own identity, not a cross-aggregate reference. */
+function isSelfIdRead(e: ExprIR): boolean {
+  return e.kind === "member" && e.member === "id";
 }
 
 export function emitButton(
@@ -263,6 +288,18 @@ export function emitAction(
       idExpr,
     });
   }
+  // `when`-gated op: hoist its `can_<op>` probe the same way (every shell
+  // already declares a hook-time-id hook with its own decoration — Vue's
+  // `reactive`, Svelte's accessor thunk) and disable the button on it.
+  const gate = opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
+  if (gate && !ctx.actionMutations.some((m) => m.localVar === gate.local)) {
+    ctx.actionMutations.push({
+      localVar: gate.local,
+      hookName: gate.hook,
+      aggCamel: lowerFirst(agg.name),
+      idExpr,
+    });
+  }
   const thenArg = namedArgValue(call, "then");
   const thenJs = thenArg ? emitActionThen(thenArg, ctx) : undefined;
   const mutateCall = `${localVar}.mutateAsync({})`;
@@ -273,14 +310,20 @@ export function emitAction(
     label: humanize(op.name),
     onClick,
     hasOnClick: true,
-    disabled: undefined,
-    hasDisabled: false,
+    disabled: gate?.disabledExpr,
+    hasDisabled: gate !== undefined,
     loading: `${localVar}.isPending`,
     hasLoading: true,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
-    // Action button's visible text (the humanised op) is its accessible name.
-    a11yAttr: "",
+    // Action button's visible text (the humanised op) is its accessible name;
+    // a `when`-gated op adds the disabled reason as its title.
+    a11yAttr: gate
+      ? ctx.target.renderAttrBinding(
+          "title",
+          `(${gate.disabledExpr}) ? ${gate.reasonExpr} : undefined`,
+        )
+      : "",
   });
   // Action-button gating (D-AUTH-OIDC, the action-level mirror of the page
   // `requires` guard).  On an `auth: ui` frontend, hide the button at runtime

@@ -629,6 +629,13 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C5 5b (RS-38 / RS-34): the query-time projection read the witness's
   // absent-join half asserts through — the same not-yet-lifted class as above.
   "corpus/datetime-wire": ["api.slotBoard.list (no such aggregate)"],
+  // Eval items 10 + 14b: the direct-table arms over a TPH concrete and over a
+  // value-object leaf.  All three are projection READS — the `notLifted` class.
+  "corpus/projection-tph-source": [
+    "api.autoClaimVolume.list (no such aggregate)",
+    "api.autoClaimsByStatus.list (no such aggregate)",
+    "api.billTotals.list (no such aggregate)",
+  ],
   "corpus/projection-groupby": [
     // All five are projection READS — the not-yet-lifted route class this map
     // exists for, not a call that fails to find its operation.  `ordersByTotal`

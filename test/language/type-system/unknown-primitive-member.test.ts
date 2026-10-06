@@ -354,3 +354,29 @@ system S {
     expect(e, e.join("\n")).toHaveLength(0);
   });
 });
+
+describe("loom.unknown-primitive-member — the negated matcher prefix", () => {
+  // A test body's lets are typed, so `expect(<primitive>).not.toBe(…)` puts
+  // `.not` on a primitive receiver.  `.not` is the matcher's prefix, not a
+  // member of the subject, and must not read as an invented field.
+  it("accepts `.not.<matcher>` over a primitive subject in a test body", async () => {
+    const e = await errs(`aggregate A with crudish {
+      at: datetime
+      name: string
+      test "negated matchers on primitives" {
+        let a = A.create({ at: "2026-02-02T12:30:00Z", name: "n" })
+        expect(a.at).not.toBe("2027-01-01T00:00:00Z")
+        expect(a.name).not.toBe("m")
+      }
+    }`);
+    expect(primErrs(e), e.join("\n")).toEqual([]);
+  });
+
+  it("still flags `.not` that is NOT followed by a matcher", async () => {
+    const e = await errs(`aggregate A with crudish {
+      name: string
+      derived bad: string = name.not
+    }`);
+    expect(primErrs(e).join("\n")).toMatch(/'not' is not a member of 'string'/);
+  });
+});

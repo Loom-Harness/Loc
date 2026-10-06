@@ -246,6 +246,26 @@ export interface OptionalSplitSpec {
   present: string;
 }
 
+/** What {@link WalkerTarget.renderRefLabelWrap} needs to label an `IdLink`
+ *  with the referenced record's `display` instead of its truncated id. */
+export interface RefLabelSpec {
+  /** The referenced aggregate's collection route RELATIVE to the api base,
+   *  with a trailing slash (`/projects/`) — the same `snake(plural(<Agg>))`
+   *  tag every frontend's by-id read already GETs. */
+  apiPath: string;
+  /** The rendered id expression the link points at (`row.project`). */
+  idExpr: string;
+}
+
+/** The two halves a target wraps around a pack's id-link label.  Whatever the
+ *  pack renders between them (its truncated-id `IdValue` / `shortId` / `Text`)
+ *  becomes the FALLBACK the child shows while loading, on error, or when the
+ *  record carries no `display`. */
+export interface RefLabelWrap {
+  open: string;
+  close: string;
+}
+
 export interface MemberReadSpec {
   /** The already-rendered receiver. */
   receiver: string;
@@ -1042,6 +1062,23 @@ export interface WalkerTarget {
    *  byte-identical. */
   renderOptionalSplit?(spec: OptionalSplitSpec): string;
 
+  /** OPTIONAL — wrap an `IdLink`'s label in a per-cell CHILD that reads the
+   *  referenced record's `display` (fleet slice B).
+   *
+   *  The lookup cannot be a hook in the page: an `IdLink` usually sits in a
+   *  `Table` row loop, and one `useXById` per row in the page body breaks
+   *  React's rules-of-hooks (and has no equivalent at all in an Angular
+   *  template or an Elmish view).  A child component owns its own read, so the
+   *  hook is legal on every target, and the per-framework query cache (TanStack
+   *  on the JS family, a Riverpod `.family` on Flutter, a keyed promise cache on
+   *  Feliz) collapses repeated ids to ONE request each.
+   *
+   *  The walker only asks when the referenced aggregate carries a `display`
+   *  on the wire; a target that omits the seam keeps the truncated-id label,
+   *  byte-identical.  The target is responsible for its own import / component
+   *  registration of the child. */
+  renderRefLabelWrap?(spec: RefLabelSpec, ctx: WalkContext): RefLabelWrap;
+
   /** OPTIONAL — the markup for "render NOTHING" in a child position: what the
    *  walker hands a pack template for an ABSENT optional slot (a `QueryView`
    *  with no `loading:` / `error:` / `empty:`).
@@ -1297,6 +1334,16 @@ export interface WalkerTarget {
    *  doesn't ship. */
   renderOperationForm?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
   renderModal?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — the boolean expression that DISABLES a `when`-gated operation's
+   *  trigger, given the page-scope local bound to its `can_<op>` probe query
+   *  (`canComplete`).  True only once the probe has answered `allowed: false`
+   *  — a pending or failed probe leaves the trigger enabled, so the server's
+   *  409 stays the backstop.  Absent ⇒ the TanStack-object spelling
+   *  `<local>.data?.allowed === false` (React, Vue's `reactive(…)` wrap,
+   *  Svelte's runes query); a target whose query handle reads differently
+   *  (Angular's signal `data()`) overrides it. */
+  renderOpGateDisabled?(local: string): string;
 
   /** OPTIONAL — whole-primitive override for `WorkflowForm(runs: <Wf>)`.  The
    *  shared `emitWorkflowForm` delegates here first; a non-null return is used

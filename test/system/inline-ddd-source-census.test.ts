@@ -221,6 +221,11 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     contains: "design: mantinee",
     why: "the mistyped design pack that makes `loom.parse-error` fire, proving the closed-set 'did you mean mantine?' message replaced chevrotain's token-sequence dump (F6)",
   },
+  {
+    file: "test/cli/parse-error-no-lowering.test.ts",
+    contains: "apply Opened {",
+    why: "the `apply Opened {` missing its `(e: Opened)` parameter list IS the subject — it recovers to an `Apply` with no `event` ref, and the test proves the CLI reports the syntax error instead of lowering the recovered AST and crashing in `lowerApply`",
+  },
 ];
 
 /** The pins that match a given document. */

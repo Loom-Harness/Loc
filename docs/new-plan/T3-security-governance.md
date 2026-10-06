@@ -155,3 +155,23 @@ Item **P18** (#2960, the F9 fix for `auditable` + any frontend). Three residues 
 - an `IdLink` that cannot resolve a route renders nothing, where it should be a loud diagnostic (overlaps the unguarded-`IdLink` half of open PR #2947 — re-check before building).
 
 **Verification.** A no-`user{}` fixture with `auditable` across the backends; a validator case for the unresolvable `IdLink`.
+
+## M-T3.22 — No gate drives the real OIDC authorization-code flow — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **G8-10c** (FieldOps-audit FIX-PLAN §5.5). Every OIDC e2e leg stops at the first hop: `/api/auth/login` answers 307 with an `oidc_state` cookie (`test/e2e/auth-oidc-python-e2e.test.ts:257-262`; the elixir compose test does the same). Nothing follows the redirect through the Keycloak login form to `/auth/callback` and on to a session, so a broken callback, a PKCE verifier mismatch or a cookie that never sets would ship green.
+
+**The fix:** one leg per backend against the generated Keycloak realm that completes the code flow (Playwright, or `fetch` plus a form post): login → realm form → callback → session cookie → `GET /api/auth/me` returns the demo principal. Wire it under the existing `run-auth-oidc` label and the compose OIDC workflow.
+
+**Verification.** Mutation-proved by breaking the callback's state check in one backend's emitter and watching that backend's leg go red.
+
+## M-T3.23 — A policy or permission vocabulary cannot be shared across contexts — `open` · **M** · P3 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Follow-up of owner ruling **D9** (eval-closure item **#39**; Meridian F-006). Policies are context-level and `permissions` are subdomain-local, as `docs/language.md` now says. Using a policy from another context types as `unknown`; wave C3 of the review gives that a clear diagnostic (`loom.policy-out-of-scope`). What D9 leaves to a mission is the capability: two contexts that must enforce the same rule today duplicate the policy and the permission strings, and nothing detects the two copies drifting apart.
+
+**The design question:** an explicit import (`policy X from <Context>`), a shared-kernel home for policies and permission catalogues, or a system-level catalogue. Each changes how `implies` closure and the permission-string minting work.
+
+**Verification.** A two-context fixture that shares one policy and one permission, gated identically on all five backends (the gate-parity wire-golden), plus a negative case for an out-of-scope use.

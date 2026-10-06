@@ -209,6 +209,17 @@ export const vueTarget: WalkerTarget = {
     return renderVueDataGridChild(spec, ctx);
   },
 
+  /** `<LoomRefLabel>` (`src/components/LoomRefLabel.vue`) — the pack's
+   *  `shortId` text becomes its default slot, i.e. the fallback.  The page
+   *  shell imports the SFC off this tag (a default export the walker's
+   *  named-import map cannot carry — the `LoomChart` discipline). */
+  renderRefLabelWrap(spec) {
+    return {
+      open: `<LoomRefLabel path=${JSON.stringify(spec.apiPath)} :id="${spec.idExpr}">`,
+      close: "</LoomRefLabel>",
+    };
+  },
+
   // --- API binding seam ---------------------------------------------------
 
   /** Turn a detected api call into vue-query composable naming +
