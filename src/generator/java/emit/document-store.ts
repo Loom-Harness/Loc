@@ -7,9 +7,10 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
-import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
@@ -142,31 +143,15 @@ export function renderJavaDocumentRepositoryImpl(
   const aggregateLoadedLog = `        CatalogLog.event(${javaLogEvent("aggregateLoaded")}, "aggregate", "${agg.name}", "id", String.valueOf(id.value()), "found", found.isPresent());`;
   const writeGuardLines = javaBlobWriteGuardLines(agg, idClass, aggregateLoadedLog);
 
-  // Expression imports the in-app find / capability predicates need — notably
-  // `java.util.Objects` for a string/ref `==` (renders to `Objects.equals`).
-  // (The pre-existing emit hardcoded a fixed import list and omitted this, so a
-  // document aggregate with a string-equality find failed to compile.)
-  const exprImports = new Set<string>();
-  for (const f of finds) if (f.filter) collectJavaExprImports(f.filter, exprImports);
-  // The in-app filters are rendered from the DESUGARED IR (an `authz-filter`
-  // sentinel carries no expression nodes of its own), so collect their imports
-  // from the same desugared tree the renderer sees — otherwise a `policy { allow
-  // deep … }` tenant floor emits `Objects.equals(...)` with no
-  // `import java.util.Objects`, and the generated project fails to compile.
-  for (const p of agg.contextFilters ?? [])
-    collectJavaExprImports(desugarAuthzFilterInApp(p, agg.name), exprImports);
-  // Same for the command load's in-app write-scope guard.
-  if (agg.writeScopeFilter)
-    collectJavaExprImports(desugarAuthzFilterInApp(agg.writeScopeFilter, agg.name), exprImports);
+  const paged = javaRef(`${ctx.basePkg}.domain.common`, "Paged");
+  const accessorType = javaRef(`${ctx.basePkg}.auth`, "CurrentUserAccessor");
 
   // Retrievals (`retrieval` bundles) can't query the jsonb document, so each
   // `run<Name>` rehydrates every row and evaluates its `where` + `sort` in
-  // memory (the .NET document-repository shape).  `collectJavaExprImports`
-  // runs inside the helper, so its predicate imports land in `exprImports`.
+  // memory (the .NET document-repository shape).
   const retrievalLines = inMemoryRetrievalLines(
     agg,
     ctx.retrievals ?? [],
-    exprImports,
     (retrievalName, varName) => capClauseFor(ctx.bypassByRetrieval?.get(retrievalName), varName),
     baseCall,
     (retrievalName) => principalBindFor(ctx.bypassByRetrieval?.get(retrievalName)),
@@ -191,7 +176,7 @@ export function renderJavaDocumentRepositoryImpl(
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
       return [
         `    @Override`,
-        `    public Paged<${agg.name}> ${f.name}(${sig}) {`,
+        `    public ${paged}<${agg.name}> ${f.name}(${sig}) {`,
         ...prelude,
         `        var all = ${baseCall}.stream()${filter}.toList();`,
         ...inMemoryPagedSortLines(agg),
@@ -232,9 +217,7 @@ export function renderJavaDocumentRepositoryImpl(
     `package ${ctx.infraPkg};`,
     ``,
     `import java.util.ArrayList;`,
-    exprImports.has("java.util.Comparator") ? `import java.util.Comparator;` : null,
     `import java.util.List;`,
-    exprImports.has("java.util.Objects") ? `import java.util.Objects;` : null,
     `import java.util.Optional;`,
     ``,
     `import com.fasterxml.jackson.annotation.JsonAutoDetect;`,
@@ -246,11 +229,7 @@ export function renderJavaDocumentRepositoryImpl(
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
-    ctx.entityPkg !== ctx.infraPkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
-    ctx.domainPkg !== ctx.infraPkg ? `import ${ctx.domainPkg}.${agg.name}Repository;` : null,
     `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;`,
-    finds.some(isPagedFind) ? `import ${ctx.basePkg}.domain.common.Paged;` : null,
-    needsAccessor ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${ctx.basePkg}.domain.ids.*;`,
     // The enums wildcard, matching the RELATIONAL impl (repository.ts:305).
     // A declared find's params are rendered with `renderJavaType`, which spells
@@ -264,7 +243,7 @@ export function renderJavaDocumentRepositoryImpl(
     `/** Document repository — the whole aggregate round-trips one jsonb`,
     ` *  column in ${table} via a field-visibility Jackson mapper. */`,
     `@Repository`,
-    `public class ${agg.name}RepositoryImpl implements ${agg.name}Repository {`,
+    `public class ${agg.name}RepositoryImpl implements ${javaRef(ctx.domainPkg, `${agg.name}Repository`)} {`,
     `    /** Field-visibility mapper: the entity's package-private fields`,
     ` *  round-trip directly (record-style accessors are not getters);`,
     ` *  transient fields (_domainEvents) stay out of the document. */`,
@@ -284,17 +263,17 @@ export function renderJavaDocumentRepositoryImpl(
     // inject the same CurrentUserAccessor bean the relational path uses.  Only
     // wired when the aggregate carries such a filter (non-principal document
     // aggregates stay byte-identical: no field, no ctor param, no import).
-    needsAccessor ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+    needsAccessor ? `    private final ${accessorType} currentUserAccessor;` : null,
     ``,
     needsAccessor
-      ? `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc, CurrentUserAccessor currentUserAccessor) {`
+      ? `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc, ${accessorType} currentUserAccessor) {`
       : `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc) {`,
     `        this.jdbc = jdbc;`,
     needsAccessor ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
     `    @Override`,
-    `    public ${agg.name} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
     `        try {`,
     `            jdbc.update(`,
     `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,

@@ -17,8 +17,10 @@ import {
 } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
 import { javaSubtreeLikePattern } from "../_expr/subtree-like.js";
+import { javaRef } from "../_imports/java.js";
 import { jid } from "./java-ident.js";
-import { boxedJavaType, collectJavaExprImports, renderJavaExpr } from "./render-expr.js";
+import { J } from "./java-symbols.js";
+import { boxedJavaType, renderJavaExpr } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
 // Criterion body → JPA Criteria predicate renderer, the engine behind the
@@ -37,8 +39,6 @@ export interface CriteriaCtx {
   agg: AggregateIR;
   /** VO name → fields, for sub-path typing. */
   voLookup: ReadonlyMap<string, readonly FieldIR[]>;
-  /** Imports collected for the emitted file. */
-  imports: Set<string>;
 }
 
 export function renderCriteriaPredicate(e: ExprIR, ctx: CriteriaCtx): string {
@@ -103,8 +103,7 @@ function bool(e: ExprIR, ctx: CriteriaCtx): string {
         const segs = pathSegments(e.receiver);
         if (!segs) throw unsupported("contains over a non-path receiver");
         const elem = boxedJavaType(e.receiverType.element);
-        ctx.imports.add("java.util.List");
-        return `cb.isMember(${value(e.args[0]!, ctx)}, root.<List<${elem}>>get(${segs.map((s) => JSON.stringify(jid(s))).join(").get(")}))`;
+        return `cb.isMember(${value(e.args[0]!, ctx)}, root.<${J.List}<${elem}>>get(${segs.map((s) => JSON.stringify(jid(s))).join(").get(")}))`;
       }
       // A bool-returning queryable intrinsic standing alone in a PREDICATE
       // position (`filter this.dataKey.startsWith(p)`).  Its snippet already IS
@@ -192,8 +191,7 @@ export const JAVA_CRITERIA_INTRINSICS: Record<string, (recv: string, args: strin
 // `CriteriaBuilder`; Hibernate's duration arithmetic lives on its
 // `HibernateCriteriaBuilder` subinterface (Spring Data always hands
 // Hibernate's SqmCriteriaNodeBuilder, so the downcast is total).
-const HCB_CAST = "((HibernateCriteriaBuilder) cb)";
-const HCB_IMPORT = "org.hibernate.query.criteria.HibernateCriteriaBuilder";
+const HCB_CAST = `((${javaRef("org.hibernate.query.criteria", "HibernateCriteriaBuilder")}) cb)`;
 
 /** `java.time.Duration` factory per ABSOLUTE duration unit — the constant/
  *  param amount path. */
@@ -221,7 +219,6 @@ function temporalPathExpr(e: Extract<ExprIR, { kind: "binary" }>, ctx: CriteriaC
   if (!dur || !other || durationCtorOperand(other)) return null;
   const datetimePath = criteriaPathExpr(other, ctx);
   if (datetimePath === null) return null;
-  ctx.imports.add(HCB_IMPORT);
   const method = e.op === "+" ? "addDuration" : "subtractDuration";
   return `${HCB_CAST}.${method}(${datetimePath}, ${criteriaDurationExpr(dur, ctx)})`;
 }
@@ -233,12 +230,11 @@ function temporalPathExpr(e: Extract<ExprIR, { kind: "binary" }>, ctx: CriteriaC
 function criteriaDurationExpr(dur: DurationExprIR, ctx: CriteriaCtx): string {
   const amountSegs = pathSegments(dur.amount);
   const amountPath = amountSegs && amountSegs.length > 0 ? path(amountSegs, ctx) : null;
-  ctx.imports.add("java.time.Duration");
   const factory = JAVA_DURATION_FACTORY[dur.unit];
   if (amountPath !== null) {
-    return `${HCB_CAST}.durationScaled(${amountPath}, Duration.${factory}(1))`;
+    return `${HCB_CAST}.durationScaled(${amountPath}, ${J.Duration}.${factory}(1))`;
   }
-  return `Duration.${factory}(${value(dur.amount, ctx)})`;
+  return `${J.Duration}.${factory}(${value(dur.amount, ctx)})`;
 }
 
 /** Candidate-path side of a comparison, rendered — a bare `this.a.b` path,
@@ -279,8 +275,7 @@ function binary(e: Extract<ExprIR, { kind: "binary" }>, ctx: CriteriaCtx): strin
   {
     const selfScope = guidFromStringSelfScope(e);
     if (selfScope) {
-      ctx.imports.add("java.util.UUID");
-      const idPath = `root.get("id").<UUID>get("value")`;
+      const idPath = `root.get("id").<${J.UUID}>get("value")`;
       const claim = `(currentUser == null ? null : currentUser.${guidClaimAccessorName(selfScope.claim)}())`;
       return `cb.equal(${idPath}, ${claim})`;
     }
@@ -369,23 +364,17 @@ function declaredType(segs: string[], ctx: CriteriaCtx): string {
     if (t.kind === "valueobject") fields = ctx.voLookup.get(t.name) ?? [];
   }
   if (!t) return "Comparable";
-  const rendered = boxedJavaType(t);
-  // Imports for the witness type.
-  if (rendered === "BigDecimal") ctx.imports.add("java.math.BigDecimal");
-  if (rendered === "Instant") ctx.imports.add("java.time.Instant");
-  if (rendered === "UUID") ctx.imports.add("java.util.UUID");
-  return rendered;
+  return boxedJavaType(t);
 }
 
 /** VALUE position — params / literals / enum values via the normal
  *  Java leaf table.  A principal (tenancy) `currentUser.<field>` access
  *  renders null-safe against the `currentUser` the factory is handed (no
  *  actor → null → the comparison matches no rows: fail-closed). */
-function value(e: ExprIR, ctx: CriteriaCtx): string {
+function value(e: ExprIR, _ctx: CriteriaCtx): string {
   if (e.kind === "member" && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
     return `(currentUser == null ? null : currentUser.${e.member}())`;
   }
-  collectJavaExprImports(e, ctx.imports);
   return renderJavaExpr(e, { thisName: "root" });
 }
 

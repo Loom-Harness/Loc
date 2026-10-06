@@ -29,7 +29,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
-import { collectJavaExprImports, renderJavaExpr } from "../render-expr.js";
+import { renderJavaExpr } from "../render-expr.js";
 import { renderCreateCall, renderExplicitMatcher, renderOperationCall } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -59,19 +59,14 @@ const repoField = (aggName: string): string => `${lowerFirst(aggName)}Repository
  *  `findById` (and an optional/union custom find) returns `Optional<Agg>` → we
  *  `.orElseThrow()` so the binding is a plain `Agg` (mirrors node's non-null
  *  assertion). `getById` already returns `Agg` (throws); `findAll` a `List`. */
-function findCallOf(e: ExprIR, ctx: BoundedContextIR, imports: Set<string>): string | undefined {
+function findCallOf(e: ExprIR, ctx: BoundedContextIR): string | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
   if (!ctx.repositories.some((r) => r.aggregateName === aggName)) return undefined;
   const custom = findRepoQuery(e.member, aggName, ctx);
   if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
   const field = repoField(aggName);
-  const args = e.args
-    .map((a) => {
-      collectJavaExprImports(a, imports);
-      return renderJavaExpr(a);
-    })
-    .join(", ");
+  const args = e.args.map((a) => renderJavaExpr(a)).join(", ");
   if (e.member === "findById") return `${field}.findById(${args}).orElseThrow()`;
   if (e.member === "getById") return `${field}.getById(${args})`;
   if (e.member === "findAll") return `${field}.findAll()`;
@@ -80,18 +75,17 @@ function findCallOf(e: ExprIR, ctx: BoundedContextIR, imports: Set<string>): str
 }
 
 /** Render one integration-test statement (8-space body indent). */
-function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, imports: Set<string>): string[] {
+function renderStmt(s: TestStmtIR, ctx: BoundedContextIR): string[] {
   const I = "        ";
   switch (s.kind) {
     case "let": {
       const agg = createAggOf(s.expr, ctx);
       if (agg && s.expr.kind === "method-call" && s.expr.args[0]?.kind === "object") {
-        const create = renderCreateCall(s.expr, ctx, imports) ?? renderJavaExpr(s.expr);
+        const create = renderCreateCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
         return [`${I}var ${s.name} = ${create};`, `${I}${repoField(agg.name)}.save(${s.name});`];
       }
-      const find = findCallOf(s.expr, ctx, imports);
+      const find = findCallOf(s.expr, ctx);
       if (find) return [`${I}var ${s.name} = ${find};`];
-      collectJavaExprImports(s.expr, imports);
       return [`${I}var ${s.name} = ${renderJavaExpr(s.expr)};`];
     }
     case "expression": {
@@ -103,25 +97,20 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, imports: Set<string>):
         !s.expr.isCollectionOp
       ) {
         const aggName = s.expr.receiverType.name;
-        collectJavaExprImports(s.expr.receiver, imports);
         const recv = renderJavaExpr(s.expr.receiver);
-        const call = renderOperationCall(s.expr, ctx, imports) ?? renderJavaExpr(s.expr);
+        const call = renderOperationCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
-      collectJavaExprImports(s.expr, imports);
       return [`${I}${renderJavaExpr(s.expr)};`];
     }
     case "expect": {
-      const explicit = renderExplicitMatcher(s.expr, imports);
+      const explicit = renderExplicitMatcher(s.expr);
       if (explicit) return [`${I}${explicit}`];
-      collectJavaExprImports(s.expr, imports);
       return [`${I}assertTrue(${renderJavaExpr(s.expr)});`];
     }
     case "expect-throws": {
       const inner =
-        renderCreateCall(s.expr, ctx, imports) ??
-        renderOperationCall(s.expr, ctx, imports) ??
-        renderJavaExpr(s.expr);
+        renderCreateCall(s.expr, ctx) ?? renderOperationCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
       return [`${I}assertThrows(DomainException.class, () -> ${inner});`];
     }
     default:
@@ -129,13 +118,13 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, imports: Set<string>):
   }
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, imports: Set<string>): string[] {
+function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
   const methodName =
     t.name
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s) => renderStmt(s, ctx, imports));
+  const body = t.statements.flatMap((s) => renderStmt(s, ctx));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -159,8 +148,7 @@ export function renderJavaContextIntegrationTest(
 ): { path: string; content: string } | null {
   if (ctx.tests.length === 0) return null;
 
-  const imports = new Set<string>();
-  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, imports));
+  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx));
   while (methods[methods.length - 1] === "") methods.pop();
   const bodyStr = methods.join("\n");
 
@@ -170,6 +158,7 @@ export function renderJavaContextIntegrationTest(
       new RegExp(`\\b${a.name}\\b`).test(bodyStr),
   );
   // Feature-package wildcards for every used aggregate's entity + repository.
+  const imports = new Set<string>();
   for (const a of usedAggs) {
     imports.add(`${entityPkgOf(a.name)}.*`);
     imports.add(`${repoPkgOf(a.name)}.*`);

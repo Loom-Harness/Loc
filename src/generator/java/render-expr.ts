@@ -25,6 +25,7 @@ import {
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { jid } from "./java-ident.js";
+import { J } from "./java-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Java / Spring backend.
@@ -123,102 +124,11 @@ export function javaRepoField(aggName: string): string {
 
 const DEFAULT: JavaRenderContext = { thisName: "this" };
 
-/** Imports a rendered domain expression needs beyond `java.lang`.
- *  Pure mirror of the triggers in the leaf table below — file emitters
- *  call it over the same expressions they render to build the import
- *  header (the analog of `collectCsExprUsings`).
- *
- *  Rides `walkExprDeep` (M-T6.50 class, wave-2 packet 2.3): the recursion
- *  and the child enumeration are `walk.ts`'s, exhaustively `never`-checked —
- *  this function only adds side effects per visited kind. The hand-rolled
- *  switch it replaced skipped a block-body lambda's statements (`x => {
- *  … }`), so a `decimal`/`money` literal or `.matches(...)` call hidden
- *  inside one never triggered its import; `walkExprDeep` closes that gap. */
-export function collectJavaExprImports(e: ExprIR, into: Set<string> = new Set()): Set<string> {
-  walkExprDeep(e, (x) => addJavaExprImport(x, into));
-  return into;
-}
-
-/** The per-kind side effect `collectJavaExprImports` applies at each node —
- *  factored out (no recursion of its own) so `collectJavaStmtImports` can
- *  drive it from `walkStmtExprsDeep`'s single traversal instead of visiting
- *  every sub-expression twice. */
-export function addJavaExprImport(x: ExprIR, into: Set<string>): void {
-  switch (x.kind) {
-    case "literal":
-      if (x.lit === "now") into.add("java.time.Instant");
-      if (x.lit === "decimal" || x.lit === "money") into.add("java.math.BigDecimal");
-      break;
-    case "method-call":
-      if (isStringMatches(x)) into.add("java.util.regex.Pattern");
-      break;
-    case "binary": {
-      const lt = unwrapOptional(x.leftType);
-      if (isMoneyLike(lt)) {
-        into.add("java.math.BigDecimal");
-        if (x.op === "/") into.add("java.math.MathContext");
-      } else if ((x.op === "==" || x.op === "!=") && needsObjectsEquals(lt, x)) {
-        into.add("java.util.Objects");
-      }
-      // A5 temporal — `datetime - datetime` renders `Duration.between(…)`.
-      if (
-        x.op === "-" &&
-        x.resultType?.kind === "primitive" &&
-        x.resultType.name === "duration" &&
-        lt?.kind === "primitive" &&
-        lt.name === "datetime"
-      ) {
-        into.add("java.time.Duration");
-      }
-      break;
-    }
-    case "object":
-      into.add("java.util.Map");
-      break;
-    case "convert":
-      if (x.target === "decimal" || x.target === "money") into.add("java.math.BigDecimal");
-      break;
-    case "list":
-      into.add("java.util.List");
-      break;
-    case "duration":
-      // A5 temporal — an absolute duration constructor renders
-      // `Duration.ofDays(…)` etc.
-      into.add("java.time.Duration");
-      break;
-    // No import needed for the node ITSELF.  This is a PER-NODE callback, not a
-    // traversal: every call site drives it with `walkExprDeep` /
-    // `walkStmtExprsDeep`, so a `BigDecimal` literal or a `Pattern`-needing
-    // intrinsic nested inside any kind below is delivered here in its own
-    // right.  Named rather than left to a `default:` so a new `ExprIR` kind
-    // that DOES need an import is a `tsc` error here.
-    case "action-ref":
-    case "authz-filter":
-    case "call":
-    case "i18nFormat":
-    case "id":
-    case "lambda":
-    case "match":
-    case "member":
-    case "new":
-    case "paren":
-    case "ref":
-    case "ternary":
-    case "this":
-    case "unary":
-      break;
-    default: {
-      const _exhaustive: never = x;
-      void _exhaustive;
-    }
-  }
-}
-
 /** Collect the STRING-LITERAL regex patterns used by `string.matches("…")`
  *  anywhere in `e` (dynamic-arg matches can't be hoisted, so they're skipped).
  *  The entity / validator emitters use this to hoist each distinct pattern into
  *  a `private static final Pattern` field instead of recompiling per evaluation.
- *  Rides `walkExprDeep` (wave-2 packet 2.3) — mirrors `collectJavaExprImports`. */
+ *  Rides `walkExprDeep` (wave-2 packet 2.3). */
 export function collectJavaRegexLiterals(e: ExprIR, into: Set<string> = new Set()): Set<string> {
   walkExprDeep(e, (x) => {
     if (
@@ -247,7 +157,9 @@ export function buildJavaRegexFields(patterns: Iterable<string>): {
     if (fields.has(p)) continue;
     const name = `MATCHES_PATTERN_${fields.size}`;
     fields.set(p, name);
-    decls.push(`private static final Pattern ${name} = Pattern.compile(${JSON.stringify(p)});`);
+    decls.push(
+      `private static final ${J.Pattern} ${name} = ${J.Pattern}.compile(${JSON.stringify(p)});`,
+    );
   }
   return { fields, decls };
 }
@@ -339,7 +251,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // Bare object literals only appear in e2e / walker contexts; keep total
   // with a Map literal so unexpected uses still compile.
   object: (fields) =>
-    `Map.of(${fields.map((f) => `${JSON.stringify(f.name)}, ${f.value}`).join(", ")})`,
+    `${J.Map}.of(${fields.map((f) => `${JSON.stringify(f.name)}, ${f.value}`).join(", ")})`,
   unary: (op, operand, e) =>
     // money/decimal are `java.math.BigDecimal` here, which has no unary-minus
     // operator — `-this.price` is "bad operand type for unary operator '-'".
@@ -360,11 +272,11 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   duration: (unit, amount) => {
     switch (unit) {
       case "days":
-        return `Duration.ofDays(${amount})`;
+        return `${J.Duration}.ofDays(${amount})`;
       case "hours":
-        return `Duration.ofHours(${amount})`;
+        return `${J.Duration}.ofHours(${amount})`;
       case "minutes":
-        return `Duration.ofMinutes(${amount})`;
+        return `${J.Duration}.ofMinutes(${amount})`;
     }
   },
   match(arms, otherwise) {
@@ -413,7 +325,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   bindingRefText: (binding) => binding,
   // Union-find repos return a nullable aggregate (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != null`,
-  list: (elements) => `List.of(${elements.join(", ")})`,
+  list: (elements) => `${J.List}.of(${elements.join(", ")})`,
 };
 
 export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): string {
@@ -422,11 +334,11 @@ export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): str
 
 function renderLiteral(lit: string, value: string): string {
   if (lit === "string") return JSON.stringify(value);
-  if (lit === "now") return "Instant.now()";
+  if (lit === "now") return `${J.Instant}.now()`;
   if (lit === "null") return "null";
   // money / decimal are BigDecimal — string-sourced construction keeps
   // the literal's precision exactly (BigDecimal("10.50") ≠ valueOf(10.5)).
-  if (lit === "decimal" || lit === "money") return `new BigDecimal("${value}")`;
+  if (lit === "decimal" || lit === "money") return `new ${J.BigDecimal}("${value}")`;
   if (lit === "long") return `${value}L`;
   return value;
 }
@@ -601,7 +513,7 @@ function renderMethodCall(
         : undefined;
     return field
       ? `${field}.matcher(${recv}).find()`
-      : `Pattern.compile(${args[0]}).matcher(${recv}).find()`;
+      : `${J.Pattern}.compile(${args[0]}).matcher(${recv}).find()`;
   }
   if (e.receiverType.kind === "primitive") {
     const intrinsic = JAVA_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
@@ -645,7 +557,7 @@ export const JAVA_COLLECTION_RENDERERS: Record<
     const elem = e ? unwrapOptional(sumElementType(e)) : undefined;
     const stream = args.length === 1 ? `${recv}.stream().map(${args[0]})` : `${recv}.stream()`;
     if (isMoneyLike(elem)) {
-      return `${stream}.reduce(BigDecimal.ZERO, BigDecimal::add)`;
+      return `${stream}.reduce(${J.BigDecimal}.ZERO, ${J.BigDecimal}::add)`;
     }
     if (elem?.kind === "primitive" && elem.name === "long") {
       return args.length === 1
@@ -861,7 +773,7 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (e.op === "==" || e.op === "!=") {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
     if (needsObjectsEquals(lt, e)) {
-      return e.op === "==" ? `Objects.equals(${l}, ${r})` : `!Objects.equals(${l}, ${r})`;
+      return e.op === "==" ? `${J.Objects}.equals(${l}, ${r})` : `!${J.Objects}.equals(${l}, ${r})`;
     }
     return `${l} ${e.op} ${r}`;
   }
@@ -902,7 +814,7 @@ function renderTemporalBinary(l: string, r: string, e: BinaryExpr): string | nul
     if (lt === "datetime") {
       // datetime − datetime → Duration (Loom `a - b` = a minus b, and
       // `Duration.between(start, end)` = end − start).
-      if (e.op === "-" && rt === "duration") return `Duration.between(${r}, ${l})`;
+      if (e.op === "-" && rt === "duration") return `${J.Duration}.between(${r}, ${l})`;
       if (rt === "datetime") {
         return `${l}.${e.op === "+" ? "plus" : "minus"}(${r})`;
       }
@@ -935,7 +847,7 @@ function renderMoneyBinary(op: BinaryExpr["op"], l: string, r: string): string {
     case "/":
       // DECIMAL128 mirrors C# decimal's ~28-digit precision; a bare
       // BigDecimal.divide throws on non-terminating expansions.
-      return `${l}.divide(${r}, MathContext.DECIMAL128)`;
+      return `${l}.divide(${r}, ${J.MathContext}.DECIMAL128)`;
     case "==":
       return `${l}.compareTo(${r}) == 0`;
     case "!=":
@@ -982,7 +894,7 @@ function renderJavaConvert(target: string, from: string | undefined, v: string):
   }
   if (target === "decimal" || target === "money") {
     if (from === "money" || from === "decimal") return v;
-    return `BigDecimal.valueOf(${v})`;
+    return `${J.BigDecimal}.valueOf(${v})`;
   }
   return v;
 }
@@ -1008,17 +920,17 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         // BigDecimal is the precise type; money differs from decimal
         // only at the JSON wire boundary (string encoding), handled
         // by the DTO emitter's Jackson config.
-        return "BigDecimal";
+        return J.BigDecimal;
       case "string":
         return "String";
       case "bool":
         return mode === "reference" ? "Boolean" : "boolean";
       case "datetime":
-        return "Instant";
+        return J.Instant;
       case "guid":
-        return "UUID";
+        return J.UUID;
       case "json":
-        return "JsonNode";
+        return J.JsonNode;
       case "File":
         // Passive wire-only leaf — the shared FileRef reference record
         // (emitted once per project; see the wire emitter).
@@ -1026,11 +938,11 @@ const JAVA_TYPE_TARGET: TypeTarget = {
       case "duration":
         // A5 temporal — absolute duration as java.time.Duration.
         // Expression-only (never a field / wire type).
-        return "Duration";
+        return J.Duration;
     }
   },
   id: (targetName) => `${targetName}Id`,
-  array: (element) => `List<${element}>`,
+  array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.
   optional: (inner) => inner,
@@ -1066,29 +978,6 @@ export function renderJavaType(t: TypeIR): string {
  *  entry into the shared type dispatch. */
 export function boxedJavaType(t: TypeIR): string {
   return renderTypeWith(t, JAVA_TYPE_TARGET, "reference");
-}
-
-/** Imports `renderJavaType` output needs, per type (the emitters merge
- *  these into the file's import header). */
-export function collectJavaTypeImports(t: TypeIR, into: Set<string> = new Set()): Set<string> {
-  switch (t.kind) {
-    case "primitive":
-      if (t.name === "decimal" || t.name === "money") into.add("java.math.BigDecimal");
-      if (t.name === "datetime") into.add("java.time.Instant");
-      if (t.name === "duration") into.add("java.time.Duration");
-      if (t.name === "guid") into.add("java.util.UUID");
-      if (t.name === "json") into.add("tools.jackson.databind.JsonNode");
-      return into;
-    case "array":
-      into.add("java.util.List");
-      return collectJavaTypeImports(t.element, into);
-    case "optional":
-      return collectJavaTypeImports(t.inner, into);
-    case "genericInstance":
-      return collectJavaTypeImports(t.arg, into);
-    default:
-      return into;
-  }
 }
 
 export function javaValueTypeForId(idValueType: string): string {

@@ -22,12 +22,10 @@ import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
-import {
-  collectJavaExprImports,
-  collectJavaRegexLiterals,
-  renderJavaExpr,
-} from "../render-expr.js";
+import { J } from "../java-symbols.js";
+import { collectJavaRegexLiterals, renderJavaExpr } from "../render-expr.js";
 import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from "./wire.js";
 
 // ---------------------------------------------------------------------------
@@ -282,7 +280,7 @@ function voNestedInvokes(spec: CommandSpec): string[] {
         `        if (${accessor} != null) {`,
         `            for (int i = 0; i < ${accessor}.size(); i++) {`,
         `                errors.pushNestedPath("${jid(f.field)}[" + i + "]");`,
-        `                ValidationUtils.invokeValidator(new ${f.voClass}(), ${accessor}.get(i), errors);`,
+        `                ${VALIDATION_UTILS}.invokeValidator(new ${f.voClass}(), ${accessor}.get(i), errors);`,
         `                errors.popNestedPath();`,
         `            }`,
         `        }`,
@@ -291,7 +289,7 @@ function voNestedInvokes(spec: CommandSpec): string[] {
       out.push(
         `        if (${accessor} != null) {`,
         `            errors.pushNestedPath("${jid(f.field)}");`,
-        `            ValidationUtils.invokeValidator(new ${f.voClass}(), ${accessor}, errors);`,
+        `            ${VALIDATION_UTILS}.invokeValidator(new ${f.voClass}(), ${accessor}, errors);`,
         `            errors.popNestedPath();`,
         `        }`,
       );
@@ -300,13 +298,14 @@ function voNestedInvokes(spec: CommandSpec): string[] {
   return out;
 }
 
+const VALIDATION_UTILS = javaRef("org.springframework.validation", "ValidationUtils");
+
 function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): string | null {
   const imports = new Set<string>();
   const regexFields = new Map<string, string>();
-  const checks = buildChecks(spec, imports, regexFields);
+  const checks = buildChecks(spec, regexFields);
   const voInvokes = voNestedInvokes(spec);
   if (checks.length === 0 && voInvokes.length === 0) return null;
-  if (voInvokes.length > 0) imports.add("org.springframework.validation.ValidationUtils");
 
   // Parse-locals only for fields the checks actually reference (bare names),
   // mirroring the service's wire→domain parse so predicates run over the domain
@@ -324,9 +323,8 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
 
   const patternFields = [...regexFields].map(
     ([pat, name]) =>
-      `    private static final Pattern ${name} = Pattern.compile(${JSON.stringify(pat)});`,
+      `    private static final ${J.Pattern} ${name} = ${J.Pattern}.compile(${JSON.stringify(pat)});`,
   );
-  if (patternFields.length > 0) imports.add("java.util.regex.Pattern");
 
   return lines(
     `package ${pkg};`,
@@ -389,11 +387,7 @@ function bearsValueObject(type: TypeIR): boolean {
 /** The `if (!(predicate)) errors.rejectValue(...)` lines for one command's
  *  classified invariants — single-field shapes via `patternCheck`, everything
  *  else via a rendered generic predicate. */
-function buildChecks(
-  spec: CommandSpec,
-  imports: Set<string>,
-  regexFields: Map<string, string>,
-): string[] {
+function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): string[] {
   const ctx: ClassifyContext = { available: spec.available };
   const checks: string[] = [];
   const typeOf = (field: string): TypeIR | undefined =>
@@ -431,12 +425,10 @@ function buildChecks(
     // (`.refine(d => !(guard) || …)`) and python.  `singleFieldShape` returns
     // null for every guarded invariant (ir/validate/invariant-classify.ts), so
     // this arm is the only one a guard can reach: nothing else re-enforces it.
-    // Imports and regex literals are collected from BOTH halves — the guard is
+    // Regex literals are collected from BOTH halves — the guard is
     // rendered source like any other, and a `Pattern` field it needs is
     // otherwise never declared.  Body first, so an UNGUARDED invariant keeps
     // its existing `MATCHES_PATTERN_<n>` numbering byte-identically.
-    collectJavaExprImports(inv.expr, imports);
-    if (inv.guard) collectJavaExprImports(inv.guard, imports);
     const literals = [
       ...collectJavaRegexLiterals(inv.expr),
       ...(inv.guard ? collectJavaRegexLiterals(inv.guard) : []),

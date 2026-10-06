@@ -6,11 +6,12 @@ import type {
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
-import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
+import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import { projectionCorrIdClass } from "./projection-state.js";
-import { collectWireImports, domainToWire, wireJavaType } from "./wire.js";
+import { domainToWire, javaIdValueType, wireJavaType } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Read-only projection endpoints (projection.md), the Java read half.  For
@@ -72,17 +73,13 @@ export function renderJavaProjectionReads(
  *  read-model analogue of a workflow instance's `<Wf>InstanceResponse`. */
 function renderProjectionResponseDto(proj: ProjectionIR, pctx: ProjectionReadsCtx): string {
   const shape = proj.wireShape ?? [];
-  const wireImports = new Set<string>();
   const components = shape.map((f) => {
     guardProjectionField(proj, f);
-    collectWireImports(f.type, wireImports, "Response");
     return `${wireJavaType(f.type, "Response")} ${f.name}`;
   });
   return lines(
     `package ${pctx.pkg};`,
     ``,
-    ...[...wireImports].sort().map((i) => `import ${i};`),
-    wireImports.size > 0 ? `` : null,
     `import ${pctx.basePkg}.domain.enums.*;`,
     `import ${pctx.basePkg}.domain.ids.*;`,
     `import ${pctx.basePkg}.domain.valueobjects.*;`,
@@ -108,9 +105,10 @@ function renderProjectionsController(
     if (inner.kind !== "id") {
       throw new Error(`java projection-reads: correlation of '${proj.name}' must be id-typed`);
     }
-    return javaValueTypeForId(inner.valueType);
+    return javaIdValueType(inner.valueType);
   };
-  const anyUuid = folded.some((p) => corrValueType(p) === "UUID");
+  const forbidden = javaRef(`${pctx.basePkg}.domain.common`, "ForbiddenException");
+  const accessor = javaRef(`${pctx.basePkg}.auth`, "CurrentUserAccessor");
 
   const routes: string[] = [];
   // The `requires` gate — the folded read model's twin of the query-time
@@ -118,15 +116,10 @@ function renderProjectionsController(
   // when the predicate reads it), then 403 BEFORE the read.  Collected across
   // projections because the import set and the accessor injection are
   // controller-wide decisions.
-  const gateImports = new Set<string>();
-  let anyGate = false;
   let anyGateUsesUser = false;
   for (const proj of folded) {
     const g = proj.query?.requires;
-    if (!g) continue;
-    anyGate = true;
-    collectJavaExprImports(g, gateImports);
-    if (exprUsesCurrentUser(g)) anyGateUsesUser = true;
+    if (g && exprUsesCurrentUser(g)) anyGateUsesUser = true;
   }
   const gateLines = (proj: ProjectionIR): string[] => {
     const g = proj.query?.requires;
@@ -134,7 +127,7 @@ function renderProjectionsController(
     const gl: string[] = [];
     if (exprUsesCurrentUser(g)) gl.push(`        var currentUser = currentUserAccessor.user();`);
     gl.push(
-      `        if (!(${renderJavaExpr(g, { thisName: "this" })})) throw new ForbiddenException(${JSON.stringify(
+      `        if (!(${renderJavaExpr(g, { thisName: "this" })})) throw new ${forbidden}(${JSON.stringify(
         `Forbidden: projection ${proj.name}`,
       )});`,
     );
@@ -185,11 +178,11 @@ function renderProjectionsController(
     ...folded.map(
       (p) => `    private final ${upperFirst(p.name)}RowRepository ${projectionRepoField(p)};`,
     ),
-    ...(anyGateUsesUser ? [`    private final CurrentUserAccessor currentUserAccessor;`] : []),
+    ...(anyGateUsesUser ? [`    private final ${accessor} currentUserAccessor;`] : []),
   ];
   const ctorParams = [
     ...folded.map((p) => `${upperFirst(p.name)}RowRepository ${projectionRepoField(p)}`),
-    ...(anyGateUsesUser ? [`CurrentUserAccessor currentUserAccessor`] : []),
+    ...(anyGateUsesUser ? [`${accessor} currentUserAccessor`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...folded.map((p) => `        this.${projectionRepoField(p)} = ${projectionRepoField(p)};`),
@@ -200,20 +193,15 @@ function renderProjectionsController(
     `package ${pctx.basePkg}.api;`,
     ``,
     `import java.util.List;`,
-    anyUuid ? `import java.util.UUID;` : null,
     ``,
     `import org.springframework.http.ResponseEntity;`,
     `import org.springframework.web.bind.annotation.*;`,
     ``,
-    ...[...gateImports].sort().map((i) => `import ${i};`),
-    gateImports.size > 0 ? `` : null,
     // The 404 carrier the show route raises (M-T6.31) — unconditional, since
     // every projection emits a show route.
     `import ${pctx.basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${pctx.pkg}.*;`,
     `import ${pctx.rowRepoPkg}.*;`,
-    anyGate ? `import ${pctx.basePkg}.domain.common.ForbiddenException;` : null,
-    anyGateUsesUser ? `import ${pctx.basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${pctx.basePkg}.domain.ids.*;`,
     ``,
     `@RestController`,

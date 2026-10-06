@@ -14,9 +14,11 @@ import {
   type WireDecodeLeaf,
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
+import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { javaInstantWire } from "./wire.js";
 
@@ -175,9 +177,9 @@ function renderVoEncoders(vo: JavaVoEncode): string[] {
 }
 
 /** Java's `WireDecodeTarget` — the leaf half of the shared channel wire codec
- *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the leaves
- *  record the `java.*` imports their expressions need, and the `id` leaf needs
- *  the system's id-value-type lookup.
+ *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the `id`
+ *  leaf needs the system's id-value-type lookup (the leaves' `java.*` types
+ *  are markers, so the unit's import block is derived).
  *
  *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
  *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
@@ -186,10 +188,7 @@ function renderVoEncoders(vo: JavaVoEncode): string[] {
  *
  *  Of the five backends this is the codec that was already MOST complete: it
  *  is the only pre-port one with a real optional null-guard. */
-function javaWireDecode(
-  idValueTypeOf: (target: string) => string,
-  imports: Set<string>,
-): WireDecodeTarget {
+function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarget {
   const asString: WireDecodeLeaf = (e) => `(String) ${e}`;
   return {
     lang: "java",
@@ -198,18 +197,9 @@ function javaWireDecode(
       int: (e) => numericEncode(JAVA_NUMERIC, "int", "find-param", e),
       long: (e) => numericEncode(JAVA_NUMERIC, "long", "find-param", e),
       bool: (e) => `(Boolean) ${e}`,
-      decimal: (e) => {
-        imports.add("java.math.BigDecimal");
-        return numericEncode(JAVA_NUMERIC, "decimal", "find-param", e);
-      },
-      money: (e) => {
-        imports.add("java.math.BigDecimal");
-        return numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`);
-      },
-      datetime: (e) => {
-        imports.add("java.time.Instant");
-        return `Instant.parse((String) ${e})`;
-      },
+      decimal: (e) => numericEncode(JAVA_NUMERIC, "decimal", "find-param", e),
+      money: (e) => numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`),
+      datetime: (e) => `${J.Instant}.parse((String) ${e})`,
       string: asString,
       guid: asString,
       json: asString,
@@ -226,8 +216,7 @@ function javaWireDecode(
         return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", e)})`;
       if (vt === "long")
         return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", e)})`;
-      imports.add("java.util.UUID");
-      return `new ${targetName}Id(UUID.fromString((String) ${e}))`;
+      return `new ${targetName}Id(${J.UUID}.fromString((String) ${e}))`;
     },
     enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
     optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
@@ -248,13 +237,12 @@ function fromDataExpr(
   name: string,
   t: TypeIR,
   idValueTypeOf: (target: string) => string,
-  imports: Set<string>,
   vos?: ReadonlyMap<string, readonly FieldIR[]>,
 ): string {
   return decodeField(
     "data",
     { name, type: t, optional: t.kind === "optional" },
-    javaWireDecode(idValueTypeOf, imports),
+    javaWireDecode(idValueTypeOf),
     vos,
   );
 }
@@ -940,7 +928,6 @@ export function renderJavaChannelFiles(
     ),
   );
 
-  const codecImports = new Set<string>(["java.util.LinkedHashMap", "java.util.Map"]);
   const toArms = carried.map((ev) => {
     const puts = ev.fields.map(
       (f) =>
@@ -957,7 +944,7 @@ export function renderJavaChannelFiles(
   const fromArms = carried.map(
     (ev) =>
       `            case ${JSON.stringify(ev.name)} -> new ${ev.name}(${ev.fields
-        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, codecImports, vos))
+        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, vos))
         .join(", ")});`,
   );
   // Rendered before the header: a helper body can reach a nested VO, and
@@ -968,7 +955,8 @@ export function renderJavaChannelFiles(
     lines(
       `package ${pkg};`,
       ``,
-      ...[...codecImports].sort().map((i) => `import ${i};`),
+      `import java.util.LinkedHashMap;`,
+      `import java.util.Map;`,
       ``,
       `import ${basePkg}.domain.enums.*;`,
       `import ${basePkg}.domain.events.*;`,
@@ -1284,9 +1272,6 @@ export function renderJavaChannelFiles(
       lines(
         `package ${pkg};`,
         ``,
-        hasRedis ? `import java.util.concurrent.ExecutorService;` : null,
-        hasRedis ? `import java.util.concurrent.Executors;` : null,
-        hasRedis ? `` : null,
         `import org.springframework.context.SmartLifecycle;`,
         `import org.springframework.stereotype.Component;`,
         ``,
@@ -1320,7 +1305,7 @@ export function renderJavaChannelFiles(
           (h) => `    private final ${h.dispatcherClass} ${lowerFirst(h.dispatcherClass)};`,
         ),
         hasRedis
-          ? `    private final ExecutorService executor = Executors.newSingleThreadExecutor();`
+          ? `    private final ${javaRef("java.util.concurrent", "ExecutorService")} executor = ${javaRef("java.util.concurrent", "Executors")}.newSingleThreadExecutor();`
           : null,
         `    private volatile boolean running;`,
         ``,

@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 /** A language tag — one finalizer per tag. */
-export type ImportLang = "py";
+export type ImportLang = "py" | "java";
 
 /** A typed handle on an importable symbol. */
 export interface ImportSymbol {

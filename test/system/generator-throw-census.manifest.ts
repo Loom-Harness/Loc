@@ -13,6 +13,22 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_imports/java.ts
+  "src/generator/_imports/java.ts#finalizeJavaUnit": {
+    invariant:
+      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:109)",
+  },
+  "src/generator/_imports/java.ts#finalizeJavaUnit$2": {
+    invariant:
+      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:116)",
+  },
+  "src/generator/_imports/java.ts#finalizeJavaUnit$3": {
+    deferred:
+      "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it in and re-classify guardedBy.",
+    mission: "M-T9.86",
+    reviewUntil: "2027-01-31",
+  },
+
   // src/generator/_imports/python.ts
   "src/generator/_imports/python.ts#parseStatement": {
     invariant:

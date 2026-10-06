@@ -2,8 +2,8 @@ import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loo
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
-import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
-import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
+import { renderJavaType } from "../render-expr.js";
+import { renderJavaStatements } from "../render-stmt.js";
 import { javaStateDefault } from "./workflow-state.js";
 
 // ---------------------------------------------------------------------------
@@ -80,10 +80,6 @@ export function renderEsWorkflowFoldClass(
   const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
   const renderCtx = { thisName: "this" as const };
 
-  const javaImports = new Set<string>();
-  for (const f of fields) collectJavaTypeImports(f.type, javaImports);
-  for (const ap of wf.appliers ?? []) collectJavaStmtImports(ap.statements, javaImports);
-
   // Plain state fields — package-private so the same-package handler body reads
   // them as `state.<field>` (no accessors needed; the fold target is internal).
   const fieldLines = [
@@ -129,8 +125,6 @@ export function renderEsWorkflowFoldClass(
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
     `import java.util.List;`,
     ``,
     `import tools.jackson.databind.json.JsonMapper;`,

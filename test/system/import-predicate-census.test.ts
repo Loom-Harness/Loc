@@ -54,12 +54,22 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
   elixir: /["'`](alias|import|require|use) [A-Z][\w.]*/,
 };
 
+/** The second predicated shape: a bare qualified name pushed into an import
+ *  SET the header renders later (`imports.add("java.util.UUID")`,
+ *  `usings.add("System.Linq")`) — no `import` / `using` keyword in the literal,
+ *  so `IMPORT_LITERAL` cannot see it.  Added by M-T9.86, which found 68 on java
+ *  the original detector missed. */
+const COLLECTOR_LITERAL: Partial<Record<Backend, RegExp>> = {
+  java: /\.(add|push)\(\s*["'`](java|javax|jakarta|org|com|tools)\.[\w.*]+["'`]\s*\)/,
+  dotnet: /\.(add|push)\(\s*["'`](System|Microsoft)(\.\w+)*["'`]\s*\)/,
+};
+
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 0,
   typescript: 235,
-  dotnet: 26,
-  java: 51,
+  dotnet: 40,
+  java: 2,
   elixir: 2,
 };
 
@@ -82,6 +92,10 @@ function predicatedImportSites(backend: Backend): { file: string; line: number; 
     for (const file of tsFiles(path.join(repoRoot, root))) {
       const src = fs.readFileSync(file, "utf8").split("\n");
       src.forEach((text, i) => {
+        if (COLLECTOR_LITERAL[backend]?.test(text)) {
+          sites.push({ file: path.relative(repoRoot, file), line: i + 1, text: text.trim() });
+          return;
+        }
         const m = IMPORT_LITERAL[backend].exec(text);
         if (!m) return;
         const before = text.slice(0, m.index);
@@ -130,6 +144,9 @@ describe("hand-predicated import census (M-T9.84)", () => {
       true,
     );
     expect(probe("java", `    imports.push("import java.util.List;");`)).toBe(true);
+    expect(COLLECTOR_LITERAL.java!.test(`  if (x) imports.add("java.util.UUID");`)).toBe(true);
+    expect(COLLECTOR_LITERAL.dotnet!.test(`  usings.add("System.Linq");`)).toBe(true);
+    expect(COLLECTOR_LITERAL.java!.test(`  names.add("orderId");`)).toBe(false);
     expect(probe("elixir", `    needsRepo ? "alias MyApp.Repo" : nil,`)).toBe(true);
   });
 });

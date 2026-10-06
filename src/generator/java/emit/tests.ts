@@ -15,10 +15,12 @@ import { lines } from "../../../util/code-builder.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { javaRef } from "../../_imports/java.js";
 import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
-import { collectJavaExprImports, collectJavaTypeImports, renderJavaExpr } from "../render-expr.js";
+import { J } from "../java-symbols.js";
+import { renderJavaExpr } from "../render-expr.js";
 import { stubUserValue } from "./auth.js";
 
 // ---------------------------------------------------------------------------
@@ -92,7 +94,7 @@ function renderJavaSubjectTests(
   if (tests.length === 0) return null;
   const imports = new Set<string>();
   const state = { usesTestUser: false, userFields, ctx };
-  const methods = tests.flatMap((t) => renderTest(t, ctx, imports, state));
+  const methods = tests.flatMap((t) => renderTest(t, ctx, state));
   // Every OTHER aggregate the bodies name.  A test body may legally reach for a
   // sibling aggregate — the validator admits it, and it is the only way to
   // exercise a value object holding a CROSS-aggregate reference
@@ -111,9 +113,6 @@ function renderJavaSubjectTests(
     }
   }
   while (methods[methods.length - 1] === "") methods.pop();
-  if (state.usesTestUser) {
-    for (const f of userFields ?? []) collectJavaTypeImports(f.type, imports);
-  }
   return lines(
     `package ${pkg};`,
     ``,
@@ -124,7 +123,6 @@ function renderJavaSubjectTests(
     `import org.junit.jupiter.api.DisplayName;`,
     `import org.junit.jupiter.api.Test;`,
     ``,
-    state.usesTestUser ? `import ${basePkg}.auth.User;` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.events.*;`,
@@ -135,7 +133,9 @@ function renderJavaSubjectTests(
     `public class ${name}Tests {`,
     ...(state.usesTestUser
       ? [
-          `    private static final User __testUser = new User(${(userFields ?? [])
+          `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = new ${javaRef(`${basePkg}.auth`, "User")}(${(
+            userFields ?? []
+          )
             .map((f) => stubUserValue(f.type))
             .join(", ")});`,
           ``,
@@ -167,18 +167,13 @@ function withTestUser(expr: ExprIR, rendered: string, state: TestEmitState): str
   return rendered.replace(/\)$/, expr.args.length > 0 ? ", __testUser)" : "__testUser)");
 }
 
-function renderTest(
-  t: TestIR,
-  ctx: BoundedContextIR,
-  imports: Set<string>,
-  state: TestEmitState,
-): string[] {
+function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): string[] {
   const methodName =
     t.name
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, imports, state, i));
+  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, state, i));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -199,29 +194,18 @@ function renderTest(
  *  raw literal rather than a wire value. */
 /** Java leaves for the shared rule.  Closes over the file's import set so an
  *  emitted `UUID` / `Instant` brings its import with it. */
-function javaTestLiteral(imports: Set<string>): TestLiteralTarget {
+function javaTestLiteral(): TestLiteralTarget {
   return {
     id: (rendered, targetName, valueType) => {
-      if (valueType === "guid") {
-        imports.add("java.util.UUID");
-        return `new ${targetName}Id(UUID.fromString(${rendered}))`;
-      }
+      if (valueType === "guid") return `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`;
       return `new ${targetName}Id(${rendered})`;
     },
-    datetime: (rendered) => {
-      imports.add("java.time.Instant");
-      return `Instant.parse(${rendered})`;
-    },
+    datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
   };
 }
 
-function coerceLiteralToJavaType(
-  type: TypeIR | undefined,
-  v: ExprIR,
-  rendered: string,
-  imports: Set<string>,
-): string {
-  return coerceTestLiteral(type, v, rendered, javaTestLiteral(imports));
+function coerceLiteralToJavaType(type: TypeIR | undefined, v: ExprIR, rendered: string): string {
+  return coerceTestLiteral(type, v, rendered, javaTestLiteral());
 }
 
 /** `x.op(args)` on an aggregate receiver → the same call with each arg coerced
@@ -229,11 +213,7 @@ function coerceLiteralToJavaType(
  *  Id record, not the raw guid string).  Returns null when `e` isn't a
  *  resolvable aggregate operation call (intrinsic matcher, unknown receiver,
  *  unknown member) so the caller falls back to the plain renderer. */
-export function renderOperationCall(
-  e: ExprIR,
-  ctx: BoundedContextIR,
-  imports: Set<string>,
-): string | null {
+export function renderOperationCall(e: ExprIR, ctx: BoundedContextIR): string | null {
   if (e.kind !== "method-call" || e.isIntrinsicMatcher) return null;
   const rt = e.receiverType as { name?: string } | undefined;
   const aggName = rt?.name;
@@ -244,13 +224,11 @@ export function renderOperationCall(
     (o) => o.name === e.member,
   );
   if (!op || op.params.length === 0) return null;
-  collectJavaExprImports(e.receiver, imports);
   const recv = renderJavaExpr(e.receiver);
   const args = e.args.map((a, i) => {
-    collectJavaExprImports(a, imports);
     const rendered = renderJavaExpr(a);
     const p = op.params[i];
-    return p ? coerceLiteralToJavaType(p.type, a, rendered, imports) : rendered;
+    return p ? coerceLiteralToJavaType(p.type, a, rendered) : rendered;
   });
   return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
@@ -258,11 +236,7 @@ export function renderOperationCall(
 /** `Agg.create({...})` → the positional `Agg.create(...)` factory call,
  *  omitted create-inputs filled with their omission value (the factory
  *  takes every canonical create-input positionally). */
-export function renderCreateCall(
-  e: ExprIR,
-  ctx: BoundedContextIR,
-  imports: Set<string>,
-): string | null {
+export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | null {
   if (e.kind !== "method-call" || e.member !== "create" || e.args.length !== 1) return null;
   const objArg = e.args[0];
   const receiver = e.receiver;
@@ -273,10 +247,9 @@ export function renderCreateCall(
   const args = createInputFields(agg).map((f) => {
     const v = byName.get(f.name);
     if (v) {
-      collectJavaExprImports(v, imports);
       // A provided string literal renders as a raw value; coerce it to the
       // factory param's strong Java type (id record / Instant / …).
-      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v), imports);
+      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v));
     }
     // Java has no optional or named parameters, so an omitted create input is
     // spelled `null` — the same signal the create DTO sends, and what the
@@ -293,7 +266,6 @@ export function renderCreateCall(
     // default (see `javaFactoryDefault`), so it still renders its expression.
     const omission = createOmissionValue(f);
     if (omission.kind === "default" && isServerSourcedDefault(omission.expr)) {
-      collectJavaExprImports(omission.expr, imports);
       return renderJavaExpr(omission.expr);
     }
     return "null";
@@ -304,7 +276,7 @@ export function renderCreateCall(
 /** Explicit intrinsic matcher → a JUnit assertion.  Comparisons over
  *  BigDecimal receivers route through compareTo (BigDecimal's equals is
  *  scale-sensitive and `<`/`>` don't exist). */
-export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): string | null {
+export function renderExplicitMatcher(expr: ExprIR): string | null {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
   const sig = intrinsicMatcherSig(expr.member);
   if (sig?.on !== "value") return null;
@@ -315,10 +287,8 @@ export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): strin
     receiver = receiver.receiver;
   }
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  collectJavaExprImports(inner, imports);
   const actual = renderJavaExpr(inner);
   const arg = expr.args[0];
-  if (arg) collectJavaExprImports(arg, imports);
   const expected = arg !== undefined ? renderJavaExpr(arg) : "";
   const moneyLike =
     (inner.kind === "member" &&
@@ -366,7 +336,6 @@ export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): strin
 function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
-  imports: Set<string>,
   state: TestEmitState,
   /** Position in the enclosing test body — only used to mint a collision-free
    *  local for a `toThrow(<kind>)` assertion's bound exception. */
@@ -375,19 +344,14 @@ function renderTestStmt(
   // Only expect / expect-throws / let / expression / call survive the IR
   // validator (validateAggregateTestBodies).
   if (s.kind === "expect") {
-    const explicit = renderExplicitMatcher(s.expr, imports);
+    const explicit = renderExplicitMatcher(s.expr);
     if (explicit) return [`        ${explicit}`];
-    collectJavaExprImports(s.expr, imports);
     return [`        assertTrue(${renderJavaExpr(s.expr)});`];
   }
   if (s.kind === "expect-throws") {
     const expr =
-      renderCreateCall(s.expr, ctx, imports) ??
-      withTestUser(
-        s.expr,
-        renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
-        state,
-      );
+      renderCreateCall(s.expr, ctx) ??
+      withTestUser(s.expr, renderOperationCall(s.expr, ctx) ?? render(s.expr), state);
     // `toThrow(<kind>)` — bind the thrown `DomainException` and assert the
     // rung's derived message prefix on it.  `assertThrows` already RETURNS the
     // exception, so the rung costs one local and one assertion; the local is
@@ -412,26 +376,18 @@ function renderTestStmt(
   }
   if (s.kind === "let") {
     const expr =
-      renderCreateCall(s.expr, ctx, imports) ??
-      withTestUser(
-        s.expr,
-        renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
-        state,
-      );
+      renderCreateCall(s.expr, ctx) ??
+      withTestUser(s.expr, renderOperationCall(s.expr, ctx) ?? render(s.expr), state);
     return [`        var ${escapeJavaIdent(s.name)} = ${expr};`];
   }
   if (s.kind === "call") {
-    const args = s.args.map((a) => render(a, imports)).join(", ");
+    const args = s.args.map((a) => render(a)).join(", ");
     return [`        ${s.name}(${args});`];
   }
   if (s.kind === "expression") {
     const expr =
-      renderCreateCall(s.expr, ctx, imports) ??
-      withTestUser(
-        s.expr,
-        renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
-        state,
-      );
+      renderCreateCall(s.expr, ctx) ??
+      withTestUser(s.expr, renderOperationCall(s.expr, ctx) ?? render(s.expr), state);
     return [`        ${expr};`];
   }
   throw new Error(
@@ -439,8 +395,7 @@ function renderTestStmt(
   );
 }
 
-function render(e: ExprIR, imports: Set<string>): string {
-  collectJavaExprImports(e, imports);
+function render(e: ExprIR): string {
   return renderJavaExpr(e);
 }
 

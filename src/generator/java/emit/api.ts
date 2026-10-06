@@ -28,22 +28,25 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import { jid, requestParam } from "../java-ident.js";
-import {
-  collectJavaExprImports,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
 import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
-import { collectWireImports, wireJavaType } from "./wire.js";
+import { javaIdValueType, wireJavaType } from "./wire.js";
+
+const PROBLEM_DETAIL = javaRef("org.springframework.http", "ProblemDetail");
+const MEDIA_TYPE = javaRef("org.springframework.http", "MediaType");
+const VALID = javaRef("jakarta.validation", "Valid");
+const LOCALE = javaRef("java.util", "Locale");
+const MESSAGE_SOURCE = javaRef("org.springframework.context", "MessageSource");
+const DATA_INTEGRITY = javaRef("org.springframework.dao", "DataIntegrityViolationException");
 
 // ---------------------------------------------------------------------------
 // REST controllers + the shared exception advice.  Route shape mirrors
@@ -117,27 +120,9 @@ export function renderJavaController(
     ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
     : "";
   const ifMatchServiceArg = versioned ? ", IfMatch.expectedVersion(ifMatch)" : "";
-  const idJava = javaValueTypeForId(agg.idValueType);
-  const imports = new Set<string>(["java.util.List"]);
-  if (idJava === "UUID") imports.add("java.util.UUID");
-  // Find params surface as raw `@RequestParam <JavaType> <name>` declarations
-  // on the controller itself (unlike operation params, which travel inside
-  // generated request records that collect their own imports) — so pull in
-  // the non-java.lang types their rendered spellings reference.
-  // A synthesized find (paged-run queryHandler support) is never auto-exposed
-  // by the aggregate controller — the queryHandler's own route is the exposure.
-  for (const f of declaredFinds(repo).filter((f) => !f.synthesized)) {
-    for (const p of f.params) {
-      // An id param binds as its raw value type (see findRoutes), so pull the
-      // raw type's import — not `renderJavaType`'s `<Agg>Id` wrapper (which never
-      // mentions UUID).
-      const rendered =
-        p.type.kind === "id" ? javaValueTypeForId(p.type.valueType) : renderJavaType(p.type);
-      if (rendered.includes("BigDecimal")) imports.add("java.math.BigDecimal");
-      if (rendered.includes("Instant")) imports.add("java.time.Instant");
-      if (rendered.includes("UUID")) imports.add("java.util.UUID");
-    }
-  }
+  // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
+  // path-variable / find-param spellings below derive their own import.
+  const idJava = javaIdValueType(agg.idValueType);
 
   // Authorization gates on finds (default-deny) — a `requires <expr>` runs in
   // the controller action before delegating to the service, throwing
@@ -164,7 +149,6 @@ export function renderJavaController(
   ];
   const anyFindGate = gatedFinds.length > 0;
   const anyFindGateUsesUser = gatedFinds.some((f) => exprUsesCurrentUser(f.requires));
-  for (const f of gatedFinds) collectJavaExprImports(f.requires!, imports);
   /** Gate lines for one find action: bind the principal (when the predicate
    *  reads it) then a 403 on failure. */
   const findGateLines = (f: (typeof gatedFinds)[number]): string[] => {
@@ -181,15 +165,9 @@ export function renderJavaController(
   };
 
   const unionImports = new Set<string>();
-  let anyUnionProblem = false;
   /** Set when a find arm throws the shared find-absence 404 (RS-22/RS-27), so
    *  the controller imports `AggregateNotFoundException` only where it uses it. */
   let anyFindAbsenceThrow = false;
-  const anyReturnUnion =
-    !!ctx.boundedContext &&
-    agg.operations.some(
-      (op) => op.visibility === "public" && returnUnionSpec(op, ctx.boundedContext!),
-    );
   // Extern ops route identically — the service dispatches to the
   // user-supplied handler instead of an aggregate method.
   // The side-effect-free `can_<op>` companion of a `when`-gated operation
@@ -240,7 +218,7 @@ export function renderJavaController(
             const props = a.member.shape === "record" ? a.member.fields : [];
             return [
               `            case ${spec.name}_${a.tag} v -> {`,
-              `                var problem = ProblemDetail.forStatus(${a.status});`,
+              `                var problem = ${PROBLEM_DETAIL}.forStatus(${a.status});`,
               `                problem.setTitle(${JSON.stringify(a.title)});`,
               `                problem.setType(URI.create(${JSON.stringify(a.typeUri)}));`,
               `                problem.setDetail(${JSON.stringify(a.title)});`,
@@ -248,7 +226,7 @@ export function renderJavaController(
                 (f) =>
                   `                problem.setProperty(${JSON.stringify(f.name)}, v.${jid(f.name)}()${f.isId ? ".value()" : ""});`,
               ),
-              `                yield ResponseEntity.status(${a.status}).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);`,
+              `                yield ResponseEntity.status(${a.status}).contentType(${MEDIA_TYPE}.APPLICATION_PROBLEM_JSON).body(problem);`,
               `            }`,
             ];
           }
@@ -261,7 +239,7 @@ export function renderJavaController(
         return [
           opMapping,
           hasParams
-            ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
+            ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
             : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
@@ -288,11 +266,10 @@ export function renderJavaController(
         // it sits in a generic position — `ResponseEntity<boolean>` doesn't
         // compile (`operation taken(): bool`).
         const wireRet = wireJavaType(op.returnType, "Response", true);
-        collectWireImports(op.returnType, imports, "Response");
         return [
           opMapping,
           hasParams
-            ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
+            ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
             : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
@@ -309,7 +286,7 @@ export function renderJavaController(
         opMapping,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         hasParams
-          ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
+          ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
           : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
         `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
@@ -338,7 +315,7 @@ export function renderJavaController(
       // bare `@RequestParam` for every other name, so output is unmoved.
       const declared = f.params.map((p) =>
         p.type.kind === "id"
-          ? `${requestParam(p.name)} ${javaValueTypeForId(p.type.valueType)} ${jid(p.name)}`
+          ? `${requestParam(p.name)} ${javaIdValueType(p.type.valueType)} ${jid(p.name)}`
           : `${requestParam(p.name)} ${renderJavaType(p.type)} ${jid(p.name)}`,
       );
       const params = declared.join(", ");
@@ -374,17 +351,16 @@ export function renderJavaController(
                 const status =
                   ctx.boundedContext?.errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag);
                 return [
-                  `            var problem = ProblemDetail.forStatus(${status});`,
+                  `            var problem = ${PROBLEM_DETAIL}.forStatus(${status});`,
                   `            problem.setTitle(${JSON.stringify(errorTitle(tag))});`,
                   `            problem.setType(URI.create(${JSON.stringify(errorTypeUri(tag))}));`,
                   `            problem.setDetail(${JSON.stringify(errorTitle(tag))});`,
                   ...(spec.absent.hasResource
                     ? [`            problem.setProperty("resource", "${agg.name}");`]
                     : []),
-                  `            return ResponseEntity.status(${status}).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);`,
+                  `            return ResponseEntity.status(${status}).contentType(${MEDIA_TYPE}.APPLICATION_PROBLEM_JSON).body(problem);`,
                 ];
               })();
-        if (spec.absent.kind !== "none") anyUnionProblem = true;
         return [
           `    @GetMapping("${relativeOpPath(entry)}")`,
           `    public ResponseEntity<?> ${f.name}${agg.name}(${params}) {`,
@@ -461,7 +437,7 @@ export function renderJavaController(
   const createRoute = createEntry
     ? [
         `    @PostMapping${relativeOpPath(createEntry) === "" ? "" : `("${relativeOpPath(createEntry)}")`}`,
-        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody Create${agg.name}Request request) {`,
+        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@${VALID} @RequestBody Create${agg.name}Request request) {`,
         `        var id = service.create${agg.name}(request);`,
         `        CatalogLog.event(${javaLogEvent("aggregateCreated")}, "aggregate", "${agg.name}", "id", id.value());`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "create");`,
@@ -520,11 +496,9 @@ export function renderJavaController(
     `package ${ctx.pkg};`,
     ``,
     `import java.net.URI;`,
-    ...[...imports].sort().map((i) => `import ${i};`),
+    `import java.util.List;`,
     ``,
     `import org.springframework.http.HttpStatus;`,
-    anyReturnUnion || anyUnionProblem ? `import org.springframework.http.MediaType;` : null,
-    anyReturnUnion || anyUnionProblem ? `import org.springframework.http.ProblemDetail;` : null,
     `import org.springframework.http.ResponseEntity;`,
     `import org.springframework.web.bind.annotation.*;`,
     ``,
@@ -550,17 +524,6 @@ export function renderJavaController(
     `import ${ctx.basePkg}.domain.enums.*;`,
     `import ${ctx.basePkg}.config.CatalogLog;`,
     `import ${ctx.basePkg}.config.HttpMetrics;`,
-    // `@Valid` triggers Bean Validation on the request DTOs (`@Size`/`@Pattern`/…)
-    // at the controller boundary; emitted only when the controller takes a body.
-    createEntry !== undefined || agg.operations.some((o) => o.params.length > 0)
-      ? `import jakarta.validation.Valid;`
-      : null,
-    // WebDataBinder for the @InitBinder that registers this aggregate's command
-    // validators — only when at least one is emitted.
-    javaCommandValidatorNames(agg, ctx.boundedContext ? valueObjectPool(ctx.boundedContext) : [])
-      .length > 0
-      ? `import org.springframework.web.bind.WebDataBinder;`
-      : null,
     ``,
     `@RestController`,
     `@RequestMapping("${ctx.routePrefix ?? ""}/${route}")`,
@@ -596,7 +559,7 @@ function initBinderLines(
   if (validators.length === 0) return [];
   return [
     `    @InitBinder`,
-    `    void initBinder(WebDataBinder binder) {`,
+    `    void initBinder(${javaRef("org.springframework.web.bind", "WebDataBinder")} binder) {`,
     `        var target = binder.getTarget();`,
     ...validators.map(
       (v) =>
@@ -896,16 +859,10 @@ export function renderApiExceptionAdvice(
     // The integrity handler (+ its import) is emitted when some aggregate declares
     // a `unique (...)` key OR a hard delete here can trip a still-referenced FK — a
     // project that can do neither stays byte-identical.
-    hasIntegrityHandler && `import org.springframework.dao.DataIntegrityViolationException;`,
     // The optimistic-lock → 409 handler (+ its import) is emitted only when some
     // aggregate is `versioned` — a version-free project stays byte-identical.
-    hasVersioned && `import org.springframework.orm.ObjectOptimisticLockingFailureException;`,
     // MessageSource + the request locale (M-T1.11) — only when this project ships
     // a message bundle, so a message-less app's imports are unchanged.
-    localizeMessages && `import java.util.Locale;`,
-    localizeMessages && `import org.springframework.context.MessageSource;`,
-    localizeMessages && `import org.springframework.context.NoSuchMessageException;`,
-    localizeMessages && `import org.springframework.validation.FieldError;`,
     `import org.springframework.http.HttpStatus;`,
     `import org.springframework.http.MediaType;`,
     `import org.springframework.http.ProblemDetail;`,
@@ -931,10 +888,10 @@ export function renderApiExceptionAdvice(
     `@RestControllerAdvice`,
     `public class ApiExceptionAdvice {`,
     `    private final HttpMetrics httpMetrics;`,
-    localizeMessages && `    private final MessageSource messages;`,
+    localizeMessages && `    private final ${MESSAGE_SOURCE} messages;`,
     ``,
     localizeMessages
-      ? `    public ApiExceptionAdvice(HttpMetrics httpMetrics, MessageSource messages) {`
+      ? `    public ApiExceptionAdvice(HttpMetrics httpMetrics, ${MESSAGE_SOURCE} messages) {`
       : `    public ApiExceptionAdvice(HttpMetrics httpMetrics) {`,
     `        this.httpMetrics = httpMetrics;`,
     localizeMessages && `        this.messages = messages;`,
@@ -957,7 +914,7 @@ export function renderApiExceptionAdvice(
     // disagree.  It carries the Accept-Language header verbatim, so
     // forLanguageTag gets the first listed tag.
     localizeMessages &&
-      `        var locale = Locale.forLanguageTag(RequestContext.locale().split(",")[0].split(";")[0].trim());`,
+      `        var locale = ${LOCALE}.forLanguageTag(RequestContext.locale().split(",")[0].split(";")[0].trim());`,
     `        problem.setProperty("errors", e.getBindingResult().getFieldErrors().stream()`,
     `            .map(err -> {`,
     `                var entry = new java.util.LinkedHashMap<String, Object>();`,
@@ -983,10 +940,12 @@ export function renderApiExceptionAdvice(
     // turn this 422 into a 500.  Fall back to the pre-catalog behaviour instead —
     // the same "a render must survive a message shape the DSL admits" reasoning as
     // the Phoenix backend's error-opt stringifier.
-    localizeMessages && `    private String resolveMessage(FieldError err, Locale locale) {`,
+    localizeMessages &&
+      `    private String resolveMessage(${javaRef("org.springframework.validation", "FieldError")} err, ${LOCALE} locale) {`,
     localizeMessages && `        try {`,
     localizeMessages && `            return messages.getMessage(err, locale);`,
-    localizeMessages && `        } catch (NoSuchMessageException ex) {`,
+    localizeMessages &&
+      `        } catch (${javaRef("org.springframework.context", "NoSuchMessageException")} ex) {`,
     localizeMessages && `            return err.getDefaultMessage();`,
     localizeMessages && `        }`,
     localizeMessages && `    }`,
@@ -1038,7 +997,7 @@ export function renderApiExceptionAdvice(
           `        var entry = new java.util.LinkedHashMap<String, Object>();`,
           `        entry.put("pointer", pointer);`,
           localizeMessages
-            ? `        entry.put("message", ruleCode == null ? e.getMessage() : messages.getMessage(ruleCode, null, e.getMessage(), Locale.forLanguageTag(RequestContext.locale().split(",")[0].split(";")[0].trim())));`
+            ? `        entry.put("message", ruleCode == null ? e.getMessage() : messages.getMessage(ruleCode, null, e.getMessage(), ${LOCALE}.forLanguageTag(RequestContext.locale().split(",")[0].split(";")[0].trim())));`
             : `        entry.put("message", e.getMessage());`,
           `        if (ruleCode != null) entry.put("code", ruleCode);`,
           `        problem.setProperty("errors", java.util.List.of(entry));`,
@@ -1085,8 +1044,8 @@ export function renderApiExceptionAdvice(
     `    }`,
     ``,
     hasIntegrityHandler && [
-      `    @ExceptionHandler(DataIntegrityViolationException.class)`,
-      `    public ResponseEntity<ProblemDetail> onConflict(DataIntegrityViolationException e, WebRequest request) {`,
+      `    @ExceptionHandler(${DATA_INTEGRITY}.class)`,
+      `    public ResponseEntity<ProblemDetail> onConflict(${DATA_INTEGRITY} e, WebRequest request) {`,
       `        // A DB constraint tripped; Spring translates it to DataIntegrityViolationException.`,
       `        // Discriminate by Postgres SQLState.  The two FK arms are told apart by`,
       `        // the code alone: a cross-aggregate \`X id\` FK is \`ON DELETE RESTRICT\`, so`,
@@ -1123,7 +1082,7 @@ export function renderApiExceptionAdvice(
     ],
     hasVersioned && [
       `    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)`,
-      `    public ResponseEntity<ProblemDetail> onConcurrencyConflict(ObjectOptimisticLockingFailureException e, WebRequest request) {`,
+      `    public ResponseEntity<ProblemDetail> onConcurrencyConflict(${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")} e, WebRequest request) {`,
       `        // A \`versioned\` aggregate's optimistic-lock check failed — either the`,
       `        // client's If-Match expected version was stale (think-time CAS) or the`,
       `        // load→save window lost a race (the repository's guarded version bump`,
