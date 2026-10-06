@@ -78,7 +78,11 @@ import {
 import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
-import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
+import {
+  felizRealtimeRefetchAggregates,
+  renderFelizRealtime,
+  renderFelizUpdateToast,
+} from "./realtime.js";
 import { FELIZ_REF_LABEL, FELIZ_REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import {
   felizPersistedStores,
@@ -90,6 +94,7 @@ import {
   storeUrlUpdateArm,
 } from "./store-persist.js";
 import {
+  FELIZ_UPDATE_TOAST,
   msgCase,
   renderInit,
   renderModel,
@@ -1591,6 +1596,7 @@ function renderAppFs(
   // already knows.  Purely additive — it can turn the open ON where it was
   // missing, never off, so every app that compiled before is byte-identical.
   const viewsNavigate = views.some((v) => v.includes("Router."));
+  const updateToasts = update.includes(`${FELIZ_UPDATE_TOAST} (`);
 
   return lines(
     "module App",
@@ -1706,6 +1712,10 @@ function renderAppFs(
     pageCmd || undefined,
     "",
     init,
+    // A named action's `toast(…)` — the binding `update` calls through a
+    // `Cmd.ofEffect`, declared only when `update` actually calls it.
+    updateToasts ? "" : false,
+    updateToasts ? renderFelizUpdateToast(FELIZ_UPDATE_TOAST) : false,
     "",
     update,
     // The persistence write-back wrapper + the `url` tier's `popstate`

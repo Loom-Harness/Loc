@@ -239,7 +239,7 @@ export function validateLiveViewHoisting(sys: SystemIR, diags: LoomDiagnostic[])
  *  the FIRST hosted ui only.  Same idiom as `validateUiRealtimeSupport` /
  *  `validateFlutterPrimitiveSupport`. */
 
-function mountedUis(sys: SystemIR, d: DeployableIR): { ui: UiIR; fw: string }[] {
+export function mountedUis(sys: SystemIR, d: DeployableIR): { ui: UiIR; fw: string }[] {
   const uiNames = d.hostedUiNames.length > 0 ? d.hostedUiNames : d.uiName ? [d.uiName] : [];
   const out: { ui: UiIR; fw: string }[] = [];
   for (const uiName of uiNames) {

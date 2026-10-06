@@ -118,6 +118,10 @@ import {
   validateUiBackendBindings,
   validateUiReadsServed,
 } from "./checks/ui-backend-binding-checks.js";
+import {
+  validateUiBodyRules,
+  validateUiBodyVocabulary,
+} from "./checks/ui-body-vocabulary-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
@@ -220,6 +224,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
     validateUiBodyStatementKinds(sys, diags);
+    validateUiBodyRules(sys, diags);
+    validateUiBodyVocabulary(sys, diags);
     validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);

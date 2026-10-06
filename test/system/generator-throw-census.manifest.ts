@@ -266,10 +266,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every shared-walker target implements renderRouteId. (tsx-target.ts:398, vue-target.ts:393, svelte-target.ts:325, angular-target.ts:330, feliz-target.ts:381, flutter-target.ts:315)",
   },
   "src/generator/_walker/walker-core.ts#emitExpr$4": {
-    deferred:
-      "No validator rejects `this` in a page/component body: `Text { this.name }` in a ui page parses with 0 errors and crashes react/vue/svelte/angular generation.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-this-unbound"],
+    note: "validateUiBodyRules (ui-body-vocabulary-checks.ts) refuses `this` in every page / component / store surface the walker renders: bodies, titles, derived, state inits and action bodies.",
   },
   "src/generator/_walker/walker-core.ts#emitExpr$5": {
     invariant:
@@ -288,10 +286,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
   },
   "src/generator/_walker/walker-core.ts#unsupportedPageStmt": {
-    deferred:
-      "A page action that assigns (`:=` or `+=`) to a name that is not a declared state field parses with 0 errors. Example: `action bump() { other := 1 }`. Only if/precondition/requires are gated (loom.if-stmt-page-body-unsupported / loom.ui-body-statement-kind).",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.ui-assign-not-state",
+      "loom.ui-body-statement-kind",
+      "loom.if-stmt-page-body-unsupported",
+    ],
+    note: "Callers: a `:=` / `+=` / `-=` whose root is not a state field of the host (loom.ui-assign-not-state, every action of every page / component / store, nested arms included); return / precondition / requires (loom.ui-body-statement-kind); if (loom.if-stmt-page-body-unsupported); emit does not resolve in ui scope (phase ③); every shared-walker target implements renderVariantMatch.",
   },
   "src/generator/_walker/walker-core.ts#walk": {
     invariant:
@@ -779,22 +779,21 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "AST validator rejects a match with zero arms and no else.",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$3": {
-    deferred:
-      "An effect-free block-body lambda (only let statements) in a page action passes loom.effect-in-lambda and every other gate, then crashes.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "UI_BODY_FEATURE_RENDERERS['block-lambda-in-action'] omits feliz; any block lambda in a page / component / store action body is refused on a Feliz host.",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$4": {
-    deferred:
-      "'b := this.b' (kind 'this') or 'let f = say' (kind 'action-ref') in a page action parse with 0 errors and hit the default arm.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-this-unbound", "loom.ui-body-feature-unsupported"],
+    note: "The kinds reaching the default arm: `this` (loom.ui-this-unbound, target-neutral) and `action-ref` (UI_BODY_FEATURE_RENDERERS['action-ref-value'] omits feliz); `authz-filter` is built only by enrichment into aggregate filters, never a ui body.",
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
-    deferred:
-      "A page action using a collection/string method outside the small F# set (reverse, indexOf, concat, none, find, append, toString, format...) parses clean and crashes; no frontend method-vocabulary gate covers the feliz update path.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.intrinsic-unknown",
+      "loom.unknown-member",
+      "loom.frontend-collection-op-unsupported",
+      "loom.ui-body-feature-unsupported",
+    ],
+    note: "A method on a typed primitive / list / value-object receiver outside the stdlib is refused target-neutrally (intrinsic-unknown / unknown-member, validateUiBodyRules — an action-body lambda param counts as typed); the eight unrendered catalogue ops by frontend-collection-op-unsupported; `matches` and `filter` by the per-target table (string-regex-match / array-filter). Every remaining member — the intrinsic catalogue, the nine rendered ops, `length` — has an arm (ui-body-vocabulary-census.test.ts generates each).",
   },
 
   // src/generator/feliz/index.ts
@@ -823,16 +822,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/feliz/update-emit.ts
   "src/generator/feliz/update-emit.ts#renderUpdateStmt": {
-    deferred:
-      "toast(...) in a page action lowers as a private-operation call; loom.unresolved-action-ref exempts it as a view-effect builtin but feliz has only a navigate arm. Also: an unresolved call foo() inside a STORE action is not checked by unresolved-action-ref.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.unresolved-action-ref"],
+    note: "`toast(…)` now renders (Cmd.ofEffect → updateToast). Every other private-operation call in a page / component / store action body is refused by loom.unresolved-action-ref, which now walks store action bodies too.",
   },
   "src/generator/feliz/update-emit.ts#renderUpdateStmt$2": {
-    deferred:
-      "A match await nested inside another match-await arm on a :id page (or any match await in a store action) is never projected and no gate refuses it (feliz-async-effect-unsupported only flags component hosts; stores are not scanned).",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported", "loom.feliz-async-effect-unsupported"],
+    note: "A variant-match reaches the per-statement renderer only nested in another arm (nested-async-effect), in a store action (store-async-effect) or beside sibling statements (async-effect-with-siblings) — all omit feliz in UI_BODY_FEATURE_RENDERERS; a component host is loom.feliz-async-effect-unsupported.",
   },
   "src/generator/feliz/update-emit.ts#renderUpdateStmt$3": {
     guardedBy: ["loom.ui-body-statement-kind", "loom.if-stmt-page-body-unsupported"],
@@ -849,28 +844,20 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A QueryView read naming anything other than all/byId/history/a declared find is refused (tried create/delete/undeclared names).",
   },
   "src/generator/feliz/wire.ts#felizFindRead": {
-    deferred:
-      "A find returning a non-aggregate shape (string[], int) read in a feliz QueryView parses clean and crashes.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "felizFindReturnDecodable (ir/util/feliz-find-read.ts) is shared with the gate: feature find-read-non-aggregate-return omits feliz.",
   },
   "src/generator/feliz/wire.ts#felizFindRead$2": {
-    deferred:
-      "Find call arity is not checked: QueryView { of: C.Thing.byName() } (or bare C.Thing.byName, or 2 args) against a 1-param find parses with 0 errors.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-find-call-arity"],
+    note: "Target-neutral: a find read in any page / component read primitive with a different argument count than the find's params is refused.",
   },
   "src/generator/feliz/wire.ts#findParamQueryValue": {
-    deferred:
-      "A repository find with a list (or other non-scalar) parameter read in a feliz QueryView parses clean and crashes; no feliz find-shape gate.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "felizFindParamSupported (ir/util/feliz-find-read.ts) gates both this function and the validator: feature find-read-composite-param omits feliz.",
   },
   "src/generator/feliz/wire.ts#walk": {
-    deferred:
-      "A find read nested in a For/data lambda passing the row binding (C.Thing.byName(r.name)) is valid but the argument isn't a state cell/store field.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "felizFindArgRefResolvable (ir/util/feliz-find-read.ts) is the shared predicate: feature find-read-unbound-arg omits feliz.",
   },
 
   // src/generator/flutter/auth-gate.ts
@@ -907,16 +894,17 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/flutter/riverpod-emit.ts
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt": {
-    deferred:
-      "loom.unresolved-action-ref does not scan STORE action bodies, so a typo'd/unknown call foo() in a store action parses clean and crashes the flutter store notifier.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.unresolved-action-ref"],
+    note: "navigate / toast render; any other private-operation call in a page, component or store action body is refused by loom.unresolved-action-ref (store bodies are now walked).",
   },
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt$2": {
-    deferred:
-      "A match await nested inside a page match-await arm (or any match await in a store action) reaches the default arm; the page interceptor only handles top-level ones and no gate covers nested/store cases.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.ui-body-feature-unsupported",
+      "loom.ui-body-statement-kind",
+      "loom.if-stmt-page-body-unsupported",
+      "loom.flutter-async-effect-unsupported",
+    ],
+    note: "variant-match reaches here only nested in another arm or in a store action (nested-async-effect / store-async-effect omit flutter); a component host is loom.flutter-async-effect-unsupported; return / precondition / requires and if have their own gates.",
   },
   "src/generator/flutter/riverpod-emit.ts#renderVariantMatchNotifier": {
     guardedBy: [

@@ -2915,6 +2915,51 @@ system P {
     }`,
   ),
 
+  // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
+  // Each validated clean and then crashed `generate system`: the shared JS
+  // walker (`this`, a write to a non-state name), the Feliz find-read builder
+  // (arity), the Feliz MVU renderer (a block lambda in an action).
+  "loom.ui-this-unbound": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { s: string = "" }
+      body: Stack { Text { this.s } }
+    }`,
+  ),
+  "loom.ui-assign-not-state": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { count: int = 0 }
+      action bump() { other := 1 }
+      body: Stack { Button { "Bump", onClick: bump } }
+    }`,
+  ),
+  "loom.ui-find-call-arity": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      body: QueryView { of: Sales.Order.byCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
+    }`,
+  ).replace(
+    "repository Orders for Order { }",
+    "repository Orders for Order { find byCode(code: string): Order[] where this.code == code }",
+  ),
+  "loom.ui-body-feature-unsupported": flutterUi(
+    `    page Detail(id: Order id) {
+      route: "/orders/:id"
+      state { msg: string = "" }
+      action go() {
+        match await Shop.Order.confirm() {
+          Order o => { match await Shop.Order.confirm() { Order p => { msg := p.code } else => { msg := "b" } } }
+          else => { msg := "u" }
+        }
+      }
+      body: Stack { Button { "Go", onClick: go } }
+    }`,
+  ),
+
   // A `menu` link naming a page that does not exist.  The linker already
   // reports the bare unresolved reference; this check is the one that names
   // what IS linkable — and a scaffolded page is named by ROLE inside a
