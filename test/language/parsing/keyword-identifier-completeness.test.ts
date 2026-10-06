@@ -37,6 +37,7 @@ import { parseHelper } from "langium/test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import { DddGrammar } from "../../../src/language/generated/grammar.js";
+import { lowerFirst, plural, snake, upperFirst } from "../../../src/util/naming.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT = path.join(here, "keyword-identifier-coverage.snapshot.json");
@@ -140,6 +141,23 @@ const DOMAIN_WORD_FLOOR = [
 // coverage is looser across the six lists and is governed by the snapshot only.
 // `fieldNameAfterField` is a floor position too: "you can name a field
 // `secret`" is not a guarantee if it only holds when the field comes first.
+/** The keywords that are the canonical PLURAL e2e slug of some aggregate name
+ *  (`api.<snake(plural(Name))>` / `api.<lowerFirst(plural(Name))>` — the two
+ *  plural forms `slugNamesAggregate` in `src/system/e2e-render.ts` accepts).
+ *  Derived, not listed: each keyword is un-pluralised by the three inverse
+ *  rules of `plural()` and kept when a candidate re-pluralises onto it. */
+function pluralSlugKeywords(keywords: readonly string[]): string[] {
+  return keywords.filter((k) => {
+    const stems = [k.slice(0, -1), k.slice(0, -2), `${k.slice(0, -3)}y`].filter(
+      (s) => s.length > 0,
+    );
+    return stems.some((stem) => {
+      const name = upperFirst(stem);
+      return snake(plural(name)) === k || lowerFirst(plural(name)) === k;
+    });
+  });
+}
+
 const FLOOR_POSITIONS = [
   "fieldName",
   "fieldNameAfterField",
@@ -193,6 +211,50 @@ describe("keyword-as-identifier completeness (M-T5.18 Track B)", () => {
       breaks,
       `A keyword stole a common domain identifier. Re-admit it as a soft keyword in the failing position's rule (LooseName / NameRefIdent / PropertyName):\n  ${breaks.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  // SLUG FLOOR (wave C3 D2).  `aggregate Claim` declares cleanly, but its
+  // canonical e2e slug `claims` is the `auth { claims: … }` keyword, so
+  // `api.claims.all()` failed to parse in a `test e2e` block — the aggregate
+  // was declarable and unaddressable.  Every keyword that is the plural slug
+  // of SOME aggregate name must be admitted after a `.` (`MemberName`).
+  it("every keyword that is an aggregate's plural e2e slug parses as a member", async () => {
+    const slugs = pluralSlugKeywords(grammarKeywords());
+    // Vacuity guard: the defect's own keyword is in the derived set.
+    expect(slugs).toContain("claims");
+    const breaks = slugs.filter((k) => !(coverage[k] ?? []).includes("memberAccess"));
+    expect(
+      breaks,
+      `A plural-shaped keyword is some aggregate's e2e slug (api.<slug>) and does not parse after a '.'. Admit it in MemberName (src/language/ddd.langium): ${breaks.join(", ")}`,
+    ).toEqual([]);
+    // The same slug as a CALL STATEMENT (`api.claims.file(rec)` on its own
+    // line) goes through `LValue`'s tail, not `MemberName`.
+    const stmtBreaks: string[] = [];
+    for (const k of slugs) {
+      const src = `context C { aggregate A { name: string\n operation op() { api.${k}.go() } } }`;
+      if (!(await parsesClean(src))) stmtBreaks.push(k);
+    }
+    expect(
+      stmtBreaks,
+      `A plural-slug keyword does not parse as a call-statement segment (api.<slug>.<op>(…)). Admit it in LValueTail via PluralSlugKeyword: ${stmtBreaks.join(", ")}`,
+    ).toEqual([]);
+    // The e2e surface itself, not just the probe position.
+    const doc = await parse(`system S {
+      subdomain D { context C {
+        aggregate Claim with crudish { title: string }
+        repository Claims for Claim { }
+      } }
+      api A from D
+      storage pg { type: postgres }
+      resource st { for: C, kind: state, use: pg }
+      deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+      test e2e "addressable" against d {
+        let c = api.claims.create({ title: "x" })
+        api.claims.update(c, { title: "y" })
+        expect(api.claims.getById(c).title).toBe("y")
+      }
+    }`);
+    expect(doc.parseResult.parserErrors.map((e) => e.message)).toEqual([]);
   });
 
   it("keyword identifier-coverage matches the committed snapshot", () => {

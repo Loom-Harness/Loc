@@ -322,7 +322,8 @@ system Demo {
     expect(advice).toContain(
       'problem.setProperty("errors", e.getBindingResult().getFieldErrors().stream()',
     );
-    expect(advice).toContain('problem(403, "Forbidden", e.getMessage(), request), 403');
+    // No dev-stub verifier in this model: the 403 body is the constant (ruling D4, #20).
+    expect(advice).toContain('problem(403, "Forbidden", "Forbidden", request), 403');
     expect(advice).toContain('problem(422, "Unprocessable Entity", e.getMessage(), request), 422');
     expect(advice).toContain('problem(404, "Not Found", e.getMessage(), request), 404');
   });
