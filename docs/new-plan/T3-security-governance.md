@@ -96,14 +96,7 @@ Sources: [execution-context](../old/proposals/execution-context.md), D-CTX-SHAPE
 Signup/invite/role-assignment flows as macro-level batteries over the OIDC boundary (production-readiness §3.6); tenant provisioning/onboarding hooks into the registry.
 Sources: [production-readiness](../old/proposals/production-readiness.md) §3.6, [quickstart-and-day-one-batteries](../old/proposals/quickstart-and-day-one-batteries.md) `saas` template.
 
-## M-T3.14 — SAST over generated auth/tenancy code — `open` · **M** · P2
-Generated security-sensitive code (the OIDC PKCE/refresh-rotation flow, the tenant-isolation query predicates) gets the same correctness gates as any other emitter — but no *security* scanning. Run a focused CodeQL/semgrep ruleset over the emitted auth + tenancy source across all five backends: leaked/hardcoded secrets, a PKCE `state`/`nonce` check omitted on a code path, a tenant predicate missing from one query site, tokens logged. Generated security code deserves generated-code security scanning; the ruleset is small and targeted (not a general SAST sweep). Nightly / `security` label.
-Sources: `docs/auth.md` (D-AUTH-OIDC), `docs/tenancy.md`; pairs with M-T3.13 (static twin of the runtime deny gate).
-
-
----
-
-## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `open` · **M** · P1
+## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `partial` (the diagnostic slice `loom.default-deny-by-id-ungated` landed; the gate SURFACE + five route emitters remain) · **M** · **P0** (raised 2026-09-29 by wave L0: C5 moment 5d made `denyByDefault` the language default, so the hole is on every auth model) · security
 
 Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with `auth { enforcement: denyByDefault }` + `user {}` + `auth: required` on the deployable, one aggregate, and `find all(): Product[] requires true`:
 
@@ -133,4 +126,32 @@ The model validates `0 error(s), 0 warning(s)`. So the list read is gated and th
 
 **Verification when it lands.** A negative validator case per the deny-by-default fixture set; a 403 case on the byId route on all five backends; and the generated node project booted, asserting an ungated caller is refused. Mutation-proof by file-copy revert.
 
-Claimed by the #2861 author. Coordinate with #2877 — same ruling, adjacent surface, disjoint files.
+**Why P0 now (2026-09-29).** Wave C5 moment 5d (M-T3.1) made `denyByDefault` the default enforcement mode, so an unset `enforcement:` now means `denyByDefault` — the synthesised `GET /<plural>/{id}` is ungated on **every** auth-bearing model, not just the ones that opted in, and `loom.default-deny-by-id-ungated` (`src/ir/validate/checks/default-deny-checks.ts:222`) fires as a warning on all of them. No PR claims it (#2861 merged 2026-09-14; the old "claimed by the #2861 author" line was stale). Owned by packet **L1-SEC** of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (item P1), alongside **M-T3.20** (the tenancy-stamp refusal). #2877 (`crudish(requires:)`) merged — same ruling, adjacent surface.
+
+**Commons F-006 folds in here (2026-09-29, wave L0).** The [Commons audit](../audits/2026-09-13-commons-dev-experience.md)'s F-006 — `denyByDefault` does not gate the auto-`findAll` list route — is the same hole on the list side, and still true: `src/ir/validate/checks/default-deny-checks.ts:231-238` skips `find.name === "all"` and synthesized finds with no diagnostic at all (not even the by-id warning). The surface this mission builds for the by-id read should cover the injected `find all` too, or the exemption needs its own warning; `coverage.md` was its only pointer.
+
+## M-T3.20 — A principal with no tenancy claim gets a 500 on every write, not a refusal naming the claim — `open` · **M** · P1 · security
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-SEC (leftover-waves-2026-09-28).**
+
+Item **S1** — the F-018 of [#2948](https://github.com/Loom-Harness/Loc/pull/2948) (the auth-bootstrap/overwrite-visibility PR, **closed without merging**; not the Commons audit's F-018, which is [M-T8.27](T8-dx-tooling-ai.md#m-t827)). #2948's other two fixes (F-031 hand-edit overwrite report, F-016 Keycloak claim mappers) reached `main` independently; **this one is genuinely unclaimed.**
+
+Under `tenancy by user.<claim>`, `with tenantOwned` gives an aggregate a NOT NULL `tenant_id` column and an `onCreate` stamp from `currentUser.<claim>`. A token that omits the claim — routine, an IdP emits a tenant claim only for users who have one — makes the stamp null. Reads survive (the filter binds NULL, an empty read, as `docs/tenancy.md` promises), but the **write binds null into the NOT NULL column and returns an opaque `500 {"detail":"internal"}`** instead of a 403 naming the missing claim.
+
+**Salvage on the closed branch** (commit `af086265` on `claude/fix-auth-bootstrap-and-overwrite-visibility`): `src/ir/util/principal-stamp.ts` (115 lines — which stamps must refuse rather than write null: a claim-valued stamp into a NON-optional column; an optional target such as `tenantOwned`'s `dataKey: string?` and a bare `currentUser` stamp are deliberately not guarded) was never imported, and `test/system/tenant-stamp-refusal.test.ts` (a five-backend refusal gate over one model) **fails against `main` on four backends** — node's shared stamp helper, the .NET SaveChanges interceptor, python's stamp method and java's `@PrePersist` each still write the null (verified by the fleet lead 2026-09-29).
+
+**The fix:** land the IR helper on `main`, render the refusal at each backend's own stamp site in its own 403 idiom, with the claim named in the problem detail.
+
+**Verification.** The cross-backend gate from the salvage branch (it is the "four fixed, one forgotten" guard); a booted tenancy-e2e case with a claim-less token asserting 403, not 500; mutation-proved per backend by file-copy revert. Same packet as [M-T3.19](#m-t319) — both are the security half of L1.
+
+## M-T3.21 — The `User id` collapse still needs a `user {}` block, and an unresolvable `IdLink` is silent — `open` · **S–M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3 owner triage (P18) (leftover-waves-2026-09-28).**
+
+Item **P18** (#2960, the F9 fix for `auditable` + any frontend). Three residues the fix named and left:
+
+- the `User id` → principal-id collapse still requires the model to declare a `user {}` block — without it `createdBy: User id` points at an aggregate the model need not declare;
+- the read-side narrowings of that collapse (a `User id` field rendered as a link to a page that does not exist);
+- an `IdLink` that cannot resolve a route renders nothing, where it should be a loud diagnostic (overlaps the unguarded-`IdLink` half of open PR #2947 — re-check before building).
+
+**Verification.** A no-`user{}` fixture with `auditable` across the backends; a validator case for the unresolvable `IdLink`.

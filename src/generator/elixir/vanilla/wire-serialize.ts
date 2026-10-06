@@ -169,8 +169,21 @@ function derivedRenderable(
       );
     case "list":
       return e.elements.every((el) => rec(el));
-    default:
+    // NOT projectable onto the wire.  `false` is the conservative answer — the
+    // derived is simply left off the serialized shape rather than emitting a
+    // read the Elixir renderer cannot produce.  `authz-filter` is a synthesized
+    // query sentinel that never appears in a derived body; `i18nFormat` is the
+    // real gap here, and it is an honest one (the wire carries a raw value, not
+    // a formatted message).  Named rather than left to a `default:` so a new
+    // `ExprIR` kind is a decision taken against `render-expr.ts`'s vocabulary.
+    case "authz-filter":
+    case "i18nFormat":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 

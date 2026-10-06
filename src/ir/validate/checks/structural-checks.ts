@@ -41,15 +41,6 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 import { checkVariantMatchShape } from "./variant-match-shape.js";
 
-// Backend platforms that render the paged generic carrier / the `or`-union
-// operation return.  Both are EXPORTED so the diagnostic-firing census can
-// check the claim its UNREACHABLE_PIN makes: each set today contains every
-// backend-owning platform, so `unsupported` is always empty and the gate
-// cannot fire.  A sixth backend that has not ported either feature makes the
-// gate live again — and fails that pin, which is the point.
-export const SUPPORTED_PAGED_BACKENDS = new Set(["node", "dotnet", "elixir", "python", "java"]);
-export const SUPPORTED_RETURN_BACKENDS = new Set(["node", "dotnet", "python", "java", "elixir"]);
-
 // ---------------------------------------------------------------------------
 // Workspace uniqueness — multi-file (Stage A) makes it easy to declare
 // two `valueobject Money` in different files, two `context Sales`, or
@@ -297,127 +288,6 @@ export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDia
   }
 }
 
-// ---------------------------------------------------------------------------
-// Generic-payload instantiation gate (payload-transport-layer.md, P3a).
-//
-// The `paged` / `envelope` carriers parse, lower to a `genericInstance`
-// TypeIR, and pass the AST-level carrier-bound check — but emission
-// (monomorphization → per-instance DTOs across the four backends) is P3b.
-// Until then, any `genericInstance` reachable from a type position is a
-// hard error: a generic in a field / find-return / op-signature must be
-// emittable, so this blocks the pipeline before a backend renderer sees it
-// (the renderers also carry a defensive `throw` for the same kind).  Mirrors
-// the "parses + represents in IR, then a not-implemented IR error" staging
-// the inheritance track used for TPH.
-// ---------------------------------------------------------------------------
-
-/** First generic-constructor name reachable inside a type, or undefined.
- *  Descends array / optional / generic-instance wrappers. */
-function firstGenericCtor(type: TypeIR): string | undefined {
-  switch (type.kind) {
-    case "genericInstance":
-      return type.ctor;
-    case "array":
-      return firstGenericCtor(type.element);
-    case "optional":
-      return firstGenericCtor(type.inner);
-    default:
-      return undefined;
-  }
-}
-
-export function validateGenericInstancesUnimplemented(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  // Backends that can emit generic carriers (`paged` / `envelope`) today.
-  // Grows one slice at a time; when a context is served only by these (or by
-  // no backend at all — the legacy single-context path), the carrier is
-  // emittable and the gate stays quiet.  React is a frontend, not a backend,
-  // so it never appears here — its hooks consume whatever the backend serves.
-  // `"node"` is the hono/TS backend's platform identity (realization axes);
-  // `"dotnet"` the EF/ASP.NET backend; `"elixir"` the Phoenix backend
-  // (the legacy `phoenix` / `phoenixLiveView` platform aliases canonicalize
-  // to `elixir` per D-ELIXIR-PLATFORM).  All four backends now emit
-  // generic carriers.
-  const unsupported = [...backendPlatforms].filter((p) => !SUPPORTED_PAGED_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-
-  const flag = (type: TypeIR, where: string): void => {
-    const ctor = firstGenericCtor(type);
-    if (!ctor) return;
-    diags.push({
-      severity: "error",
-      code: "loom.generic-carrier-unsupported",
-      message: diagMessage("loom.generic-carrier-unsupported", {
-        where,
-        ctor,
-        unsupported: unsupported.sort().join(", "),
-        supportedPagedBackends: [...SUPPORTED_PAGED_BACKENDS].sort().join(", "),
-      }),
-      source: `${ctx.name}/${where}`,
-    });
-  };
-
-  // Payload fields.
-  for (const p of ctx.payloads) {
-    for (const f of p.fields) flag(f.type, `payload ${p.name}.${f.name}`);
-  }
-  // Repository find returns + params.
-  for (const repo of ctx.repositories) {
-    for (const find of repo.finds) {
-      flag(find.returnType, `repository ${repo.name}.${find.name} return`);
-      for (const param of find.params)
-        flag(param.type, `repository ${repo.name}.${find.name}(${param.name})`);
-    }
-  }
-  // Aggregates — and their parts — fields, derived, function signatures,
-  // operation params.
-  for (const agg of ctx.aggregates) {
-    flagAggregateLike(agg, `aggregate ${agg.name}`, flag);
-    for (const op of agg.operations) {
-      for (const param of op.params)
-        flag(param.type, `aggregate ${agg.name}.${op.name}(${param.name})`);
-    }
-    for (const part of agg.parts) flagAggregateLike(part, `part ${part.name}`, flag);
-  }
-  // Value objects.
-  for (const vo of ctx.valueObjects) flagAggregateLike(vo, `valueobject ${vo.name}`, flag);
-}
-
-// ---------------------------------------------------------------------------
-// Discriminated-union instantiation gate (payload-transport-layer.md, P4a).
-//
-// Both union surfaces — anonymous `A or B` (in any type position) and named
-// `payload Foo = A | B` — lower to a `union` TypeIR, and `T option` lowers to
-// `union[T, none]`.  P4a represents these in the IR and validates them
-// (duplicate-variant, exhaustiveness), but emission across the four backends
-// is P4b–d.  Until then, any `union` reachable from a type position is a hard
-// error — emission is wired in slice by slice, releasing this gate per
-// backend.  Unconditional (not platform-aware): no backend emits unions yet,
-// so a union anywhere blocks the pipeline before a renderer sees it.  Mirrors
-// the P3a `genericInstance` staging above.
-// ---------------------------------------------------------------------------
-
-/** True iff a `union` (or its `none` unit) is reachable inside a type,
- *  descending array / optional / generic-instance / union wrappers. */
-function containsUnion(type: TypeIR): boolean {
-  switch (type.kind) {
-    case "union":
-    case "none":
-      return true;
-    case "array":
-      return containsUnion(type.element);
-    case "optional":
-      return containsUnion(type.inner);
-    case "genericInstance":
-      return containsUnion(type.arg);
-    default:
-      return false;
-  }
-}
-
 /**
  * Union-returning finds — producer shape gate (payload-transport-layer.md P4
  * producer side; absence semantics per exception-less.md).
@@ -503,148 +373,6 @@ export function validateUnionFindShapes(
   }
 }
 
-export function validateUnionsUnimplemented(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  // Backends that emit discriminated-union tagged wire today.  Grows one slice
-  // at a time (P4b: hono/TS; P4c: dotnet; P4d: phoenix); React is a frontend,
-  // not a backend, so it never appears here — its hooks consume whatever the
-  // backend serves.  `"node"` is the hono/TS backend's platform identity.
-  // When a context is served only by these (or by no backend at all — the
-  // legacy single-context path), unions are emittable and the gate stays quiet.
-  const SUPPORTED_UNION_BACKENDS = new Set(["node", "dotnet", "elixir", "python", "java"]);
-  const unsupported = [...backendPlatforms].filter((p) => !SUPPORTED_UNION_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-
-  const flag = (type: TypeIR, where: string): void => {
-    if (!containsUnion(type)) return;
-    diags.push({
-      severity: "error",
-      code: "loom.union-unsupported",
-      message: diagMessage("loom.union-unsupported", {
-        where,
-        unsupported: unsupported.sort().join(", "),
-        supportedUnionBackends: [...SUPPORTED_UNION_BACKENDS].sort().join(", "),
-      }),
-      source: `${ctx.name}/${where}`,
-    });
-  };
-
-  // Named-union payloads carry `variants`; record payloads carry `fields`.
-  for (const p of ctx.payloads) {
-    if (p.variants) for (const v of p.variants) flag(v, `payload ${p.name} variant`);
-    for (const f of p.fields) flag(f.type, `payload ${p.name}.${f.name}`);
-  }
-  for (const repo of ctx.repositories) {
-    for (const find of repo.finds) {
-      flag(find.returnType, `repository ${repo.name}.${find.name} return`);
-      for (const param of find.params)
-        flag(param.type, `repository ${repo.name}.${find.name}(${param.name})`);
-    }
-  }
-  for (const agg of ctx.aggregates) {
-    flagAggregateLike(agg, `aggregate ${agg.name}`, flag);
-    for (const op of agg.operations) {
-      for (const param of op.params)
-        flag(param.type, `aggregate ${agg.name}.${op.name}(${param.name})`);
-    }
-    for (const part of agg.parts) flagAggregateLike(part, `part ${part.name}`, flag);
-  }
-  for (const vo of ctx.valueObjects) flagAggregateLike(vo, `valueobject ${vo.name}`, flag);
-}
-
-// ---------------------------------------------------------------------------
-// Operation-return gate (exception-less.md, spike).
-//
-// `operation foo(...): X or NotFound { ... return ... }` parses, lowers to an
-// `OperationIR.returnType` + `return` statements, and prints — and the Hono/TS
-// backend (`"node"`) now emits the producer side: the returned union value is
-// tagged at lowering and the operation route translates an `error`-variant
-// result to an RFC-7807 ProblemDetails status (a success → HTTP 200).  The
-// other backends (dotnet, phoenix) don't emit the route translation yet, so a
-// return-typed operation stays a hard error while any of them serve the
-// context — mirroring the P3a/P4a/P4c surface-first staging.
-// ---------------------------------------------------------------------------
-
-/**
- * `when` canCommand gate (criterion.md, use site 2) — backend support.
- * All five backends (node / .NET / python / elixir / java) evaluate the
- * predicate before the body (409 Disallowed) and expose the side-effect-free
- * `GET /{id}/can_<op>`, so this guard is now latent.  It stays as the safety
- * net for any future backend that lands before its `when` emitter does — a
- * `when`-gated op served by an unsupported backend is a hard error (surfacing
- * it beats silently skipping the gate — an unenforced state gate is a
- * correctness hole).
- */
-export function validateWhenGateSupport(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  const SUPPORTED_WHEN_BACKENDS = new Set(["node", "dotnet", "python", "elixir", "java"]);
-  const unsupported = [...backendPlatforms].filter((p) => !SUPPORTED_WHEN_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-
-  for (const agg of ctx.aggregates) {
-    for (const op of agg.operations) {
-      if (!op.when) continue;
-      diags.push({
-        severity: "error",
-        code: "loom.when-unsupported",
-        message: diagMessage("loom.when-unsupported", {
-          name: agg.name,
-          opName: op.name,
-          unsupported: unsupported.sort().join(", "),
-          supportedWhenBackends: [...SUPPORTED_WHEN_BACKENDS].sort().join(", "),
-        }),
-        source: `${ctx.name}/aggregate ${agg.name}.${op.name}`,
-      });
-    }
-  }
-}
-
-export function validateOperationReturnsUnimplemented(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  // Backends that emit the operation-return ProblemDetails translation today.
-  // `"node"` is the Hono/TS backend (exception-less.md spike); python/java/dotnet
-  // and elixir (plain Ecto/Phoenix) followed — every backend emits it for any
-  // returning op.  No backend (legacy single-context path) → emittable, gate
-  // stays quiet.
-
-  const isCapable = (p: string): boolean => SUPPORTED_RETURN_BACKENDS.has(p);
-
-  for (const agg of ctx.aggregates) {
-    for (const op of agg.operations) {
-      if (!op.returnType) continue;
-      // NOTE: a bare *scalar* operation return (`operation describe(): string`)
-      // is NOT gated. It compiles on every backend (the op-self-call build
-      // fixtures rely on it) even though its HTTP wire contract diverges
-      // (200-with-body on node/elixir vs 204-discard on dotnet/python/java) —
-      // BUG-003, tracked in docs/audits/showcase-coverage-bugs.md, not closed
-      // by rejecting the feature. Only the `or`-union backend-support gate below
-      // applies here.
-      if (op.returnType.kind !== "union") continue;
-      const unsupported = [...backendPlatforms].filter((p) => !isCapable(p));
-      if (unsupported.length === 0) continue;
-      diags.push({
-        severity: "error",
-        code: "loom.operation-return-unsupported",
-        message: diagMessage("loom.operation-return-unsupported", {
-          name: agg.name,
-          opName: op.name,
-          unsupported: unsupported.sort().join(", "),
-        }),
-        source: `${ctx.name}/aggregate ${agg.name}.${op.name}`,
-      });
-    }
-  }
-}
-
 export function validateUnmappedErrorStatuses(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
@@ -698,25 +426,6 @@ export function validateReservedStructuralErrorNames(
       message: diagMessage("loom.reserved-structural-error-name", { name: p.name }),
       source: `${ctx.name}/error ${p.name}`,
     });
-  }
-}
-
-/** Shared field / derived / function-signature walk for the structural
- *  shapes (aggregate, entity part, value object) that carry all three. */
-function flagAggregateLike(
-  node: {
-    fields: { name: string; type: TypeIR }[];
-    derived: { name: string; type: TypeIR }[];
-    functions: FunctionIR[];
-  },
-  where: string,
-  flag: (type: TypeIR, where: string) => void,
-): void {
-  for (const f of node.fields) flag(f.type, `${where}.${f.name}`);
-  for (const d of node.derived) flag(d.type, `${where}.${d.name}`);
-  for (const fn of node.functions) {
-    flag(fn.returnType, `${where}.${fn.name} return`);
-    for (const param of fn.params) flag(param.type, `${where}.${fn.name}(${param.name})`);
   }
 }
 
@@ -874,66 +583,121 @@ export function validateEventSourcedDiscipline(
         statements: d.statements,
       })),
     ];
+    // DEEP, not one level.  A command body may branch (`if` / effect-form
+    // `match`), and a direct mutation or an unhandled `emit` inside a BRANCH
+    // breaks the event-sourcing discipline exactly as much as the same
+    // statement at the top of the body — yet the top-level-only scan accepted
+    // it silently.  This is the same hole `loom.function-block-impure` closed
+    // one screen up (see `check`'s "DEEP, not one level" note); it was left
+    // open here.  `walkStmtsDeep` is the census-sanctioned traversal.
+    const deepStmts = (stmts: StmtIR[]): StmtIR[] => {
+      const out: StmtIR[] = [];
+      for (const top of stmts) walkStmtsDeep(top, (n) => out.push(n));
+      return out;
+    };
     for (const cmd of commands) {
-      for (const stmt of cmd.statements) {
-        if (stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove") {
-          diags.push({
-            severity: "error",
-            code: "loom.event-sourced-direct-mutation",
-            message: diagMessage("loom.event-sourced-direct-mutation", {
-              name: agg.name,
-              label: cmd.label,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
-        }
-        if (stmt.kind === "emit" && !appliedEvents.has(stmt.eventName)) {
-          diags.push({
-            severity: "error",
-            code: "loom.emitted-event-unhandled",
-            message: diagMessage("loom.emitted-event-unhandled", {
-              name: agg.name,
-              label: cmd.label,
-              eventName: stmt.eventName,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
+      for (const stmt of deepStmts(cmd.statements)) {
+        switch (stmt.kind) {
+          case "assign":
+          case "add":
+          case "remove":
+            diags.push({
+              severity: "error",
+              code: "loom.event-sourced-direct-mutation",
+              message: diagMessage("loom.event-sourced-direct-mutation", {
+                name: agg.name,
+                label: cmd.label,
+              }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          case "emit":
+            if (!appliedEvents.has(stmt.eventName)) {
+              diags.push({
+                severity: "error",
+                code: "loom.emitted-event-unhandled",
+                message: diagMessage("loom.emitted-event-unhandled", {
+                  name: agg.name,
+                  label: cmd.label,
+                  eventName: stmt.eventName,
+                }),
+                source: `${ctx.name}/${agg.name}`,
+              });
+            }
+            break;
+          // Discipline-neutral: guards, bindings, self-calls, the trailing
+          // expression, and the two branch statements whose bodies `deepStmts`
+          // already flattened into this list.
+          case "call":
+          case "expression":
+          case "if":
+          case "let":
+          case "precondition":
+          case "requires":
+          case "return":
+          case "variant-match":
+            break;
+          default: {
+            const _exhaustive: never = stmt;
+            void _exhaustive;
+          }
         }
       }
     }
 
-    // Rule 4 — applier bodies are pure folds.
+    // Rule 4 — applier bodies are pure folds.  Deep, for the same reason.
     for (const ap of appliers) {
-      for (const stmt of ap.statements) {
-        if (stmt.kind === "emit") {
-          diags.push({
-            severity: "error",
-            code: "loom.applier-emits",
-            message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
-            source: `${ctx.name}/${agg.name}`,
-          });
-        } else if (stmt.kind === "call") {
-          diags.push({
-            severity: "error",
-            code: "loom.applier-impure-call",
-            message: diagMessage("loom.applier-impure-call", {
-              name: agg.name,
-              event: ap.event,
-              stmtName: stmt.name,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
-        } else if (stmt.kind === "precondition" || stmt.kind === "requires") {
-          diags.push({
-            severity: "error",
-            code: "loom.applier-guard",
-            message: diagMessage("loom.applier-guard", {
-              name: agg.name,
-              event: ap.event,
-              kind: stmt.kind,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
+      for (const stmt of deepStmts(ap.statements)) {
+        switch (stmt.kind) {
+          case "emit":
+            diags.push({
+              severity: "error",
+              code: "loom.applier-emits",
+              message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          case "call":
+            diags.push({
+              severity: "error",
+              code: "loom.applier-impure-call",
+              message: diagMessage("loom.applier-impure-call", {
+                name: agg.name,
+                event: ap.event,
+                stmtName: stmt.name,
+              }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          case "precondition":
+          case "requires":
+            diags.push({
+              severity: "error",
+              code: "loom.applier-guard",
+              message: diagMessage("loom.applier-guard", {
+                name: agg.name,
+                event: ap.event,
+                kind: stmt.kind,
+              }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          // A fold's legitimate vocabulary: state writes, bindings, the
+          // trailing expression, `return`, and the branch statements whose
+          // bodies `deepStmts` already flattened into this list.
+          case "assign":
+          case "add":
+          case "remove":
+          case "expression":
+          case "if":
+          case "let":
+          case "return":
+          case "variant-match":
+            break;
+          default: {
+            const _exhaustive: never = stmt;
+            void _exhaustive;
+          }
         }
       }
     }
@@ -1252,6 +1016,23 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
             );
           }
           break;
+        // The PURE half, named: a `let` binding, a trailing `expression`, a
+        // `return`, the two guard forms, and the two branch statements whose
+        // own bodies `walkStmtsDeep` already flattened into this list.  Spelled
+        // out rather than left to a fall-through so a new `StmtIR` kind is a
+        // `tsc` error and someone rules on which side of "pure" it lands.
+        case "precondition":
+        case "requires":
+        case "let":
+        case "expression":
+        case "return":
+        case "if":
+        case "variant-match":
+          break;
+        default: {
+          const _exhaustive: never = stmt;
+          void _exhaustive;
+        }
       }
     }
     // Expression-level impurity — any call that is not to a pure function or a
@@ -1924,8 +1705,35 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
         return;
       case "ref":
         break;
-      default:
+      // Every other kind carries no receiver of its own — `walkExprDeep` has
+      // already delivered (or will deliver) its children to this same visitor,
+      // so an instance-rooted read nested inside one is still seen through its
+      // own `this` / `call` / `ref` node.  Named rather than left to a
+      // `default:` so a new kind is a `tsc` error here.
+      case "action-ref":
+      case "authz-filter":
+      case "binary":
+      case "convert":
+      case "duration":
+      case "i18nFormat":
+      case "id":
+      case "lambda":
+      case "list":
+      case "literal":
+      case "match":
+      case "member":
+      case "method-call":
+      case "new":
+      case "object":
+      case "paren":
+      case "ternary":
+      case "unary":
         return;
+      default: {
+        const _exhaustive: never = node;
+        void _exhaustive;
+        return;
+      }
     }
     switch (node.refKind) {
       case "current-user":

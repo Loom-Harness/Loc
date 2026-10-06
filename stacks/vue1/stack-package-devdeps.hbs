@@ -1,4 +1,8 @@
     "@vitejs/plugin-vue": "^6.0.0",
-    "vue-tsc": "^3.0.0",
+{{!-- vue-tsc 3.3.12 (2026-10-02) mis-types an imported binding (`api`) inside an
+     inline async template handler as a ref (TS2339 'value'), failing the
+     generated file-upload pages; 3.3.11 is clean. Lift the cap once upstream
+     fixes it. --}}
+    "vue-tsc": ">=3.0.0 <3.3.12",
     "typescript": "^6.0.0",
     "vite": "^8.0.0"

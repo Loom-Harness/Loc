@@ -346,7 +346,7 @@ export function lowerCommandHandler(
   const saveResolver = saveResolverFor(lowered);
   const boundParams = lowerCallableParams(h.params, env, { defaults: false });
   const params = boundParams.params;
-  let inner = boundParams.env;
+  const inner = boundParams.env;
   // Extern handler (`extern commandHandler … ;`): BODYLESS.  There is no DSL
   // body to lower — statements / savesAtExit / returnValue stay empty, and only
   // the signature (params + optional returnType) survives.  The generated
@@ -397,7 +397,7 @@ export function lowerQueryHandler(
   const saveResolver = saveResolverFor(lowered);
   const boundParams = lowerCallableParams(h.params, env, { defaults: false });
   const params = boundParams.params;
-  let inner = boundParams.env;
+  const inner = boundParams.env;
   // Extern queryHandler (`extern queryHandler … ;`): BODYLESS — see
   // `lowerCommandHandler`.  The required `returnType` is preserved (the user
   // impl file's return contract); statements / savesAtExit stay empty.

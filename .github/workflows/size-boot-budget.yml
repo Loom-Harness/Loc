@@ -1,0 +1,85 @@
+name: Generated size + boot budget
+
+# M-T9.23 — generators rot toward bloat silently.  No correctness gate notices a
+# template change that adds 40% to every emitted frontend bundle or doubles a
+# backend's cold boot, so this one measures both, per cell, against the pinned
+# baselines in test/budget/size-boot-budget.json:
+#
+#   bundle:<framework>/<pack> — gzip bytes of the built js + css of one fixed
+#                               scaffold fixture (npm install + npm run build);
+#   boot:<backend>            — ms from `docker compose up -d` (images prebuilt)
+#                               to the first 200 on the backend's `/ready`.
+#
+# The ratchet (test/budget/size-boot-ratchet.ts, pinned by the fast suite) fails
+# on GROWTH past the kind's tolerance AND on a SHRINK past it — a genuine
+# improvement must lower the baseline in the same change, so it cannot become
+# slack the next regression spends (the M-T9.8 allowlist-ratchet shape).
+#
+# NOT per-PR, and never in the merge queue: a budget is a trend instrument, the
+# legs are heavy (npm installs, five backend image builds), and boot time is
+# noisy on shared runners.
+#   - nightly schedule,
+#   - on demand via the `run-size-boot` label on a PR (a template or stack
+#     change you suspect grows the output),
+#   - manual dispatch.
+
+on:
+  schedule:
+    - cron: '41 4 * * *'     # 04:41 UTC nightly
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    # Schedule / manual always; on a PR only when the `run-size-boot` label is set.
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-size-boot'))
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pinned against test/budget/size-boot-cells.ts by the fast suite.
+        cell:
+          - 'bundle:react/mantine'
+          - 'bundle:vue/vuetify'
+          - 'bundle:svelte/flowbite'
+          - 'bundle:angular/primeng'
+          - 'boot:node'
+          - 'boot:python'
+          - 'boot:dotnet'
+          - 'boot:java'
+          - 'boot:elixir'
+    timeout-minutes: 45
+    name: budget × ${{ matrix.cell }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Build toolchain
+        run: npm run build
+
+      - name: Measure against the budget
+        env:
+          LOOM_SIZE_BOOT: '1'
+          LOOM_SIZE_BOOT_CASE: ${{ matrix.cell }}
+          LOOM_SIZE_BOOT_REPORT: size-boot-report.json
+        run: npx vitest run test/e2e/size-boot-budget.test.ts

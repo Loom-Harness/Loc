@@ -7,8 +7,9 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   FieldIR,
+  TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
@@ -22,6 +23,7 @@ import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { BCL_COLLIDING_TYPE_NAMES } from "../bcl-collision.js";
@@ -594,6 +596,16 @@ export function renderConfiguration(
   // do), so it has nothing to ignore; every other config ignores it.
   const domainEventsIgnore =
     tph?.role === "base" ? [] : ["        builder.Ignore(x => x.DomainEvents);"];
+  // A DERIVED member typed as a contained entity (`derived byPriceDesc:
+  // LineItem[] = lines.sortBy(…)`) is a get-only `List<LineItem>` computed from
+  // the real containment.  EF's convention discovers read-only NAVIGATIONS, so
+  // it tried to map it as a second relationship to `LineItem` and refused to
+  // build the model at startup ("Unable to determine the relationship
+  // represented by navigation 'Order.ByPriceDesc'", wave C3 D1).  It is not
+  // persisted state, so it is ignored like `DomainEvents`.
+  const entityDerivedIgnores = agg.derived
+    .filter((d) => derivedHoldsEntity(d.type))
+    .map((d) => `        builder.Ignore(x => x.${upperFirst(d.name)});`);
   // The base config references each concrete type in its `HasValue<C>` chain,
   // so it imports every concrete's namespace.
   const concreteUsings =
@@ -642,10 +654,19 @@ export function renderConfiguration(
       ...indexLines,
       ...filterLines,
       ...domainEventsIgnore,
+      ...entityDerivedIgnores,
       "    }",
       "}",
     ) + "\n"
   );
+}
+
+/** True when a derived member's type is (an optional / array of) a contained
+ *  entity — the shape EF's convention mistakes for a navigation. */
+function derivedHoldsEntity(t: TypeIR): boolean {
+  if (t.kind === "optional") return derivedHoldsEntity(t.inner);
+  if (t.kind === "array") return derivedHoldsEntity(t.element);
+  return t.kind === "entity";
 }
 
 /** The underlying CLR type a strongly-typed id wraps, by its value kind —
@@ -842,41 +863,21 @@ function queryFilterName(
  *  (`softDelete`) don't.  Drives the conditional `Domain.Common` using for the
  *  ambient accessor.  Walks only the expr shapes a capability filter can take. */
 function exprRefsCurrentUser(e: ExprIR): boolean {
-  switch (e.kind) {
-    case "ref":
-      return e.refKind === "current-user" || e.name === "currentUser";
-    case "member":
-      return exprRefsCurrentUser(e.receiver);
-    case "binary":
-      return exprRefsCurrentUser(e.left) || exprRefsCurrentUser(e.right);
-    case "paren":
-      return exprRefsCurrentUser(e.inner);
-    case "unary":
-      return exprRefsCurrentUser(e.operand);
-    case "method-call":
-      return exprRefsCurrentUser(e.receiver) || e.args.some(exprRefsCurrentUser);
-    case "authz-filter":
-      // M-T9.9: the `scope` sentinel (deep/global read levels) references the
-      // principal through its claim sub-expressions, so it MUST route to the
-      // per-request `_currentUser` DbContext-field filter path (not the static
-      // per-entity config, where no `currentUser` is in scope).  `deny` is
-      // principal-free.  This hand-rolled walker has to mirror the shared
-      // `exprUsesCurrentUser`; before the sentinel got its own kind it was a
-      // `method-call` caught by the arm above.
-      return e.filter.kind === "scope"
-        ? exprRefsCurrentUser(e.filter.anchorClaim) || exprRefsCurrentUser(e.filter.tenantClaim)
-        : false;
-    case "call":
-      return e.args.some(exprRefsCurrentUser);
-    case "ternary":
-      return (
-        exprRefsCurrentUser(e.cond) ||
-        exprRefsCurrentUser(e.then) ||
-        exprRefsCurrentUser(e.otherwise)
-      );
-    default:
-      return false;
-  }
+  // Delegates to the shared derivation instead of mirroring it.  The
+  // hand-rolled twin this replaces SAID it had to mirror `exprUsesCurrentUser`
+  // and did not: it had no arm for `convert` / `match` / `list` / `new` /
+  // `object` / `duration` / `i18nFormat` / `lambda`, so a principal read in
+  // any of those routed the filter to the STATIC per-entity config path, where
+  // no `currentUser` is in scope.  One extra behaviour is deliberately kept
+  // below: this predicate also answers true for a principal spelled as a bare
+  // `ref` NAMED `currentUser` whose `refKind` did not resolve, which the
+  // shared helper (refKind-only) does not.
+  if (exprUsesCurrentUser(e)) return true;
+  let byName = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "ref" && n.name === "currentUser") byName = true;
+  });
+  return byName;
 }
 
 function collectColumnRefs(e: ExprIR, out: Set<string>): void {
@@ -901,8 +902,34 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
         out.add(e.member);
       }
       return;
-    default:
+    // Contribute no column.  Narrowing this set can only lose an INDEX HINT or
+    // fall a filter's derived NAME back to the positional `Filter<n>` — both
+    // callers (`indexedColumnsFor`, `queryFilterName`) are advisory, and
+    // neither changes what the query DOES.  Named rather than left to a
+    // `default:` so a new `ExprIR` kind is a decision rather than a silent
+    // omission.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       return;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return;
+    }
   }
 }
 
@@ -968,6 +995,17 @@ function fieldConfigLines(
   if (leaf.kind === "enum") {
     return [
       `${indent}${builder}.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${colName};`,
+    ];
+  }
+  // An enum COLLECTION (`skills: Skill[]` → `List<Skill>`) stores member NAMES
+  // in a `text[]` column, exactly as the scalar arm above stores one.  EF maps
+  // `List<Skill>` as a primitive collection whose ELEMENT defaults to the
+  // enum's int, so every read 500'd ("Reading as 'System.Int32[]' is not
+  // supported for fields having DataTypeName 'text[]'", wave C3 D3); the
+  // element converter is the scalar arm's `HasConversion<string>()`.
+  if (leaf.kind === "array" && leaf.element.kind === "enum") {
+    return [
+      `${indent}${builder}.PrimitiveCollection(x => x.${upperFirst(f.name)}).ElementType(e => e.HasConversion<string>())${colName};`,
     ];
   }
   if (leaf.kind === "valueobject") {

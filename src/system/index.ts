@@ -59,7 +59,7 @@ import {
   memoryMigrationArtifactIndex,
 } from "./migration-artifacts.js";
 import { buildMigrationLedger, type MigrationHistoryLedger } from "./migration-ledger.js";
-import { buildMigrations } from "./migrations-builder.js";
+import { buildMigrations, type MigrationWarning } from "./migrations-builder.js";
 import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import {
@@ -107,6 +107,13 @@ export interface SystemEmission {
    *  has history" from "this module is new" even when `-o` points at a tree
    *  that carries neither.  See `migration-ledger.ts` (F-029). */
   migrationLedger: MigrationHistoryLedger;
+  /** Non-fatal diagnostics raised while deriving the migrations (phase ⑨) —
+   *  today only `loom.migration-rename-inferred`, which announces the
+   *  drop+add → RENAME inference the builder makes on purpose and used to make
+   *  in silence (F-3).  Same lifting story as `giveUps` above: the fact is
+   *  known deep inside a pure pass with no console, so it rides out on the
+   *  emission and `src/cli/main.ts` prints it. */
+  migrationWarnings: MigrationWarning[];
 }
 
 export interface GenerateSystemOptions {
@@ -171,6 +178,18 @@ export interface GenerateSystemOptions {
    *  re-issuing a recorded version) even though the module demonstrably has
    *  migration history — the CLI `--allow-rebaseline` flag. */
   allowRebaseline?: boolean;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag (`de`, `pt-BR`).  Each frontend with a translation runtime
+   *  emits one `src/locales/<locale>.json` per entry (scoped to that ui's own
+   *  keys) and registers it in the generated `src/i18n.ts`, which is what
+   *  makes a translated locale reachable at runtime.
+   *
+   *  `src/system/` stays browser-safe (no `fs`) — the same arrangement
+   *  `sourceTexts` uses — so the CLI reads the tree (`loadTranslations` in
+   *  `src/cli/i18n/index.ts`, through the SAME `localesDir` resolution every
+   *  `ddd i18n` subcommand uses) and the playground supplies its own.  Absent
+   *  / empty is the normal case and emits byte-identically to before. */
+  translations?: ReadonlyMap<string, Record<string, string>>;
   /** The migration-history ledger read from beside the `.ddd` source, when
    *  the caller has a source directory.  Feeds baseline guards (d)/(e) —
    *  the ones that see a re-baseline into a CLEAN output tree, which the
@@ -208,6 +227,8 @@ export function generateSystemsFromLoom(
   // the ledger is keyed by module and lives beside the `.ddd`, which may
   // declare several systems.
   const builtMigrations: MigrationsIR[] = [];
+  // Every system's phase-⑨ advisories, folded into one list on the emission.
+  const migrationWarnings: MigrationWarning[] = [];
   for (const sys of loom.systems) {
     emitSystem(sys, loom, out, {
       emitTrace: options.emitTrace,
@@ -219,8 +240,10 @@ export function generateSystemsFromLoom(
       recordedHistory: options.recordedHistory,
       ledgerPath: options.ledgerPath,
       collectMigrations: builtMigrations,
+      collectMigrationWarnings: migrationWarnings,
       sourcemap: recorder,
       sourceTexts: options.sourceTexts,
+      translations: options.translations,
     });
   }
   // Traceability artifacts — model-global (requirements may
@@ -295,6 +318,7 @@ export function generateSystemsFromLoom(
   return {
     files: out,
     giveUps: collectGiveUps(out),
+    migrationWarnings,
     // Always built (it is pure): callers with no source directory simply
     // never write it.
     migrationLedger: buildMigrationLedger(builtMigrations, options.recordedHistory ?? null),
@@ -317,8 +341,12 @@ function emitSystem(
     /** Sink the freshly-built `MigrationsIR[]` is appended to, so the caller
      *  can fold every system's migrations into one source-side ledger. */
     collectMigrations?: MigrationsIR[];
+    /** Sink for the derivation's non-fatal diagnostics, folded into
+     *  `SystemEmission.migrationWarnings`. */
+    collectMigrationWarnings?: MigrationWarning[];
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
+    translations?: ReadonlyMap<string, Record<string, string>>;
   },
 ): void {
   // Pre-compute a module-name → contexts lookup so a deployable can
@@ -337,6 +365,7 @@ function emitSystem(
     tableRenameIntents: loom.tableRenameIntents,
     backfillIntents: loom.backfillIntents,
     sqlSteps: loom.sqlMigrationSteps,
+    warnings: options.collectMigrationWarnings,
   });
   // Baseline-safety guards (M-T2.2): refuse a silent re-baseline when the
   // snapshot is missing but migration files exist, verify files ↔ recorded
@@ -376,6 +405,7 @@ function emitSystem(
       topLevelComponents: loom.components,
       sourcemap: options.sourcemap,
       sourceTexts: options.sourceTexts,
+      translations: options.translations,
     });
   }
 
@@ -649,6 +679,7 @@ function emitDeployable(
     topLevelComponents?: import("../ir/types/loom-ir.js").ComponentIR[];
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
+    translations?: ReadonlyMap<string, Record<string, string>>;
   } = {},
 ): void {
   const emitTrace = !!options.emitTrace;
@@ -693,6 +724,9 @@ function emitDeployable(
     // Passed verbatim (no scoping — it's keyed by `.ddd` source path, not
     // generated output path).
     sourceTexts: options.sourceTexts,
+    // Locale catalogs from the translator tree; each frontend scopes them to
+    // its own ui's keys.  Absent for every backend platform, which ignore it.
+    translations: options.translations,
   });
   for (const [relPath, content] of files) {
     out.set(`${sub}/${relPath}`, content);
