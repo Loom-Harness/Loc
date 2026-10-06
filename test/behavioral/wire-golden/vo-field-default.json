@@ -21,10 +21,12 @@
           "amount": 0,
           "currency": "EUR"
         },
+        "discount": null,
         "id": "<volatile:key>",
         "note": "none",
         "reference": "R1",
         "seats": 1,
+        "tags": [],
         "tier": "free",
         "total": {
           "amount": 0,
@@ -45,10 +47,12 @@
               "amount": 0,
               "currency": "EUR"
             },
+            "discount": null,
             "id": "<volatile:key>",
             "note": "none",
             "reference": "R1",
             "seats": 1,
+            "tags": [],
             "tier": "free",
             "total": {
               "amount": 0,
@@ -80,10 +84,14 @@
           "amount": 1,
           "currency": "GBP"
         },
+        "discount": null,
         "id": "<volatile:key>",
         "note": "changed",
         "reference": "R2",
         "seats": 3,
+        "tags": [
+          "vip"
+        ],
         "tier": "paid",
         "total": {
           "amount": 5,

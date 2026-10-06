@@ -27,6 +27,15 @@
 // are the forms that already worked, so a regression in them is visible in the
 // same compile, and the contrast is the point — the wire boundary treats a
 // non-scalar default differently from a scalar one, and nothing said so.
+//
+// `tags: string[] = []` is the same class from the other side: a LIST-LITERAL
+// default.  On .NET it rendered `IReadOnlyList<string> Tags = []` — a
+// collection expression is an allocation, not a compile-time constant, even
+// when empty (CS1736) — so it takes the same nullable-param + controller
+// coalesce.  `discount: Money?` is the declared-OPTIONAL counterpart of the
+// nullable VO request param — `MoneyRequest? Discount`, with no default involved,
+// so its FluentValidation rule must narrow and guard exactly like `total`'s
+// (CS8620 under /warnaserror otherwise — `Money` carries a wire rule).
 system VoFieldDefault {
   subdomain Billing {
     context Invoicing {
@@ -50,6 +59,10 @@ system VoFieldDefault {
         tier: Tier = Tier.free
         note: string = "none"
         seats: int = 1
+        // A list-literal default (CS1736 on .NET as a record param default).
+        tags: string[] = []
+        // An optional VO whose type carries a wire rule (CS8620 on .NET).
+        discount: Money?
       }
 
       repository Invoices for Invoice { }
@@ -73,6 +86,7 @@ system VoFieldDefault {
     expect(read.credit.currency).toBe("EUR")
     expect(read.note).toBe("none")
     expect(read.seats).toBe(1)
+    expect(read.tags.length).toBe(0)
 
     // The rest of the crudish surface, so every derived route has a runtime
     // caller.  `update` matters on its own: its request DTO carries the VO
@@ -85,11 +99,13 @@ system VoFieldDefault {
       credit: { amount: 1, currency: "GBP" },
       tier: "paid",
       note: "changed",
-      seats: 3
+      seats: 3,
+      tags: ["vip"]
     })
     let after = api.invoices.getById(i)
     expect(after.total.currency).toBe("GBP")
     expect(after.seats).toBe(3)
+    expect(after.tags.length).toBe(1)
     api.invoices.destroy(i)
   }
 
