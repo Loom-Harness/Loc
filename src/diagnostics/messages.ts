@@ -1135,10 +1135,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool'. Return the ` +
     `new aggregate's id and read it back through its own GET route, or use a 'commandHandler', ` +
     `whose result projects through the aggregate's wire shape.`,
-  "loom.workflow-return-type-unsupported#event-sourced": (p: {
-    workflow: unknown;
-    create: unknown;
-  }) =>
+  "loom.workflow-return-event-sourced": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}' is 'eventSourced', so '${p.create}' may only emit events and cannot ` +
     `declare a result. Drop the ': T' and the 'return', or read the outcome back through the ` +
     `workflow's instance endpoint.`,

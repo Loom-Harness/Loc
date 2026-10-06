@@ -398,11 +398,11 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
   if (c.returnType && wf?.eventSourced) {
     accept(
       "error",
-      diagMessage("loom.workflow-return-type-unsupported#event-sourced", {
+      diagMessage("loom.workflow-return-event-sourced", {
         workflow: wfName,
         create: label,
       }),
-      { node: c, property: "returnType", code: "loom.workflow-return-type-unsupported" },
+      { node: c, property: "returnType", code: "loom.workflow-return-event-sourced" },
     );
     return;
   }

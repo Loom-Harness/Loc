@@ -1333,6 +1333,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/platform/hono/v4/adapters/by-feature-layout.ts
+  "src/platform/hono/v4/workflow-builder.ts#workflowResultTsType": {
+    guardedBy: ["loom.workflow-return-type-unsupported"],
+    note: "Reached only through commandCreateResult, whose type phase ④ admits only as an `X id` or a string/int/long/bool primitive (isSupportedWorkflowResult, src/language/validators/structural.ts).",
+  },
   "src/platform/hono/v4/adapters/by-feature-layout.ts#pathFor": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",

@@ -392,3 +392,13 @@ Follow-up of owner ruling **D8** (eval-closure item **#38**; Clinica F-006, Meri
 **The fix:** a small ICU `plural`/`select` evaluator per backend (or one shared helper in each runtime kernel) over the already-parsed interpolation IR; `number`/`date` formats may stay dropped by the M-T1.11 decision. Once it lands, delete the D8 warning in the same PR.
 
 **Verification.** A wire-golden case whose `derived` returns a `plural` and a `select` string, byte-identical on all five backends.
+
+## M-T5.47 — A workflow `create(…): T` returning an aggregate / payload / value object — `open` · **M** · P3
+
+*Minted 2026-10-06 by Fleet C (banking eval B-03, PR #3140), which shipped the `create(…): T { … return <expr> }` result for `X id` / `string` / `int` / `long` / `bool` on all five backends.*
+
+The remaining result kinds are refused by `loom.workflow-return-type-unsupported`: an aggregate / entity (projected through its `<Agg>Response` wire shape — the `commandHandler` route's `repo.toWire(…)` / `projectToResponse` / `to_wire` path), a `response` payload, a value object, and `decimal` / `money` / `datetime` (each backend's scalar wire encoding — RS-12 / RS-24 / RS-4). The `eventSourced` arm of the same code is a language rule (its create may only `emit`), not this mission.
+
+**The fix:** route the declared result through the same per-backend response projection the explicit-handler emitters already use, typed in each backend's OpenAPI 200; widen `isSupportedWorkflowResult` (`src/language/validators/structural.ts`) kind by kind as each lands on all five.
+
+**Verification.** Extend `test/fixtures/corpus/workflow-create-result.ddd` with a `create(…): Account` workflow; the wire golden must match on all five backends.

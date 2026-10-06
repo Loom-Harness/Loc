@@ -539,6 +539,17 @@ const FIRING_FIXTURES: Record<string, string> = {
         let a = Account.create({ number: n, balance: 0 })
         return a.number
       }`),
+  // An `eventSourced` workflow's create may only `emit` — no state for a
+  // result to read, and the event-sourced route has no result path.
+  "loom.workflow-return-event-sourced": workflowResult(
+    `
+      apply(e: Opened) { }
+      create(n: string): string {
+        emit Opened { account: n }
+        return n
+      }`,
+    " eventSourced",
+  ),
   // An aggregate result has no workflow-route wire projection yet.
   "loom.workflow-return-type-unsupported": workflowResult(`
       create(n: string): Account {

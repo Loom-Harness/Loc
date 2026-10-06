@@ -228,6 +228,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-return-missing": "13-workflows.md#returning-a-result",
   "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
   "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",

@@ -295,7 +295,7 @@ Rules (all compile-time errors):
 | `: T` needs a terminal `return`; a `return` needs `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
 | `return` is the last top-level statement | `loom.workflow-return-not-last` |
 | Only the create the `POST` serves — not `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
-| Not on an `eventSourced` workflow (its create may only `emit`) | `loom.workflow-return-type-unsupported` |
+| Not on an `eventSourced` workflow (its create may only `emit`) | `loom.workflow-return-event-sourced` |
 
 Returning an aggregate, a payload or a value object is not supported yet
 (each needs the per-backend wire projection the `commandHandler` route

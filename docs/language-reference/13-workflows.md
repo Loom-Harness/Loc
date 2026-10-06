@@ -225,7 +225,7 @@ workflow openAccount {
 | A `: T` needs a terminal `return`, and a `return` needs a `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
 | `return` is the last top-level statement (not nested in `if` / `for`, not mid-body) | `loom.workflow-return-not-last` |
 | Only the create the `POST` route serves may declare one — not an event-triggered `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
-| An `eventSourced` workflow's create may only `emit`, so it declares no result | `loom.workflow-return-type-unsupported` |
+| An `eventSourced` workflow's create may only `emit`, so it declares no result | `loom.workflow-return-event-sourced` |
 
 ::: tabs backend
 == node

@@ -109,6 +109,19 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T1.35",
   },
   {
+    code: "loom.workflow-return-type-unsupported",
+    kind: "scope",
+    site: "src/language/validators/structural.ts:438",
+    what:
+      "a workflow `create(…): T` whose `T` is an aggregate / payload / value object / " +
+      "decimal / money / datetime.  The v1 result (B-03) ships `X id` / `string` / `int` / " +
+      "`long` / `bool` on all five backends; the rest need the per-backend response " +
+      "projection the `commandHandler` route already has.  (The `eventSourced` refusal is a " +
+      "permanent rule with its own code, `loom.workflow-return-event-sourced`.)",
+    mission: "M-T5.47",
+    verified: false,
+  },
+  {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/workflow-checks.ts:392",

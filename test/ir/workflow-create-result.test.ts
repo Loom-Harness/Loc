@@ -155,7 +155,9 @@ describe("workflow create(…): T — every backend answers 200 with the value",
   };
   for (const [backend, check] of Object.entries(cases) as [Backend, (t: string) => void][]) {
     it(backend, async () => {
-      check(all(await generateCorpusCase(FEATURE, backend)));
+      const text = all(await generateCorpusCase(FEATURE, backend));
+      expect(text.length).toBeGreaterThan(0);
+      check(text);
     });
   }
 });
