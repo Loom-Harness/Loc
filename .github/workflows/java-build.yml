@@ -8,7 +8,9 @@ name: Java build verification
 # signature drift, record/embeddable mismatches).
 #
 # Mirrors `dotnet-build.yml` (.NET → dotnet build /warnaserror) and
-# `elixir-vanilla-build.yml` (Phoenix → mix compile --warnings-as-errors).
+# `elixir-vanilla-build.yml` (Phoenix → mix compile --warnings-as-errors) at
+# the same strictness: javac runs `-Xlint:all -Werror`, installed as a Gradle
+# init script (test/e2e/support/java-werror.init.gradle).
 #
 # Triggers:
 #   - PRs that touch the Java generator, the java platform module, or
@@ -67,6 +69,7 @@ on:
       - '.github/workflows/java-build.yml'
       - 'test/e2e/generated-java-build.test.ts'
       - 'test/e2e/support/gradle.ts'
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/fixtures/java-build/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -118,6 +121,7 @@ on:
       - '.github/workflows/java-build.yml'
       - 'test/e2e/generated-java-build.test.ts'
       - 'test/e2e/support/gradle.ts'
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/fixtures/java-build/**'
   workflow_dispatch:
   merge_group:
@@ -190,6 +194,13 @@ jobs:
 
       - name: Type-check
         run: npm run build
+
+      # javac at maximum strictness — `-Xlint:all -Werror` on every
+      # JavaCompile task, through an init script so the generated
+      # build.gradle.kts stays free of it (a user's project is not forced onto
+      # -Werror; the gate is).  The java twin of `dotnet build /warnaserror`.
+      - name: javac -Xlint:all -Werror for every generated project
+        run: install -D -m 0644 test/e2e/support/java-werror.init.gradle ~/.gradle/init.d/java-werror.gradle
 
       - name: gradle testClasses bootJar against each fixture
         run: npm run test:java

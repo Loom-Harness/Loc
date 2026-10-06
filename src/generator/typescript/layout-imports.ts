@@ -15,6 +15,8 @@
 // touched, so it stays byte-identical.
 // ---------------------------------------------------------------------------
 
+import { rewrite } from "../../util/emission-sink.js";
+
 /** Matches the specifier in `from "x"`, `import "x"`, `export … from "x"`, and
  *  DYNAMIC `import("x")` whose path is RELATIVE (starts with `.`).  The optional
  *  `(` covers the dynamic form (generated routes lazy-load `import("../obs/log")`).
@@ -89,6 +91,6 @@ export function rewriteRelativeImports(out: Map<string, string>, moved: Map<stri
       const newSpec = relSpec(currentPath, targetFinal ?? targetByLayer);
       return full.replace(`${quote}${spec}${quote}`, `${quote}${newSpec}${quote}`);
     });
-    if (rewritten !== content) out.set(currentPath, rewritten);
+    if (rewritten !== content) rewrite(out, currentPath, rewritten);
   }
 }

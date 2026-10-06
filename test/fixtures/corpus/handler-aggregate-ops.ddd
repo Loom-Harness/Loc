@@ -11,7 +11,7 @@
 //   • a scalar read off a loaded aggregate       (Status)
 //   • an AGGREGATE return projected to its wire  (Fetch — toWire / <Agg>Response)
 //   • a value-object BODY param beside a path id (Discount)
-//   • a repository DELETE                         (Remove)
+//   • a repository DELETE                         (Purge)
 //   • the not-found rung on a missing id          (every getById-backed route)
 //
 // Each assertion below reads the effect BACK through a different route, so a
@@ -55,7 +55,11 @@ system HandlerAggregateOps {
         o.applyDiscount(amount, reason)
         return o.id
       }
-      commandHandler Remove(orderId: Order id) {
+      // Named `Purge`, not `Remove`: .NET emits `<Name>Handler`, and
+      // `RemoveHandler` is a reserved VB keyword that CA1716 turns into a
+      // `/warnaserror` build failure (the same family as `dotnet-bcl-type-
+      // collision`) — not this fixture's subject.
+      commandHandler Purge(orderId: Order id) {
         let o = Orders.getById(orderId)
         Orders.delete(o)
       }
@@ -66,7 +70,7 @@ system HandlerAggregateOps {
     route GET    "/orders/{orderId}/status"        -> Ordering.Status
     route GET    "/orders/{orderId}/view"          -> Ordering.Fetch
     route POST   "/orders/{orderId}/discounts"     -> Ordering.Discount
-    route DELETE "/orders/{orderId}/removal"       -> Ordering.Remove
+    route DELETE "/orders/{orderId}/removal"       -> Ordering.Purge
   }
   storage pg { type: postgres }
   resource orderingState { for: Ordering, kind: state, use: pg }
@@ -114,7 +118,7 @@ system HandlerAggregateOps {
     expect(api.orders.getById(o).status).toBe("cancelled")
 
     // Repository delete: the row is GONE for both the derived and the routed read.
-    api.ordering.remove(o)
+    api.ordering.purge(o)
     expect(api.orders.getById(o)).toThrow(404)
     expect(api.ordering.status(o)).toThrow(404)
   }
