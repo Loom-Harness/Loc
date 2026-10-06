@@ -374,6 +374,36 @@ export function escapePythonIdent(name: string): string {
   return PYTHON_KEYWORDS.has(name) ? `${name}_` : name;
 }
 
+/** The python MEMBER-identifier funnel (eval item 6, ruling D2 — the python
+ *  twin of java's M-T6.36): the snake_cased python spelling of a `.ddd`
+ *  field / part / derived / function / operation / parameter name, escaped
+ *  with a trailing underscore when it is a python keyword (`def` → `def_`,
+ *  `class` → `class_`).  Every python site that spells a `.ddd` name as a
+ *  bare IDENTIFIER — an attribute, a keyword argument, a `def` name — goes
+ *  through this, so the declaration and every use agree.  The names the
+ *  outside world sees are NOT funnelled: the DB column keeps the snake name
+ *  (`mapped_column("def", …)`) and the wire keeps the declared name (a
+ *  pydantic `alias`), exactly as java keeps them via `@Column` /
+ *  `@JsonProperty`. */
+export function pythonIdent(name: string): string {
+  return escapePythonIdent(snake(name));
+}
+
+/** The python WIRE-model attribute for a `.ddd` name: the pydantic HTTP
+ *  models keep the declared camelCase spelling as the attribute (it IS the
+ *  JSON key), so only a keyword collision is escaped (`def` → `def_`) — and
+ *  the emitter pairs an escaped attribute with `Field(alias="def")` so the
+ *  wire key does not move.  See {@link pythonIdent}. */
+export function pythonWireIdent(name: string): string {
+  return escapePythonIdent(name);
+}
+
+/** True when {@link pythonWireIdent} moved the name — the attribute needs an
+ *  explicit wire alias. */
+export function pythonWireNeedsAlias(name: string): boolean {
+  return pythonWireIdent(name) !== name;
+}
+
 /** Escape a (already snake_cased) local identifier that collides with an
  *  Elixir reserved word with a trailing underscore (`end` → `end_`); pass
  *  through otherwise. */

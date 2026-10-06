@@ -11,7 +11,7 @@ import type {
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
 import { intrinsicMatcherSig } from "../util/intrinsic-matchers.js";
-import { lowerFirst, plural, snake, upperFirst } from "../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../util/naming.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import { renderExpectStmt } from "./expect-stmt.js";
 
@@ -318,7 +318,7 @@ function renderUIStmt(s: TestStmtIR, ctx: RenderCtx): string {
       const agg = findAggregateBySlug(call.aggregateSlug, ctx.contexts);
       if (agg) ctx.createHandles.set(s.name, upperFirst(agg.name));
     }
-    return `const ${s.name} = ${renderUIExpr(s.expr, ctx)};`;
+    return `const ${escapeTsIdent(s.name)} = ${renderUIExpr(s.expr, ctx)};`;
   }
   if (s.kind === "expression") {
     return `${renderUIExpr(s.expr, ctx)};`;
@@ -398,9 +398,9 @@ function renderExplicitMatcher(expr: ExprIR, ctx: RenderCtx): string | null {
  *  `.goto()` is what makes the read independent of where the test currently
  *  is. */
 function pageHandleExpr(name: string, ctx: RenderCtx): string | null {
-  if (ctx.detailHandles.has(name)) return name;
+  if (ctx.detailHandles.has(name)) return escapeTsIdent(name);
   const cap = ctx.createHandles.get(name);
-  if (cap) return `(await new ${cap}DetailPage(page, ${name}.id).goto())`;
+  if (cap) return `(await new ${cap}DetailPage(page, ${escapeTsIdent(name)}.id).goto())`;
   return null;
 }
 
@@ -441,7 +441,8 @@ function renderUIExpr(e: ExprIR, ctx: RenderCtx): string {
     case "literal":
       return renderLiteral(e.lit, e.value);
     case "ref":
-      return e.name;
+      // Escaped exactly like the `let` binding (and lambda param) it names.
+      return escapeTsIdent(e.name);
     case "this":
       return "this";
     case "id":
@@ -461,8 +462,8 @@ function renderUIExpr(e: ExprIR, ctx: RenderCtx): string {
       // added for page event handlers).  UI E2E tests don't currently
       // use block-body lambdas — fall back to a stub for the future
       // case.
-      if (e.body) return `(${e.param}) => ${renderUIExpr(e.body, ctx)}`;
-      return `(${e.param}) => { /* block-body lambdas not supported in UI e2e tests */ }`;
+      if (e.body) return `(${escapeTsIdent(e.param)}) => ${renderUIExpr(e.body, ctx)}`;
+      return `(${escapeTsIdent(e.param)}) => { /* block-body lambdas not supported in UI e2e tests */ }`;
     case "member": {
       // Detail-handle reads used as plain values (the one-shot fallback,
       // for assertions web-first can't express — e.g. `<`/`>=`).  The

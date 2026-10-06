@@ -21,7 +21,7 @@ import {
 import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -351,13 +351,15 @@ function projectionRoute(
   // FastAPI infers that from a plain scalar function parameter, exactly as a
   // parameterised `find` route does.  They lead the signature so the
   // `request` / `session` dependencies keep their trailing position.
-  const projParams = proj.params.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`);
+  const projParams = proj.params.map((p) => `${pythonIdent(p.name)}: ${paramPyType(p.type, ctx)}`);
   const sig = [
     ...projParams,
     ...(needsUser ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
-  const projArgs = proj.params.map((p) => pyWireToDomain(snake(p.name), p.type, ctx)).join(", ");
+  const projArgs = proj.params
+    .map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx))
+    .join(", ");
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,

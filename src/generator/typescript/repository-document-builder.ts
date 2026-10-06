@@ -20,7 +20,7 @@ import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst, plural } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
@@ -464,7 +464,7 @@ function documentFindMethod(
 ): string {
   const tableName = lowerFirst(plural(agg.name));
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   const pred = findPredicate(agg, find, ctx);
   const isArray = find.returnType.kind === "array";
@@ -549,7 +549,7 @@ export function findPredicate(
     const matched = agg.fields.find(
       (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
     );
-    if (matched) conds.push(`x.${matched.name} === ${p.name}`);
+    if (matched) conds.push(`x.${matched.name} === ${escapeTsIdent(p.name)}`);
   }
   if (conds.length === 0) return undefined;
   return `(x) => ${conds.join(" && ")}`;

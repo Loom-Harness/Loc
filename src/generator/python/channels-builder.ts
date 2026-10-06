@@ -1,6 +1,6 @@
 import type { EventIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent } from "../../util/naming.js";
 import type { BrokerBinding } from "../_channels/bindings.js";
 import { fromPayload, type PyVoFields, toPayload } from "./dispatch-builder.js";
 
@@ -111,11 +111,11 @@ export function buildPyChannelsFile(
   const carried = carriedEvents.filter((e) => routed.has(e.name));
   const toArms = carried.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type, vos)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type, vos)}`).join(", ")}}`,
   ]);
   const fromArms = carried.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type, vos)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type, vos)}`).join(", ")})`,
   ]);
   const codec = lines(
     "def _event_to_data(event: DomainEvent) -> dict[str, object]:",
