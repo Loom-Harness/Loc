@@ -2,6 +2,7 @@ import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
+import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
 import {
@@ -46,6 +47,9 @@ export interface AngularOperationFormSpec {
   /** Template-scope id expression the submit method mutates against
    *  (`this.`-prefixed by the shell). */
   idExpr: string;
+  /** A `when`-gated op's `can_<op>` probe — the shell hoists
+   *  `readonly <local> = <hook>(() => <this-prefixed idExpr> ?? "")`. */
+  gate?: { local: string; hook: string };
   controls: AngularFormControlSpec[];
   /** `useAll<X>()` queries the page-shell hoists for the form's `X id` Select
    *  fields (empty when no field renders as a reference Select). */
@@ -127,6 +131,11 @@ export function renderAngularOperationForm(
 
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   addNg(ctx, importFrom, mutationFn);
+  const gateAgg = ctx.aggregatesByName.get(aggName);
+  const gate = gateAgg
+    ? opGateFor(ctx, gateAgg, op, `can${upperFirst(op.name)}${aggName}`)
+    : undefined;
+  if (gate) addNg(ctx, importFrom, gate.hook);
 
   // Same constraint source as the zod `<Op>Request`: the aggregate's invariants
   // plus this op's `precondition`s, gated to the op's own params — an invariant
@@ -170,6 +179,7 @@ export function renderAngularOperationForm(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    ...(gate ? { gate: { local: gate.local, hook: gate.hook } } : {}),
   };
   angularSink(ctx).opForms.push(spec);
 
@@ -180,7 +190,9 @@ export function renderAngularOperationForm(
     type: "submit",
     emphasis: "primary",
     label,
-    attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"`,
+    attrs: gate
+      ? ` [disabled]="${mutationVar}.isPending() || ${gate.disabledExpr}" [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null' data-testid="${ns}-submit"`
+      : ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"`,
   });
   return [
     `<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}">`,

@@ -1266,6 +1266,29 @@ system S {
   deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
 }
 `,
+  // A scaffold selecting a subdomain the frontend's `targets:` backend does not
+  // serve (eval-closure #18): parsed clean, then failed on generated pages.
+  "loom.ui-aggregate-unserved": `
+system S {
+  subdomain One { context A {
+    aggregate Alpha with crudish { code: string }
+    repository Alphas for Alpha { }
+  } }
+  subdomain Two { context B {
+    aggregate Beta with crudish { label: string }
+    repository Betas for Beta { }
+  } }
+  api OneApi from One
+  api TwoApi from Two
+  ui U with scaffold(subdomains: [One, Two]) { }
+  storage pg { type: postgres }
+  resource aState { for: A, kind: state, use: pg }
+  resource bState { for: B, kind: state, use: pg }
+  deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
+  deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
+  deployable web { platform: static, targets: apiOne, ui: U, port: 3002 }
+}
+`,
   "loom.current-user-needs-auth-ui": `
 system S {
   user { id: guid  role: string }
@@ -2332,6 +2355,8 @@ system P {
   "loom.serves-unknown-api": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
   ),
+  // A second api the base's only backend never lists in `serves:` (#29).
+  "loom.api-unserved": topology("api OrphanApi from D"),
   // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
   // `api Sales: OrdersApi` parameter, so every shape below is a real binding
   // defect rather than a missing declaration.
@@ -3523,6 +3548,12 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // unsupported-primitive arm and the two procedural packs' missing-renderer
   // fallback.
   "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  // Phase ⑨ too: the ambiguous-rename refusal fires only when a BASELINE
+  // snapshot diffs against a source that dropped+added columns the heuristic
+  // cannot collapse — `validate()` has no baseline.  Its catalog entry is new
+  // (#30: the text moved out of an inline literal); the pointed-at file drives
+  // it and asserts the top-level placement hint.
+  "loom.migration-ambiguous-rename": "test/ir/migrations-builder.test.ts",
   // Phase ⑨, and not reachable from a `.ddd` at all: the discarded-backfill
   // invariant (F-018 §4) needs a BASELINE SNAPSHOT to diff against — one
   // generation's schema plus a second source that adds the backfilled column.

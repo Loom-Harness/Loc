@@ -38,6 +38,7 @@ import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/p
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -84,6 +85,11 @@ import {
   REALTIME_SOURCE_WEB_DART,
   renderFlutterRealtime,
 } from "./realtime.js";
+import {
+  FLUTTER_REF_LABEL_MARKER,
+  FLUTTER_REF_LABEL_PATH,
+  renderFlutterRefLabel,
+} from "./ref-label-runtime.js";
 import { hasRiverpodState, renderRiverpod, stateCtx } from "./riverpod-emit.js";
 import { renderFlutterStores } from "./store-builder.js";
 import { storeProviderName } from "./store-names.js";
@@ -122,7 +128,7 @@ export function generateFlutterForContexts(
   deployable: DeployableIR,
   options: GenerateFlutterOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/flutter/index");
 
   // Not `snake(name)` directly — a deployable named `web` (or any other package
   // in the app's own dependency graph) would make `flutter pub get` fail before
@@ -374,9 +380,22 @@ export function generateFlutterForContexts(
   // `Action(<instance>.<op>)` buttons (which POST inline via `apiUri(`).  Emit it
   // when any of the three is present, so no page's import dangles.
   const usesActionHttp = rendered.some((r) => r.source.includes("apiUri("));
+  // The `IdLink` reference-label widget (`flutter/ref-label-runtime.ts`) — a
+  // page or a pooled component calling it; it reads through `apiUri` too.
+  const usesRefLabel =
+    rendered.some((r) => r.source.includes(FLUTTER_REF_LABEL_MARKER)) ||
+    (out.get("lib/components.dart") ?? "").includes(FLUTTER_REF_LABEL_MARKER);
+  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(credentialed));
   // `lib/auth.dart` is a fourth consumer — the session probe and the sign-in /
   // sign-out redirects are both built with `apiUri`.
-  if (reads.length > 0 || forms.length > 0 || usesActionHttp || authUi || hasRealtime) {
+  if (
+    reads.length > 0 ||
+    forms.length > 0 ||
+    usesActionHttp ||
+    usesRefLabel ||
+    authUi ||
+    hasRealtime
+  ) {
     out.set("lib/config.dart", renderAppConfig());
   }
   // The controlled-Modal bridge — emitted only when a page opens one, matched to
@@ -1006,12 +1025,18 @@ function renderStatelessPage(
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
+  // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
+  // (this page has no `ref` of its own).
+  if (bodyWidget.includes("Consumer(builder:")) {
+    imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
+  }
   if (opts.hostsForm) imports.push("import '../forms.dart';");
   // The controlled-Modal bridge, imported only where a page actually opens one
   // (an unused Dart import is an analyzer warning, and `flutter analyze` is a
   // per-PR gate).  Same content-sniff as `apiUri(` below.
   if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   if (usesMoney(bodyWidget)) imports.push("import '../money.dart';");
   if (opts.usesComponent) imports.push("import '../components.dart';");
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
@@ -1195,6 +1220,7 @@ function renderConsumerPage(
   // page WITH state, so this is the branch that actually fires.
   if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   // Content scan over BOTH the Notifier projection AND the rendered body: a
   // `match await` method (projSource) decodes JSON + reifies wire models, and a
   // `FileUpload` (bodyWidget) does the same inline plus references `FileRef` in

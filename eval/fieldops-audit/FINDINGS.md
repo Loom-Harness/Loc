@@ -1,5 +1,14 @@
 # Loom evaluation — findings register
 
+> **Status 2026-09-29 (eval-closure review G8-08a).** The counts in this header are the filing-time
+> counts. The register now holds **52 `### F-` entries = 50 distinct findings** (F-001–F-050; F-038
+> and F-041 each carry a second, later entry), **18 of them S1**. The fix plan's waves 0–5 were all
+> executed on the evaluation's own branch and merged as **#2911** (e.g. `b383852a2` wave 4,
+> `ad92e91b2` / `b22b1d80d` wave 5 — wave 5 records F-041 and F-038 as measured and deliberately
+> *not* landed). The per-finding status lives in each finding's dated blocks and in
+> [`FIX-PLAN.md`](FIX-PLAN.md) §0; the live residue is dispositioned in
+> [`docs/new-plan/coverage.md`](../../docs/new-plan/coverage.md).
+
 **45 findings as filed — 16 S1 · 16 S2 · 12 S3 · 1 S4.**
 **Class split: 25 SILENT · 10 HONEST · 3 CRASH-where-a-diagnostic-belongs · 3 CONTRADICTED-doc · 2 DOCUMENTED · 2 other.**
 
@@ -15,8 +24,8 @@
 > amends; nothing was quietly edited. Two findings were confirmed **wider** than filed: F-040 breaks
 > four of five backends and makes the fifth emit an infinitely-recursive wire schema; F-004's
 > `emit`-inside-`for` shape falsifies the diagnostic's own wording.
-> Per-cluster re-verification evidence and fix plans: `eval/fix-plans/` (10 reports). Aggregate:
-> `eval/FIX-PLAN.md`.
+> Per-cluster re-verification evidence and fix plans: `eval/fieldops-audit/fix-plans/` (10 reports). Aggregate:
+> `eval/fieldops-audit/FIX-PLAN.md`.
 
 > The ratio is the headline. A mature generator refuses what it cannot do; Loom's honest refusals are
 > excellent, but its **dominant** failure mode is exit code 0 over output that does not compile or
