@@ -184,9 +184,21 @@ export const REQUIRED_CHECKS: readonly RequiredCheck[] = [
   { workflow: "conformance-parity.yml", check: "parity", lane: "per-pr", queueRequired: true },
   { workflow: "behavioral-e2e.yml", check: "behavioral", lane: "per-pr", queueRequired: true },
 
+  // Per-PR AND in the queue.  Its per-PR block is path-scoped, so the merge
+  // group is the full-tree run that catches a migration break arriving through
+  // a file that block does not name.  ~10 runner-minutes an entry.
+  {
+    workflow: "migration-evolution-e2e.yml",
+    check: "migration-evolution-e2e-passed",
+    lane: "per-pr",
+    queueRequired: true,
+  },
+
   // ── Required: THE MERGE GROUP IS THEIR ONLY RUN ──────────────────────
-  // Label-guarded on a PR, so without these four the features they cover are
-  // gated by nothing at all.  Trimming for cost must never reach this block.
+  // Label-guarded on a PR, so without these the features they cover are gated
+  // by nothing at all.  Trimming for cost must never reach this block.
+  // `tenancy-e2e` is split: its `flat` cells also run per-PR (draft guard),
+  // every other cell is label-guarded, and the rollup needs both.
   {
     workflow: "tenancy-e2e.yml",
     check: "tenancy-e2e-passed",
@@ -195,8 +207,15 @@ export const REQUIRED_CHECKS: readonly RequiredCheck[] = [
     queueIsOnlyRun: true,
   },
   {
-    workflow: "migration-evolution-e2e.yml",
-    check: "migration-evolution-e2e-passed",
+    workflow: "channels-e2e.yml",
+    check: "channels-e2e-passed",
+    lane: "queue",
+    queueRequired: true,
+    queueIsOnlyRun: true,
+  },
+  {
+    workflow: "api-call-e2e.yml",
+    check: "api-call-e2e-passed",
     lane: "queue",
     queueRequired: true,
     queueIsOnlyRun: true,

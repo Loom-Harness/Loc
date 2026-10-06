@@ -819,6 +819,41 @@ function moneyArithmetic(
   return T.unknown;
 }
 
+/** The policy function a free call `name(args)` names when that call resolves
+ *  to NOTHING in its own context but a function-form `policy` of that name is
+ *  declared in another bounded context of the same model — the
+ *  `loom.policy-out-of-scope` case.  `undefined` whenever any in-scope
+ *  declaration (function, value object, criterion, local policy, top-level
+ *  function, duration builtin) claims the name first: mirrors
+ *  the typing pass's free-call order (`Elaborator.freeCall`) so the validator and the pass
+ *  agree on which calls are out of scope.  Same-document only — a context in
+ *  another file is not visible from here (the call then stays `unknown`). */
+export function outOfScopePolicyCall(
+  name: string,
+  env: Env,
+): { decl: PolicyDecl; declaredIn: BoundedContext; usedIn: BoundedContext } | undefined {
+  const usedIn = envContext(env);
+  if (!usedIn) return undefined;
+  const sym = env.resolve(name);
+  if (sym && (isFunctionDecl(sym.origin) || isValueObject(sym.origin))) return undefined;
+  if (lookupFunctionInScope(name, env)) return undefined;
+  if (lookupValueObjectByName(name, env)) return undefined;
+  if (lookupCriterionByName(name, env)) return undefined;
+  if (lookupPolicyFnByName(name, env)) return undefined;
+  if (lookupTopLevelFunction(name, env)) return undefined;
+  if (durationUnitOf(name)) return undefined;
+  const root = AstUtils.findRootNode(usedIn);
+  for (const node of AstUtils.streamAllContents(root)) {
+    if (!isBoundedContext(node) || node === usedIn) continue;
+    for (const m of node.members) {
+      if (isPolicyDecl(m) && m.returnType !== undefined && m.name === name) {
+        return { decl: m, declaredIn: node, usedIn };
+      }
+    }
+  }
+  return undefined;
+}
+
 /** The user `FunctionDecl` a free call `name(args)` resolves to, or `undefined`
  *  when the call targets anything else — a value-object constructor, a criterion,
  *  a policy function, a duration builtin, or an unresolved name.  Mirrors
