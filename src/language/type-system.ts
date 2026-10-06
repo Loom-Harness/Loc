@@ -90,6 +90,7 @@ import {
   isSystem,
   isTemplateStr,
   isTernaryExpr,
+  isTestBlock,
   isThisRef,
   isUnaryExpr,
   isUserBlock,
@@ -1831,7 +1832,9 @@ const lettingInFlight = new Set<import("./generated/ast.js").LetStmt>();
  */
 function addTypedLets(
   bindings: Map<string, { type: DddType; origin: AstNode }>,
-  stmts: import("./generated/ast.js").Statement[],
+  // `AstNode`, not `Statement`: a unit `test` body is a `TestStatement[]` (it
+  // adds `expect`), and only the `let`s are read.
+  stmts: readonly AstNode[],
   ctx: {
     aggregate?: Aggregate;
     part?: EntityPart;
@@ -2083,6 +2086,14 @@ export function envForNode(node: AstNode): Env {
     addTypedLets(bindings, create.body, letCtx);
   } else if (handle) {
     addTypedLets(bindings, handle.body, letCtx);
+  }
+  // A unit / integration `test` body (`let r = Claim.create({ … })` then
+  // `r.bump("x")`).  Without this arm every test-body let typed `unknown`, so the
+  // call-arg checks the body now runs (`checkTestBodyCallArgs`) had nothing to
+  // resolve a receiver against and failed open.
+  const testBlock = AstUtils.getContainerOfType(node, isTestBlock);
+  if (testBlock && !op && !dsop && !create && !handle) {
+    addTypedLets(bindings, testBlock.body, letCtx);
   }
   // An `on(e: Event) { … }` reactor / `apply(e: Event) { … }` fold bind their
   // event instance as a typed `payload` local (these params are a LooseName +

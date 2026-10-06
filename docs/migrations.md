@@ -157,7 +157,8 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   than silently degrade to a data-losing drop+add, it **aborts** with the dedicated
   **`loom.migration-ambiguous-rename`** error, which names the drop/add columns and
   points at the explicit `migration "…" { Agg.old -> new }` block (the non-lossy
-  remedy).
+  remedy) — and says where it goes: at the **top level** of the `.ddd` file, a
+  sibling of `system { … }`, never inside it (inside it is a parse error).
   As with every destructive step, `--allow-destructive` is the deliberate opt-in
   that accepts the drop+add (and its data loss).
 

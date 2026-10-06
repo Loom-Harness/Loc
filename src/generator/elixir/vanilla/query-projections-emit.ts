@@ -41,6 +41,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   isQueryTimeProjection,
 } from "../../../ir/types/loom-ir.js";
+import { projectionSourceTable } from "../../../ir/util/inheritance.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -50,6 +51,7 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
+import { aggregateArgColumn, isValueObjectLeaf } from "../../../ir/util/projection-column.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { integralWireRange, numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -211,7 +213,13 @@ function renderQueryProjectionModule(
       })
     : null;
   const filter = query.filter ? renderExpr(query.filter, queryCtx) : null;
-  const where = combineWhere(filter, cap);
+  // A TPH (`sharedTable`) concrete's schema module points at the ROOT's shared
+  // table, so every read over it must carry the `kind` conjunct — exactly as
+  // its repository's reads do.  Without it the projection silently counted /
+  // summed / listed every sibling concrete's rows too (eval item 10).
+  const tphKind = sourceAgg ? projectionSourceTable(source, ctx.aggregates).kind : undefined;
+  const kindFilter = tphKind ? `record.kind == ${JSON.stringify(tphKind)}` : null;
+  const where = combineWhere(combineWhere(kindFilter, filter), cap);
 
   // A `shape: document` source has NO flattened columns — the whole tree is one
   // jsonb `data` embed on an `(id, data, version)` row — so every per-row read
@@ -289,7 +297,7 @@ function renderQueryProjectionModule(
     const groupClause = groupCols.length === 1 ? groupCols[0]! : `[${groupCols.join(", ")}]`;
     const selectCols = [
       ...grouped.keys.map((k) => `${k.field}: ${keyExpr(k.expr)}`),
-      ...grouped.aggregates.map((a) => `${a.field}: ${ectoAggregate(a.aggregate)}`),
+      ...grouped.aggregates.map((a) => `${a.field}: ${ectoAggregate(a.aggregate, sourceAgg, ctx)}`),
     ].join(", ");
     lines.push("    rows =");
     lines.push(
@@ -363,7 +371,9 @@ ${
   // with every row hydrated into a struct to produce one integer.
   const aggregates = wholeTableAggregates(proj);
   if (aggregates) {
-    const cols = aggregates.map((a) => `${a.field}: ${ectoAggregate(a.aggregate)}`).join(", ");
+    const cols = aggregates
+      .map((a) => `${a.field}: ${ectoAggregate(a.aggregate, sourceAgg, ctx)}`)
+      .join(", ");
     lines.push("    row =");
     lines.push(
       where
@@ -688,7 +698,11 @@ function intWireHelper(aggregates: readonly AggregateSelect[]): string {
 /** The Ecto aggregate call for one `select`.  `count` counts ROWS (Ecto needs a
  *  column, so it counts the primary key — equivalent to `COUNT(*)` for a table
  *  whose id is non-null); the rest take the aggregated column off `record`. */
-function ectoAggregate(agg: ProjectionAggregateIR): string {
+function ectoAggregate(
+  agg: ProjectionAggregateIR,
+  sourceAgg: AggregateIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+): string {
   if (agg.op === "count" || !agg.arg) return "count(record.id)";
   const arg = agg.arg;
   if (arg.kind !== "member") {
@@ -696,7 +710,60 @@ function ectoAggregate(agg: ProjectionAggregateIR): string {
       "internal: a whole-table aggregation argument must be a source column reference",
     );
   }
-  return `${agg.op}(record.${snake(arg.member)})`;
+  // A workflow / folded-projection source has no AggregateIR; its row columns
+  // are the select's own names, so the leaf member IS the column.
+  if (!sourceAgg) return `${agg.op}(record.${snake(arg.member)})`;
+  const col = aggregateArgColumn(arg, sourceAgg, ctx);
+  if (!isValueObjectLeaf(col)) return `${agg.op}(record.${snake(col.path[0]!)})`;
+  return `${agg.op}(${ectoJsonbLeaf(col.path, col.fields.at(-1)?.type)})`;
+}
+
+/** A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) on Ecto.  Unlike the other four
+ *  backends, which flatten a VO into one column per leaf, a vanilla Ecto schema
+ *  stores the whole VO as ONE `:map` (jsonb) column — so the leaf is a jsonb
+ *  extraction, cast back to the leaf's SQL type.  Emitting `record.<leaf>` (the
+ *  old form) named the jsonb column itself, i.e. `sum(jsonb)` — a Postgres
+ *  error at request time (eval item 14b) — or a field the schema lacks.
+ *
+ *  Key spelling follows what the changeset writes: the VO's own top-level keys
+ *  are snake-cased (`__normalize_vo_keys`), a NESTED VO's keys are stored as
+ *  sent.  A nested multi-word hop therefore reads either spelling. */
+function ectoJsonbLeaf(path: readonly string[], leafType: TypeIR | undefined): string {
+  const column = `record.${snake(path[0]!)}`;
+  const snakePath = path.slice(1).map(snake);
+  const sentPath = [snake(path[1]!), ...path.slice(2)];
+  const extract = (keys: readonly string[]): string =>
+    keys.length === 1 ? `?->>'${keys[0]}'` : `?#>>'{${keys.join(",")}}'`;
+  const cast = jsonbLeafCast(leafType);
+  const wrap = (sql: string): string => (cast ? `(${sql})::${cast}` : sql);
+  if (snakePath.join(".") === sentPath.join(".")) {
+    return `fragment(${JSON.stringify(wrap(extract(snakePath)))}, ${column})`;
+  }
+  return `fragment(${JSON.stringify(wrap(`coalesce(${extract(snakePath)}, ${extract(sentPath)})`))}, ${column}, ${column})`;
+}
+
+/** The Postgres cast that turns a jsonb text extraction back into the leaf's
+ *  column type — the same type the flattened column carries on the other
+ *  backends, so `sum` / `avg` / `min` / `max` compute (and Postgrex decodes)
+ *  exactly as over a real column.  Undefined = keep the text (a string/enum
+ *  leaf compares as text anyway). */
+function jsonbLeafCast(t: TypeIR | undefined): string | undefined {
+  if (!t) return undefined;
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind !== "primitive") return undefined;
+  switch (inner.name) {
+    case "money":
+    case "decimal":
+      return "numeric";
+    case "int":
+      return "integer";
+    case "long":
+      return "bigint";
+    case "datetime":
+      return "timestamptz";
+    default:
+      return undefined;
+  }
 }
 
 /** Coerce one aggregate result to the row's declared wire type.

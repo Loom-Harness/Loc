@@ -65,6 +65,30 @@ ruling, not a patch.
 
 ---
 
+## Disposition update — re-verified on `main` 2026-09-29 (eval-closure review G8-08c)
+
+The 2026-09-21 table above is kept as written; these rows supersede it where they differ.
+
+| Finding | 2026-09-21 said | State on 2026-09-29 |
+|---|---|---|
+| F-008 `retrieval` emits no HTTP route | open, unowned | **owned** by mission **M-T5.31** (retrieval-to-route parity; `docs/new-plan/T5-language-core.md`) |
+| F-009 `Repo.run(<Retrieval>)` in a paged `queryHandler` | fixed | **still crashes when ROUTED**: a routed variant (`api` exposing the handler) validates with 0 errors and `generate system` exits 1 with `internal: paged queryHandler … does not match the supported … shape. Please file a bug.` plus a stack trace, on node and python. The honest refusal is in flight as **#3084** (eval-closure item #7); accepting the shape is a separate mission |
+| F-012 hand-edits clobbered on regenerate | claimed, open (#2948) | **#2948 closed unmerged** (2026-09-28). The "name the locally-modified files" half is in flight as **#3095**; the stale-pin detector is mission **M-T8.28** |
+| F-017 `ddd i18n` locales never emitted | claimed, open (#2969) | **fixed** — #2969 merged |
+| F-018 recursive containment `RangeError` | claimed, open (#2980) | **fixed** — #2980 merged; the repro now draws `loom.containment-cycle` |
+
+**Tally correction.** The severity table at the top says S1 7 · S2 8 · S3 6. The register's
+`Severity:` lines count **S1 8 · S2 7 · S3 7** (22 defects): the S1s are F-002, F-004, F-006,
+F-013, F-014, F-016, F-022 and F-024.
+
+**Repro files with a `.ddd.txt` extension** (`repro/r01-duration-field.ddd.txt`,
+`repro/r04-soft-keyword-param.ddd.txt`) are deliberately not `.ddd`, so repo-wide `.ddd` sweeps
+do not pick up these intentionally-invalid models. `ddd parse` dispatches on the extension and
+fails on `.txt` with a raw stack trace, so copy one to a `.ddd` path before running it (see the
+commands at F-003 and F-005).
+
+---
+
 ## Overlap with in-flight work (checked 2026-09-13, against `main` @ `a25802d3` and all 26 open PRs)
 
 Three other agents ran the same build-an-app-end-to-end exercise (#2911 FieldOps, #2865
@@ -229,7 +253,8 @@ wire — it lives only in expressions."  (So the limitation IS documented.)
 
 Repro: `eval-clinica/repro/r01-duration-field.ddd.txt`
 ```
-node bin/cli.js parse eval-clinica/repro/r01-duration-field.ddd.txt
+cp eval-clinica/repro/r01-duration-field.ddd.txt /tmp/r01-duration-field.ddd   # `ddd parse` needs a .ddd extension
+node bin/cli.js parse /tmp/r01-duration-field.ddd
 ```
 Observed:
 ```
@@ -313,7 +338,7 @@ Claim under test: `docs/language.md` — "Everything else that acts as a keyword
 *somewhere* is a **soft keyword** — reserved only where its own rule begins, and
 admitted as an ordinary identifier elsewhere."
 
-Repro: `eval-clinica/repro/r04-soft-keyword-param.ddd.txt` (8 lines)
+Repro: `eval-clinica/repro/r04-soft-keyword-param.ddd.txt` (8 lines; copy it to a `.ddd` path before `ddd parse`, which dispatches on the extension)
 ```ddd
 criterion InWindow(from: datetime) of A = startAt >= from
 ```

@@ -12,6 +12,10 @@ had its emitted **backend and frontend actually `npm install` + `tsc
 
 Re-verified on fresh `main` @ `93bc82d` (2026-09-10) right before filing this.
 
+> **Status 2026-09-29 (eval-closure review G8-08e):** D1, D2 and D4's fixes have all **merged** —
+> #2878 (`9f6984f7`), #2884 (`f9c0712a`) and #2883 (`6442e2a3`) — and so has D3's #2965 (`693ce9d7`). The per-defect "in flight / open,
+> not merged" lines below are the 2026-09-13 record, kept as written.
+
 **Status re-check 2026-09-13**, amended **2026-09-20**. Three of the four
 defects had a fix in flight on 2026-09-13; **those PRs were still open, so every
 claim below was still true of `main`.** D3 now has one too (#2965), which also
@@ -42,7 +46,7 @@ See the correction inside D3.)*
 
 ### D1 (bug, confirmed live on `main` today) — scaffolded `softDelete` button ships a `tsc` error; `journey/04-saas.ddd` already has it
 
-**Status 2026-09-13:** fix in flight — **[#2878](https://github.com/Loom-Harness/Loc/pull/2878)** (the one-line `?? ""` at the site named below, proved on react/vue/svelte against `journey/04-saas.ddd`). Open, not merged; the root-cause line below is unchanged on `main`.
+**Status 2026-09-13:** fix in flight — **[#2878](https://github.com/Loom-Harness/Loc/pull/2878)** (the one-line `?? ""` at the site named below, proved on react/vue/svelte against `journey/04-saas.ddd`). Open, not merged; the root-cause line below is unchanged on `main`. **Status 2026-09-29: merged (#2878, `9f6984f7`).**
 
 The scaffold's Detail page wires the soft-delete button's mutation hook as:
 
@@ -87,7 +91,7 @@ resolved).
 
 ### D2 (bug, confirmed live on `main` today) — `currentUser.<undeclared-field>` compiles clean, breaks `tsc`; the comment claiming a safety net is wrong
 
-**Status 2026-09-13:** fix in flight — **[#2884](https://github.com/Loom-Harness/Loc/pull/2884)** (a new `loom.unknown-user-claim` raised in phase ④ off the enumerable `user { }` claim set, rather than the IR-validate check this section looked for). Open, not merged; no such check exists on `main` today.
+**Status 2026-09-13:** fix in flight — **[#2884](https://github.com/Loom-Harness/Loc/pull/2884)** (a new `loom.unknown-user-claim` raised in phase ④ off the enumerable `user { }` claim set, rather than the IR-validate check this section looked for). Open, not merged; no such check exists on `main` today. **Status 2026-09-29: merged (#2884, `f9c0712a`).**
 
 Minimal repro (independent of the claims model):
 
@@ -239,7 +243,7 @@ included or silently dropped.
 
 ### D4 (papercut — `policy` intentional-but-undiagnosed, `deny` likely an oversight)
 
-**Status 2026-09-13:** fix in flight — **[#2883](https://github.com/Loom-Harness/Loc/pull/2883)**, which goes further than this section asks: rather than adding a special-cased diagnostic, it promotes `policy`, `deny` and six siblings (`of`, `allow`, `local`, `deep`, `global`, `persistence`) into `CommonSoftKeywords`, so `policy: Policy id` simply becomes a legal field name. Open, not merged — on `main` today both halves below still reproduce. **One half stays unfixed even after it lands:** the literal repro `operation deny()` is a *declaration* name, and `Operation.name` is `(ID | 'write')` — `operation state()` fails identically — so widening declaration names is a separate decision, pinned by a test there rather than silently left.
+**Status 2026-09-13:** fix in flight — **[#2883](https://github.com/Loom-Harness/Loc/pull/2883)**, which goes further than this section asks: rather than adding a special-cased diagnostic, it promotes `policy`, `deny` and six siblings (`of`, `allow`, `local`, `deep`, `global`, `persistence`) into `CommonSoftKeywords`, so `policy: Policy id` simply becomes a legal field name. Open, not merged — on `main` today both halves below still reproduce. **Status 2026-09-29: merged (#2883, `6442e2a3`); the declaration-name half stays a separate decision, as said next.** **One half stays unfixed even after it lands:** the literal repro `operation deny()` is a *declaration* name, and `Operation.name` is `(ID | 'write')` — `operation state()` fails identically — so widening declaration names is a separate decision, pinned by a test there rather than silently left.
 
 - A field literally named `policy` fails to parse:
   `` Expecting token of type '}' but found `policy` ``. **Intentional** —

@@ -1,4 +1,8 @@
 import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import {
+  DEV_CLAIMS_HEADER,
+  MALFORMED_DEV_CLAIMS_DETAIL,
+} from "../../../generator/_auth/dev-claims.js";
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
@@ -97,7 +101,8 @@ import { registerUserVerifier } from "./verifier";
  *
  *  Dev-only: the Loom playground (or curl) can override the claims by sending a
  *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
- *  built-in identity is used.
+ *  built-in identity is used, and a header that is present but does not decode
+ *  to a JSON object is refused with 400.
  *
  *  REPLACE for production by calling \`registerUserVerifier(...)\` with a real
  *  JWT-decoding implementation, or declare an \`auth { oidc { … } }\` block to
@@ -113,12 +118,30 @@ export function registerDevStubVerifier(): void {
     const base: UserClaims = ${indentBy(renderStubUserLiteral(user), "    ")};
     const injected = req.headers.get("x-loom-dev-claims");
     if (!injected) return base;
+    let decoded: unknown;
     try {
-      return { ...base, ...JSON.parse(Buffer.from(injected, "base64").toString("utf8")) };
+      decoded = JSON.parse(Buffer.from(injected, "base64").toString("utf8"));
     } catch {
-      return base;
+      throw new MalformedDevClaimsError();
     }
+    // A present header that does not decode to a JSON OBJECT is refused (400,
+    // see the auth middleware) rather than ignored: falling back to the
+    // built-in identity let a test that meant to run as a narrow principal
+    // run as this one instead.
+    if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
+      throw new MalformedDevClaimsError();
+    }
+    return { ...base, ...decoded };
   });
+}
+
+/** Thrown by the dev stub for a present-but-undecodable \`x-loom-dev-claims\`
+ *  header; the auth middleware answers it 400, not 401. */
+export class MalformedDevClaimsError extends Error {
+  constructor() {
+    super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});
+    this.name = "MalformedDevClaimsError";
+  }
 }
 `;
 }
@@ -437,6 +460,28 @@ function orgContextForbidden(c: Context, requested: string, orgPath: string) {
   // just to empty a table.  It costs nothing to bypass — the route is not
   // REGISTERED outside a dev profile, so on a real deployment there is no
   // handler behind the bypassed path.
+  // Ruling D6 (#23): the dev stub refuses a present-but-undecodable
+  // `x-loom-dev-claims` header; this is the 400 it answers with.  Not emitted
+  // under OIDC — there is no dev stub to throw it.
+  const malformedDevClaimsFn = `
+/** RFC 7807 400 for a present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header
+ *  (dev stub only).  Refused rather than ignored: ignoring it ran the request
+ *  as the built-in identity, so a test meant for a narrow principal could pass
+ *  as the broad one. */
+function malformedDevClaims(c: Context, detail: string) {
+  return c.body(
+    JSON.stringify({
+      type: "about:blank",
+      title: "Bad Request",
+      status: 400,
+      detail,
+      instance: c.req.path,
+    }),
+    400,
+    { "content-type": "application/problem+json" },
+  );
+}
+`;
   const bypass = oidc
     ? `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
     : `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
@@ -444,7 +489,7 @@ function orgContextForbidden(c: Context, requested: string, orgPath: string) {
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { ${orgContext ? "requestContext, requestLog" : "requestContext"} } from "../obs/als";
-import type { User, UserClaims } from "./user-types";
+${oidc ? "" : 'import { MalformedDevClaimsError } from "./dev-stub";\n'}import type { User, UserClaims } from "./user-types";
 import { verifyUserOrThrow } from "./verifier";
 
 const BYPASS_PREFIXES = ${bypass} as const;
@@ -505,7 +550,7 @@ function unauthorized(c: Context) {
     },
   );
 }
-
+${oidc ? "" : malformedDevClaimsFn}
 export const authMiddleware = createMiddleware<{
   Variables: { currentUser: User };
 }>(async (c, next) => {
@@ -524,8 +569,8 @@ export const authMiddleware = createMiddleware<{
   let claims: UserClaims;
   try {
     claims = await verifyUserOrThrow(c.req.raw);
-  } catch {
-    return unauthorized(c);
+  } catch${oidc ? "" : " (err)"} {
+${oidc ? "" : "    if (err instanceof MalformedDevClaimsError) return malformedDevClaims(c, err.message);\n"}    return unauthorized(c);
   }
   ${buildUser}
   // Attach the principal to the ambient frame (read by non-HTTP code via
