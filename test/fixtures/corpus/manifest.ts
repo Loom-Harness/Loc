@@ -456,6 +456,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
   },
   {
+    id: "member-named-like-vo",
+    title:
+      "a member named after a VALUE OBJECT (`amount: decimal` beside `valueobject Amount`) — refused on .NET alone by an over-firing `loom.dotnet-name-collision`",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by M-T6.69 (completeness-audit F1; the deep fuzz leg's seeds 45/70/115 all shrink to it).  The .NET aggregate class names a value object only in TYPE position (`public Amount Price`, `new Amount(…)`), so a member called `Amount` hides nothing — but the gate counted value objects and events among the types a member could hide, and refused the model on dotnet while the other four accepted it.  All five backends must now compile it.",
+  },
+  {
     id: "vo-field-default",
     title:
       "VALUE-OBJECT-typed field default — the wire boundary renders a non-scalar default differently from a scalar one",

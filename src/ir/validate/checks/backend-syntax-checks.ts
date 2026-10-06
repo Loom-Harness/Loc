@@ -296,7 +296,7 @@ function stmtReadsCurrentUser(s: StmtIR): boolean {
 // class — `upperFirst(name)` for a field/derived/containment property, a
 // function, or an operation method — while the SAME class body references its
 // sibling TYPES by simple name (`Comment._Create(...)`, `CommentId.New()`,
-// `new IssueOpened { … }`).  C# resolves a simple name in EXPRESSION position
+// `Severity.Low`).  C# resolves a simple name in EXPRESSION position
 // against the enclosing class's members FIRST, so a member whose C# name
 // equals one of those type names hides the type and the reference stops
 // compiling:
@@ -358,19 +358,28 @@ function csDeclaredTypeName(t: TypeIR): string | null {
   return null;
 }
 
-/** Every C# type name an aggregate class body in `ctx` can reach by SIMPLE
- *  name: its own part classes (same namespace) plus everything reachable
- *  through the four `using` directives every emitted aggregate file carries
- *  (`Api.Domain.Ids` / `.Events` / `.ValueObjects` / `.Enums`).  Other
- *  aggregates and THEIR parts are deliberately absent — each aggregate gets
- *  its own `Api.Domain.<Plural>` namespace, which this file does not import,
- *  so a name equal to a foreign part is not a collision. */
+/** Every C# type name an aggregate class body in `ctx` references by SIMPLE
+ *  name in EXPRESSION position — the only position a same-named member can
+ *  hide it from: its own part classes (`Comment._Create(…)`,
+ *  `Comment.FromSnapshot(…)`), the enums (`Severity.Low`) and the id classes
+ *  (`IssueId.New()`).  Other aggregates and THEIR parts are deliberately
+ *  absent — each aggregate gets its own `Api.Domain.<Plural>` namespace, which
+ *  this file does not import, so a name equal to a foreign part is not a
+ *  collision.
+ *
+ *  Value objects and events are ALSO absent (M-T6.69).  The emitter only ever
+ *  names them in TYPE position — a declaration (`public Amount Price`), a
+ *  parameter, or `new Amount(…)` / `new Filed(…)`, where `new` binds a type
+ *  and member lookup never runs — so a member called `Amount` beside
+ *  `valueobject Amount` compiles.  Refusing it was an over-fire that took the
+ *  most canonical DDD shape (`amount: decimal` beside a `Amount` value object)
+ *  off .NET alone; `dotnet build /warnaserror` of that shape — plus a method
+ *  `amount()` and an operation named after its own emitted event — is clean,
+ *  and the compile-tier fixture `name-collision-neighbours.ddd` pins it. */
 function csVisibleTypeNames(ctx: BoundedContextIR, agg: AggregateIR): Set<string> {
   const names = new Set<string>([agg.name]);
   for (const p of agg.parts) names.add(p.name);
   for (const e of ctx.enums) names.add(e.name);
-  for (const v of ctx.valueObjects) names.add(v.name);
-  for (const ev of ctx.events) names.add(ev.name);
   // `Api.Domain.Ids` holds an id class per aggregate AND per part.
   for (const a of ctx.aggregates) {
     names.add(`${a.name}Id`);

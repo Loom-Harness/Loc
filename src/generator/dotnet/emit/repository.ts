@@ -12,6 +12,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
@@ -705,6 +706,39 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
 // shape — a silent cross-tenant read.  node/java/python filter document reads
 // in-app the same way.
 // ---------------------------------------------------------------------------
+/** The in-app capability-filter suffix a document-store FIND applies to its
+ *  rehydrated rows, honouring the find's `ignoring` clause (C2, M-T6.75).
+ *  No clause → the shared `_CapabilityVisible` (every filter).  A bypass keeps
+ *  only the filters it does not name — same selection rule as
+ *  `bypassedFilterNames` on the relational path: `ignoring *` drops every
+ *  bypassable filter, `ignoring A` drops the filters whose contributing
+ *  capability is `A`, and a deny sentinel is never dropped. */
+function docFindCapFilter(
+  agg: EnrichedAggregateIR,
+  f: { bypassAll?: boolean; bypassCaps?: string[] },
+  capPredicate: string | null,
+): string {
+  if (!capPredicate) return "";
+  const filters = agg.contextFilters ?? [];
+  const origins = agg.contextFilterOrigins ?? [];
+  const caps = new Set(f.bypassCaps ?? []);
+  if (!f.bypassAll && caps.size === 0) return ".Where(_CapabilityVisible)";
+  const kept = filters.filter((p, i) => {
+    if (isDenyFilter(p)) return true;
+    if (f.bypassAll) return false;
+    const origin = origins[i];
+    return !(origin != null && caps.has(origin));
+  });
+  if (kept.length === filters.length) return ".Where(_CapabilityVisible)";
+  if (kept.length === 0) return "";
+  const pred = kept
+    .map(
+      (p) => `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
+    )
+    .join(" && ");
+  return `.Where(x => ${pred})`;
+}
+
 export function renderDocumentRepositoryImpl(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -818,7 +852,15 @@ export function renderDocumentRepositoryImpl(
     // by id since it was written; the other four did not, so one fixture
     // answered two different orders across the backends.  Id is the primary
     // key, so this is an index scan.
-    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`;
+    //
+    // C2 (M-T6.75): the find's `ignoring` clause (named-filter-bypass.md §11)
+    // narrows WHICH capability filters apply — the in-app twin of the
+    // relational `.IgnoreQueryFilters(…)`.  No clause keeps the shared
+    // `_CapabilityVisible`; a bypass renders only the retained conjuncts
+    // inline, so the root reads (`GetByIdAsync` / `FindManyByIdsAsync`) keep
+    // every filter whatever a find bypasses.  A deny sentinel is never
+    // bypassable (deny wins over `ignoring *`).
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(cancellationToken)).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
