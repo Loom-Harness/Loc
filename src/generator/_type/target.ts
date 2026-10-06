@@ -60,6 +60,10 @@ export interface TypeTarget {
   /** The `none` unit type — appears standalone only defensively (it normally
    *  lives inside an option's union). */
   none(): string;
+  /** A nominal `enum` / `valueobject` / `entity` reference.  Optional: absent,
+   *  the bare declared name is written (every backend but python, whose leaf
+   *  writes an import marker — M-T9.84). */
+  named?(kind: "enum" | "valueobject" | "entity", name: string): string;
 }
 
 /**
@@ -79,7 +83,7 @@ export function renderTypeWith(t: TypeIR, target: TypeTarget, mode: TypeMode = "
     case "enum":
     case "valueobject":
     case "entity":
-      return t.name;
+      return target.named ? target.named(t.kind, t.name) : t.name;
     case "array":
       return target.array(recur(t.element));
     case "optional":

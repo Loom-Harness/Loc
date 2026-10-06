@@ -1,8 +1,19 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
+import { pyRef } from "../_imports/python.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
+import { PY } from "./py-symbols.js";
+
+const prov = (n: string): string => pyRef("app.domain.provenance", n);
+const PROV = {
+  ProvInput: prov("ProvInput"),
+  ProvLineage: prov("ProvLineage"),
+  ProvTarget: prov("ProvTarget"),
+  record: prov("record"),
+} as const;
+
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -102,19 +113,19 @@ function withProv(
   const computed = renderPath(target);
   const field = prov.target.field;
   const inputs = collectLeaves(value, renderPyExpr)
-    .map((l) => `ProvInput(path=${JSON.stringify(l.path)}, value=${l.value})`)
+    .map((l) => `${PROV.ProvInput}(path=${JSON.stringify(l.path)}, value=${l.value})`)
     .join(", ");
   return wrapProvCapture(base, {
     snapshot: `${i}${tmp} = [${inputs}]`,
-    lineage: `${i}${lin} = ProvLineage(snapshot_id=${JSON.stringify(prov.snapshotId)}, target=ProvTarget(type=${JSON.stringify(prov.target.type)}, field=${JSON.stringify(field)}), inputs=${tmp}, computed_value=${computed})`,
+    lineage: `${i}${lin} = ${PROV.ProvLineage}(snapshot_id=${JSON.stringify(prov.snapshotId)}, target=${PROV.ProvTarget}(type=${JSON.stringify(prov.target.type)}, field=${JSON.stringify(field)}), inputs=${tmp}, computed_value=${computed})`,
     colocated: `${i}self._${snake(field)}_provenance = ${lin}`,
-    sink: `${i}record(${lin})`,
+    sink: `${i}${PROV.record}(${lin})`,
   });
 }
 
 /** `log("trace", "<event>", <kwargs>)` — the domain-trace facade call. */
 function traceLine(i: string, event: string, kwargs: string): string {
-  return `${i}log("trace", ${JSON.stringify(event)}, ${kwargs})`;
+  return `${i}${PY.log}("trace", ${JSON.stringify(event)}, ${kwargs})`;
 }
 
 /** The Python leaf table.  Built per call so the arms close over the
@@ -139,8 +150,8 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
       const text = JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`);
       const thrown = code
-        ? `raise DomainError(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
-        : `raise DomainError(${text})`;
+        ? `raise ${PY.DomainError}(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
+        : `raise ${PY.DomainError}(${text})`;
       if (!ctx.trace) {
         return [`${i}if ${renderPyNegatedGuard(s.expr)}:`, `${sub}${thrown}`].join("\n");
       }
@@ -162,7 +173,7 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       // ForbiddenError handler (S16).
       [
         `${i}if ${renderPyNegatedGuard(s.expr)}:`,
-        `${sub}raise ForbiddenError(${JSON.stringify(`Forbidden: ${s.source}`)})`,
+        `${sub}raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${s.source}`)})`,
       ].join("\n"),
 
     let: (s) =>
@@ -205,7 +216,7 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
 
     emit: (s) => {
       const kwargs = s.fields.map((f) => `${snake(f.name)}=${renderPyExpr(f.value)}`).join(", ");
-      const ev = `${s.eventName}(${kwargs})`;
+      const ev = `${pyRef("app.domain.events", s.eventName)}(${kwargs})`;
       if (ctx.eventSourced) {
         return [`${i}__ev = ${ev}`, `${i}self._events.append(__ev)`, `${i}self._apply(__ev)`].join(
           "\n",

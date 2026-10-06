@@ -1,5 +1,4 @@
 import {
-  type BoundedContextIR,
   type EnrichedBoundedContextIR,
   exprUsesCurrentUser,
   type OperationIR,
@@ -12,7 +11,6 @@ import {
   workflowUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { type ReadPort, readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import {
   operationBodyUsesCurrentUser,
   operationGates,
@@ -24,7 +22,6 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
   walkWorkflowStmtChildren,
@@ -36,6 +33,8 @@ import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
+import { PY_IMPORTS, pyRef } from "../_imports/python.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
@@ -44,10 +43,9 @@ import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
-import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
-import { responsePyType, wireModelImport } from "./emit/http-models.js";
+import { responsePyType } from "./emit/http-models.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
-import { wireHelperImport } from "./py-type-imports.js";
+import { PY } from "./py-symbols.js";
 import {
   type PyRenderContext,
   renderPyExpr,
@@ -57,10 +55,16 @@ import {
 import { renderPyStatements } from "./render-stmt.js";
 import { resourceImportLines } from "./resource-clients.js";
 import {
+  aggClassRef,
   conflictResolver,
   errorResponsesKwarg,
+  PY_HTTP as H,
   ID_PARAM,
+  PY_REQUEST_PARAM,
+  PY_SESSION_DEP,
+  PY_USER_BIND,
   pyWireToDomain,
+  repoClassRef,
   requestFieldDecl,
 } from "./routes-builder.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
@@ -96,6 +100,19 @@ import { esFns } from "./workflow-eventsourced-emit.js";
 // import point is unchanged.
 export { commandWorkflowsOf };
 
+// Workflow-route symbols beyond the shared HTTP set, as `ref()` markers — the
+// module's import block derives from use (M-T9.84).
+const SELECT = pyRef("sqlalchemy", "select");
+const SIMPLE_NAMESPACE = pyRef("types", "SimpleNamespace");
+const IN_CHILD_CONTEXT = pyRef("app.obs.log", "in_child_context");
+const DOMAIN_EVENT = pyRef("app.domain.events", "DomainEvent");
+/** A workflow's persisted correlation row class (`app.db.schema`). */
+const rowRef = (wf: WorkflowIR): string => pyRef("app.db.schema", `${wf.name}Row`);
+/** An `app.dispatch` fold helper (event-sourced saga reads). */
+const dispatchFn = (name: string): string => pyRef("app.dispatch", name);
+/** A domain event class. */
+const eventRef = (name: string): string => pyRef("app.domain.events", name);
+
 /** Observable workflows — correlation-bearing, state-table-backed sagas the
  *  enricher gave an `instanceWireShape` (workflow-instance-visibility.md).
  *  Each gets the read-only instance endpoints over its persisted saga row. */
@@ -128,10 +145,9 @@ export function buildPyWorkflowsFile(
         wfs.flatMap((wf) => wf.statements),
       )
     : [];
-  const dispatcherExpr = hasDispatch ? "make_dispatcher(session)" : "NoopDomainEventDispatcher()";
-  const anyUser = wfs.some(
-    (wf) => workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx),
-  );
+  const dispatcherExpr = hasDispatch
+    ? `${H.make_dispatcher}(session)`
+    : `${H.NoopDomainEventDispatcher}()`;
 
   // The declared record payloads this context's command-workflow params name
   // (`create(c: FileClaim)`).  Nothing else emits a model for one — a payload
@@ -146,13 +162,13 @@ export function buildPyWorkflowsFile(
   const payloadModels = payloads
     .map((pl) =>
       lines(
-        `class ${pl.name}Response(BaseModel):`,
+        `class ${pl.name}Response(${H.BaseModel}):`,
         pl.fields.length > 0
           ? pl.fields.map((f) => `    ${f.name}: ${requestFieldDecl(f.type, f.optional, ctx)}`)
           : ["    pass"],
         "",
         "",
-        `@dataclass(frozen=True)`,
+        `@${PY.dataclass}(frozen=True)`,
         `class ${pl.name}:`,
         pl.fields.length > 0
           ? pl.fields.map(
@@ -169,7 +185,7 @@ export function buildPyWorkflowsFile(
   const models = wfs
     .map((wf) =>
       lines(
-        `class ${upperFirst(wf.name)}Request(BaseModel):`,
+        `class ${upperFirst(wf.name)}Request(${H.BaseModel}):`,
         wf.params.length > 0
           ? wf.params.map((p) => `    ${p.name}: ${requestFieldDecl(p.type, false, ctx)}`)
           : ["    pass"],
@@ -205,149 +221,20 @@ export function buildPyWorkflowsFile(
   // `payloadModels` leads: the `<Wf>Request` models in `models` reference the
   // `<Payload>Response` classes it declares, and Python resolves an annotation
   // at class-definition time.
-  const body = `${payloadModels}${models}${instanceModels}${loadersBlock}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
-
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  // Includes the read-port repos a `reading`-tier domain-service call needs
-  // (domain-services.md rev. 4): the route constructs them, so the
-  // file must import their classes even when the workflow body never reads them.
-  const repoAggs = [
-    ...new Set(
-      wfs.flatMap((wf) => mergeReadPortRepos(reposFor(wf), wf, ctx).map((r) => r.aggName)),
-    ),
-  ].sort();
-  const eventNames = [
-    ...new Set(wfs.flatMap((wf) => collectEmits(wf.statements).map((e) => e.eventName))),
-  ].sort();
-  const idNames = [...new Set([...scanIdNames(scan, ctx)])].sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
-  const voModelImports = valueObjectPool(ctx)
-    .map((v) => v.name)
-    .filter((n) => refersTo(`${n}Model`))
-    .sort();
+  const body = `${payloadModels}${models}${instanceModels}${loadersBlock}${helpersBlock}router = ${H.APIRouter}(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
 
   return lines(
     `"""Workflow routes.  Auto-generated."""`,
     "",
-    refersTo("math") ? "import math" : null,
-    // The domain half of a payload param's record pair is a frozen dataclass
-    // (the VOs' own shape) — emitted only when a workflow param names a
-    // payload, so every other workflows file stays byte-identical.
-    refersTo("dataclass") ? "from dataclasses import dataclass" : null,
-    // A5 temporal — workflow bodies render domain expressions, so
-    // `timedelta` rides in on use (like UTC/datetime).
-    refersTo("datetime") || refersTo("timedelta")
-      ? `from datetime import ${[
-          // `UTC` only on use — a `datetime` PARAM names the type in the
-          // request model without ever stamping `datetime.now(UTC)`, and an
-          // unconditional import is ruff F401 (the aggregate module already
-          // gates it the same way).
-          ...(refersTo("UTC") ? ["UTC"] : []),
-          ...(refersTo("datetime") ? ["datetime"] : []),
-          ...(refersTo("timedelta") ? ["timedelta"] : []),
-        ].join(", ")}`
-      : null,
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
-    `from fastapi import ${[
-      "APIRouter",
-      "Depends",
-      refersTo("Path") ? "Path" : null,
-      refersTo("Request") ? "Request" : null,
-      refersTo("Response") ? "Response" : null,
-    ]
-      .filter(Boolean)
-      .join(", ")}`,
-    `from pydantic import ${["BaseModel", refersTo("RootModel") ? "RootModel" : null].filter(Boolean).join(", ")}`,
-    refersTo("select") ? "from sqlalchemy import select" : null,
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    // Own-state scratch namespace for an uncorrelated command workflow
-    // (M-T6.50) — see `workflowRoute`'s `usesOwnState` guard.
-    refersTo("SimpleNamespace") ? "from types import SimpleNamespace" : null,
-    "from typing import Annotated",
-    "",
-    anyUser ? "from app.auth.user import User" : null,
-    "from app.db.engine import get_session",
-    // Command-workflow routes always log the lifecycle narrative; observable-
-    // only contexts (no command route) emit no `log(...)` call, so gate on wfs.
-    wfs.length > 0 ? "from app.obs.log import in_child_context, log" : null,
+    PY_IMPORTS,
     ...resourceImports,
-    ...repoAggs.map((n) => `from app.db.repositories.${snake(n)}_repository import ${n}Repository`),
-    (() => {
-      // State-based sagas read their `<Wf>Row` correlation row from schema; an
-      // event-sourced workflow has no such row (it folds the event stream).
-      const stateRows = obsWfs.filter((wf) => !wf.eventSourced).map((wf) => `${wf.name}Row`);
-      return stateRows.length > 0
-        ? `from app.db.schema import ${stateRows.sort().join(", ")}`
-        : null;
-    })(),
-    (() => {
-      // Event-sourced sagas fold via the dispatch fold helpers (the `<Wf>State`
-      // fold class + `_fold`/`_load`/`_load_all`), reused from `app.dispatch`
-      // so the read body mirrors the dispatch-handler load/fold machinery.
-      const esObs = obsWfs.filter((wf) => wf.eventSourced);
-      if (esObs.length === 0) return null;
-      const names = new Set<string>();
-      for (const wf of esObs) {
-        const fns = esFns(wf);
-        names.add(fns.fold);
-        names.add(fns.load);
-        names.add(fns.loadAll);
-      }
-      return `from app.dispatch import ${[...names].sort().join(", ")}`;
-    })(),
-    wireHelperImport(refersTo),
-    hasDispatch && refersTo("make_dispatcher") ? "from app.dispatch import make_dispatcher" : null,
-    (() => {
-      const names = ["AggregateNotFoundError", "DomainError", "ForbiddenError"].filter(refersTo);
-      return names.length > 0 ? `from app.domain.errors import ${names.join(", ")}` : null;
-    })(),
-    eventsImports(refersTo, hasDispatch, eventNames),
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    ...[
-      ...new Set(
-        wfs.flatMap((wf) =>
-          wf.statements
-            .filter((st) => st.kind === "factory-let")
-            .map((st) => (st as { aggName: string }).aggName),
-        ),
-      ),
-    ]
-      .sort()
-      .map((n) => `from app.domain.${snake(n)} import ${n}`),
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
-    // Domain-service calls render as bare functions (`quote(...)`) — import
-    // them by name from app.domain.services.* (domain-services.md).
-    ...domainServiceImportLinesForWorkflow(wfs.flatMap((wf) => wf.statements)),
-    refersTo("ProblemDetails") ? "from app.http.problem import ProblemDetails" : null,
-    wireModelImport(voModelImports, refersTo),
     "",
-    "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
+    PY_SESSION_DEP,
     "",
     "",
     body,
     "",
   );
-}
-
-/** The events-module import line.  Noop only ships when the deployable
- *  has no live dispatcher; with one, the line can vanish entirely
- *  (a workflow set with no emits and no DomainEvent reference). */
-function eventsImports(
-  refersTo: (n: string) => boolean,
-  hasDispatch: boolean,
-  eventNames: string[],
-): string | null {
-  const names = [
-    refersTo("DomainEvent") ? "DomainEvent" : null,
-    !hasDispatch && refersTo("NoopDomainEventDispatcher") ? "NoopDomainEventDispatcher" : null,
-    ...eventNames,
-  ].filter((n): n is string => n != null);
-  return names.length > 0 ? `from app.domain.events import ${names.join(", ")}` : null;
 }
 
 /** The workflow body calls a currentUser-gated operation — the op's
@@ -574,22 +461,6 @@ function collectEmits(sts: WorkflowStmtIR[]): { eventName: string }[] {
   );
 }
 
-function scanIdNames(scan: string, ctx: BoundedContextIR): string[] {
-  // Hosted aggregates PLUS the foreign id brands this deployable emits into
-  // `app/domain/ids.py` (M-T4.8).  Python imports id names explicitly — unlike
-  // Hono, which namespace-imports `* as Ids` and so never saw this — so a
-  // workflow starter param typed `orderId: Order id` on a deployable that
-  // doesn't host `Order` produced `OrderId(...)` with no import and failed
-  // `mypy` / `ruff` F821.  Same source rule as the brand emission itself, so
-  // the two cannot disagree about which foreign ids exist.
-  const hosted = new Set(ctx.aggregates.flatMap((a) => [a.name, ...a.parts.map((p) => p.name)]));
-  const names = [
-    ...ctx.aggregates.map((a) => `${a.name}Id`),
-    ...foreignIdBrandNames(hosted, workflowIdTypeSources(ctx.workflows)).map((n) => `${n}Id`),
-  ];
-  return [...new Set(names)].filter((n) => new RegExp(`\\b${n}\\b`).test(scan));
-}
-
 /** Postgres `isolation_level` execution-option string for a DSL level. */
 function pyIsolationLevel(level: import("../../ir/types/loom-ir.js").IsolationLevel): string {
   switch (level) {
@@ -629,12 +500,12 @@ function workflowFnHelpers(wf: WorkflowIR): string[] {
  *  a workflow that is both command-routed and subscribed reads its row the
  *  same way on both paths. */
 function stateLoader(wf: WorkflowIR): string {
-  const row = `${wf.name}Row`;
+  const row = rowRef(wf);
   const corr = snake(wf.correlationField as string);
   return lines(
-    `async def _load_${snake(wf.name)}(session: AsyncSession, key: str) -> ${row} | None:`,
+    `async def _load_${snake(wf.name)}(session: ${H.AsyncSession}, key: str) -> ${row} | None:`,
     `    return (`,
-    `        await session.execute(select(${row}).where(${row}.${corr} == key).limit(1))`,
+    `        await session.execute(${SELECT}(${row}).where(${row}.${corr} == key).limit(1))`,
     "    ).scalars().first()",
   );
 }
@@ -653,7 +524,7 @@ function workflowRoute(
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
   const sig = [
     `body: ${upperFirst(wf.name)}Request`,
-    ...(usesUser ? ["request: Request"] : []),
+    ...(usesUser ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
   const out: string[] = [
@@ -668,12 +539,12 @@ function workflowRoute(
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.
-    "@in_child_context",
-    `async def ${snake(wf.name)}_workflow(${sig}) -> Response:`,
-    ...(usesUser ? ["    current_user: User = request.state.current_user"] : []),
+    `@${IN_CHILD_CONTEXT}`,
+    `async def ${snake(wf.name)}_workflow(${sig}) -> ${H.Response}:`,
+    ...(usesUser ? [PY_USER_BIND] : []),
     // Workflow narrative — `workflow_started` at the route entry; shared catalog
     // identity (field `workflow`) across every backend.
-    `    log("${LogEvents.workflowStarted.level}", "${LogEvents.workflowStarted.event}", workflow=${JSON.stringify(wf.name)})`,
+    `    ${PY.log}("${LogEvents.workflowStarted.level}", "${LogEvents.workflowStarted.event}", workflow=${JSON.stringify(wf.name)})`,
     // Everything from here to the 204 runs inside a `try`, so a run that
     // raises can log its TERMINAL event (`workflow_failed`) before the
     // exception continues to FastAPI's handler untouched.  Without it a failed
@@ -729,7 +600,7 @@ function workflowRoute(
     out.push(`        __key = str(${snake(corrParam.name)})`);
     out.push(`        state = await _load_${snake(wf.name)}(session, __key)`);
     out.push("        if state is None:");
-    out.push(`            state = ${wf.name}Row(${allocateKwargs(wf)})`);
+    out.push(`            state = ${rowRef(wf)}(${allocateKwargs(wf)})`);
     out.push("            session.add(state)");
   } else if (usesOwnState(wf.statements)) {
     // Own-state (`field := value`) on an UNCORRELATED command workflow
@@ -753,7 +624,7 @@ function workflowRoute(
     const initKwargs = (wf.stateFields ?? [])
       .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f)}`)
       .join(", ");
-    out.push(`        self = SimpleNamespace(${initKwargs})`);
+    out.push(`        self = ${SIMPLE_NAMESPACE}(${initKwargs})`);
   }
   // Read-port repos (domain-services.md rev. 4): a `reading`-tier
   // domain-service call the workflow makes needs a live repository handle, so
@@ -763,10 +634,12 @@ function workflowRoute(
   // service call adds no ports → byte-identical.
   const repos = mergeReadPortRepos(reposFor(wf), wf, ctx);
   for (const r of repos) {
-    out.push(`        ${snake(r.repoName)} = ${r.aggName}Repository(session, ${dispatcherExpr})`);
+    out.push(
+      `        ${snake(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
+    );
   }
   const hasEmit = collectEmits(wf.statements).length > 0;
-  if (hasEmit) out.push("        workflow_events: list[DomainEvent] = []");
+  if (hasEmit) out.push(`        workflow_events: list[${DOMAIN_EVENT}] = []`);
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
   // (`renderWorkflowStmts` IS `chunks.flat()` by construction), but the
@@ -798,7 +671,8 @@ function workflowRoute(
     const chunkTexts = stmtChunks.map((ls) => ls.join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
-        fragmentText: chunkTexts.join("\n"),
+        // Spelled: the recorder locates the fragment in the FINALIZED file.
+        fragmentText: spellMarkers(chunkTexts.join("\n")),
         subRegions: statementSubRegions(wf.statements, chunkTexts, `${ctx.name}.${wf.name}`),
       });
     }
@@ -817,14 +691,14 @@ function workflowRoute(
   // `workflow_completed` on the success tail — a raised guard / domain error
   // short-circuits before reaching here.
   out.push(
-    `        log("${LogEvents.workflowCompleted.level}", "${LogEvents.workflowCompleted.event}", workflow=${JSON.stringify(wf.name)})`,
+    `        ${PY.log}("${LogEvents.workflowCompleted.level}", "${LogEvents.workflowCompleted.event}", workflow=${JSON.stringify(wf.name)})`,
   );
-  out.push("        return Response(status_code=204)");
+  out.push(`        return ${H.Response}(status_code=204)`);
   // `raise` re-raises the ORIGINAL exception with its traceback intact, so the
   // status FastAPI's handler picks is exactly what it was before.
   out.push("    except Exception as exc:");
   out.push(
-    `        log("${LogEvents.workflowFailed.level}", "${LogEvents.workflowFailed.event}", workflow=${JSON.stringify(wf.name)}, error=str(exc))`,
+    `        ${PY.log}("${LogEvents.workflowFailed.level}", "${LogEvents.workflowFailed.event}", workflow=${JSON.stringify(wf.name)}, error=str(exc))`,
   );
   out.push("        raise");
   return out.join("\n");
@@ -848,11 +722,11 @@ function instanceResponseModels(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): 
     return `    ${f.name}: ${t}${suffix}`;
   });
   return lines(
-    `class ${T}InstanceResponse(BaseModel):`,
+    `class ${T}InstanceResponse(${H.BaseModel}):`,
     fieldLines.length > 0 ? fieldLines : ["    pass"],
     "",
     "",
-    `class ${T}InstanceListResponse(RootModel[list[${T}InstanceResponse]]):`,
+    `class ${T}InstanceListResponse(${H.RootModel}[list[${T}InstanceResponse]]):`,
     "    pass",
     "",
     "",
@@ -874,12 +748,12 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   // response set together.
   const gate = wf.instanceReadGate;
   const gateUsesUser = !!gate && exprUsesCurrentUser(gate);
-  const userParam = gateUsesUser ? "request: Request, " : "";
+  const userParam = gateUsesUser ? `${PY_REQUEST_PARAM}, ` : "";
   const gateLines: LinesPart = gate
     ? [
-        gateUsesUser ? "    current_user: User = request.state.current_user" : null,
+        gateUsesUser ? PY_USER_BIND : null,
         `    if ${renderPyNegatedGuard(gate)}:`,
-        `        raise ForbiddenError(${JSON.stringify(`Forbidden: workflow ${wf.name} instances`)})`,
+        `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: workflow ${wf.name} instances`)})`,
       ]
     : null;
   const resolve = (name: string): number => resolveErrorStatus(name, ctx.structuralErrorStatuses);
@@ -888,7 +762,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
     ? errorResponsesKwarg("findOptional", true, [], resolve)
     : errorResponsesKwarg("getById", false, [], resolve);
   const slug = snake(wf.name);
-  const row = `${wf.name}Row`;
+  const row = rowRef(wf);
   const shape = wf.instanceWireShape ?? [];
   const proj = (rowVar: string): string =>
     shape.map((f) => `"${f.name}": ${instanceFieldValue(rowVar, f)}`).join(", ");
@@ -914,14 +788,14 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
         `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
         gateLines,
-        `    rows = await ${fns.loadAll}(session)`,
+        `    rows = await ${dispatchFn(fns.loadAll)}(session)`,
         `    return [{${proj("row")}} for row in rows]`,
       )
     : lines(
         `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
         `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
         gateLines,
-        `    rows = (await session.execute(select(${row}))).scalars().all()`,
+        `    rows = (await session.execute(${SELECT}(${row}))).scalars().all()`,
         `    return [{${proj("row")}} for row in rows]`,
       );
   const byId = wf.eventSourced
@@ -929,10 +803,10 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
         `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
         gateLines,
-        `    __stream = await ${fns.load}(session, ${idAsKey})`,
+        `    __stream = await ${dispatchFn(fns.load)}(session, ${idAsKey})`,
         "    if not __stream:",
-        `        raise AggregateNotFoundError(f"${T} {id} not found")`,
-        `    row = ${fns.fold}(${idAsKey}, __stream)`,
+        `        raise ${H.AggregateNotFoundError}(f"${T} {id} not found")`,
+        `    row = ${dispatchFn(fns.fold)}(${idAsKey}, __stream)`,
         `    return {${proj("row")}}`,
       )
     : lines(
@@ -941,7 +815,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         gateLines,
         `    row = await session.get(${row}, id)`,
         "    if row is None:",
-        `        raise AggregateNotFoundError(f"${T} {id} not found")`,
+        `        raise ${H.AggregateNotFoundError}(f"${T} {id} not found")`,
         `    return {${proj("row")}}`,
       );
   return [list, byId].join("\n\n\n");
@@ -956,8 +830,8 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "primitive" && t.name === "datetime") {
     return f.optional || f.type.kind === "optional"
-      ? `(None if ${attr} is None else iso(${attr}))`
-      : `iso(${attr})`;
+      ? `(None if ${attr} is None else ${H.iso}(${attr}))`
+      : `${H.iso}(${attr})`;
   }
   if (t.kind === "primitive" && t.name === "money") {
     // Precise-decimal string on the wire (parity with the other backends).
@@ -984,23 +858,23 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)})`,
+      `${i}    raise ${PY.DomainError}(${JSON.stringify(`Precondition failed: ${st.source}`)})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)})`,
+      `${i}    raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${st.source}`)})`,
     ],
     emit: (st, i) => {
       const kwargs = st.fields
         .map((f) => `${snake(f.name)}=${renderPyExpr(f.value, rctx)}`)
         .join(", ");
-      return [`${i}workflow_events.append(${st.eventName}(${kwargs}))`];
+      return [`${i}workflow_events.append(${eventRef(st.eventName)}(${kwargs}))`];
     },
     factoryLet: (st, i) => {
       const kwargs = st.fields
         .map((f) => `${snake(f.name)}=${renderPyExpr(f.value, rctx)}`)
         .join(", ");
-      return [`${i}${snake(st.name)} = ${st.aggName}.create(${kwargs})`];
+      return [`${i}${snake(st.name)} = ${aggClassRef(st.aggName)}.create(${kwargs})`];
     },
     repoLet: (st, i) => {
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
@@ -1065,7 +939,7 @@ export function pyWorkflowStmtTarget(
         });
         return [
           `${i}if ${guard}:`,
-          `${i}    raise ForbiddenError(${JSON.stringify(`Forbidden: ${g.source}`)})`,
+          `${i}    raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
         ];
       });
       return [...gateLines, `${i}${snake(st.target)}.${snake(st.op)}(${args})`];

@@ -3,8 +3,9 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/lo
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { responsePyType, wireModelImport } from "./emit/http-models.js";
-import { wireHelperImport } from "./py-type-imports.js";
+import { pyRef } from "../_imports/python.js";
+import { responsePyType } from "./emit/http-models.js";
+import { PY } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
 import { errorResponsesKwarg } from "./routes-builder.js";
 import { instanceFieldValue } from "./workflows-builder.js";
@@ -35,8 +36,6 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
   const routes = routeBlocks.join("\n\n\n");
   const body = `${models}router = APIRouter(prefix="/projections", tags=["projections"])\n\n\n${routes}`;
 
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
   // FOLDED projections only.  A query-time projection has no `<Proj>Row` table
   // — it is computed per read — so listing it here emitted
   // `from app.db.schema import OpenOrdersRow` for a name `db/schema.py` never
@@ -44,14 +43,11 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
   // app.db.schema has no attribute OpenOrdersRow".  Any context declaring one of
   // each kind failed to compile on python; no fixture had that combination.
   const projRows = folded.map((p) => `${p.name}Row`).sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
 
   return lines(
     `"""Projection read-model routes.  Auto-generated."""`,
     "",
-    `from fastapi import ${refersTo("Request") ? "APIRouter, Depends, Path, Request" : "APIRouter, Depends, Path"}`,
+    "from fastapi import APIRouter, Depends, Path",
     "from pydantic import BaseModel, RootModel",
     "from sqlalchemy import select",
     "from sqlalchemy.ext.asyncio import AsyncSession",
@@ -59,23 +55,7 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
     "",
     "from app.db.engine import get_session",
     `from app.db.schema import ${projRows.join(", ")}`,
-    refersTo("ForbiddenError")
-      ? "from app.domain.errors import AggregateNotFoundError, ForbiddenError"
-      : "from app.domain.errors import AggregateNotFoundError",
-    // The gate binds `current_user: User` off the request scope; imported only
-    // when a projection actually declares one (ruff F401 otherwise).
-    refersTo("User") ? "from app.auth.user import User" : null,
-    refersTo("ProblemDetails") ? "from app.http.problem import ProblemDetails" : null,
-    // A read-model field is annotated through `responsePyType`, which returns the
-    // SHARED wire aliases for the primitives that carry a guard or a published
-    // format (`Int32`, `WireNum`, `WireInt`, `MoneyStr`, `UuidStr`).  Without
-    // this line those names are undefined here — ruff F821 on the generated
-    // project, which only the corpus tier sees.
-    wireModelImport([], refersTo),
-    wireHelperImport(refersTo),
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
+    "from app.domain.errors import AggregateNotFoundError",
     "",
     "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
     "",
@@ -108,6 +88,9 @@ function projectionResponseModels(proj: ProjectionIR, ctx: EnrichedBoundedContex
   );
 }
 
+const REQUEST = pyRef("fastapi", "Request");
+const USER = pyRef("app.auth.user", "User");
+
 /** The list + by-key read routes for one projection. */
 function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): string {
   const T = upperFirst(proj.name);
@@ -131,14 +114,14 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
   // by folds rather than queried live changes nothing about who may read it.
   const gate = proj.query?.requires;
   const gateUsesUser = !!gate && exprUsesCurrentUser(gate);
-  const userParam = gateUsesUser ? "request: Request, " : "";
+  const userParam = gateUsesUser ? `request: ${REQUEST}, ` : "";
   const gateLines: LinesPart = gate
     ? [
-        gateUsesUser ? "    current_user: User = request.state.current_user" : null,
+        gateUsesUser ? `    current_user: ${USER} = request.state.current_user` : null,
         // renderPyNegatedGuard so a `.contains(...)` gate emits `x not in y`
         // rather than `not (x in y)` (ruff E713) — same helper as every other gate.
         `    if ${renderPyNegatedGuard(gate)}:`,
-        `        raise ForbiddenError(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
+        `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
       ]
     : null;
   // Declared statuses come from the SHARED table, keyed exactly as a find's

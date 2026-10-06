@@ -2,7 +2,14 @@ import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/typ
 import { isTpcBase, isTphBase, tpcConcretesOf, tphConcretesOf } from "../../ir/util/inheritance.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
+import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { rowClassName } from "./py-columns.js";
+import { pyIdType } from "./py-symbols.js";
+import { aggRef, R, schemaRow } from "./repository-builder.js";
+
+/** `from app.db.repositories.<snake(agg)>_repository import <Agg>Repository`. */
+const repoRef = (name: string): string =>
+  pyRef(`app.db.repositories.${snake(name)}_repository`, `${name}Repository`);
 
 // ---------------------------------------------------------------------------
 // Polymorphic base reader (aggregate-inheritance.md).
@@ -43,9 +50,9 @@ export function buildPyBaseUnionFile(
   return lines(
     `"""Polymorphic ${base.name} — the union of its concrete subtypes.  Auto-generated."""`,
     "",
-    ...concretes.map((c) => `from app.domain.${snake(c.name)} import ${c.name}`),
+    PY_IMPORTS,
     "",
-    `${base.name} = ${concretes.map((c) => c.name).join(" | ")}`,
+    `${base.name} = ${concretes.map((c) => aggRef(c)).join(" | ")}`,
     "",
   );
 }
@@ -62,16 +69,7 @@ export function buildPyBaseReaderFile(
   return lines(
     `"""Read-only polymorphic ${base.name} reader.  Auto-generated."""`,
     "",
-    tph ? "from sqlalchemy import select" : null,
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    "",
-    tph ? `from app.db.schema import ${rowClassName(base.name)}` : null,
-    ...concretes.map(
-      (c) => `from app.db.repositories.${snake(c.name)}_repository import ${c.name}Repository`,
-    ),
-    `from app.domain.${snake(base.name)} import ${base.name}`,
-    "from app.domain.events import DomainEventDispatcher",
-    `from app.domain.ids import ${concretes.map((c) => `${c.name}Id`).join(", ")}`,
+    PY_IMPORTS,
     "",
     "",
     body,
@@ -80,29 +78,29 @@ export function buildPyBaseReaderFile(
 }
 
 function tphReader(base: EnrichedAggregateIR, concretes: EnrichedAggregateIR[]): string {
-  const row = rowClassName(base.name);
+  const row = schemaRow(rowClassName(base.name));
   return lines(
     `class ${base.name}Repository:`,
-    "    def __init__(self, session: AsyncSession, events: DomainEventDispatcher) -> None:",
+    `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
     "        self._session = session",
     "        self._events = events",
     "",
-    `    async def find_by_id(self, id: str) -> ${base.name} | None:`,
+    `    async def find_by_id(self, id: str) -> ${aggRef(base)} | None:`,
     `        row = await self._session.get(${row}, id)`,
     "        if row is None:",
     "            return None",
     "        return await self._dispatch(row)",
     "",
-    `    async def all(self) -> list[${base.name}]:`,
-    `        rows = (await self._session.execute(select(${row}))).scalars().all()`,
+    `    async def all(self) -> list[${aggRef(base)}]:`,
+    `        rows = (await self._session.execute(${R.select}(${row}))).scalars().all()`,
     "        return [await self._dispatch(row) for row in rows]",
     "",
     // Dispatch on the kind discriminator, delegating to the concrete
     // repository so contained parts / join tables hydrate fully.
-    `    async def _dispatch(self, row: ${row}) -> ${base.name}:`,
+    `    async def _dispatch(self, row: ${row}) -> ${aggRef(base)}:`,
     ...concretes.flatMap((c, i) => [
       `        ${i === 0 ? "if" : "elif"} row.kind == "${c.name}":`,
-      `            return await ${c.name}Repository(self._session, self._events).get_by_id(${c.name}Id(row.id))`,
+      `            return await ${repoRef(c.name)}(self._session, self._events).get_by_id(${pyIdType(c.name)}(row.id))`,
     ]),
     `        raise ValueError(f"unknown ${base.name} kind: {row.kind}")`,
   );
@@ -111,22 +109,22 @@ function tphReader(base: EnrichedAggregateIR, concretes: EnrichedAggregateIR[]):
 function tpcReader(base: EnrichedAggregateIR, concretes: EnrichedAggregateIR[]): string {
   return lines(
     `class ${base.name}Repository:`,
-    "    def __init__(self, session: AsyncSession, events: DomainEventDispatcher) -> None:",
+    `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
     "        self._session = session",
     "        self._events = events",
     "",
-    `    async def find_by_id(self, id: str) -> ${base.name} | None:`,
+    `    async def find_by_id(self, id: str) -> ${aggRef(base)} | None:`,
     ...concretes.flatMap((c) => [
-      `        ${snake(c.name)} = await ${c.name}Repository(self._session, self._events).find_by_id(${c.name}Id(id))`,
+      `        ${snake(c.name)} = await ${repoRef(c.name)}(self._session, self._events).find_by_id(${pyIdType(c.name)}(id))`,
       `        if ${snake(c.name)} is not None:`,
       `            return ${snake(c.name)}`,
     ]),
     "        return None",
     "",
-    `    async def all(self) -> list[${base.name}]:`,
-    `        out: list[${base.name}] = []`,
+    `    async def all(self) -> list[${aggRef(base)}]:`,
+    `        out: list[${aggRef(base)}] = []`,
     ...concretes.map(
-      (c) => `        out.extend(await ${c.name}Repository(self._session, self._events).all())`,
+      (c) => `        out.extend(await ${repoRef(c.name)}(self._session, self._events).all())`,
     ),
     "        return out",
   );

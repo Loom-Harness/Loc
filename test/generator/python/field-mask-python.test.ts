@@ -8,6 +8,7 @@
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import {
   aggHasFieldMask,
   maskedWireFields,
@@ -55,7 +56,7 @@ describe("mask unless — Python read redaction", () => {
 
   it("emits a fail-closed to_wire_masked that redacts the field unless the predicate holds", async () => {
     const { agg } = await ctxAndAgg();
-    const method = toWireMaskedMethod(agg);
+    const method = spellMarkers(toWireMaskedMethod(agg));
     expect(method).toContain("def to_wire_masked(self, root: P) -> dict[str, object]:");
     expect(method).toContain("_mask_user = current_user()");
     // fail-closed: unauthenticated OR failed predicate → redact to None.

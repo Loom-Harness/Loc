@@ -52,19 +52,27 @@ import type {
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, snake } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
+import { PY_IMPORTS, pyRef } from "../_imports/python.js";
+import { hasMarkers } from "../_imports/symbol.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
-import { paramPyType, requestPyType, wireModelImport } from "./emit/http-models.js";
+import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
-import { PY_PAGED_CONTROLS, pyWireToDomain } from "./routes-builder.js";
+import {
+  PY_HTTP as H,
+  PY_PAGED_CONTROLS,
+  PY_REQUEST_PARAM,
+  PY_SESSION_DEP,
+  PY_USER_BIND,
+  pyWireToDomain,
+  repoClassRef,
+} from "./routes-builder.js";
 import {
   collectServiceReadPorts,
   collectUsedLetNames,
@@ -73,6 +81,17 @@ import {
 } from "./workflows-builder.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
+
+// Symbols beyond the shared HTTP set, as `ref()` markers (M-T9.84).
+const ANY = pyRef("typing", "Any");
+/** A handler's application function (`from app.application.<snake> import <snake>`). */
+const handlerFnRef = (name: string): string => pyRef(`app.application.${snake(name)}`, snake(name));
+/** An extern handler's user impl function. */
+const externImplRef = (name: string): string =>
+  pyRef(`app.application.impl.${externImplFn(name)}`, externImplFn(name));
+/** The dispatcher a handler's repositories are constructed with. */
+const dispatcherFor = (hasDispatch: boolean): string =>
+  hasDispatch ? `${H.make_dispatcher}(session)` : `${H.NoopDomainEventDispatcher}()`;
 
 /** A handler's params FLATTENED for the FastAPI `def` signature + request body:
  *  a `command`/`query` RECORD param (M-T5.10 handler-param rewrite) expands to
@@ -110,50 +129,22 @@ const externImplPath = (name: string): string => `app/application/impl/${snake(n
 /** The impl function name (`PlaceOrder` → `place_order_impl`). */
 const externImplFn = (name: string): string => `${snake(name)}_impl`;
 
-/** Domain-type import lines for a handler's params/return signature — the
- *  ids / value objects / enums the signature actually names (ids/scalars is the
- *  v1 handler scope, so entity imports aren't derived here). */
-function pyDomainImportLines(signatureText: string, ctx: EnrichedBoundedContextIR): string[] {
-  const scan = signatureText.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const idNames = ctx.aggregates
-    .map((a) => `${a.name}Id`)
-    .filter((n, i, arr) => refersTo(n) && arr.indexOf(n) === i)
-    .sort();
-  const voEnumNames = [
-    ...new Set([...ctx.enums.map((e) => e.name), ...valueObjectPool(ctx).map((v) => v.name)]),
-  ]
-    .filter(refersTo)
-    .sort();
-  const out: string[] = [];
-  if (idNames.length > 0) out.push(`from app.domain.ids import ${idNames.join(", ")}`);
-  if (voEnumNames.length > 0) {
-    out.push(`from app.domain.value_objects import ${voEnumNames.join(", ")}`);
-  }
-  return out;
-}
-
 /** The generated extern DISPATCH module: same `async def <snake>(session, …)`
  *  the router already imports, but its body delegates to the user impl.  For a
  *  void command it awaits without returning; otherwise it returns the impl's
  *  value verbatim (the impl owns the return contract). */
-function renderPyExternDispatch(h: Handler, ctx: EnrichedBoundedContextIR): string {
+function renderPyExternDispatch(h: Handler): string {
   const fnName = snake(h.name);
-  const implFn = externImplFn(h.name);
   const paramSig = h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
-  const params = ["session: AsyncSession", ...paramSig].join(", ");
+  const params = [`session: ${H.AsyncSession}`, ...paramSig].join(", ");
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
   const callArgs = h.params.map((p) => snake(p.name)).join(", ");
-  const call = `${implFn}(${callArgs})`;
+  const call = `${externImplRef(h.name)}(${callArgs})`;
   const bodyLine = h.returnType ? `    return await ${call}` : `    await ${call}`;
-  const sigText = `${paramSig.join(" ")} ${ret}`;
   return lines(
     `"""${h.name} application handler (extern dispatch).  Auto-generated."""`,
     "",
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    "",
-    `from app.application.impl.${implFn} import ${implFn}`,
-    ...pyDomainImportLines(sigText, ctx),
+    PY_IMPORTS,
     "",
     "",
     `async def ${fnName}(${params}) -> ${ret}:`,
@@ -173,14 +164,16 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
     ? "queryHandler"
     : "commandHandler";
   const msg = `extern ${kind} '${h.name}' is not implemented — fill in ${externImplPath(h.name)}`;
-  const importLines = pyDomainImportLines(`${paramSig.join(" ")} ${ret}`, ctx);
+  // The slot only when the signature references an importable name — an
+  // empty slot would leave its blank line behind.
+  const importsSig = hasMarkers(`${paramSig.join(" ")} ${ret}`);
   return lines(
     `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first`,
     "# `generate` and NEVER overwrites it again, so your implementation survives every",
     "# regenerate.  Replace the `raise` with the extern handler's real logic.",
     '"""Hand-written extern handler implementation."""',
     "",
-    ...(importLines.length > 0 ? [...importLines, ""] : []),
+    ...(importsSig ? [PY_IMPORTS, ""] : []),
     "",
     `async def ${implFn}(${paramSig.join(", ")}) -> ${ret}:`,
     `    raise NotImplementedError(`,
@@ -188,26 +181,6 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
     `    )`,
     "",
   );
-}
-
-/** Aggregate names a handler body constructs via `<Agg>.create(...)` (a
- *  `factory-let` — the scaffolded `create` handler's shape).  Their domain
- *  module must be imported (`from app.domain.<snake> import <Agg>`), mirroring
- *  the workflow builder's factory-let import derivation.
- *
- *  Rides `walkWorkflowStmtsDeep` (wave-2 packet 2.3): the hand-rolled
- *  if/else-if recursion this replaced re-derived the "which kinds nest
- *  further bodies" fact `walk.ts` already owns exhaustively. */
-function collectFactoryAggs(
-  stmts: readonly WorkflowStmtIR[],
-  into: Set<string> = new Set(),
-): Set<string> {
-  for (const s of stmts) {
-    walkWorkflowStmtsDeep(s, (st) => {
-      if (st.kind === "factory-let") into.add(st.aggName);
-    });
-  }
-  return into;
 }
 
 /** The repos a handler body references (repo loads + exit-saves), keyed by
@@ -303,7 +276,7 @@ function renderPagedRunHandlerModule(
   const fnName = snake(h.name);
   const run = pagedRunStmt(h, ctx);
   const repoVar = snake(run.repoName);
-  const dispatcherExpr = hasDispatch ? "make_dispatcher(session)" : "NoopDomainEventDispatcher()";
+  const dispatcherExpr = dispatcherFor(hasDispatch);
   const rctx: PyRenderContext = { thisName: "self", recordParamNames: new Set() };
   const critArgs = run.retrievalArgs.map((a) => renderPyExpr(a, rctx));
   const callArgs = [...critArgs, "page", "page_size", "sort", "dir"].join(", ");
@@ -313,7 +286,7 @@ function renderPagedRunHandlerModule(
   const runAgg = ctx.aggregates.find((a) => a.name === run.aggName);
   const runWire = runAgg && aggHasFieldMask(runAgg) ? "to_wire_masked" : "to_wire";
   const sigParams = [
-    "session: AsyncSession",
+    `session: ${H.AsyncSession}`,
     ...h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
     "page: int",
     "page_size: int",
@@ -322,7 +295,7 @@ function renderPagedRunHandlerModule(
   ].join(", ");
   const def = lines(
     `async def ${fnName}(${sigParams}) -> dict[str, object]:`,
-    `    ${repoVar} = ${run.aggName}Repository(session, ${dispatcherExpr})`,
+    `    ${repoVar} = ${repoClassRef(run.aggName)}(session, ${dispatcherExpr})`,
     `    result = await ${repoVar}.${snake(run.retrievalName)}(${callArgs})`,
     "    return {",
     `        "items": [${repoVar}.${runWire}(__e) for __e in result.items],`,
@@ -332,33 +305,10 @@ function renderPagedRunHandlerModule(
     '        "totalPages": result.total_pages,',
     "    }",
   );
-  // Import scan: blank string literals, then whole-word references.
-  const scan = def.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const idNames = ctx.aggregates
-    .map((a) => `${a.name}Id`)
-    .filter((n, i, arr) => refersTo(n) && arr.indexOf(n) === i)
-    .sort();
-  const enumNames = ctx.enums
-    .map((e) => e.name)
-    .filter(refersTo)
-    .sort();
-  const voNames = valueObjectPool(ctx)
-    .map((v) => v.name)
-    .filter(refersTo)
-    .sort();
   return lines(
     `"""${h.name} application handler.  Auto-generated."""`,
     "",
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    "",
-    `from app.db.repositories.${snake(run.aggName)}_repository import ${run.aggName}Repository`,
-    hasDispatch ? "from app.dispatch import make_dispatcher" : null,
-    hasDispatch ? null : "from app.domain.events import NoopDomainEventDispatcher",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    [...enumNames, ...voNames].length > 0
-      ? `from app.domain.value_objects import ${[...enumNames, ...voNames].sort().join(", ")}`
-      : null,
+    PY_IMPORTS,
     "",
     "",
     def,
@@ -382,7 +332,7 @@ function renderHandlerModule(
 ): string {
   // Extern handler: no DSL body — the dispatch delegates to the scaffold-once
   // user impl module (emitted separately in `emitPyExplicitHandlers`).
-  if (h.extern) return renderPyExternDispatch(h, ctx);
+  if (h.extern) return renderPyExternDispatch(h);
   // paged-run queryHandler: a `paged` carrier return can't flow through the
   // generic `wireTypeInfo` projection below, so it takes a dedicated module.
   if (h.returnType && pagedReturn(h.returnType)) {
@@ -412,9 +362,9 @@ function renderHandlerModule(
     readPortArgs: pyReadPortResolver(ctx),
   };
   const params = [
-    "session: AsyncSession",
+    `session: ${H.AsyncSession}`,
     ...flatHandlerParams(h, ctx).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
-    ...(usesUser ? ["current_user: User"] : []),
+    ...(usesUser ? [`current_user: ${H.User}`] : []),
   ].join(", ");
 
   const repos = collectRepos(h);
@@ -425,7 +375,7 @@ function renderHandlerModule(
   for (const port of collectServiceReadPorts(h.statements, ctx)) {
     if (!repos.has(port.repo)) repos.set(port.repo, port.aggregate);
   }
-  const dispatcherExpr = hasDispatch ? "make_dispatcher(session)" : "NoopDomainEventDispatcher()";
+  const dispatcherExpr = dispatcherFor(hasDispatch);
 
   // C2 (Python sibling of .NET C1/#1830): a handler returning an aggregate/entity
   // projects the domain (SQLAlchemy) instance to its wire shape via the repo's
@@ -471,7 +421,7 @@ function renderHandlerModule(
       ? renderPyType(normRet)
       : "None";
   const repoLines = [...repos].map(
-    ([repo, agg]) => `    ${snake(repo)} = ${agg}Repository(session, ${dispatcherExpr})`,
+    ([repo, agg]) => `    ${snake(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
   );
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
@@ -505,20 +455,6 @@ function renderHandlerModule(
   // Import scan: blank string literals, then look for whole-word references.
   const scan = def.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const repoAggs = [...new Set([...repos.values()])].sort();
-  const idNames = ctx.aggregates
-    .map((a) => `${a.name}Id`)
-    .filter((n, i, arr) => refersTo(n) && arr.indexOf(n) === i)
-    .sort();
-  const enumNames = ctx.enums
-    .map((e) => e.name)
-    .filter(refersTo)
-    .sort();
-  const voNames = valueObjectPool(ctx)
-    .map((v) => v.name)
-    .filter(refersTo)
-    .sort();
-
   // Resource verb-helper imports for any `<resource>.<verb>(...)` this handler
   // body calls — filtered to the ones the rendered `def` actually names, so a
   // handler doing no resource I/O emits nothing and stays byte-identical.
@@ -532,46 +468,8 @@ function renderHandlerModule(
   return lines(
     `"""${h.name} application handler.  Auto-generated."""`,
     "",
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
-    refersTo("datetime") ? "from datetime import UTC, datetime" : null,
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    "",
+    PY_IMPORTS,
     ...resourceImports,
-    usesUser ? "from app.auth.user import User" : null,
-    ...repoAggs.map(
-      (agg) => `from app.db.repositories.${snake(agg)}_repository import ${agg}Repository`,
-    ),
-    hasDispatch ? "from app.dispatch import make_dispatcher" : null,
-    // The dispatcher is only named where a REPOSITORY is constructed.  A handler
-    // touching no aggregate — a pure computation, or a body doing only resource
-    // I/O — constructs none, and an unconditional import is then ruff F401 (the
-    // python compile gate), so gate it on the rendered `def` the same way every
-    // other import here is gated.
-    hasDispatch || !refersTo("NoopDomainEventDispatcher")
-      ? null
-      : "from app.domain.events import NoopDomainEventDispatcher",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    ...[...collectFactoryAggs(h.statements)]
-      .filter((n) => refersTo(n))
-      .sort()
-      .map((n) => `from app.domain.${snake(n)} import ${n}`),
-    // Domain-service calls render as bare module functions (`is_holder_free(…)`)
-    // — import them by name from `app.domain.services.*`, exactly as the
-    // workflow-routes module does.  This emitter had no such line at all, so
-    // ANY service call from an explicit handler was ruff F821 / a runtime
-    // `NameError`, whatever its tier (M-T5.14's python arm; the handler-shaped
-    // sibling of the workflow import hole `emit/domain-service.ts` records).
-    // Filtered through `refersTo` so a call the renderer folded away emits
-    // nothing, and placed here so the block stays import-sorted.
-    ...domainServiceImportLinesForWorkflow(h.statements).filter((line) =>
-      line
-        .slice(line.indexOf(" import ") + 8)
-        .split(", ")
-        .some((fn) => refersTo(fn)),
-    ),
-    [...enumNames, ...voNames].length > 0
-      ? `from app.domain.value_objects import ${[...enumNames, ...voNames].sort().join(", ")}`
-      : null,
     "",
     "",
     def,
@@ -651,7 +549,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   return lines(
     `@router.${method}("${path}", operation_id="${opId}")`,
     `async def ${routeName}(${sig}) -> dict[str, object]:`,
-    `    return await ${snake(h.name)}(${callArgs})`,
+    `    return await ${handlerFnRef(h.name)}(${callArgs})`,
   );
 }
 
@@ -668,10 +566,8 @@ export function emitPyExplicitRouteRouter(
   if (routes.length === 0) return false;
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
 
-  const handlerImports = new Set<string>();
   const modelBlocks: string[] = [];
   const routeBlocks: string[] = [];
-  let usesResponse = false;
 
   for (const r of routes) {
     const ctx = byName.get(r.target.context);
@@ -680,7 +576,6 @@ export function emitPyExplicitRouteRouter(
     const qry = (ctx.queryHandlers ?? []).find((h) => h.name === r.target.handler);
     const h: Handler | undefined = cmd ?? qry;
     if (!h) continue;
-    handlerImports.add(h.name);
 
     // paged-run queryHandler: a GET whose criterion params ride the query
     // string alongside page/pageSize/sort/dir; it calls the paged handler
@@ -712,7 +607,7 @@ export function emitPyExplicitRouteRouter(
       bodyModelName = `${h.name}Body`;
       modelBlocks.push(
         lines(
-          `class ${bodyModelName}(BaseModel):`,
+          `class ${bodyModelName}(${H.BaseModel}):`,
           ...bodyParams.map((p) => `    ${snake(p.name)}: ${requestPyType(p.type, ctx)}`),
         ),
       );
@@ -720,7 +615,7 @@ export function emitPyExplicitRouteRouter(
     const sig = [
       ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
-      ...(usesUser ? ["request: Request"] : []),
+      ...(usesUser ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
     ].join(", ");
     // Call args stay in flat declared order: path params coerce from the route
@@ -758,21 +653,20 @@ export function emitPyExplicitRouteRouter(
           // annotation as the response_model and would then validate a scalar
           // against a mapping.  It also matches what node publishes for these
           // routes — `schema: z.unknown()` — so the two specs agree.
-          `async def ${routeName}(${sig}) -> Any:`,
-          usesUser ? "    current_user: User = request.state.current_user" : null,
-          `    result = await ${snake(h.name)}(${callArgs})`,
+          `async def ${routeName}(${sig}) -> ${ANY}:`,
+          usesUser ? PY_USER_BIND : null,
+          `    result = await ${handlerFnRef(h.name)}(${callArgs})`,
           `    return result`,
         ),
       );
     } else {
-      usesResponse = true;
       routeBlocks.push(
         lines(
           `@router.${method}("${path}", status_code=204, operation_id="${opId}")`,
-          `async def ${routeName}(${sig}) -> Response:`,
-          usesUser ? "    current_user: User = request.state.current_user" : null,
-          `    await ${snake(h.name)}(${callArgs})`,
-          `    return Response(status_code=204)`,
+          `async def ${routeName}(${sig}) -> ${H.Response}:`,
+          usesUser ? PY_USER_BIND : null,
+          `    await ${handlerFnRef(h.name)}(${callArgs})`,
+          `    return ${H.Response}(status_code=204)`,
         ),
       );
     }
@@ -780,62 +674,14 @@ export function emitPyExplicitRouteRouter(
   if (routeBlocks.length === 0) return false;
 
   const body = [...modelBlocks, ...routeBlocks].join("\n\n\n");
-  const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const usesRequest = refersTo("request");
-
-  // A body param typed as a value object rides as its wire model (`X as XModel`,
-  // requestPyType's "Model" suffix); the call-site coercion still constructs the
-  // DOMAIN class (`X(...)`), imported below from value_objects.
-  const voModelImports = [...new Set(contexts.flatMap((c) => c.valueObjects.map((v) => v.name)))]
-    .filter((n) => refersTo(`${n}Model`))
-    .sort();
-
-  // Every `X id` coercion wraps as `XId(...)`; offer every hosted context's
-  // aggregate ids and keep the ones actually referenced.
-  const idNames = [...new Set(contexts.flatMap((c) => c.aggregates.map((a) => `${a.name}Id`)))]
-    .filter(refersTo)
-    .sort();
-  const voEnumNames = [
-    ...new Set(
-      contexts.flatMap((c) => [
-        ...c.enums.map((e) => e.name),
-        ...c.valueObjects.map((v) => v.name),
-      ]),
-    ),
-  ]
-    .filter(refersTo)
-    .sort();
-
   const file = lines(
     `"""${apiName} explicit route bindings.  Auto-generated."""`,
     "",
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
-    `from fastapi import ${[
-      "APIRouter",
-      "Depends",
-      refersTo("Query") ? "Query" : null,
-      usesRequest ? "Request" : null,
-      usesResponse ? "Response" : null,
-    ]
-      .filter(Boolean)
-      .join(", ")}`,
-    refersTo("BaseModel") ? "from pydantic import BaseModel" : null,
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    refersTo("Any") ? "from typing import Annotated, Any" : "from typing import Annotated",
+    PY_IMPORTS,
     "",
-    usesRequest ? "from app.auth.user import User" : null,
-    ...[...handlerImports].sort().map((n) => `from app.application.${snake(n)} import ${snake(n)}`),
-    "from app.db.engine import get_session",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
-    wireModelImport(voModelImports, refersTo),
+    PY_SESSION_DEP,
     "",
-    "SessionDep = Annotated[AsyncSession, Depends(get_session)]",
-    "",
-    "router = APIRouter()",
+    `router = ${H.APIRouter}()`,
     "",
     "",
     body,

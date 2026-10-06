@@ -98,7 +98,7 @@ describe("request hardening — reference fields are uuid-validated (F2/F3)", ()
     expect(wire).toMatch(/StringConstraints\(pattern=r"\^\[0-9a-fA-F\]\{8\}-/);
 
     const routes = await fileMatching(/shipment_routes\.py$/);
-    expect(routes).toContain("from app.http.wire_models import UuidStr");
+    expect(routes).toMatch(/^from app\.http\.wire_models import [^\n]*\bUuidStr\b/m);
     // Body field (F2) and find query parameter (F3) both take the constraint.
     expect(routes).toMatch(/^\s+orderRef: UuidStr$/m);
     expect(routes).toMatch(/by_order_shipments\(order: UuidStr/);

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../src/generator/_imports/symbol.js";
 import { renderCsExpr } from "../../src/generator/dotnet/render-expr.js";
 import { renderExpr as renderElixirExpr } from "../../src/generator/elixir/render-expr.js";
-import { collectPyExprImports, renderPyExpr } from "../../src/generator/python/render-expr.js";
+import * as PyR from "../../src/generator/python/render-expr.js";
 import type { ExprIR, TypeIR } from "../../src/ir/types/loom-ir.js";
+import { pyDerivedImports } from "../_helpers/py-imports.js";
+
+const renderPyExpr = (e: ExprIR): string => spellMarkers(PyR.renderPyExpr(e));
 
 // ---------------------------------------------------------------------------
 // M-T9.24 group 1 — collection-op VALUE semantics that diverged per backend.
@@ -106,7 +110,7 @@ describe("B4 — Python money sum carries an explicit Decimal(0) start", () => {
     expect(renderPyExpr(e)).toBe(
       "sum(((lambda e: e.amount)(__x) for __x in self._entries), Decimal(0))",
     );
-    expect(collectPyExprImports(e).has("decimal")).toBe(true);
+    expect(pyDerivedImports(PyR.renderPyExpr(e))).toContain("decimal.Decimal");
   });
 
   it("seeds a bare `money[]` sum too", () => {

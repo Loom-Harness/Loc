@@ -4,6 +4,7 @@ import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "./py-type-imports.js";
 import { renderPyType } from "./render-expr.js";
 
@@ -83,6 +84,10 @@ export function buildPyExternHookModule(agg: AggregateIR): string | null {
   const aggParam = snake(agg.name);
   const usesUser = ops.some(operationBodyUsesCurrentUser);
 
+  // The signature's names are spelled bare (`spellMarkers`) and imported
+  // HERE, under TYPE_CHECKING — not derived into module-level imports, which
+  // would reintroduce the runtime cycle this module exists to avoid.
+  //
   // TYPE_CHECKING imports the signature's names (the aggregate itself, plus any
   // id / value-object / enum param types).  `from __future__ import
   // annotations` makes every annotation a string, so nothing is imported at
@@ -97,10 +102,10 @@ export function buildPyExternHookModule(agg: AggregateIR): string | null {
   const fns = ops.map((op) => {
     const params = [
       `${aggParam}: ${agg.name}`,
-      ...op.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+      ...op.params.map((p) => `${snake(p.name)}: ${spellMarkers(renderPyType(p.type))}`),
       ...(operationBodyUsesCurrentUser(op) ? ["current_user: User"] : []),
     ].join(", ");
-    const ret = op.returnType ? renderPyType(op.returnType) : "None";
+    const ret = op.returnType ? spellMarkers(renderPyType(op.returnType)) : "None";
     return lines(
       `def ${snake(op.name)}(${params}) -> ${ret}:`,
       "    raise NotImplementedError(",

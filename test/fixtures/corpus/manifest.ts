@@ -113,20 +113,6 @@ const ORDERED_ROOT_VO_EMISSION: readonly Backend[] = ALL.filter(
   (b) => b !== "node" && b !== "python",
 );
 
-/** The backends that import the regex machinery into EVERY file they lift a
- *  `.matches(<regex>)` value-object invariant into.
- *
- *  `python` is absent, and this is the NAME of that exclusion: `app/http/wire_models.py`
- *  emits `re.search(...)` and its import block has no `import re` (`ruff F821`),
- *  while the domain half (`app/domain/value_objects.py`) imports it correctly.
- *  That is the evaluation's F-013's defect class exactly — .NET's own instance of
- *  it (a FluentValidation request validator calling `Regex.IsMatch` with no
- *  `using`) is FIXED and verified under `dotnet build /warnaserror` on sdk:10.0.
- *  node is free (the regex is an inline literal), java imports
- *  `java.util.regex.Pattern`, elixir's `Regex`/`=~` live in Kernel.  One import in
- *  the python wire-model emitter returns the key. */
-const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
-
 /** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
  *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
  *  (`stamp_at_time` / `stamp_who`) while every response DTO declares it NESTED,
@@ -460,8 +446,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a value-object invariant calling `.matches(<regex>)` — the regex is lifted into the WIRE/request validator beside the domain class, so two emitted files' import lists must agree",
     doc: "language",
-    backends: WIRE_REGEX_IMPORT,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): the corpus had NO regex invariant at all (0 of 89), and only four models in the whole repo used `.matches(` anywhere (one elixir-vanilla-build fixture, three `examples/`), so no compile gate on any backend had ever seen a regex leave the DOMAIN emitter.  That is precisely the evaluation's F-013 — `Domain/ValueObjects/UnLocode.cs` emitted `using System.Text.RegularExpressions;` while the FluentValidation request validator called `Regex.IsMatch` with no using, failing `dotnet build` on ordinary modelling.  dotnet is now FIXED (verified with `dotnet build /warnaserror` on sdk:10.0); node is free (inline `/re/.test(...)`, no import to forget); java is correct (`import java.util.regex.Pattern` + a hoisted `Pattern.compile`); elixir is free (`Regex`/`=~` live in Kernel).  PYTHON IS BROKEN and this fixture is how we know: `app/http/wire_models.py` emits `re.search(...)` with no `import re` (`ruff F821 Undefined name 're'`) while the domain half imports it correctly — F-013's defect class exactly, on a second backend, surfaced the moment the shape existed.  python is therefore excluded from `backends:` here via the named `WIRE_REGEX_IMPORT` set above (a reasoned exclusion, not a compile-skip: `gate-ledger.test.ts` refuses a cell that only generates, and asserts every corpus COMPILE_SKIP map stays drained).  The invariant is the plainest possible on purpose: the bug class is a missing import in a second file, so nothing more elaborate reaches it and anything more elaborate blurs which emitter is under test.",
+    backends: ALL,
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): the corpus had NO regex invariant at all (0 of 89), and only four models in the whole repo used `.matches(` anywhere (one elixir-vanilla-build fixture, three `examples/`), so no compile gate on any backend had ever seen a regex leave the DOMAIN emitter.  That is precisely the evaluation's F-013 — `Domain/ValueObjects/UnLocode.cs` emitted `using System.Text.RegularExpressions;` while the FluentValidation request validator called `Regex.IsMatch` with no using, failing `dotnet build` on ordinary modelling.  dotnet is now FIXED (verified with `dotnet build /warnaserror` on sdk:10.0); node is free (inline `/re/.test(...)`, no import to forget); java is correct (`import java.util.regex.Pattern` + a hoisted `Pattern.compile`); elixir is free (`Regex`/`=~` live in Kernel).  Python WAS broken and this fixture is how we knew: `app/http/wire_models.py` emitted `re.search(...)` with no `import re` (`ruff F821 Undefined name 're'`) while the domain half imported it correctly — F-013's defect class exactly, on a second backend.  Fixed structurally by M-T9.84: the python renderers write `re` through a `ref()` marker, so every module that spells `re.search` derives its own `import re`; python is back in `backends:`.  The invariant is the plainest possible on purpose: the bug class is a missing import in a second file, so nothing more elaborate reaches it and anything more elaborate blurs which emitter is under test.",
   },
   {
     id: "vo-root-kernel",

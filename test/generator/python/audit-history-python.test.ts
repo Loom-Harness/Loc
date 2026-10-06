@@ -139,14 +139,16 @@ describe("entity history — the gate is a second reader of the ambient principa
     expect(routes).toContain("current_user_ = require_current_user()");
     // Gating the import on masking alone left this call undefined (ruff F821 →
     // runtime NameError).  Both readers must keep an import alive.
-    expect(routes).toContain("from app.auth.user import require_current_user");
+    expect(routes).toMatch(/^from app\.auth\.user import [^\n]*\brequire_current_user\b/m);
   });
 
   it("imports BOTH accessors when the history find is gated AND masked", async () => {
     const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
     // Mapper: non-raising (absence drops the masked entry).  Route gate:
     // raising.  One import line, both names.
-    expect(routes).toContain("from app.auth.user import current_user, require_current_user");
+    expect(routes).toMatch(
+      /^from app\.auth\.user import [^\n]*\bcurrent_user, require_current_user\b/m,
+    );
     expect(routes).toContain("_mask_user = current_user()");
     expect(routes).toContain("current_user_ = require_current_user()");
   });
