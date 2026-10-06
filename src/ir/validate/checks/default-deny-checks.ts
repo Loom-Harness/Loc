@@ -117,6 +117,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                   path: `/api/${plural(snake(a.name))}`,
                 }),
                 source: `${a.name}/${op.name}`,
+                origin: op.origin,
               });
               continue;
             }
@@ -156,6 +157,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                   { name: a.name, opName: op.name, label: lifecycleLabel },
                 ),
                 source: `${a.name}/${op.name}`,
+                origin: op.origin,
               });
               continue;
             }
@@ -173,6 +175,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                     opName: op.name,
                   }),
               source: `${a.name}/${op.name}`,
+              origin: op.origin,
             });
           }
         }
@@ -189,6 +192,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                 label: entry.label,
               }),
               source: `${wf.name}/${entry.key}`,
+              origin: wf.origin,
             });
           }
         }
@@ -251,6 +255,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             path: op.path,
           }),
           source: `${c.name}/${op.aggregate}`,
+          origin: c.origin,
         });
       }
       // Repository finds: each author-declared named find is its own GET route
@@ -270,6 +275,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                 findName: find.name,
               }),
               source: `find/${repo.name}.${find.name}`,
+              origin: repo.origin,
             });
           }
         }
@@ -291,6 +297,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               name: repo.name,
             }),
             source: `find/${repo.name}.history`,
+            origin: repo.origin,
           });
         }
       }
@@ -321,6 +328,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             name: proj.name,
           }),
           source: `projection/${proj.name}`,
+          origin: proj.origin,
         });
       }
       // Workflow INSTANCE reads (`/workflows/<wf>/instances[/{id}]`).  An
@@ -346,6 +354,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             name: wf.name,
           }),
           source: `workflow/${wf.name}`,
+          origin: wf.origin,
         });
       }
     }
