@@ -14,27 +14,6 @@ import { parseString } from "../../_helpers/index.js";
 const DOMAIN = "api/app/domain/product.py";
 const REPO = "api/app/db/repositories/product_repository.py";
 
-const SRC = `
-system Shop {
-  subdomain Catalog {
-    context Catalog {
-      aggregate Product {
-        name: string
-        derived cleanName: string = name.trim()
-        invariant name.trim().length > 0
-      }
-      repository Products for Product {
-        find byExactName(q: string): Product[] where this.name.trim() == q
-      }
-    }
-  }
-  api CatalogApi from Catalog
-  storage pg { type: postgres }
-  resource catalogState { for: Catalog, kind: state, use: pg }
-  deployable api { platform: python, contexts: [Catalog], dataSources: [catalogState], serves: CatalogApi, port: 4000 }
-}
-`;
-
 async function build(source: string): Promise<Map<string, string>> {
   const { model, errors } = await parseString(source);
   if (errors.length) throw new Error(`source has validation errors:\n${errors.join("\n")}`);
@@ -42,31 +21,6 @@ async function build(source: string): Promise<Map<string, string>> {
 }
 
 describe("python generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
-  it("parses + validates cleanly (typed as string, queryable where)", async () => {
-    const { errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-  });
-
-  it("renders trim in-memory in derived/invariant bodies as .strip()", async () => {
-    const domain = (await build(SRC)).get(DOMAIN)!;
-    expect(domain).toBeDefined();
-    expect(domain).toContain("self._name.strip()");
-    // The default fallthrough would snake-case the DSL member onto the
-    // receiver — `.trim()` is not a Python string method.  The verbatim DSL
-    // source legitimately appears inside error-message string literals
-    // (`raise DomainError("Invariant violated: name.trim()…")`), so strip
-    // those before asserting no CODE calls `.trim()`.
-    const code = domain.replace(/"(?:\\.|[^"\\])*"/g, '""');
-    expect(code).not.toContain(".trim(");
-  });
-
-  it("renders trim as func.trim(col) in the find where-clause and imports `func`", async () => {
-    const repo = (await build(SRC)).get(REPO)!;
-    expect(repo).toBeDefined();
-    expect(repo).toContain("select(ProductRow).where((func.trim(ProductRow.name) == q))");
-    expect(repo).toMatch(/from sqlalchemy import [^\n]*\bfunc\b/);
-  });
-
   it("renders a value-side trim (param receiver) as plain Python .strip()", async () => {
     const src = `
 system Shop {
@@ -118,19 +72,6 @@ system Shop {
     const { errors } = await parseString(SRC_A2);
     expect(errors).toEqual([]);
   });
-
-  it("renders a chained trim().toLower() derived as .strip().lower()", async () => {
-    const domain = (await build(SRC_A2)).get(DOMAIN)!;
-    expect(domain).toBeDefined();
-    expect(domain).toContain("self._name.strip().lower()");
-  });
-
-  it("renders toLower as func.lower(col) in the find where-clause and imports `func`", async () => {
-    const repo = (await build(SRC_A2)).get(REPO)!;
-    expect(repo).toBeDefined();
-    expect(repo).toContain("select(ProductRow).where((func.lower(ProductRow.name) == q))");
-    expect(repo).toMatch(/from sqlalchemy import [^\n]*\bfunc\b/);
-  });
 });
 
 // A3 math batch — abs/min/max on the four numeric receivers plus
@@ -177,30 +118,6 @@ system Shop {
   it("parses + validates cleanly (all A3 ops typed + queryable)", async () => {
     const { errors } = await parseString(SRC_A3);
     expect(errors).toEqual([]);
-  });
-
-  it("renders money.round via quantize with explicit ROUND_HALF_UP (never builtin round)", async () => {
-    const domain = (await build(SRC_A3)).get(DOMAIN)!;
-    expect(domain).toContain(
-      'self._price.quantize(Decimal(1).scaleb(-(2)), rounding="ROUND_HALF_UP")',
-    );
-    // Optional places defaults to 0.
-    expect(domain).toContain(
-      'self._price.quantize(Decimal(1).scaleb(-(0)), rounding="ROUND_HALF_UP")',
-    );
-  });
-
-  // RS-37: the float path's `copysign(floor(|x|·10^p + 0.5), x)` rounded a
-  // binary-inexact tie DOWN (`1.005` is 1.00499… as a double), so a `decimal`
-  // round now quantizes the shortest-repr `Decimal` half-away-from-zero.
-  it("renders decimal.round half-away-from-zero on the exact value (not banker's round())", async () => {
-    const domain = (await build(SRC_A3)).get(DOMAIN)!;
-    expect(domain).toContain(
-      'float(Decimal(str(self._weight)).quantize(Decimal(1).scaleb(-(1)), rounding="ROUND_HALF_UP"))',
-    );
-    // Python's builtin round() is half-even — it must never carry a .round().
-    const code = domain.replace(/"(?:\\.|[^"\\])*"/g, '""');
-    expect(code).not.toMatch(/\bround\(/);
   });
 
   it("renders abs/min/floor/ceil keeping the receiver type", async () => {

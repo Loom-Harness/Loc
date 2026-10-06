@@ -1,17 +1,28 @@
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
+import {
+  needsWireProjection,
+  RAW_INSTANT_FN,
+  rawInstantFields,
+  rawRowWireExpr,
+  rawRowWireObject,
+  renderRawInstantHelper,
+} from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
+import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
   ProjectionOnIR,
   StmtIR,
   TypeIR,
+  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-import { zodForResponse } from "./routes-builder.js";
+import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted projection function signature —
  *  `EntityManager` under the MikroORM adapter (`persistence: mikroorm`), the
@@ -83,7 +94,7 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     const hs = foldHandlers(p);
     if (hs.length === 0) continue;
     body.push(...emitStateHelpers(p, usingMikro), "");
-    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro), "");
+    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx), "");
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
@@ -93,8 +104,22 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
   // enum VALUE objects (`<E>.Case` in a fold) are imported from the domain.
   // Both derived by intersecting the ctx enums with the emitted text so the
   // import/decl lines stay free of dead names (the generated-code Biome gate).
+  // Value-object schemas the response DTOs reference.  Emitted BEFORE the enum
+  // scan below reads `bodyText`, because a `<Vo>Schema` body may itself name a
+  // `<Enum>Schema` — an enum reachable only THROUGH a value object would
+  // otherwise go undeclared, the same TS2304 one level down.
+  const voSchemaDecls = collectUsedValueObjects(folded, ctx).flatMap((vo) =>
+    emitWireSchema(
+      `const ${vo.name}Schema`,
+      `${vo.name}`,
+      vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
+      vo.invariants,
+      new Set(vo.fields.map((f) => f.name)),
+    ),
+  );
+  const bodyAndVos = `${voSchemaDecls.join("\n")}\n${bodyText}`;
   const enumSchemaDecls = ctx.enums
-    .filter((e) => bodyText.includes(`${e.name}Schema`))
+    .filter((e) => bodyAndVos.includes(`${e.name}Schema`))
     .map(
       (e) =>
         `const ${e.name}Schema = z.enum([${e.values.map((v) => `"${v}"`).join(", ")}]).openapi("${e.name}");`,
@@ -145,11 +170,47 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       enumValueImportLine,
       "",
       ...(enumSchemaDecls.length > 0 ? [...enumSchemaDecls, ""] : []),
+      ...(voSchemaDecls.length > 0 ? [...voSchemaDecls, ""] : []),
+      // The raw-row canonical-instant helper, only when a route actually calls it
+      // — an unused function is an error under the generated-project Biome config
+      // (the same rule that gates every import line above).
+      ...(bodyText.includes(`${RAW_INSTANT_FN}(`) ? [...renderRawInstantHelper(), ""] : []),
       bodyText,
     ]
       .filter((l) => l !== null)
       .join("\n") + "\n"
   );
+}
+
+/** Type seeds this file names a `<Vo>Schema` / `<Enum>Schema` for: the folded
+ *  projections' response DTOs (`emitResponseSchemas` → `zodForResponse` over
+ *  `wireShape`).  The id-source row is the correlation token, emitted as a bare
+ *  `z.string()`, so it names no schema and is not seeded — over-seeding would
+ *  emit an unused `const` and trip the generated-code Biome gate.
+ *
+ *  The WORKFLOW emitter grew exactly this (`workflowSchemaSeeds`, #2864 D4: a
+ *  workflow whose state carried an enum emitted `ClaimStateSchema` with nothing
+ *  declaring it, TS2304).  The projection emitter never did — its enum schemas
+ *  are derived by scanning the assembled body text for `<Enum>Schema`, which
+ *  catches an enum but has no value-object equivalent at all, so `st: Stamp`
+ *  emitted `st: StampSchema.nullish()` over an undeclared name. */
+function* projectionSchemaSeeds(folded: readonly ProjectionIR[]): Generator<TypeIR> {
+  for (const p of folded) {
+    for (const f of p.wireShape ?? []) {
+      if (f.source !== "id") yield f.type;
+    }
+  }
+}
+
+/** The value objects those seeds reach, transitively (a `<Vo>Schema` body names
+ *  the schema of each of its own fields). */
+function collectUsedValueObjects(
+  folded: readonly ProjectionIR[],
+  ctx: EnrichedBoundedContextIR,
+): ValueObjectIR[] {
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(projectionSchemaSeeds(folded), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 /** The response DTO (one row) + its list carrier, over the projection's wire
@@ -210,7 +271,12 @@ function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
 /** One pure fold: load-or-allocate the row for the event's key, apply the
  *  assignment folds against `state` (this-props render as `state.<field>`),
  *  upsert. */
-function emitFoldHandler(p: ProjectionIR, h: ProjectionOnIR, usingMikro = false): string[] {
+function emitFoldHandler(
+  p: ProjectionIR,
+  h: ProjectionOnIR,
+  usingMikro = false,
+  ctxDecls?: EnrichedBoundedContextIR,
+): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
   // Key: the `by <expr>` extractor, else the event field name-matching the key.
@@ -236,7 +302,7 @@ function emitFoldHandler(p: ProjectionIR, h: ProjectionOnIR, usingMikro = false)
     `  const __key = ${keyExpr};`,
     `  const state = (await load${T}(db, __key)) ?? ${allocate};`,
   ];
-  for (const stmt of h.statements) out.push(renderFoldStatement(stmt, p, h));
+  for (const stmt of h.statements) out.push(renderFoldStatement(stmt, p, h, ctxDecls));
   out.push(`  await save${T}(db, state);`);
   out.push(`}`);
   return out;
@@ -256,12 +322,49 @@ function emitFoldHandler(p: ProjectionIR, h: ProjectionOnIR, usingMikro = false)
  *  Mirrors the elixir applier's `renderFoldStatement`
  *  (`generator/elixir/vanilla/fold-stmt-emit.ts:54`), including the loud
  *  `default:` — a dropped statement is worse than a crash, because it ships. */
-function renderFoldStatement(stmt: StmtIR, p: ProjectionIR, h: ProjectionOnIR): string {
+function renderFoldStatement(
+  stmt: StmtIR,
+  p: ProjectionIR,
+  h: ProjectionOnIR,
+  /** The hosting context — needed only to resolve a value-object field's leaf
+   *  columns (`vo-flatten.ts`); absent leaves every field on its single prop. */
+  voFields?: EnrichedBoundedContextIR,
+): string {
   const ctx = { thisName: "state" } as const;
   switch (stmt.kind) {
     case "assign": {
       const field = lastSegment(stmt.target);
-      return `  state.${field} = ${toColumn(stmt.targetType, renderTsExpr(stmt.value, ctx))};`;
+      const rendered = renderTsExpr(stmt.value, ctx);
+      // A VALUE-OBJECT field is not one column — the row holds one prop per leaf
+      // (`st_atTime` / `st_who`, see `vo-flatten.ts`).  `state.st = e.st` named a
+      // prop the row type does not have (TS2339, a generated project that does
+      // not compile), so the write fans out over the leaves the same derivation
+      // the read route nests back.  The domain value is bound once: a fold is
+      // pure, but re-rendering it per leaf would still duplicate the work and
+      // read badly at three leaves.
+      if (voFields && stmt.targetType && isFlattenedValueObject(stmt.targetType, voFields)) {
+        const leaves = voLeaves(field, stmt.targetType, voFields);
+        const tmp = `__${field}`;
+        return [
+          `  const ${tmp} = ${rendered};`,
+          ...leaves.map((l) => {
+            // A leaf under an OPTIONAL ancestor hops with `?.` the whole way (an
+            // absent ancestor makes every descendant absent, not just the first);
+            // a leaf that is merely optional itself sits on a present object and
+            // reads with a plain `.`.
+            const read = `${tmp}${l.path.map((seg) => (l.viaOptional ? `?.${seg}` : `.${seg}`)).join("")}`;
+            const stored = toColumn(l.type, read);
+            // The null guard is only needed when the column conversion would run
+            // on an absent value — `toColumn`'s money arm is `(v).toString()`,
+            // which throws.  A leaf stored as-is needs no guard, and emitting
+            // `x == null ? null : x` would be dead weight in the generated file.
+            const value =
+              l.nullable && stored !== read ? `${read} == null ? null : ${stored}` : stored;
+            return `  state.${l.prop} = ${value};`;
+          }),
+        ].join("\n");
+      }
+      return `  state.${field} = ${toColumn(stmt.targetType, rendered)};`;
     }
     case "let":
       // `let`-names may collide with a JS reserved word; escape consistently
@@ -288,13 +391,28 @@ function renderFoldStatement(stmt: StmtIR, p: ProjectionIR, h: ProjectionOnIR): 
         ? `  state.${field} = (state.${field} ?? []).filter((__e) => __e !== ${toColumn(stmt.elementType, value)});`
         : `  state.${field} = ${accumulate(stmt.elementType, field, "-", value)};`;
     }
-    default:
+    // The impure remainder — refused, and enumerated rather than swept into a
+    // bare `default` so a NEW `StmtIR` kind is a compile error here (the
+    // `never` below) and gets classified deliberately.  This mirrors the
+    // elixir twin, `generator/elixir/dispatch-emit.ts#renderStmt`.
+    case "expression":
+    case "return":
+    case "precondition":
+    case "requires":
+    case "emit":
+    case "call":
+    case "variant-match":
+    case "if":
       throw new Error(
         `hono projection fold: unsupported fold statement '${stmt.kind}' in ` +
           `projection '${p.name}' on(${h.param}: ${h.event}) — a fold applies pure ` +
           `assignments / collection mutations / let bindings only; ` +
           `'loom.projection-fold-impure' should have rejected this.`,
       );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 
@@ -445,6 +563,16 @@ function emitProjectionRoutes(
     const rowClass = mikroProjectionRowClass(p);
     const corr = p.correlationField;
     const gated = !!p.query?.requires;
+    // The row props whose value arrives as a JS `Date` and must be canonicalised
+    // on the way out (see `raw-row-wire.ts`).
+    const instants = rawInstantFields(p.wireShape);
+    // A flattened VALUE OBJECT cannot ride the spread: the row holds its LEAVES
+    // (`st_atTime` / `st_who`), so `{ ...row }` would ship those and no `st`.
+    // Such a shape gets the explicit per-field projection instead; every other
+    // projection keeps the text it has always had.
+    const nest = needsWireProjection(p.wireShape, ctx);
+    const wireOne = (rowExpr: string): string =>
+      nest ? rawRowWireObject(rowExpr, p.wireShape ?? [], ctx) : rawRowWireExpr(rowExpr, instants);
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
       problemTitle(forbiddenStatus),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
@@ -477,8 +605,13 @@ function emitProjectionRoutes(
         ? `      const rows = await db.find(${rowClass}, {});`
         : `      const rows = await db.select().from(${table});`,
     );
+    // RS-4 — the rows go out RAW (no repository `toWire` on this path), so a
+    // `datetime` column would reach `JSON.stringify` as a `Date` and serialise
+    // through `toJSON`'s padded `.000` fraction.  A datetime-free projection
+    // keeps the verbatim `rows` expression.
+    const rowsExpr = nest || instants.length > 0 ? `rows.map((r) => (${wireOne("r")}))` : "rows";
     out.push(
-      `      return httpCtx.json(rows as unknown as z.infer<typeof ${T}ListResponse>, 200);`,
+      `      return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}ListResponse>, 200);`,
     );
     out.push(`    },`);
     out.push(`  );`);
@@ -518,7 +651,9 @@ function emitProjectionRoutes(
     // RS-27 extends here — a projection row read by its correlation KEY is a
     // by-id read.
     out.push(`      if (!row) throw new AggregateNotFoundError(\`${T} \${key} not found\`);`);
-    out.push(`      return httpCtx.json(row as unknown as z.infer<typeof ${T}Response>, 200);`);
+    out.push(
+      `      return httpCtx.json(${wireOne("row")} as unknown as z.infer<typeof ${T}Response>, 200);`,
+    );
     out.push(`    },`);
     out.push(`  );`);
     out.push("");

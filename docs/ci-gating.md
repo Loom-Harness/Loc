@@ -960,7 +960,28 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-09-10 baseline
+### The 2026-10-05 re-measure (current)
+
+Re-run after the behavioral corpus grew by the wave C3 drains, when
+`behavioral-dotnet` was killed at its 15m cap on a PR adding six fixtures — on
+`main` alone it had reached a 13m51s max against that cap. Job-execution
+seconds from the Actions API, n=20 successful runs per leg:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node) | 3m49s | 3m57s | 4m05s | 10m | **10m** |
+| `behavioral-e2e-python` | 5m41s | 6m25s | 7m29s | 10m | **10m** |
+| `behavioral-e2e-java` | — | — | — | 30m | **30m** ‡ |
+| `behavioral-e2e-dotnet` | 10m19s | 13m48s | 13m51s | 15m | **25m** |
+| `behavioral-e2e-dapper` | 9m18s | 13m02s | 13m06s | 15m | **20m** |
+| `behavioral-e2e-mikroorm` | 13m18s | 15m05s | 15m09s | 20m | **25m** |
+| `behavioral-e2e-elixir` | 10m18s | 12m10s | 13m03s | 20m | **20m** |
+
+‡ not re-sampled — the report returned no java sample on this run; the
+2026-09-10 figure below still stands, and java's recent runs (~15m) sit well
+inside it.
+
+### The 2026-09-10 baseline (superseded — java still rests on it)
 
 All seven behavioral legs, measured at step level from the Actions API
 (`behavioral-java` at n=40, the rest at n=15):

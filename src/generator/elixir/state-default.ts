@@ -25,10 +25,10 @@ export interface StateDefaultDecls {
  *  allocating `Repo.insert!` before the body ever runs.  A value-object field
  *  is ONE `:map` column (the state-table migration collapses its flattened
  *  leaves), so it zeroes to a map of its own fields' zeroes — the shape the
- *  body's `Money { … }` construction writes.  An enum is a `:text` column
- *  holding the declared value, so it zeroes to its FIRST declared value (the
- *  column's enum CHECK rejects `""`).  An undeclared name still falls back to
- *  `nil`. */
+ *  body's `Money { … }` construction writes.  An enum's zero is its FIRST
+ *  member as the declared-case ATOM, which the `Ecto.Enum` state field dumps
+ *  to the declared string (the seed every other backend writes; wave C3 D6).
+ *  An undeclared name still falls back to `nil`. */
 export function stateDefault(
   t: TypeIR,
   decls: StateDefaultDecls = {},
@@ -53,7 +53,7 @@ export function stateDefault(
   if (t.kind === "array") return "[]";
   if (t.kind === "enum") {
     const first = decls.enums?.find((e) => e.name === t.name)?.values[0];
-    return first === undefined ? "nil" : JSON.stringify(first);
+    return first === undefined ? "nil" : `:${first}`;
   }
   if (t.kind === "valueobject" && !seen.has(t.name)) {
     const vo = decls.valueObjects?.find((v) => v.name === t.name);

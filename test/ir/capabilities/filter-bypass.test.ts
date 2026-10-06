@@ -6,9 +6,8 @@
 // / `bypassAll` (the `*` wildcard).
 //
 // Validator (validateFilterBypassSupport), over a full system with a deployable:
-//   loom.filter-bypass-unsupported        — read served by an unsupported backend
-//                                            (all DB backends — dotnet/node/elixir/
-//                                            java/python — now honor it)
+//   (every DB backend — dotnet/node/elixir/java/python — honors the bypass, so
+//   there is no per-backend support gate)
 //   loom.filter-bypass-unknown-capability — ignoring an unimplemented capability
 //   loom.filter-bypass-no-filter          — ignoring a stamps-only capability
 

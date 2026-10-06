@@ -5,7 +5,8 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Direct-caller ratchet (M-T9.35).
+// Direct-caller ratchet (minted by M-T9.35, now done; the drain of `PINNED`
+// below is owned by M-T9.75 — docs/new-plan/T9-toolchain-health.md).
 //
 // `test/_helpers/generate.ts` is where a fixture is checked before anything
 // asserts on what it emits — phase ① (syntax), ④ (AST validation) and ⑦
@@ -182,7 +183,6 @@ const PINNED: readonly string[] = [
   "test/generator/python/python-views.test.ts",
   "test/generator/python/python-when.test.ts",
   "test/generator/python/python-workflow-event-sourced.test.ts",
-  "test/generator/python/python-workflow-instances.test.ts",
   "test/generator/python/python-workflows.test.ts",
   "test/generator/python/realtime-emission.test.ts",
   "test/generator/python/repository-port-id-vo.test.ts",
@@ -207,7 +207,6 @@ const PINNED: readonly string[] = [
   "test/generator/typescript/hono-resource-clients.test.ts",
   "test/generator/typescript/hono-resource-ops-4b.test.ts",
   "test/generator/typescript/hono-resource-ops.test.ts",
-  "test/generator/typescript/hono-workflow-instances.test.ts",
   "test/generator/typescript/projection-gate.test.ts",
   "test/generator/typescript/projection-workflow-source.test.ts",
   "test/generator/typescript/realtime-emission.test.ts",

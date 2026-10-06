@@ -932,7 +932,7 @@ interface VoLeaf {
  *  recursing through nested value objects — the repository-side mirror of
  *  `py-columns.columnsFor`'s `valueobject` arm. */
 function voLeafPaths(voName: string, prefix: string, ctx: EnrichedBoundedContextIR): VoLeaf[] {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return [];
   return vo.fields.flatMap((vf) => {
     const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
@@ -966,7 +966,7 @@ function hydrateVo(
    *  field. */
   nullableGroup: boolean = optional,
 ): string | undefined {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return undefined;
   const args = vo.fields
     .map((vf) => {
@@ -1391,7 +1391,7 @@ function persistVoLeaves(
   guards: readonly string[],
   ctx: EnrichedBoundedContextIR,
 ): Array<[string, string]> | undefined {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return undefined;
   return vo.fields.flatMap((vf): Array<[string, string]> => {
     const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
@@ -1848,6 +1848,18 @@ export function wireValue(
     const inner = wireValue("__e", t.element, ctx, false);
     const comp = inner === "__e" ? `list(${expr})` : `[${inner} for __e in ${expr}]`;
     return optional ? `(None if ${expr} is None else ${comp})` : comp;
+  }
+  if (t.kind === "entity") {
+    // A DERIVED entity-typed member (`derived byPriceDesc: LineItem[]`) holds
+    // domain instances exactly like a containment, so each crosses the wire
+    // through the part's own projection — inlined, because this renderer also
+    // serves the query-projection routes where the repository's `_wire_<part>`
+    // helper is not in scope.  Returning the instance handed a dataclass to the
+    // response model, which 500'd on its Decimal price (wave C3 D1).
+    const part = ctx.aggregates.flatMap((a) => a.parts).find((p) => p.name === t.name);
+    if (!part) return expr;
+    const obj = `{${wireProjection(part, expr, ctx).join(", ")}}`;
+    return optional ? `(None if ${expr} is None else ${obj})` : obj;
   }
   if (t.kind === "genericInstance" && t.ctor === "provenanced") {
     // (M-T6.12) Fold the domain's split pair into the one wire carrier.  `expr`

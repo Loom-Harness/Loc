@@ -3,6 +3,7 @@ import type {
   ChannelIR,
   CreateIR,
   EnrichedBoundedContextIR,
+  EnumIR,
   ExprIR,
   IdValueType,
   OnIR,
@@ -218,7 +219,7 @@ export function emitWorkflowStateSchemas(
     if (!wf.correlationField || wf.eventSourced) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, schema, durable),
+      renderStateSchema(contextModule, wf, ctx.enums, schema, durable),
     );
   }
 }
@@ -271,7 +272,7 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, dispatchSchema, durable),
+      renderStateSchema(contextModule, wf, ctx.enums, dispatchSchema, durable),
     );
   }
 
@@ -340,22 +341,27 @@ export function ectoIdType(vt: IdValueType): string {
  *  (`workflowStateTableShape` → `renderInitialStateFile`):
  *
  *  - `optional` is unwrapped first — nullability is a column option, not a type
- *    (an optional `datetime` used to fall through to `:string`).
+ *    (an optional `datetime` fell through to `:string`, so every reactor write
+ *    of a DateTime was an `Ecto.ChangeError` — wave C3 D8).
  *  - an id is typed by its value type (`ectoIdType`), as the PK is.
+ *  - an enum holds the member ATOM the body assigns (`claimState := Filed`
+ *    renders `:Filed`), which `:string` cannot dump (wave C3 D6); the column
+ *    stays text, `Ecto.Enum` stores the member name.
  *  - a reference collection (`X id[]`) is a jsonb column holding the id list,
  *    so its elements are the id's JSON form (a guid is a string there, never
  *    Ecto's 16-byte `:binary_id` dump, which Jason cannot encode).
- *  - an enum is a `:text` column and the handlers write its DECLARED string
- *    (`render-expr`'s non-query `enum-value` arm) through `change/2`, which
- *    never casts — so `:string`, not an `Ecto.Enum` whose dump wants the atom.
  *  - everything else rides the aggregate schema mapping (`mapTypeToEcto`): a
  *    value object is ONE `:map` column (the migration collapses its flattened
- *    leaf columns, `collapseVoGroups`), a `datetime` is `Loom.Datetime`
- *    (whose dump truncates a `DateTime.utc_now()` to the column's precision). */
-function ectoStateFieldType(t: TypeIR): string {
-  if (t.kind === "optional") return ectoStateFieldType(t.inner);
+ *    leaf columns, `collapseVoGroups`), a `datetime` is the millisecond
+ *    `Loom.Datetime` every declared datetime column uses (RS-38). */
+function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
+  if (t.kind === "optional") return ectoStateFieldType(t.inner, enums);
   if (t.kind === "id") return ectoIdType(t.valueType);
-  if (t.kind === "enum") return ":string";
+  if (t.kind === "enum") {
+    const values = enums.find((e) => e.name === t.name)?.values ?? [];
+    if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
+    return ":string";
+  }
   if (t.kind === "array" && t.element.kind === "id") {
     const el =
       t.element.valueType === "int" || t.element.valueType === "long" ? ":integer" : ":string";
@@ -367,6 +373,7 @@ function ectoStateFieldType(t: TypeIR): string {
 function renderStateSchema(
   contextModule: string,
   wf: WorkflowIR,
+  enums: readonly EnumIR[],
   schema?: string,
   /** Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
    *  channel maps the shared `last_event_id` column the migrations add. */
@@ -379,7 +386,7 @@ function renderStateSchema(
   const table = plural(snake(wf.name));
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
-    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type)}`);
+    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`);
   if (durable) fieldLines.push(`    field :last_event_id, :string`);
   // `@schema_prefix` targets the workflow's context schema, matching the
   // migration `prefix:`.  Omitted ⇒ public, byte-identical.

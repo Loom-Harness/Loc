@@ -51,6 +51,7 @@ import {
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
+  type MigrationWarning,
 } from "../system/migrations-builder.js";
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
@@ -63,6 +64,7 @@ import {
 } from "../verify/render.js";
 import { computeVerification } from "../verify/verification.js";
 import {
+  loadTranslations,
   runI18nCheck,
   runI18nExtract,
   runI18nInit,
@@ -533,6 +535,14 @@ interface RunOptions {
    * nothing on a local tree.  Turn it on to make the emitted tree
    * self-contained.  Only meaningful with `--sourcemap`. */
   inlineSources?: boolean;
+  /** `--locales <dir>` — the `ddd i18n` translator tree root, resolved by the
+   * SAME `localesDir` every `ddd i18n` subcommand uses (an explicit dir wins;
+   * otherwise `locales/` NEXT TO THE `.ddd`, not next to the cwd).  Every
+   * translated locale under it is emitted into each frontend that has a
+   * translation runtime and registered in its generated i18n shim — without
+   * this the translator's `de.json` never reaches the app.  System target
+   * only; no tree on disk is the normal case and changes nothing. */
+  localesDir?: string;
 }
 
 interface RunResult {
@@ -664,6 +674,10 @@ async function runGenerate(
    *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
    *  under `0 error(s), 0 warning(s)` (F-019). */
   let giveUps: GiveUpReport[] = [];
+  /** Non-fatal diagnostics from the migration derivation (phase ⑨).  Printed
+   *  beside the give-ups below — same shape of problem: a fact known inside a
+   *  pure pass with no console, which used to reach nobody. */
+  let migrationWarnings: MigrationWarning[] = [];
   // The migration-history ledger lives beside the `.ddd` SOURCE, not under
   // `-o`: it is the only record of "this module already has migrations" that
   // survives being read in an output tree that carries none of them (F-029).
@@ -696,6 +710,10 @@ async function runGenerate(
         ledgerPath: displayLedgerPath(sourceDir, file),
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
+        // Locale catalogs from the translator tree (`ddd i18n init/sync`).
+        // Read HERE, not in `src/system/`, which stays fs-free — the same
+        // split `sourceTexts` uses.  Empty map ⇒ nothing changes.
+        translations: loadTranslations(file, { dir: options.localesDir }),
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
@@ -703,6 +721,14 @@ async function runGenerate(
       files = emission.files;
       giveUps = emission.giveUps;
       ledgerToWrite = emission.migrationLedger;
+      // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
+      // RENAME inference the migration builder makes deliberately: it fired,
+      // and before this the run said `0 error(s), 0 warning(s)` about it, so
+      // an author whose two columns were unrelated was never told their old
+      // column's data was about to land under the new name.  A WARNING — the
+      // inference is load-bearing, so it must not fail the run, and the
+      // migration IS written.
+      migrationWarnings = emission.migrationWarnings;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -732,6 +758,16 @@ async function runGenerate(
       );
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
+    }
+    for (const w of migrationWarnings) {
+      console.error(`${w.code} warning: ${w.message}`);
+    }
+    if (migrationWarnings.length > 0) {
+      // Its own footer, for the same reason the give-ups have one: the
+      // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
+      // already printed before generation ran, so without this the run reports
+      // `0 warning(s)` and then prints a warning.
+      console.error(`${migrationWarnings.length} warning(s) in derived migrations.`);
     }
     // Lift the walkers' give-ups.  They were already in the output, named by
     // code, three characters from the defect — this is the only place with both
@@ -1786,6 +1822,10 @@ generate
     "--inline-sources",
     "with --sourcemap, inline each .ddd's full text into every Source Map v3 sidecar. Off by default — the sidecars name the .ddd by absolute path and a debugger reads it from there, so inlining it once per generated file costs ~4x the map bytes for nothing. Turn it on when the maps will be read where the .ddd files are not.",
   )
+  .option(
+    "--locales <dir>",
+    "translator tree root to read locale catalogs from (default: <.ddd file's dir>/locales — the same resolution as `ddd i18n --dir`). Each locale found is emitted into every frontend with a translation runtime and registered in its i18n shim.",
+  )
   .action(
     async (
       file: string,
@@ -1800,6 +1840,7 @@ generate
         allowRebaseline?: boolean;
         sourcemap?: boolean;
         inlineSources?: boolean;
+        locales?: string;
       },
     ) => {
       if (options.json) {
@@ -1818,6 +1859,7 @@ generate
         allowRebaseline: !!options.allowRebaseline,
         sourcemap: !!options.sourcemap,
         inlineSources: !!options.inlineSources,
+        localesDir: options.locales,
       };
       await runGenerate("system", file, options.out, runOpts);
       if (options.watch) {

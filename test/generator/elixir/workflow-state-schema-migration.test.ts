@@ -88,8 +88,15 @@ describe("elixir workflow state — schema fields == migration columns (item 14a
     expect([...fields.keys()].sort()).toEqual([...columns.keys()].sort());
     for (const [name, col] of columns) {
       // A reference collection (`X id[]`) is a jsonb id list: an array of the
-      // id's JSON form, never Ecto's 16-byte `:binary_id` dump.
-      const want = name === "related" ? "{:array, :string}" : LOADS[col];
+      // id's JSON form, never Ecto's 16-byte `:binary_id` dump.  An enum is a
+      // text column loaded through `Ecto.Enum` (the body assigns the member
+      // atom — wave C3 D6).
+      const want =
+        name === "related"
+          ? "{:array, :string}"
+          : name === "stage"
+            ? "Ecto.Enum, values: [:Open, :Closed]"
+            : LOADS[col];
       expect(fields.get(name), `field :${name} over column ${col}`).toBe(want);
     }
     // The value objects specifically (the 14a repro) and the optional datetime
@@ -106,7 +113,7 @@ describe("elixir workflow state — schema fields == migration columns (item 14a
     const files = await generated();
     const starter = file(files, "/workflows/billing/start_order_placed.ex");
     expect(starter).toContain('total: %{amount: Decimal.new(0), currency: ""}');
-    expect(starter).toContain('stage: "Open"');
+    expect(starter).toContain("stage: :Open");
     expect(starter).not.toMatch(/\b(total|stage): nil\b/);
     // The body's own write is the same `:map` shape the column now holds.
     expect(starter).toContain('%{total: %{amount: Decimal.new("1.0"), currency: "EUR"}}');
