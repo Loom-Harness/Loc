@@ -27,6 +27,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { snake, upperFirst } from "../../../util/naming.js";
@@ -254,6 +255,25 @@ function renderRepository(
   // by `put_assoc`/`cast_assoc`, so it only materialises the untouched ones.
   const insertPipeline = `${aggModule}Changeset.base_changeset(attrs)${kindStamp}${insertStamps}${insertPutAssoc}
     |> Repo.insert()`;
+  // F-018 — a claim-valued stamp into a NOT NULL column must refuse a principal
+  // whose claim is absent, rather than cast nil and let Postgres raise.  Elixir
+  // has no exception idiom here: the repository already speaks in tuples, so the
+  // refusal is `{:error, {:forbidden, detail}}` and the controller answers it
+  // with a 403 problem document (the arm is emitted alongside, in
+  // `find-controller.ts` — without it the tuple falls through the `case` and
+  // raises, turning the refusal back into the 500 it replaces).
+  const claimGuardLines = requiredClaimStamps(agg, "create").flatMap((stamp) => [
+    `    if current_user == nil or is_nil(current_user.${snake(stamp.claim)}) or current_user.${snake(stamp.claim)} == "" do`,
+    `      {:error, {:forbidden, ${JSON.stringify(missingClaimMessage(stamp))}}}`,
+    "    else",
+  ]);
+  // One `end` per guard: each stamp opens its own `if … do … else`, so two
+  // claim-valued stamps (say `createdBy := currentUser.id` from a capability
+  // and `ownerRole := currentUser.role` from the context) nest two blocks — a
+  // single `end` left the module uncompilable (`missing terminator: end`),
+  // caught by the `stamps-principal` corpus fixture on the behavioural leg.
+  const claimGuardEnd = requiredClaimStamps(agg, "create").map(() => "    end");
+
   const insertBody = preload
     ? `case ${insertPipeline} do
       {:ok, record} -> {:ok, record${preload}}
@@ -497,10 +517,10 @@ ${
     : ""
 }
 
-  @spec insert(map()${hasStamps && stampPrincipal ? ", map() | nil" : ""}) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()}
+  @spec insert(map()${hasStamps && stampPrincipal ? ", map() | nil" : ""}) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${claimGuardLines.length > 0 ? " | {:forbidden, String.t()}" : ""}}
   def insert(attrs${stampActorParam}) when is_map(attrs) do
-    ${insertBody}
-  end
+${claimGuardLines.length > 0 ? `${claimGuardLines.join("\n")}\n  ` : "  "}  ${insertBody}
+${claimGuardEnd.join("\n")}${claimGuardEnd.length > 0 ? "\n" : ""}  end
 
   @spec update(${aggModule}.t(), map()${updateSpecArgTail}) :: {:ok, ${aggModule}.t()} | {:error, ${updateErrTail}}
   def update(%${aggModule}{} = record, attrs${updateStampActorParam}${versionedParam}) when is_map(attrs) do

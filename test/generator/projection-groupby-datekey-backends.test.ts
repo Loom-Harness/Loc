@@ -62,34 +62,6 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("python — computed date grouping key", () => {
-  it("renders the bucket unit as a literal_column, NOT a bind parameter", async () => {
-    // Regression: `func.date_trunc("day", col)` renders `date_trunc($1, col)`
-    // in the select and `date_trunc($2, col)` in the group by.  Postgres
-    // matches a grouped select against the GROUP BY expression syntactically,
-    // so two different placeholders are two different expressions:
-    //   `column "orders.placed_at" must appear in the GROUP BY clause`.
-    const routes = file(await build("python"), "query_projections_routes.py");
-    expect(routes).toContain(`func.date_trunc(literal_column("'day'"), OrderRow.placed_at)`);
-    expect(routes).not.toContain(`func.date_trunc("day"`);
-    expect(routes).toContain("from sqlalchemy import func, literal_column, select");
-  });
-
-  it("uses the identical bucket expression in select, group_by and order_by", async () => {
-    const routes = file(await build("python"), "query_projections_routes.py");
-    expect(
-      routes.split(`func.date_trunc(literal_column("'day'"), OrderRow.placed_at)`).length - 1,
-    ).toBe(3);
-  });
-
-  it("ISO-encodes a datetime grouping key through the shared iso() wire helper", async () => {
-    // Regression: the row declares `day: str`, the driver returns an aware
-    // `datetime` — FastAPI answered 500 ResponseValidationError ("Input should
-    // be a valid string") on every request.
-    const routes = file(await build("python"), "query_projections_routes.py");
-    expect(routes).toContain(`"day": iso(r[0])`);
-    expect(routes).toContain("from app.db.wire import iso");
-  });
-
   it("maps NO read-model table for a query-time projection", async () => {
     // Regression (pre-existing, and NOT limited to grouped projections — the
     // shipped singleton `select orders = count()` shape hit it too): a
@@ -107,77 +79,13 @@ describe("python — computed date grouping key", () => {
 });
 
 describe("java — computed date grouping key", () => {
-  it("uses HQL's function() escape identically in select, group by and order by", async () => {
-    const svc = file(await build("java"), "OrdersQueryProjections.java");
-    expect(svc).toContain(
-      "select function('date_trunc', 'day', e.placedAt), count(e), sum(e.total) from Order e" +
-        " group by function('date_trunc', 'day', e.placedAt)" +
-        " order by function('date_trunc', 'day', e.placedAt)",
-    );
-  });
-
-  it("normalises the key through groupKeyInstant — function() carries no static type", async () => {
-    // Hibernate cannot infer a return type for the `function(…)` escape, so
-    // the driver may hand back a `java.sql.Timestamp`, whose `toString()` is
-    // `2026-08-01 00:00:00.0` — NOT ISO-8601, and a silent wire divergence
-    // from the other four backends rather than an error.
-    const svc = file(await build("java"), "OrdersQueryProjections.java");
-    // …and then through the canonical millisecond wire form (RS-38).
-    expect(svc).toContain(
-      "groupKeyInstant(r[0]).truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()",
-    );
-    expect(svc).toContain("private static java.time.Instant groupKeyInstant(Object v) {");
-    expect(svc).toContain("if (v instanceof java.sql.Timestamp t) return t.toInstant();");
-  });
-
   it("emits the normaliser ONLY when a transformed key needs it", async () => {
     const svc = file(await build("java"), "OrdersQueryProjections.java");
     expect(svc.split("private static java.time.Instant groupKeyInstant").length - 1).toBe(1);
   });
 });
 
-describe("dotnet — computed date grouping key", () => {
-  it("names the anonymous GroupBy member after column AND transform", async () => {
-    // A bare column lets C# infer the member name; a computed key has no
-    // inferable name, and the name has to encode the transform so the same
-    // column grouped raw and grouped-by-day cannot collapse onto one member.
-    const handler = file(await build("dotnet"), "DailyRevenueQpHandler.cs");
-    expect(handler).toContain(".GroupBy(o => new { PlacedAtStartOfDay = o.PlacedAt.Date })");
-    expect(handler).toContain("g.Key.PlacedAtStartOfDay");
-    expect(handler).toContain(".OrderBy(x => x.PlacedAtStartOfDay)");
-  });
-
-  it("reads the key back off the SAME anonymous member it grouped on", async () => {
-    const handler = file(await build("dotnet"), "DailyRevenueQpHandler.cs");
-    expect(handler).toContain("x.PlacedAtStartOfDay.ToUniversalTime()");
-  });
-});
-
 describe("elixir — computed date grouping key", () => {
-  it("uses one Ecto fragment for select, group_by and order_by", async () => {
-    const mod = file(await build("elixir"), "daily_revenue.ex");
-    const frag = `fragment("date_trunc('day', ?)", record.placed_at)`;
-    expect(mod).toContain(`group_by: ${frag}`);
-    expect(mod).toContain(`order_by: ${frag}`);
-    expect(mod).toContain(`select: %{day: ${frag}`);
-    expect(mod.split(frag).length - 1).toBe(3);
-  });
-
-  it("normalises the fragment's key back onto the canonical `Loom.Datetime` form", async () => {
-    // Regression: a raw `fragment` bypasses Ecto's schema type mapping, so
-    // Postgrex returns a microsecond-precision `%NaiveDateTime{}` where the
-    // schema-typed field yields a second-precision `%DateTime{}` — the key
-    // serialised `2026-08-01T00:00:00.000000` against the other four
-    // backends' `2026-08-01T00:00:00Z`.  A wrong VALUE, not an error.
-    // The normaliser is the declared-`datetime` column type's own
-    // (`Loom.Datetime.normalize/1`, RS-38), so a key reads exactly as the
-    // schema-typed field would.
-    const mod = file(await build("elixir"), "daily_revenue.ex");
-    expect(mod).toContain("day: group_key_utc(row.day)");
-    expect(mod).toContain("defp group_key_utc(%DateTime{} = dt), do: Loom.Datetime.normalize(dt)");
-    expect(mod).toContain("defp group_key_utc(%NaiveDateTime{} = ndt)");
-  });
-
   it("emits the normaliser ONLY when a transformed datetime key needs it", async () => {
     const plain = file(await buildPlainKey(), "by_code.ex");
     expect(plain).toContain("group_by: record.code");

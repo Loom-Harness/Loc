@@ -225,7 +225,7 @@ The Flutter target ships the display path, forms (9 field kinds), workflows, `ma
 **Phase 3 — realtime + expr seam (P2):** (M-F) **SHIPPED** ([#2619](https://github.com/Loom-Harness/Loc/pull/2619)): `generator/flutter/realtime.ts` consumes the SSE wire behind one conditional-import façade — the browser's own `EventSource` on the web, a line parser over a streamed `package:http` response natively — and `flutter` is in `SSE_REALTIME_FRONTENDS` (`system-checks.ts`), so an `on <channel>.<Event>` handler is honoured instead of warned-then-dropped. What still raises `loom.ui-realtime-unsupported` on a flutter ui is the honest half: a target backend that serves no SSE wire. (M-G, verify-first) a Dart method-call seam if the JS-style `recv.member(args)` at `walker-core.ts:1472` really diverges.
 **Phase 4 — verification gates (P2, Linux-only per pinned decision 2026-07-20) — M-H and M-I shipped:** (M-H) an Android `flutter build apk --debug` compile job now runs in `generated-flutter-build.yml` (Java 17 + Android SDK setup, `flutter create --platforms=android .` then the build) alongside the existing web build; (M-I) a headless runtime smoke (`flutter test`, device-free) runs in the same workflow ahead of the web build — flutter now has a runtime gate. **iOS build (macOS/nightly) + on-device `integration_test` remain out of per-PR scope** (no macOS host in the Linux-only gate) — see the proposal's Phase 4 decision block.
 **Window additions (2026-08-10):** #2490 fixed a Phase-1-class silent failure — a Flutter deployable literally named `web` generated an app that could not be built (the Dart package name was `snake(deployable.name)`; `web` is a real pub.dev package AND a transitive dep of `http`, so pub resolved it to the local root and version solving failed before compiling, naming neither the deployable nor the collision; now routed through `dartPackageName` — denylist + `_app` suffix, deliberately not a blanket suffix). Open PR #2491 is the same class: a parameterless `find` emitted `({})` as a `.family` record key — Dart's empty record type is `()` — so `reads.dart` did not parse (19 cascading errors); the CI fixture had no parameterless Flutter-reachable read, so `flutter analyze` stayed green through a non-parsing file (the fixture grows the case in the same PR). `KNOWN_FLUTTER_GAPS` (`test/generator/flutter/parity-freeze.test.ts`) is **EMPTY** — all four form-field shapes (nested-VO sub-field, VO-array with non-scalar sub-field, bool-element array, enum-element array) were closed with real Dart widgets by wave C1 packet 1e-ii — and it **is now registered in `allowlist-ratchet.test.ts` at `max: 0`** (wave C2 packet 2j; the 2026-07-13 sweep that built that register had missed this construct, and this note is what recorded the omission without acting on it).
-**Phase state (2026-08-24):** Phase 1's silent-drop goal is met (M-A markers emit, M-B's standalone primitives all render, M-C's auth gate ships #2619); Phase 2 is closed (M-D reads both marker families, M-E's freeze test exists); Phase 3's M-F shipped with the same PR as M-C; Phase 4's M-H/M-I shipped. **What is left of the whole mission is the four `KNOWN_FLUTTER_GAPS` WIDGETS behind M-A's markers** (nested-VO / mixed-VO-array / bool- and enum-element arrays inside a CreateForm — loud today, still unrendered) plus M-G, which is still verify-first and may be a no-op. The runtime half is M-T9.14's, and its named remainder — a `frontend-fullstack-e2e` cell — **merged 2026-08-24** as [#2663](https://github.com/Loom-Harness/Loc/pull/2663) (`test/behavioral/run-ui-flutter.mjs`, a BLOCKING nightly cell); what M-T9.14 still lacks is per-kind `ExprIR` pinning and a runtime auth-UI leg.
+**Phase state (2026-08-24):** Phase 1's silent-drop goal is met (M-A markers emit, M-B's standalone primitives all render, M-C's auth gate ships #2619); Phase 2 is closed (M-D reads both marker families, M-E's freeze test exists); Phase 3's M-F shipped with the same PR as M-C; Phase 4's M-H/M-I shipped. **What is left of the whole mission is the four `KNOWN_FLUTTER_GAPS` WIDGETS behind M-A's markers** (nested-VO / mixed-VO-array / bool- and enum-element arrays inside a CreateForm — loud today, still unrendered) plus M-G, which is still verify-first and may be a no-op. The runtime half is M-T9.14's, and its named remainder — a `frontend-fullstack-e2e` cell — **merged 2026-08-24** as [#2663](https://github.com/Loom-Harness/Loc/pull/2663) (`test/behavioral/run-ui-flutter.mjs`, a BLOCKING nightly cell); what M-T9.14 still lacked was per-kind `ExprIR` pinning and a runtime auth-UI leg — both built in wave C3 packet 3b (2026-09-28; see M-T9.14).
 Sources: [flutter-parity-and-native-gates](../old/proposals/flutter-parity-and-native-gates.md), [flutter-mobile-implementation](../old/plans/flutter-mobile-implementation.md).
 
 ## M-T1.20 — Frontend surface gaps: the five rejections outside the pack matrix — `open`; the `first`/`firstOrNull` arm is `open` (D-FIRST-ON-EMPTY applied by Wave C2 packet 2n) · **M** · P2
@@ -369,23 +369,7 @@ PR #2704. Builds directly on #2646.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F3/F9 (both closed by #2786) + **F50** (open, this mission), [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.2**. The seam half shares `src/generator/_walker/target.ts` with any other `WalkerTarget` work — sequence, don't stack.
 
-## M-T1.31 — `DestroyForm` over a record binding and Flutter's missing extern hatch both vanish with no diagnostic — `open` (F17 landed 2026-09-11; F11 in flight) · **M** · P1 ⚠ verify-first, carries the walker invariant
-
-Found 2026-09-03 by the language-docs audit ([F11](../audits/2026-09-03-language-docs-audit-findings.md), [F17](../audits/2026-09-03-language-docs-audit-findings.md), both P1). `DestroyForm { of: <record> }` resolves `of:` through `ctx.aggregatesByName` (`src/generator/_walker/primitives/forms.ts:137`), so a `QueryView` binding renders `DestroyForm(of: p): aggregate not found` on every target and the delete button silently disappears. Flutter renders `const SizedBox.shrink() /* unknown layout component: X */` for an `extern` component where the other frontends have a hatch — again with no validator.
-
-**The fix:** these are the two that should stay *refusals* rather than become features — both raise a `loom.*` code naming the legal spelling. Mints codes in `src/diagnostics/messages.ts`; it is the only packet in its wave permitted to touch that file, so sequence against M-T1.29/M-T1.30 rather than stacking edits there.
-
-**Carries the wave's shared deliverable:** the invariant that *the walker must never decline to render a declared element without a diagnostic* — a `_walker` conformance test enumerating the dispatch predicates is the obvious home. Whichever of the three walker missions finishes first proposes where it lives; the other two adopt it. That assertion, not the three individual fixes, is what stops a fifth instance ([F10](../audits/2026-09-03-language-docs-audit-findings.md), F11, F12, F17 are one defect in four costumes).
-
-**Status, 2026-09-11 — the two halves split.**
-
-* **F17 (Flutter's missing extern hatch) is DONE**, in Wave C1 packet 1d-ii ([hand-off](waves/handoffs/wave-c1-1d-sentinels.md)). `checkUserComponentSupport` no longer blanket-exempts `extern` components: the exemption is now the per-framework `EXTERN_COMPONENT_FRAMEWORKS` set, MEASURED by generating the same one-extern-component `.ddd` through each frontend (react / vue / svelte / angular emit `src/components/X.props.ts` plus the import; Feliz emits `open Components.X` + `(X {| … |})`; **Flutter emits nothing at all**). An `extern` component on a Flutter ui now raises `loom.user-component-deferred-target` — the code the mission asked for, reusing the existing one rather than minting a second name for the same condition ("the emitter filters this component out entirely"). Both halves are asserted in `test/ir/user-component-deferred.test.ts`: the gate fires, *and* the Flutter emitter really does drop it (`unknown layout component: P`), so the day Flutter grows a hatch the second assertion fails and the framework joins the set. Mutation-proved by re-widening the exemption to every frontend — **FAILED: "an extern component on a Flutter ui renders nothing and said nothing (M-T1.31 F17)", `expected [] to include 'loom.user-component-deferred-target'`**.
-* **F11 (`DestroyForm` over a record binding) is NOT done here** — it is in flight as PR **#2860** (`claude/fix-destroy-form-gate`), which packet 1d-ii was told not to duplicate. This mission closes when that lands.
-* **The walker invariant the mission carries was proposed and landed by packet 1d-i**, not here: `test/generator/_walker/walker-declines-with-a-code.test.ts` (all 58 registry primitives × all seven targets, with probe-marker bracketing so a primitive that renders *nothing at all* is visible). M-T1.29 / M-T1.30 adopt that file rather than inventing a second home.
-
-**Verification when it lands.** A negative validator test per shape; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F11/F17 + "Cross-cutting reading" §1, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.3**. Relates to M-T1.20 (the frontend per-target refusal register — a new code lands a row there).
+*Wave L3-UI-a (leftover-waves-2026-09-28), item **P11** — the `renderToast` seam.*
 
 ## M-T1.32 — a Flutter action body cannot `match await` a STANDARD aggregate op — `open` · **S** · P1
 
@@ -507,3 +491,63 @@ Closing it has two halves, and the second is the reason this is a mission rather
 2. **Per-handle routing** — one api client base per handle, not one per bundle. `VITE_API_BASE_URL_<HANDLE>` defaulting to the same-origin `/api` the single-backend case uses, each aggregate's api module resolving the base of the handle whose deployable hosts its context. This touches the shared `api/*.hbs` client + config templates (every design pack renders them), the api-module builder in each of the four JSX frontends, and `composeService`. It must stay **byte-identical for a single bound backend**, which is the constraint that makes it a design job rather than a find-and-replace.
 
 Landing 1 without 2 is strictly worse than the refusal: the tree would compile and route every call to the wrong backend.
+
+## M-T1.36 — The frontend silent-defect batch: vue/angular derived + routing, feliz, flutter drops, scaffold sortables — `open` · **M** (a batch of S items + two M) · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-F (leftover-waves-2026-09-28).**
+
+One tree-fenced packet (`src/generator/{vue,angular,feliz,flutter}/`, scaffold `_body-builders.ts`, `web/src/builder/`). Every item validates `0 error(s)` and then emits a frontend that does not build, crashes, or does the wrong thing.
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| F1 | **Vue/Angular**: a page with a store-reading `derived` loses its `toast()` import + module; Vue also emits `computed(() => count)` without `.value` | repro on `store-showcase.ddd` (#2786) | S–M |
+| F2 | **Vue/Angular**: two routes at `/` when a scaffold ui declares its own `/` page; React writes an unrouted `home.tsx` | repro (#2891 H6) | M |
+| F3 | Angular: a VO-typed workflow state field is typed `unknown` | `src/generator/angular/workflows-module.ts:53` (#2894) | S |
+| F4 | Scaffolded list columns are all `sortable: true`, including `version` and masked keys the server allowlist refuses | `src/macros/stdlib/scaffold/_body-builders.ts:1323,1331` (#2889) | S–M |
+| F5 | **Feliz**: `Stat`/`KeyValueRow` with a `For` child renders the literal string `"yield! …"` | repro (#2981) | S |
+| F6 | **Feliz**: page `state {}` initialised from an API read → FS0039, or a raw `Error:` with no `loom.*` code | `src/generator/feliz/fs-expr.ts:527` (#2721) — **after #3066** | M |
+| F7 | Feliz: numeric scalar-array form cells have no parse guard (`int s` throws on `"a,2"`) | `src/generator/feliz/wire.ts:1070,1224` (#2674) | S |
+| F8 | **Feliz**: every scaffold list page shares one pager state (Next on /products refetches categories); CI works around it | `.github/workflows/generated-feliz-build.yml:582` (#2885) | S–M |
+| F9 | **Flutter `CreateForm` drops fields** with a `// TODO(flutter form-field)` marker instead of `giveUp()` (`datetime[]`, id/File arrays, nested VO arrays). `KNOWN_FLUTTER_GAPS` (`test/generator/flutter/parity-freeze.test.ts`) is `{}` only because its fixture no longer reaches these arms — so the drops are unregistered, not gone | `src/generator/flutter/forms-emit.ts:211` (`TODO_LINE`), arms at `:420,471,480`; M-T1.18's M-A residue | S–M |
+| F10 | Feliz `renderNotice` escapes only `"`; three weaker Dart `dartStr` copies (`BYPASS_BASELINE` 5/2/2). **Land after #3066** (the successor of #2966's Feliz collision fix) | `src/generator/feliz/feliz-target.ts:921` (#3011 4a) | S |
+| F11 | Playground view-graph shows "—" for an unset `enforcement:` — unset now means `denyByDefault` (C5 5d). Was D15 in the plan's §2.1 | `web/src/builder/system-v2/view-graph.ts:617` (#3054) | S |
+
+**Verification.** Every repro becomes a corpus fixture (or a pack-build matrix cell) that builds on its target; F9's arms get a fixture that reaches them so `KNOWN_FLUTTER_GAPS` is honest again (that fixture is on [M-T9.74](T9-toolchain-health.md#m-t974)'s list), and each drop becomes a `giveUp()` or a validator code. Mutation-prove each gate by file-copy revert.
+
+## M-T1.37 — Scaffolded forms cannot edit `X id[]` / `string[]` on the four static frontends — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-FORMS (leftover-waves-2026-09-28).**
+
+Item **P6**. The scaffold's field classifier marks array-typed create/update fields `arrayUnsupported`, so the React/Vue/Svelte/Angular forms render no editor for an `X id[]` association or a `string[]` scalar list — the field is simply absent from the form, and a required one makes the form unsubmittable. Surfaced by #2927 (F-016, which fixed the Angular *compile* failure on `X id[]` but not the editing gap).
+
+**The fix:** an array editor arm in each pack's field templates (multi-select for `X id[]`, a token/list input for scalar arrays) plus the Angular `form-fields.ts` path; design packs only.
+
+**Verification.** A pack-build matrix cell per framework over a model with both array shapes; the generated form round-trips a value through the create route.
+
+## M-T1.38 — Value-object subform rows are fixed on React only — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-FORMS (leftover-waves-2026-09-28).**
+
+Item **P7** (#2914). The VO subform rows were repaired on React; the Vue/Svelte/Angular packs lack the id-select, datetime and row-error arms, and enum/bool/`File` sub-fields render as plain text inputs on **every** frontend.
+
+**The fix:** port the React arms to the three other static-bundle packs, then give the sub-field classifier the enum/bool/File arms the top-level field path already has.
+
+**Verification.** A VO-with-every-sub-field-kind fixture through the four pack-build matrices; a per-framework assertion that each sub-field renders its typed control.
+
+## M-T1.39 — A list page cannot host a per-row operation dialog on any frontend — `open` · **L** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-UI-b (leftover-waves-2026-09-28).**
+
+Item **P8** (#2970 §2k). An `operation` that takes the row as its receiver has no spelling inside a `Table` row: the per-row action set is limited to navigation, so "approve this row" means leaving the list for the detail page. Needs a walker-core seam (row-scoped `OperationForm` in a `Modal`) — sequence after L3-UI-a, since only one walker-core packet runs at a time.
+
+**Verification.** A walker test per target (the `walker-*.test.ts` family), a HEEx renderer or a pinned parity gap (`heex-parity.test.ts`), and one ui-e2e case that runs the operation from the list.
+
+## M-T1.40 — No `app-error` boundary on the Feliz, Flutter and HEEx shells — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-SELF (leftover-waves-2026-09-28).**
+
+Item **P10** (#2989). The four static-bundle frontends mount a top-level error boundary that renders a stable `app-error` test id, and the smoke gate asserts its absence after boot. Feliz, Flutter and the HEEx shell have no such boundary, so the smoke gate on those three can only check that *something* rendered — a crash that leaves a blank page still passes.
+
+**The fix:** an Elmish/Riverpod/LiveView equivalent that renders the same `app-error` contract, then assert it in each self-hosting frontend's smoke leg.
+
+**Verification.** Seed a render-time crash in each generated shell and watch its smoke leg go red (mutation proof).

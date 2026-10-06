@@ -714,7 +714,9 @@ export function buildExplicitRoutesFile(
     `    const problem = (status: ${exProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
-    `    if (err instanceof ForbiddenError) return problem(${exForbiddenStatus}, ${JSON.stringify(problemTitle(exForbiddenStatus))}, err.message);`,
+    // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
+    // the body carries `err.detail` (echoed only under the dev-stub verifier).
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(problemTitle(exForbiddenStatus))}, err.detail); }`,
   );
   body.push(
     // The state-gate rung.  Ordered before `DomainError` exactly as in the

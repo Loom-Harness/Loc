@@ -35,7 +35,16 @@ const CHAPTER_DIR = "language-reference";
 
 /** code → `<chapter>.md#<anchor>`, grouped by chapter.  Only codes whose
  *  construct has a documented section; extend it as the reference grows (the
- *  ratchet test then asks you to drop the code from its undocumented list). */
+ *  ratchet test then asks you to drop the code from its undocumented list).
+ *
+ *  An entry may also escape the chapter directory with a leading `../`, for a
+ *  code whose home is a top-level reference doc rather than a language-reference
+ *  chapter.  `docs/migrations.md` is the case that needs it: the chaptered
+ *  reference deliberately does NOT cover migration blocks — its own README
+ *  routes them to `../migrations.md` — so a `loom.migration-*` code with a real
+ *  documented remedy has nowhere inside `language-reference/` to point.  The
+ *  alternative was to leave such a code undocumented, which the shrink-only
+ *  ratchet exists to discourage. */
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.callable-modifier-not-allowed-here":
     "06-behavior-and-statements.md#the-callable-modifier-surface",
@@ -110,6 +119,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
+  "loom.unknown-primitive-member": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.emit-field-type": "06-behavior-and-statements.md#let--emit",
@@ -196,10 +206,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-columnless-source":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.projection-document-source-capability-filtered":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-groupby-unsupported-backend":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-whole-table-aggregation-unsupported":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
@@ -322,6 +328,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.ui-multi-backend-unsupported": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-aggregate-unserved": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":
@@ -359,6 +366,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
+  "loom.auth-oidc-no-audience": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
   "loom.currentuser-not-in-request-scope": "17-auth.md#currentuser--claim-access-in-domain-logic",
   "loom.workflow-currentuser-find": "17-auth.md#currentuser--claim-access-in-domain-logic",
@@ -370,6 +378,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
@@ -378,6 +387,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.async-effect-subject-unsupported":
     "15-ui-pages-structure.md#effect-markers-and-match-await",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
+  "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
+  "loom.member-unresolved": "05-expressions.md#member-access--calls",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
@@ -424,6 +435,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.seed-raw-eventsourced": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-raw-document-shape": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-tenant-owned-needs-raw": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
+  // --- docs-root-relative (no language-reference chapter covers migrations) ---
+  "loom.migration-rename-inferred":
+    "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —
@@ -431,7 +445,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
  *  or `undefined` when the code has no documented anchor (render no link). */
 export function codeDocsPath(code: string): string | undefined {
   const rel = CODE_DOCS_ANCHORS[code];
-  return rel === undefined ? undefined : `${CHAPTER_DIR}/${rel}`;
+  if (rel === undefined) return undefined;
+  // `../foo.md#…` is docs-root-relative (see `CODE_DOCS_ANCHORS`); everything
+  // else is a chapter of the language reference.
+  return rel.startsWith("../") ? rel.slice("../".length) : `${CHAPTER_DIR}/${rel}`;
 }
 
 /** Absolute URL on the published docs site (`.md` → `.html`, as

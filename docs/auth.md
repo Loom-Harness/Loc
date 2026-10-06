@@ -463,6 +463,24 @@ public cancel(reason: string): void {
 }
 ```
 
+**What the 403 says (ruling D4, eval-closure #20).** The thrown message names
+the failed gate, and every backend writes it to its `forbidden` log line. Whether
+the RFC 7807 **body** repeats it depends on the verifier the deployable ships:
+
+| Verifier | 403 `detail` | Server log `forbidden` line |
+|---|---|---|
+| dev stub (`auth: required`, a `user { … }` block, no `auth { oidc … }`) | `Forbidden: currentUser.role == "manager" && reason != ""` | same text |
+| a real verifier (`auth { oidc … }`), or no verifier at all | `Forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
+
+So a production caller learns that it was forbidden, not which predicate it
+failed; the dev stub keeps the echo because naming the gate is the useful answer
+while you are wiring claims. One helper per backend decides it from the same two
+facts that pick the verifier (`echoesDenialDetail`, `src/ir/util/denial-detail.ts`):
+node's `ForbiddenError.detail` (read by every `onError` arm), .NET's
+`DomainExceptionFilter`, Java's `ApiExceptionAdvice`, Python's
+`install_error_handlers`, and Phoenix's `ProblemDetails.problem_response/4` (plus
+the LiveView create form's flash).
+
 Consequences worth knowing:
 
 - The aggregate method **drops its `currentUser: User` parameter** when the gate
@@ -1099,10 +1117,21 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
   http://localhost:8080/api/orders
 ```
 
-> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
-> falls back to the built-in identity, so a **raw-JSON** header does not fail —
-> it is silently ignored, and the request runs as the built-in `admin`. A gate
-> that then passes looks like your claims were applied when they never were.
+> **The encoding is load-bearing.** A header that is **present but does not
+> decode to a JSON object** — raw JSON, broken base64, a JSON array or string —
+> is refused on all five backends with **400**, before any route runs
+> (ruling D6, eval-closure #23):
+>
+> ```json
+> { "type": "about:blank", "title": "Bad Request", "status": 400,
+>   "detail": "malformed x-loom-dev-claims header: expected a base64-encoded JSON object",
+>   "instance": "/api/orders" }
+> ```
+>
+> It used to be silently ignored, running the request as the built-in `admin`,
+> so a permission test that sent a typo'd header could pass as the broad
+> principal it never meant to be. An absent or empty header still means the
+> built-in identity.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid
@@ -1146,6 +1175,65 @@ The seed widens with the aggregate's id value type (`int`/`long` → zero,
 > token. This asymmetry is dev-stub-only, it is not surfaced by any `loom.*`
 > diagnostic, and it is why a permission-gated fixture cannot be driven from
 > the behavioural harness on four of the five backends.
+
+## Token audience (`aud`)
+
+`oidc { audience: … }` is the token's intended recipient. When it resolves to a
+value, every backend's verifier requires the token's `aud` claim to carry it.
+When it resolves to **nothing** — no `audience:` declared *and* `OIDC_AUDIENCE`
+unset — the `aud` check is skipped and the verifier accepts any token the issuer
+signed, including one that issuer minted for a *different* client of the same
+realm.
+
+That default is unsafe often enough to be stated, so an `oidc { … }` block with
+no `audience:` raises **`loom.auth-oidc-no-audience`** (warning, not error — a
+single-client deployment is a legitimate shape, and the check can still be turned
+on at deploy time without editing the `.ddd`).
+
+**The value is always env-overridable, declared or not.** All five backends read
+`OIDC_AUDIENCE`, falling back to the declared value:
+
+| declared | resolves to |
+| --- | --- |
+| `audience: "loom-api"` | `OIDC_AUDIENCE` if set, else `"loom-api"` |
+| `audience: env("OIDC_AUDIENCE")` | `OIDC_AUDIENCE` |
+| *(undeclared)* | `OIDC_AUDIENCE` if set, else unset → `aud` not checked |
+
+So an operator can enforce audience isolation on a stack that never declared one
+by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
+
+> **Turning it back OFF differs by backend.** `OIDC_AUDIENCE=""` is an explicit
+> opt-out on **node** and **elixir** (both treat an empty audience as "skip the
+> check"). On **dotnet**, **java** and **python** an empty string is a *declared*
+> audience of `""`, which no real token carries — so every token is rejected.
+> Unset the variable there rather than emptying it.
+
+```ddd
+auth {
+  provider: keycloak
+  oidc {
+    issuer: env("OIDC_ISSUER")
+    clientId: env("OIDC_CLIENT_ID")
+    audience: env("OIDC_AUDIENCE")
+  }
+}
+```
+
+```ts
+// generated (node) — auth/oidc.ts
+const ISSUER = process.env.OIDC_ISSUER ?? "";
+const AUDIENCE = process.env.OIDC_AUDIENCE ?? "";
+const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
+// …
+const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
+```
+
+```python
+# generated (FastAPI) — app/auth/oidc.py
+_AUDIENCE = os.environ.get("OIDC_AUDIENCE")
+jwt.decode(token, key, algorithms=_ALGS, issuer=_issuer(),
+           audience=_AUDIENCE, options={"verify_aud": _AUDIENCE is not None})
+```
 
 ## Auth routes
 

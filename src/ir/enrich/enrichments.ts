@@ -76,6 +76,7 @@ import {
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -247,7 +248,10 @@ function enrichSystem(
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
     // always-false carve-out dominates any widened allow scope on the same target.
-    .map((m) => applyPolicyDenies(m));
+    .map((m) => applyPolicyDenies(m))
+    // The bundled dev Keycloak's demo tenant gets a first-boot registry row
+    // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
+    .map((m) => applyDemoTenantSeed(m, sys));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.
@@ -1375,8 +1379,29 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
       return stmt.returnType.kind === "optional" ? stmt.returnType.inner : stmt.returnType;
     case "expr-let":
       return stmt.type;
-    default:
+    // The kinds that bind no tail value.  `undefined` here means "this
+    // statement contributes no return shape", which is what the workflow's
+    // return-shape derivation wants for a guard, a write, a delete, a bare
+    // call or a nesting statement.  Named rather than left to a `default:` so
+    // a new BINDING `WorkflowStmtIR` kind is a `tsc` error here instead of
+    // silently producing a workflow whose declared return type is `undefined`.
+    case "assign":
+    case "domain-service-call":
+    case "emit":
+    case "for-each":
+    case "if-let":
+    case "op-call":
+    case "precondition":
+    case "repo-delete":
+    case "repo-run":
+    case "requires":
+    case "resource-call":
       return undefined;
+    default: {
+      const _exhaustive: never = stmt;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }
 

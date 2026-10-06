@@ -1,6 +1,4 @@
-import { enrichLoomModel } from "../../ir/enrich/enrichments.js";
 import { forCreateInput } from "../../ir/enrich/wire-projection.js";
-import { lowerModel } from "../../ir/lower/lower.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -33,7 +31,14 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
+import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  NO_FOREIGN_VALUE_TYPES,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+} from "../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
@@ -46,8 +51,8 @@ import {
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
-import type { Model } from "../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -276,22 +281,6 @@ interface SystemArgs {
 }
 
 /**
- * Legacy / test entry: lowers the whole model and emits one project per
- * top-level bounded context (mirrors `generateDotnet`).
- */
-export function generateJava(
-  model: Model,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> {
-  const loom = enrichLoomModel(lowerModel(model));
-  const out = new Map<string, string>();
-  for (const ctx of loom.contexts) {
-    emitProjectFromContexts([ctx], ctx.name, out, undefined, !!options.emitTrace);
-  }
-  return out;
-}
-
-/**
  * System-mode entry: emits a single Gradle project from a pre-filtered
  * list of contexts under the deployable's name (`ns`).
  */
@@ -301,7 +290,7 @@ export function generateJavaForContexts(
   system?: SystemArgs,
   options: { emitTrace?: boolean; sourcemap?: SourceMapRecorder } = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/index");
   emitProjectFromContexts(contexts, ns, out, system, !!options.emitTrace, options.sourcemap);
   return out;
 }
@@ -568,6 +557,8 @@ function emitProjectFromContexts(
       // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
       // rule the same way.
       contexts.some(hasDomainFloorMessages),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(system?.deployable, system?.sys),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)
@@ -1290,21 +1281,21 @@ function emitProjectFromContexts(
   // Foreign consumed events — channel vocabulary, so genuinely channel-gated.
   const foreignConsumedEvents =
     hasChannels && system
-      ? (() => {
-          const known = new Set(contexts.flatMap((c) => c.events).map((e) => e.name));
-          return [...new Set(consumerHandlers.map((h) => h.event))]
-            .filter((name) => !known.has(name))
-            .flatMap((name) => {
-              for (const sub of system.sys.subdomains) {
-                for (const c of sub.contexts) {
-                  const ev = c.events.find((e) => e.name === name);
-                  if (ev) return [ev];
-                }
-              }
-              return [];
-            });
-        })()
+      ? resolveForeignEvents(
+          consumerHandlers.map((h) => h.event),
+          new Set(contexts.flatMap((c) => c.events).map((e) => e.name)),
+          system.sys,
+        )
       : [];
+  // The value objects / enums those foreign events reach: the event record
+  // names them, so the consumer must declare them (eval item 11).
+  const foreignValueTypes =
+    hasChannels && system
+      ? foreignEventValueTypes(foreignConsumedEvents, system.sys, {
+          valueObjects: contexts.flatMap((c) => c.valueObjects),
+          enums: contexts.flatMap((c) => c.enums),
+        })
+      : NO_FOREIGN_VALUE_TYPES;
 
   // Foreign id brands are NOT channel vocabulary, and gating them on
   // `hasChannels` was a latent bug: a workflow starter param naming an
@@ -1321,6 +1312,7 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
       ...workflowIdTypeSources(contexts.flatMap((c) => c.workflows)),
     ]);
     for (const name of foreignIdNames) {
@@ -1339,6 +1331,24 @@ function emitProjectFromContexts(
     for (const ev of foreignConsumedEvents) {
       place(`${ev.name}.java`, "event", renderJavaEvent(ev, basePkg));
     }
+    for (const e of foreignValueTypes.enums) {
+      place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
+    }
+    for (const vo of foreignValueTypes.valueObjects) {
+      place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
+    }
+    // A foreign VO's compact constructor throws the invariant exception the
+    // hosted-VO gate above only emits for a HOSTED invariant.
+    if (
+      !contexts.some(hasValueObjectInvariants) &&
+      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0)
+    ) {
+      place(
+        "ValueObjectInvariantException.java",
+        "domain-common",
+        renderValueObjectInvariantException(basePkg),
+      );
+    }
     const carriedEvents = [...contexts.flatMap((c) => c.events), ...foreignConsumedEvents];
     for (const [name, content] of renderJavaChannelFiles(
       basePkg,
@@ -1350,6 +1360,10 @@ function emitProjectFromContexts(
         durableBroker: durableBrokerEvents.size > 0,
         outboxEntityPkg: pkgFor("infra-persistence"),
         outboxRepoPkg: pkgFor("spring-data-repository"),
+        valueObjects: [
+          ...contexts.flatMap((c) => valueObjectPool(c)),
+          ...foreignValueTypes.valueObjects,
+        ],
       },
     )) {
       place(name, "config", content);
@@ -2019,6 +2033,7 @@ function emitAggregate(
     basePkg,
     pkgFor("test-class", agg.name),
     sys?.user?.fields,
+    (siblingName) => pkgFor("entity", siblingName),
   );
   if (testsFile) {
     place(`${agg.name}Tests.java`, "test-class", testsFile, agg.name, agg.origin, construct);

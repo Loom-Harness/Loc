@@ -9,9 +9,9 @@
 // → Elixir emission.  S3 via :ex_aws_s3, queue via :amqp, api via :req.
 
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
-import { supportsSurfaceKind } from "../../../util/source-types.js";
 
 export interface PhoenixResourceAdapter {
   readonly name: string;
@@ -455,7 +455,7 @@ export function emitPhoenixResourceFiles(
   appName: string,
   appModule: string,
 ): { files: Map<string, string>; hexDeps: Record<string, string> } {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/elixir/adapters/resource-clients");
   const hexDeps: Record<string, string> = {};
   if (!sys) return { files, hexDeps };
   const storeType = new Map(sys.storages.map((s) => [s.name, s.type] as const));
@@ -486,7 +486,7 @@ export function buildPhoenixResourceModules(
   sys: { dataSources: readonly DataSourceIR[]; storages: readonly StorageIR[] } | undefined,
   appModule: string,
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/elixir/adapters/resource-clients");
   if (!sys) return out;
   const storeType = new Map(sys.storages.map((s) => [s.name, s.type] as const));
   for (const r of sys.dataSources) {
@@ -496,9 +496,4 @@ export function buildPhoenixResourceModules(
     }
   }
   return out;
-}
-
-/** Does any Phoenix adapter realize `(sourceType, kind)`? */
-export function phoenixSupportsResource(sourceType: string, kind: DataSourceIR["kind"]): boolean {
-  return !!phoenixResourceAdapterFor(sourceType) && supportsSurfaceKind(sourceType, kind);
 }
