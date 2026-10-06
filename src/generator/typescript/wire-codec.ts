@@ -72,4 +72,11 @@ export const TS_WIRE_DECODE: WireDecodeTarget = {
   // guard runs BEFORE the leaf (`new Date(null)` would silently be the epoch).
   optional: (e, decoded) => `(${e} === undefined || ${e} === null ? null : ${decoded})`,
   passthrough: (e, t) => `${e} as ${renderTsType(t)}`,
+  // A value object is a CLASS on this backend (`equals`, derived getters,
+  // constructor-run invariants): the wire record is rebuilt through its
+  // constructor — positional, declaration order — never asserted to be one.
+  valueObject: {
+    view: (e) => `(${e} as Record<string, unknown>)`,
+    build: (name, fields) => `new ${name}(${fields.map((f) => f.decoded).join(", ")})`,
+  },
 };

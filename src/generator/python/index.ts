@@ -19,12 +19,20 @@ import {
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
+import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+  withForeignValueTypes,
+} from "../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -195,21 +203,17 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const mergedSubscriptions = dispatchSubscriptionsOf(mergedPre);
   const carriedEventNames = channelBindings.flatMap((b) => b.events);
-  const foreignConsumedEvents = [
-    ...new Set([...mergedSubscriptions.map((s) => s.event), ...carriedEventNames]),
-  ]
-    .filter((name) => !knownEventNames.has(name))
-    .flatMap((name) => {
-      for (const sub of args.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const ev = c.events.find((e) => e.name === name);
-          if (ev) return [ev];
-        }
-      }
-      return [];
-    });
+  const foreignConsumedEvents = resolveForeignEvents(
+    [...mergedSubscriptions.map((s) => s.event), ...carriedEventNames],
+    knownEventNames,
+    args.sys,
+  );
+  // The value objects / enums those foreign events reach join too:
+  // `app/domain/events.py` imports them from `app/domain/value_objects.py`,
+  // which must therefore declare them (eval item 11).
+  const foreignValueTypes = foreignEventValueTypes(foreignConsumedEvents, args.sys, mergedPre);
   const merged: EnrichedBoundedContextIR = {
-    ...mergedPre,
+    ...withForeignValueTypes(mergedPre, foreignValueTypes),
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
@@ -547,6 +551,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
@@ -631,6 +636,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         merged.events,
         hasChannelConsumers,
         durableBrokerEvents.size > 0,
+        valueObjectPool(merged),
       ),
     );
   }
@@ -691,6 +697,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // M-T1.11 (c): the domain-floor code answer rides on a messaged
       // aggregate rule the same way.
       hasDomainFloorMessages(merged),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(args.deployable, args.sys),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1139,6 +1147,7 @@ const M = {
   User: pyRef("app.auth.user", "User"),
   assert_user_verifier_registered: pyRef("app.auth.verifier", "assert_user_verifier_registered"),
   register_user_verifier: pyRef("app.auth.verifier", "register_user_verifier"),
+  MalformedDevClaimsError: pyRef("app.auth.verifier", "MalformedDevClaimsError"),
   register_oidc_verifier: pyRef("app.auth.oidc", "register_oidc_verifier"),
   auth_oidc_router: pyRef("app.auth.oidc", "router", "auth_oidc_router"),
   close_channel_transports: pyRef("app.channels", "close_channel_transports"),
@@ -1200,6 +1209,21 @@ function renderMain(
   // entirely when the user declares no carryable field.
   const pyClaimFields = devClaimFields(authUser?.fields);
   const pyDevClaims = authRequired && !oidc && pyClaimFields.length > 0;
+  const pyDecodeDevClaims = [
+    `def _decode_dev_claims(injected: str) -> dict[str, ${PY.Any}]:`,
+    '    """Decode the header as a base64 JSON OBJECT, or raise',
+    "    MalformedDevClaimsError (the auth middleware answers it 400).",
+    '    """',
+    "    try:",
+    `        claims = ${PY.json}.loads(${M.base64}.b64decode(injected))`,
+    "    except ValueError as err:",
+    `        raise ${M.MalformedDevClaimsError}() from err`,
+    "    if not isinstance(claims, dict):",
+    `        raise ${M.MalformedDevClaimsError}()`,
+    "    return claims",
+    "",
+    "",
+  ];
   return lines(
     `"""FastAPI application entrypoint.`,
     "",
@@ -1251,15 +1275,13 @@ function renderMain(
                   "# injection the Hono dev stub honours (dotnet/java/elixir parity).",
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
+                  ...pyDecodeDevClaims,
                   `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User}:`,
                   `    user = ${M.User}(${stubKwargs})`,
                   '    injected = request.headers.get("x-loom-dev-claims")',
                   "    if not injected:",
                   "        return user",
-                  "    try:",
-                  `        claims = ${PY.json}.loads(${M.base64}.b64decode(injected))`,
-                  "    except Exception:",
-                  "        return user",
+                  "    claims = _decode_dev_claims(injected)",
                   `    overrides: dict[str, ${PY.Any}] = {}`,
                   // Header key = declared field name; attr = its snake_case form.
                   // A list claim is element-checked too: a mixed array would
@@ -1282,7 +1304,12 @@ function renderMain(
               : [
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
-                  `async def _dev_stub_verifier(_: ${M.Request}) -> ${M.User}:`,
+                  ...pyDecodeDevClaims,
+                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User}:`,
+                  "    # No declared claim is carryable, but a malformed header still refuses.",
+                  '    injected = request.headers.get("x-loom-dev-claims")',
+                  "    if injected:",
+                  "        _decode_dev_claims(injected)",
                   `    return ${M.User}(${stubKwargs})`,
                 ]),
             "",
@@ -1710,7 +1737,15 @@ function renderProblemPy(
    *  carries the `ValueObjectInvariantError` handler (M-T5.1). */
   valueObjectInvariants = false,
   domainFloorCodes = false,
+  /** Ruling D4 (#20): true only under the dev-stub verifier
+   *  (`echoesDenialDetail`) — the 403 body then echoes the failed gate.
+   *  Otherwise it is the constant `Forbidden`; the gate stays in the
+   *  `forbidden` log line either way. */
+  echoForbiddenDetail = false,
 ): string {
+  const forbiddenDetail = echoForbiddenDetail
+    ? "str(err)"
+    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
   // handler → ConcurrencyConflict, the DisallowedError (`when`-gate) handler →
@@ -1991,7 +2026,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _forbidden(request: Request, err: ForbiddenError) -> JSONResponse:
         log("warn", "forbidden", message=str(err), status=${forbiddenStatus})
         record_domain_fault("forbidden")
-        return problem(request, ${forbiddenStatus}, "${problemTitle(forbiddenStatus)}", str(err))
+        return problem(request, ${forbiddenStatus}, "${problemTitle(forbiddenStatus)}", ${forbiddenDetail})
 
     # The 7807 title on the when-gate rung is the ERROR NAME
     # (errorTitle humanises Disallowed), not the 409 reason phrase.  The

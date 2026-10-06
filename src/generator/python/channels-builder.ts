@@ -1,10 +1,10 @@
-import type { EventIR } from "../../ir/types/loom-ir.js";
+import type { EventIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import type { BrokerBinding } from "../_channels/bindings.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
-import { fromPayload, toPayload } from "./dispatch-builder.js";
+import { fromPayload, type PyVoFields, toPayload } from "./dispatch-builder.js";
 
 /** The transport symbols, written as markers so each import is derived from
  *  the driver code that uses it. */
@@ -109,7 +109,11 @@ export function buildPyChannelsFile(
    *  foreign-channel consumer relies on broker ack semantics instead (the
    *  slice-3 stance). */
   hasDurable = false,
+  /** The value objects in scope (hosted + the foreign-event closure) — a
+   *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
+  valueObjects: readonly ValueObjectIR[] = [],
 ): string {
+  const vos: PyVoFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -130,11 +134,11 @@ export function buildPyChannelsFile(
   const carried = carriedEvents.filter((e) => routed.has(e.name));
   const toArms = carried.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type, vos)}`).join(", ")}}`,
   ]);
   const fromArms = carried.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type, vos)}`).join(", ")})`,
   ]);
   const codec = lines(
     "def _event_to_data(event: DomainEvent) -> dict[str, object]:",
