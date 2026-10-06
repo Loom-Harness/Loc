@@ -1,7 +1,7 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
-import { upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
 import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
 import {
   collectCsExprUsings,
@@ -70,9 +70,12 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
   // A field spelled with a capital (`Guid: string`) would give a constructor
   // parameter identical to its property — `Guid = Guid;` assigns the parameter
   // to itself (CS1717 + CS8618) — so such a parameter is renamed (`guid`).
-  // `csParamIdent` is the identity for an ordinary lower-case field.
+  // `csParamIdent` is the identity for an ordinary lower-case field; a field
+  // spelled like a C# keyword (`static`) takes the verbatim prefix (`@static`).
   const ctorParam = (name: string): string =>
-    renderCtx.memberScope.members.has(name) ? csParamIdent(name, renderCtx.memberScope) : name;
+    renderCtx.memberScope.members.has(name)
+      ? csParamIdent(name, renderCtx.memberScope)
+      : escapeCsharpIdent(name);
   const ctorParams = vo.fields
     .map((f) => `${renderCsType(f.type)} ${ctorParam(f.name)}`)
     .join(", ");
