@@ -43,7 +43,8 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
     expect(domain).toContain('.Replace(" ", "-")');
     // ordinal comparisons
     expect(domain).toContain('.StartsWith("ACME", StringComparison.Ordinal)');
-    expect(domain).toContain('.EndsWith("!", StringComparison.Ordinal)');
+    // A ONE-character literal takes the char overload (CA1865 under /warnaserror).
+    expect(domain).toContain(".EndsWith('!')");
     expect(domain).toContain('.Contains("-", StringComparison.Ordinal)');
     // substring — clamping guard, 2-arg arity (invariant)
     expect(domain).toContain(

@@ -41,7 +41,12 @@ public static class DomainLog
     /// </summary>
     public static void LogTrace(string template, params object[] args)
     {
+        // A forwarding shim: the template is a parameter here, but every
+        // generated call site passes a constant one (CA2254 checks the call
+        // sites' literal, which this indirection hides from it).
+#pragma warning disable CA2254
         Current?.LogTrace(template, args);
+#pragma warning restore CA2254
     }
 }
 `;

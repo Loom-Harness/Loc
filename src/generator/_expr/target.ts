@@ -146,7 +146,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  `elixirRegexBody`, `src/util/naming.ts` — the funnel Wave 1 (packet 1d)
    *  routed nine live injection sites through). */
   escapeStringLiteral(value: string): string;
-  literal(lit: LiteralKind, value: string): string;
+  /** `ctx` lets a leaf qualify a framework reference against its emission
+   *  scope (.NET: `now` → `global::System.DateTime.UtcNow` when a member named
+   *  `DateTime` shadows the type — see `CsRenderContext.memberScope`). */
+  literal(lit: LiteralKind, value: string, ctx: Ctx): string;
   id(ctx: Ctx): string;
   ref(e: RefExpr, ctx: Ctx): string;
   member(recv: string, e: MemberExpr, ctx: Ctx): string;
@@ -171,9 +174,15 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   newPart(fields: RenderedField[], e: NewExpr, ctx: Ctx): string;
   object(fields: RenderedField[]): string;
   unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
-  binary(left: string, right: string, e: BinaryExpr): string;
+  /** `ctx` lets a leaf qualify a framework reference it writes (.NET: the
+   *  `Guid.Parse` of a `this.id == <string>` lift, `global::`-qualified when a
+   *  member named `Guid` shadows it — see `CsRenderContext.memberScope`). */
+  binary(left: string, right: string, e: BinaryExpr, ctx: Ctx): string;
   ternary(cond: string, then: string, otherwise: string): string;
-  convert(value: string, e: ConvertExpr): string;
+  /** `ctx` lets a leaf qualify a framework reference against its emission
+   *  scope (.NET: `global::System` when a member named `System` shadows the
+   *  namespace — see `CsRenderContext.memberScope`). */
+  convert(value: string, e: ConvertExpr, ctx: Ctx): string;
   /** Duration constructor `days(n)`/`hours(n)`/`minutes(n)` (A5 temporal) —
    *  render the backend's ABSOLUTE-duration value from the already-rendered
    *  `amount`.  Every unit has a fixed millisecond width, so each backend
@@ -237,7 +246,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
   const r = (x: ExprIR): string => renderExprWith(x, t, ctx);
   switch (e.kind) {
     case "literal":
-      return t.literal(e.lit, e.value);
+      return t.literal(e.lit, e.value, ctx);
     case "this":
       return ctx.thisName;
     case "id":
@@ -268,11 +277,11 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "unary":
       return t.unary(e.op, r(e.operand), e);
     case "binary":
-      return t.binary(r(e.left), r(e.right), e);
+      return t.binary(r(e.left), r(e.right), e, ctx);
     case "ternary":
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise));
     case "convert":
-      return t.convert(r(e.value), e);
+      return t.convert(r(e.value), e, ctx);
     case "duration":
       return t.duration(e.unit, r(e.amount), e, ctx);
     case "i18nFormat":
@@ -688,7 +697,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
   };
   switch (e.kind) {
     case "literal":
-      return compose(t.literal(e.lit, e.value), []);
+      return compose(t.literal(e.lit, e.value, ctx), []);
     case "this":
       return compose(ctx.thisName, []);
     case "id":
@@ -757,7 +766,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     case "binary": {
       const left = rm(e.left);
       const right = rm(e.right);
-      return compose(t.binary(left.text, right.text, e), [left, right]);
+      return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
     case "ternary": {
       const cond = rm(e.cond);
@@ -767,7 +776,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     }
     case "convert": {
       const value = rm(e.value);
-      return compose(t.convert(value.text, e), [value]);
+      return compose(t.convert(value.text, e, ctx), [value]);
     }
     case "duration": {
       const amount = rm(e.amount);

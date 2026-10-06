@@ -550,22 +550,23 @@ export function renderOperationActionBlock(
   // Hono emits via `Object.keys(body)`.  Keys are lowerCamel
   // (matching the JSON wire under ASP.NET's default
   // JsonNamingPolicy.CamelCase).  Skipped entirely when --trace is off.
+  // Empty arrays need an explicit element type so C# can infer the
+  // `params object[]` overload of LogTrace — `new[] { }` is a compile error.
+  // A non-empty key set is bound to a LOCAL first: passed inline, the
+  // constant `new[] { "p" }` argument trips CA1861 ("prefer static readonly
+  // fields over constant array arguments") under /warnaserror.  The logged
+  // value is the same array either way.
   const wireInLine = shape.emitTrace
-    ? [
-        `        ${renderDotnetLogCall("wireIn", [
-          {
-            name: "keys",
-            // Empty arrays need an explicit element type so C# can
-            // infer the `params object[]` overload of LogTrace —
-            // `new[] { }` is a compile error.  Common case (op with
-            // params) uses the implicit array literal.
-            valueExpr:
-              op.paramNames.length === 0
-                ? "Array.Empty<string>()"
-                : `new[] { ${op.paramNames.map((n) => `"${n}"`).join(", ")} }`,
-          },
-        ])}`,
-      ]
+    ? op.paramNames.length === 0
+      ? [
+          `        ${renderDotnetLogCall("wireIn", [
+            { name: "keys", valueExpr: "Array.Empty<string>()" },
+          ])}`,
+        ]
+      : [
+          `        var __wireInKeys = new[] { ${op.paramNames.map((n) => `"${n}"`).join(", ")} };`,
+          `        ${renderDotnetLogCall("wireIn", [{ name: "keys", valueExpr: "__wireInKeys" }])}`,
+        ]
     : [];
   // Exception-less return-typed op (exception-less.md): the action dispatches
   // the command, then translates the Domain union — an error variant to an
