@@ -66,8 +66,8 @@ import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { PY_PAGED_CONTROLS, pyWireToDomain } from "./routes-builder.js";
 import {
+  collectLiveLetNames,
   collectServiceReadPorts,
-  collectUsedLetNames,
   pyReadPortResolver,
   pyWorkflowStmtTarget,
 } from "./workflows-builder.js";
@@ -476,7 +476,7 @@ function renderHandlerModule(
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
   // returnValue's let refs into it (the shared collector only scans statements).
-  const usedLets = collectUsedLetNames(h.statements);
+  const usedLets = collectLiveLetNames(h.statements, h.savesAtExit);
   walkExpr(h.returnValue, (n) => {
     if (n.kind === "ref" && n.refKind === "let") usedLets.add(n.name);
   });

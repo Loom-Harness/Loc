@@ -152,6 +152,17 @@ function renderPySubjectTests(
 
   const out: string[] = [];
   out.push(`"""Domain tests for ${describeName}.  Auto-generated."""`);
+  // A test observes state a METHOD changed — `assert wo.status == S.Scheduled`,
+  // `wo.complete()`, `assert wo.status == S.Completed`.  mypy keeps the first
+  // assert's narrowing across the call, so the second compare reads as
+  // non-overlapping (`comparison-overlap` under --strict) on every enum
+  // progression.  The file-level inline config scopes the waiver to this test
+  // module (a pyproject `tests.*` override cannot: `tests/` has no
+  // `__init__.py`, so mypy names the module `test_<x>`), and only a file that
+  // compares at all carries it.
+  if (/^\s+assert .*[=!]= /m.test(bodyStr)) {
+    out.push(`# mypy: disable-error-code="comparison-overlap"`);
+  }
   if (usesDatetime || usesTimedelta || usesDecimal || usesMath || usesPytest || usesActor) {
     out.push("");
   }

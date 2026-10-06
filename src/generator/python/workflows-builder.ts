@@ -541,9 +541,9 @@ function mergeReadPortRepos(
 /** Names of `let` bindings referenced anywhere in the workflow body.  An
  *  `expr-let` whose name is absent here is dead — Python's ruff rejects the
  *  unused local (F841), so the emitter drops the binding and keeps the (still
- *  side-effecting) RHS as a bare statement.  Aggregate-binding lets
- *  (`repo-let` / `factory-let` / `repo-run`) save at exit and are never
- *  considered unused.
+ *  side-effecting) RHS as a bare statement.  Expression reads only — the
+ *  emitter's guard set is {@link collectLiveLetNames}, which adds the bindings
+ *  a statement names structurally (op-call receivers, saves).
  *
  *  Rides the SHARED, `never`-checked walker (`ir/util/walk.ts`) rather than a
  *  hand-enumerated `switch`: a missed statement kind here is not a cosmetic
@@ -562,6 +562,56 @@ export function collectUsedLetNames(sts: WorkflowStmtIR[]): Set<string> {
       if (n.kind === "ref" && n.refKind === "let") used.add(n.name);
     });
   return used;
+}
+
+/** Names of `let` bindings the emitted body still needs — every name
+ *  {@link collectUsedLetNames} finds (an expression read), PLUS the bindings a
+ *  statement names structurally rather than through an `ExprIR`: an `op-call`
+ *  receiver (`j.mark(…)` carries `target: "j"`, not a `ref`) and every
+ *  exit / per-iteration / branch save (`await jobs.save(j)`).  A `repo-let`
+ *  absent from this set is a pure existence check (`let t = Techs.getById(tech)`
+ *  then never touched) — the emitter keeps the awaited `get_by_id` (it still
+ *  404s on a missing id) but drops the dead assignment, or ruff F841 rejects
+ *  the route. */
+export function collectLiveLetNames(
+  sts: readonly WorkflowStmtIR[],
+  savesAtExit: readonly { name: string }[],
+): Set<string> {
+  const live = collectUsedLetNames([...sts]);
+  for (const s of savesAtExit) live.add(s.name);
+  // Closed, never-checked: a new statement kind that names a binding
+  // outside an `ExprIR` must decide here whether it keeps a `let` alive.
+  for (const st of sts)
+    walkWorkflowStmtsDeep(st, (n) => {
+      switch (n.kind) {
+        case "op-call":
+          live.add(n.target);
+          return;
+        case "for-each":
+          for (const s of n.savesPerIteration) live.add(s.name);
+          return;
+        case "if-let":
+          for (const s of [...n.savesInThen, ...n.savesInElse]) live.add(s.name);
+          return;
+        case "precondition":
+        case "requires":
+        case "emit":
+        case "factory-let":
+        case "repo-let":
+        case "expr-let":
+        case "repo-run":
+        case "repo-delete":
+        case "resource-call":
+        case "domain-service-call":
+        case "assign":
+          return;
+        default: {
+          const _exhaustive: never = n;
+          return _exhaustive;
+        }
+      }
+    });
+  return live;
 }
 
 function collectEmits(sts: WorkflowStmtIR[]): { eventName: string }[] {
@@ -789,7 +839,7 @@ function workflowRoute(
         readPortArgs: pyReadPortResolver(ctx),
       },
       ctx,
-      collectUsedLetNames(wf.statements),
+      collectLiveLetNames(wf.statements, wf.savesAtExit),
     ),
     "        ",
   );
@@ -1004,7 +1054,13 @@ export function pyWorkflowStmtTarget(
     },
     repoLet: (st, i) => {
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
-      return [`${i}${snake(st.name)} = await ${snake(st.repoName)}.${snake(st.method)}(${args})`];
+      const call = `await ${snake(st.repoName)}.${snake(st.method)}(${args})`;
+      // A load nothing reads, mutates or saves is an existence check: keep the
+      // awaited call (a missing id still raises → 404) but drop the dead
+      // binding, or ruff rejects the unused local (F841).  `usedLets` here is
+      // `collectLiveLetNames` — op-call receivers and saves count as reads.
+      if (usedLets && !usedLets.has(st.name)) return [`${i}${call}`];
+      return [`${i}${snake(st.name)} = ${call}`];
     },
     repoRun: (st, i) => {
       const args = [

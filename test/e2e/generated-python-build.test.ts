@@ -165,6 +165,11 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // ran green while `mypy` (the generated project's own bar) rejected it, and
   // the `datetime` half additionally STORED a `str` in a `datetime` field.
   ["test/e2e/fixtures/python-build/typed-test-literals.ddd", "api"],
+  // eval-closure-review #15b / #15c: an unused workflow `getById` let (ruff
+  // F841 — the awaited existence check stays, the binding goes) and an enum
+  // progression asserted across a method call in a domain `test` (mypy
+  // `comparison-overlap` on the narrowing it keeps past the call).
+  ["test/e2e/fixtures/python-build/lint-residue.ddd", "api"],
 ];
 
 describe.skipIf(!ENABLED)(
