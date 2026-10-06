@@ -2522,6 +2522,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `no route arguments in scope, so the navigation is DROPPED rather than emitted as Dart ` +
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
+  "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion>(args)); return r\`, so no backend can generate it. ${p.hint}`,
   "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
