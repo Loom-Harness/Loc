@@ -1,3 +1,4 @@
+import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
 import {
   needsWireProjection,
@@ -671,10 +672,13 @@ function emitProjectionRoutes(
     `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, 500] : [notFoundStatus, 500])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   if (anyGate) {
+    // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
+    // the body carries `err.detail` (echoed only under the dev-stub verifier).
     out.push(
-      `    if (err instanceof ForbiddenError) return problem(${forbiddenStatus}, ${JSON.stringify(
-        problemTitle(forbiddenStatus),
-      )}, err.message);`,
+      `    if (err instanceof ForbiddenError) { ${renderHonoLogCall(
+        "forbidden",
+        `message: err.message, status: ${forbiddenStatus}`,
+      )} return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.detail); }`,
     );
   }
   out.push(

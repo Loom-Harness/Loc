@@ -80,9 +80,14 @@ function sentinelStyle(): StyleAdapter {
   };
 }
 
-/** A layout that routes every artifact to one fixed sentinel path. */
+/** A layout that routes the sentinel style's artifacts to one fixed sentinel
+ *  path (identical content, so the write-once sink accepts the per-aggregate
+ *  repeats) and everything else to a distinct path of its own. */
 function sentinelLayout(): LayoutAdapter {
-  return { name: "sentinel-layout", pathFor: () => SENTINEL_PATH };
+  return {
+    name: "sentinel-layout",
+    pathFor: (a) => (a.category === "sentinel" ? SENTINEL_PATH : `Other/${a.category}/${a.name}`),
+  };
 }
 
 /** Backends whose orchestrator dispatches per-aggregate through the

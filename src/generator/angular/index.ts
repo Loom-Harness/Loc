@@ -17,6 +17,7 @@ import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_GATE_ANGULAR, AUTH_SESSION_SERVICE_ANGULAR } from "../_frontend/auth-ui.js";
 import {
@@ -124,7 +125,7 @@ export function generateAngularForContexts(
   deployable: DeployableIR,
   options: GenerateAngularOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/angular/index");
 
   // The angularMaterial pack satisfies the (Angular-specific) required-primitive
   // surface in `required-primitives.ts` — display / layout / input templates;
@@ -762,7 +763,7 @@ export function generateAngularForContexts(
   // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/angular/index");
   for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
   return prefixed;
 }

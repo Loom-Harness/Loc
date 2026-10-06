@@ -54,6 +54,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { BoundedContextIR, WorkflowStmtIR } from "../../types/loom-ir.js";
+import { DEMO_TENANT_DATASET } from "../../util/demo-tenant.js";
 import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -99,7 +100,12 @@ export function constructibleAggregates(ctx: BoundedContextIR): Set<string> {
     for (const s of ch.savesAtExit ?? []) built.add(s.aggName);
     scan(ch.statements);
   }
-  for (const seed of ctx.seeds ?? []) for (const r of seed.rows ?? []) built.add(r.aggregate);
+  for (const seed of ctx.seeds ?? []) {
+    // The enrichment-synthesised demo-tenant row (#26) is dev-compose data,
+    // not an author's construction path — it must not silence this check.
+    if (seed.dataset === DEMO_TENANT_DATASET) continue;
+    for (const r of seed.rows ?? []) built.add(r.aggregate);
+  }
 
   return built;
 }
