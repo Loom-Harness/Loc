@@ -754,6 +754,16 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
         const arg = MAKE_INTERVAL_ARG[interval.duration.unit];
         return `(${side} ${interval.op} make_interval(${arg} => ${amount}))`;
       }
+      // `== null` / `!= null`: SQL's `= NULL` is never true, so a null
+      // operand renders as `IS NULL` / `IS NOT NULL` (what EF Core, Drizzle
+      // and MikroORM emit for the same source).
+      if (e.op === "==" || e.op === "!=") {
+        const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
+        const other = isNull(e.right) ? e.left : isNull(e.left) ? e.right : undefined;
+        if (other) {
+          return `(${whereToSql(other, sqlCtx)} IS ${e.op === "==" ? "" : "NOT "}NULL)`;
+        }
+      }
       const op = SQL_BINOP[e.op];
       if (!op) return refuseOutOfVocabulary("sql-dapper", `operator '${e.op}' in find`);
       return `(${whereToSql(e.left, sqlCtx)} ${op} ${whereToSql(e.right, sqlCtx)})`;
@@ -844,6 +854,10 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
           return e.value === "true" ? "TRUE" : "FALSE";
         case "null":
           return "NULL";
+        // Read at query time, server-side: the same instant every other
+        // adapter's `now()` reads.
+        case "now":
+          return "now()";
         case "int":
         case "long":
         case "decimal":

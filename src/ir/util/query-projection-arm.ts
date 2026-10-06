@@ -36,21 +36,13 @@
 // drift here is exactly the silent miscompile the gate exists to prevent.
 //
 // A DOCUMENT source keeps its `id` column, so `select n = count()` survives the
-// column gate above — and genuinely runs on four of the five backends.  Two
-// narrower questions about that surviving case are answered here too, by
-// `documentAggregationSource` + `unappliedCapabilityFilters` below:
-//
-//   * are there CAPABILITY FILTERS the aggregation would have to apply?  Those
-//     name `tenant_id` / `is_deleted`, which a `(id, data, version)` table does
-//     not have — four backends emit the missing reference and EF Core emits NO
-//     filter at all, counting every tenant's rows
-//     (`loom.projection-document-source-capability-filtered`);
-//   * can this BACKEND reach a document table for an aggregation at all?  Java
-//     cannot — its JPQL needs a JPA entity a document aggregate never gets, so
-//     the two already-registered per-backend aggregation codes
-//     (`loom.projection-whole-table-aggregation-unsupported` /
-//     `loom.projection-groupby-unsupported-backend`) refuse it through their
-//     `#document` message variants.
+// column gate above and runs on every backend.  One narrower question about
+// that surviving case is answered here too, by `documentAggregationSource` +
+// `unappliedCapabilityFilters` below: are there CAPABILITY FILTERS the
+// aggregation would have to apply?  Those name `tenant_id` / `is_deleted`,
+// which a `(id, data, version)` table does not have — four backends emit the
+// missing reference and EF Core emits NO filter at all, counting every
+// tenant's rows (`loom.projection-document-source-capability-filtered`).
 // ---------------------------------------------------------------------------
 
 import type {

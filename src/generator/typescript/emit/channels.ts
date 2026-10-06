@@ -22,10 +22,10 @@
 // The envelope `id` is the outbox row id when the event rides the relay,
 // so consumer-side idempotency markers dedup broker redeliveries.
 
-import type { EventIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
-import { decodeField } from "../../_channels/wire-codec.js";
+import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
 import { TS_WIRE_DECODE } from "../wire-codec.js";
 
 /** The per-binding driver pick in `createChannelTransports` — a direct
@@ -66,6 +66,9 @@ export function renderChannelsModule(
    *  Python / Elixir channel emitters have always taken; node was the one
    *  backend emitting a consumer loop with no codec behind it (F-019). */
   carriedEvents: EventIR[],
+  /** The value objects in scope for the deployable (hosted + foreign
+   *  closure) — lets a decoder rebuild a carried VO field-by-field. */
+  valueObjects: readonly ValueObjectIR[] = [],
   /** The deployable carries auth: every envelope carries the raising frame's
    *  EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`, ruling D1)
    *  and the consumer delivers each event inside the system principal of
@@ -73,6 +76,7 @@ export function renderChannelsModule(
    *  this deployable runs in the tenant that raised the event elsewhere. */
   carriesOrigin = false,
 ): string {
+  const vos: WireValueObjectFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -98,12 +102,22 @@ export function renderChannelsModule(
   // `emit/events.ts` does for the event interfaces themselves — the decoder
   // names the very types those interfaces declare, so the two agree by
   // construction.
+  // A VO the decoder REBUILDS (`new Price(…)`) is a value import, and its
+  // own field types are reached too — a `money` or an enum inside it needs
+  // the same import a top-level field of that type would.
   const voImports = new Set<string>();
+  const voValueImports = new Set<string>();
   const enumImports = new Set<string>();
   let decoderUsesIds = false;
   let decoderUsesDecimal = false;
   const visitType = (t: TypeIR): void => {
-    if (t.kind === "valueobject" || t.kind === "entity") voImports.add(t.name);
+    if (t.kind === "valueobject" || t.kind === "entity") {
+      const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
+      if (fields && !voValueImports.has(t.name)) {
+        voValueImports.add(t.name);
+        for (const f of fields) visitType(f.type);
+      } else if (!fields) voImports.add(t.name);
+    }
     if (t.kind === "enum") enumImports.add(t.name);
     if (t.kind === "id") decoderUsesIds = true;
     if (t.kind === "primitive" && t.name === "money") decoderUsesDecimal = true;
@@ -111,7 +125,9 @@ export function renderChannelsModule(
     if (t.kind === "optional") visitType(t.inner);
   };
   for (const ev of carried) for (const f of ev.fields) visitType(f.type);
+  for (const n of voValueImports) voImports.delete(n);
   const domainTypeImports = [...voImports, ...enumImports].sort();
+  const domainValueImports = [...voValueImports].sort();
   const eventImports = [
     ...carried.map((e) => e.name),
     "DomainEvent",
@@ -130,9 +146,11 @@ export function renderChannelsModule(
       hasKafka ? 'import { type Consumer, Kafka, logLevel, type Producer } from "kafkajs";' : null,
       `import type { ${eventImports.join(", ")} } from "../domain/events";`,
       decoderUsesIds ? 'import type * as Ids from "../domain/ids";' : null,
-      domainTypeImports.length > 0
-        ? `import type { ${domainTypeImports.join(", ")} } from "../domain/value-objects";`
-        : null,
+      domainValueImports.length > 0
+        ? `import { ${[...domainValueImports, ...domainTypeImports.map((n) => `type ${n}`)].join(", ")} } from "../domain/value-objects";`
+        : domainTypeImports.length > 0
+          ? `import type { ${domainTypeImports.join(", ")} } from "../domain/value-objects";`
+          : null,
       carriesOrigin
         ? 'import { currentEventOrigin, type EventOrigin, runAsEventOrigin } from "../auth/middleware";'
         : null,
@@ -543,11 +561,16 @@ export function renderChannelsModule(
           ]
         : []),
       "let counter = 0;",
-      "function envelopeFor(event: DomainEvent, address: string): LoomEventEnvelope {",
-      "  const { type, __loomEventId, ...data } = event as unknown as {",
-      "    type: string;",
-      "    __loomEventId?: string;",
-      "  } & Record<string, unknown>;",
+      // F-046: the event is destructured as the type it IS — no
+      // `as unknown as` erasing it (the double-cast shape that hid F-019).
+      // The rest is the event's own fields; widening it to the envelope's
+      // `Record<string, unknown>` is an ordinary, checked assignment.
+      "function envelopeFor(",
+      "  event: DomainEvent & { readonly __loomEventId?: string },",
+      "  address: string,",
+      "): LoomEventEnvelope {",
+      "  const { type, __loomEventId, ...fields } = event;",
+      "  const data: Record<string, unknown> = fields;",
       hasKafka
         ? "  const binding = CHANNEL_BINDINGS.find((b) => b.address === address);"
         : '  const context = CHANNEL_BINDINGS.find((b) => b.address === address)?.context ?? "";',
@@ -686,7 +709,7 @@ export function renderChannelsModule(
       ...carried.flatMap((ev) => [
         `  ${ev.name}: (data, eventId): LoomConsumed<${ev.name}> => ({`,
         `    type: ${JSON.stringify(ev.name)},`,
-        ...ev.fields.map((f) => `    ${f.name}: ${decodeField("data", f, TS_WIRE_DECODE)},`),
+        ...ev.fields.map((f) => `    ${f.name}: ${decodeField("data", f, TS_WIRE_DECODE, vos)},`),
         "    __loomEventId: eventId,",
         "  }),",
       ]),

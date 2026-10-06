@@ -1173,6 +1173,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `an empty collection already encodes absence; drop the '?'.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/member-resolution-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.member-unresolved": (p: { member: unknown; shape: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of '${p.shape}' (it has: ${p.known}). ` +
+    `The type checker could not see the receiver's type here, so this was not caught earlier. ` +
+    `Name a declared member, or bind the receiver with an explicit type.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/structural-checks.ts
   // ----------------------------------------------------------------------
   "loom.applier-on-non-event-sourced#ir": (p: { name: unknown }) =>
@@ -1248,15 +1256,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
-  "loom.generic-carrier-unsupported": (p: {
-    where: unknown;
-    ctor: unknown;
-    unsupported: unknown;
-    supportedPagedBackends: unknown;
-  }) =>
-    `${p.where} uses the generic carrier '${p.ctor}', but the backend(s) serving this context ` +
-    `(${p.unsupported}) don't emit it yet (payload-transport-layer.md, P3b). ` +
-    `It's supported on: ${p.supportedPagedBackends}.`,
   "loom.union-find-shape-unsupported": (p: {
     name: unknown;
     repoName: unknown;
@@ -1266,23 +1265,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `find '${p.name}' on repository '${p.repoName}': ${p.why}. Supported v1 shape: ` +
     `\`find ${p.name}(...): ${p.aggregateName} or <Error>\` (absence → the error's ` +
     `HTTP status) or \`: ${p.aggregateName} option\` (absence → 404).`,
-  "loom.union-unsupported": (p: {
-    where: unknown;
-    unsupported: unknown;
-    supportedUnionBackends: unknown;
-  }) =>
-    `${p.where} uses a discriminated union (\`A or B\` / \`payload = A | B\` / \`T option\`), but ` +
-    `the backend(s) serving this context (${p.unsupported}) don't emit it yet ` +
-    `(payload-transport-layer.md, P4c–d). It's supported on: ${p.supportedUnionBackends}.`,
-  "loom.when-unsupported": (p: {
-    name: unknown;
-    opName: unknown;
-    unsupported: unknown;
-    supportedWhenBackends: unknown;
-  }) =>
-    `operation '${p.name}.${p.opName}' declares a \`when\` gate, but the backend(s) ` +
-    `serving this context (${p.unsupported}) don't emit the gate or the ` +
-    `can-${p.opName} query yet. It's supported on: ${p.supportedWhenBackends}.`,
   // --- M-T5.34 / #2864 D6, decision D-2 -----------------------------------
   // An entity-PART-typed parameter on a public action.  The materialization
   // step has a value-object arm (`new LineVO(e.sku, e.qty)`) and no entity arm,
@@ -1319,15 +1301,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `An entity part is identity-bearing, so passing one in raises a question the language has ` +
     `not settled — whether the supplied parts REPLACE the collection (new ids, history ` +
     `orphaned) or MERGE by id — which is why this is refused rather than guessed at.`,
-  "loom.operation-return-unsupported": (p: {
-    name: unknown;
-    opName: unknown;
-    unsupported: unknown;
-  }) =>
-    `operation '${p.name}.${p.opName}' declares an \`or\`-union return type, but the ` +
-    `backend(s) serving this context (${p.unsupported}) don't emit the ` +
-    `producer-side route translation yet (exception-less.md). It's supported on: node, ` +
-    `dotnet, python, java, elixir.`,
   "loom.unmapped-error-status": (p: { name: unknown; aggName: unknown; opName: unknown }) =>
     `error '${p.name}' returned by '${p.aggName}.${p.opName}' has no stdlib default HTTP ` +
     `status and no api \`httpStatus ${p.name} -> <code>\` mapping, so it defaults to 500. Add ` +
@@ -1513,9 +1486,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `A 'test' declared outside its subject must name it: ` +
     `\`test ${p.name} for <Subject> { … }\`.`,
   "loom.context-test-unsupported": (p: { name: unknown }) =>
-    `Context integration tests emit on the node, python, dotnet, java, and elixir ` +
-    `backends (test-placement.md). Context '${p.name}' is not hosted ` +
-    `by an integration-capable deployable, so this 'test' produces no runnable test yet.`,
+    `Context integration tests emit on every backend (test-placement.md), but context ` +
+    `'${p.name}' is not hosted by any backend deployable, so this 'test' produces no ` +
+    `runnable test yet.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/traceability.ts  (M-T9.56 drain)
@@ -2535,46 +2508,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `no route arguments in scope, so the navigation is DROPPED rather than emitted as Dart ` +
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
-  "loom.projection-whole-table-aggregation-unsupported": (p: {
-    name: unknown;
-    field: unknown;
-    op: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}': 'select ${p.field} = ${p.op}(…)' is a whole-table aggregation, which deployable '${p.dName}' (platform '${p.platform}') can't generate yet — only the node (Hono) backend has ported it. Host the projection on a supported deployable, or express the read per-row.`,
-  "loom.projection-groupby-unsupported-backend": (p: {
-    name: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}' uses 'group by' (the grouped read model), which deployable '${p.dName}' (platform '${p.platform}') can't generate yet. Host the projection on a supported deployable, or express the read per-row.`,
-  "loom.paged-query-handler-unsupported-backend": (p: {
-    name: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `queryHandler '${p.name}' returns a \`paged\` envelope, which is currently only emitted on the node (Hono) backend; deployable '${p.dName}' (platform '${p.platform}') can't generate it yet.`,
-  "loom.projection-query-time-unsupported": (p: {
-    name: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}' uses the query-time comprehension ('from'/'where'/'join'/'select'), which deployable '${p.dName}' (platform '${p.platform}') can't generate yet. Express the read as a folded 'projection', or host it on a supported deployable.`,
-  "loom.projection-workflow-source-unsupported-backend": (p: {
-    name: unknown;
-    source: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}' is sourced 'from ${p.source}' (a workflow's instance rows), which deployable '${p.dName}' (platform '${p.platform}') can't generate yet. Host it on a supported backend, or source the projection from an aggregate.`,
-  "loom.projection-source-unsupported-backend": (p: {
-    name: unknown;
-    source: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}' is sourced 'from ${p.source}' (another projection's read-model rows), which deployable '${p.dName}' (platform '${p.platform}') can't generate yet. Host it on a supported backend, or source the projection from an aggregate.`,
   "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
@@ -3119,20 +3052,6 @@ export const DIAGNOSTIC_MESSAGES = {
   //  message with no reachable call site is an orphan the catalogue gate
   //  rejects — one that documents a limitation the code does not have.  A
   //  future unwired (family, shape) pair adds its own, naming itself.)
-  "loom.filter-bypass-unsupported": (p: {
-    name: unknown;
-    platform: unknown;
-    site: unknown;
-    ctxName: unknown;
-    aggName: unknown;
-  }) =>
-    `Deployable '${p.name}' (platform ${p.platform}) serves ${p.site} on ` +
-    `aggregate '${p.ctxName}.${p.aggName}' with an 'ignoring' filter-bypass clause, but ` +
-    `this backend does not honor capability-filter bypass — every shipping backend does ` +
-    `(dotnet via EF 'IgnoreQueryFilters', node via Drizzle, elixir via Ecto, plus java and ` +
-    `python), so reaching this message means '${p.platform}' is a backend added without a ` +
-    `filter-bypass arm. Give its emitter one, host this read on another backend, or remove ` +
-    `the 'ignoring' clause.`,
   "loom.filter-bypass-unknown-capability": (p: {
     site: unknown;
     ctxName: unknown;
@@ -3332,18 +3251,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `resource '${p.name}' (sourceType '${p.sourceType}') does not offer ` +
     `${p.missing} required by context ` +
     `'${p.contextName}' for kind '${p.kind}'.`,
-  "loom.remote-api-op-unsupported": (p: {
-    name: unknown;
-    resourceName: unknown;
-    operationId: unknown;
-    apiName: unknown;
-    depName: unknown;
-    platform: unknown;
-  }) =>
-    `workflow '${p.name}' calls '${p.resourceName}.${p.operationId}' on the ` +
-    `in-system api '${p.apiName}', but deployable '${p.depName}' (platform ` +
-    `'${p.platform}') emits no typed client for it yet.  ` +
-    `Use the untyped 'get'/'post' verbs over a 'storage restApi' binding until then.`,
   "loom.resource-api-unserved": (p: { name: unknown; apiName: unknown }) =>
     `resource '${p.name}' binds api '${p.apiName}', but no backend deployable serves it, ` +
     `so its address cannot be derived.  Add 'serves: ${p.apiName}' to the deployable that hosts it.`,
@@ -3375,17 +3282,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.label}: config key '${p.key}' expects ${p.expected}.`,
   "loom.config-key-required": (p: { label: unknown; name: unknown; sourceType: unknown }) =>
     `${p.label}: required config key '${p.name}' (sourceType '${p.sourceType}') is missing.`,
-  "loom.tph-backend-unsupported": (p: {
-    name: unknown;
-    role: unknown;
-    how: unknown;
-    tphList: unknown;
-    hostNote: unknown;
-  }) =>
+  "loom.tph-backend-unsupported": (p: { name: unknown; role: unknown; how: unknown }) =>
     `aggregate '${p.name}' (${p.role}) resolves to sharedTable (TPH) inheritance via ` +
-    `${p.how}, but TPH storage emission is implemented for the ${p.tphList} backends only — ` +
-    `${p.hostNote}. Host the context on one of those deployables, or declare ` +
-    `'inheritanceUsing: ownTable' to use the per-concrete (TPC) layout (all backends). ` +
+    `${p.how}, but no backend deployable hosts this context, so there is no TPH storage ` +
+    `emission target. Host the context on a backend deployable, or declare ` +
+    `'inheritanceUsing: ownTable' to use the per-concrete (TPC) layout. ` +
     `Tracked in aggregate-inheritance.md I2/I3.`,
   "loom.tph-filter-unsupported": (p: { name: unknown; fields: unknown; root: unknown }) =>
     `aggregate '${p.name}' declares a capability 'filter' reading ${p.fields}, which ` +
@@ -3397,42 +3298,25 @@ export const DIAGNOSTIC_MESSAGES = {
     `EF.Property names a property the sibling does not have). Move the field(s) to the ` +
     `abstract base '${p.root}', declare 'inheritanceUsing: ownTable' (TPC — each concrete ` +
     `owns its table, filters unrestricted), or host this context off the .NET backend.`,
-  "loom.event-sourcing-backend-unsupported": (p: { name: unknown; hostNote: unknown }) =>
-    `aggregate '${p.name}' is persistedAs: eventLog, but event-sourced storage emission ` +
-    `is implemented for the Hono (node), .NET (dotnet), Java (java), Python (python) and elixir ` +
-    `backends — ${p.hostNote}. Host the context on a supported deployable, or drop ` +
-    `persistedAs: eventLog to use state persistence (all backends). ` +
+  "loom.event-sourcing-backend-unsupported": (p: { name: unknown }) =>
+    `aggregate '${p.name}' is persistedAs: eventLog, but no backend deployable hosts this ` +
+    `context, so there is no event-sourced storage emission target. Host the context on a ` +
+    `backend deployable, or drop persistedAs: eventLog to use state persistence. ` +
     `Tracked in workflow-and-applier.md (appliers A2).`,
-  "loom.event-sourced-workflow-unsupported": (p: { name: unknown; hosts: unknown }) =>
-    `workflow '${p.name}' is eventSourced, but event-sourced workflow storage ` +
-    `(a per-correlation event stream folded through its apply(...) blocks) is ` +
-    `implemented on the Hono (node), .NET (dotnet), Python (FastAPI), Java (Spring) ` +
-    `and elixir backends — this context is also hosted by ${p.hosts}. Host ` +
-    `the context on a supported deployable, drop the eventSourced modifier ` +
-    `to use a state-based saga (a persisted correlation-state row, supported on ` +
-    `node / dotnet / java / python / elixir), or move the event-fold logic ` +
-    `into an event-sourced aggregate (persistedAs: eventLog). ` +
-    `Tracked in workflow-and-applier.md (A2-S5b).`,
-  "loom.provenanced-backend-unsupported": (p: {
-    name: unknown;
-    names: unknown;
-    hostNote: unknown;
-  }) =>
-    `aggregate '${p.name}' has provenanced field(s) ${p.names}, but the provenance runtime ` +
-    `(trace capture + history) is emitted for the Hono (node), .NET (dotnet), Java (java), ` +
-    `Python (python) and elixir backends only — ${p.hostNote}. Host ` +
-    `the context on a node / dotnet / java / python / elixir deployable, or drop the 'provenanced' ` +
-    `modifier to use a plain field (all backends). Tracked in provenance.md / ` +
-    `type-system-feature-migration.md (DBT-1).`,
+  "loom.provenanced-backend-unsupported": (p: { name: unknown; names: unknown }) =>
+    `aggregate '${p.name}' has provenanced field(s) ${p.names}, but no backend deployable ` +
+    `hosts this context, so the provenance runtime (trace capture + history) is not emitted. ` +
+    `Host the context on a backend deployable, or drop the 'provenanced' modifier to use a ` +
+    `plain field. Tracked in provenance.md / type-system-feature-migration.md (DBT-1).`,
   "loom.field-mask-not-current-user": (p: { name: unknown; fName: unknown; offending: unknown }) =>
     `aggregate '${p.name}' field '${p.fName}': a \`mask unless\` predicate is evaluated ` +
     `at read projection as a param-free caller check, so it may only reference \`currentUser\` ` +
     `(and constants) — \`${p.offending}\` is not available here.`,
-  "loom.field-mask-unsupported": (p: { name: unknown; names: unknown; unsupported: unknown }) =>
-    `aggregate '${p.name}' has \`mask unless\` field(s) ${p.names}, but read-mask redaction ` +
-    `is not emitted by the ${p.unsupported} backend(s) yet (node emits it; the other ` +
-    `backends are the stacked follow-on). Drop the \`mask unless\` clause for those targets, ` +
-    `or track authorization.md §5.`,
+  "loom.field-mask-unsupported": (p: { name: unknown; names: unknown }) =>
+    `aggregate '${p.name}' has \`mask unless\` field(s) ${p.names}, but no backend ` +
+    `deployable hosts this context, so read-mask redaction is not emitted and the field would ` +
+    `ship unredacted. Host the context on a backend deployable, or drop the \`mask unless\` ` +
+    `clause (authorization.md §5).`,
   "loom.field-mask-projection-source": (p: { name: unknown; src: unknown; via?: unknown }) =>
     `projection '${p.name}' ${p.via === "join" ? `joins` : `sources from`} aggregate '${p.src}', ` +
     `which has a \`mask unless\` field — query-time projection responses are not yet read-masked, ` +
@@ -3448,17 +3332,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `no principal in scope on its read routes), so folding the masked value launders it into ` +
     `cleartext. Emit a redacted or derived value instead (an id, a bucket, a boolean), or drop ` +
     `the mask.`,
-  "loom.audited-backend-unsupported": (p: {
-    name: unknown;
-    kind: unknown;
-    names: unknown;
-    capable: unknown;
-    hostNote: unknown;
-  }) =>
-    `aggregate '${p.name}' has 'audited' ${p.kind}(s) ${p.names}, but per-operation ` +
-    `audit-record emission for ${p.kind}s is implemented for the ${p.capable} backend(s) only — ${p.hostNote}. ` +
-    `Host the context on a capable deployable, or drop the 'audited' modifier (all backends). ` +
-    `Tracked in audit-and-logging.md.`,
+  "loom.audited-backend-unsupported": (p: { name: unknown; kind: unknown; names: unknown }) =>
+    `aggregate '${p.name}' has 'audited' ${p.kind}(s) ${p.names}, but no backend deployable ` +
+    `hosts this context, so no audit record is emitted for them. Host the context on a backend ` +
+    `deployable, or drop the 'audited' modifier. Tracked in audit-and-logging.md.`,
   "loom.datasource-knob-unwired": (p: { name: unknown; property: unknown; description: unknown }) =>
     `resource '${p.name}' sets '${p.property}', but ${p.description}.  ` +
     `The value is accepted by validation and persisted in the IR but no current ` +
@@ -4230,6 +4107,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' test '${p.testName}': ${p.reason} ` +
     `Aggregate-level tests are bound to a value-object / pure-function context — they don't have a 'this' aggregate to mutate.  ` +
     `Move the operation invocation inside an aggregate operation or rewrite the test to assert via 'expect' / 'expect-throws'.`,
+  "loom.test-statement-invalid": (p: {
+    owner: unknown;
+    testName: unknown;
+    reason: unknown;
+    tier: unknown;
+    allowed: unknown;
+  }) =>
+    `${p.owner} test '${p.testName}': ${p.reason} ` +
+    `A ${p.tier} test body may only contain ${p.allowed} statements — it has no operation to guard and no aggregate to mutate. ` +
+    `Exercise the behaviour through an operation call and assert on the result with 'expect' / 'expect-throws'.`,
   "loom.integration-find-must-bind": (p: { name: unknown; testName: unknown }) =>
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +
@@ -4949,6 +4836,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.found}' is a Loom keyword and cannot be READ as a name, even though it ` +
     `is accepted where a name is DECLARED — so a parameter, field or binding ` +
     `called '${p.found}' parses and can then never be mentioned. Rename it.`,
+  // A declaration one scope off — `migration` inside `system { … }`,
+  // `aggregate` straight in a `system`, `deployable` inside a `context`.  The
+  // enclosing block's member loop exits, so chevrotain's own text is
+  // "Expecting token of type '}' but found `migration`" — an unbalanced-brace
+  // reading of a file whose braces are fine.  Say where the declaration
+  // belongs and how to move it there; the valid scopes are derived from the
+  // grammar (`src/language/misplaced-declaration.ts`).
+  "loom.parse-error#misplaced-declaration": (p: {
+    keyword: unknown;
+    where: unknown;
+    notHere: unknown;
+    remedy: unknown;
+  }) => `'${p.keyword}' declarations belong ${p.where}${p.notHere} — ${p.remedy}.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

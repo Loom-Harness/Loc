@@ -3,6 +3,7 @@ import type {
   ChannelIR,
   CreateIR,
   EnrichedBoundedContextIR,
+  EnumIR,
   ExprIR,
   IdValueType,
   OnIR,
@@ -28,7 +29,7 @@ import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { stateDefault } from "./state-default.js";
-import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
+import { LOOM_DATETIME_MODULE, normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import { lookupOp, opCallParamFields } from "./vanilla/workflow-execution-emit.js";
@@ -219,7 +220,7 @@ export function emitWorkflowStateSchemas(
     if (!wf.correlationField || wf.eventSourced) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, schema, durable),
+      renderStateSchema(contextModule, wf, ctx.enums, schema, durable),
     );
   }
 }
@@ -272,7 +273,7 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, dispatchSchema, durable),
+      renderStateSchema(contextModule, wf, ctx.enums, dispatchSchema, durable),
     );
   }
 
@@ -339,8 +340,22 @@ export function ectoIdType(vt: IdValueType): string {
 /** Plain (non-id) state-field Ecto type.  Only the handful of primitive
  *  saga-column shapes the migrations builder emits are mapped; anything
  *  exotic falls back to `:string` (no saga fixture exercises it yet). */
-function ectoStateFieldType(t: import("../../ir/types/loom-ir.js").TypeIR): string {
+function ectoStateFieldType(
+  type: import("../../ir/types/loom-ir.js").TypeIR,
+  enums: readonly EnumIR[],
+): string {
+  // An OPTIONAL state field (`shippedAt: datetime?`) is typed as its inner
+  // type; falling through to `:string` made every reactor write of a DateTime
+  // an `Ecto.ChangeError` (wave C3 D8).
+  const t = type.kind === "optional" ? type.inner : type;
   if (t.kind === "id") return ectoIdType(t.valueType);
+  // An enum state field holds the member ATOM the body assigns (`claimState :=
+  // Filed` renders `:Filed`), which `:string` cannot dump (wave C3 D6); the
+  // column stays text, `Ecto.Enum` stores the member name.
+  if (t.kind === "enum") {
+    const values = enums.find((e) => e.name === t.name)?.values ?? [];
+    if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
+  }
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
@@ -352,7 +367,9 @@ function ectoStateFieldType(t: import("../../ir/types/loom-ir.js").TypeIR): stri
       case "money":
         return ":decimal";
       case "datetime":
-        return ":utc_datetime";
+        // The millisecond `Loom.Datetime` every declared datetime column uses
+        // (RS-38) — not a second, lossy `:utc_datetime` for saga state.
+        return LOOM_DATETIME_MODULE;
       default:
         return ":string";
     }
@@ -363,6 +380,7 @@ function ectoStateFieldType(t: import("../../ir/types/loom-ir.js").TypeIR): stri
 function renderStateSchema(
   contextModule: string,
   wf: WorkflowIR,
+  enums: readonly EnumIR[],
   schema?: string,
   /** Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
    *  channel maps the shared `last_event_id` column the migrations add. */
@@ -375,7 +393,7 @@ function renderStateSchema(
   const table = plural(snake(wf.name));
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
-    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type)}`);
+    .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`);
   if (durable) fieldLines.push(`    field :last_event_id, :string`);
   // `@schema_prefix` targets the workflow's context schema, matching the
   // migration `prefix:`.  Omitted ⇒ public, byte-identical.
@@ -513,7 +531,7 @@ function renderHandler(
   const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
-    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable)
+    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable, ctx.enums)
     : indent(body, 4).join("\n");
 
   // Module names render fully-qualified throughout the body, so the only
@@ -564,6 +582,8 @@ function renderPersistedBody(
    *  marker (check the process-dictionary event id against the loaded row, and
    *  stamp it after the fold) — dispatch-delivery-semantics.md §3. */
   durable = false,
+  /** The context enums — an enum state column seeds its first member. */
+  enums: readonly EnumIR[] = [],
 ): string {
   const corr = wf.correlationField as string;
   const stateMod = stateModule(contextModule, wf);
@@ -594,7 +614,7 @@ function renderPersistedBody(
     const allocFields = [`${snake(corr)}: key`];
     for (const f of wf.stateFields ?? []) {
       if (f.name === corr || f.optional) continue;
-      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type)}`);
+      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type, enums)}`);
     }
     const load = [
       `    key = ${keyExpr}`,
