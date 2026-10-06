@@ -102,6 +102,10 @@ export function emitVanillaEventSourcedFiles(
   channels?: ElixirChannelsCfg,
   /** Wired-but-foreign channels widening the dispatcher-existence check. */
   wiredForeignChannels: ChannelIR[] = [],
+  /** The pure domain core spliced into each aggregate's struct module
+   *  (`domain-core-emit.ts`'s `renderEventSourcedPureCore`); `[]` when no unit
+   *  test reaches the aggregate. */
+  pureCore: (agg: AggregateIR) => readonly string[] = () => [],
 ): void {
   const ctxModule = upperFirst(ctx.name);
   const appSnake = toAppSnake(appModule);
@@ -114,7 +118,7 @@ export function emitVanillaEventSourcedFiles(
     if (!isEventSourced(agg)) continue;
     const aggSnake = snake(agg.name);
     const base = `lib/${appSnake}/${ctxSnake}`;
-    out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg));
+    out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg, pureCore(agg)));
     out.set(
       `${base}/${aggSnake}_event_log.ex`,
       renderEventLogSchema(appModule, ctxModule, agg, ctxSnake, ctxSchema),
@@ -154,15 +158,21 @@ function structFields(agg: AggregateIR): string[] {
 
 // --- `<Agg>` plain struct ---------------------------------------------------
 
-function renderStructModule(appModule: string, ctxModule: string, agg: AggregateIR): string {
+function renderStructModule(
+  appModule: string,
+  ctxModule: string,
+  agg: AggregateIR,
+  pureCore: readonly string[],
+): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const fields = structFields(agg);
+  const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "Event-sourced aggregate — in-memory state folded from its event stream (no state table)."
   defstruct [${fields.map((f) => `:${f}`).join(", ")}]
   @type t :: %__MODULE__{}
-end
+${pureCoreBlock}end
 `;
 }
 

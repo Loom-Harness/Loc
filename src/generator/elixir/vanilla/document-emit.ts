@@ -204,9 +204,13 @@ export function renderDocSchema(
   ctxModule: string,
   agg: AggregateIR,
   schemaPrefix?: string,
+  /** The aggregate's pure domain core (`domain-core-emit.ts`), spliced into the
+   *  root module; empty when no unit test reaches the aggregate. */
+  pureCore: readonly string[] = [],
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const tableName = snake(plural(agg.name));
+  const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
   // Route A: the blob is a TYPED `embeds_one :data, <Agg>.Data` embedded schema
   // (not a bare `field :data, :map`), so `row.data` rehydrates into a struct with
@@ -236,9 +240,14 @@ ${prefixLine}
     field :version, :integer, default: 1
     timestamps(type: :utc_datetime)
   end
-end
+${pureCoreBlock}end
 `;
-  return `${root}\n${renderDocDataSchema(appModule, ctxModule, agg)}`;
+  // A pure core names `%<Agg>.Data{}` in its function heads, and a struct
+  // literal expands at COMPILE time — so the embed module must be compiled
+  // first, which within one file means written first.
+  return pureCore.length > 0
+    ? `${renderDocDataSchema(appModule, ctxModule, agg)}\n${root}`
+    : `${root}\n${renderDocDataSchema(appModule, ctxModule, agg)}`;
 }
 
 /** The `<Agg>.Data` embedded schema — THE domain shape the whole document folds

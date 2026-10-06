@@ -5,13 +5,15 @@ import type {
   ExprIR,
   FunctionIR,
   OperationIR,
+  StmtIR,
   SystemIR,
   TestIR,
 } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { denialTerm, guardRaiseLine } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
@@ -53,15 +55,27 @@ import {
 // so no existing vanilla runtime / build / conformance behaviour changes.
 // ---------------------------------------------------------------------------
 
-/** True when the aggregate has the standard relational `base_changeset/2`
- *  (and thus a pure core is emittable).  Event-sourced and document-shaped
- *  aggregates persist differently and are out of scope for the pure core. */
-export function hasPureDomainCore(
+/** Which pure core an aggregate gets — one per persistence shape, because the
+ *  in-memory record differs:
+ *
+ *   * `relational` — the Ecto schema struct; `create/1` runs `base_changeset/2`.
+ *   * `document` — the `<Agg>.Data` embed (the domain shape the jsonb blob folds
+ *     into) carrying a virtual `id`; `create/1` runs `<Agg>.Data.changeset/2`,
+ *     and op bodies render in document struct mode, exactly as the persisted
+ *     document op does against `record = row.data`.
+ *   * `eventSourced` — the plain `<Agg>` struct; `create/1` and each op run the
+ *     command body in memory and fold the emitted events through
+ *     `<Agg>Fold.apply_event/2`, the same fold the event store replays.  Rendered
+ *     by `renderEventSourcedPureCore` in `eventsourced-emit.ts`. */
+export type PureCoreShape = "relational" | "document" | "eventSourced";
+
+export function pureCoreShape(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   sys?: SystemIR,
-): boolean {
-  return !isEventSourced(agg) && !isVanillaDocAgg(agg, ctx, sys);
+): PureCoreShape {
+  if (isEventSourced(agg)) return "eventSourced";
+  return isVanillaDocAgg(agg, ctx, sys) ? "document" : "relational";
 }
 
 /** True when the aggregate's pure core must be emitted: it declares its own
@@ -111,16 +125,20 @@ function aggregatesCreatedInUnitTests(ctx: BoundedContextIR): Set<string> {
   return created;
 }
 
-/** The pure-core function bodies for one aggregate, injected into its schema
- *  module by `schema-emit.ts` (2-space indented, schema-module body level).
- *  Returns `[]` when the aggregate is non-relational. */
+/** The pure-core function bodies for one state-persisted aggregate, injected
+ *  into its schema module by `schema-emit.ts` (2-space indented, schema-module
+ *  body level) — the relational schema module, or a document aggregate's ROOT
+ *  module.  Returns `[]` for an event-sourced aggregate, whose core rides its
+ *  struct module instead (`renderEventSourcedPureCore`). */
 export function renderAggregatePureCore(
   appModule: string,
   ctx: BoundedContextIR,
   agg: AggregateIR,
   sys?: SystemIR,
 ): string[] {
-  if (!hasPureDomainCore(agg, ctx, sys)) return [];
+  const shape = pureCoreShape(agg, ctx, sys);
+  if (shape === "eventSourced") return [];
+  if (shape === "document") return renderDocumentPureCore(appModule, ctx, agg);
   const ctxModule = upperFirst(ctx.name);
   const changesetMod = `${appModule}.${ctxModule}.${upperFirst(agg.name)}Changeset`;
 
@@ -133,15 +151,23 @@ export function renderAggregatePureCore(
   // matches the loaded/persisted shape.  (Embedded `embeds_many` already default
   // to `[]`; the reset is harmless there.)
   const collectionContainments = agg.contains.filter((c) => c.collection).map((c) => snake(c.name));
+  //
+  // The id is minted up front, the way the persisted path mints it (the schema's
+  // `@primary_key {:id, UUIDv7, autogenerate: true}` fills it at `Repo.insert`).
+  // `apply_action/2` runs no autogenerate, so without this the in-memory record
+  // carried `id: nil` — and a test comparing an id it copied elsewhere
+  // (`expect(d.berth.ship == s.id)`) compared `nil == nil` and passed for any
+  // value, where the other four backends compare two real ids.
+  const fresh = "%__MODULE__{id: UUIDv7.generate()}";
   const createBody =
     collectionContainments.length === 0
       ? [
-          `    ${changesetMod}.base_changeset(%__MODULE__{}, attrs)`,
+          `    ${changesetMod}.base_changeset(${fresh}, attrs)`,
           "    |> Ecto.Changeset.apply_action(:insert)",
         ]
       : [
           "    with {:ok, record} <-",
-          `           ${changesetMod}.base_changeset(%__MODULE__{}, attrs)`,
+          `           ${changesetMod}.base_changeset(${fresh}, attrs)`,
           "           |> Ecto.Changeset.apply_action(:insert) do",
           `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
           "    end",
@@ -152,29 +178,83 @@ export function renderAggregatePureCore(
     ...createBody,
     "  end",
   ];
+  return [...out, ...renderPureCoreMembers(appModule, ctx, agg, RELATIONAL_STRUCT)];
+}
+
+/** How the pure-core members address the in-memory record: the struct every
+ *  function head matches on, and whether bodies render in document struct mode. */
+export interface PureStruct {
+  /** The struct named in every `def …(%<guard>{} = record, …)` head. */
+  guard: string;
+  /** Document struct mode for the shared body renderers (`RenderCtx.docStruct`). */
+  docStruct: boolean;
+}
+
+const RELATIONAL_STRUCT: PureStruct = { guard: "__MODULE__", docStruct: false };
+
+/** The `shape: document` pure core, on the aggregate's ROOT module.  The record
+ *  is the `<Agg>.Data` embed — the struct the persisted document op binds as
+ *  `record = row.data` — so op bodies render through the same struct-mode
+ *  renderer, and a test reads `a.title` exactly as it does on every other shape.
+ *
+ *  The embed has no `id` (`@primary_key false` keeps identity on the root row,
+ *  out of the blob), so the minted id is put onto the in-memory record as an
+ *  extra key.  It is not added to the schema: the persisted path re-embeds
+ *  `Map.from_struct(record)` and merges `row.id` with the embed's fields, and an
+ *  `id` field there would put a `nil` over the row's real one. */
+function renderDocumentPureCore(
+  appModule: string,
+  ctx: BoundedContextIR,
+  agg: AggregateIR,
+): string[] {
+  const dataMod = `${appModule}.${upperFirst(ctx.name)}.${upperFirst(agg.name)}.Data`;
+  const out: string[] = [
+    `  @doc "Pure create core — validates + applies the document embed in memory (no persistence)."`,
+    "  def create(attrs) when is_map(attrs) do",
+    "    with {:ok, record} <-",
+    `           ${dataMod}.changeset(%${dataMod}{}, attrs)`,
+    "           |> Ecto.Changeset.apply_action(:insert) do",
+    "      {:ok, Map.put(record, :id, UUIDv7.generate())}",
+    "    end",
+    "  end",
+  ];
+  return [
+    ...out,
+    ...renderPureCoreMembers(appModule, ctx, agg, { guard: dataMod, docStruct: true }),
+  ];
+}
+
+/** The ops, functions, derived accessors and private-op helpers of a pure core —
+ *  shared by the relational and document cores, which differ only in the
+ *  record's struct and the body render mode. */
+function renderPureCoreMembers(
+  appModule: string,
+  ctx: BoundedContextIR,
+  agg: AggregateIR,
+  struct: PureStruct,
+): string[] {
+  const ctxModule = upperFirst(ctx.name);
+  const out: string[] = [];
   for (const op of agg.operations) {
-    out.push("", ...renderPureOp(appModule, ctxModule, ctx, op));
+    out.push("", ...renderPureOp(appModule, ctxModule, ctx, op, agg, struct));
   }
   // Aggregate `function` members (§11b) — pure helpers the op bodies above may
   // call (`precondition passed()` / a bare `passed()` statement).  The pure core
   // lives ON the aggregate's schema module, so emit the functions here too (the
   // context-facade copy lives in `context-emit.ts`); a `<fn>(record, …)` call
   // then resolves in whichever module the body renders into.  The struct guard
-  // is `%__MODULE__{}` — this IS the aggregate's own schema module.
+  // is the record's own struct (`%__MODULE__{}` on the relational schema module).
   for (const fn of agg.functions ?? []) {
-    out.push("", ...renderPureFunction(`${appModule}.${ctxModule}`, fn));
+    out.push("", ...renderPureFunction(`${appModule}.${ctxModule}`, fn, struct));
   }
   // Derived fields (§B18) — an Ecto struct carries no computed field, so a
   // `derived isDraft: bool = …` has no `record.is_draft` to read (the wire path
   // computes it inline).  Expose each PURE derived as an accessor function on the
   // schema module (`def is_draft(record), do: record.status == :Draft`) so a
   // domain `test` can read it exactly like node/java/dotnet/python's getter.
-  for (const line of derivedAccessorLines(
-    `${appModule}.${ctxModule}`,
-    agg as EnrichedAggregateIR,
-  )) {
-    out.push(line);
-  }
+  out.push(
+    ...derivedAccessorLines(`${appModule}.${ctxModule}`, agg as EnrichedAggregateIR, struct),
+  );
   // `defp __op_<name>/n` for every PRIVATE operation the pure bodies above call
   // (M-T6.55 F24).  The public pure twin `def <op>(record, params)` is emitted
   // just above for the SAME operation, but it takes a params MAP and is the
@@ -187,6 +267,7 @@ export function renderAggregatePureCore(
       ctx,
       `${appModule}.${ctxModule}`,
       agg as EnrichedAggregateIR,
+      struct.docStruct,
     ),
   );
   return out;
@@ -216,11 +297,20 @@ export function pureDerivedAccessorNames(
   return names;
 }
 
-/** `def <derived>(%__MODULE__{} = record), do: <expr>` lines for each pure derived
+/** `def <derived>(%<struct>{} = record), do: <expr>` lines for each pure derived
  *  (blank-line separated, schema-module body indent), mirroring `pureDerivedAccessorNames`. */
-function derivedAccessorLines(contextModule: string, agg: EnrichedAggregateIR): string[] {
+export function derivedAccessorLines(
+  contextModule: string,
+  agg: EnrichedAggregateIR,
+  struct: PureStruct = RELATIONAL_STRUCT,
+): string[] {
   const emit = pureDerivedAccessorNames(contextModule, agg);
-  const rc: RenderCtx = { thisName: "record", contextModule, agg };
+  const rc: RenderCtx = {
+    thisName: "record",
+    contextModule,
+    agg,
+    ...(struct.docStruct ? { docStruct: true } : {}),
+  };
   const out: string[] = [];
   for (const d of agg.derived) {
     if (!emit.has(d.name)) continue;
@@ -236,7 +326,7 @@ function derivedAccessorLines(contextModule: string, agg: EnrichedAggregateIR): 
     // in parens rebinds the `do … end` to the block expression and keeps the
     // keyword-form layout for the simple (single-line) deriveds unchanged.
     const rendered = body.includes("\n") ? `(${body})` : body;
-    out.push(`  def ${snake(d.name)}(%__MODULE__{} = record), do: ${rendered}`);
+    out.push(`  def ${snake(d.name)}(%${struct.guard}{} = record), do: ${rendered}`);
   }
   return out;
 }
@@ -244,9 +334,17 @@ function derivedAccessorLines(contextModule: string, agg: EnrichedAggregateIR): 
 /** One `function` member as a `def <fn>(%__MODULE__{} = record, …)` on the
  *  aggregate schema module — the pure-core sibling of `function-emit.ts`'s
  *  context-facade copy. */
-function renderPureFunction(facadeMod: string, fn: FunctionIR): string[] {
+export function renderPureFunction(
+  facadeMod: string,
+  fn: FunctionIR,
+  struct: PureStruct = RELATIONAL_STRUCT,
+): string[] {
   const fnSnake = snake(fn.name);
-  const rc: RenderCtx = { thisName: "record", contextModule: facadeMod };
+  const rc: RenderCtx = {
+    thisName: "record",
+    contextModule: facadeMod,
+    ...(struct.docStruct ? { docStruct: true } : {}),
+  };
   const params = fn.params.map((p) =>
     bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
   );
@@ -256,8 +354,8 @@ function renderPureFunction(facadeMod: string, fn: FunctionIR): string[] {
   // unused variable.  Only the pure-core copy was missing it, so the shape
   // compiled on the facade module and failed here.
   const recv = bodyUsesReceiver(fn.body) ? "record" : "_record";
-  const sig =
-    params.length > 0 ? `%__MODULE__{} = ${recv}, ${params.join(", ")}` : `%__MODULE__{} = ${recv}`;
+  const head = `%${struct.guard}{} = ${recv}`;
+  const sig = params.length > 0 ? `${head}, ${params.join(", ")}` : head;
   return [
     `  @doc "Pure domain function \`${fn.name}\`."`,
     `  def ${fnSnake}(${sig}) do`,
@@ -271,6 +369,8 @@ function renderPureOp(
   ctxModule: string,
   ctx: BoundedContextIR,
   op: OperationIR,
+  agg: AggregateIR,
+  struct: PureStruct,
 ): string[] {
   const opSnake = snake(op.name);
   const rc: RenderCtx = {
@@ -279,6 +379,9 @@ function renderPureOp(
     // No lineage capture in the pure core — that's a persist-path effect; a
     // capture without the draining transaction would orphan the trace buffer.
     captureProvenance: false,
+    // Document struct mode reads/writes the `<Agg>.Data` embed the way the
+    // persisted document op does (`docOpStructBody`), part constructors included.
+    ...(struct.docStruct ? { docStruct: true, agg: agg as EnrichedAggregateIR } : {}),
   };
   // EMIT is an effect (PubSub broadcast needs a running server), not domain
   // state — strip it so the core stays pure / Repo-free.  Lets it depends on
@@ -301,10 +404,152 @@ function renderPureOp(
   const actorArg = opUsesCurrentUser(op) ? ", current_user \\\\ nil" : "";
   return [
     `  @doc "Pure domain core of \`${op.name}\` — preconditions + in-memory mutation (no persistence)."`,
-    `  def ${opSnake}(%__MODULE__{} = record, ${paramsArg}${actorArg})${guard} do`,
+    `  def ${opSnake}(%${struct.guard}{} = record, ${paramsArg}${actorArg})${guard} do`,
     ...paramBinds,
     ...bodyLines,
     ...tail,
+    "  end",
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Event-sourced pure core — on the `<Agg>` struct module (eventsourced-emit.ts).
+//
+// The persisted command runner (`renderCommandRunner`) decides, builds the
+// emitted event structs, APPENDS them, then folds them into state.  The pure
+// core is the same decide-and-fold with the append removed: the events are
+// folded through `<Agg>Fold`, the module the event store replays a stream
+// through, so a test sees exactly the state a load would rebuild.
+//
+//   def create(attrs)        :: {:ok, t} | {:error, {atom(), term()}}
+//        = mint the id, check the create's guards, fold its events from zero
+//   def <op>(state, params)  :: t   (raises <App>.GuardError on a failed guard)
+//        = the op's guards + its events folded onto `state`
+//
+// The create's failed guard RETURNS `{:error, term}` (the denial term the
+// runner short-circuits to) because a domain test asserts a failed create as
+// `{:error, _}` on every shape; an op RAISES, matching the relational op core.
+// ---------------------------------------------------------------------------
+
+/** The CRUD names the event-sourced command surface never runs as a command
+ *  (mirrors the context block's filter in `eventsourced-emit.ts`). */
+const ES_CRUD_OP_NAMES = new Set(["create", "update", "delete", "destroy", "list", "get"]);
+
+/** The pure-core functions for one event-sourced aggregate, spliced into its
+ *  struct module (2-space indented, module body level). */
+export function renderEventSourcedPureCore(
+  appModule: string,
+  ctx: BoundedContextIR,
+  agg: AggregateIR,
+): string[] {
+  const facadeMod = `${appModule}.${upperFirst(ctx.name)}`;
+  const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
+  const foldMod = `${aggModule}Fold`;
+  const eventsModule = `${facadeMod}.Events`;
+  const out: string[] = [];
+  const create = agg.creates?.[0];
+  if (create) out.push(...renderEsPureCreate(facadeMod, foldMod, eventsModule, create));
+  for (const op of agg.operations) {
+    if (ES_CRUD_OP_NAMES.has(op.name)) continue;
+    out.push("", ...renderEsPureOp(appModule, facadeMod, foldMod, eventsModule, op));
+  }
+  for (const fn of agg.functions ?? []) {
+    out.push("", ...renderPureFunction(facadeMod, fn));
+  }
+  out.push(...derivedAccessorLines(facadeMod, agg as EnrichedAggregateIR));
+  return out;
+}
+
+/** `%<Events>.<Event>{…}` for one `emit` statement. */
+function esEventStruct(
+  s: Extract<StmtIR, { kind: "emit" }>,
+  eventsModule: string,
+  rc: RenderCtx,
+): string {
+  const fields = s.fields.map((f) => `${snake(f.name)}: ${renderExpr(f.value, rc)}`).join(", ");
+  return `%${eventsModule}.${upperFirst(s.eventName)}{${fields}}`;
+}
+
+function renderEsPureCreate(
+  facadeMod: string,
+  foldMod: string,
+  eventsModule: string,
+  create: OperationIR,
+): string[] {
+  const rc: RenderCtx = { thisName: "state", contextModule: facadeMod, idLocal: "id" };
+  // A test passes the create input as an ATOM-keyed map (`%{owner: "Ada"}`); the
+  // string key is the wire spelling, read as the fallback.
+  const reads = create.params
+    .filter((p) => create.statements.some((s) => stmtUsesParam(s, p.name)))
+    .map(
+      (p) =>
+        `    ${escapeElixirIdent(snake(p.name))} = Map.get(attrs, :${snake(p.name)}, Map.get(attrs, ${JSON.stringify(p.name)}))`,
+    );
+  const lets: string[] = [];
+  const guards: string[] = [];
+  const events: string[] = [];
+  for (const s of create.statements) {
+    if (s.kind === "let") {
+      lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`);
+    } else if (s.kind === "precondition" || s.kind === "requires") {
+      guards.push(
+        `:ok <- if(${renderExpr(s.expr, rc)}, do: :ok, else: {:error, ${denialTerm(s)}})`,
+      );
+    } else if (s.kind === "emit") {
+      events.push(esEventStruct(s, eventsModule, rc));
+    }
+  }
+  const attrsArg = reads.length > 0 ? "attrs" : "_attrs";
+  const actorArg = opUsesCurrentUser(create) ? ", current_user \\\\ nil" : "";
+  const fold = [`events = [${events.join(", ")}]`, `{:ok, ${foldMod}.from_events(id, events)}`];
+  const body =
+    guards.length > 0
+      ? [`    with ${guards.join(",\n         ")} do`, ...fold.map((l) => `      ${l}`), "    end"]
+      : fold.map((l) => `    ${l}`);
+  return [
+    `  @doc "Pure create core — runs \`${create.name}\` in memory and folds its events (no event log)."`,
+    `  def create(${attrsArg}${actorArg}) when is_map(${attrsArg}) do`,
+    ...reads,
+    "    id = UUIDv7.generate()",
+    ...lets,
+    ...body,
+    "  end",
+  ];
+}
+
+function renderEsPureOp(
+  appModule: string,
+  facadeMod: string,
+  foldMod: string,
+  eventsModule: string,
+  op: OperationIR,
+): string[] {
+  const rc: RenderCtx = { thisName: "state", contextModule: facadeMod };
+  const used = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
+  const reads = used.map(
+    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
+  );
+  const body: string[] = [];
+  const events: string[] = [];
+  for (const s of op.statements) {
+    if (s.kind === "let") {
+      body.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`);
+    } else if (s.kind === "precondition" || s.kind === "requires") {
+      body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule));
+    } else if (s.kind === "emit") {
+      events.push(esEventStruct(s, eventsModule, rc));
+    }
+  }
+  const paramsArg = used.length > 0 ? "params" : "_params";
+  const guard = used.length > 0 ? " when is_map(params)" : "";
+  const actorArg = opUsesCurrentUser(op) ? ", current_user \\\\ nil" : "";
+  return [
+    `  @doc "Pure domain core of \`${op.name}\` — guards + its events folded in memory (no event log)."`,
+    `  def ${snake(op.name)}(%__MODULE__{} = state, ${paramsArg}${actorArg})${guard} do`,
+    ...reads,
+    ...body,
+    `    events = [${events.join(", ")}]`,
+    `    Enum.reduce(events, state, fn ev, acc -> ${foldMod}.apply_event(acc, ev) end)`,
     "  end",
   ];
 }
