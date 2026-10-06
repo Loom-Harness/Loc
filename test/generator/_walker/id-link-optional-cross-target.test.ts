@@ -142,7 +142,9 @@ describe("IdLink — Feliz splits the option with a `match`, not a truthiness te
     // `__id` (a `string`), never the option itself.  `"…" + <string option>` is
     // the F# type error that made this frontend un-buildable.
     expect(out).toMatch(
-      /match row\.lastKnownLocation with \| Some __id -> Html\.a \[ prop\.className "link"; prop\.href \("\/locations\/" \+ __id\); prop\.text \(string \(__id\)\) \] \| None -> Html\.text "—"/,
+      // (`Location` carries a `display`, so the id text is the fallback of the
+      // `LoomRefLabel` child — over the bound `__id` too.)
+      /match row\.lastKnownLocation with \| Some __id -> Html\.a \[ prop\.className "link"; prop\.href \("\/locations\/" \+ __id\); prop\.children \[ LoomRefLabel\.view "\/locations\/" \(__id\) \(Html\.text \(string \(__id\)\)\) \] \] \| None -> Html\.text "—"/,
     );
     expect(out).toMatch(
       /match cargoById\.lastKnownLocation with \| Some __id -> Html\.a .* \| None -> Html\.text "—"/,
@@ -159,7 +161,9 @@ describe("IdLink — Flutter splits the nullable with a null-check pattern", () 
     const out = await generate("flutter");
     expect(out).toContain("final String? lastKnownLocation;");
     expect(out).toMatch(
-      /switch \(row\.lastKnownLocation\) \{ final __id\? => TextButton\(onPressed: \(\) => Navigator\.of\(context\)\.pushNamed\('\/locations\/' \+ __id\.toString\(\)\), child: Text\(__id\.toString\(\)\)\), _ => const Text\('—'\) \}/,
+      // (`Location` carries a `display`, so the id text is the fallback of the
+      // `LoomRefLabel` child — over the promoted `__id` too.)
+      /switch \(row\.lastKnownLocation\) \{ final __id\? => TextButton\(onPressed: \(\) => Navigator\.of\(context\)\.pushNamed\('\/locations\/' \+ __id\.toString\(\)\), child: LoomRefLabel\(path: '\/locations\/\$\{__id\}', fallback: Text\(__id\.toString\(\)\)\)\), _ => const Text\('—'\) \}/,
     );
     // `x.toString()` on a null `String?` is what rendered the literal word
     // "null" as the cell's label — it must not survive on the optional field.

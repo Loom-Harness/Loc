@@ -203,6 +203,21 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b06-duplicate-names.ddd",
   "eval/repro/broken/b07-bad-enum-value.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",
+  // The Commons register's (`eval/FINDINGS.md`) repro sources, ported from the
+  // evaluation branch (`loom-dsl-evaluation-bxc2c6`) on 2026-09-29 so the
+  // register's citations resolve (eval-closure review G8-09a).  Three of them
+  // are refused, each for the reason its finding records:
+  //  - `adversarial/05-missing-ctor-field.ddd` is F-014 — a `Money { … }`
+  //    construction omitting `currency` validated CLEAN before #2923; it is the
+  //    same regression guard as `eval/repro/F014-money-ctor-unchecked.ddd`.
+  //  - `probe/rowlevel.ddd` is F-012's "own rows" probe written with the claim
+  //    typed `string`, which the register records is refused until the claim is
+  //    typed `Member id` in `user { }`.
+  //  - `probe/searchstore.ddd` is F-010 — `meilisearch` bound to a `replica`
+  //    resource, an HONEST refusal ("no resource kind accepts it").
+  "eval/adversarial/05-missing-ctor-field.ddd",
+  "eval/probe/rowlevel.ddd",
+  "eval/probe/searchstore.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,
