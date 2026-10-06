@@ -4408,14 +4408,26 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow '${p.name}' declares ${p.count} event-triggered 'create' starters on event ` +
     `'${p.event}'; an event may start at most one create per workflow (the runtime can't ` +
     `choose which instance to allocate).`,
-  "loom.workflow-correlation-required": (p: { name: unknown }) =>
-    `workflow '${p.name}' has event consumers (reactors / event-triggered creates) but no ` +
-    `correlation field. Declare one id-shaped state field (e.g. 'orderId: Order id') for the ` +
-    `runtime to route inbound events to.`,
-  "loom.correlation-field-ambiguous": (p: { name: unknown; length: unknown; idFields: unknown }) =>
+  "loom.workflow-correlation-required": (p: { name: unknown; why?: unknown }) =>
+    p.why === "stream"
+      ? `event-sourced workflow '${p.name}' has no correlation field, so its event stream has ` +
+        `no key and no instance can be stored or read back. Declare one id-shaped state field ` +
+        `(e.g. 'orderId: Order id') to key the stream, or drop 'eventSourced' (and its ` +
+        `'apply' blocks) if the workflow keeps no state.`
+      : `workflow '${p.name}' has event consumers (reactors / event-triggered creates) but no ` +
+        `correlation field. Declare one id-shaped state field (e.g. 'orderId: Order id') for the ` +
+        `runtime to route inbound events to.`,
+  "loom.correlation-field-ambiguous": (p: {
+    name: unknown;
+    length: unknown;
+    idFields: unknown;
+    why?: unknown;
+  }) =>
     `workflow '${p.name}' has ${p.length} id-shaped state fields ` +
     `(${p.idFields}); the correlation field can't be inferred. ` +
-    `A workflow with event consumers must declare exactly one id-shaped field.`,
+    (p.why === "stream"
+      ? `An event-sourced workflow keys its event stream by it, so it must declare exactly one id-shaped field.`
+      : `A workflow with event consumers must declare exactly one id-shaped field.`),
   "loom.correlation-type-mismatch": (p: {
     name: unknown;
     label: unknown;
