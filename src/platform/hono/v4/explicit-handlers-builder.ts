@@ -69,7 +69,6 @@ import type {
   RouteIR,
   TypeIR,
   ValueObjectIR,
-  WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
