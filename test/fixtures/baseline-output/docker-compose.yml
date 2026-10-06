@@ -19,11 +19,30 @@ services:
       timeout: 5s
       retries: 10
 
+  db-bootstrap:
+    image: postgres:18-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    volumes:
+      - ./db-init:/db-init:ro
+    entrypoint:
+      - sh
+      - -c
+      - until pg_isready -q; do sleep 1; done; psql -v ON_ERROR_STOP=1 -d postgres -f /db-init/00-create-databases.sql
+    restart: "no"
+
   api:
     build: ./api
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=api;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
@@ -42,6 +61,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: "postgres://postgres:postgres@db:5432/catalog_web"
       LOG_LEVEL: "info"
@@ -60,6 +81,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=catalog_api;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"

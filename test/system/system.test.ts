@@ -82,11 +82,16 @@ describe("system / module / deployable", () => {
   it("isolates each deployable to its own postgres database", async () => {
     const model = await buildModel("examples/acme.ddd");
     const { files } = generateSystems(model);
-    // Init script runs once on first boot of an empty pgdata volume.
+    // Init script runs on first boot of an empty pgdata volume — and, being
+    // idempotent, again on every `up` via the db-bootstrap one-shot (B-26).
     const init = files.get("db-init/00-create-databases.sql")!;
-    expect(init).toMatch(/CREATE DATABASE api;/);
-    expect(init).toMatch(/CREATE DATABASE catalog_api;/);
-    expect(init).toMatch(/CREATE DATABASE catalog_web;/);
+    for (const db of ["api", "catalog_api", "catalog_web"]) {
+      expect(init).toContain(
+        `SELECT 'CREATE DATABASE ${db}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')\\gexec`,
+      );
+    }
+    // No bare (non-idempotent) CREATE DATABASE statement survives.
+    expect(init).not.toMatch(/^CREATE DATABASE/m);
     const compose = files.get("docker-compose.yml")!;
     // Postgres mounts the init script.
     expect(compose).toMatch(/\.\/db-init:\/docker-entrypoint-initdb\.d:ro/);
@@ -94,6 +99,30 @@ describe("system / module / deployable", () => {
     expect(compose).toMatch(/Database=api;/);
     expect(compose).toMatch(/Database=catalog_api;/);
     expect(compose).toMatch(/postgres:postgres@db:5432\/catalog_web/);
+  });
+
+  it("re-provisions every deployable's database on each `up` via the db-bootstrap one-shot (B-26)", async () => {
+    const model = await buildModel("examples/acme.ddd");
+    const { files } = generateSystems(model);
+    const compose = files.get("docker-compose.yml")!;
+    // A one-shot that re-applies the idempotent init script over TCP once the
+    // server accepts connections there (i.e. after any first-boot initdb run).
+    const boot = compose.match(/\n {2}db-bootstrap:\n(?: {4}.*\n)+/)?.[0];
+    expect(boot, "db-bootstrap service emitted").toBeDefined();
+    expect(boot).toContain("./db-init:/db-init:ro");
+    expect(boot).toContain("PGHOST: db");
+    expect(boot).toContain(
+      "until pg_isready -q; do sleep 1; done; psql -v ON_ERROR_STOP=1 -d postgres -f /db-init/00-create-databases.sql",
+    );
+    expect(boot).toMatch(/depends_on:\n {6}db:\n {8}condition: service_healthy/);
+    // Every database-backed service waits for it to COMPLETE; the frontend
+    // (no database) does not.
+    const block = (svc: string): string =>
+      compose.match(new RegExp(`\\n  ${svc}:\\n(?: {4}.*\\n)+`))![0];
+    for (const svc of ["api", "catalog_api", "catalog_web"]) {
+      expect(block(svc)).toMatch(/db-bootstrap:\n {8}condition: service_completed_successfully/);
+    }
+    expect(block("web_app")).not.toContain("db-bootstrap");
   });
 
   it("wires the runtime LOG_LEVEL knob (default info) into each backend service env", async () => {

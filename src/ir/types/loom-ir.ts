@@ -2059,6 +2059,10 @@ export interface SqlStepIR {
   index: number;
   /** The raw Postgres statement, verbatim. */
   sql: string;
+  /** `sql before "…"` — emitted AHEAD of the generation's structural steps
+   *  (a dedupe that must precede a new `unique (…)` index) instead of after
+   *  them.  Absent/false = the default trailing position. */
+  before?: boolean;
   /** Provenance back to the step's `.ddd` source. */
   origin?: OriginRef;
 }

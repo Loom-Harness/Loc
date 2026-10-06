@@ -902,9 +902,11 @@ web_app/e2e/<System>.ui.spec.ts
 - `docker-compose.yml` with a `db` service, per-deployable services
   (depends_on / env / healthcheck per platform), and a `pgdata`
   volume.
-- `db-init/00-create-databases.sql` — one `CREATE DATABASE` per
+- `db-init/00-create-databases.sql` — one idempotent `CREATE DATABASE` per
   backend deployable so EF Core's `EnsureCreated` doesn't race
-  against peer backends sharing the same db.
+  against peer backends sharing the same db; re-applied on every `up` by
+  the compose `db-bootstrap` one-shot, so a deployable added later gets
+  its database on an existing volume.
 - `.loom/wire-spec.json` — JSON Schema derived from `IR.wireShape`
   by `wire-spec.ts`. Diffable, language-agnostic; useful for
   spotting wire-contract changes between regens.

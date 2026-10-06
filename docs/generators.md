@@ -1304,6 +1304,16 @@ backends sharing one DB silently leave the loser-of-the-race's
 tables uncreated.  React deployables don't connect to a DB and don't
 appear in the init script.
 
+Every statement is idempotent (`SELECT 'CREATE DATABASE x' WHERE NOT
+EXISTS (…) \gexec`): Postgres runs `docker-entrypoint-initdb.d` only on an
+EMPTY volume, so the compose stack also carries a one-shot `db-bootstrap`
+service that re-applies the same file over TCP on every `up`, and each
+database-backed service waits for it with `condition:
+service_completed_successfully`.  A deployable added in a later
+generation therefore gets its database on an existing volume (B-26 of the
+banking evaluation — it used to crash-loop on `database "x" does not
+exist`).
+
 ### Migrations
 
 Schema changes flow through a platform-neutral **MigrationsIR**

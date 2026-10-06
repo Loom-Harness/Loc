@@ -114,6 +114,14 @@ function checkMigration(
           code: "loom.migration-sql-empty",
         });
       }
+      // `sql <placement> "…"` (B-20): the only placement is `before`.
+      if (step.placement !== undefined && step.placement !== "before") {
+        accept(
+          "error",
+          diagMessage("loom.migration-sql-placement", { placement: step.placement }),
+          { node: step, property: "placement", code: "loom.migration-sql-placement" },
+        );
+      }
       continue;
     }
     // A column step is scoped to a specific aggregate; key collisions per aggregate.
