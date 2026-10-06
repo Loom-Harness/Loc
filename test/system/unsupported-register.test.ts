@@ -461,8 +461,17 @@ const MAX_OPEN_GAPS = 18;
  *  26 -> 27 (wave C2 packet 2m): `loom.table-filter-unsupported`, whose last
  *  non-member (phoenixLiveView) joined `TABLE_FILTER_FRAMEWORKS` when the HEEx
  *  engine grew the filter.  Its membership set is named in the row's `what`
- *  and re-derived from the grammar by the firing census. */
-const LATENT_SEAMS = 27;
+ *  and re-derived from the grammar by the firing census.
+ *
+ *  27 -> 14: thirteen BACKEND seams deleted outright, gate and code together —
+ *  every one's support set named all five backends and the gate had no other
+ *  arm, so it fired for nothing (owner decision: a set naming every backend is
+ *  dead weight; partial support, when it reappears, gets a live `-unsupported`
+ *  code).  Gone: paged-query-handler / projection query-time /
+ *  whole-table-aggregation / group-by / workflow-source / projection-source,
+ *  event-sourced-workflow, generic-carrier, union, when, operation-return,
+ *  remote-api-op and filter-bypass. */
+const LATENT_SEAMS = 14;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

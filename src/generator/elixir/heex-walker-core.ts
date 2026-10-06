@@ -151,7 +151,7 @@ export interface WalkResult {
    *  wires each into an `allow_upload/3` (mount) + `handle_<field>_progress/3`
    *  consumer.  Empty when the body has no FileUpload. */
   uploadBindings: UploadBinding[];
-  /** Interactive `Table(...)` controls in this body (M-T1.1 HEEx leg) — the
+  /** Interactive `Table(...)` controls in this body (HEEx leg) — the
    *  emitter hoists the matching sort/page `handle_event` clauses.  Empty when
    *  no Table asked for sorting or paging. */
   tableControls: TableControlBinding[];
@@ -215,8 +215,7 @@ export interface QueryBinding {
    *  read resolves to `<Ctx>.QueryProjections.<Proj>.run/1`. */
   aggregate: string;
   /** Which declaration `aggregate` names, and therefore which load the emitter
-   *  builds (M-T1.3, HEEx leg).  `"aggregate"` (the default, and every
-   *  binding before projections were readable) → the repository read;
+   *  builds (HEEx leg).  `"aggregate"` (the default) → the repository read;
    *  `"projection"` → the query-time projection's `run/1`, an IN-PROCESS call:
    *  a LiveView deployable hosts its contexts in the SAME OTP app, so the
    *  Phoenix leg needs no HTTP client at all — the four SPA frontends' whole
@@ -235,10 +234,9 @@ export interface QueryBinding {
    *
    *  The scaffold's paged list emits `<api>.<Agg>.all(pageNum, 10, sortKey,
    *  sortDir)`; these are that arg list, forwarded to the repository's paged
-   *  `list/4`.  Dropping them (the pre-M-T1.1-slice-8 behaviour) silently fell
-   *  back to `list/4`'s defaults, pinning every Phoenix list to page 1 with no
-   *  way to reach row 11.  Empty/undefined for a bare `all` → `list_<agg>s()`,
-   *  byte-identical to before. */
+   *  `list/4`.  Dropping them would silently fall back to `list/4`'s defaults,
+   *  pinning every Phoenix list to page 1 with no way to reach row 11.
+   *  Empty/undefined for a bare `all` → `list_<agg>s()`. */
   listArgs?: string[];
   /** `source: "aggregate"` only — the CONTEXT-MODULE FUNCTION this read calls,
    *  resolved from the `of:` call's operation via `resolveAggregateRead`
@@ -246,11 +244,11 @@ export interface QueryBinding {
    *  `get_<agg>` for `byId`, `<find>_<agg>` for a declared or synthesized
    *  repository find — the `defdelegate` the context module emits for each.
    *
-   *  It exists because the emitter used to HARD-CODE `list_<agg>s` for every
-   *  list-shaped read and `get_<agg>` for every single-shaped one, so a page
-   *  naming a FILTERED read (`Product.findAllBySellable()`, `Item.byState(Live)`)
-   *  silently loaded the unfiltered list — the right rows on the JSX frontends,
-   *  every row on Phoenix, with no diagnostic.  Undefined ⇒ the operation named
+   *  It exists because hard-coding `list_<agg>s` for every list-shaped read and
+   *  `get_<agg>` for every single-shaped one would make a page naming a FILTERED
+   *  read (`Product.findAllBySellable()`, `Item.byState(Live)`) silently load
+   *  the unfiltered list — the right rows on the JSX frontends, every row on
+   *  Phoenix, with no diagnostic.  Undefined ⇒ the operation named
    *  no declaration at all; the emitter then REFUSES the read rather than
    *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
    *  the refusal is a backstop, not the user-facing message). */
@@ -263,9 +261,10 @@ export interface QueryBinding {
 }
 
 /** Interactive controls a `Table(...)` in this body asked for — the HEEx leg of
- *  M-T1.1.  Recorded by `renderTable` so the LiveView emitter can hoist the
- *  matching `handle_event("loom-sort"/"loom-page", …)` clauses; the markup
- *  (sortable header buttons, the pager) is emitted by `renderTable` itself.
+ *  the interactive-table seam.  Recorded by `renderTable` so the LiveView
+ *  emitter can hoist the matching `handle_event("loom-sort"/"loom-page", …)`
+ *  clauses; the markup (sortable header buttons, the pager) is emitted by
+ *  `renderTable` itself.
  *
  *  Two modes, told apart by `server`.  For a `serverPaged:` Table the Phoenix
  *  leg is SERVER-driven: a LiveView calls its context function directly, so a
@@ -326,14 +325,14 @@ export interface WalkContext {
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
   /** Workflow PascalCase name → its `WorkflowIR`, so `WorkflowForm { runs: W }`
    *  can emit one `<.input>` per the workflow's command-triggered `create`
-   *  params instead of a single `_placeholder` (M-T6.56 F61).  Derived at
+   *  params instead of a single `_placeholder`.  Derived at
    *  walker entry from `bcByAggregate` — the same source
    *  `projectionsByName` is derived from, so no caller has to thread a second
    *  registry.  A context that declares a workflow but NO aggregate is absent
    *  from `bcByAggregate` and therefore invisible here; the form then falls
-   *  back to the placeholder it always emitted rather than guessing. */
+   *  back to the placeholder rather than guessing. */
   workflowsByName: ReadonlyMap<string, WorkflowIR>;
-  /** Frontend-readable projection names (M-T1.3) — the detector's
+  /** Frontend-readable projection names — the detector's
    *  Pattern H set, so `QueryView { of: <api>.<Projection> }` resolves to the
    *  projection's own read instead of falling through to the aggregate arms.
    *  Derived at walker entry from `bcByAggregate`, the same single predicate
@@ -510,8 +509,8 @@ export interface WalkContext {
    *  owns the single `<h1>`). */
   headingDepth?: number;
   /** i18n key prefix for this body — `page.<Page>` / `component.<Comp>`
-   *  (M-T1.11).  Set only when the ui has extractable user-visible strings;
-   *  undefined ⇒ every literal renders raw (byte-identical to pre-i18n).
+   *  Set only when the ui has extractable user-visible strings;
+   *  undefined ⇒ every literal renders raw.
    *  The HEEx engine is a FORK of the shared walker, so this mirrors
    *  `_walker/walker-core.ts`'s `i18nPrefix` rather than sharing it. */
   i18nPrefix?: string;
@@ -553,7 +552,7 @@ export function walkBodyToHeex(
   /** Aggregate → owning bounded context, for `queryShape`'s find lookup.
    *  Empty default ⇒ QueryView falls back to the author's flags alone. */
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
-  /** i18n key prefix (M-T1.11) — `page.<Name>` / `component.<Name>`, matching
+  /** i18n key prefix — `page.<Name>` / `component.<Name>`, matching
    *  the shared catalog.  Undefined ⇒ no translation, byte-identical. */
   i18nPrefix: string | undefined = undefined,
   /** Name of the `component` this body belongs to, when walking a component
@@ -790,7 +789,7 @@ export function renderExpr(expr: ExprIR, ctx: WalkContext): string {
       // but a page-level `dt + days(n)` is valid DSL.
       return renderDuration(expr.unit, renderExpr(expr.amount, ctx));
     case "i18nFormat":
-      // Transparent i18n wrapper (M-T1.11) — LiveView has no client-side i18n
+      // Transparent i18n wrapper — LiveView has no client-side i18n
       // runtime, so the format is dropped: render the wrapped operand, exactly
       // as a format-less hole would render.
       return renderExpr(expr.inner, ctx);
@@ -812,7 +811,7 @@ export function renderExpr(expr: ExprIR, ctx: WalkContext): string {
       // HEEx limitation tracked by the parity gate.)
       return snake(expr.actionName);
     case "authz-filter":
-      // Authorization/tenancy filter sentinel (M-T9.9) — a query-filter node,
+      // Authorization/tenancy filter sentinel — a query-filter node,
       // never a page-body expression.  Reaching the HEEx page renderer means it
       // leaked from a filter position; throw rather than emit invalid markup.
       throw new Error("heex renderExpr: 'authz-filter' is not a page-body expression");
@@ -948,7 +947,7 @@ function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContex
   // HEEx is the exception to "read the wire" (docs/provenance.md): LiveView
   // renders server-side straight off the Ecto struct, which keeps a provenanced
   // field SPLIT into its value column and its `<field>_provenance` jsonb
-  // sibling.  The `Provenanced<T>` carrier (M-T6.12) is a WIRE shape, so the
+  // sibling.  The `Provenanced<T>` carrier is a WIRE shape, so the
   // `.value` hop the page body spells for every JSON frontend has nothing to
   // step into here — `@data.total.value` would raise on an integer.  Drop the
   // hop and read the column, exactly as `renderProvenanceInfo` reads the
@@ -1556,17 +1555,16 @@ function renderCollectionOp(
         return `Enum.member?(${recv}, ${renderExpr(arg0, ctx)})`;
       }
       return `false`;
-    // ---- the four arms that used to fall through --------------------------
+    // ---- four arms that must not fall through -----------------------------
     //
     // HEEx runs a PARALLEL walker, so nothing the shared `_walker` seam gains
-    // reaches it.  These four were reaching the `default:` below, which
-    // snake-cases the Loom spelling into a call Elixir has no function for —
+    // reaches it.  Left to the `default:` below, these four would be
+    // snake-cased into a call Elixir has no function for —
     // `@names.join(", ")`, `@nums.take(2)` — and, worse for the λ-taking one,
-    // rendered the λ through `renderExpr`, whose `lambda` arm HOISTS it to a
-    // `handle_event` clause: `@names.sort_by(event_1)`, sorting by the name of
-    // a phx event.  All four are ungated now
-    // (`loom.frontend-collection-op-unsupported` narrowed), so the
-    // fall-through is no longer unreachable-in-practice; it is the defect.
+    // the λ would render through `renderExpr`, whose `lambda` arm HOISTS it to
+    // a `handle_event` clause: `@names.sort_by(event_1)`, sorting by the name
+    // of a phx event.  `loom.frontend-collection-op-unsupported` does not gate
+    // these four, so valid input reaches this switch.
     case "sortBy": {
       // `Enum.sort_by/3`'s third argument is the ORDER (`:asc` / `:desc`), not
       // a `.reverse()` — the descending flag rides `sortBy(λ, true)`.
@@ -1778,7 +1776,7 @@ function attrName(fragment: string): string {
 /** The i18n catalog ROLE of a primitive's positional slot, from the shared
  *  `USER_VISIBLE_SLOTS` table — undefined when that position holds no
  *  user-visible text.  Reading the same table the extraction pass reads is what
- *  keeps the emitted key equal to the catalog key (M-T1.11). */
+ *  keeps the emitted key equal to the catalog key. */
 export function positionalRole(primitive: string, index: number): string | undefined {
   return USER_VISIBLE_SLOTS[primitive]?.find((s) => s.kind === "positional" && s.index === index)
     ?.role;
@@ -1827,7 +1825,7 @@ export function renderPrimitive(
       } else if (name === "label" && spec.labelAsAriaLabel) {
         // A command button's / toolbar's `label:` is its accessible name
         // (aria-label), not a literal `label=` attribute — and a user-visible
-        // slot, so it rides the translation runtime under i18n (M-T1.11)
+        // slot, so it rides the translation runtime under i18n
         // instead of shipping the name in English at every locale.  An
         // INTERPOLATED name translates too: `localizedHeexAttr` funnels both
         // shapes, so the ICU branch is reached here rather than falling through
@@ -1953,7 +1951,7 @@ export function escapeHeexText(text: string): string {
  *  `renderAttrValue` (and the `<:col label=…>` header) well-formed.
  *
  *  `"` and `&` are the two that BREAK the template (`"` closes the attribute
- *  mid-value — `Column { "Na\"me" }` used to emit `label="Na"me"`, which
+ *  mid-value — unescaped, `Column { "Na\"me" }` emits `label="Na"me"`, which
  *  `mix compile` rejects with "missing space before attribute"; `&` opens an
  *  entity).  `<`/`>` are escaped too so the emitted attribute matches what
  *  `Phoenix.HTML.html_escape/1` would produce for the same string. */
@@ -1966,7 +1964,7 @@ export function escapeHeexAttr(text: string): string {
 }
 
 /** A literal user-visible slot, translated through the generated Gettext
- *  backend when the body opted into i18n (M-T1.11).
+ *  backend when the body opted into i18n.
  *
  *  `pgettext(<loom key>, <English>)` — the CONTEXT is Loom's content-hashed
  *  catalog key (identical to `.loom/messages.en.json` and to what the other
@@ -1980,7 +1978,7 @@ export function escapeHeexAttr(text: string): string {
  *
  *  Returns undefined when i18n is off, the slot has no role, or the value is
  *  neither a plain literal nor an interpolation — each of which keeps the
- *  pre-i18n raw path. */
+ *  raw path. */
 function localizedHeex(
   arg: ExprIR,
   ctx: WalkContext,
@@ -2036,12 +2034,11 @@ function heexTranslateCall(
 }
 
 /** A user-visible slot in ATTRIBUTE position — a `role="img"` icon's accessible
- *  name, a command `Button`'s `aria-label` (M-T1.11, D-I18N-ATTR).
+ *  name, a command `Button`'s `aria-label` (D-I18N-ATTR).
  *
- *  HEEx was the one frontend that translated every TEXT slot and no ATTRIBUTE
- *  one: `renderInTemplate` carried a role, `renderAttrValue` had nowhere to put
- *  it, so an accessible name shipped in English at every locale while the
- *  visible caption beside it translated.  The attribute form is HEEx's `{…}`
+ *  `renderAttrValue` carries no catalog role, so without this an accessible
+ *  name would ship in English at every locale while the visible caption beside
+ *  it translates.  The attribute form is HEEx's `{…}`
  *  expression syntax (`aria-label={pgettext("…", "Close")}`) — which is exactly
  *  why `elixirI18nString` escapes `{`/`}` in the message.
  *
@@ -2332,17 +2329,16 @@ function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
         return callee.body.map((s) => renderStmt(s, innerCtx)).join("\n      ");
       }
       // `navigate(<Page>)` — the DOCUMENTED navigation shape (docs/actions.md).
-      // It is a `private-operation` call, so it fell into the bare-call line
-      // below and emitted `|> tap(fn _ -> navigate(other) end)`: an undefined
-      // function AND an unbound `other`, i.e. an Elixir CompileError.  Routed
-      // through the SAME resolver the expression position uses; `then/2` gives
+      // It is a `private-operation` call, so the bare-call line below would
+      // emit `|> tap(fn _ -> navigate(other) end)`: an undefined function AND
+      // an unbound `other`, i.e. an Elixir CompileError.  Routed through the
+      // SAME resolver the expression position uses; `then/2` gives
       // the mid-pipe socket the `push_navigate(socket, …)` shape needs.
       if (stmt.name === "navigate" && stmt.target === "private-operation") {
         return `|> then(fn socket -> ${renderNavigate(stmt.args, ctx)} end)`;
       }
-      // `toast(<msg>)` is the exact twin of the `navigate` case above, and was
-      // missed when that one was fixed: also a `private-operation` call, so it
-      // also fell through to the bare-call line and emitted
+      // `toast(<msg>)` is the exact twin of the `navigate` case above: also a
+      // `private-operation` call, so the bare-call line would emit
       // `|> tap(fn _ -> toast("Saved") end)` — an undefined function, i.e. an
       // Elixir CompileError on a page whose only sin is a documented effect.
       // `then/2` for the same reason: `put_flash/3` RETURNS the new socket, so
@@ -2442,8 +2438,8 @@ function renderVariantMatchStmt(
   stmt: Extract<StmtIR, { kind: "variant-match" }>,
   ctx: WalkContext,
 ): string {
-  // An unrecognised subject used to render a `tap(fn _ -> :ok end)` marker —
-  // valid Elixir that silently did nothing at runtime.  Fail at CODEGEN
+  // An unrecognised subject must not render a `tap(fn _ -> :ok end)` marker —
+  // valid Elixir that silently does nothing at runtime.  Fail at CODEGEN
   // instead: the awaited call is the whole point of the statement, so dropping
   // it is never the right answer.
   const detected = detectAwaitedOp(stmt.subject);
@@ -2665,11 +2661,9 @@ function collectComponentCalls(root: ExprIR | undefined, ui: UiIR): ComponentIR[
 /** A page-state field's seed value for `mount/3`: its declared `= <init>`
  *  (lowered into `StateFieldIR.init`) when present, else the type's zero value.
  *
- *  Every other frontend already honours `init` — React/Svelte/Angular from the
- *  start, Vue since the M-T1.1 slice-6 page-shell fix.  Elixir did not, so the
- *  scaffold list's 1-based `pageNum: int = 1` seeded as `0`; harmless while the
- *  assign was unread, but `page = 0` drives `offset = (page - 1) * page_size`
- *  negative once the value actually reaches `list/4`.
+ *  Every frontend honours `init`.  Seeding the type zero instead would start
+ *  the scaffold list's 1-based `pageNum: int = 1` at `0`, and `page = 0` drives
+ *  `offset = (page - 1) * page_size` negative once the value reaches `list/4`.
  *
  *  Only LITERAL inits render here.  A non-literal init on page state would need
  *  the full expression renderer (and a walk context this function has no access

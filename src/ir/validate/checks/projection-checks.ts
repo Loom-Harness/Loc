@@ -216,21 +216,15 @@ function validateProjectionSource(
   }
 }
 
-/** The query-time comprehension gates (read-path-architecture.md rev.13).  The
- *  generalised `projection` surface (grammar + IR + lowering) lands here ahead
- *  of the per-backend query-time emit, so a query-time / `join` projection is
- *  parsed, lowered, and validated — but HONESTLY REJECTED until a backend ports
- *  the emit (PR-C onward), rather than silently mis-emitted by the folded path.
+/** The query-time comprehension gates (read-path-architecture.md rev.13).  A
+ *  query-time / `join` projection is parsed, lowered, and validated here; every
+ *  backend emits it (ported PR-C onward).
  *
  *   - `loom.projection-query-and-fold-invalid` — a `from` source AND
  *     `on(e)` folds together (a seed-then-update read model) is a RESERVED
  *     combo (proposal § "Exotic combos are deferred behind gates").
- *   - `loom.projection-query-time-unsupported` — the HONEST not-yet-emitted
- *     gate: any comprehension clause (`from`/`where`/`join`/`select`) is
- *     surface+IR-complete but has no backend emitter yet.  Lifted per backend
- *     as each ports the query-time projection emitter.  (The `order by` clause, the
- *     groupby / singleton-whole-table-aggregation / paged-sort refinements land
- *     WITH that emit, where they first become reachable.)
+ *   (The per-backend "not yet emitted" gate that once sat beside these was
+ *   deleted when every backend ported the query-time projection emitter.)
  */
 function validateQueryComprehension(
   ctx: BoundedContextIR,
@@ -322,9 +316,8 @@ function validateQueryComprehension(
   // A recognised WHOLE-TABLE AGGREGATION is exempt here: lowering normalises it
   // into `select.aggregate` (a disciplined shape a ported emitter consumes), so
   // it is a real feature rather than a bad name.  Whether the HOSTING backend
-  // has ported that emit is a deployable-level fact, so it is gated in
-  // `validateWholeTableAggregationBackend` (system-checks.ts) instead — this
-  // check has no platform in scope.  What is left here is the genuine typo.
+  // has ported that emit would be a deployable-level fact — and every backend
+  // has, so there is no such gate.  What is left here is the genuine typo.
   // MIXING an aggregation with a per-row `select` is a GROUP BY — one row per
   // distinct value of the per-row column, not one row for the table.  That is
   // the GROUPED read model (M-T4.2): declare it with an explicit `group by`
@@ -408,12 +401,6 @@ function validateQueryComprehension(
       source: `${ctx.name}/${proj.name}`,
     });
   }
-  // The HONEST "not yet emitted on this backend" gate
-  // (`loom.projection-query-time-unsupported`) is a SYSTEM-level check
-  // (`validateQueryTimeProjectionBackend`), keyed on the target deployable's
-  // platform — node emits it (PR-C), the other backends still error — mirroring
-  // `validatePagedQueryHandlerBackend`.  It can't live here because a
-  // context-level check has no deployable/platform in scope.
 }
 
 /** The declared row field an aggregate `select` fills must have the

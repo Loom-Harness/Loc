@@ -235,8 +235,23 @@ export function emitVanillaContextModule(
  * `update` route never hit it because it runs the params through a real
  * `update_changeset`, which casts.)
  */
+function enumParamAtom(varName: string): string {
+  return `(if is_binary(${varName}), do: String.to_existing_atom(${varName}), else: ${varName})`;
+}
+
 function coerceOpParam(varName: string, type: TypeIR | undefined): string {
   const t = type?.kind === "optional" ? type.inner : type;
+  // An enum (or enum-array) param arrives as its member NAME, a string; the
+  // `Ecto.Enum` field the body assigns it to dumps ATOMS, and the op persists
+  // through `force_change` (no cast) — so `skills := next` raised
+  // `Ecto.ChangeError: value ["Plumbing", …] … does not match type {:array,
+  // #Ecto.Enum<…>}` on the operation while create (a cast changeset) was fine
+  // (wave C3 D3).  Each name maps onto the atom the enum module already
+  // declared; an atom (an internal caller) passes through.
+  if (t?.kind === "enum") return enumParamAtom(varName);
+  if (t?.kind === "array" && t.element.kind === "enum") {
+    return `(if is_list(${varName}), do: Enum.map(${varName}, fn loom_m -> ${enumParamAtom("loom_m")} end), else: ${varName})`;
+  }
   if (t?.kind !== "primitive") return varName;
   switch (t.name) {
     case "money":

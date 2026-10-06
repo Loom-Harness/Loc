@@ -180,11 +180,11 @@ const DELIBERATELY_INVALID = [
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
   // they belong here rather than being fixed or untracked.  Only the seven
-  // that fail at the AST layer are listed, plus `b05` — see below; `b09` (a
-  // typo'd field in a page body) still validates CLEAN and is a finding in its
-  // own right (F-041), so it stays in the positive population
-  // above — the day either starts being refused, its pin is what should be
-  // added, not this comment.
+  // that fail at the AST layer are listed, plus `b05` — see below. `b09` (a
+  // typo'd field in a page body, F-041) is still AST-clean, so it stays in the
+  // positive population above, but it is now refused one phase later by the IR
+  // backstop `loom.member-unresolved` (#3133, pinned in
+  // `test/ir/member-unresolved.test.ts`). This census is AST-only.
   //
   // Listing them here also puts them under the negative control below, which
   // turns the corpus into a standing ratchet: a gate that stops firing fails
@@ -203,6 +203,21 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b06-duplicate-names.ddd",
   "eval/repro/broken/b07-bad-enum-value.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",
+  // The Commons register's (`eval/FINDINGS.md`) repro sources, ported from the
+  // evaluation branch (`loom-dsl-evaluation-bxc2c6`) on 2026-09-29 so the
+  // register's citations resolve (eval-closure review G8-09a).  Three of them
+  // are refused, each for the reason its finding records:
+  //  - `adversarial/05-missing-ctor-field.ddd` is F-014 — a `Money { … }`
+  //    construction omitting `currency` validated CLEAN before #2923; it is the
+  //    same regression guard as `eval/repro/F014-money-ctor-unchecked.ddd`.
+  //  - `probe/rowlevel.ddd` is F-012's "own rows" probe written with the claim
+  //    typed `string`, which the register records is refused until the claim is
+  //    typed `Member id` in `user { }`.
+  //  - `probe/searchstore.ddd` is F-010 — `meilisearch` bound to a `replica`
+  //    resource, an HONEST refusal ("no resource kind accepts it").
+  "eval/adversarial/05-missing-ctor-field.ddd",
+  "eval/probe/rowlevel.ddd",
+  "eval/probe/searchstore.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,

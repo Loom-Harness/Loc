@@ -131,7 +131,7 @@ describe("M-T5.20 — the `Forbidden` rung resolves the same way", () => {
     it(`${platform}: \`httpStatus Forbidden -> 402\` moves the runtime arm AND the declaration`, async () => {
       const out = await emit(platform, "{ httpStatus Forbidden -> 402 }");
       const arm: Record<string, string> = {
-        node: 'return problem(402, "Payment Required", err.message);',
+        node: 'return problem(402, "Payment Required", err.detail);',
         dotnet: 'Problem(context, 402, "Payment Required", fe.Message, trace_id);',
         java: 'return respond(problem(402, "Payment Required", e.getMessage(), request), 402);',
         python: 'return problem(request, 402, "Payment Required", str(err))',
