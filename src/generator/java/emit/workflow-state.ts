@@ -167,7 +167,7 @@ export function renderWorkflowStateEntity(
     ...(durable ? [...accessor("String", "lastEventId"), ...setter("String", "lastEventId")] : []),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
+  const usesHibernateTypes = needsHibernateTypes(stateOnly, { stateRow: true });
   return lines(
     `package ${pkg};`,
     ``,

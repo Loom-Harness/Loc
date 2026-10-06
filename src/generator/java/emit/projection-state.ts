@@ -152,7 +152,7 @@ export function renderProjectionRowEntity(
     ]),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
+  const usesHibernateTypes = needsHibernateTypes(stateOnly, { stateRow: true });
   return lines(
     `package ${pkg};`,
     ``,

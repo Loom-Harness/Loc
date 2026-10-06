@@ -83,42 +83,46 @@ function checkField(
   f: FieldIR,
   diags: LoomDiagnostic[],
 ): void {
-  const push = (anchor: string, extra: Record<string, unknown> = {}): void => {
+  const p = { owner, ownerName, field: f.name };
+  const push = (message: string): void => {
     diags.push({
       severity: "error",
       code: "loom.collection-field-unpersisted",
-      message: diagMessage(
-        `loom.collection-field-unpersisted#${anchor}` as never,
-        {
-          owner,
-          ownerName,
-          field: f.name,
-          ...extra,
-        } as never,
-      ),
+      message,
       source: `${ctx.name}/${owner} ${ownerName}.${f.name}`,
     });
   };
+  const nested = (voName: string): void => {
+    const path = nestedCollectionPath(ctx, voName, new Set());
+    if (path) {
+      push(
+        diagMessage("loom.collection-field-unpersisted#nested-in-value-object", {
+          ...p,
+          voName,
+          path,
+        }),
+      );
+    }
+  };
   const kind = collectionKind(f.type);
   if (kind === "reference") {
-    if (f.type.kind === "optional" || f.optional) return push("optional-reference");
-    if (owner === "part") return push("part-reference");
-    return;
-  }
-  if (kind === "value") {
-    if (owner === "projection" || owner === "workflow") return push("state-value-collection");
-    const el = unwrap(f.type);
-    if (el.kind === "array" && el.element.kind === "valueobject") {
-      const path = nestedCollectionPath(ctx, el.element.name, new Set());
-      if (path) push("nested-in-value-object", { voName: el.element.name, path });
+    if (f.type.kind === "optional" || f.optional) {
+      push(diagMessage("loom.collection-field-unpersisted#optional-reference", p));
+    } else if (owner === "part") {
+      push(diagMessage("loom.collection-field-unpersisted#part-reference", p));
     }
     return;
   }
   const inner = unwrap(f.type);
-  if (inner.kind === "valueobject") {
-    const path = nestedCollectionPath(ctx, inner.name, new Set());
-    if (path) push("nested-in-value-object", { voName: inner.name, path });
+  if (kind === "value") {
+    if (owner === "projection" || owner === "workflow") {
+      push(diagMessage("loom.collection-field-unpersisted#state-value-collection", p));
+    } else if (inner.kind === "array" && inner.element.kind === "valueobject") {
+      nested(inner.element.name);
+    }
+    return;
   }
+  if (inner.kind === "valueobject") nested(inner.name);
 }
 
 export function validatePersistedCollectionPositions(

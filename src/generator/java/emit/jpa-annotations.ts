@@ -277,11 +277,16 @@ function associationFor(
 }
 
 /** True when any stored field needs the Hibernate type annotations
- *  (`@JdbcTypeCode` / `SqlTypes`) — json columns and primitive arrays. */
-export function needsHibernateTypes(fields: readonly FieldIR[]): boolean {
+ *  (`@JdbcTypeCode` / `SqlTypes`) — json columns and primitive arrays, plus a
+ *  STATE row's reference collections (its jsonb id-array column). */
+export function needsHibernateTypes(
+  fields: readonly FieldIR[],
+  opts: { stateRow?: boolean } = {},
+): boolean {
   return fields.some((f) => {
     const t = unwrap(f.type);
     if (t.kind === "primitive" && (t.name === "json" || t.name === "File")) return true;
-    return t.kind === "array" && t.element.kind !== "id" && t.element.kind !== "valueobject";
+    if (t.kind === "array" && t.element.kind === "id") return opts.stateRow === true;
+    return t.kind === "array" && t.element.kind !== "valueobject";
   });
 }

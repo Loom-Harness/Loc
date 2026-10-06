@@ -492,6 +492,34 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An OPTIONAL reference collection: the schema has no optional form of a
+  // join-table set, and JPA crashed demanding an association for it.
+  "loom.collection-field-unpersisted": `
+system OptRefColl {
+  subdomain S { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Order with crudish {
+      code: string
+      tags: Tag id[]?
+    }
+  } }
+}`,
+  // A query-time projection selecting a \`datetime - datetime\` span: a
+  // \`duration\` has no column and no wire form, and node / .NET crashed on it.
+  "loom.projection-select-duration": `
+system SpanSelect {
+  subdomain S { context C {
+    aggregate Order with crudish {
+      code: string
+      openedAt: datetime
+      closedAt: datetime
+    }
+    projection Spans {
+      from Order as o
+      select code = o.code, span = o.closedAt - o.openedAt
+    }
+  } }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.

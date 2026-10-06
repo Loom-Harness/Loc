@@ -169,22 +169,22 @@ export function validateUiReadsServed(sys: SystemIR, diags: LoomDiagnostic[]): v
       for (const p of ui.pages) scan(p.route ? `page ${p.name} (${p.route})` : `page ${p.name}`, p);
       for (const c of ui.components) scan(`component ${c.name}`, c);
       for (const [ctx, m] of [...misses].sort(([a], [b]) => a.localeCompare(b))) {
+        const p = {
+          uiName,
+          dName: d.name,
+          targetName: target.name,
+          subdomain: m.subdomain,
+          ctx,
+          aggregates: [...m.aggregates].sort().join(", "),
+          sites: [...m.sites].sort().join(", "),
+          served: [...served].sort().join(", ") || "(none)",
+        };
         diags.push({
           severity: "error",
           code: "loom.ui-aggregate-unserved",
-          message: diagMessage(
-            selfHosted ? "loom.ui-aggregate-unserved#self-hosted" : "loom.ui-aggregate-unserved",
-            {
-              uiName,
-              dName: d.name,
-              targetName: target.name,
-              subdomain: m.subdomain,
-              ctx,
-              aggregates: [...m.aggregates].sort().join(", "),
-              sites: [...m.sites].sort().join(", "),
-              served: [...served].sort().join(", ") || "(none)",
-            },
-          ),
+          message: selfHosted
+            ? diagMessage("loom.ui-aggregate-unserved#self-hosted", p)
+            : diagMessage("loom.ui-aggregate-unserved", p),
           source: `${d.name}/${uiName}`,
         });
       }

@@ -382,6 +382,12 @@ export function renderJavaQueryProjections(
           ? { kind: "optional", inner: f.type }
           : f.type;
       collectWireImports(t, rowImports, "Response");
+      // `FileRef` lives in the generated `domain.common` package, which
+      // `collectWireImports` (base-package-agnostic) cannot name.
+      const leaf = t.kind === "optional" ? t.inner : t;
+      if (leaf.kind === "primitive" && leaf.name === "File") {
+        rowImports.add(`${qpctx.basePkg}.domain.common.FileRef`);
+      }
       return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${jid(f.name)}`;
     });
     out.set(`${rowName}.java`, {
