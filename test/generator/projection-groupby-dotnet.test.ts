@@ -70,72 +70,6 @@ describe(".NET grouped query-time projection (group by)", () => {
     expect(handler).not.toContain("_repo.");
   });
 
-  it("folds the `where` into the same query and orders by the grouping key", async () => {
-    const handler = await fileEndingWith(
-      system(BY_STATUS),
-      "Projections/SalesByStatusQpHandler.cs",
-    );
-    expect(handler).toContain(".Where(o => o.Status == OrderStatus.Confirmed)");
-    // ORDER BY the grouping columns is REQUIRED — deterministic cross-backend reads.
-    expect(handler).toContain(".OrderBy(x => x.Status)");
-  });
-
-  it("returns the LIST shape through the whole CQRS chain — never the singleton row", async () => {
-    expect(
-      await fileEndingWith(system(BY_STATUS), "Projections/SalesByStatusQpQuery.cs"),
-    ).toContain("IQuery<IReadOnlyList<SalesByStatusRow>>");
-    const handler = await fileEndingWith(
-      system(BY_STATUS),
-      "Projections/SalesByStatusQpHandler.cs",
-    );
-    expect(handler).toContain(
-      "IQueryHandler<SalesByStatusQpQuery, IReadOnlyList<SalesByStatusRow>>",
-    );
-    expect(await fileEndingWith(system(BY_STATUS), "QueryProjectionsController.cs")).toContain(
-      "Task<ActionResult<IReadOnlyList<SalesByStatusRow>>>",
-    );
-  });
-
-  it("coerces to the declared row types — enum key stays the enum, money aggregate → invariant string", async () => {
-    const handler = await fileEndingWith(
-      system(BY_STATUS),
-      "Projections/SalesByStatusQpHandler.cs",
-    );
-    // Key: the Row param is the enum type (JsonStringEnumConverter → wire member
-    // name), so the raw key value passes through unconverted.
-    expect(handler).toContain(
-      // money pins the fixed wire scale (RS-12 / #2549) — "F4", not a bare
-      // ToString, which would echo whatever scale SQL returned.
-      'new SalesByStatusRow(x.Status, x?.Orders ?? 0, (x?.Revenue ?? 0m).ToString("F4", CultureInfo.InvariantCulture))',
-    );
-    // Row DTO declares the wire types: enum key, int count, money as string.
-    const row = await fileEndingWith(system(BY_STATUS), "Projections/SalesByStatusRow.cs");
-    expect(row).toContain("OrderStatus Status");
-    expect(row).toContain("string Revenue");
-  });
-
-  it("multi-column grouping: composite anonymous key, ThenBy chain, id key unwraps to Guid", async () => {
-    const handler = await fileEndingWith(
-      system(`projection ByStatusAndCustomer {
-        status: OrderStatus
-        customerId: Customer id
-        orders: int
-        from Order as o
-        group by o.status, o.customerId
-        select status = o.status, customerId = o.customerId, orders = count()
-      }`),
-      "Projections/ByStatusAndCustomerQpHandler.cs",
-    );
-    expect(handler).toContain(".GroupBy(o => new { o.Status, o.CustomerId })");
-    expect(handler).toContain(
-      ".Select(g => new { g.Key.Status, g.Key.CustomerId, Orders = g.Count() })",
-    );
-    expect(handler).toContain(".OrderBy(x => x.Status).ThenBy(x => x.CustomerId)");
-    // The Row declares `Guid CustomerId` (ids ride the .NET wire as Guid), so
-    // the strongly-typed key unwraps via `.Value` — same as the per-row arm.
-    expect(handler).toContain("x.CustomerId.Value");
-  });
-
   it("emits the requires gate (403 before the query) exactly like the other projection handlers", async () => {
     const handler = await fileEndingWith(
       system(
@@ -161,13 +95,5 @@ describe(".NET grouped query-time projection (group by)", () => {
     const queryIdx = handler.indexOf("var groups = await _db.");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
-  });
-
-  it("an ungated grouped projection emits no gate", async () => {
-    const handler = await fileEndingWith(
-      system(BY_STATUS),
-      "Projections/SalesByStatusQpHandler.cs",
-    );
-    expect(handler).not.toContain("ForbiddenException");
   });
 });

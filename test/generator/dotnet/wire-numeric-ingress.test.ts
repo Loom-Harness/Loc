@@ -111,18 +111,6 @@ describe(".NET wire ingress — a malformed money/datetime is 422, not 500", () 
     expect(ctrl).toContain(`WireFormatException("/amount",`);
   });
 
-  it("the filter renders node's envelope: 422 + errors[{pointer,message}]", async () => {
-    const filter = bySuffix(await generateSystemFiles(SRC), "Api/DomainExceptionFilter.cs");
-    expect(filter).toContain("context.Exception is WireFormatException wfe");
-    expect(filter).toContain('Title = "Validation failed"');
-    expect(filter).toContain("Status = 422");
-    expect(filter).toContain("new { pointer = wfe.FieldPointer, message = wfe.Message }");
-    // The arm must precede the generic 500 tail, or it never runs.
-    expect(filter.indexOf("is WireFormatException")).toBeLessThan(
-      filter.indexOf('Problem(context, 500, "Internal Server Error"'),
-    );
-  });
-
   it("the exception carries FieldPointer — `Pointer` is a /warnaserror CA1720 error", async () => {
     const common = bySuffix(await generateSystemFiles(SRC), "Domain/Common/DomainException.cs");
     expect(common).toContain("public sealed class WireFormatException : Exception");

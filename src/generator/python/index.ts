@@ -20,11 +20,18 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+  withForeignValueTypes,
+} from "../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -191,21 +198,17 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const mergedSubscriptions = dispatchSubscriptionsOf(mergedPre);
   const carriedEventNames = channelBindings.flatMap((b) => b.events);
-  const foreignConsumedEvents = [
-    ...new Set([...mergedSubscriptions.map((s) => s.event), ...carriedEventNames]),
-  ]
-    .filter((name) => !knownEventNames.has(name))
-    .flatMap((name) => {
-      for (const sub of args.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const ev = c.events.find((e) => e.name === name);
-          if (ev) return [ev];
-        }
-      }
-      return [];
-    });
+  const foreignConsumedEvents = resolveForeignEvents(
+    [...mergedSubscriptions.map((s) => s.event), ...carriedEventNames],
+    knownEventNames,
+    args.sys,
+  );
+  // The value objects / enums those foreign events reach join too:
+  // `app/domain/events.py` imports them from `app/domain/value_objects.py`,
+  // which must therefore declare them (eval item 11).
+  const foreignValueTypes = foreignEventValueTypes(foreignConsumedEvents, args.sys, mergedPre);
   const merged: EnrichedBoundedContextIR = {
-    ...mergedPre,
+    ...withForeignValueTypes(mergedPre, foreignValueTypes),
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
@@ -543,6 +546,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
@@ -627,6 +631,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         merged.events,
         hasChannelConsumers,
         durableBrokerEvents.size > 0,
+        valueObjectPool(merged),
       ),
     );
   }

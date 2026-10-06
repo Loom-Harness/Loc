@@ -34,7 +34,7 @@
 // no working C# today, so there is no generated API surface to keep compatible.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR } from "../../ir/types/loom-ir.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
  *  same-named domain type is ambiguous rather than merely shadowed.
@@ -92,37 +92,6 @@ export const BCL_COLLIDING_TYPE_NAMES: ReadonlySet<string> = new Set([
   "Progress",
 ]);
 
-/** The C#-visible type names this context emits, i.e. the names a colliding
- *  BCL type would be ambiguous WITH.  Mirrors `csVisibleTypeNames` in
- *  `src/ir/validate/checks/backend-syntax-checks.ts`, minus the `<X>Id` classes
- *  (an id class is `TaskId`, which collides with nothing). */
-function csEmittedTypeNames(ctx: Pick<BoundedContextIR, "aggregates">): Set<string> {
-  const names = new Set<string>();
-  for (const a of ctx.aggregates) {
-    names.add(a.name);
-    for (const p of a.parts) names.add(p.name);
-  }
-  return names;
-}
-
-/** The names in this context that collide with a BCL type — the input to both
- *  halves of the fix.  Empty for almost every model, which is what keeps the
- *  output byte-identical. */
-export function bclCollisions(ctx: Pick<BoundedContextIR, "aggregates">): ReadonlySet<string> {
-  const hits = new Set<string>();
-  for (const n of csEmittedTypeNames(ctx)) {
-    if (BCL_COLLIDING_TYPE_NAMES.has(n)) hits.add(n);
-  }
-  return hits;
-}
-
-/** True when this context declares a type named `Task`, the one collision that
- *  also breaks NON-GENERIC async return positions (`async Task Foo()`), because
- *  the file-scoped alias binds bare `Task` to the domain type. */
-export function collidesWithTask(ctx: Pick<BoundedContextIR, "aggregates">): boolean {
-  return bclCollisions(ctx).has("Task");
-}
-
 /** How to spell a NON-GENERIC BCL `Task` return in a file that may carry the
  *  domain alias.  `Task` normally (byte-identical), fully qualified when the
  *  context declares a type named `Task`.
@@ -132,26 +101,6 @@ export function collidesWithTask(ctx: Pick<BoundedContextIR, "aggregates">): boo
  *  `Task<…>` sites are left alone. */
 export function csTaskType(taskCollision: boolean): string {
   return taskCollision ? "System.Threading.Tasks.Task" : "Task";
-}
-
-/** The file-scoped alias lines a file must carry to bind a colliding bare name
- *  to the DOMAIN type rather than the BCL one.  `ns` is the domain namespace the
- *  file already wildcard-imports (`Api.Domain.Tasks`).
- *
- *  Emitted AFTER the `using` block it disambiguates — C# accepts alias
- *  directives in any order among the usings, and putting them last keeps the
- *  existing block byte-identical. */
-export function csDomainAliasLines(
-  collisions: ReadonlySet<string>,
-  nsOf: (name: string) => string,
-): string[] {
-  return [...collisions].sort().map((n) => `using ${n} = ${nsOf(n)}.${n};`);
-}
-
-/** Convenience for the common single-aggregate case: the alias lines for `agg`
- *  when its own name collides, given the namespace it is emitted into. */
-export function csAggregateAliasLines(agg: Pick<AggregateIR, "name">, ns: string): string[] {
-  return BCL_COLLIDING_TYPE_NAMES.has(agg.name) ? [`using ${agg.name} = ${ns}.${agg.name};`] : [];
 }
 
 /** The BCL-colliding names in scope for a file emitted FOR this aggregate —

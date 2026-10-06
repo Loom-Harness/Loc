@@ -1271,8 +1271,31 @@ export function walk(
       // method-call */` while the visually identical `Text` twin rendered
       // `"abc".toUpperCase()` — the same expression, two outcomes, one page.
       return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
-    default:
+    // The kinds MARKUP-CHILD position cannot render.  Every one degrades
+    // through the catalogued `loom.page-expr-unrenderable` give-up sentinel —
+    // a visible, scannable comment in the emitted page, never a silent drop.
+    // They are enumerated rather than swept into a bare `default` so a NEW
+    // `ExprIR.kind` is a compile error here (the `never` below), on all six
+    // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "this":
+    case "id":
+    case "lambda":
+    case "new":
+    case "object":
+    case "list":
+    case "authz-filter":
+    case "paren":
+    case "unary":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "action-ref":
       return giveUp(ctx.target, "loom.page-expr-unrenderable", `unsupported expr: ${expr.kind}`);
+    default: {
+      const _exhaustive: never = expr;
+      return _exhaustive;
+    }
   }
 }
 
@@ -2085,12 +2108,18 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // `/* unresolved: X */ undefined` sentinel gives up instead —
       // emitting `undefined.<method>(...)` would be runtime-broken code.
       //
-      // DEAD on valid `.ddd`: `loom.method-call-unresolved-receiver`
-      // (`ui-action-body-checks.ts` F2) rejects an unresolved method-call
-      // receiver at IR-validate time (phase ⑦), before codegen — proven by
+      // Unreachable on valid `.ddd` through TWO phase-⑦ gates, not one.
+      // `loom.method-call-unresolved-receiver` (`ui-action-body-checks.ts` F2)
+      // rejects a receiver that names nothing — proven by
       // `test/generator/_walker/unresolved-receiver-give-up.test.ts`, which
-      // drives every body position that reaches this arm and asserts the gate
-      // fires first.  So it is defence-in-depth for an UNVALIDATED IR (the api
+      // drives every body position that reaches this arm.  But F2 accepts any
+      // aggregate declared ANYWHERE in the model, while this walker only binds
+      // the aggregates of the frontend's `targets:` backend: a
+      // `scaffold(subdomains: [A, B])` whose target serves only A used to land
+      // here with 0 validate errors (eval-closure item #18).
+      // `loom.ui-aggregate-unserved` (`ui-backend-binding-checks.ts`) closes
+      // that second route (`test/ir/ui-aggregate-unserved.test.ts`).  So this
+      // arm is defence-in-depth for an UNVALIDATED IR (the api
       // toolkit and the playground can both hand the generator one), and it
       // says so by naming the gate rather than leaving a bare `TODO` with
       // nothing to look up.  It stays a give-up rather than a throw for the
@@ -2391,11 +2420,23 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
     }
     case "variant-match":
       return emitVariantMatch(stmt, ctx);
-    default:
+    // The BACKEND-body statement forms.  Refused in a page event handler —
+    // enumerated instead of swept into a bare `default` so a NEW `StmtIR` kind
+    // is a compile error here (the `never` below), on every frontend at once,
+    // and has to be classified rather than silently inheriting the refusal.
+    case "precondition":
+    case "requires":
+    case "return":
+    case "emit":
+    case "if":
       return unsupportedPageStmt(
         `statement '${stmt.kind}'`,
         "it has no meaning in a React page event handler",
       );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 

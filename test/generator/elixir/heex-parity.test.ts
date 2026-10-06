@@ -54,18 +54,18 @@ import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
  *  Image/Stat, Avatar/Loader, Money — now have HEEx renderers; see git history.)
  */
 //
-//  EMPTY — every TSX-rendered primitive now has a HEEx renderer.  The
+//  ONE entry, and it is a refusal, not a gap: `DataGrid` (D-DATAGRID-TARGETS,
+//  reason below).  Every OTHER TSX-rendered primitive has a HEEx renderer.  The
 //  standalone form-input family (Field/NumberField/PasswordField/
 //  MultilineField/SelectField/Toggle) renders the app's `<.input>` with a
 //  `phx-change` that writes the bound page `state` field back via a hoisted
 //  `handle_event` (the LiveView analogue of a React controlled input);
-//  in-form inputs still go through Form-level dispatch.  A newly-added
+//  in-form inputs still go through Form-level dispatch.  ProvenanceInfo (the
+//  last DEFERRED gap) landed a parallel HEEx `<details>` disclosure over the
+//  co-located `<field>_provenance` jsonb column read straight off the Ecto
+//  struct (M-T1.19, renderProvenanceInfo in heex-primitives.ts).  A newly-added
 //  TSX-only primitive re-introduces a gap and fails this test until it gets a
 //  `heex` renderer or is pinned here with a reason.
-// Empty — every TSX-rendered primitive now has a HEEx renderer.  ProvenanceInfo
-// (the last gap) landed a parallel HEEx `<details>` disclosure over the
-// co-located `<field>_provenance` jsonb column read straight off the Ecto struct
-// (M-T1.19, renderProvenanceInfo in heex-primitives.ts).
 const KNOWN_HEEX_GAPS: Record<string, string> = {
   // SETTLED — not a TODO.  This reason was REWRITTEN in the DataGrid
   // re-examination; the version it replaces was partly FALSE and is quoted at
