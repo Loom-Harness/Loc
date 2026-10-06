@@ -351,16 +351,6 @@ One tree-fenced packet (`src/ir/validate/checks/`, `src/language/validators/`, `
 
 **Verification.** One negative validator test per row, every message in the catalog, each gate mutation-proved; the corpus still validating. V11 re-measures its denominator against the P3 sweep's 777 body keys rather than trusting the widening.
 
-## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `done` (#3106) · **M** · P2
-
-*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
-
-Item **V14** (#2838). The expression form of a variant `match` carries its resolved union type; the statement form lowers with `subjectType` left as `string`, so the four shape gates keyed on the subject type (exhaustiveness, unknown variant, binding arity, the error-variant binding) are skipped for it. Pinned as a known gap at `test/ir/variant-match-subject-type.test.ts:70`.
-
-**The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
-
-**Verification.** The pinned case flips; one negative case per gate on the statement form.
-
 ## M-T5.44 — Only one `resource` per (context, kind), even for `api` / `objectStore` / `mailer` / `queue` — `open` · **M** · P3 (design first)
 
 *Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
