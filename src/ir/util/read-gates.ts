@@ -39,10 +39,59 @@ export function listReadFind(repo: RepositoryIR | undefined): FindIR | undefined
 /** The authorization gate on the list endpoint, when the author declared one.
  *
  *  `undefined` for the enrichment-injected `all` (which carries no gate — it is
- *  compiler-synthesized and has no author source line, which is also why
- *  `loom.default-deny-ungated` exempts it).  The emitted route must evaluate
+ *  compiler-synthesized and has no author source line — which is why, under
+ *  `enforcement: denyByDefault`, `loom.default-deny-ungated` (list-read arm) refuses the
+ *  build until the author declares one).  The emitted route must evaluate
  *  this BEFORE the query and answer 403 on failure, exactly as a named find's
  *  gate does. */
 export function listReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
   return listReadFind(repo)?.requires;
+}
+
+// ── The by-id read (M-T3.19) ────────────────────────────────────────────────
+//
+// Every non-abstract aggregate also serves `GET /<aggs>/{id}`, and until
+// M-T3.19 nothing could gate it: the route is compiler-derived, so there was
+// no declaration to hang a `requires` on.  The surface is the one the list
+// read already uses — a repository `find` — spelled with the by-id SHAPE:
+//
+//     repository Secrets for Secret {
+//       find byId(id: Secret id): Secret? requires currentUser.role == "admin"
+//     }
+//
+// The gate is NAMED AT THE DECLARATION (the #2877 ruling: no inherited
+// aggregate-level default read gate).  Recognition is by name AND shape, so a
+// `find byId(oid: Order id): Order[] where …` (a different read that merely
+// shares the name) stays an ordinary find.  When the author writes no
+// `where`, lowering supplies the only filter the shape can mean
+// (`where this == <param>`), so the find's own `GET /<aggs>/by_id` route and
+// repository method return THE row — not the table's first one.
+
+/** True when `find` has the by-id read shape for aggregate `aggName`:
+ *  named `byId`, exactly one parameter of type `<Agg> id`, returning `<Agg>?`. */
+export function isByIdReadShape(find: FindIR, aggName: string): boolean {
+  if (find.name !== "byId" || find.params.length !== 1) return false;
+  const p = find.params[0]!.type;
+  const r = find.returnType;
+  return (
+    p.kind === "id" &&
+    p.targetName === aggName &&
+    r.kind === "optional" &&
+    r.inner.kind === "entity" &&
+    r.inner.name === aggName
+  );
+}
+
+/** The repository find the author declared as the aggregate's by-id read, if
+ *  any (`find byId(id: T id): T? …`). */
+export function byIdReadFind(repo: RepositoryIR | undefined): FindIR | undefined {
+  if (!repo) return undefined;
+  return repo.finds.find((f) => !f.synthesized && isByIdReadShape(f, repo.aggregateName));
+}
+
+/** The authorization gate on `GET /<aggs>/{id}`, when the author declared one.
+ *  Every backend's by-id route evaluates it BEFORE the load and answers 403 on
+ *  failure — the same place and the same carrier as a named find's gate. */
+export function byIdReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
+  return byIdReadFind(repo)?.requires;
 }

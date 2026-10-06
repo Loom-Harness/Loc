@@ -75,6 +75,7 @@ import {
   opGetById,
   opOperation,
 } from "./openapi-ids.js";
+import { byIdReadFind } from "./read-gates.js";
 import { aggregateIsVersioned } from "./versioned-capability.js";
 
 /** HTTP method, lowercase — the form every backend's route table uses. */
@@ -120,7 +121,9 @@ export interface ApiOperationIR {
   readonly errorStatuses: readonly number[];
   /** The `FindIR` a `kind: "find"` operation was derived from — so a route
    *  builder rendering this list can hand its existing find emitter the
-   *  underlying IR node instead of re-locating it by name. */
+   *  underlying IR node instead of re-locating it by name.  On a `getById`
+   *  entry it is the author's by-id read (`byIdReadFind`), when declared —
+   *  the carrier of that route's `requires` gate (M-T3.19). */
   readonly find?: FindIR;
   /** The `OperationIR` behind a `kind: "operation"` or `"gateProbe"` entry —
    *  same purpose as `find`. */
@@ -509,7 +512,10 @@ export function deriveAggregateOperations(
     );
   }
 
-  // GET /api/<aggs>/{id}
+  // GET /api/<aggs>/{id} — gated by the author's `find byId(id: T id): T?
+  // requires …` when declared (M-T3.19); the entry carries that find so a
+  // route builder renders ITS gate rather than re-locating it.
+  const byId = byIdReadFind(repo);
   push(
     "getById",
     opGetById(agg.name),
@@ -517,7 +523,8 @@ export function deriveAggregateOperations(
     `${base}/{id}`,
     [idParam()],
     entityType(agg.name),
-    errorStatuses("getById", false, resolveStatus),
+    errorStatuses("getById", byId?.requires !== undefined, resolveStatus),
+    byId ? { find: byId } : undefined,
   );
 
   // DELETE /api/<aggs>/{id} — only when the aggregate exposes a REST destroy

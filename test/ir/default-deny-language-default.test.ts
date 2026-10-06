@@ -31,7 +31,7 @@ system Helpdesk {
         open: bool
         operation close() { open := false }
       }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket { find all(): Ticket[] requires true  find byId(id: Ticket id): Ticket? requires true }
     }
   }
   storage primary { type: postgres }

@@ -33,6 +33,13 @@ async function allDiags(
   }));
 }
 
+/** The two compiler-derived aggregate reads (`GET /<aggs>` and
+ *  `GET /<aggs>/{id}`), declared with a gate — under denyByDefault each is
+ *  otherwise an error of its own (M-T3.19), which would drown the arm a case
+ *  is about. */
+const reads = (agg: string, gate = "requires true"): string =>
+  `find all(): ${agg}[] ${gate}\n        find byId(id: ${agg} id): ${agg}? ${gate}`;
+
 function sys(opts: { enforcement: string; authRequired: boolean; gate: string }): string {
   return `
 system Helpdesk {
@@ -44,7 +51,7 @@ system Helpdesk {
         open: bool
         operation close() { ${opts.gate}open := false }
       }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket { ${reads("Ticket")} }
     }
   }
   storage primary { type: postgres }
@@ -114,6 +121,7 @@ system Helpdesk {
       }
       repository Tickets for Ticket {
         find openOnes(): Ticket[] ${findGate}where open == true
+        ${reads("Ticket")}
       }
       workflow openTicket {
         create(s: string) { ${gate}let t = Ticket.register(s) }
@@ -156,11 +164,12 @@ system Helpdesk {
     expect(errs).toEqual([]);
   });
 
-  it("does not flag the auto-`findAll` (no author gate surface)", async () => {
-    // The synthesized `find all` list route has no source line to gate; only
-    // author-declared named finds are in scope.  A system whose only read is the
-    // auto-findAll must pass once its commands are gated.
-    const src = `
+  it("flags the auto-`findAll` list read and the by-id read (M-T3.19, Commons F-006)", async () => {
+    // Both reads are compiler-derived, and both used to be exempt — the list
+    // read silently, the by-id read with a warning.  Each now has a surface
+    // named at the declaration (a repository `find all` / `find byId` with a
+    // `requires`), so under denyByDefault an ungated one refuses the build.
+    const src = (repoBody: string): string => `
 system Helpdesk {
   user { id: string role: string }
   auth { enforcement: denyByDefault }
@@ -168,9 +177,9 @@ system Helpdesk {
     context Tickets {
       aggregate Ticket {
         subject: string
-        create register(s: string) { requires true subject := s }
+        operation rename(s: string) requires true { subject := s }
       }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket { ${repoBody} }
     }
   }
   storage primary { type: postgres }
@@ -179,7 +188,24 @@ system Helpdesk {
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
 }
 `;
-    expect(await denyErrors(src)).toEqual([]);
+    const open = await allDiags(src(""));
+    const errors = open.filter((d) => d.severity === "error");
+    expect(errors.map((d) => d.code).sort()).toEqual([
+      "loom.default-deny-by-id-ungated",
+      "loom.default-deny-ungated",
+    ]);
+    const list = errors.find((d) => d.code === "loom.default-deny-ungated")!;
+    expect(list.message).toContain("/api/tickets");
+    expect(list.message).toContain("find all(): Ticket paged requires <expr>");
+    const byId = errors.find((d) => d.code === "loom.default-deny-by-id-ungated")!;
+    expect(byId.message).toContain("/api/tickets/{id}");
+    expect(byId.message).toContain("find byId(id: Ticket id): Ticket? requires <expr>");
+    // A DECLARED-but-ungated `find all` is the same hole: reported once.
+    const declared = await denyErrors(src("find all(): Ticket[]"));
+    expect(declared.filter((m) => m.includes("list read"))).toHaveLength(1);
+    // Gated (here: the explicit public escape), both are satisfied.
+    const gated = await allDiags(src(reads("Ticket")));
+    expect(gated.filter((d) => d.severity === "error")).toEqual([]);
   });
 
   // --- Projections (the last read surface default-deny walked past) ---
@@ -194,7 +220,7 @@ system Helpdesk {
   subdomain S {
     context Tickets {
       aggregate Ticket { subject: string  open: bool }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket { ${reads("Ticket")} }
       event Opened { ticket: Ticket id  subject: string }
       projection TicketBook keyed by ticket ${foldedGate}{
         ticket: Ticket id
@@ -277,7 +303,7 @@ system Shop {
         status: string
         operation cancel() requires currentUser.role == "agent" { status := "cancelled" }
       }
-      repository Orders for Order { }
+      repository Orders for Order { ${reads("Order")} }
 ${handler}
     }
   }
@@ -360,7 +386,7 @@ system Ledger {
         create(owner: string) { ${gate}emit Opened { account: id, owner: owner } }
         apply(e: Opened) { owner := e.owner }
       }
-      repository Accounts for Account { }
+      repository Accounts for Account { ${reads("Account")} }
     }
   }
   storage primary { type: postgres }
@@ -439,7 +465,7 @@ system Ledger {
         owner: string
         create(o: string) { owner := o }
       }
-      repository Accounts for Account { }
+      repository Accounts for Account { ${reads("Account")} }
     }
   }
   storage primary { type: postgres }
@@ -470,7 +496,7 @@ system Helpdesk {
         subject: string
         create(s: string) { subject := s }
       }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket { ${reads("Ticket")} }
     }
   }
   storage primary { type: postgres }

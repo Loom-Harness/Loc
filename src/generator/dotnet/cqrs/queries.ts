@@ -9,6 +9,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findGateUsesCurrentUser, findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
+import { byIdReadFind } from "../../../ir/util/read-gates.js";
 import { upperFirst } from "../../../util/naming.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
 import {
@@ -109,6 +110,25 @@ export function emitGetByIdQueryAndHandler(
       returnType: `${agg.name}Response?`,
     }),
   );
+  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates the
+  // by-id read.  Evaluated BEFORE the load (403 for an existing and a missing
+  // id alike — no existence oracle), with the same carrier + `detail` label as
+  // the find's own handler (`buildFindHandlerBody`).
+  const byIdFind = byIdReadFind(ctx.repositories.find((r) => r.aggregateName === agg.name));
+  const gate = byIdFind?.requires;
+  const gateUsesUser = byIdFind ? findGateUsesCurrentUser(byIdFind) : false;
+  const gateUsings = new Set<string>();
+  if (gate) {
+    gateUsings.add(`${ns}.Domain.Common`);
+    if (gateUsesUser) gateUsings.add(`${ns}.Auth`);
+    collectCsExprUsings(gate, gateUsings, ns);
+  }
+  const gateLines = gate
+    ? (gateUsesUser ? `        var currentUser = _currentUser.User;\n` : "") +
+      `        if (!(${renderCsExpr(gate)})) throw new ForbiddenException(${JSON.stringify(
+        `Forbidden: find ${byIdFind!.name}`,
+      )});\n`
+    : "";
   out.set(
     `Application/${aggFolder}/Queries/Get${agg.name}ByIdHandler.cs`,
     renderQueryHandler({
@@ -117,8 +137,12 @@ export function emitGetByIdQueryAndHandler(
       handlerName: `Get${agg.name}ByIdHandler`,
       queryName: `Get${agg.name}ByIdQuery`,
       returnType: `${agg.name}Response?`,
-      extraUsings: projectionUsings(agg, ns),
+      extraUsings: [...new Set([...gateUsings, ...projectionUsings(agg, ns)])],
+      ...(gate && gateUsesUser
+        ? { extraDeps: [{ type: "ICurrentUserAccessor", field: "_currentUser" }] }
+        : {}),
       body:
+        gateLines +
         `        var found = await _repo.GetByIdAsync(query.Id, cancellationToken);\n` +
         `        return found is null ? null : ${projectEntityExpr("found", agg, ctx)};\n`,
     }),

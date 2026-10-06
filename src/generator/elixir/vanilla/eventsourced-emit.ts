@@ -43,6 +43,8 @@ import type {
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { byIdReadFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -52,6 +54,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse, denialTerm, disallowedTerm } from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
+import { effectiveGate } from "./gate.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import { renderPathIdCastPlug } from "./problem-details-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -589,6 +592,31 @@ export function renderEsController(
   const facadeMod = `${appModule}.${ctxModule}`;
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  // The list and by-id reads' authorization gates — the author's
+  // `find all(): T[] requires …` / `find byId(id: T id): T? requires …`
+  // (M-T3.19, `read-gates.ts`).  403 BEFORE the load, with the same carrier +
+  // `detail` label the relational controller (`api-emit.ts`) renders.  This
+  // controller used to emit both actions without consulting either gate.
+  const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
+  const gatedReadAction = (head: string, body: string, find: FindIR | undefined): string => {
+    const gate = effectiveGate(find?.requires);
+    if (!gate) return `${head}\n${body}\n  end`;
+    const cuBind = exprUsesCurrentUser(gate)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+    return `${head}
+${cuBind}    if not (${renderExpr(gate, { thisName: "record", contextModule: facadeMod })}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${find!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${body}
+    end
+  end`;
+  };
 
   // RS-13 — the 201 body is the ID ENVELOPE, not the serialized aggregate; see
   // the matching note in api-emit.ts.  The event-sourced controller shares the
@@ -748,21 +776,25 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 
 ${renderPathIdCastPlug()}
 
-  def index(conn, _params) do
-    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
+${gatedReadAction(
+  `  def index(conn, _params) do`,
+  `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
       json(conn, Enum.map(records, &serialize/1))
-    end
-  end
+    end`,
+  listReadFind(repo),
+)}
 
-  def show(conn, %{"id" => id}) do
-    case ${ctxModule}.get_${aggSnake}(id) do
+${gatedReadAction(
+  `  def show(conn, %{"id" => id}) do`,
+  `    case ${ctxModule}.get_${aggSnake}(id) do
       {:ok, record} ->
         json(conn, serialize(record))
 
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
-  end
+    end`,
+  byIdReadFind(repo),
+)}
 ${findActions}
 ${create}${opActions}
 ${commandError}${problemVariant}
