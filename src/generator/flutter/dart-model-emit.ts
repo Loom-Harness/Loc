@@ -48,6 +48,7 @@ import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
 import { type UnionMember, unionMembers } from "../_payload/union-wire.js";
+import { dartMember } from "./dart-member.js";
 import {
   DART_PROVENANCED,
   dartFromJson,
@@ -108,30 +109,33 @@ function isNullableField(f: DartField): boolean {
 
 /** The `final <type> <name>;` field declaration line. */
 function fieldDecl(f: DartField): string {
-  return `  final ${dartFieldType(f)} ${f.name};`;
+  return `  final ${dartFieldType(f)} ${dartMember(f.name)};`;
 }
 
 /** The constructor parameter for a field — `required this.x` for a required
  *  field, `this.x` for an optional (nullable) one. */
 function ctorParam(f: DartField): string {
-  return f.optional ? `    this.${f.name},` : `    required this.${f.name},`;
+  const n = dartMember(f.name);
+  return f.optional ? `    this.${n},` : `    required this.${n},`;
 }
 
 /** The `fromJson` entry decoding one field out of the JSON map. */
 function fromJsonEntry(f: DartField): string {
   const access = `json['${f.name}']`;
   if (isNullableField(f)) {
-    return `        ${f.name}: ${access} == null ? null : ${dartFromJson(base(f.type), access)},`;
+    return `        ${dartMember(f.name)}: ${access} == null ? null : ${dartFromJson(base(f.type), access)},`;
   }
-  return `        ${f.name}: ${dartFromJson(f.type, access)},`;
+  return `        ${dartMember(f.name)}: ${dartFromJson(f.type, access)},`;
 }
 
 /** The `toJson` entry encoding one field into the JSON map. */
 function toJsonEntry(f: DartField): string {
+  // The JSON KEY stays the wire name; only the Dart member is respelled.
+  const n = dartMember(f.name);
   if (isNullableField(f) && !isIdentityJson(base(f.type))) {
-    return `        '${f.name}': ${f.name} == null ? null : ${dartToJson(base(f.type), `${f.name}!`)},`;
+    return `        '${f.name}': ${n} == null ? null : ${dartToJson(base(f.type), `${n}!`)},`;
   }
-  return `        '${f.name}': ${dartToJson(f.type, f.name)},`;
+  return `        '${f.name}': ${dartToJson(f.type, n)},`;
 }
 
 /** The `copyWith` parameter type for a field — always the nullable form so an
@@ -139,12 +143,13 @@ function toJsonEntry(f: DartField): string {
  *  optional keeps its single `?`. */
 function copyWithParam(f: DartField): string {
   const t = dartFieldType(f);
-  return `    ${t.endsWith("?") || t === "dynamic" ? t : `${t}?`} ${f.name},`;
+  return `    ${t.endsWith("?") || t === "dynamic" ? t : `${t}?`} ${dartMember(f.name)},`;
 }
 
 /** The `copyWith` body entry — `field: field ?? this.field`. */
 function copyWithEntry(f: DartField): string {
-  return `        ${f.name}: ${f.name} ?? this.${f.name},`;
+  const n = dartMember(f.name);
+  return `        ${n}: ${n} ?? this.${n},`;
 }
 
 /** The `copyWith({...}) => X(...)` method lines for a wire model — the immutable

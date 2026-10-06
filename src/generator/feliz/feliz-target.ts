@@ -1179,7 +1179,7 @@ export const felizTarget: WalkerTarget = {
   renderFilteredRows({ rowsExpr, filter, columns }) {
     const q = `model.${upperFirst(filter.name)}`;
     if (columns.length === 0) return rowsExpr;
-    const vals = columns.map((f) => `string r.${f}`).join("; ");
+    const vals = columns.map((f) => `string r.${fsIdent(f)}`).join("; ");
     return (
       `(${rowsExpr} |> List.filter (fun r -> let __q = (${q}).Trim().ToLower() in ` +
       `__q = "" || ([ ${vals} ] |> List.exists (fun v -> v.ToLower().Contains(__q)))))`
