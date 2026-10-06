@@ -45,6 +45,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
@@ -150,7 +151,7 @@ export function emitLiveViewPages(args: {
   sourcemap?: SourceMapRecorder;
 }): { files: Map<string, string>; routes: LiveRoute[] } {
   const { contexts, deployable, sys, appName, appModule, sourcemap } = args;
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/elixir/liveview-emit");
   const routes: LiveRoute[] = [];
 
   // True when this deployable runs `auth: required` — `LiveAuth.on_mount`

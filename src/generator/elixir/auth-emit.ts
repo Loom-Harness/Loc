@@ -10,6 +10,7 @@ import type {
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { claimPathFor } from "../_auth/claim-types.js";
@@ -83,7 +84,7 @@ export interface AuthEmitResult {
 
 export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   const { sys, deployable, appName, appModule } = args;
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/elixir/auth-emit");
 
   if (!deployable.auth?.required) {
     return { files, enabled: false };

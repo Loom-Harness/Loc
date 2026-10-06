@@ -116,6 +116,13 @@ export interface FelizRead {
    *  decoder is the fixed `auditEntryDecoder` (`renderAuditEntryType`), not a
    *  domain decoder — `aggregate` is used for naming/record-emission only. */
   history?: boolean;
+  /** The `GET /api/<aggs>/{id}/can_<op>` probe of a `when`-gated operation the
+   *  page triggers (`OperationForm` / `Action`) — page-entry keyed off the route
+   *  id like a byId, so `UrlChanged` resets and `pageCmd` refires it on every
+   *  entry, which is where an op's `Done` lands (it navigates).  Decodes the
+   *  `{ allowed }` body to a `bool`; the view disables the trigger on
+   *  `Loaded false`.  Carries the op's URL segment (`snake(routeSlug ?? name)`). */
+  gateProbe?: { opPath: string };
   /** A USER-DECLARED repository find (`<api>.<Agg>.<find>(args)`) rather than a
    *  lifecycle op.  Init-fired and id-less like a list read (so `single` stays
    *  false), but its fetch carries the find's declared parameters as a query
@@ -527,6 +534,32 @@ export function felizHistoryRead(aggregate: string, pageCase: string): FelizRead
     single: true,
     listShaped: true,
     history: true,
+    pageCase,
+  };
+}
+
+/** The Model field of a `when`-gated op's `can_<op>` probe
+ *  (`Task` + `complete` → `CanCompleteTask`). */
+export function canProbeFieldName(aggregate: string, op: string): string {
+  return `Can${upperFirst(op)}${upperFirst(aggregate)}`;
+}
+
+/** Build the `FelizRead` for the `can_<op>` probe of a `when`-gated op, hosted
+ *  by the `Page` case `pageCase` (see `FelizRead.gateProbe`). */
+function felizCanRead(aggregate: string, op: OperationIR, pageCase: string): FelizRead {
+  const field = canProbeFieldName(aggregate, op.name);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate,
+    resultType: "bool",
+    decoderExpr: '(Decode.field "allowed" Decode.bool)',
+    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
+    binding: lowerFirst(field),
+    single: true,
+    listShaped: false,
+    gateProbe: { opPath: snake(op.routeSlug ?? op.name) },
     pageCase,
   };
 }
@@ -1644,7 +1677,8 @@ export function collectPageReads(
   // The byId read is keyed to the hosting page's `Page` case, which is the
   // aggregate-qualified emit name (`OrderDetail`) — NOT the bare scaffold page
   // name (`Detail`), which collides across aggregates (Fable error 37/39).
-  return collectBodyReads(page.body, page, upperFirst(pageEmitName(page, nameCtx)), {
+  const pageCase = upperFirst(pageEmitName(page, nameCtx));
+  const reads = collectBodyReads(page.body, page, pageCase, {
     apiParamNames,
     aggregatesByName,
     bcByAggregate,
@@ -1652,6 +1686,37 @@ export function collectPageReads(
     projectionIRs,
     workflowIRs,
   });
+  return [...reads, ...collectPageGateProbes(page, aggregatesByName, bcByAggregate, pageCase)];
+}
+
+/** The `can_<op>` probe reads of the `when`-gated operations a page triggers —
+ *  through an `OperationForm` (incl. the scaffold Detail's `Modal`s) or an
+ *  `Action` — resolved exactly as the form/action collectors resolve them, so a
+ *  probe exists iff its trigger renders.  Deduped by field. */
+function collectPageGateProbes(
+  page: PageIR,
+  aggregateNames: ReadonlySet<string>,
+  bcByAggregate: ReadonlyMap<string, BoundedContextIR>,
+  pageCase: string,
+): FelizRead[] {
+  if (!page.body) return [];
+  const aggs = new Map<string, AggregateIR>();
+  for (const [name, bc] of bcByAggregate) {
+    const a = bc.aggregates.find((x) => x.name === name);
+    if (a) aggs.set(name, a);
+  }
+  const out: FelizRead[] = [];
+  const add = (aggName: string, opName: string): void => {
+    const op = aggs
+      .get(aggName)
+      ?.operations.find((o) => o.name === opName && o.visibility === "public");
+    if (!op?.when) return;
+    const read = felizCanRead(aggName, op, pageCase);
+    if (!out.some((r) => r.field === read.field)) out.push(read);
+  };
+  for (const spec of operationFormSpecs(page.body, aggregateNames)) add(spec.agg, spec.op);
+  for (const a of collectPageActions(page, aggs)) add(a.aggregate, a.op);
+  return out;
 }
 
 /** Collect the reads a user `component`'s body issues.
@@ -2070,7 +2135,7 @@ function singleQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): str
  *  op, or an op with params — that's an `OperationForm`) is skipped. */
 export function collectPageActions(
   page: PageIR,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  aggregatesByName: ReadonlyMap<string, AggregateIR>,
 ): FelizAction[] {
   if (!page.body) return [];
   const aggNames = new Set(aggregatesByName.keys());
@@ -3204,6 +3269,22 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
   // decoding the fixed `AuditEntry list`.  BEFORE the `single` branch: it is
   // page-entry keyed (single) but its payload is a list, so the byId shape's
   // `404 → Ok None` fold would not even typecheck against `'T list`.
+  // The `can_<op>` probe — `(id: string)`, `GET /<aggs>/<id>/can_<op>`, decoding
+  // `{ allowed }` to a `bool` (before `single`: no `404 → Ok None` fold).
+  if (r.gateProbe) {
+    return [
+      `  let ${r.apiFn} (id: string) : Async<Result<${r.resultType}, string>> =`,
+      "    async {",
+      `      let! (status, body) = Http.get (sprintf "${r.route}/%s/can_${r.gateProbe.opPath}" id)`,
+      "      if status = 200 then",
+      `        match Decode.fromString ${r.decoderExpr} body with`,
+      "        | Ok data -> return Ok data",
+      "        | Error e -> return Error e",
+      "      else",
+      '        return Error (sprintf "HTTP %d" status)',
+      "    }",
+    ];
+  }
   if (r.history) {
     return [
       `  let ${r.apiFn} (id: string) : Async<Result<${r.resultType}, string>> =`,

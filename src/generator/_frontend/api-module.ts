@@ -498,6 +498,23 @@ export function buildApiModule(
     lines.push(`  });`);
     lines.push(`}`);
     lines.push("");
+    // useCan<Op><Agg> — the `GET /{id}/can_<op>` probe of a `when`-gated op,
+    // which disables the op's trigger while it answers `allowed: false`.  Its
+    // key nests under the record's (`["<tag>", id, …]`), so every mutation
+    // that invalidates the record — this op's included — re-queries it.
+    if (op.when) {
+      lines.push(`export function useCan${upperFirst(op.name)}${agg.name}(id: string) {`);
+      lines.push(`  return useQuery({`);
+      lines.push(`    queryKey: ["${tag}", id, "can", "${op.name}"],`);
+      lines.push(`    enabled: !!id,`);
+      lines.push(`    queryFn: async () => {`);
+      lines.push(`      const r = await api.get(\`/${tag}/\${seg(id)}/can_${opSnake}\`);`);
+      lines.push(`      return z.object({ allowed: z.boolean() }).parse(r);`);
+      lines.push(`    },`);
+      lines.push(`  });`);
+      lines.push(`}`);
+      lines.push("");
+    }
   }
 
   // use<FindName> — one per non-`all` find.
