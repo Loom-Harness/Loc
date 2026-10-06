@@ -16,8 +16,17 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { diagMessage } from "../../diagnostics/messages.js";
 import { parseBuiltinDesignRef } from "../../util/builtin-formats.js";
 import { compilePack, type LoadedPack, type PackFormat, type PackManifest } from "./loader.js";
+import {
+  type DesignPackInspector,
+  describePackDefects,
+  isKnownPackFormat,
+  manifestDefects,
+  type PackDefect,
+  type PackInspection,
+} from "./pack-defects.js";
 
 /** Names of the repo-root template directories that supply
  *  pack-agnostic Handlebars sources, keyed by pack format.  TSX packs
@@ -128,26 +137,50 @@ function readSharedSources(format: PackFormat): Record<string, string> {
   return out;
 }
 
-/** Load a pack from disk.  Reads pack.json, resolves every template
- *  named in `emits`, compiles each with Handlebars, and returns a
- *  ready-to-use LoadedPack.  Also pulls in the repo-root shared
- *  directories (`vite/`, `api/`, `docker/`) as pack-agnostic
- *  partials available to every loaded pack. */
-export function loadPack(
-  packDir: string,
-  options: { validateRequired?: boolean } = {},
-): LoadedPack {
+/** What reading a pack directory produced: the manifest and template sources
+ *  when they could be read, and every defect the READ itself hit (no
+ *  `pack.json`, unparseable JSON, no `emits`, a missing `.hbs`, an unknown
+ *  `stack`).  The defects the manifest + sources show are `manifestDefects`'
+ *  (`pack-defects.ts`), shared with `compilePack`. */
+interface PackRead {
+  manifest?: PackManifest;
+  sources: Record<string, string>;
+  sharedSources: Record<string, string>;
+  defects: PackDefect[];
+}
+
+function readPackDir(packDir: string): PackRead {
+  const read: PackRead = { sources: {}, sharedSources: {}, defects: [] };
   const manifestPath = path.join(packDir, "pack.json");
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error(
-      `loader: pack manifest not found at ${manifestPath}.  A pack must contain a pack.json file.`,
-    );
+  if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+    read.defects.push({
+      kind: "manifest-missing",
+      message: `no pack.json at ${manifestPath} (a pack is a directory containing a pack.json manifest)`,
+    });
+    return read;
   }
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as PackManifest;
-  if (!manifest.emits || typeof manifest.emits !== "object") {
-    throw new Error(
-      `loader: pack at ${packDir} has no \`emits\` map in pack.json.  Add { emits: { "page-list": "page-list.hbs", ... } }.`,
-    );
+  let manifest: PackManifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as PackManifest;
+  } catch (err) {
+    read.defects.push({
+      kind: "manifest-unreadable",
+      message: `${manifestPath} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return read;
+  }
+  if (manifest == null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    read.defects.push({
+      kind: "manifest-unreadable",
+      message: `${manifestPath} is not a JSON object`,
+    });
+    return read;
+  }
+  read.manifest = manifest;
+  const emits = manifest.emits as unknown;
+  if (emits == null || typeof emits !== "object" || Array.isArray(emits)) {
+    // `manifestDefects` names this one; nothing further can be read.
+    return read;
   }
   // Pack-versioning cross-check: when a pack lives under the
   // built-in `designs/<family>/<vNN>/` tree, the parent dir name is
@@ -166,17 +199,18 @@ export function loadPack(
       `loader: pack at ${packDir} has version="${manifest.version}" but lives under directory "${builtinSegments[1]}".  The two must match (e.g. designs/mantine/v7/pack.json must declare "version": "v7").`,
     );
   }
-  const sources: Record<string, string> = {};
   for (const [logicalName, fileName] of Object.entries(manifest.emits)) {
-    const filePath = path.join(packDir, fileName);
-    if (!fs.existsSync(filePath)) {
-      throw new Error(
-        `loader: pack ${manifest.name}: template "${logicalName}" → "${fileName}" not found at ${filePath}.`,
-      );
+    const filePath = typeof fileName === "string" ? path.join(packDir, fileName) : undefined;
+    if (filePath === undefined || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      read.defects.push({
+        kind: "template-missing",
+        message: `template "${logicalName}" → ${JSON.stringify(fileName)} not found${filePath ? ` at ${filePath}` : ""}`,
+      });
+      continue;
     }
-    sources[logicalName] = fs.readFileSync(filePath, "utf-8");
+    read.sources[logicalName] = fs.readFileSync(filePath, "utf-8");
   }
-  const sharedSources = readSharedSources(manifest.format ?? "tsx");
+  read.sharedSources = readSharedSources(manifest.format ?? "tsx");
   // Stack templates.  When the pack declares
   // `stack: "vN"`, pull every `.hbs` from `<repo>/stacks/<vN>/`
   // into the same shared-partials map so pack templates can
@@ -185,29 +219,112 @@ export function loadPack(
   // templates still win when names collide (compilePack registers
   // shared first, then pack overwrites).
   if (manifest.stack) {
-    const stackDir = path.join(repoRoot(), "stacks", manifest.stack);
-    if (!fs.existsSync(stackDir) || !fs.statSync(stackDir).isDirectory()) {
-      throw new Error(
-        `loader: pack ${manifest.name}@${manifest.version} declares stack="${manifest.stack}" but no such directory exists at ${stackDir}.`,
-      );
+    const stackDir = path.join(repoRoot(), "stacks", String(manifest.stack));
+    if (
+      typeof manifest.stack !== "string" ||
+      !/^[\w.-]+$/.test(manifest.stack) ||
+      !fs.existsSync(stackDir) ||
+      !fs.statSync(stackDir).isDirectory()
+    ) {
+      const known = fs.existsSync(path.join(repoRoot(), "stacks"))
+        ? fs
+            .readdirSync(path.join(repoRoot(), "stacks"), { withFileTypes: true })
+            .filter((e) => e.isDirectory())
+            .map((e) => e.name)
+            .sort()
+        : [];
+      read.defects.push({
+        kind: "stack-unknown",
+        message: `pack.json declares stack ${JSON.stringify(manifest.stack)}, which is not a shipped stack (known: ${known.join(", ")})`,
+      });
+      return read;
     }
     for (const file of fs.readdirSync(stackDir)) {
       if (!file.endsWith(".hbs")) continue;
       const logicalName = file.slice(0, -".hbs".length);
-      if (sharedSources[logicalName] != null) {
+      if (read.sharedSources[logicalName] != null) {
         throw new Error(
           `loader: stack ${manifest.stack} partial '${logicalName}' clashes with an existing shared template name.  Rename one.`,
         );
       }
-      sharedSources[logicalName] = fs.readFileSync(path.join(stackDir, file), "utf-8");
+      read.sharedSources[logicalName] = fs.readFileSync(path.join(stackDir, file), "utf-8");
     }
+  }
+  return read;
+}
+
+/** Every defect in the pack at `packDir` — the read-time ones plus
+ *  `manifestDefects` — without throwing.  What phase ⑦ reports as
+ *  `loom.design-pack-invalid`; `loadPack` refuses exactly the same set. */
+export function inspectPackDir(
+  packDir: string,
+  options: { validateRequired?: boolean } = {},
+): PackInspection {
+  const read = readPackDir(packDir);
+  if (read.manifest === undefined) return { defects: read.defects };
+  const stackUnknown = read.defects.some((d) => d.kind === "stack-unknown");
+  return {
+    // An unknown format is a defect (`format-unknown`), not a format to
+    // compare against the framework's.
+    format: isKnownPackFormat(read.manifest.format ?? "tsx")
+      ? (read.manifest.format ?? "tsx")
+      : undefined,
+    defects: [
+      ...read.defects,
+      ...manifestDefects(read.manifest, read.sources, read.sharedSources, options).filter(
+        (d) =>
+          // A file the read could not find is already reported, with its path;
+          // and with no stack, every `{{> stack-…}}` partial is missing too —
+          // noise behind the one defect that matters.
+          d.kind !== "template-missing" && !(stackUnknown && d.kind === "partial-unknown"),
+      ),
+    ],
+  };
+}
+
+/** The Node `DesignPackInspector` phase ⑦ is handed by the CLI: resolve the
+ *  `design:` value against the declaring `.ddd` file's directory (or
+ *  `fallbackDir`, for a caller whose model carries no file location) and
+ *  inspect the directory.  Built-in packs are the toolchain's own and are not
+ *  re-inspected. */
+export function fsDesignPackInspector(fallbackDir?: string): DesignPackInspector {
+  const cache = new Map<string, PackInspection>();
+  return (design, baseDir) => {
+    if (parseBuiltinDesignRef(design)) return null;
+    const dir = resolvePackDir(design, baseDir ?? fallbackDir);
+    let hit = cache.get(dir);
+    if (hit === undefined) {
+      hit = inspectPackDir(dir);
+      cache.set(dir, hit);
+    }
+    return hit;
+  };
+}
+
+/** Load a pack from disk.  Reads pack.json, resolves every template
+ *  named in `emits`, compiles each with Handlebars, and returns a
+ *  ready-to-use LoadedPack.  Also pulls in the repo-root shared
+ *  directories (`vite/`, `api/`, `docker/`) as pack-agnostic
+ *  partials available to every loaded pack. */
+export function loadPack(
+  packDir: string,
+  options: { validateRequired?: boolean } = {},
+): LoadedPack {
+  const read = readPackDir(packDir);
+  if (read.manifest === undefined || read.defects.length > 0) {
+    throw new Error(
+      diagMessage("loom.design-pack-invalid#load", {
+        pack: packDir,
+        defects: describePackDefects(read.defects),
+      }),
+    );
   }
   return compilePack(
     packDir,
-    manifest,
-    sources,
+    read.manifest,
+    read.sources,
     (f) => path.join(packDir, f),
-    sharedSources,
+    read.sharedSources,
     options,
   );
 }

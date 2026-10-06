@@ -474,7 +474,13 @@ export const DIAGNOSTIC_MESSAGES = {
     framework: unknown;
     expectedFormat: unknown;
   }) =>
-    `Custom design pack '${p.design}' on deployable '${p.name}' — format compatibility with framework '${p.framework}' is not checked at parse time; ensure its pack.json declares format '${p.expectedFormat}'.`,
+    `Custom design pack '${p.design}' on deployable '${p.name}' — the language validator cannot read it, so its format (framework '${p.framework}' needs '${p.expectedFormat}') and contents are checked only when the CLI loads the pack (\`ddd parse\` / \`ddd generate\`).`,
+  "loom.design-pack-invalid": (p: { design: unknown; name: unknown; defects: unknown }) =>
+    `Custom design pack '${p.design}' on deployable '${p.name}' cannot be rendered: ${p.defects}. ` +
+    `See docs/design-packs.md for the pack.json manifest and the required templates.`,
+  "loom.design-pack-invalid#load": (p: { pack: unknown; defects: unknown }) =>
+    `Design pack '${p.pack}' cannot be rendered: ${p.defects}. ` +
+    `See docs/design-packs.md for the pack.json manifest and the required templates.`,
   "loom.design-pack-version-unknown": (p: {
     design: unknown;
     name: unknown;

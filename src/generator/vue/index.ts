@@ -167,7 +167,7 @@ export function generateVueForContexts(
   // `deployable.design` is fully qualified by lowering ("vuetify@v3");
   // the `??` default is defensive against programmatic IR construction.
   const design = deployable.design ?? "vuetify@v3";
-  const pack = loadPack(resolvePackDir(design));
+  const pack = loadPack(resolvePackDir(design, deployable.designBaseDir));
 
   // Every vue deployable declares a `ui:` binding (validator rule
   // `loom.vue-deployable-missing-ui`).  Same fail-loudly contract as

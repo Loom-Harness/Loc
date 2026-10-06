@@ -8,6 +8,7 @@ import { NodeFileSystem } from "langium/node";
 import { generate as generateModel, LOOM_VERSION, validate } from "../api/index.js";
 import { translateBreakpoint } from "../dap/index.js";
 import { isAdvisoryCode } from "../diagnostics/advisory.js";
+import { fsDesignPackInspector } from "../generator/_packs/loader-fs.js";
 import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
@@ -55,6 +56,7 @@ import {
 } from "../system/migrations-builder.js";
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
+import type { DesignPackInspector } from "../util/design-pack-defects.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
 import { fromVitestReport, VitestReportError } from "../verify/from-vitest.js";
 import {
@@ -127,6 +129,16 @@ async function parseFile(file: string): Promise<ParseResult> {
     warningCount,
     sourceTexts: new Map([[doc.uri.path, doc.textDocument.getText()]]),
   };
+}
+
+/** What the CLI host offers phase ⑦ beyond the model: a disk-backed reader
+ *  for custom `design:` packs, so a malformed pack is a
+ *  `loom.design-pack-invalid` diagnostic on `parse` rather than a crash on
+ *  `generate`.  A relative `design:` path resolves against the declaring
+ *  `.ddd` file's directory; `file`'s directory covers a model parsed in
+ *  memory (the `--json` toolkit path), which carries no file location. */
+function hostValidateOptions(file: string): { designPacks: DesignPackInspector } {
+  return { designPacks: fsDesignPackInspector(path.dirname(path.resolve(file))) };
 }
 
 interface ProjectParseResult {
@@ -365,7 +377,7 @@ async function runParse(file: string) {
   // result has already printed), but a DIAGNOSTIC is no longer discarded.
   let irDiagnostics: ReturnType<typeof validateLoomModel> = [];
   try {
-    irDiagnostics = validateLoomModel(result.loom);
+    irDiagnostics = validateLoomModel(result.loom, hostValidateOptions(file));
   } catch {
     // Lowering/enrichment threw — nothing further to report at IR level.
   }
@@ -478,7 +490,9 @@ async function withJsonStdout<T>(work: () => Promise<T>): Promise<T> {
  */
 async function runParseJson(file: string): Promise<void> {
   const { absolute, source } = readSource(file);
-  const report = await withJsonStdout(() => validate(source, { path: absolute }));
+  const report = await withJsonStdout(() =>
+    validate(source, { path: absolute, ...hostValidateOptions(absolute) }),
+  );
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exit(1);
 }
@@ -491,7 +505,9 @@ async function runParseJson(file: string): Promise<void> {
  */
 async function runGenerateJson(file: string): Promise<void> {
   const { absolute, source } = readSource(file);
-  const report = await withJsonStdout(() => generateModel(source, { path: absolute }));
+  const report = await withJsonStdout(() =>
+    generateModel(source, { path: absolute, ...hostValidateOptions(absolute) }),
+  );
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exit(1);
 }
@@ -665,7 +681,7 @@ async function runGenerate(
   // the real warnings under one count — `parse` reports those separately, and
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
-  const loomDiags = validateLoomModel(loom);
+  const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
   const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags);
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
@@ -1165,7 +1181,7 @@ async function runSnapshot(
     process.exit(1);
   }
   const loom = result.loom;
-  const loomDiags = validateLoomModel(loom);
+  const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
   const loomErrors = loomDiags.filter((d) => d.severity === "error");
   if (loomErrors.length > 0) {
     for (const d of loomDiags) console.error(`${d.source} ${d.severity}: ${d.message}`);
@@ -1457,7 +1473,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     process.exit(2);
   }
   const loom = result.loom;
-  const loomDiags = validateLoomModel(loom);
+  const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
   const loomErrors = loomDiags.filter((d) => d.severity === "error");
   if (loomErrors.length > 0) {
     for (const d of loomErrors) console.error(`${d.source} error: ${d.message}`);

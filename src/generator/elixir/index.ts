@@ -74,6 +74,8 @@ export function generateElixirProject(args: GenerateElixirArgs): Map<string, str
   // as the JSX-family generators (react/index.ts etc.).  Lowering qualifies
   // and defaults the field (`coreComponents@v3`); the fallback here only
   // covers IR built directly in tests.
-  const pack = loadPack(resolvePackDir(args.deployable.design ?? "coreComponents@v3"));
+  const pack = loadPack(
+    resolvePackDir(args.deployable.design ?? "coreComponents@v3", args.deployable.designBaseDir),
+  );
   return generateVanillaElixirProject({ ...args, pack });
 }

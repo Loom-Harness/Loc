@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { validate } from "../../src/api/index.js";
+import { type ToolkitOptions, validate } from "../../src/api/index.js";
 import { codeOfMessageKey, DIAGNOSTIC_MESSAGES } from "../../src/diagnostics/messages.js";
+import { fsDesignPackInspector } from "../../src/generator/_packs/loader-fs.js";
 import { TABLE_FILTER_FRAMEWORKS } from "../../src/ir/validate/checks/ui-collection-display-checks.js";
 import {
   allAdapterNames,
@@ -490,6 +491,15 @@ ${opts.e2eTest}
   }
 }`;
 }
+
+/** What a fixture needs from the HOST beyond its source — the toolkit parses in
+ *  memory and reads no disk, so a check that inspects a file the model names
+ *  fires only when the host hands phase ⑦ a reader, exactly as the CLI does. */
+const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
+  "loom.design-pack-invalid": {
+    designPacks: fsDesignPackInspector(dirname(fileURLToPath(import.meta.url))),
+  },
+};
 
 const FIRING_FIXTURES: Record<string, string> = {
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
@@ -2325,6 +2335,12 @@ system P {
     "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
     { ui: true },
   ),
+  // Driven with the CLI's disk-backed pack reader (see FIXTURE_HOST_OPTIONS):
+  // the path names no directory, so the pack has no `pack.json`.
+  "loom.design-pack-invalid": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
+    { ui: true },
+  ),
   "loom.datasource-context-unlisted": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
     { secondContext: true },
@@ -3754,7 +3770,9 @@ describe("diagnostic firing census", () => {
   describe("every fixture raises the code it claims", () => {
     for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
       it(`${code} fires`, async () => {
-        const raised = (await validate(source)).diagnostics.map((d) => d.code);
+        const raised = (await validate(source, FIXTURE_HOST_OPTIONS[code])).diagnostics.map(
+          (d) => d.code,
+        );
         expect(
           raised,
           `${code} did not come out of its own fixture.  Either the fixture\n` +
