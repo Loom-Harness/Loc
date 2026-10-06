@@ -7,8 +7,7 @@
 // does NOT auto-expose it) onto the aggregate's repository, reusing #1904's
 // paged-find repo-method emission; the Hono explicit-handler emitter binds the
 // page/pageSize/sort/dir route params and returns the `Paged<T>` envelope.
-// Non-node backends are honestly gated (`loom.paged-query-handler-unsupported-backend`)
-// until their emitters fan out.
+// Every backend emits it, so no backend gates it.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -68,16 +67,12 @@ describe("paged queryHandler — validation", () => {
       .map((d) => d.code ?? "");
   }
 
-  // Every backend platform now emits the paged-run queryHandler (node/Hono,
+  // Every backend platform emits the paged-run queryHandler (node/Hono,
   // Python/FastAPI, Java/Spring, .NET/Mediator, Elixir/Phoenix), so none is
-  // gated.  The `validatePagedQueryHandlerBackend` guard stays as a forward
-  // defence: a hypothetical future backend not in `PAGED_QH_SUPPORTED` would be
-  // gated until its emitter fans out.
+  // gated.
   it("every backend platform accepts a paged queryHandler", async () => {
     for (const platform of ["node", "python", "java", "dotnet", "elixir"]) {
-      expect(await errorCodes(platform)).not.toContain(
-        "loom.paged-query-handler-unsupported-backend",
-      );
+      expect(await errorCodes(platform)).toEqual([]);
     }
   });
 });
