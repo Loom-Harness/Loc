@@ -25,6 +25,7 @@ const JAVA_IMAGE = "gradle:9-jdk25";
  *  mkdtemp) so a re-run of a single shard via LOOM_PAIRWISE_COMPILE_CASE also
  *  benefits from a previous run's downloads. */
 const GRADLE_HOME = path.join(os.tmpdir(), "loom-pairwise-java-gradle-home");
+const JAVA_WERROR_INIT = path.resolve(__dirname, "support", "java-werror.init.gradle");
 fs.mkdirSync(GRADLE_HOME, { recursive: true });
 
 /** Proxy + CA plumbing the container needs to reach Maven Central in this
@@ -63,6 +64,10 @@ describeCompileLeg({
       "/src",
       "-v",
       `${GRADLE_HOME}:/home/gradle/.gradle`,
+      // javac at `-Xlint:all -Werror` — the init script every java compile leg
+      // applies (java-build.yml, corpus-build.yml, run-java.mjs).
+      "-v",
+      `${JAVA_WERROR_INIT}:/opt/loom/java-werror.init.gradle:ro`,
       ...PROXY_ENV,
       JAVA_IMAGE,
       "gradle",
@@ -77,6 +82,8 @@ describeCompileLeg({
       // into the next fixture's), not a flag swap.  The `${GRADLE_HOME}` mount
       // above is what this leg reuses instead: the dependency cache, not the JVM.
       "--no-daemon",
+      "-I",
+      "/opt/loom/java-werror.init.gradle",
       "testClasses",
       "bootJar",
     ];

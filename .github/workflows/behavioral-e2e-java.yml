@@ -69,6 +69,8 @@ on:
       - 'test/_helpers/wire-record.ts'
       - 'test/_helpers/wire-waivers.ts'
       - 'test/_helpers/response-diff.ts'
+      # javac -Xlint:all -Werror — run-java.mjs passes it with `-I`.
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'package.json'
       - '.github/workflows/behavioral-e2e-java.yml'
   pull_request:
@@ -91,6 +93,8 @@ on:
       - 'test/_helpers/wire-record.ts'
       - 'test/_helpers/wire-waivers.ts'
       - 'test/_helpers/response-diff.ts'
+      # javac -Xlint:all -Werror — run-java.mjs passes it with `-I`.
+      - 'test/e2e/support/java-werror.init.gradle'
       - '.github/workflows/behavioral-e2e-java.yml'
   workflow_dispatch:
 
