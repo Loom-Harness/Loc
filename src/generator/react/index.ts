@@ -17,6 +17,7 @@ import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_TSX, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
@@ -57,6 +58,7 @@ import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { deriveSidebarFromUi } from "./menu-emitter.js";
 import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { REACT_REF_LABEL, REACT_REF_LABEL_PATH, REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import { renderZustandStoreModule } from "./store-builder.js";
 import { defaultNavSections } from "./templating/preparers/app-shell.js";
 import { renderAppShell, renderMain, renderShellFile, renderTheme } from "./templating/render.js";
@@ -128,7 +130,7 @@ export function generateReactForContexts(
   deployable: DeployableIR,
   options: GenerateReactOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/react/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Standalone react fetches the API same-origin via the relative
@@ -581,6 +583,12 @@ export function generateReactForContexts(
   // `lib-utils` plus the `components-ui-*` glob for its source-
   // imported component library.  Custom packs declare their own
   // file mappings here without touching this file.
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes(REF_LABEL_MARKER))) {
+    out.set(REACT_REF_LABEL_PATH, REACT_REF_LABEL);
+  }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
 
@@ -592,7 +600,7 @@ export function generateReactForContexts(
   // ClientApp/ directory.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/react/index");
   for (const [path, content] of out) {
     prefixed.set(`${pathPrefix}${path}`, content);
   }

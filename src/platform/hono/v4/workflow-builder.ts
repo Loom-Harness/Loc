@@ -401,7 +401,9 @@ export function buildWorkflowsFile(
     `    const problem = (status: ${wfProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
-    `    if (err instanceof ForbiddenError) return problem(${wfForbiddenStatus}, ${JSON.stringify(problemTitle(wfForbiddenStatus))}, err.message);`,
+    // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
+    // the body carries `err.detail` (echoed only under the dev-stub verifier).
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(problemTitle(wfForbiddenStatus))}, err.detail); }`,
   );
   body.push(
     // The state-gate rung, ordered before `DomainError` as in the aggregate

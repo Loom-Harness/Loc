@@ -21,6 +21,7 @@ import {
   MigrationBackfillDiscardedError,
   MigrationDestructiveError,
   MigrationShapeChangeError,
+  type MigrationWarning,
   schemaFromModule,
 } from "../../src/system/migrations-builder.js";
 import {
@@ -1763,6 +1764,13 @@ describe("applyDestructivePolicy — silent-rename data-loss guard", () => {
     expect(err.renames).toEqual([{ table: "users", drops: ["age"], adds: ["years"] }]);
     // The remedy is spelled out in the message.
     expect(err.message).toMatch(/migration "<name>" \{ <Aggregate>\.<oldField> -> <newField> \}/);
+    // …and WHERE it goes (#30): a `migration` block is a top-level declaration,
+    // and placed inside `system { }` it is a parse error the reader can't map
+    // back to this hint.
+    expect(err.message).toContain("TOP LEVEL of the .ddd file");
+    expect(err.message).toContain("outside `system { … }`");
+    // The drop/add list is still interpolated through the catalog entry.
+    expect(err.message).toContain("  - users: drop [age] + add [years]");
   });
 
   it("rename+type-change is annotatable → renameColumn in place, no drop (the type-cast is separately gated, not a data drop)", () => {
@@ -3199,5 +3207,225 @@ system M {
     expect(sql).toContain(
       `UPDATE "parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;`,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-3 — the inferred rename must ANNOUNCE itself.
+//
+// The collapse is deliberate and load-bearing (see the rationale at the
+// `renameFor.set(...)` site): one dropped column plus one added column of the
+// same type and nullability, no backfill and no default, becomes a single
+// non-destructive `renameColumn`, because a real rename would otherwise lose
+// its data.  Nothing here changes that.
+//
+// What it pins is the half that was missing: the collapse used to fire and the
+// run to report `0 error(s), 0 warning(s)`, so the author whose two columns
+// were UNRELATED was never told the old column's rows were about to land under
+// the new name.  Both directions matter, and the second is the one that gives
+// the gate its value:
+//
+//   * the warning fires on the bare drop+add pair the collapse acts on; and
+//   * it does NOT fire when a contrary signal kept the pair UNCOLLAPSED.
+//
+// A warning that fired on both would be worthless — it would be tracking the
+// diff SHAPE rather than the guess, and would cry wolf on every honest
+// drop+add the author already declared.
+// ---------------------------------------------------------------------------
+
+describe("applyDestructivePolicy — announces the inferred rename (F-3)", () => {
+  const RENAME_CODE = "loom.migration-rename-inferred";
+  const idCol = { name: "id", type: { kind: "uuid" as const }, nullable: false };
+  const sku = { name: "sku", type: { kind: "text" as const }, nullable: false };
+  const parts = (columns: ColumnShape[]): SchemaSnapshot => ({
+    schemaVersion: 1,
+    tables: [tbl("parts", [idCol, ...columns], { schema: "ops" })],
+  });
+  const prev = parts([sku, { name: "bin_code", type: { kind: "text" }, nullable: false }]);
+  /** The same shape under a new column name — one drop, one add, same type and
+   *  nullability: exactly what the heuristic collapses. */
+  const renamed = parts([sku, { name: "supplier_ref", type: { kind: "text" }, nullable: false }]);
+
+  const run = (
+    next: SchemaSnapshot,
+    opts: {
+      backfills?: { table: string; schema?: string; column: string; valueSql: string }[];
+      renames?: { table: string; schema?: string; from: string; to: string }[];
+      allowDestructive?: boolean;
+    } = {},
+  ): { steps: MigrationStep[]; warnings: MigrationWarning[] } => {
+    const warnings: MigrationWarning[] = [];
+    const steps = applyDestructivePolicy(diffSchema(prev, next, opts.renames), prev, {
+      allowDestructive: opts.allowDestructive ?? false,
+      module: "Ops",
+      backfills: opts.backfills,
+      warnings,
+    });
+    return { steps, warnings };
+  };
+
+  it("warns — naming the table, both columns, and both declarations — when the collapse fires", () => {
+    const { steps, warnings } = run(renamed);
+    // Non-vacuity: the collapse really did fire, so the warning below is about
+    // a rename that was inferred and not about a pair left as drop+add.
+    expect(steps.map((s) => s.op)).toEqual(["renameColumn"]);
+
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0]!;
+    expect(w.code).toBe(RENAME_CODE);
+    expect(w.module).toBe("Ops");
+    // The physical identity of the guess — schema-qualified, so an author with
+    // the same aggregate name in two contexts can tell which one this is.
+    expect(w.message).toContain("inferred a RENAME of ops.parts.bin_code -> supplier_ref");
+    // The consequence, stated plainly rather than implied.
+    expect(w.message).toContain("the old column's data will land under the new name");
+    // Both declarations, so the message is actionable either way.
+    expect(w.message).toContain("<Aggregate>.<oldField> -> <newField>");
+    expect(w.message).toContain("<Aggregate>.<newField> = <value>");
+  });
+
+  it("is a WARNING, not an error — the migration is still derived", () => {
+    // No flag, no throw: the whole point is that announcing the guess must not
+    // break the models that rely on it.
+    const { steps } = run(renamed);
+    expect(steps).toEqual([
+      {
+        op: "renameColumn",
+        table: "parts",
+        schema: "ops",
+        from: "bin_code",
+        to: "supplier_ref",
+        type: { kind: "text" },
+      },
+    ]);
+  });
+
+  // THE OTHER HALF.  This is what proves the warning tracks the COLLAPSE and
+  // not merely "one drop and one add on the same table".  With a declared
+  // backfill the diff shape is IDENTICAL, the pair stays drop+add, and the
+  // author has already said what they meant — so there is no guess to announce.
+  it("stays SILENT when a declared backfill kept the pair uncollapsed", () => {
+    const { steps, warnings } = run(renamed, {
+      allowDestructive: true,
+      backfills: [{ table: "parts", schema: "ops", column: "supplier_ref", valueSql: "'NONE'" }],
+    });
+    // The diff shape is the same one that warns above — what differs is that
+    // the collapse did not fire.
+    expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
+    expect(steps.map((s) => s.op)).toEqual([
+      "dropColumn",
+      "addColumn",
+      "backfillColumn",
+      "alterColumnNullable",
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("stays SILENT for a scalar-literal field default — the same signal in standing form", () => {
+    const defaulted = parts([
+      sku,
+      {
+        name: "supplier_ref",
+        type: { kind: "text" as const },
+        nullable: false,
+        addColumnDefault: "'NONE'",
+      },
+    ]);
+    const { steps, warnings } = run(defaulted, { allowDestructive: true });
+    expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  it("stays SILENT for an EXPLICIT rename — nothing was guessed", () => {
+    // The intent feeds `diffSchema`, so no drop+add pair ever reaches the
+    // heuristic.  Warning here would tell the author to declare what they just
+    // declared.
+    const { steps, warnings } = run(renamed, {
+      renames: [{ table: "parts", schema: "ops", from: "bin_code", to: "supplier_ref" }],
+    });
+    expect(steps.map((s) => s.op)).toEqual(["renameColumn"]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("stays SILENT on a NULLABILITY mismatch — that shape raises an error instead", () => {
+    const nullableAdd = parts([
+      sku,
+      { name: "note", type: { kind: "text" as const }, nullable: true },
+    ]);
+    const warnings: MigrationWarning[] = [];
+    expect(() =>
+      applyDestructivePolicy(diffSchema(prev, nullableAdd), prev, {
+        allowDestructive: false,
+        module: "Ops",
+        warnings,
+      }),
+    ).toThrow(MigrationAmbiguousRenameError);
+    // A refusal is not a guess: the author is already being told, by an error.
+    expect(warnings).toEqual([]);
+  });
+
+  it("stays SILENT on a first-run (Initial) migration — nothing pre-exists to rename", () => {
+    const warnings: MigrationWarning[] = [];
+    applyDestructivePolicy(diffSchema(null, renamed), null, {
+      allowDestructive: false,
+      module: "Ops",
+      warnings,
+    });
+    expect(warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-3 through `buildMigrations` — the level `generate system` runs at, so the
+// unit pins above cannot pass while the real pipeline still says nothing.
+// ---------------------------------------------------------------------------
+
+describe("buildMigrations — the inferred rename reaches the caller (F-3)", () => {
+  const SRC = (field: string) => `
+system M {
+  subdomain S {
+    context C {
+      aggregate Part { sku: string  ${field}: string }
+      repository Parts for Part { }
+    }
+  }
+  deployable api { platform: node, contexts: [C], port: 3000 }
+}
+`;
+
+  it("carries the warning out of the derivation, with the migration still written", async () => {
+    // v1 declared `binCode`; v2 declares `supplierRef` and nothing else.
+    const v1 = await buildLoomModel(SRC("binCode"));
+    const v2 = await buildLoomModel(SRC("supplierRef"));
+    const baseline = {
+      ...schemaFromModule(v1.systems[0]!.subdomains[0]!),
+      lastVersion: BASE_TIMESTAMP,
+    };
+    const warnings: MigrationWarning[] = [];
+    const out = buildMigrations(v2.systems[0]!, memorySnapshotStore({ S: baseline }), { warnings });
+
+    // The guess was made — no flag needed, because the collapse is
+    // non-destructive.
+    expect(out[0]!.steps.map((s) => s.op)).toEqual(["renameColumn"]);
+    // …and it was announced.
+    expect(warnings.map((w) => w.code)).toEqual(["loom.migration-rename-inferred"]);
+    expect(warnings[0]!.message).toContain("bin_code -> supplier_ref");
+    expect(warnings[0]!.message).toContain('migration for module "S"');
+  });
+
+  it("omitting the sink changes nothing about the steps — the warning is additive", async () => {
+    const v1 = await buildLoomModel(SRC("binCode"));
+    const v2 = await buildLoomModel(SRC("supplierRef"));
+    const baseline = {
+      ...schemaFromModule(v1.systems[0]!.subdomains[0]!),
+      lastVersion: BASE_TIMESTAMP,
+    };
+    const withSink: MigrationWarning[] = [];
+    const a = buildMigrations(v2.systems[0]!, memorySnapshotStore({ S: baseline }), {
+      warnings: withSink,
+    });
+    const b = buildMigrations(v2.systems[0]!, memorySnapshotStore({ S: baseline }), {});
+    expect(b[0]!.steps).toEqual(a[0]!.steps);
+    expect(withSink).toHaveLength(1);
   });
 });

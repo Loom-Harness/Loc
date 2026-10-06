@@ -27,9 +27,9 @@
 //
 // Statuses are RS-15's ladder — `when` → 409, `requires` → 403,
 // `precondition` → 422, plus `NotFound` → 404 — but NONE of them is a literal
-// here any more (M-T5.20).  Every rung resolves through `resolveErrorStatus`
+// here.  Every rung resolves through `resolveErrorStatus`
 // against the api's `httpStatus <Error> -> <Code>` map, the same call shape the
-// structural-conflict rungs already used, so a remap moves the runtime arm and
+// structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
 import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
@@ -73,7 +73,7 @@ export function denialOverrides(ctx: {
 /** The four rungs of the denial ladder and the stdlib `error` NAME each resolves
  *  through.  Naming them is what makes the ladder remappable: `httpStatus
  *  DomainError -> 400` moves the domain floor exactly the way `httpStatus
- *  Disallowed -> 422` already moved the state gate (M-T5.20). */
+ *  Disallowed -> 422` moves the state gate. */
 export type DenialRung = "forbidden" | "precondition" | "disallowed" | "notFound";
 
 const RUNG_ERROR_NAME: Readonly<Record<DenialRung, string>> = {
@@ -92,8 +92,8 @@ export function denialStatus(rung: DenialRung, overrides?: ErrorStatusMap): numb
 }
 
 /** The RFC 7807 `title` for a denial rung, derived so it can never disagree with
- *  the status next to it (elixir shipped a "Precondition Failed" title against a
- *  422 status until #2300 — exactly the drift a hardcoded pair invites).
+ *  the status next to it (a hardcoded pair invites drift — a "Precondition
+ *  Failed" title against a 422 status).
  *
  *  Two derivations, because the ladder genuinely has two kinds of rung — and
  *  the split is per-rung EMPIRICAL, read off what the other four backends
@@ -109,8 +109,8 @@ export function denialStatus(rung: DenialRung, overrides?: ErrorStatusMap): numb
  *     `problemTitle(notFoundStatus)`).  Identical to the name at the stdlib
  *     defaults ("Forbidden" / "Not Found"), and only observably different
  *     under an `httpStatus` override: `httpStatus NotFound -> 410` must title
- *     "Gone", not "Not Found".  Elixir titled those two on the NAME until this
- *     was fixed — a divergence the status-only census could not see. */
+ *     "Gone", not "Not Found".  Titling these on the NAME instead would be a
+ *     divergence the status-only census cannot see. */
 export function denialTitle(rung: DenialRung, overrides?: ErrorStatusMap): string {
   return rung === "disallowed"
     ? errorTitle(RUNG_ERROR_NAME[rung])
@@ -134,7 +134,7 @@ export function denialResponse(
   )}, ${detailExpr})`;
 }
 
-/** The sanitized catch-all for an UNRECOGNISED `{:error, reason}` term (M-T6.24).
+/** The sanitized catch-all for an UNRECOGNISED `{:error, reason}` term.
  *  An error term no denial clause matched is a fault the server did not model —
  *  a 500, not a 400 — and its `detail` is the fixed string `"internal"`, never
  *  `inspect(reason)`: inspecting renders struct names / module paths / raw
@@ -153,24 +153,20 @@ export function denialMessage(s: GuardStmt): string {
 }
 
 // ---------------------------------------------------------------------------
-// The RAISE path — the TYPED GUARD EXCEPTION (M-T6.20 path 2).
+// The RAISE path — the TYPED GUARD EXCEPTION.
 //
 // The `ensure` chain above is only reachable from an HTTP-boundary operation.
 // A guard in a PURE body — an aggregate `function`, a `domainService`, the
 // pure-core operation form — has no `with` chain to short-circuit through, so
 // it RAISES, and a controller `rescue` maps the raise to a status.
 //
-// That rescue used to route by MESSAGE PREFIX: `raise(ArgumentError,
-// "Precondition failed: …")` and `String.starts_with?(guard_msg, "Precondition
-// failed: ")`.  Which made the message the ROUTING KEY — so an authored
-// `message "…"` could not be emitted at all: it would miss the prefix and
-// `reraise` into a 500.  Both raise sites carried a comment saying exactly
-// that, and the derived text shipped instead of the author's on this one
-// backend, on this one construct.
+// The rescue must NOT route by MESSAGE PREFIX (`String.starts_with?(guard_msg,
+// "Precondition failed: ")`): that makes the message the ROUTING KEY, so an
+// authored `message "…"` would miss the prefix and `reraise` into a 500.
 //
-// The classification is now OUT OF BAND: one domain-layer `defexception`
+// The classification is OUT OF BAND: one domain-layer `defexception`
 // carrying a `kind` field (`:forbidden` / `:precondition`) that the rescue
-// reads.  The `:message` is free text again, so `denialMessage(s)` — the SAME
+// reads.  The `:message` is free text, so `denialMessage(s)` — the SAME
 // rule the `ensure` path and the other four backends' `DomainException` /
 // `DomainError` use — can be spelled here verbatim.
 //
@@ -244,7 +240,7 @@ end
  *  `if …, do: :ok, else: {:error, <term>}` workflow form alike. */
 export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): string {
   if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s);
-  // M-T1.11 (c) — a MESSAGED precondition in an aggregate OPERATION (the only
+  // A MESSAGED precondition in an aggregate OPERATION (the only
   // call site that passes `wireAvailable`) that the wire cannot see answers the
   // domain floor WITH its `errors[]` entry: the detail travels as a map carrying
   // the rule's `msg.<hash>` code and pointer, and `ProblemDetails.problem_response/4`
@@ -276,7 +272,7 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// The WIRE-VALIDATION rung (M-T6.20).
+// The WIRE-VALIDATION rung.
 //
 // The other four backends lift an operation's `precondition`s into the SAME
 // request validator the aggregate invariants use (`preconditionsAsInvariants`
@@ -286,10 +282,10 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 // `errors[]` entry carrying the RFC 6901 pointer + the `msg.<hash>` code.
 //
 // Elixir lowers preconditions to the `ensure/2` control-flow chain instead, so
-// the same denial answered the DOMAIN-FLOOR 422 — authored message in `detail`,
-// no `errors[]`, hence no pointer and no code.  A frontend ACL's
-// `applyServerErrors` therefore bound nothing on this backend.  That was the
-// M-T9.11 `corpus/validation-messages` wire-golden divergence.
+// without this rung the same denial would answer the DOMAIN-FLOOR 422 —
+// authored message in `detail`, no `errors[]`, hence no pointer and no code,
+// and a frontend ACL's `applyServerErrors` would bind nothing on this backend
+// (the `corpus/validation-messages` wire-golden pins the agreement).
 //
 // SCOPE — a MESSAGED precondition whose predicate `classifyForWire` admits
 // against the operation's params.  Two halves to that gate:
@@ -304,7 +300,7 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 //     code and derives its wire text from each backend's NATIVE validator chain
 //     (zod's "Too small: …", not Loom's "Precondition failed: …"), so lifting it
 //     here would trade one divergence for another with no oracle to check it
-//     against — it keeps the domain-floor rung (unchanged).
+//     against — it keeps the domain-floor rung.
 // ---------------------------------------------------------------------------
 
 /** True when this guard is a messaged, wire-translatable `precondition` — the
@@ -433,29 +429,29 @@ export function respondErrorTail(
   indent = "  ",
   overrides?: ErrorStatusMap,
   /** True when some aggregate operation reachable from this dispatcher denies at
-   *  the WIRE rung (M-T6.20).  A workflow `op-call` threads that operation's
+   *  the WIRE rung.  A workflow `op-call` threads that operation's
    *  `{:error, reason}` straight through here, so without the arm the denial
    *  would fall to the sanitized 500 catch-all instead of the 422 the direct
-   *  controller answers.  Gated so a project without one keeps the exact tail it
-   *  had — and never references a `validation_errors_response/2` the
+   *  controller answers.  Gated so a project without one emits no such arm —
+   *  and never references a `validation_errors_response/2` the
    *  ProblemDetails module didn't emit (an undefined remote call is itself a
    *  `--warnings-as-errors` failure). */
   wireDenials = false,
   /** True for the WORKFLOWS dispatcher only.  A workflow's public `run/1`
    *  answers `{:error, {:invalid_params, missing}}` when the request omits a
-   *  param its body destructures — previously a bare match that RAISED, so the
-   *  fault handler answered 500 on a route whose own OpenAPI declares 422 and
+   *  param its body destructures — a bare match would RAISE, so the fault
+   *  handler would answer 500 on a route whose own OpenAPI declares 422 and
    *  where the other four backends validate.  Gated rather than always-on so
-   *  every other dispatcher keeps the exact tail it had: no other caller can
+   *  no other dispatcher carries the arm: no other caller can
    *  produce this term, and an arm nothing reaches is a clause a reader has to
    *  disprove. */
   invalidParams = false,
-  /** True when a workflow body here loads through `getById` (M-T5.1 A4).  The
+  /** True when a workflow body here loads through `getById`.  The
    *  load tags its miss `{:not_found, "<Agg> <id> not found"}` — the detail the
    *  other four backends' `AggregateNotFound` carries and the GET-by-id route
    *  here already answers — so the workflow 404 names the row rather than the
    *  generic "Resource not found".  Gated so a dispatcher that cannot produce
-   *  the term keeps the exact tail it had. */
+   *  the term carries no arm for it. */
   notFoundDetail = false,
 ): string {
   const clause = (head: string, body: string): string =>

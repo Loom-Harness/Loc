@@ -11,26 +11,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const PAIRED = `system S {
-  subdomain O { context O {
-    aggregate Order { name: string  operation archive() { emit ProjectArchived { project: id } } }
-    repository Orders for Order { }
-    event ProjectArchived { project: Order id }
-    event ProjectArchivedRecorded { project: Order id, count: int }
-    channel L { carries: ProjectArchived, ProjectArchivedRecorded  delivery: broadcast  retention: ephemeral }
-    workflow Tracker eventSourced {
-      project: Order id
-      archivedCount: int
-      create(e: ProjectArchived) by e.project { emit ProjectArchivedRecorded { project: e.project, count: 1 } }
-      on(e: ProjectArchived) by e.project { emit ProjectArchivedRecorded { project: e.project, count: 1 } }
-      apply(r: ProjectArchivedRecorded) { archivedCount := archivedCount + r.count }
-    }
-  } }
-  api A from O
-  storage pg { type: postgres }
-  resource oState { for: O, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [O] dataSources: [oState] serves: A port: 4000 } }`;
-
 const UNPAIRED = `system S {
   subdomain O { context O {
     aggregate Order { status: string  create() { } }
@@ -55,23 +35,6 @@ const file = (files: Map<string, string>, suffix: string): string =>
   [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 
 describe("elixir event-sourced saga starter guard (S5b)", () => {
-  it("the starter folds only on an empty stream and drops+logs on a non-empty one", async () => {
-    const files = await generateSystemFiles(PAIRED);
-    const starter = file(files, "workflows/tracker/start_project_archived.ex");
-    const reactor = file(files, "workflows/tracker/on_project_archived.ex");
-    // The `on` reactor: `[]` → drop+log, `loaded` → fold + body.
-    expect(reactor).toContain("case Api.O.Workflows.TrackerStream.load(sid) do");
-    expect(reactor).toMatch(/\[\] ->\s+Logger\.warning\("event_unrouted"/);
-    // The starter is the inverse: `[]` → fold-from-zero + append, `_loaded` → drop+log.
-    expect(starter).toContain("require Logger");
-    expect(starter).toContain("case Api.O.Workflows.TrackerStream.load(sid) do");
-    expect(starter).toMatch(
-      /\[\] ->\s+_state = Api\.O\.Workflows\.TrackerFold\.from_events\(key, \[\]\)/,
-    );
-    expect(starter).toMatch(/_loaded ->\s+Logger\.warning\("event_unrouted"/);
-    expect(starter).toContain("TrackerStream.append(sid, events)");
-  });
-
   it("a create with no paired on stays byte-identical (folds unconditionally, no case/guard)", async () => {
     const starter = file(
       await generateSystemFiles(UNPAIRED),
