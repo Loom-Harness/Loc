@@ -23,15 +23,17 @@ import { describe, expect, it } from "vitest";
 // growth stops being invisible: crossing a bucket fails until the PR raises
 // that target's ceiling, in the diff, where a reviewer sees it.
 //
-// WHY BUCKETS.  Each ceiling is DERIVED, not chosen: `bucketOf(count)`, the
-// next multiple of BUCKET strictly above the count.  So the map is exactly
-// right or the test fails, in BOTH directions — growth past the bucket and a
-// drain below it each move the expected value, and the fix is always "set the
-// entry to what the failure prints".  A per-assertion ceiling would make every
-// two concurrent PRs on one backend conflict on the same line; with a bucket
-// of 100 at ~3 assertions per PR, a given target's line moves every few weeks.
-// Headroom inside a bucket is therefore at most BUCKET - 1, and that is the
-// whole of the silent growth this gate tolerates per target.
+// WHY A BAND, NOT AN EXACT VALUE.  A ceiling is valid while the count sits
+// strictly below it with at most MAX_HEADROOM to spare.  Growth to the ceiling
+// fails, and so does a drain that leaves more than MAX_HEADROOM unused, so
+// freed headroom cannot be silently re-spent.  The fix for either is the value
+// the failure prints, `reseat(count)`: the next multiple of BUCKET above the
+// count, plus one more BUCKET.  That gives every bump at least BUCKET of
+// slack.  An exact `next multiple of BUCKET` rule left as little as one
+// assertion of slack, which this repo's main overruns in hours (one row took
+// 62 in a night), so a PR could not even sit in the merge queue without
+// going stale.  The coarse granularity also keeps two concurrent PRs on one
+// backend from colliding on the same line.
 //
 // WHY PER TARGET.  One global figure lets growth on one backend hide behind a
 // drain on another.  A "target" is the first directory under `test/generator/`
@@ -47,7 +49,7 @@ import { describe, expect, it } from "vitest";
 //     `.not.toContain(` counts once; `toContainEqual` / `toMatchObject` /
 //     `toMatchInlineSnapshot` do NOT count (they are structural, not textual);
 //   * equivalent shell: `git grep -hoE "\.(not\.)?(toContain|toMatch)\("
-//     -- test/generator/ | wc -l`  (19,460 on main @ 8c0e05be, the seed tree).
+//     -- test/generator/ | wc -l`  (19,533 on main @ d3f22676, the seed tree).
 // The audit's 65.8%-of-40,463 figure counted per matcher across all of
 // `test/`, so it is NOT comparable with these numbers; do not reconcile them.
 //
@@ -61,46 +63,47 @@ const GENERATOR_TESTS = path.join(REPO_ROOT, "test/generator");
 const STRING_ASSERTION = /\.(?:not\.)?(?:toContain|toMatch)\(/g;
 const CROSS_TARGET = "(cross-target)";
 const BUCKET = 100;
+const MAX_HEADROOM = 2 * BUCKET;
 
 /**
- * Per-target ceilings: `bucketOf(<count>)`.  To change an entry, set it to the
+ * Per-target ceilings, each within (count, count + MAX_HEADROOM].  To change an entry, set it to the
  * value the failure message prints.  Raising one is a reviewed act — say in
  * the PR body why the new assertions are string-shaped rather than a corpus
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
-  "(cross-target)": 2200,
-  _expr: 100,
-  _frontend: 300,
-  _i18n: 100,
-  _numeric: 100,
-  _obs: 100,
-  _openapi: 100,
-  _packs: 200,
-  _persistence: 100,
-  _stmt: 100,
-  _walker: 600,
-  _workflow: 100,
-  angular: 900,
-  dotnet: 2100,
-  elixir: 3100,
-  "elixir-vanilla": 400,
-  feliz: 1400,
-  flutter: 1100,
-  frontend: 100,
-  hono: 400,
-  i18n: 100,
-  java: 1700,
-  python: 1700,
-  react: 1500,
-  svelte: 500,
-  typescript: 1400,
-  vue: 600,
-  walker: 100,
+  "(cross-target)": 2300,
+  _expr: 200,
+  _frontend: 400,
+  _i18n: 200,
+  _numeric: 200,
+  _obs: 200,
+  _openapi: 200,
+  _packs: 300,
+  _persistence: 200,
+  _stmt: 200,
+  _walker: 700,
+  _workflow: 200,
+  angular: 1000,
+  dotnet: 2300,
+  elixir: 3200,
+  "elixir-vanilla": 500,
+  feliz: 1500,
+  flutter: 1200,
+  frontend: 200,
+  hono: 500,
+  i18n: 200,
+  java: 1800,
+  python: 1800,
+  react: 1600,
+  svelte: 600,
+  typescript: 1500,
+  vue: 700,
+  walker: 200,
 };
 
-function bucketOf(count: number): number {
-  return Math.floor(count / BUCKET) * BUCKET + BUCKET;
+function reseat(count: number): number {
+  return Math.floor(count / BUCKET) * BUCKET + 2 * BUCKET;
 }
 
 function countStringTier(root: string): Record<string, number> {
@@ -145,20 +148,21 @@ describe("string-tier ratchet", () => {
     expect(Object.keys(counts).sort()).toEqual(Object.keys(CEILINGS).sort());
   });
 
-  it("each target sits in its ceiling's bucket", () => {
+  it("each target sits inside its ceiling's band", () => {
     const drift = Object.entries(counts)
-      .filter(([target, n]) => CEILINGS[target] !== undefined && CEILINGS[target] !== bucketOf(n))
+      .filter(([target]) => CEILINGS[target] !== undefined)
+      .filter(([target, n]) => n >= CEILINGS[target] || CEILINGS[target] - n > MAX_HEADROOM)
       .map(([target, n]) => {
         const was = CEILINGS[target];
         const why =
           n >= was
-            ? `GREW past its ceiling (${n} >= ${was}) — promote the scenario to the corpus, or drain a string test the gate ledger shows is watched by a stronger gate; if the new assertions genuinely belong in the string tier, raise the ceiling and say why in the PR body`
-            : `fell a full bucket (${n} < ${was - BUCKET}) — ratchet it down so the freed headroom cannot be silently re-spent`;
-        return `  ${JSON.stringify(target)}: ${bucketOf(n)},   // was ${was}; ${why}`;
+            ? `GREW to its ceiling (${n} >= ${was}) — promote the scenario to the corpus, or drain a string test the gate ledger shows is watched by a stronger gate; if the new assertions genuinely belong in the string tier, raise the ceiling and say why in the PR body`
+            : `fell more than ${MAX_HEADROOM} below its ceiling (${n}) — ratchet it down so the freed headroom cannot be silently re-spent`;
+        return `  ${JSON.stringify(target)}: ${reseat(n)},   // was ${was}; ${why}`;
       });
     expect(
       drift,
-      `string-tier ceilings out of bucket — set these CEILINGS entries:\n${drift.join("\n")}`,
+      `string-tier ceilings out of band — set these CEILINGS entries:\n${drift.join("\n")}`,
     ).toEqual([]);
   });
 });
