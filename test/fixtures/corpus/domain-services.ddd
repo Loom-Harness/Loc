@@ -86,6 +86,33 @@ system DomainSvc {
       // ── pure tier ── params only; callable from anywhere, no infrastructure.
       domainService FeeQuote {
         operation forAmount(amount: Money): Money {
+          // A `precondition` in a domainService operation's OWN body — the shape
+          // docs/audits/2026-09-29-fixture-shape-coverage.md found in 0 of 406
+          // models, and the evaluation's F-009 trigger.  It lowers to a
+          // `throw`/`raise` of the domain-error type inside `domain/services.ts`
+          // (and each backend's equivalent), whose import list is built by a
+          // DIFFERENT sweep from the one that collects the service's own calls —
+          // so node emitted `throw new DomainError(...)` with `DomainError`
+          // imported nowhere: a `precondition` that should answer 422 answered
+          // 500, and `tsup`/esbuild shipped it because it strips types without
+          // checking them.
+          //
+          // Note this fixture ALREADY had two preconditions — `Registration.
+          // isHolderFree(holder)` and `s.tier(0.00) != ""` — and neither reaches
+          // the shape: both sit in WORKFLOW bodies, emitted into the workflow
+          // module, which already collected its service imports.  One level in,
+          // different emitter, different import sweep.  That near-miss is why
+          // the gap survived a fixture that looks like it covers this.
+          //
+          // It sits on `FeeQuote` on purpose.  `forAmount` is the service the
+          // `Account.withdraw` `requires` gate calls, and the `test e2e` block
+          // below CALLS `withdraw` — so this guard is on a path the behavioural
+          // tier actually executes, rather than compile-only.  The predicate
+          // HOLDS for every value the e2e passes (a balance is never negative),
+          // so no response changes and the reviewed wire golden
+          // (`test/behavioral/wire-golden/domain-services.json`) stays valid.
+          // Keep it true: a precondition that fires here rewrites the golden.
+          precondition amount.amount >= 0 message "a fee quote needs a non-negative amount"
           return Money { amount: amount.amount, currency: amount.currency }
         }
       }
