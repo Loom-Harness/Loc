@@ -26,6 +26,8 @@ export interface NumericField {
   flutter: string;
   /** MEASURED rendered text in the Feliz detail page's value cell. */
   feliz: string;
+  /** MEASURED rendered text in the Vue detail page's value cell AND list cell. */
+  vue: string;
 }
 
 export declare const NUMERIC_FIELDS: readonly NumericField[];

@@ -34,14 +34,19 @@ Branch protection required only **`tests-passed`** (the fast vitest rollup).
 Every heavy gate — the runtime/boot e2e suites, the deploy build — was a
 *non-required* check. Three consequences:
 
-1. **Some heavy gates still don't run on a PR by default.** `tenancy-e2e`,
+1. **Some heavy gates did not run on a PR by default.** `tenancy-e2e`,
    `channels-e2e`, `api-call-e2e`, `migration-evolution-e2e`,
    `phoenix-ui-e2e`, and the two *compose* OIDC legs (`elixir-oidc-e2e`,
-   `auth-oidc-compose-e2e`) trigger on `push: [main]` only. Whatever they
-   catch, they catch *after* merge — on `main`, where it sits red. (Each also
-   accepts a per-PR **label** trigger as a manual escape hatch — see "The
-   interim escape hatch" below — but that's opt-in, so the default is still
-   post-merge.)
+   `auth-oidc-compose-e2e`) triggered on `push: [main]` only. Whatever they
+   caught, they caught *after* merge — on `main`, where it sat red. (Each
+   also accepted a per-PR **label** trigger as a manual escape hatch, but
+   that is opt-in, so the default was still post-merge.)
+
+   **As of 2026-10-05 every one of them gates before the merge** — per-PR, in
+   the merge queue, or both; see "The never-gating legs, re-measured
+   (2026-10-05)" below. The one `push: main` leg still in neither tier is
+   `playground-e2e`, on a dated waiver; `merge-queue-readiness.test.ts` fails
+   on any other, and on a waiver older than 90 days.
 
    This bucket used to be much larger. Promoted out of it, each now carrying a
    `pull_request:` trigger with a narrow `paths:` block, the literal draft
@@ -109,8 +114,8 @@ gets attributed to a later, innocent commit.
 | Lane | What | Rule |
 |---|---|---|
 | **Per-PR, every push** (required) | `test.yml` (fast vitest ×4 shards + the corpus-census job; coverage is nightly-only) + lint + web-tsc → `tests-passed` (unfiltered on PRs); `langium-generated`; `workflow-lint`; the typecheck/compile gates (`hono/dotnet/java/python-build`, `generated-*-build`, `corpus-build`); `behavioral-e2e` (Hono on PGlite, daemonless) as the runtime canary; `pr-gate` (the aggregate verdict over everything that triggered) | Cheap, parallel, no docker/db. Catches most regressions with fast feedback. |
-| **Per-PR, path-scoped** (binding via `pr-gate`) | The cross-backend runtime legs `behavioral-e2e-{dotnet,java,python,elixir,dapper,mikroorm}` + `behavioral-ui-e2e` + `behavioral-heex-ui-e2e` (each fires when the PR touches its backend's emitters, the shared IR, or the harness); the five `{hono,python,java,dotnet,elixir-vanilla}-obs-e2e` legs; the four *native* `{hono,python,java,dotnet}-oidc-e2e` legs; the four `generated-{react,vue,svelte,angular}-e2e` SPA smokes; `elixir-vanilla-vo-e2e`; `pairwise`'s generation sweep; the `pages` build (docs/web/src) | Docker/boot cost paid only by the PRs that can break them; when they fire, `pr-gate` makes them blocking. Each file's `paths:` block is the authority on *when* — deliberately narrower than its own `push: main` block, so a typical PR fires one or two siblings, not the whole family. |
-| **Merge queue** (`merge_group`, runs once on the final candidate — **LIVE since 2026-09-07**) | The 22 wired gates (branch protection itself requires only `tests passed` + `pr-gate`): the cheap broad set over the combined tree (`tests passed`, langium drift, the five `build-generated-*`, both `corpus-*`, the six frontend builds, `parity`, headless `behavioral`) plus the four gates the queue is the ONLY run for (`tenancy-e2e`, `migration-evolution-e2e`, `elixir-oidc-compose-e2e`, `auth-oidc-compose-e2e`) | Catches what per-PR CI structurally cannot: two PRs green apart, red together. Everything already binding per-PR is deliberately NOT required here — see "What the queue requires, and what it does not". |
+| **Per-PR, path-scoped** (binding via `pr-gate`) | The cross-backend runtime legs `behavioral-e2e-{dotnet,java,python,elixir,dapper,mikroorm}` + `behavioral-ui-e2e` + `behavioral-ui-vue-e2e` + `behavioral-heex-ui-e2e` (each fires when the PR touches its backend's emitters, the shared IR, or the harness); the five `{hono,python,java,dotnet,elixir-vanilla}-obs-e2e` legs; the four *native* `{hono,python,java,dotnet}-oidc-e2e` legs; the four `generated-{react,vue,svelte,angular}-e2e` SPA smokes; `elixir-vanilla-vo-e2e`; `phoenix-ui-e2e`; `migration-evolution-e2e` (also in the queue); `tenancy-e2e`'s five `flat` cells; `pairwise`'s generation sweep; the `pages` build (docs/web/src) | Docker/boot cost paid only by the PRs that can break them; when they fire, `pr-gate` makes them blocking. Each file's `paths:` block is the authority on *when* — deliberately narrower than its own `push: main` block, so a typical PR fires one or two siblings, not the whole family. |
+| **Merge queue** (`merge_group`, runs once on the final candidate — **LIVE since 2026-09-07**) | The 24 wired gates (branch protection itself requires only `tests passed` + `pr-gate`): the cheap broad set over the combined tree (`tests passed`, langium drift, the five `build-generated-*`, both `corpus-*`, the six frontend builds, `parity`, headless `behavioral`), `migration-evolution-e2e` (its full-tree run; its per-PR block is path-scoped), plus the five gates the queue is the ONLY pre-merge run for unless a `run-*` label asks earlier (`tenancy-e2e` beyond its `flat` cells, `channels-e2e`, `api-call-e2e`, `elixir-oidc-compose-e2e`, `auth-oidc-compose-e2e`) | Catches what per-PR CI structurally cannot: two PRs green apart, red together. Everything already binding per-PR is deliberately NOT required here — see "What the queue requires, and what it does not". |
 | **Nightly / label** (unchanged) | `conformance-full`, `generated-a11y`, `frontend-fullstack-e2e`, `k8s-e2e` | Broad, slow, low churn — post-hoc is fine. |
 
 Note: `generated-react-build`, `generated-vue-build` and
@@ -127,6 +132,101 @@ post-merge / nightly / `run-e2e`-label; `playground-e2e-no-network` runs the
 network-free subset (workspace, history, builder, requirements, editor) on
 every PR touching `web/**` or `src/**`, so file-management and builder
 regressions are caught before merge.
+
+## The never-gating legs, re-measured (2026-10-05)
+
+Wave C3 packet 3e's row: every runtime leg runs before the merge — per-PR, in
+the merge queue, or both — or carries a dated reason for staying out. Every
+number below came from the Actions REST API on 2026-10-05; the method is
+stated so the next re-measure can repeat it rather than trust it.
+
+**Method.** Flake budget: `scripts/flake-budget.mjs` (first-attempt pass rate
+over the last 20 completed `main` runs, budget 80 %, retry-masked at 2
+re-run greens). Runner cost: for each workflow, its last 10 completed
+non-skipped runs (`push` on `main`, or `merge_group`), every non-skipped job's
+`completed_at − started_at`, summed per run (median reported). Queue entry
+cost: every workflow run on each of the last 10 `merge_group` head SHAs, jobs
+and runner-minutes summed, wall = first run created → last job completed.
+
+| leg | flake budget (1st try, last 20 `main`) | cost a firing (median) | decision |
+|---|---|---|---|
+| `phoenix-ui-e2e` | **30/30** first-attempt (#2718 closed 2026-09-09) | 2 jobs, 4.4 runner-min, ~2.2 min each | **per-PR, path-scoped** — same blast radius as `behavioral-heex-ui-e2e` (elixir tree, shared seams, the two HEEx packs); not in the queue (a per-PR-binding leg's queue run is a re-run) |
+| `channels-e2e` | 20/20 | 18 jobs, 34.4 runner-min, 1.3–3.3 min each | **merge queue** (`merge_group:` + `channels-e2e-passed`). A per-PR block carrying the generation path would fire all 18 cells on every `src/ir/**` push; in the queue it adds ~7 % to an entry's cost and nothing to its wall time |
+| `api-call-e2e` | 20/20 | 5 jobs, 9.0 runner-min, 1.4–2.4 min each | **merge queue** (`merge_group:` + `api-call-e2e-passed`), same argument at a quarter of the size |
+| `tenancy-e2e` `flat` cells | 20/20 (workflow) | 5 jobs, ~7 runner-min, 1.0–1.9 min each | **per-PR, path-scoped** (job `tenancy-e2e-flat`, draft guard); the other cells stay label + queue (job `tenancy-e2e`), one rollup over both |
+| `migration-evolution-e2e` | 20/20 | 5 cells + rollup, 9.8 runner-min, 1.2–3.0 min each | **per-PR, path-scoped AND still in the queue** — the 35-minute figure the deferral cited is the job's cap, not its cost; the queue run stays as the full-tree net behind a path-scoped PR block |
+| `playground-e2e` | 20/20 | — | **stays out (dated waiver, 2026-10-05)**: its bundle/boot specs ride esm.sh / jsdelivr / npm availability, so a CDN outage would eject queue entries or red unrelated PRs; the network-free half (`playground-e2e-no-network`) gates every PR |
+
+A merge-queue entry today: **~309 jobs, ~514 runner-minutes, wall median 22.6
+min (p90 26.4)**, its critical path the corpus compile gates (~22 min). Adding
+`channels-e2e` and `api-call-e2e` puts 23 jobs / ~43 runner-minutes (+8 %) on
+an entry; every added job is shorter than that critical path.
+
+**The exit metric is enforced, not asserted.**
+`merge-queue-readiness.test.ts` → "no post-merge leg sits outside both the
+per-PR set and the queue" fails on any `push: main` workflow that neither runs
+per-PR (a `pull_request:` trigger firing on `opened`, with an entry job behind
+nothing but the draft guard) nor carries `merge_group:`, unless it has a
+`NEVER_GATING_WAIVERS` entry with a reason and a measurement date. A waiver
+older than 90 days fails until it is re-measured; a waiver whose leg now gates
+fails as stale.
+
+**Kept out, with dated reasons (2026-10-05):**
+
+- **The Schemathesis elixir cell stays a discovery cell** (`continue-on-error`
+  in `schemathesis.yml`). The 2026-10-05 nightly (run 37301241323, report
+  artifact `schemathesis-reports-elixir`) found **32 failures and 30 errors
+  over 29 operations (21 tested, 8 errored)**: 14 `Schema Error`s, 16 `Runtime Error`s,
+  `Ecto.Query.CastError` on a non-uuid `{id}` and on the static `/by_email`
+  sub-path shadowed by `/{id}`, undeclared success Content-Types, `TRACE`
+  answering an undocumented 404, and `POST /customers` + `POST /orders` answering 405.
+  Binding it means writing root-cause rules for those AND fixing the real
+  defects among them in `src/generator/elixir/**` — an elixir triage packet,
+  not a workflow edit. Nightly-only, so it is outside the `push: main`
+  ratchet above.
+- **The per-backend npm legs are not collapsed (A7).** Measured: 51 of the
+  112 `test*` scripts are per-backend variants. The runtime features they
+  serve are already ONE matrix workflow each (`tenancy-e2e` 18 cells,
+  `channels-e2e` 17, `email-e2e`/`migration-evolution-e2e`/`schemathesis`
+  5 each), so a new backend cell is one matrix row in one file today, and a
+  new corpus feature is one manifest row for all five compile legs. What
+  remains per backend is the boot harness — one `test/e2e/*-<backend>.test.ts`
+  per backend with genuinely different boot mechanics, each with its script.
+  Folding those into parameterised scripts is a `test/e2e/**` + `package.json`
+  refactor, and its pr-gate payoff measures as nil: the cycle is bounded by
+  `corpus × tsc` (~22 min), which no npm-script collapse touches. The five
+  `*-obs-e2e` and four native `*-oidc-e2e` stay separate files on purpose —
+  `paths:` is per workflow, and a merged file would wake every backend's boot
+  on any one backend's change.
+
+**B7 — javac now runs `-Xlint:all -Werror` in both java compile legs**
+(`java-build.yml` and `corpus-build.yml`'s `corpus × java`), through
+`test/e2e/support/java-werror.init.gradle` (an init script, so the GATE is
+strict while a user's generated `build.gradle.kts` is not forced onto
+`-Werror`). Measured first on all 37 java-build fixtures: four lint classes,
+each fixed at its emitter — `serial` (the six emitted exception classes —
+both `DomainException` variants — and the api-client's `RemoteCallException`
+get a `serialVersionUID`), `try` (the
+unreferenced execution-frame and OTel-scope resources became Java 22 unnamed
+`_` resources), `deprecation` (Jackson 3 `asText()`/`isTextual()` →
+`asString()`/`isString()`, which the 3.1.4 jar compiles the old names down
+to) and `rawtypes` (swagger-core's raw `Schema.getProperties()`, suppressed on
+the one method that must spell it). After: 37/37 fixtures and 95/95 corpus
+features clean under `-Werror` (JDK 25, Gradle 9.7.1, run locally before the
+wiring). `test/system/java-compile-strictness.test.ts` pins the install step
+in both workflows and the script's two flags.
+
+**pr-gate cycle time.** *Before* (this head's base, last 22 merged PRs whose
+final `pr-gate` was `success`): cycle = first check-run start on the PR's
+final head SHA → that SHA's last `pr-gate` check-run completion — **median
+24.5 min, p90 45.3 min**; tail = last non-`pr-gate` check completion → the
+`pr-gate` verdict — median 0.4 min, p90 1.3 min. The slowest single check on
+a broad PR is `corpus × tsc (Hono/node)` at 17–23 min, and every leg this
+packet added per-PR is under 3.3 min a job. *After* is measured the same way
+over the first 20 PRs merged once this lands, plus the queue-entry figures
+above re-taken over the first 10 merge groups that carry `channels-e2e`;
+the result goes in the wave log, and a cycle p90 above ~45 min under load is
+the revert signal for `migration-evolution-e2e`'s per-PR block.
 
 ## The `pr-gate` check — still the per-PR aggregate
 
@@ -259,7 +359,7 @@ parking a runner from PR-open, which it would otherwise do on every PR. So an
 in-queue head needs at least one `workflow_run` dispatch to land while ≤8 checks
 are outstanding. If every one of them is dropped, the group parks and its only
 bound is the queue's 180-minute checks timeout, which ejects rather than heals.
-With 22 gates wired into the queue there are ~22 chances for one to land, but
+With 24 gates wired into the queue there are ~24 chances for one to land, but
 that is a probability, not a guarantee — if in-queue parks survive this change,
 that is the gap to close, and the fix is a formation-time arm with its own
 budget, not another sweep.
@@ -563,7 +663,7 @@ into the queue, not which names branch protection waits on.
 That distinction is easy to lose because it does not change what is binding.
 `pr-gate` fails on any non-passing check run present on the head SHA, so
 every gate that RUNS in a merge group gates it, required by name or not.
-Which is exactly why the lever is the trigger and not the manifest: 22 gates
+Which is exactly why the lever is the trigger and not the manifest: 24 gates
 now carry `merge_group:` and the other 18 do not, so those 18 neither run nor
 cost a runner slot in the queue.  Marking them "not required" would have
 changed nothing on its own.
@@ -587,14 +687,16 @@ Every gate here carries `pull_request:`, so the trigger says nothing. The
 | `github.event_name != 'pull_request' \|\| <run-* label>` | needs a label on a PR; `merge_group` is not `pull_request`, so **the queue is its only run** | **yes** — dropping one deletes the coverage rather than saving cost |
 
 So the 18 excluded are every docker-booting per-backend leg (8 `behavioral-*`,
-5 `*-obs-e2e`, 4 native `*-oidc-e2e`) plus the `pages` build. The four kept on
-the second row are `tenancy-e2e`, `migration-evolution-e2e`,
-`elixir-oidc-compose-e2e` and `auth-oidc-compose-e2e` — the post-merge blind
-spot named at the top of this file. **Trimming for cost must never reach
-them**, and `merge-queue-readiness.test.ts` enforces that: it reads each job's
-guard (following `needs` for rollups, whose own `if:` is `!cancelled()`) and
-fails if a `runs-on-every-pr` waiver is really label-guarded, or a
-`queueIsOnlyRun` row is really draft-guarded.
+5 `*-obs-e2e`, 4 native `*-oidc-e2e`) plus the `pages` build. The five kept on
+the second row are `tenancy-e2e` (its non-`flat` cells), `channels-e2e`,
+`api-call-e2e`, `elixir-oidc-compose-e2e` and `auth-oidc-compose-e2e` — the
+post-merge blind spot named at the top of this file. **Trimming for cost must
+never reach them**, and `merge-queue-readiness.test.ts` enforces that: it reads
+each job's guard (following `needs` for rollups, whose own `if:` is
+`!cancelled()`) and fails if a `runs-on-every-pr` waiver is really
+label-guarded, or a `queueIsOnlyRun` row is really draft-guarded.
+`migration-evolution-e2e` is the one gate on neither row: draft-guarded and
+path-scoped per-PR, and still required in the queue as the full-tree run.
 
 **The cost being accepted:** a PR-interaction bug that manifests *only* in a
 booted per-backend stack can now reach `main`. Judged unlikely — an emitter
@@ -672,6 +774,8 @@ candidate, not only when a path matches:
 | `behavioral-ui-e2e.yml` | `behavioral-ui` |
 | `behavioral-heex-ui-e2e.yml` | `behavioral-heex-ui` |
 | `tenancy-e2e.yml` | `tenancy-e2e-passed` |
+| `channels-e2e.yml` | `channels-e2e-passed` |
+| `api-call-e2e.yml` | `api-call-e2e-passed` |
 | `hono-obs-e2e.yml` | `hono-obs-e2e` |
 | `dotnet-obs-e2e.yml` | `dotnet-obs-e2e` |
 | `java-obs-e2e.yml` | `java-obs-e2e` |
@@ -693,16 +797,15 @@ candidate, not only when a path matches:
 > `main` has today.
 
 Everything *not* in these two tables stays out of the queue — `conformance-full`,
-`differential-report`, `channels-e2e`, `api-call-e2e`, the `k8s-*` gates, the
-`generated-*-e2e` SPA smokes, `playground-*`, `frontend-fullstack-e2e`,
-`generated-a11y`, `phoenix-ui-e2e`, `elixir-vanilla-vo-e2e`, `ci-red-alarm`,
-`cleanup-artifacts`, `email-e2e`, `context-integration-e2e`. They must **not**
-be added to required checks (a required check with no `merge_group` trigger
-stalls the queue forever). Note that "out of the queue" is not "out of the PR":
-the four `generated-*-e2e` smokes and `elixir-vanilla-vo-e2e` now run per-PR
-path-scoped and are binding through `pr-gate` — they simply have no
-`merge_group:` trigger, so they cannot be required names. Pulling one in is the
-recipe below.
+`differential-report`, the `k8s-*` gates, the `generated-*-e2e` SPA smokes,
+`playground-*`, `frontend-fullstack-e2e`, `generated-a11y`, `phoenix-ui-e2e`,
+`elixir-vanilla-vo-e2e`, `ci-red-alarm`, `cleanup-artifacts`, `email-e2e`,
+`context-integration-e2e`. They must **not** be added to required checks (a
+required check with no `merge_group` trigger stalls the queue forever). Note
+that "out of the queue" is not "out of the PR": the four `generated-*-e2e`
+smokes, `elixir-vanilla-vo-e2e` and `phoenix-ui-e2e` run per-PR path-scoped
+and are binding through `pr-gate` — they simply have no `merge_group:`
+trigger, so they cannot be required names. Pulling one in is the recipe below.
 
 ### The activation runbook (repo settings — the only remaining step)
 
@@ -771,13 +874,13 @@ Nothing below is code; it is an admin action on `github.com/Loom-Harness/Loc`.
      affordable then.
 4. Enable **Require status checks to pass**. The repo requires **two** names
    today (`tests passed`, `pr-gate`), which is sufficient because `pr-gate`
-   aggregates everything that ran. Requiring the 22 by name instead is the
+   aggregates everything that ran. Requiring the 24 by name instead is the
    stricter alternative — it stops a dropped/renamed workflow from going
-   unnoticed — and if you take it, add **exactly** the 22 names
+   unnoticed — and if you take it, add **exactly** the 24 names
    marked `queueRequired: true` in the manifest. Add them by pasting the name —
    the search box only offers checks GitHub has seen recently.
 5. Save. From then on, PRs merge via the queue: GitHub builds a rebased
-   candidate, runs the 22 required checks on it, and lands it only if they are green.
+   candidate, runs the 24 required checks on it, and lands it only if they are green.
 6. **Watch the first day.** A check that never reports leaves candidates
    pending — if that happens, the cause is a missing `merge_group:` trigger or
    a mistyped check name. `npx vitest run test/system/merge-queue-readiness.test.ts`
@@ -792,7 +895,7 @@ the required-checks list in settings.
 **Scriptable alternative.** The same configuration can be applied as a repo
 ruleset via `gh api --method POST /repos/lemmit/Loc/rulesets` with a
 `merge_queue` rule plus a `required_status_checks` rule whose
-`required_status_checks[]` are the 22 required names above. It is the reproducible path
+`required_status_checks[]` are the 24 required names above. It is the reproducible path
 and worth capturing once the settings are stable, but the UI path is primary:
 ruleset JSON silently accepts check names that do not exist, which is the one
 mistake that stalls the queue.
@@ -861,22 +964,23 @@ the size that matches the blast radius is one label per feature family:
 |---|---|---|
 | ~~`run-obs`~~ | — | **No longer bound to anything.** The five `*-obs-e2e` legs are per-PR path-scoped since wave G1; the label drives no workflow and applying it does nothing. |
 | `run-oidc` | `elixir-oidc-e2e` + `auth-oidc-compose-e2e` | The two *compose* OIDC legs only. The four native legs (`hono/dotnet/java/python-oidc-e2e`) are per-PR path-scoped since wave G1 and no longer answer to the label. |
-| `run-tenancy` | `tenancy-e2e` | already a 10-leg matrix internally |
-| `run-migration-e2e` | `migration-evolution-e2e` | migrate-chain ≡ fresh-create + data-survival, 5 SQL backends |
+| `run-tenancy` | `tenancy-e2e`'s non-`flat` cells (hierarchy, the mikroorm/dapper adapter cells, org-context, subtree EXPLAIN) | The five `flat` cells run per-PR path-scoped. The label is read on the NEXT push (`contains(labels)` on `synchronize`) and only on a PR the workflow's `paths:` match; the merge queue runs every cell regardless |
+| ~~`run-migration-e2e`~~ | — | **No longer bound to anything (2026-10-05).** `migration-evolution-e2e` runs per-PR path-scoped and in the queue. |
 | `run-conformance` | `conformance-full` | cross-backend runtime conformance |
-| `run-channels` | `channels-e2e` | cross-deployable eventing |
+| `run-channels` | `channels-e2e` | cross-deployable eventing — an earlier signal only: the merge queue runs every cell since 2026-10-05 |
+| `run-api-call` | `api-call-e2e` | typed in-system call between deployables — likewise run by the merge queue since 2026-10-05 |
 | `run-differential` | `differential-report` | the nightly all-pairs DISCOVERY sweep over the wider compose stack. The **enforcement** half is no longer here: since M-T9.11 slice (c) each backend diffs its recorded responses against `test/behavioral/wire-golden/` inside its own `behavioral-e2e*.yml` leg, so runtime-value parity is a per-PR blocking gate needing no label |
-| `run-e2e` | `phoenix-ui-e2e`, `playground-e2e` | legacy cluster — a coherent Phoenix/playground group, *not* a run-everything button. `elixir-vanilla-vo-e2e` left this cluster in wave G1 (per-PR path-scoped). |
+| `run-e2e` | `playground-e2e` | `elixir-vanilla-vo-e2e` left this cluster in wave G1 and `phoenix-ui-e2e` on 2026-10-05 (both per-PR path-scoped); the label now drives the playground suite alone. |
 | `frontend-fullstack` | `frontend-fullstack-e2e` | non-React fullstack round-trip |
 | `a11y` | `generated-a11y` | axe-core WCAG-AA scan |
 | `e2e-k8s` | `k8s-e2e` | kind-cluster smoke |
 
 The job `if` is uniform: `github.event_name != 'pull_request' || github.event.label.name == '<label>'`
 — so push, `merge_group`, and `workflow_dispatch` always run; a PR runs the gate
-only when tagged with that exact label. (`migration-evolution-e2e` spells the
-same rule as `contains(github.event.pull_request.labels.*.name, 'run-migration-e2e')`
-because it also accepts `synchronize`, so a push to an already-labelled PR
-re-runs it.) Concurrency on these files is keyed so that a labeled PR run
+only when tagged with that exact label. (`tenancy-e2e` spells the same rule
+as `contains(github.event.pull_request.labels.*.name, 'run-tenancy')` on its
+non-`flat` job, because that file is per-PR for its `flat` cells and so fires
+on `synchronize`, not on `labeled`.) Concurrency on these files is keyed so that a labeled PR run
 never collides with or cancels a `push:main` run — some use `github.ref`, some
 `github.event.pull_request.number || github.ref`; read the file rather than
 assuming one shape. A *promoted* gate is different: it must use the PR-aware
@@ -960,7 +1064,28 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-09-10 baseline
+### The 2026-10-05 re-measure (current)
+
+Re-run after the behavioral corpus grew by the wave C3 drains, when
+`behavioral-dotnet` was killed at its 15m cap on a PR adding six fixtures — on
+`main` alone it had reached a 13m51s max against that cap. Job-execution
+seconds from the Actions API, n=20 successful runs per leg:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node) | 3m49s | 3m57s | 4m05s | 10m | **10m** |
+| `behavioral-e2e-python` | 5m41s | 6m25s | 7m29s | 10m | **10m** |
+| `behavioral-e2e-java` | — | — | — | 30m | **30m** ‡ |
+| `behavioral-e2e-dotnet` | 10m19s | 13m48s | 13m51s | 15m | **25m** |
+| `behavioral-e2e-dapper` | 9m18s | 13m02s | 13m06s | 15m | **20m** |
+| `behavioral-e2e-mikroorm` | 13m18s | 15m05s | 15m09s | 20m | **25m** |
+| `behavioral-e2e-elixir` | 10m18s | 12m10s | 13m03s | 20m | **20m** |
+
+‡ not re-sampled — the report returned no java sample on this run; the
+2026-09-10 figure below still stands, and java's recent runs (~15m) sit well
+inside it.
+
+### The 2026-09-10 baseline (superseded — java still rests on it)
 
 All seven behavioral legs, measured at step level from the Actions API
 (`behavioral-java` at n=40, the rest at n=15):
@@ -1034,13 +1159,13 @@ concurrency. §3 of that plan is the checklist a further promotion should follow
 (no YAML anchors in `paths:`; drop `labeled` from `types:`; the guard string is
 matched verbatim by `test/system/draft-gate.test.ts`; no `pr-gate.yml` edit).
 
-**Remaining, and deliberately so** — the reasons are recorded in §2 and §4 of
-that plan, not re-argued here:
+**Remaining, as of 2026-10-05** — wave C3 packet 3e re-measured each row
+(see "The never-gating legs, re-measured (2026-10-05)"); what moved:
 
-| Still post-merge / label | Why it was not promoted |
+| Was post-merge / label | Now |
 |---|---|
-| `tenancy-e2e` | its matrix plus rollup is over half the ~20-slot pool from one workflow; a promotion needs an event-conditional matrix that fires only the `flat` legs per-PR |
-| `migration-evolution-e2e` | the longest single leg in the fleet (35-minute cap); promoting it moves the pr-gate cycle, so it wants the cycle measured before and after |
-| `channels-e2e`, `api-call-e2e` | docker-in-runner brokers, large cell counts, and neither carries `merge_group:` — declined outright |
-| `phoenix-ui-e2e` | blocked on its flake budget (#2718): a promoted gate that fails intermittently reds `pr-gate` on unrelated PRs, and `scripts/flake-budget.mjs` only ever sees `main` |
-| `elixir-oidc-e2e`, `auth-oidc-compose-e2e` | both build images inside the runner (Phoenix release / generated compose stack), which is the cost the narrow-paths answer does not fix |
+| `tenancy-e2e` | the five `flat` cells per-PR path-scoped (a split job, not an event-conditional matrix: a job `if:` cannot read `matrix`); the rest stay label + queue |
+| `migration-evolution-e2e` | per-PR path-scoped and still in the queue; measured at ~10 runner-minutes a firing, not the 35-minute cap |
+| `channels-e2e`, `api-call-e2e` | in the merge queue (`merge_group:` + a `-passed` rollup); the labels remain an earlier signal |
+| `phoenix-ui-e2e` | per-PR path-scoped — #2718 closed 2026-09-09 and 30/30 first-attempt passes on `main` |
+| `elixir-oidc-e2e`, `auth-oidc-compose-e2e` | unchanged: in the merge queue (label-guarded per-PR). Not per-PR because both build images inside the runner (Phoenix release / generated compose stack), which is the cost the narrow-paths answer does not fix |

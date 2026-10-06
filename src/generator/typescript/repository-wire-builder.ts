@@ -10,7 +10,7 @@ import type {
   BoundedContextIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
-  EnrichedEntityPartIR,
+  EntityPartIR,
   TypeIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
@@ -67,9 +67,9 @@ export function toWireMaskedMethod(agg: AggregateIR): string {
 }
 
 function wireProjectionEntity(
-  ent: EnrichedAggregateIR | EnrichedEntityPartIR,
+  ent: AggregateIR | EntityPartIR,
   varExpr: string,
-  ctx: EnrichedBoundedContextIR,
+  ctx: BoundedContextIR,
 ): string {
   // Single canonical walk — `wireFieldsFor` recomputes the wire shape from the
   // enriched node's fields (the scaffold-time helper in wire-projection.ts).
@@ -193,7 +193,17 @@ export function wireProjectionValue(
     // for branded `T id` element arrays.
     return `${expr}.map((a) => (${wireProjectionValue("a", t.element, ctx, false)}))`;
   }
-  if (t.kind === "entity") return expr;
+  if (t.kind === "entity") {
+    // A DERIVED entity-typed member (`derived byPriceDesc: LineItem[] =
+    // lines.sortBy(…)`) is a domain instance, exactly like a containment
+    // element — so it crosses the wire through the part's own projection.
+    // Returning the instance itself put the private-field class on the wire
+    // (every `sku` read `undefined`; wave C3 D1).
+    const part = ctx.aggregates.flatMap((a) => a.parts).find((p) => p.name === t.name);
+    if (!part) return expr;
+    const projected = wireProjectionEntity(part, expr, ctx);
+    return optional ? `(${expr} == null ? null : ${projected})` : projected;
+  }
   if (t.kind === "genericInstance" && t.ctor === "provenanced") {
     // Fold the domain's split pair into the one wire carrier: the value's own
     // projection plus the co-located lineage getter the entity emitter

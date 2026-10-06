@@ -4,6 +4,7 @@
 // `.limit()/.offset()`, returning the hydrated aggregate array.
 
 import { describe, expect, it } from "vitest";
+import { validate } from "../../../src/api/index.js";
 import { generateHono, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 import { parseValid } from "../../_helpers/parse.js";
 
@@ -117,6 +118,22 @@ function runBody(repo: string, name: string): string {
 }
 
 describe("typescript generator — retrieval loadPlan (whole/explicit parity)", () => {
+  it("the `loads:` fixture is refused by EXACTLY loom.retrieval-loads-unsupported (the pin the Unchecked hop rests on)", async () => {
+    // The `Unchecked` hop below is honest only while the refusal it names is the
+    // refusal the model actually gets.  Pinned exactly, so the escape hatch is a
+    // ratchet rather than a mute (M-T9.48 residue):
+    //   * when `loads:` ships and the refusal is lifted, this fails — move the
+    //     case below onto `generateSystemFiles` and delete this pin;
+    //   * a SECOND refusal creeping into the fixture (a defect the Unchecked hop
+    //     would otherwise hide) fails it too.
+    const report = await validate(LOADS_SRC);
+    const errorCodes = report.diagnostics
+      .filter((d) => d.severity === "error")
+      .map((d) => d.code)
+      .sort();
+    expect(errorCodes).toEqual(["loom.retrieval-loads-unsupported"]);
+  });
+
   it("explicit `loads` does not narrow — both retrievals bulk-load every owned containment", async () => {
     // `loads:` is REFUSED outright — `loom.retrieval-loads-unsupported`, on
     // every backend and with or without a hosting deployable (verified: `ddd

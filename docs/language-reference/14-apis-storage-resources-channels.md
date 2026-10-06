@@ -2,7 +2,7 @@
 
 The infrastructure surface that sits *between* the pure domain and the deployment topology: the `api` contract a subdomain exposes, the physical `storage` instances a system declares, the `resource` bindings that wire a context's data needs to that storage, and the `channel` / `channelSource` pair that realises event pub/sub. Reach for this chapter when you're deciding *what store backs which context*, *how a backend connects to it*, and *how carried events leave the process*.
 
-> **Grammar:** `Api`, `ApiStatus`, `Route`, `HttpMethod`, `HandlerRef`, `CommandHandler` / `QueryHandler`, `Storage`, `StorageType`, `ConnectionSource`, `Resource`, `DataSourceKind`, `IndexSpec`, `Channel`, `ChannelSource` · **Validators:** `checkDataSource` / `checkChannels` (`src/language/validators/{datasource,channel}.ts`), `api-checks.ts` / `system-checks.ts` · **Codes:** `loom.route-handler-unresolved`, `loom.duplicate-handler`, `loom.command-handler-multi-aggregate`, `loom.query-handler-saves`, `loom.handler-*`, `loom.resource-index-*`, `loom.resource-api-*`, `loom.remote-api-op-unsupported`, `loom.file-field-needs-object-storage`, `loom.channelsource-*`, `loom.channel-key-missing-field`, `loom.deployable-channel-unrelated`, `loom.channel-consumer-unwired`, `loom.relay-target-not-subscribed` · **Docs:** [`../resources.md`](../resources.md), [`../channels.md`](../channels.md), [`../architecture.md`](../architecture.md)
+> **Grammar:** `Api`, `ApiStatus`, `Route`, `HttpMethod`, `HandlerRef`, `CommandHandler` / `QueryHandler`, `Storage`, `StorageType`, `ConnectionSource`, `Resource`, `DataSourceKind`, `IndexSpec`, `Channel`, `ChannelSource` · **Validators:** `checkDataSource` / `checkChannels` (`src/language/validators/{datasource,channel}.ts`), `api-checks.ts` / `system-checks.ts` · **Codes:** `loom.route-handler-unresolved`, `loom.duplicate-handler`, `loom.command-handler-multi-aggregate`, `loom.query-handler-saves`, `loom.handler-*`, `loom.resource-index-*`, `loom.resource-api-*`, `loom.file-field-needs-object-storage`, `loom.channelsource-*`, `loom.channel-key-missing-field`, `loom.deployable-channel-unrelated`, `loom.channel-consumer-unwired`, `loom.relay-target-not-subscribed` · **Docs:** [`../resources.md`](../resources.md), [`../channels.md`](../channels.md), [`../architecture.md`](../architecture.md)
 
 The model is a three-link chain — *storage* is the physical instance, *resource* is the configured binding, and the context's data *need* is derived from its aggregates, never authored:
 
@@ -149,6 +149,8 @@ Handler gates (all `src/ir/validate/checks/api-checks.ts` unless noted): a `quer
 
 `serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `LOOM_OPENAPI_UI`.
 
+An `api` that **no** backend deployable lists in `serves:` is dead — nothing mounts its routes or pins its contract — and raises the warning **`loom.api-unserved`** naming the api and the backends that could serve it. It stays quiet for a system with no deployables at all (a domain-only model), and for an api a `resource { kind: api, use: … }` binds, which already fails with `loom.resource-api-unserved`.
+
 ## `storage`
 
 ```
@@ -292,7 +294,7 @@ CREATE INDEX "orders_status_code_idx" ON "orders"."orders" ("status", "code");
 
 ### `use: <Api>` — the typed in-system client
 
-Bind an `api` instead of a `storage` on a `kind: api` resource and the caller gets a **typed** client for a sibling deployable — named operations, derived request/response types, and a compose address derived from the servers' service slug + port (no `baseUrl` is authored). Binding an api on any other kind is `loom.resource-api-target-kind`; the api must be served by exactly one backend deployable (`loom.resource-api-unserved` / `loom.resource-api-ambiguous-server`), and a deployable may not wire a resource pointing at an api it serves itself (`loom.resource-api-self-call` — call the context in-process). An operation the caller's platform emits no client for is `loom.remote-api-op-unsupported`; the untyped `get` / `post` verbs over a `storage restApi` binding are the escape hatch.
+Bind an `api` instead of a `storage` on a `kind: api` resource and the caller gets a **typed** client for a sibling deployable — named operations, derived request/response types, and a compose address derived from the servers' service slug + port (no `baseUrl` is authored). Binding an api on any other kind is `loom.resource-api-target-kind`; the api must be served by exactly one backend deployable (`loom.resource-api-unserved` / `loom.resource-api-ambiguous-server`), and a deployable may not wire a resource pointing at an api it serves itself (`loom.resource-api-self-call` — call the context in-process). Every backend emits the typed client; the untyped `get` / `post` verbs over a `storage restApi` binding are the escape hatch for an api Loom does not own.
 
 ```ddd
 resource orders { for: Shipping, kind: api, use: OrdersApi }
