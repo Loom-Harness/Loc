@@ -5,7 +5,8 @@ import { parseRawResult } from "../../_helpers/index.js";
 
 // B-20: the opt-in `before` modifier on a raw migration step parses, prints,
 // and round-trips; a plain `sql "…"` keeps printing without it, and `before`
-// stays a soft keyword (a field may still be named `before`).
+// is NOT a keyword at all (a bare ID the validator pins), so `before`
+// stays usable in every name position.
 
 const SRC = `migration "v2" {
   sql before "UPDATE banking.accounts SET number = number || 'x' WHERE false"
@@ -18,7 +19,7 @@ describe("migration `sql before` — parse + print round-trip", () => {
     const r = parseRawResult(SRC);
     expect(r.parserErrors).toEqual([]);
     const steps = ((r.value as Model).members[0] as Migration).steps as SqlStep[];
-    expect(steps.map((s) => s.before)).toEqual([true, false]);
+    expect(steps.map((s) => s.placement)).toEqual(["before", undefined]);
   });
 
   it("prints `sql before` and re-parses to the same steps", () => {
@@ -29,15 +30,16 @@ describe("migration `sql before` — parse + print round-trip", () => {
     const re = parseRawResult(printed);
     expect(re.parserErrors).toEqual([]);
     const steps = ((re.value as Model).members[0] as Migration).steps as SqlStep[];
-    expect(steps.map((s) => [s.before, s.sql])).toEqual([
-      [true, "UPDATE banking.accounts SET number = number || 'x' WHERE false"],
-      [false, "UPDATE banking.accounts SET holder = holder"],
+    expect(steps.map((s) => [s.placement, s.sql])).toEqual([
+      ["before", "UPDATE banking.accounts SET number = number || 'x' WHERE false"],
+      [undefined, "UPDATE banking.accounts SET holder = holder"],
     ]);
   });
 
-  it("`before` stays usable as a field name", () => {
+  it("`before` is not reserved: still usable as a field, workflow and let name", () => {
     const r = parseRawResult(`system S { subdomain D { context C {
       aggregate A { before: datetime }
+      workflow before { create(x: int) { let before = x } }
     } } }`);
     expect(r.parserErrors).toEqual([]);
   });

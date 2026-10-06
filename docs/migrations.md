@@ -377,7 +377,9 @@ a new `unique (…)` index is created over a populated table. Same exactly-once
 ledger, same declaration order among the `before` steps, same file (Ecto:
 `execute/1` first in `change/0`). On a module's **Initial** generation there is
 nothing to precede — none of its tables exist yet — so `before` keeps the
-trailing position there, on every backend.
+trailing position there, on every backend. `before` is a placement word, not a
+reserved keyword — it stays usable as a field, workflow or `let` name — and any
+other placement is rejected (`loom.migration-sql-placement`).
 
 ```ddd
 aggregate Account { number: string  unique (number) }   // unique added this generation

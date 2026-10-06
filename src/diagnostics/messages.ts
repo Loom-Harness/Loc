@@ -699,6 +699,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
+  "loom.migration-sql-placement": (p: { placement: unknown }) =>
+    `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
   "loom.backfill-unknown-field": (p: { field: unknown; agg: unknown }) =>
     `'${p.field}' is not a field of aggregate '${p.agg}' — a backfill targets a live field (it names the newly-added column).`,
   "loom.backfill-duplicate": (p: { key: unknown }) =>

@@ -446,11 +446,14 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Assignment",
-            "feature": "before",
-            "operator": "?=",
+            "feature": "placement",
+            "operator": "=",
             "terminal": {
-              "$type": "Keyword",
-              "value": "before"
+              "$type": "RuleCall",
+              "rule": {
+                "$ref": "#/rules@270"
+              },
+              "arguments": []
             },
             "cardinality": "?"
           },
@@ -14592,10 +14595,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "auth"
-          },
-          {
-            "$type": "Keyword",
-            "value": "before"
           },
           {
             "$type": "Keyword",

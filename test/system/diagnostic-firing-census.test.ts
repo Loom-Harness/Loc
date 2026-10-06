@@ -3578,6 +3578,8 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // B-20: the AST validator rejects any `sql <placement>` other than `before`.
+  "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 

@@ -148,16 +148,23 @@ describe("G7 — the base compose stack is the app, nothing else", () => {
         encoding: "utf8",
       });
 
-    // Base alone is valid compose, and starts nothing but the app.
+    // Base alone is valid compose, and starts nothing but the app (plus the
+    // one-shot `db-bootstrap` that provisions each backend's database, B-26).
     const base = config("docker-compose.yml");
     expect(base.status, base.stderr).toBe(0);
-    expect(base.stdout.trim().split("\n").sort()).toEqual(["db", "orders_api", "web_app"]);
+    expect(base.stdout.trim().split("\n").sort()).toEqual([
+      "db",
+      "db-bootstrap",
+      "orders_api",
+      "web_app",
+    ]);
 
     // With the overlay the two collectors join in.
     const both = config("docker-compose.yml", "docker-compose.obs.yml");
     expect(both.status, both.stderr).toBe(0);
     expect(both.stdout.trim().split("\n").sort()).toEqual([
       "db",
+      "db-bootstrap",
       "jaeger",
       "orders_api",
       "prometheus",

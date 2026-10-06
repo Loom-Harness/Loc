@@ -88,11 +88,16 @@ MigrationStepDecl:
 // chain exactly once (the builder records `<block>#<index>` in the snapshot's
 // `appliedDataMigrations` ledger).  Postgres-flavoured — every backend
 // applies Postgres (Ecto wraps it in `execute/1`).  By default the step runs
-// AFTER the generation's structural DDL; the opt-in `before` modifier
+// AFTER the generation's structural DDL; the opt-in `before` placement
 // (`sql before "…"`) emits it AHEAD of them — the dedupe that must precede a
 // new `unique (…)` index, or any fix-up the new DDL would otherwise reject.
+// `placement` is a bare ID, NOT a `'before'` keyword: Langium keywords are
+// lexed globally, so a keyword would reserve `before` in every name position
+// that is not soft-keyword-aware (workflow / let / param names — the corpus
+// uses all of them).  The validator admits only `before`
+// (`loom.migration-sql-placement`).
 SqlStep:
-    'sql' (before?='before')? sql=STRING;
+    'sql' (placement=ID)? sql=STRING;
 
 // A column step, left-factored on the shared `Agg.field` prefix:
 //   - rename:   `Order.qty -> quantity`   (`renamedTo` set; `field` is the
@@ -2076,7 +2081,7 @@ Parameter:
 // in `soft-keyword-colon-guard.ts`.
 CommonSoftKeywords returns string:
       'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular'
-      | 'angularMaterial' | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'before' | 'bigquery' | 'bind'
+      | 'angularMaterial' | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bigquery' | 'bind'
       | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'chakra' | 'channel'
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clickhouse' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
