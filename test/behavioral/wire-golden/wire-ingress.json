@@ -1,0 +1,219 @@
+{
+  "case": "wire-ingress",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "best": {
+          "note": null,
+          "price": "11.0000"
+        },
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "price": "12.5000",
+        "qty": 3,
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/products/{id}/reprice",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Invalid decimal: \"1.2.3\"",
+            "pointer": "/newPrice"
+          }
+        ],
+        "instance": "/api/products/{id}/reprice",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/products/{id}/reprice",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Invalid decimal: \"twelve\"",
+            "pointer": "/newPrice"
+          }
+        ],
+        "instance": "/api/products/{id}/reprice",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "best": {
+          "note": null,
+          "price": "11.0000"
+        },
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "price": "12.5000",
+        "qty": 3,
+        "version": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "best": {
+              "note": null,
+              "price": "11.0000"
+            },
+            "id": "<volatile:key>",
+            "name": "Lamp",
+            "price": "12.5000",
+            "qty": 3,
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/products/{id}/reprice",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "best": {
+          "note": null,
+          "price": "11.0000"
+        },
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "price": "9.9900",
+        "qty": 3,
+        "version": 2
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "best": {
+          "note": null,
+          "price": "7.5000"
+        },
+        "id": "<volatile:key>",
+        "name": "Lamp",
+        "price": "8.0000",
+        "qty": 3,
+        "version": 3
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "PATCH",
+      "path": "/api/products",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/products",
+        "instance": "/api/products",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/products",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

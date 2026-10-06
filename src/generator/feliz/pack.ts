@@ -58,7 +58,7 @@ function asChild(text: string | undefined): string {
 
 /** True when a walker-produced text field came back as an already-rendered
  *  ELEMENT rather than raw text — an interpolation (`Html.text (string …)`) or
- *  a parenthesised expression.  Under i18n (M-T1.11) every user-visible literal
+ *  a parenthesised expression.  Under i18n every user-visible literal
  *  slot arrives in this form (`Html.text (I18n.t "<key>" "<default>")`), so a
  *  slot that splices its value into an F# string literal must branch here or it
  *  emits the whole call as visible text.
@@ -67,8 +67,8 @@ function asChild(text: string | undefined): string {
  *  upholds: every element the Feliz walk can produce starts with `Html.` or
  *  `(`.  The pack's own renderers are all `Html.…`; `renderMatch` /
  *  `renderMatchChild`, `renderConditionalChild`, `renderComment` and the
- *  `React.fragment` guard paren-wrap already; and the two that used to come
- *  back BARE — a user-component application (`Counter {| … |}`) and a
+ *  `React.fragment` guard paren-wrap already; and the two that would otherwise
+ *  come back BARE — a user-component application (`Counter {| … |}`) and a
  *  `Slot { }` read (`props.children`) — are paren-wrapped at their producers in
  *  `feliz-target.ts`, precisely so this stays a fixed test rather than a
  *  growing list of prefixes to guess at.  RAW text, by contrast, has been
@@ -218,7 +218,7 @@ function alertVariant(color: string): string {
  *  (unwrapped, escaped) text; an optional bold title precedes it. */
 function primitiveAlert(c: Ctx): string {
   const kids: string[] = [];
-  // The title is a user-visible slot, so under i18n (M-T1.11) it arrives as an
+  // The title is a user-visible slot, so under i18n it arrives as an
   // already-rendered `Html.text (…)` element rather than raw text — `asChild`
   // takes either form (splicing the element into a string literal would emit
   // the whole `I18n.t` call as text).
@@ -244,7 +244,7 @@ function primitiveSkeleton(_c: Ctx): string {
  *  `label` is raw text; `childJsx` is an already-walked value element. */
 function primitiveKeyValueRow(c: Ctx): string {
   // The label is a user-visible slot: raw text normally, an already-rendered
-  // `Html.text (I18n.t …)` ELEMENT under i18n (M-T1.11).  `textOrChildren` takes
+  // `Html.text (I18n.t …)` ELEMENT under i18n.  `textOrChildren` takes
   // either form — splicing the element into an F# string literal would render
   // the whole call as visible text.
   const label = `Html.dt [ prop.className "text-sm font-medium text-base-content/70 sm:w-40 sm:flex-shrink-0"; ${textOrChildren(String(c.label ?? ""))} ]`;
@@ -263,7 +263,7 @@ function primitiveKeyValueRow(c: Ctx): string {
  *  ref) — a literal folds into a static `"/path"`, a ref is used verbatim. */
 function primitiveAnchor(c: Ctx): string {
   // The label is a user-visible slot — raw text normally, an already-rendered
-  // `Html.text (I18n.t …)` element under i18n (M-T1.11).  The no-`to` branch
+  // `Html.text (I18n.t …)` element under i18n.  The no-`to` branch
   // takes either through `asChild` (byte-identical for raw text); the linked
   // branch needs the Badge/Button split, since `prop.text` takes a string.
   const label = String(c.label ?? "");
@@ -331,8 +331,7 @@ function primitiveTable(c: Ctx): string {
   return `(Html.div [ ${tidPart}prop.className "overflow-x-auto rounded-box border border-base-300"; prop.children [ ${table} ] ])`;
 }
 
-/** DataGrid — daisyUI chrome around a TanStack `table-core` instance
- *  (M-T1.1).
+/** DataGrid — daisyUI chrome around a TanStack `table-core` instance.
  *
  *  The `table` binding, the column defs and every state slice come from the
  *  walker-emitted `[<ReactComponent>]` child that wraps this markup
@@ -350,11 +349,11 @@ function primitiveDataGrid(c: Ctx): string {
   const tid = testidProp(c);
   const tidPart = tid ? `${tid}; ` : "";
 
-  // Pack chrome (M-T1.11) — the pager labels and the filter placeholder.  The
+  // Pack chrome — the pager labels and the filter placeholder.  The
   // walker hands them as F# EXPRESSIONS (`localizedChromeValue`), not markup
   // fragments: `prop.text` / `prop.placeholder` take a value, so the `.hbs`
   // packs' attribute-fragment form is the wrong shape here.  i18n off → the
-  // plain F# literal `"Previous"`, byte-identical to the pre-i18n pager; on →
+  // plain F# literal `"Previous"`; on →
   // `(I18n.t "chrome.previous" "Previous")` through the `renderTranslate` seam,
   // keyed to the same shared catalog every other frontend uses.
   const prevLabel = String(c.prevLabelValue ?? '"Previous"');
@@ -386,7 +385,7 @@ function primitiveDataGrid(c: Ctx): string {
     : "";
 
   // `aria-sort` on the header cell is the a11y contract the JSX packs already
-  // ship (M-T1.1); a sortable header without it is a WCAG gap.
+  // ship; a sortable header without it is a WCAG gap.
   const head =
     `Html.thead [ prop.children [\n` +
     `        yield! unbox<obj array> (table?getHeaderGroups()) |> Array.map (fun hg ->\n` +
@@ -498,7 +497,7 @@ function primitiveCard(c: Ctx): string {
 
 function primitiveBadge(c: Ctx): string {
   // The label is a user-visible slot — raw text, or an already-rendered
-  // `Html.text (I18n.t …)` element under i18n (M-T1.11).
+  // `Html.text (I18n.t …)` element under i18n.
   const inner = textOrChildren(String(c.label ?? ""));
   return `Html.span [ prop.className "badge badge-neutral"; ${inner} ]`;
 }
@@ -533,7 +532,7 @@ function primitiveButton(c: Ctx): string {
   const aria = ariaLabelExpr(c);
   if (aria !== undefined) props.push(`prop.ariaLabel ${aria}`);
   // The label is a user-visible slot — raw text, or an already-rendered
-  // `Html.text (I18n.t …)` element under i18n (M-T1.11).
+  // `Html.text (I18n.t …)` element under i18n.
   props.push(textOrChildren(String(c.label ?? "")));
   return `Html.button [ ${props.join("; ")} ]`;
 }
@@ -582,10 +581,10 @@ function primitiveEnumBadge(c: Ctx): string {
 }
 /** Stat(label, value) — a daisyUI stat card.  `label`/`value` are raw text. */
 /** Chart(kind:, of:, x:, y:) — a line/bar chart as INLINE SVG, computed by the
- *  `View.chart` helper from the rows already in the Model (M-T1.3).
+ *  `View.chart` helper from the rows already in the Model.
  *
  *  No charting library, and no dependency added to the emitted `.fsproj` — the
- *  same conclusion the HEEx leg reached, and for the same reason: the rows are
+ *  same choice the HEEx leg makes, and for the same reason: the rows are
  *  already decoded on this side, so plotting them is arithmetic.  Feliz has no
  *  `.hbs` pack matrix either, so unlike the tsx leg there is no per-pack
  *  library to pick.
@@ -663,7 +662,7 @@ function primitiveIcon(c: Ctx): string {
   // `img`.  Feliz emits F# `prop.*` props rather than the HTML `a11yAttr`, so
   // the name arrives as the already-translated VALUE (D-I18N-ATTR) — the walker
   // has already decided decorative-vs-named, and hands `ariaLabelExpr` only for
-  // the named case.  It used to read the RAW `label:`, shipping the accessible
+  // the named case.  Reading the RAW `label:` instead would ship the accessible
   // name in English at every locale.
   const name = ariaLabelExpr(c);
   const a11yProps =
@@ -684,7 +683,7 @@ function primitiveTabs(c: Ctx): string {
       value: string;
       label: string;
       /** The caption as an F# string expression — a translation call under i18n
-       *  (`tabLabel`, M-T1.11), the F# literal otherwise.  `prop.ariaLabel`
+       *  (`tabLabel`), the F# literal otherwise.  `prop.ariaLabel`
        *  takes a `string`, so the element form `label` carries cannot ride it. */
       labelExpr: string;
       bodyJsx: string;
@@ -729,8 +728,8 @@ function primitiveTabs(c: Ctx): string {
 // page still compiles.
 
 /** An input LABEL as an F# string expression: the walker's translation call
- *  under i18n (`labelValue`, the `inputLabel` slot — M-T1.11), else the raw
- *  label spelled as an F# literal exactly as this pack always spelled it.
+ *  under i18n (`labelValue`, the `inputLabel` slot), else the raw
+ *  label spelled as an F# literal.
  *
  *  `prop.text` takes a `string`, so — unlike a children slot — the element form
  *  `labelText` carries under i18n (`Html.text (I18n.t …)`) cannot ride here; it
@@ -893,7 +892,7 @@ function primitiveModalControlled(c: Ctx): string {
   const close = `Set${field}`;
   const kids: string[] = [];
   // The title is a user-visible slot — raw text normally, an already-rendered
-  // `Html.text (I18n.t …)` element under i18n (M-T1.11).  `prop.text` takes a
+  // `Html.text (I18n.t …)` element under i18n.  `prop.text` takes a
   // string, so the element form goes through `prop.children` instead (the same
   // split `Badge`/`Button`/`Anchor` use); raw text stays byte-identical.
   if (c.hasTitle)
