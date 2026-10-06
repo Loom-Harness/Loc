@@ -1405,6 +1405,12 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   const lines: string[] = [];
   lines.push(`${slug}:`);
   lines.push(`  build: ./${slug}`);
+  // Restart policy (eval item #24): `depends_on: … service_healthy` only
+  // orders the FIRST `up`; a backend whose boot migration exhausts its
+  // DB-connect retry (`BOOT_DB_RETRY`), or that crashes later, must come back
+  // on its own instead of leaving the stack half-dead.  `unless-stopped`, not
+  // `always`, so a deliberate `docker compose stop` stays stopped.
+  lines.push(`  restart: unless-stopped`);
   if (shape.dependsOnDb || oidc || brokerServices.length > 0 || apiServices.length > 0) {
     lines.push(`  depends_on:`);
     if (shape.dependsOnDb) {

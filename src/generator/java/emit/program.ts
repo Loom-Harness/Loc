@@ -27,6 +27,7 @@ import {
   NODE_CERTS_LINES,
   NPM_INSTALL_LINES,
 } from "../../_docker/node-stage.js";
+import { bootDbRetryBudgetMs } from "../../_obs/boot-db-retry.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 
 /** Spring Boot release the generated projects build against.  Bumping it
@@ -338,6 +339,13 @@ export function renderApplicationYml(slug: string): string {
     `    url: \${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/${slug}}`,
     `    username: \${SPRING_DATASOURCE_USERNAME:postgres}`,
     `    password: \${SPRING_DATASOURCE_PASSWORD:postgres}`,
+    // Boot-time DB-connect retry (`BOOT_DB_RETRY`, eval item #24): Hikari
+    // keeps retrying the pool's first connection for this long (1 s apart)
+    // instead of failing fast, so the boot Flyway run / JPA bootstrap survive
+    // a database that is not reachable YET.  Same wall-clock budget as the
+    // other four backends' capped-backoff loops; past it boot still fails.
+    `    hikari:`,
+    `      initialization-fail-timeout: ${bootDbRetryBudgetMs()}`,
     `  jpa:`,
     `    hibernate:`,
     `      ddl-auto: none`,
