@@ -66,6 +66,7 @@ import { flutterTarget } from "./flutter-target.js";
 import { usesMoney } from "./money-runtime.js";
 import { FLUTTER_NAV_MARKER } from "./nav-runtime.js";
 import { flutterPack, usesIntl, usesMath } from "./pack.js";
+import { FLUTTER_REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import {
   buildStateFields,
   buildStateInits,
@@ -562,6 +563,8 @@ export function renderComponentsFile(
   // `toast(…)` from a component action — the out-of-tree twin of the nav bridge
   // above (`lib/toast.dart`), found by the same marker rule.
   if (blocks.join("\n").includes(FLUTTER_TOAST_MARKER)) imports.push("import 'toast.dart';");
+  if (blocks.join("\n").includes(FLUTTER_REF_LABEL_MARKER))
+    imports.push("import 'ref_label.dart';");
   const source = `${lines(
     "// User components — one widget per `component Foo(params) { body }` a ui",
     "// hosts (StatelessWidget, or StatefulWidget when it carries `state`).",

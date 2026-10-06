@@ -26,13 +26,15 @@ name: Migration evolution (runtime e2e)
 # harness drops+creates `chain`/`fresh` itself).  Schema introspection uses host
 # `psql` (preinstalled on the runner, as the tenancy-hierarchy gate relies on).
 #
-# Triggers `push: main` + manual dispatch + a per-PR `run-migration-e2e` label
-# (apply it to a PR to run all five legs against that branch before merge).  NOT
-# on every PR by default — sibling to the tenancy / obs e2e gates; same
-# rationale: a docker-heavy multi-boot on every migration-touching PR is a runner
-# burst for a regression acceptable to catch one merge later, and the labelled
-# pre-merge run is the honest opt-in.  Heavier than tenancy (three boots + two
-# build trees per cell), so a 35-min cap.
+# TIER: per-PR, path-scoped, binding through `pr-gate`, AND in the merge queue,
+# with `push: main` kept as the post-merge regression net.  The 35-minute cap
+# is a ceiling, not the cost: measured 2026-10-05 (Actions API, last 10 `main`
+# runs) a cell takes 1.2-3.0 runner-minutes and a firing ~10, well under the
+# ~22-minute corpus compile legs that bound a PR's `pr-gate` cycle, so a
+# per-PR run does not move that cycle.  It stays in the queue as well because
+# the per-PR block is path-scoped: the merge group is the full-tree run that
+# catches a migration break arriving through a file this list does not name.
+# Heavier than tenancy per cell (three boots + two build trees), hence the cap.
 on:
   push:
     branches: [main]
@@ -68,30 +70,55 @@ on:
       - 'test/e2e/fixtures/migration-evolution/**'
       - 'package.json'
       - '.github/workflows/migration-evolution-e2e.yml'
-  # On-demand per-PR run: apply the `run-migration-e2e` label to a PR to run this
-  # otherwise push:main-only gate against that branch BEFORE merge (a
-  # `synchronize` push to an already-labelled PR re-runs it).  The job-level `if`
-  # below restricts the labeled trigger to that one label so other labels don't
-  # kick off a docker-heavy multi-boot.
+  # Per-PR, path-scoped: binding because `pr-gate` fails on any non-passing
+  # check run present on the head SHA.  `ready_for_review` re-fires the leg
+  # when a draft flips; `labeled` is deliberately absent (a label event would
+  # re-run the boots and, with PR-aware concurrency, cancel the live run).
   pull_request:
-    types: [labeled, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      # DUPLICATED list, never a YAML anchor: the reader in
+      # test/system/workflow-path-coverage.test.ts does not resolve
+      # `&paths` / `*paths`, and it reads each trigger's block on its own.
+      - 'src/language/**'
+      - 'src/macros/**'
+      - 'src/ir/**'
+      - 'src/system/**'
+      - 'src/util/**'
+      - 'src/generator/sql-pg.ts'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/elixir/migrations-emit.ts'
+      # The Drizzle journal and its ordering key (see the `push:` block).
+      - 'src/generator/typescript/emit/migrations.ts'
+      - 'test/e2e/migration-evolution.test.ts'
+      - 'test/e2e/migration-evolution-python.test.ts'
+      - 'test/e2e/migration-evolution-java.test.ts'
+      - 'test/e2e/migration-evolution-dotnet.test.ts'
+      - 'test/e2e/migration-evolution-elixir.test.ts'
+      - 'test/e2e/support/migration-evolution-harness.ts'
+      - 'test/e2e/fixtures/migration-evolution/**'
+      - '.github/workflows/migration-evolution-e2e.yml'
   workflow_dispatch:
   merge_group:
+
 permissions:
   contents: read
 
 concurrency:
+  # Keyed on the PR number when there is one so a superseded PR push cancels
+  # its own in-flight boots; `push: main` and merge-group runs keep per-ref
+  # attribution and are never cancelled (cancel-in-progress is false off
+  # `pull_request`).
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   migration-evolution-e2e:
-    # push:main / merge_group / manual always run; on a PR only when the
-    # `run-migration-e2e` label is set (a `synchronize` push to an already-
-    # labelled PR re-runs it).
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'run-migration-e2e')
+    # Draft PRs run only the fast lane (test.yml, langium-generated,
+    # workflow-lint, pr-gate); this leg fires once the PR is marked ready for
+    # review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
+    # Pinned verbatim by test/system/draft-gate.test.ts.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     # Cold path is dominated by the generated project's build/dep install run
     # TWICE (evolution tree + fresh tree) plus three boots. 35min cap.

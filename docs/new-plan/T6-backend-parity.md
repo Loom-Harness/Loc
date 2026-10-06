@@ -153,7 +153,9 @@ Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-c
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) rows 14–16; §F3 (one ref-walker per IR family) is the durable fix for (3). Relates to §A16 (the three sibling collectors #2667 already migrated onto `src/ir/util/walk.ts`).
 
-## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `open` · **M** · P2 ⚠ verify-first
+## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `partial` · **M** · P2 ⚠ verify-first
+
+*Status → `partial` 2026-09-29 (eval-closure review G8-07c): F16/F60 closed (wave C2 2a), F20 recorded as a DECISION; only the F23/F61 HEEx `WorkflowForm` handler and the function-derived residue remain.*
 
 Found 2026-09-03 by the language-docs audit ([F16](../audits/2026-09-03-language-docs-audit-findings.md), [F20](../audits/2026-09-03-language-docs-audit-findings.md), [F22](../audits/2026-09-03-language-docs-audit-findings.md), [F23](../audits/2026-09-03-language-docs-audit-findings.md); P1/P2). `derivedRenderable` (`src/generator/elixir/vanilla/wire-serialize.ts`) omits a `derived` that reads another `derived` from `serialize/1` while the other four backends ship it — a wire-shape divergence with no gate. On the HEEx side, `renderImage` (`src/generator/elixir/heex-primitives.ts:1510`) and `renderIcon` (`:2151`) read only a named `src:` / a `svg:` literal, ignoring the positional spelling every other target renders (`Image { "/logo.png", alt: … }` emits `<img alt>` with no `src`; `Icon { name: "check" }` an empty span), and the HEEx `WorkflowForm` emits a single `<.input field={@form[:_placeholder]}>` (`heex-primitives.ts:388`) where React emits the real field set.
 
@@ -556,6 +558,12 @@ One tree-fenced packet (`src/generator/typescript/`, `src/platform/hono/`, `src/
 
 **Verification.** A corpus fixture per repro compiling under `corpus-tsc-build`; N4 as a refusal (a `loom.*` code) rather than an emitted open write; N2/N3 through the RS-37 conformance cases.
 
+**Added 2026-09-29 (evaluation-closure Wave A follow-up B-A4, found by #3083):**
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| N6 | node **omits** an optional event field the `emit` leaves out (the key is absent rather than `null`), where the other backends serialise `null`; channels-e2e and the corpus have no optional-field row to catch it | found while building #3083 (#11/#12) | S |
+
 ## M-T6.75 — The .NET silent-defect batch: `e` param collision, document-store `ignoring`, channel optional fields, unconditional `#line` weaving — `open` · **M** · P1
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-C (leftover-waves-2026-09-28).**
@@ -607,6 +615,13 @@ One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the exist
 
 **Verification.** Corpus fixtures through `corpus-elixir-build`; E4 through the migration-evolution leg and the RS-38 conformance row; E7 through the wire-golden differential.
 
+**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080 once it merges):**
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| E9 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
+| E10 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
+
 ## M-T6.78 — A query-time projection over a TPH subtype names a table that does not exist — `open` · **M** · P1
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L2-X (leftover-waves-2026-09-28).**
@@ -649,6 +664,8 @@ Item **P9** (#2742, #2911). Optimistic concurrency on a `versioned` aggregate: n
 
 **Verification.** The versioned-conflict wire-golden case extended to all five backends (412 on a stale tag); the Feliz/Flutter `DOES_NOT_SEND` pins flipped.
 
+**Added 2026-09-29 (evaluation-closure Wave A follow-up B-A9):** #3090 makes Feliz and Flutter send `If-Match` on a versioned update, but the **Flutter Riverpod `match await`** path on a versioned update still sends none (found while building #3090). Add it to the Flutter half here.
+
 ## M-T6.82 — .NET never logs `workflow_failed` — `open` · **M** · P2
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
@@ -676,3 +693,33 @@ Item **P15** (#2736). An `invariant` without an explicit message surfaces the ra
 Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-floor shape). The same precondition inside a domain-service operation, a top-level `function` or a workflow step still answers a 422 whose body carries only the message, with no stable `code` — so a client cannot branch on it and the LiveView flash (see [M-T6.77](#m-t677) E5) cannot either.
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
+
+## M-FT.24 — An op returning an error union: the OpenAPI document and the wire disagree, and the union wire shape has no card — `open` · **M** · P2
+
+*Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) named this id the owner of the union wire shape and deferred the OpenAPI union document to it.*
+
+Re-proved on `main` @ `cbda91658` with `operation reserve(): Order or NotFound { return NotFound { … } }`:
+
+- **node** declares `200: OrderOrNotFound`, a discriminated union that *includes* `{type: "NotFound", resource}` (`api/http/order.routes.ts:133`, `:36`), but serves the `NotFound` arm as a **404 `application/problem+json`** (`:149-150`), and the declared 404 is the generic `ProblemDetails`, which lacks `resource`.
+- **.NET** `[ProducesResponseType(typeof(OrderOrNotFound), 200)]`; **python** `_OP_UNION_RESPONSES` is a `oneOf` including `NotFound`; **java** emits `OrderOrNotFoundResponse_{Order,NotFound}`. Elixir is the fifth emitter.
+- The control is correct: a *find* `recent(): Order or NotFound` documents `200 OrderResponse` plus 404.
+
+**Two halves.**
+
+1. **OpenAPI split** (eval-closure wave C7): one helper in `src/generator/_payload/union-wire.ts` splits an op-union into its success arms (the 200 schema) and its error arms (each with its mapped status and a problem schema carrying the arm's fields); all five OpenAPI emitters consume it. Files: `src/platform/hono/v4/routes-builder.ts`, `src/generator/dotnet/index.ts`, `src/generator/java/emit/openapi-customizer.ts`, `src/generator/elixir/vanilla/openapi-emit.ts`, python's `problem.py` emitter.
+2. **The union wire shape** — what an op-union *returns* on the wire in every arm, beyond the OpenAPI document. This half needs the owner's card first; the id stays `open` until it has one.
+
+**Verification.** The cross-backend OpenAPI parity test and the Schemathesis tier (a served 404 must validate against the document).
+
+## M-T6.87 — A message-less rule, and a missing required field, answer each framework's DEFAULT sentence: five wire contracts for one rule — `open` · **S–M** · P2 ⚠ needs a ruling first
+
+Observed by wave C3 (defect D5 of [`waves/handoffs/wave-c3-3a-e2eless.md`](waves/handoffs/wave-c3-3a-e2eless.md), re-measured by packet 3g in [`waves/handoffs/wave-c3-3g-fixes.md`](waves/handoffs/wave-c3-3g-fixes.md)). A bound with no `message` answers node `"Position must be at least 1"`, python `"Input should be greater than or equal to 1"`, .NET `"'Position' must be greater than or equal to '1'."`; a MISSING required payload field answers node `"Invalid input: expected string, received undefined"`, python `"Field required"`, .NET/dapper `"The Amount field is required."`, java `"Invalid decimal: null"`. `src/generator/zod-refine.ts` `singleFieldMessage` calls the node text "node-local" by design, but it is still one `errors[].message` wire field with five values, and it is why every wire golden that probes a 422 has to use a MESSAGED rule (the ruled M-T1.11 contract) — `workflow-command-payload`'s missing-`amount` probe was dropped in 3g for exactly this reason.
+
+Decide first (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): either the default sentence is canonical per rule shape (min / max / length / required / pattern — one table, rendered by every backend's validator adapter), or `message` is declared non-contractual for message-less rules and the wire differential masks it (keeping `pointer` and `code` binding). Then implement across the five and re-add the probe. Relates to M-T1.11 (the messaged contract), M-T6.88 (the java pointer half of the same probe), and [M-T6.83](#m-t683) (the default *invariant* message — a different rule shape, the same "one canonical default sentence" question).
+
+## M-T6.88 — java points a nested payload field's 422 at the leaf, not the path (`/amount` for `c.amount`) — `open` · **S** · P2 ⚠ verify-first
+
+Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `POST /api/workflows/claim_handling` with `{ "c": { …, no "amount" } }` answers 422 on all five backends (good), but java's `errors[0].pointer` is `/amount` where node / python / .NET / dapper / elixir say `/c/amount`, and its message is `"Invalid decimal: null"` — a decimal-coercion failure reported before (or instead of) the required-field check. The pointer is the contract a frontend binds a control to, so this is a wire defect independent of M-T6.87's message ruling.
+
+Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
+
