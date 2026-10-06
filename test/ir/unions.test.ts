@@ -2,8 +2,8 @@
 //
 // Covers lowering both union surfaces (anonymous `A or B`; named
 // `payload Foo = A | B`) and the `option` carrier (`T option` → `union[T,
-// none]`) to a `union` TypeIR, the canonicalization / structural-key helpers,
-// and the P4a not-implemented emission gate that blocks unions until P4b–d.
+// none]`) to a `union` TypeIR and the canonicalization / structural-key helpers.
+// (Every backend emits unions, so there is no per-backend emission gate.)
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -11,7 +11,6 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { canonicalUnion, typeKey } from "../../src/ir/stdlib/unions.js";
 import type { PayloadIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
-import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** Lower (link-free, validation-skipped) and return the single find's return
@@ -165,50 +164,5 @@ describe("unions — stdlib helpers (P4a)", () => {
         { kind: "none" },
       ],
     });
-  });
-});
-
-describe("unions — platform-aware emission gate (P4b)", () => {
-  // A union find served by the named backend platform.  P4b emits unions on
-  // hono (`node`); .NET / Phoenix stay gated until P4c / P4d.
-  const sysWith = (platform: string, ret: string): string => `
-    system Shop {
-      subdomain Sales {
-        context Shop {
-          aggregate Order { code: string }
-          aggregate Cancel { reason: string }
-          repository Orders for Order { find f(): ${ret} }
-        }
-      }
-      storage pg { type: postgres }
-      resource shopState { for: Shop, kind: state, use: pg }
-      deployable api { platform: ${platform}, contexts: [Shop], dataSources: [shopState], port: 4000 }
-    }`;
-
-  const gate = async (platform: string, ret: string): Promise<string[]> => {
-    const { model } = await parseString(sysWith(platform, ret), { validate: false });
-    return validateLoomModel(enrichLoomModel(lowerModel(model)))
-      .filter((d) => d.code === "loom.union-unsupported")
-      .map((d) => d.message);
-  };
-
-  it("does NOT gate a union find served by hono (emission implemented in P4b)", async () => {
-    expect(await gate("node", "Order or Cancel")).toEqual([]);
-  });
-
-  it("does NOT gate an `option` find served by hono", async () => {
-    expect(await gate("node", "Order option")).toEqual([]);
-  });
-
-  it("does NOT gate a union find served by dotnet (emission implemented in P4c)", async () => {
-    expect(await gate("dotnet", "Order or Cancel")).toEqual([]);
-  });
-
-  it("does NOT gate a union find served by phoenix (emission implemented in P4d)", async () => {
-    expect(await gate("elixir", "Order or Cancel")).toEqual([]);
-  });
-
-  it("does not fire when no union is used (phoenix)", async () => {
-    expect(await gate("elixir", "Order[]")).toEqual([]);
   });
 });

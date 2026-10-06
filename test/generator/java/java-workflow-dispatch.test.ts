@@ -55,7 +55,7 @@ describe("java saga dispatcher", () => {
     expect(d).toContain("import ");
     expect(d).toContain(".config.RequestContext;");
     expect(d).toMatch(
-      /public void onOrderFulfillmentStartOrderPlaced\(OrderPlaced p\) \{\n\s*try \(var __frame = RequestContext\.openChild\(\)\) \{/,
+      /public void onOrderFulfillmentStartOrderPlaced\(OrderPlaced p\) \{\n\s*try \(var _ = RequestContext\.openChild\(\)\) \{/,
     );
   });
 

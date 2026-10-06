@@ -96,47 +96,6 @@ Sources: [execution-context](../old/proposals/execution-context.md), D-CTX-SHAPE
 Signup/invite/role-assignment flows as macro-level batteries over the OIDC boundary (production-readiness §3.6); tenant provisioning/onboarding hooks into the registry.
 Sources: [production-readiness](../old/proposals/production-readiness.md) §3.6, [quickstart-and-day-one-batteries](../old/proposals/quickstart-and-day-one-batteries.md) `saas` template.
 
-## M-T3.14 — SAST over generated auth/tenancy code — `open` · **M** · P2
-Generated security-sensitive code (the OIDC PKCE/refresh-rotation flow, the tenant-isolation query predicates) gets the same correctness gates as any other emitter — but no *security* scanning. Run a focused CodeQL/semgrep ruleset over the emitted auth + tenancy source across all five backends: leaked/hardcoded secrets, a PKCE `state`/`nonce` check omitted on a code path, a tenant predicate missing from one query site, tokens logged. Generated security code deserves generated-code security scanning; the ruleset is small and targeted (not a general SAST sweep). Nightly / `security` label.
-Sources: `docs/auth.md` (D-AUTH-OIDC), `docs/tenancy.md`; pairs with M-T3.13 (static twin of the runtime deny gate).
-
-
----
-
-## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `done` (#3109: `find byId(id: T id): T? requires …` gates `/{id}` on all five backends; the undeclared by-id read and the ungated injected `find all` list read are now build ERRORS under denyByDefault) · **M** · **P0** (raised 2026-09-29 by wave L0: C5 moment 5d made `denyByDefault` the language default, so the hole is on every auth model) · security
-
-Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with `auth { enforcement: denyByDefault }` + `user {}` + `auth: required` on the deployable, one aggregate, and `find all(): Product[] requires true`:
-
-```ts
-// GET /{id} — no gate, and no 403 in the response set
-responses: { 200: …, 404: …, 422: … },
-const found = await repo.findById(Ids.ProductId(id));
-
-// GET /   — gated, because `find all` carries a `requires`
-responses: { 200: …, 403: … },
-if (!(true)) throw new ForbiddenError("Forbidden: find all");
-```
-
-The model validates `0 error(s), 0 warning(s)`. So the list read is gated and the single-record read of the same aggregate is open to any authenticated caller — under the enforcement mode whose whole promise is that nothing is reachable unless it is gated. The list read has a recourse (`find all(): T[] requires <expr>`, documented in `docs/auth.md`); the byId read has no surface to attach a gate to at all.
-
-`with crudish` is the same shape on the write side and is being closed separately by #2877 (`crudish(requires: SomePolicy)`), after the maintainer rejected an inherited aggregate-level default gate — a default-deny rule invisible at the member it guards is the wrong trade. This mission must honour that ruling: the gate is **named at the declaration**, not inherited.
-
-**The fix:** a surface that gates the synthesised single-record read — the natural spelling being the `find` the repository can already declare (`find byId(id: T id): T? requires <expr>`) recognised as *the* byId read and used for the route, so the recourse is the one already documented for `find all` rather than a new concept.
-
-**Until then the hole is a diagnostic, not silence:** under `denyByDefault`, an aggregate whose byId route has no gate should raise `loom.default-deny-ungated` the way an ungated operation does. That is the smallest slice and should land first; it turns a silent open read into a refused build.
-
-> **The diagnostic slice has LANDED** (F-009): `loom.default-deny-by-id-ungated`, one per non-abstract aggregate served by an `auth: required` backend under `denyByDefault`, derived from `deriveContextOperations`' `kind: "getById"` entries (`src/ir/validate/checks/default-deny-checks.ts`). Two deviations from the wording above, both deliberate:
-> - **Its own code, not an arm of `loom.default-deny-ungated`.** Every arm of that code names a `requires` the author can write — which is exactly why the arms that have no such surface (the injected `find all`, a macro-emitted projection) are exempted rather than reported.
-> - **A WARNING, not an error.** With no gate surface in the language yet, an error would make every `denyByDefault` model unbuildable with nothing the author could do about it. When the `find byId(id: T id): T? requires <expr>` surface below lands, the check gains its `if (gated) continue;` and promotes to an error under the same code.
->
-> `docs/auth.md` now lists the by-id read as the second deny-by-default exception, and the `ddd new` starter comment says the build warns. What remains open is the SURFACE + the five route emitters + the 403 legs.
-
-**Verification when it lands.** A negative validator case per the deny-by-default fixture set; a 403 case on the byId route on all five backends; and the generated node project booted, asserting an ungated caller is refused. Mutation-proof by file-copy revert.
-
-**Why P0 now (2026-09-29).** Wave C5 moment 5d (M-T3.1) made `denyByDefault` the default enforcement mode, so an unset `enforcement:` now means `denyByDefault` — the synthesised `GET /<plural>/{id}` is ungated on **every** auth-bearing model, not just the ones that opted in, and `loom.default-deny-by-id-ungated` (`src/ir/validate/checks/default-deny-checks.ts:222`) fires as a warning on all of them. No PR claims it (#2861 merged 2026-09-14; the old "claimed by the #2861 author" line was stale). Owned by packet **L1-SEC** of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (item P1), alongside **M-T3.20** (the tenancy-stamp refusal). #2877 (`crudish(requires:)`) merged — same ruling, adjacent surface.
-
-**Commons F-006 folds in here (2026-09-29, wave L0).** The [Commons audit](../audits/2026-09-13-commons-dev-experience.md)'s F-006 — `denyByDefault` does not gate the auto-`findAll` list route — is the same hole on the list side, and still true: `src/ir/validate/checks/default-deny-checks.ts:231-238` skips `find.name === "all"` and synthesized finds with no diagnostic at all (not even the by-id warning). The surface this mission builds for the by-id read should cover the injected `find all` too, or the exemption needs its own warning; `coverage.md` was its only pointer.
-
 ## M-T3.20 — A principal with no tenancy claim gets a 500 on every write, not a refusal naming the claim — `open` · **M** · P1 · security
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-SEC (leftover-waves-2026-09-28).**
@@ -149,7 +108,7 @@ Under `tenancy by user.<claim>`, `with tenantOwned` gives an aggregate a NOT NUL
 
 **The fix:** land the IR helper on `main`, render the refusal at each backend's own stamp site in its own 403 idiom, with the claim named in the problem detail.
 
-**Verification.** The cross-backend gate from the salvage branch (it is the "four fixed, one forgotten" guard); a booted tenancy-e2e case with a claim-less token asserting 403, not 500; mutation-proved per backend by file-copy revert. Same packet as [M-T3.19](#m-t319) — both are the security half of L1.
+**Verification.** The cross-backend gate from the salvage branch (it is the "four fixed, one forgotten" guard); a booted tenancy-e2e case with a claim-less token asserting 403, not 500; mutation-proved per backend by file-copy revert. Same packet as [M-T3.19](archive/T3-done.md#m-t319) — both are the security half of L1.
 
 ## M-T3.21 — The `User id` collapse still needs a `user {}` block, and an unresolvable `IdLink` is silent — `open` · **S–M** · P2
 
@@ -162,3 +121,23 @@ Item **P18** (#2960, the F9 fix for `auditable` + any frontend). Three residues 
 - an `IdLink` that cannot resolve a route renders nothing, where it should be a loud diagnostic (overlaps the unguarded-`IdLink` half of open PR #2947 — re-check before building).
 
 **Verification.** A no-`user{}` fixture with `auditable` across the backends; a validator case for the unresolvable `IdLink`.
+
+## M-T3.22 — No gate drives the real OIDC authorization-code flow — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **G8-10c** (FieldOps-audit FIX-PLAN §5.5). Every OIDC e2e leg stops at the first hop: `/api/auth/login` answers 307 with an `oidc_state` cookie (`test/e2e/auth-oidc-python-e2e.test.ts:257-262`; the elixir compose test does the same). Nothing follows the redirect through the Keycloak login form to `/auth/callback` and on to a session, so a broken callback, a PKCE verifier mismatch or a cookie that never sets would ship green.
+
+**The fix:** one leg per backend against the generated Keycloak realm that completes the code flow (Playwright, or `fetch` plus a form post): login → realm form → callback → session cookie → `GET /api/auth/me` returns the demo principal. Wire it under the existing `run-auth-oidc` label and the compose OIDC workflow.
+
+**Verification.** Mutation-proved by breaking the callback's state check in one backend's emitter and watching that backend's leg go red.
+
+## M-T3.23 — A policy or permission vocabulary cannot be shared across contexts — `open` · **M** · P3 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Follow-up of owner ruling **D9** (eval-closure item **#39**; Meridian F-006). Policies are context-level and `permissions` are subdomain-local, as `docs/language.md` now says. Using a policy from another context types as `unknown`; wave C3 of the review gives that a clear diagnostic (`loom.policy-out-of-scope`). What D9 leaves to a mission is the capability: two contexts that must enforce the same rule today duplicate the policy and the permission strings, and nothing detects the two copies drifting apart.
+
+**The design question:** an explicit import (`policy X from <Context>`), a shared-kernel home for policies and permission catalogues, or a system-level catalogue. Each changes how `implies` closure and the permission-string minting work.
+
+**Verification.** A two-context fixture that shares one policy and one permission, gated identically on all five backends (the gate-parity wire-golden), plus a negative case for an out-of-scope use.

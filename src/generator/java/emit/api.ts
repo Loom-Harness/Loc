@@ -11,6 +11,7 @@ import {
   isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
@@ -857,7 +858,15 @@ export function renderApiExceptionAdvice(
    *  `onDomain` handler then answers a `DomainException` carrying a rule code
    *  with the same errors[] entry (M-T1.11 (c)).  False ⇒ byte-identical. */
   domainFloorCodes = false,
+  /** Ruling D4 (#20): true only under the dev-stub verifier
+   *  (`echoesDenialDetail`) — the 403 body then echoes the failed gate.
+   *  Otherwise it is the constant `Forbidden`; the gate stays in the
+   *  `forbidden` log line either way. */
+  echoForbiddenDetail = false,
 ): string {
+  const forbiddenDetail = echoForbiddenDetail
+    ? "e.getMessage()"
+    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   // Structural-conflict statuses resolved through the `httpStatus` mapper
   // (expressible-builtins.md §3 / M-T3.4a): a literal 409 by default, or the
   // api's `httpStatus <Conflict> -> <Code>` override. Baked into the emitted Java
@@ -991,7 +1000,7 @@ export function renderApiExceptionAdvice(
     `    public ResponseEntity<ProblemDetail> onForbidden(ForbiddenException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("forbidden")}, "message", e.getMessage(), "status", ${forbiddenStatus});`,
     `        httpMetrics.recordDomainFault("forbidden");`,
-    `        return respond(problem(${forbiddenStatus}, "${forbiddenTitle}", e.getMessage(), request), ${forbiddenStatus});`,
+    `        return respond(problem(${forbiddenStatus}, "${forbiddenTitle}", ${forbiddenDetail}, request), ${forbiddenStatus});`,
     `    }`,
     ``,
     // The WIRE-FORMAT tier (M-T6.48): the bytes never parsed, so nothing about

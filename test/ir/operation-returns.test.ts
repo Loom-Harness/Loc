@@ -1,8 +1,8 @@
 // Operation `or`-union return types + `return` statements (exception-less.md,
 // spike).  Covers the surface (an operation may declare `: X or NotFound` and
 // `return` a value), lowering (`OperationIR.returnType` + a `return` StmtIR),
-// and the surface-first not-implemented gate (`loom.operation-return-unsupported`)
-// that blocks producer-side emission until the next slice.
+// and that every backend accepts it (each emits the producer-side RFC-7807
+// translation, so there is no per-backend gate).
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -60,7 +60,7 @@ describe("operation returns — lowering (exception-less spike)", () => {
   });
 });
 
-describe("operation returns — platform-aware emission gate (exception-less spike)", () => {
+describe("operation returns — accepted on every backend (no per-backend gate)", () => {
   // A return-typed operation served by the named backend platform.
   const sysWith = (platform: string): string => `
     system Shop {
@@ -81,7 +81,7 @@ describe("operation returns — platform-aware emission gate (exception-less spi
   const gateDiags = async (platform: string): Promise<string[]> => {
     const { model } = await parseString(sysWith(platform), { validate: false });
     return validateLoomModel(enrichLoomModel(lowerModel(model)))
-      .filter((d) => d.code === "loom.operation-return-unsupported")
+      .filter((d) => d.severity === "error")
       .map((d) => d.message);
   };
 
@@ -118,7 +118,7 @@ describe("operation returns — platform-aware emission gate (exception-less spi
       }`;
     const { model } = await parseString(sys, { validate: false });
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
-      (d) => d.code === "loom.operation-return-unsupported",
+      (d) => d.severity === "error",
     );
     expect(diags).toEqual([]);
   });
@@ -143,7 +143,7 @@ describe("operation returns — platform-aware emission gate (exception-less spi
       }`;
     const { model } = await parseString(sys, { validate: false });
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
-      (d) => d.code === "loom.operation-return-unsupported",
+      (d) => d.severity === "error",
     );
     expect(diags).toEqual([]);
   });
@@ -167,7 +167,7 @@ describe("operation returns — platform-aware emission gate (exception-less spi
       }`;
     const { model } = await parseString(sys, { validate: false });
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
-      (d) => d.code === "loom.operation-return-unsupported",
+      (d) => d.severity === "error",
     );
     expect(diags).toEqual([]);
   });
@@ -180,7 +180,7 @@ describe("operation returns — platform-aware emission gate (exception-less spi
       { validate: false },
     );
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model)));
-    expect(diags.some((d) => d.code === "loom.operation-return-unsupported")).toBe(false);
+    expect(diags.some((d) => d.severity === "error")).toBe(false);
   });
 });
 

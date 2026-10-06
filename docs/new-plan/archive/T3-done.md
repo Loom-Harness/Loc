@@ -59,3 +59,50 @@ The write-side twin of M-T3.15's read surface. A `requires` inside a canonical `
 Sources: [M-T3.16 plan](../missions/M-T3.16-lifecycle-gate-and-wire-defaults-plan.md). Related: M-T3.2 (item 3, the hoist), M-T3.15 (the read twin), M-T3.13 (negative-authz).
 
 **Landed — C2, the last open item (2026-09-28, Wave C5 moment 5b).** The order the five backends agree on: the WIRE-VALIDATION rung precedes the canonical `create` gate. Node / .NET / java / python already validated at the route boundary, ahead of the handler that evaluates the gate; Phoenix gated in the context before casting the changeset, so a guarded create with an invalid body answered 403 there and 422 everywhere else. `create_<agg>/2` now reports the same changeset the insert builds (`Ecto.Changeset.apply_action(_, :insert)`) before `ensure/2`, so the REST and LiveView doors both validate first (`src/generator/elixir/vanilla/context-emit.ts`). Goldened as lifecycle-guard's authz-ladder surface "guarded create, INVALID body" (unauthorized → 422, authorized → 422; the fixture's `Shipment` gained a messaged `reference` invariant so the body is identical on every backend), green on all seven legs. The ruling taken — validate-first, which the ledger row's own fix named ("whichever status the four agree on") — is recorded with the declined deny-first alternative in [`waves/handoffs/wave-c5-5b-golden2.md`](../waves/handoffs/wave-c5-5b-golden2.md) for the owner.
+
+## M-T3.14 — SAST over generated auth/tenancy code — `done` · **M** · P2
+
+**Closed 2026-09-28 by wave C3 packet 3f** ([`waves/handoffs/wave-c3-3f-coverage.md`](../waves/handoffs/wave-c3-3f-coverage.md)). A targeted semgrep ruleset, `test/sast/loom-auth-tenancy.yml`, run nightly / `security` label / dispatch by `.github/workflows/sast-generated.yml` over the emitted source of the authorization/tenancy corpus fixtures (derived from their sources) + a leak-shape fixture on every backend they target: forbidden rules (hardcoded client secret, logged OAuth token, an aggregation missing the tenant floor ×4 languages, an EF bypass lifting every filter) against a ratcheting triage register; required rules (the OIDC callback binds `state` to its cookie; the exchange sends the PKCE `code_verifier`).  Every rule re-finds its own seeded historical defect on every run; re-seeding the two historical leaks in `src/` (F2-ADP-1 in `dotnet/find-emit.ts`, audit A1 in the Hono projection builder) fails the clean-tree assertion naming them.
+
+Generated security-sensitive code (the OIDC PKCE/refresh-rotation flow, the tenant-isolation query predicates) gets the same correctness gates as any other emitter — but no *security* scanning. Run a focused CodeQL/semgrep ruleset over the emitted auth + tenancy source across all five backends: leaked/hardcoded secrets, a PKCE `state`/`nonce` check omitted on a code path, a tenant predicate missing from one query site, tokens logged. Generated security code deserves generated-code security scanning; the ruleset is small and targeted (not a general SAST sweep). Nightly / `security` label.
+Sources: `docs/auth.md` (D-AUTH-OIDC), `docs/tenancy.md`; pairs with M-T3.13 (static twin of the runtime deny gate).
+
+
+---
+
+## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `done` (#3109: `find byId(id: T id): T? requires …` gates `/{id}` on all five backends; the undeclared by-id read and the ungated injected `find all` list read are now build ERRORS under denyByDefault) · **M** · **P0** (raised 2026-09-29 by wave L0: C5 moment 5d made `denyByDefault` the language default, so the hole is on every auth model) · security
+
+Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with `auth { enforcement: denyByDefault }` + `user {}` + `auth: required` on the deployable, one aggregate, and `find all(): Product[] requires true`:
+
+```ts
+// GET /{id} — no gate, and no 403 in the response set
+responses: { 200: …, 404: …, 422: … },
+const found = await repo.findById(Ids.ProductId(id));
+
+// GET /   — gated, because `find all` carries a `requires`
+responses: { 200: …, 403: … },
+if (!(true)) throw new ForbiddenError("Forbidden: find all");
+```
+
+The model validates `0 error(s), 0 warning(s)`. So the list read is gated and the single-record read of the same aggregate is open to any authenticated caller — under the enforcement mode whose whole promise is that nothing is reachable unless it is gated. The list read has a recourse (`find all(): T[] requires <expr>`, documented in `docs/auth.md`); the byId read has no surface to attach a gate to at all.
+
+`with crudish` is the same shape on the write side and is being closed separately by #2877 (`crudish(requires: SomePolicy)`), after the maintainer rejected an inherited aggregate-level default gate — a default-deny rule invisible at the member it guards is the wrong trade. This mission must honour that ruling: the gate is **named at the declaration**, not inherited.
+
+**The fix:** a surface that gates the synthesised single-record read — the natural spelling being the `find` the repository can already declare (`find byId(id: T id): T? requires <expr>`) recognised as *the* byId read and used for the route, so the recourse is the one already documented for `find all` rather than a new concept.
+
+**Until then the hole is a diagnostic, not silence:** under `denyByDefault`, an aggregate whose byId route has no gate should raise `loom.default-deny-ungated` the way an ungated operation does. That is the smallest slice and should land first; it turns a silent open read into a refused build.
+
+> **The diagnostic slice has LANDED** (F-009): `loom.default-deny-by-id-ungated`, one per non-abstract aggregate served by an `auth: required` backend under `denyByDefault`, derived from `deriveContextOperations`' `kind: "getById"` entries (`src/ir/validate/checks/default-deny-checks.ts`). Two deviations from the wording above, both deliberate:
+> - **Its own code, not an arm of `loom.default-deny-ungated`.** Every arm of that code names a `requires` the author can write — which is exactly why the arms that have no such surface (the injected `find all`, a macro-emitted projection) are exempted rather than reported.
+> - **A WARNING, not an error.** With no gate surface in the language yet, an error would make every `denyByDefault` model unbuildable with nothing the author could do about it. When the `find byId(id: T id): T? requires <expr>` surface below lands, the check gains its `if (gated) continue;` and promotes to an error under the same code.
+>
+> `docs/auth.md` now lists the by-id read as the second deny-by-default exception, and the `ddd new` starter comment says the build warns. What remains open is the SURFACE + the five route emitters + the 403 legs.
+
+**Verification when it lands.** A negative validator case per the deny-by-default fixture set; a 403 case on the byId route on all five backends; and the generated node project booted, asserting an ungated caller is refused. Mutation-proof by file-copy revert.
+
+**Why P0 now (2026-09-29).** Wave C5 moment 5d (M-T3.1) made `denyByDefault` the default enforcement mode, so an unset `enforcement:` now means `denyByDefault` — the synthesised `GET /<plural>/{id}` is ungated on **every** auth-bearing model, not just the ones that opted in, and `loom.default-deny-by-id-ungated` (`src/ir/validate/checks/default-deny-checks.ts:222`) fires as a warning on all of them. No PR claims it (#2861 merged 2026-09-14; the old "claimed by the #2861 author" line was stale). Owned by packet **L1-SEC** of [leftover-waves-2026-09-28](../leftover-waves-2026-09-28.md) (item P1), alongside **M-T3.20** (the tenancy-stamp refusal). #2877 (`crudish(requires:)`) merged — same ruling, adjacent surface.
+
+**Commons F-006 folds in here (2026-09-29, wave L0).** The [Commons audit](../../audits/2026-09-13-commons-dev-experience.md)'s F-006 — `denyByDefault` does not gate the auto-`findAll` list route — is the same hole on the list side, and still true: `src/ir/validate/checks/default-deny-checks.ts:231-238` skips `find.name === "all"` and synthesized finds with no diagnostic at all (not even the by-id warning). The surface this mission builds for the by-id read should cover the injected `find all` too, or the exemption needs its own warning; `coverage.md` was its only pointer.
+
+**Closed by #3109 (2026-10-06).** The repository's declared `find byId(id: T id): T? requires <expr>` is recognised as *the* by-id read (`src/ir/util/read-gates.ts`) and its gate is emitted on the synthesised `GET /<plural>/{id}` on Hono, .NET, Phoenix (incl. the event-sourced read path), FastAPI and Spring (403 in the response set). Under `denyByDefault`, `loom.default-deny-by-id-ungated` is promoted to an ERROR (an aggregate served by an `auth: required` backend with no gated by-id read refuses the build), and the injected `find all` list read is no longer exempt — the author declares `find all(): T paged requires <expr>`. Pinned by `test/generator/by-id-read-gate.test.ts`, `test/ir/default-deny-by-id.test.ts` and the `read-gates` corpus fixture + wire-golden.
+
