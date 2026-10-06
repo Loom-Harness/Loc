@@ -1,7 +1,11 @@
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
-import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
+import {
+  validateApplicationHandlers,
+  validateRoutes,
+  validateUnservedApis,
+} from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -86,6 +90,7 @@ import {
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
+  validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
   validateProvenancedStorage,
@@ -168,6 +173,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
+    validateUnservedApis(sys, diags);
     // Page gates and bodies name permissions too, and `validatePermissionRefs`
     // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
     // `ui` lowered to the sentinel and rendered as a literal no principal can
@@ -225,6 +231,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `// flutter pack: no renderer` comment.  Fail fast instead.
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
+    validatePagedQueryHandlerShape(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
     validateDefaultDeny(sys, diags);

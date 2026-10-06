@@ -101,6 +101,11 @@ const BASELINE: Record<string, Divergence> = {
   "tph.ddd Fleet.Truck": "missing-in-record",
   "tph-crossings.ddd Depot.Parcel": "missing-in-record",
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // The same A2 row, witnessed by a NEW fixture (the TPH-concrete projection
+  // source): `AutoClaim`/`PropertyClaim` inherit `reference`/`status` from the
+  // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
+  "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
+  "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
 
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context

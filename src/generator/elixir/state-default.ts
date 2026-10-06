@@ -10,17 +10,30 @@
 // so hanging it off either of those would close an import cycle.
 // ---------------------------------------------------------------------------
 
-import type { EnumIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { EnumIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import { snake } from "../../util/naming.js";
+
+/** The declarations a zero value is built from — the hosting context. */
+export interface StateDefaultDecls {
+  readonly valueObjects?: readonly ValueObjectIR[];
+  readonly enums?: readonly EnumIR[];
+}
 
 /** A backend-zero Elixir literal for a required saga column at allocation.
- *  An enum's zero is its FIRST member (the seed every other backend writes);
- *  `nil` there inserted the fresh saga row into a NOT NULL column and 500'd
- *  before the create body's assignment reached it (wave C3 D6). */
-export function stateDefault(t: TypeIR, enums: readonly EnumIR[] = []): string {
-  if (t.kind === "enum") {
-    const first = enums.find((e) => e.name === t.name)?.values[0];
-    return first ? `:${first}` : "nil";
-  }
+ *
+ *  Every required state field is a NOT NULL column, so a `nil` here fails the
+ *  allocating `Repo.insert!` before the body ever runs.  A value-object field
+ *  is ONE `:map` column (the state-table migration collapses its flattened
+ *  leaves), so it zeroes to a map of its own fields' zeroes — the shape the
+ *  body's `Money { … }` construction writes.  An enum's zero is its FIRST
+ *  member as the declared-case ATOM, which the `Ecto.Enum` state field dumps
+ *  to the declared string (the seed every other backend writes; wave C3 D6).
+ *  An undeclared name still falls back to `nil`. */
+export function stateDefault(
+  t: TypeIR,
+  decls: StateDefaultDecls = {},
+  seen: ReadonlySet<string> = new Set(),
+): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
@@ -38,5 +51,19 @@ export function stateDefault(t: TypeIR, enums: readonly EnumIR[] = []): string {
     }
   }
   if (t.kind === "array") return "[]";
+  if (t.kind === "enum") {
+    const first = decls.enums?.find((e) => e.name === t.name)?.values[0];
+    return first === undefined ? "nil" : `:${first}`;
+  }
+  if (t.kind === "valueobject" && !seen.has(t.name)) {
+    const vo = decls.valueObjects?.find((v) => v.name === t.name);
+    if (!vo) return "nil";
+    const inner = new Set([...seen, t.name]);
+    const entries = vo.fields.map(
+      (f) =>
+        `${snake(f.name)}: ${f.optional || f.type.kind === "optional" ? "nil" : stateDefault(f.type, decls, inner)}`,
+    );
+    return `%{${entries.join(", ")}}`;
+  }
   return "nil";
 }

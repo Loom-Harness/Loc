@@ -1153,7 +1153,7 @@ decimal`.
 | Form | Purpose |
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
-| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not on `create`** — the grammar has no `requires` slot there (`'create' (name=ID)? '(' params ')' (audited?='audited')? '{'`), so a hand-written `create` cannot carry its own gate; under `enforcement: denyByDefault` (the default) reach it with `with crudish(requires: <Policy>)`, or gate the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
+| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
 | `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
@@ -1592,6 +1592,16 @@ on the generated repository plus a Mediator query in the .NET backend.
   `.count`, `.any`, lambdas) with a clear diagnostic.
 - **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
   pass through EF Core to SQL.
+
+**Null semantics.** A comparison against a *nullable value* — a
+`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+null-aware on every backend: `this.col == v` with `v` null matches the rows
+whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
+ordering (`<`, `>`, …) against null matches no row.  So
+`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
+returns the unassigned orders for a principal with no `technicianId` rather
+than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
+fail-closed.
 
 A repository `where` clause may use `this.<refColl>.contains(param)` to
 query membership over an `X id[]` reference collection — for example,

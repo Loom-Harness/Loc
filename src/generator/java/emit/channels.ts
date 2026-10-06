@@ -6,8 +6,9 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
-import type { BrokerBinding } from "../../_channels/bindings.js";
+import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
 import {
   decodeField,
   type WireDecodeLeaf,
@@ -321,7 +322,7 @@ export function renderJavaChannelFiles(
     return "uuid";
   };
 
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/emit/channels");
 
   out.set(
     "LoomEventEnvelope.java",
@@ -416,6 +417,18 @@ export function renderJavaChannelFiles(
       ``,
       `    void subscribe(String address, String group, Consumer<LoomEventEnvelope> handler);`,
       ``,
+      ...(hasKafka
+        ? [
+            `    /** Kafka only: {@code fromBeginning} starts a NEW consumer group at the`,
+            `     *  earliest offset (work-queue channels) instead of the latest (log`,
+            `     *  channels).  Other drivers have no offsets and ignore it. */`,
+            `    default void subscribe(String address, String group, boolean fromBeginning,`,
+            `            Consumer<LoomEventEnvelope> handler) {`,
+            `        subscribe(address, group, handler);`,
+            `    }`,
+            ``,
+          ]
+        : []),
       `    void close();`,
       `}`,
       ``,
@@ -778,13 +791,23 @@ export function renderJavaChannelFiles(
         `    }`,
         ``,
         `    @Override`,
-        `    public synchronized void subscribe(String address, String group, Consumer<LoomEventEnvelope> handler) {`,
+        `    public void subscribe(String address, String group, Consumer<LoomEventEnvelope> handler) {`,
+        `        subscribe(address, group, false, handler);`,
+        `    }`,
+        ``,
+        `    @Override`,
+        `    public synchronized void subscribe(String address, String group, boolean fromBeginning,`,
+        `            Consumer<LoomEventEnvelope> handler) {`,
         `        ensureTopic(address);`,
         `        var props = new Properties();`,
         `        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);`,
         `        props.put(ConsumerConfig.GROUP_ID_CONFIG, group != null ? group : address);`,
         `        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");`,
-        `        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");`,
+        `        // A NEW group's start offset (D3): a work-queue channel starts at`,
+        `        // the earliest offset so events published before the group's`,
+        `        // first join are not lost; a log channel starts at the latest.`,
+        `        // A group with committed offsets resumes from them either way.`,
+        `        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, fromBeginning ? "earliest" : "latest");`,
         `        applySasl(props);`,
         `        var consumer = new KafkaConsumer<>(props, new StringDeserializer(), new StringDeserializer());`,
         `        // Counted down by the rebalance callback — see the await at the`,
@@ -906,7 +929,7 @@ export function renderJavaChannelFiles(
         ? `    public record Binding(String csName, String address, String envVar, String context,`
         : `    public record Binding(String csName, String address, String envVar, String context,`,
       hasKafka
-        ? `            String transport, String group, boolean queue, String key) {`
+        ? `            String transport, String group, boolean queue, String key, boolean fromBeginning) {`
         : `            String transport, String group, boolean queue) {`,
       `    }`,
       ``,
@@ -914,7 +937,7 @@ export function renderJavaChannelFiles(
       unique
         .map(
           (b) =>
-            `            new Binding(${JSON.stringify(b.csName)}, ${JSON.stringify(b.address)}, ${JSON.stringify(b.envVar)}, ${JSON.stringify(b.contextName)}, ${JSON.stringify(b.transport)}, ${JSON.stringify(b.group)}, ${b.delivery === "queue"}${hasKafka ? `, ${b.key === undefined ? "null" : JSON.stringify(b.key)}` : ""})`,
+            `            new Binding(${JSON.stringify(b.csName)}, ${JSON.stringify(b.address)}, ${JSON.stringify(b.envVar)}, ${JSON.stringify(b.contextName)}, ${JSON.stringify(b.transport)}, ${JSON.stringify(b.group)}, ${b.delivery === "queue"}${hasKafka ? `, ${b.key === undefined ? "null" : JSON.stringify(b.key)}, ${kafkaStartsAtEarliest(b)}` : ""})`,
         )
         .join(",\n") + ");",
       ``,
@@ -1242,7 +1265,9 @@ export function renderJavaChannelFiles(
     // DLX-park owns it.  Broadcast (redis) subscriptions keep the logged
     // single-thread-executor path (fire-and-forget contract).
     const strictSubscribe = [
-      `            transports.forSource(binding.csName()).subscribe(binding.address(), binding.group(),`,
+      hasKafka
+        ? `            transports.forSource(binding.csName()).subscribe(binding.address(), binding.group(), binding.fromBeginning(),`
+        : `            transports.forSource(binding.csName()).subscribe(binding.address(), binding.group(),`,
       `                    envelope -> {`,
       `                        dispatch(envelope);`,
       hasKafka

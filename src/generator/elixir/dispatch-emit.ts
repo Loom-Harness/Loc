@@ -26,9 +26,10 @@ import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
-import { stateDefault } from "./state-default.js";
-import { LOOM_DATETIME_MODULE, normalizeDatetime } from "./vanilla/datetime-type-emit.js";
+import { type StateDefaultDecls, stateDefault } from "./state-default.js";
+import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
+import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import { lookupOp, opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 
@@ -335,44 +336,38 @@ export function ectoIdType(vt: IdValueType): string {
   }
 }
 
-/** Plain (non-id) state-field Ecto type.  Only the handful of primitive
- *  saga-column shapes the migrations builder emits are mapped; anything
- *  exotic falls back to `:string` (no saga fixture exercises it yet). */
-function ectoStateFieldType(
-  type: import("../../ir/types/loom-ir.js").TypeIR,
-  enums: readonly EnumIR[],
-): string {
-  // An OPTIONAL state field (`shippedAt: datetime?`) is typed as its inner
-  // type; falling through to `:string` made every reactor write of a DateTime
-  // an `Ecto.ChangeError` (wave C3 D8).
-  const t = type.kind === "optional" ? type.inner : type;
+/** Plain (non-correlation) state-field Ecto type — it must agree with the
+ *  column the migrations builder derives for the same field
+ *  (`workflowStateTableShape` → `renderInitialStateFile`):
+ *
+ *  - `optional` is unwrapped first — nullability is a column option, not a type
+ *    (an optional `datetime` fell through to `:string`, so every reactor write
+ *    of a DateTime was an `Ecto.ChangeError` — wave C3 D8).
+ *  - an id is typed by its value type (`ectoIdType`), as the PK is.
+ *  - an enum holds the member ATOM the body assigns (`claimState := Filed`
+ *    renders `:Filed`), which `:string` cannot dump (wave C3 D6); the column
+ *    stays text, `Ecto.Enum` stores the member name.
+ *  - a reference collection (`X id[]`) is a jsonb column holding the id list,
+ *    so its elements are the id's JSON form (a guid is a string there, never
+ *    Ecto's 16-byte `:binary_id` dump, which Jason cannot encode).
+ *  - everything else rides the aggregate schema mapping (`mapTypeToEcto`): a
+ *    value object is ONE `:map` column (the migration collapses its flattened
+ *    leaf columns, `collapseVoGroups`), a `datetime` is the millisecond
+ *    `Loom.Datetime` every declared datetime column uses (RS-38). */
+function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
+  if (t.kind === "optional") return ectoStateFieldType(t.inner, enums);
   if (t.kind === "id") return ectoIdType(t.valueType);
-  // An enum state field holds the member ATOM the body assigns (`claimState :=
-  // Filed` renders `:Filed`), which `:string` cannot dump (wave C3 D6); the
-  // column stays text, `Ecto.Enum` stores the member name.
   if (t.kind === "enum") {
     const values = enums.find((e) => e.name === t.name)?.values ?? [];
     if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
+    return ":string";
   }
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return ":integer";
-      case "bool":
-        return ":boolean";
-      case "decimal":
-      case "money":
-        return ":decimal";
-      case "datetime":
-        // The millisecond `Loom.Datetime` every declared datetime column uses
-        // (RS-38) — not a second, lossy `:utc_datetime` for saga state.
-        return LOOM_DATETIME_MODULE;
-      default:
-        return ":string";
-    }
+  if (t.kind === "array" && t.element.kind === "id") {
+    const el =
+      t.element.valueType === "int" || t.element.valueType === "long" ? ":integer" : ":string";
+    return `{:array, ${el}}`;
   }
-  return ":string";
+  return mapTypeToEcto(t, new Map()) ?? ":string";
 }
 
 function renderStateSchema(
@@ -523,7 +518,7 @@ function renderHandler(
   const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
-    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable, ctx.enums)
+    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable, ctx)
     : indent(body, 4).join("\n");
 
   // Module names render fully-qualified throughout the body, so the only
@@ -574,8 +569,9 @@ function renderPersistedBody(
    *  marker (check the process-dictionary event id against the loaded row, and
    *  stamp it after the fold) — dispatch-delivery-semantics.md §3. */
   durable = false,
-  /** The context enums — an enum state column seeds its first member. */
-  enums: readonly EnumIR[] = [],
+  /** The context's declarations — a required value-object / enum state field
+   *  allocates its zero (`stateDefault`), never a NOT NULL-violating `nil`. */
+  decls: StateDefaultDecls = {},
 ): string {
   const corr = wf.correlationField as string;
   const stateMod = stateModule(contextModule, wf);
@@ -606,7 +602,7 @@ function renderPersistedBody(
     const allocFields = [`${snake(corr)}: key`];
     for (const f of wf.stateFields ?? []) {
       if (f.name === corr || f.optional) continue;
-      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type, enums)}`);
+      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type, decls)}`);
     }
     const load = [
       `    key = ${keyExpr}`,
