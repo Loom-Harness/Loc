@@ -3,7 +3,6 @@ import {
   wireFieldsForAggregate,
   wireFieldsForPart,
 } from "../../../ir/enrich/wire-projection.js";
-import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   EnrichedBoundedContextIR,
   EnumIR,
@@ -35,7 +34,13 @@ import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
 import { requestComponentNamerFor } from "../../_openapi/request-component-names.js";
-import { findUnionSpec, unionJsonSchema } from "../../_payload/union-wire.js";
+import {
+  errorArmProblemJsonSchema,
+  errorStatusJsonSchema,
+  findUnionSpec,
+  opUnionResponses,
+  unionMembersJsonSchema,
+} from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import { javaRequestComponentOwners } from "../request-component-owners.js";
 import { isPagedAutoAll, isPagedFind } from "./repository.js";
@@ -148,6 +153,10 @@ interface Contract {
    *  registered via Json.mapper at customize time (springdoc never sees the
    *  union: the controller returns `ResponseEntity<?>`). */
   unions: { name: string; schemaJson: string }[];
+  /** Error responses whose body is not the plain ProblemDetails: an op-return
+   *  union's error-arm status (M-FT.24) declares `anyOf` ProblemDetails or the
+   *  arm's problem body.  Raw JSON, parsed like `unions`. */
+  errorSchemas: { method: string; path: string; status: number; schemaJson: string }[];
   /** Referenced string-enum components (other backends name them; springdoc
    *  inlines them as `String`). */
   enums: EnumComponent[];
@@ -180,6 +189,7 @@ export function buildJavaOpenApiContract(
   // Operation-return union components — name → raw oneOf JSON (parsed by the
   // emitted customizer via Json.mapper), see the op union branch below.
   const unions = new Map<string, string>();
+  const errorSchemas: Contract["errorSchemas"] = [];
   // schema-name → required-field set (collected as a set, sorted at the end).
   const required = new Map<string, string[]>();
   const emptyRequests: EmptyRequest[] = [];
@@ -358,12 +368,31 @@ export function buildJavaOpenApiContract(
           // finds pin `<Agg>Response`).  Errors = the standard operation
           // matrix ∪ each error variant's mapped status, matching
           // Hono / .NET (showcase's `reserve` surfaced both gaps live).
-          const unionName = unionInstanceName(op.returnType.variants);
-          unions.set(unionName, JSON.stringify(unionJsonSchema(op.returnType.variants, ctx)));
+          //
+          // The OpenAPI split (M-FT.24): the 200 carries the success arms only,
+          // and each error arm's status carries ProblemDetails or the arm's
+          // problem body — the arm is served as a problem, never at 200.
+          const split = opUnionResponses(op.returnType.variants, ctx);
+          const ref = (n: string): string => `#/components/schemas/${n}`;
+          unions.set(split.successName, JSON.stringify(unionMembersJsonSchema(split.success)));
+          for (const arm of split.errors) {
+            unions.set(
+              arm.problemName,
+              JSON.stringify(errorArmProblemJsonSchema(arm, ref(PROBLEM_SCHEMA))),
+            );
+          }
+          for (const e of split.errorStatuses) {
+            errorSchemas.push({
+              method: "post",
+              path: opPath,
+              status: e.status,
+              schemaJson: JSON.stringify(errorStatusJsonSchema(e.arms, PROBLEM_SCHEMA, ref)),
+            });
+          }
           routes.push({
             method: "post",
             path: opPath,
-            successRef: unionName,
+            successRef: split.successName,
             errors: err([...opEntry2.errorStatuses]),
           });
         } else {
@@ -536,6 +565,7 @@ export function buildJavaOpenApiContract(
     unions: [...unions.entries()]
       .map(([name, schemaJson]) => ({ name, schemaJson }))
       .sort((a, b) => a.name.localeCompare(b.name)),
+    errorSchemas,
     enums: [...referencedEnums.entries()]
       .map(([name, values]) => ({ name, values }))
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -604,6 +634,13 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     (u) =>
       `        new UnionComponent(${JSON.stringify(u.name)}, ${JSON.stringify(u.schemaJson)}),`,
   );
+  // The error-schema table and the loop that applies it are emitted only when
+  // an op-return union has an error arm, so every other app is unchanged.
+  const errorSchemaLiterals = contract.errorSchemas.map(
+    (e) =>
+      `        new ErrorSchema(${JSON.stringify(e.method)}, ${JSON.stringify(e.path)}, ${e.status}, ${JSON.stringify(e.schemaJson)}),`,
+  );
+  const hasErrorSchemas = errorSchemaLiterals.length > 0;
   const enumLiterals = contract.enums.map((e) => {
     const vals = e.values.map((v) => JSON.stringify(v)).join(", ");
     return `        new EnumComponent(${JSON.stringify(e.name)}, List.of(${vals})),`;
@@ -672,6 +709,11 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `    private record EmptyRequest(String path, String schema) {}`,
     `    private record RequiredSet(String schema, List<String> fields) {}`,
     `    private record UnionComponent(String name, String schemaJson) {}`,
+    ...(hasErrorSchemas
+      ? [
+          `    private record ErrorSchema(String method, String path, int status, String schemaJson) {}`,
+        ]
+      : []),
     ``,
     `    private static final List<Wrapper> WRAPPERS = List.of(`,
     ...(wrapperLiterals.length > 0 ? trimTrailingComma(wrapperLiterals) : []),
@@ -697,6 +739,14 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     ...(unionLiterals.length > 0 ? trimTrailingComma(unionLiterals) : []),
     `    );`,
     ``,
+    ...(hasErrorSchemas
+      ? [
+          `    private static final List<ErrorSchema> ERROR_SCHEMAS = List.of(`,
+          ...trimTrailingComma(errorSchemaLiterals),
+          `    );`,
+          ``,
+        ]
+      : []),
     `    private static final List<Route> ROUTES = List.of(`,
     ...trimTrailingComma(routeLiterals),
     `    );`,
@@ -718,6 +768,7 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `                addErrors(op, route.statuses());`,
     `                if (route.operationId() != null) op.setOperationId(route.operationId());`,
     `            }`,
+    ...(hasErrorSchemas ? [`            applyErrorSchemas(openApi);`] : []),
     `            attachEmptyRequests(openApi);`,
     `            retargetEnumProps(openApi);`,
     `            applyRequired(openApi);`,
@@ -797,6 +848,34 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `        }`,
     `    }`,
     ``,
+    ...(hasErrorSchemas
+      ? [
+          `    /** Retarget an op-return union's error-arm status onto ProblemDetails`,
+          `     *  OR the arm's problem body (the arm is served as a problem at that`,
+          `     *  status, carrying its own fields).  Runs after addErrors. */`,
+          `    private static void applyErrorSchemas(OpenAPI openApi) {`,
+          `        if (openApi.getPaths() == null) return;`,
+          `        for (ErrorSchema e : ERROR_SCHEMAS) {`,
+          `            PathItem item = openApi.getPaths().get(e.path());`,
+          `            if (item == null) continue;`,
+          `            Operation op = operationFor(item, e.method());`,
+          `            if (op == null || op.getResponses() == null) continue;`,
+          `            ApiResponse resp = op.getResponses().get(String.valueOf(e.status()));`,
+          `            if (resp == null) continue;`,
+          `            try {`,
+          `                Schema<?> schema = io.swagger.v3.core.util.Json.mapper().readValue(e.schemaJson(), Schema.class);`,
+          `                Content content = new Content();`,
+          `                content.addMediaType(PROBLEM_JSON, new MediaType().schema(schema));`,
+          `                resp.setContent(content);`,
+          `            } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {`,
+          `                // Baked at generation time — unreachable for valid output.`,
+          `                throw new IllegalStateException("invalid baked error schema for " + e.path(), ex);`,
+          `            }`,
+          `        }`,
+          `    }`,
+          ``,
+        ]
+      : []),
     `    /** Register the named array wrappers (<Agg>ListResponse / <View>Response). */`,
     `    private static void registerWrappers(OpenAPI openApi) {`,
     `        Components components = openApi.getComponents();`,

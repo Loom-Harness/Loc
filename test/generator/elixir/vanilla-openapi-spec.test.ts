@@ -133,13 +133,21 @@ system Shop {
     expect(start, "reserve path present").toBeGreaterThanOrEqual(0);
     const reserve = spec.slice(start, start + 1200);
     expect(reserve).toContain("200 => %OpenApiSpex.Response{");
-    expect(reserve).toContain("Schemas.OrderOrNotFound");
     expect(reserve).not.toContain("204 =>");
-    const union = file(files, "order_or_not_found.ex");
-    expect(union).toContain('title: "OrderOrNotFound"');
+    // M-FT.24: the 200 carries the SUCCESS arms only; the NotFound arm is served
+    // as a 404 problem, so its status declares ProblemDetails | NotFoundProblem.
+    expect(reserve).toContain("Schemas.OrderOrNotFoundSuccess}");
+    expect(spec.slice(start, start + 4000)).toMatch(
+      /anyOf: \[\w+\.Api\.Schemas\.ProblemDetails, \w+\.Api\.Schemas\.NotFoundProblem\]/,
+    );
+    const union = file(files, "order_or_not_found_success.ex");
+    expect(union).toContain('title: "OrderOrNotFoundSuccess"');
     expect(union).toContain("oneOf: [");
     expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["Order"]}');
-    expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["NotFound"]}');
+    expect(union).not.toContain('enum: ["NotFound"]');
+    const problem = file(files, "not_found_problem.ex");
+    expect(problem).toContain("allOf: [");
+    expect(problem).toContain("required: [:resource]");
   });
 
   it("uppercases the module alias when the success arm is a PRIMITIVE (B11)", async () => {
@@ -176,21 +184,23 @@ system Shop {
 }`;
     const files = await generateSystemFiles(src);
     // The schema module + the response reference are the uppercase-first alias …
-    const union = file(files, "string_or_not_found.ex");
+    // (The 200 component is the success-arm half, M-FT.24.)
+    const union = file(files, "string_or_not_found_success.ex");
     expect(union).toContain("defmodule");
-    expect(union).toContain(".Api.Schemas.StringOrNotFound do");
-    expect(union).toContain('title: "StringOrNotFound"');
+    expect(union).toContain(".Api.Schemas.StringOrNotFoundSuccess do");
+    expect(union).toContain('title: "StringOrNotFoundSuccess"');
     // … and NEVER the lower-camel form (which would be an invalid Elixir alias).
     expect(union).not.toContain("Schemas.stringOrNotFound");
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    expect(spec).toContain("Schemas.StringOrNotFound");
+    expect(spec).toContain("Schemas.StringOrNotFoundSuccess");
     expect(spec).not.toContain("Schemas.stringOrNotFound");
     // The success variant's wire discriminator stays the lowercase primitive tag …
     expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["string"]}');
     // … and the scalar arm carries its `value` (no record fields for a primitive).
     expect(union).toContain("value:");
-    expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["NotFound"]}');
+    // … and the error arm is not a 200 arm at all.
+    expect(union).not.toContain('enum: ["NotFound"]');
   });
 });
 

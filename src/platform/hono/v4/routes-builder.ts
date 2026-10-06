@@ -14,6 +14,8 @@ import {
 import {
   discriminatedUnionZod,
   findUnionSpec,
+  type OpUnionResponses,
+  opUnionResponses,
   type UnionMemberField,
   unionMemberObjects,
   unionMembers,
@@ -357,11 +359,20 @@ function honoPath(entry: ApiOperationIR): string {
  *  numbers come from `deriveAggregateOperations`; only the line idiom
  *  (description text via `httpStatusText`, ProblemDetails content) is
  *  Hono's. */
-function problemResponseLines(entry: ApiOperationIR, pad: string): string[] {
-  return entry.errorStatuses.map(
-    (s) =>
-      `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
+function problemResponseLines(
+  entry: ApiOperationIR,
+  pad: string,
+  /** An operation-return union's split (M-FT.24): a status one of its error
+   *  arms answers declares `ProblemDetails` OR that arm's problem body. */
+  split?: OpUnionResponses | null,
+): string[] {
+  return entry.errorStatuses.map((s) => {
+    const arms = split?.errorStatuses.find((e) => e.status === s)?.arms ?? [];
+    const schema = arms.length
+      ? `z.union([ProblemDetails, ${arms.map((a) => a.problemName).join(", ")}])`
+      : "ProblemDetails";
+    return `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ${schema} } } },`;
+  });
 }
 
 /** The STATIC one-segment sub-paths THIS aggregate router mounts, mapped to
@@ -920,11 +931,11 @@ export function buildRoutesFile(
     const unionReturns = [
       ...agg.operations.flatMap((op) => (op.returnType ? [unionForFind(op.returnType, ctx)] : [])),
     ];
+    const fieldZod = (f: UnionMemberField): string =>
+      f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
     for (const u of unionReturns) {
       if (!u || unionSeen.has(u.name)) continue;
       unionSeen.add(u.name);
-      const fieldZod = (f: UnionMemberField): string =>
-        f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
       const members = unionMemberObjects(
         unionMembers(u.variants, ctx),
         fieldZod,
@@ -933,6 +944,29 @@ export function buildRoutesFile(
       lines.push(
         `export const ${u.name} = ${discriminatedUnionZod(members)}.openapi("${u.name}");`,
       );
+    }
+    // The OpenAPI split of each inline op-return union (M-FT.24): the 200 body
+    // is the success arms only, and each error arm publishes its problem body.
+    const problemSeen = new Set<string>();
+    for (const op of agg.operations) {
+      if (op.returnType?.kind !== "union") continue;
+      const split = opUnionResponses(op.returnType.variants, ctx);
+      if (split.errors.length === 0) continue;
+      if (!unionSeen.has(split.successName)) {
+        unionSeen.add(split.successName);
+        const members = unionMemberObjects(split.success, fieldZod, zodForResponseInner);
+        lines.push(
+          `export const ${split.successName} = ${discriminatedUnionZod(members)}.openapi("${split.successName}");`,
+        );
+      }
+      for (const arm of split.errors) {
+        if (problemSeen.has(arm.problemName)) continue;
+        problemSeen.add(arm.problemName);
+        const body = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
+        lines.push(
+          `export const ${arm.problemName} = ProblemDetails.extend({ ${body} }).openapi("${arm.problemName}");`,
+        );
+      }
     }
   }
   // RFC 7807 ProblemDetails body — declared once for the project in
@@ -2127,12 +2161,15 @@ function emitReturningOperationRoute(
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
   const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
-  // Success 200 body schema: a union return declares the whole tagged union; a
+  // An inline union's OpenAPI split (M-FT.24): the 200 declares the success
+  // arms only; each error arm's status declares that arm's problem body.
+  const split = op.returnType?.kind === "union" ? opUnionResponses(variants, ctx) : null;
+  // Success 200 body schema: a union return declares its success arms; a
   // SCALAR return (BUG-003) declares that scalar's own field-wire schema (via
   // the shared `zodForResponse`, so money/enum/VO scalars stay wire-consistent
   // with a field of the same type); void ops don't reach here.
   const successSchema = u
-    ? u.name
+    ? (split?.successName ?? u.name)
     : op.returnType
       ? zodForResponse(op.returnType, false)
       : `${agg.name}Response`;
@@ -2152,13 +2189,12 @@ function emitReturningOperationRoute(
   out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
-  // 200 declares the whole tagged union; only success variants actually reach
-  // it (error variants are intercepted below) — the documented shape is the
-  // closed set of outcomes, which a typed client narrows on `type`.
+  // 200 declares the tagged success arms; the error arms are intercepted
+  // below and answer their own status, which declares their problem body.
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${successSchema} } } },`,
   );
-  out.push(...problemResponseLines(entry, "      "));
+  out.push(...problemResponseLines(entry, "      ", split));
   out.push(`    },`);
   out.push(`  }),`);
   out.push(`  async (c) => {`);

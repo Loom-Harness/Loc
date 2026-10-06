@@ -1,5 +1,4 @@
 import { pagedReturn } from "../../ir/stdlib/generics.js";
-import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   DeployableIR,
   EnrichedAggregateIR,
@@ -57,7 +56,12 @@ import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_doc
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
-import { unionJsonSchema } from "../_payload/union-wire.js";
+import {
+  errorArmProblemJsonSchema,
+  errorStatusJsonSchema,
+  opUnionResponses,
+  unionMembersJsonSchema,
+} from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -1681,6 +1685,11 @@ interface PyOpUnion {
   path: string;
   name: string;
   schema: unknown;
+  /** The error arms' problem responses, keyed by status (M-FT.24); empty when
+   *  the union has no error arm. */
+  errors: Record<string, unknown>;
+  /** The components the split adds: the error arms' problem bodies. */
+  problems: Record<string, unknown>;
 }
 
 /** Operation-return unions across the deployable's contexts — the tagged
@@ -1706,10 +1715,30 @@ function collectOpUnions(contexts: readonly EnrichedBoundedContextIR[]): PyOpUni
         if (op.returnType?.kind !== "union") continue;
         const path = derivedPaths.get(op);
         if (path === undefined) continue;
-        const name = unionInstanceName(op.returnType.variants);
+        // The OpenAPI split (M-FT.24): the 200 carries the success arms only;
+        // each error arm's status carries ProblemDetails or its problem body.
+        const split = opUnionResponses(op.returnType.variants, ctx);
+        const name = split.successName;
         if (seen.has(`${path}|${name}`)) continue;
         seen.add(`${path}|${name}`);
-        out.push({ path, name, schema: unionJsonSchema(op.returnType.variants, ctx) });
+        const ref = (n: string): string => `#/components/schemas/${n}`;
+        out.push({
+          path,
+          name,
+          schema: unionMembersJsonSchema(split.success),
+          errors: Object.fromEntries(
+            split.errorStatuses.map((e) => [
+              String(e.status),
+              errorStatusJsonSchema(e.arms, "ProblemDetails", ref),
+            ]),
+          ),
+          problems: Object.fromEntries(
+            split.errors.map((a) => [
+              a.problemName,
+              errorArmProblemJsonSchema(a, ref("ProblemDetails")),
+            ]),
+          ),
+        });
       }
     }
   }
@@ -1776,8 +1805,31 @@ function renderProblemPy(
   // arrays, objects — no booleans/nulls cross).
   const responsesDict = JSON.stringify(Object.fromEntries(opUnions.map((u) => [u.path, u.name])));
   const componentsDict = JSON.stringify(
-    Object.fromEntries(opUnions.map((u) => [u.name, u.schema])),
+    Object.fromEntries(
+      opUnions.flatMap((u) => [[u.name, u.schema] as const, ...Object.entries(u.problems)]),
+    ),
   );
+  // Only an app with an op-union error arm carries the error-arm table and its
+  // injection loop, so every other app's problem.py is unchanged.
+  const opUnionErrors = opUnions.filter((u) => Object.keys(u.errors).length > 0);
+  const errorsDecl = opUnionErrors.length
+    ? `\n_OP_UNION_ERRORS: dict[str, dict[str, Any]] = ${JSON.stringify(
+        Object.fromEntries(opUnionErrors.map((u) => [u.path, u.errors])),
+      )}`
+    : "";
+  const errorsLoop = opUnionErrors.length
+    ? `
+        # An error arm answers a problem at its own status, so that status
+        # declares ProblemDetails or the arm's problem body (M-FT.24).
+        for path, by_status in _OP_UNION_ERRORS.items():
+            post_op = cast(dict[str, Any], schema.get("paths", {})).get(path, {}).get("post")
+            if not isinstance(post_op, dict):
+                continue
+            responses = cast(dict[str, Any], post_op.setdefault("responses", {}))
+            for code, problem_schema in by_status.items():
+                entry = cast(dict[str, Any], responses.setdefault(code, {"description": "Error"}))
+                entry["content"] = {"application/problem+json": {"schema": problem_schema}}`
+    : "";
   // One IntegrityError handler, two SQLSTATE arms — emitted when EITHER can
   // fire, so an app that can trip neither stays byte-identical (the proposal's
   // strict-additivity guarantee).  Each arm carries its own gate, so a
@@ -1933,7 +1985,7 @@ class ProblemDetails(BaseModel):
 # Exception-less op-return unions (path → tagged-union component name, and
 # the raw oneOf components) — injected into the spec by install_openapi.
 _OP_UNION_RESPONSES: dict[str, str] = ${responsesDict}
-_OP_UNION_COMPONENTS: dict[str, Any] = ${componentsDict}
+_OP_UNION_COMPONENTS: dict[str, Any] = ${componentsDict}${errorsDecl}
 
 
 def install_openapi(app: FastAPI) -> None:
@@ -1983,7 +2035,7 @@ def install_openapi(app: FastAPI) -> None:
                             "schema": {"$ref": "#/components/schemas/" + union_name}
                         }
                     },
-                }
+                }${errorsLoop}
         components.update(_OP_UNION_COMPONENTS)
         app.openapi_schema = schema
         return schema

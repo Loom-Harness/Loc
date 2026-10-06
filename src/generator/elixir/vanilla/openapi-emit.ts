@@ -6,7 +6,6 @@ import {
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
-import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   DeployableIR,
@@ -67,7 +66,11 @@ import {
   requestComponentNamerFor,
 } from "../../_openapi/request-component-names.js";
 import { PROVENANCE_VALUE_FIELD, provenancedEntries } from "../../_payload/provenanced-wire.js";
-import { unionMembers } from "../../_payload/union-wire.js";
+import {
+  type OpUnionErrorArm,
+  opUnionResponses,
+  type UnionMember,
+} from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import type { ApiRoute } from "../api-emit.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
@@ -110,7 +113,7 @@ function withResolvedNotFound(statuses: readonly number[], notFoundStatus: numbe
 //   View response:             <View>Response
 // ---------------------------------------------------------------------------
 
-/** Elixir module alias for an operation-return union schema
+/** Elixir module alias for an operation-return union's 200 schema
  *  (`operation reject(): string or NotFound`).
  *
  *  `unionInstanceName` yields a lower-camel stem whenever the union's FIRST
@@ -121,9 +124,12 @@ function withResolvedNotFound(statuses: readonly number[], notFoundStatus: numbe
  *  `defmodule …Api.Schemas.stringOrNotFound` fails to compile (`invalid module
  *  name`).  Uppercase the first char for the module segment only; the wire
  *  `type` discriminator tags come from `variantTag` and are untouched, so the
- *  serialized union stays byte-identical to every other backend. */
-function unionSchemaAlias(variants: TypeIR[]): string {
-  return upperFirst(unionInstanceName(variants));
+ *  serialized union stays byte-identical to every other backend.
+ *
+ *  The 200 body is the whole union, or `<Union>Success` when the union has an
+ *  error arm (M-FT.24, `opUnionResponses`). */
+function opUnionSuccessAlias(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string {
+  return upperFirst(opUnionResponses(variants, ctx).successName);
 }
 
 export interface OpenApiEmitArgs {
@@ -357,17 +363,30 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // ProjectNotFound`) — the tagged wire union the op's 200 carries,
   // matching Hono's discriminatedUnion / .NET's Application union DTO.
   // De-duplicated by instance name (one union can back several ops).
+  //
+  // A union with an `error` arm is split (M-FT.24): the 200 carries the
+  // success arms only (`<Union>Success`), and each error arm publishes its
+  // problem body (`<Tag>Problem`) for the status it answers.
   const emittedOpUnions = new Set<string>();
   for (const { ctx, agg } of allAggregates) {
     for (const op of agg.operations.filter((o) => o.visibility === "public")) {
       if (op.returnType?.kind !== "union") continue;
-      const unionName = unionSchemaAlias(op.returnType.variants);
+      const split = opUnionResponses(op.returnType.variants, ctx);
+      const unionName = opUnionSuccessAlias(op.returnType.variants, ctx);
       if (emittedOpUnions.has(unionName)) continue;
       emittedOpUnions.add(unionName);
       files.set(
         `${schemaDir}/${snake(unionName)}.ex`,
-        renderOperationUnionSchema(unionName, op.returnType.variants, ctx, webModule),
+        renderOperationUnionSchema(unionName, split.success, ctx, webModule),
       );
+      for (const arm of split.errors) {
+        if (emittedOpUnions.has(arm.problemName)) continue;
+        emittedOpUnions.add(arm.problemName);
+        files.set(
+          `${schemaDir}/${snake(arm.problemName)}.ex`,
+          renderErrorArmProblemSchema(arm, webModule),
+        );
+      }
     }
   }
 
@@ -478,15 +497,28 @@ function errorResponseEntries(
 /** The same ProblemDetails response-map entries for an explicit status list —
  *  used where the status set isn't a matrix kind (a union find's absent
  *  variant status). */
-function statusResponseEntries(statuses: readonly number[], schemasModule: string): string {
+function statusResponseEntries(
+  statuses: readonly number[],
+  schemasModule: string,
+  /** An operation-return union's error arms by status (M-FT.24): such a
+   *  status declares ProblemDetails OR the arms' problem bodies. */
+  armsByStatus?: ReadonlyMap<number, readonly OpUnionErrorArm[]>,
+): string {
   return statuses
-    .map(
-      (s) => `,
+    .map((s) => {
+      const arms = armsByStatus?.get(s) ?? [];
+      const schema = arms.length
+        ? `%OpenApiSpex.Schema{anyOf: [${[
+            `${schemasModule}.ProblemDetails`,
+            ...arms.map((a) => `${schemasModule}.${a.problemName}`),
+          ].join(", ")}]}`
+        : `${schemasModule}.ProblemDetails`;
+      return `,
             ${s} => %OpenApiSpex.Response{
               description: "${problemTitle(s)}",
-              content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schemasModule}.ProblemDetails}}
-            }`,
-    )
+              content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schema}}}
+            }`;
+    })
     .join("");
 }
 
@@ -804,12 +836,22 @@ ${pagingQueryParams()}
               description: "OK",
               content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${
                 op.returnType.kind === "union"
-                  ? `${schemasModule}.${unionSchemaAlias(op.returnType.variants)}`
+                  ? `${schemasModule}.${opUnionSuccessAlias(op.returnType.variants, ctx)}`
                   : openApiType(op.returnType, schemasModule)
               }}}
             }`
                 : `204 => %OpenApiSpex.Response{description: "No Content"}`
-            }${statusResponseEntries(withResolvedNotFound(entry.errorStatuses, notFoundStatus), schemasModule)}
+            }${statusResponseEntries(
+              withResolvedNotFound(entry.errorStatuses, notFoundStatus),
+              schemasModule,
+              op.returnType?.kind === "union"
+                ? new Map(
+                    opUnionResponses(op.returnType.variants, ctx).errorStatuses.map(
+                      (e) => [e.status, e.arms] as const,
+                    ),
+                  )
+                : undefined,
+            )}
           }
         }
       }`,
@@ -1556,12 +1598,11 @@ function renderWorkflowRequestSchema(
  *  spec's component set + response bodies agree across backends. */
 function renderOperationUnionSchema(
   unionName: string,
-  variants: TypeIR[],
-  ctx: EnrichedBoundedContextIR,
+  members: readonly UnionMember[],
+  _ctx: EnrichedBoundedContextIR,
   webModule: string,
 ): string {
   const schemasModule = `${webModule}.Api.Schemas`;
-  const members = unionMembers(variants, ctx);
   const arms = members.map((m) => {
     const tagProp = `        type: %OpenApiSpex.Schema{type: :string, enum: ["${m.tag}"]}`;
     if (m.shape === "none") {
@@ -1606,6 +1647,39 @@ defmodule ${schemasModule}.${unionName} do
     title: "${unionName}",
     oneOf: [
 ${arms.join(",\n")}
+    ]
+  })
+end
+`;
+}
+
+/** An operation-return union's error-arm problem body (M-FT.24): the shared
+ *  ProblemDetails plus the arm's fields, required — the controller merges the
+ *  arm's whole value into the problem it answers. */
+function renderErrorArmProblemSchema(arm: OpUnionErrorArm, webModule: string): string {
+  const schemasModule = `${webModule}.Api.Schemas`;
+  const { propsLines, requiredAtoms } = renderProperties(
+    arm.fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
+    schemasModule,
+  );
+  const indented = propsLines.map((l) => `    ${l}`);
+  return `# Auto-generated.
+defmodule ${schemasModule}.${arm.problemName} do
+  @moduledoc "OpenApiSpex schema for #{__MODULE__}."
+
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "${arm.problemName}",
+    allOf: [
+      ${schemasModule}.ProblemDetails,
+      %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+${indented.join(",\n")}
+        },
+        required: [${requiredAtoms.join(", ")}]
+      }
     ]
   })
 end
