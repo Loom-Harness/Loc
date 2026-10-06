@@ -2133,6 +2133,10 @@ COPY package.json ./
 # keeps the build log clean and skips two registry round-trips.
 RUN npm install --no-audit --no-fund
 COPY . .
+# Type-check before bundling: tsup strips types without checking them, so
+# without this step a type error in the generated (or hand-edited) sources
+# ships in an image that builds green and fails only at runtime.
+RUN npm run typecheck
 RUN npm run build
 
 FROM node:24-alpine AS runtime
