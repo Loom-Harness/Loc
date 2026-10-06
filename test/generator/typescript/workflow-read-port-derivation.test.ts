@@ -18,7 +18,7 @@
 // A service call in any of those slots derived NO read port, so the emitted
 // handler PASSED a repository handle it never DECLARED:
 //
-//     const accounts = new AccountRepository(tx, events);
+//     const accounts = new AccountRepository(tx, __deferred);
 //     if (!(… (await Screening.notBlocked(blocklists, holder)))) …
 //     //                                  ^^^^^^^^^^^ never bound, never imported
 //
@@ -189,7 +189,7 @@ function handlerBody(wf: string, workflowName: string): string {
  *
  * Checks three things, in the order that fails most informatively:
  *   1. the handle is used at the call site at all (the feature works);
- *   2. it is CONSTRUCTED — `const <handle> = new <Repo>(tx, events);`.  This
+ *   2. it is CONSTRUCTED — `const <handle> = new <Repo>(tx, __deferred);`.  This
  *      is the assertion the broken output fails: it passed the handle and
  *      never built it;
  *   3. the repository class is IMPORTED.  A second, independent witness — the
@@ -207,7 +207,7 @@ function expectBoundBeforeUse(wf: string, workflowName: string, handle: string, 
     `${workflowName}: '${handle}' is PASSED to the reading service but never CONSTRUCTED — ` +
       `the read port was not derived from this slot. (A plain grep for '${handle}' passes on ` +
       `the broken output; this assertion is what distinguishes a binding from a use.)`,
-  ).toContain(`const ${handle} = new ${repo}(tx, events);`);
+  ).toContain(`const ${handle} = new ${repo}(tx, __deferred);`);
   expect(wf, `${workflowName}: '${repo}' is used but never imported`).toContain(
     `import { ${repo} } from `,
   );

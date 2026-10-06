@@ -1609,7 +1609,11 @@ function renderHandler(
     const beginCall = effectiveIsolation
       ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
       : `_uow.BeginTransactionAsync(cancellationToken)`;
+    // Aggregate events raised by the body's saves buffer in this scope and
+    // dispatch only after CommitAsync (banking-eval B-04); a rollback
+    // disposes the scope unflushed.  See `DomainEventDeferral` (common.ts).
     body +=
+      `        using var __deferral = DomainEventDeferral.Begin();\n` +
       `        await using var tx = await ${beginCall};\n` +
       `        try\n` +
       `        {\n` +
@@ -1621,7 +1625,8 @@ function renderHandler(
       `        {\n` +
       `            await tx.RollbackAsync(cancellationToken);\n` +
       `            throw;\n` +
-      `        }\n`;
+      `        }\n` +
+      `        await __deferral.FlushAsync(cancellationToken);\n`;
   } else {
     body += stmtLines.join("\n") + "\n";
   }

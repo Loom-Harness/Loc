@@ -38,8 +38,10 @@ export const NoopDomainEventDispatcher: DomainEventDispatcher = {
  * in-process subscriber that touches the database then either
  * self-deadlocks (a single-connection driver such as PGlite: the handle it
  * queries is the one the open transaction holds) or reads pre-commit state
- * on a pool.  The workflow routes already avoid this by dispatching after
- * the callback returns; this makes the aggregate routes do the same.
+ * on a pool — and a later failure in the same transaction rolls the
+ * write back after its event was already announced.  The audited
+ * aggregate routes and `transactional` workflows hand their repositories
+ * this buffer instead, and flush it once their transaction commits.
  *
  * `flush()` runs only on the success path, so a rollback discards the
  * buffer rather than announcing writes that were undone.

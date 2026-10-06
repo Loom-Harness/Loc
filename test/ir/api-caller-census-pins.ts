@@ -574,6 +574,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
   "corpus/vo-invariant-in-body": ["api.bump.run (no such aggregate)"],
+  // Banking-eval B-04 — the committed and the rolled-back transactional
+  // workflow are driven through their command routes (`notLifted`, as above).
+  "corpus/transactional-workflow-event-rollback": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitTwice.run (no such aggregate)",
+  ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this

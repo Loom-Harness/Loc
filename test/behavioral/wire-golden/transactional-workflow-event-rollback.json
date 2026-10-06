@@ -1,0 +1,225 @@
+{
+  "case": "transactional-workflow-event-rollback",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/accts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/debit_once",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/accts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 90,
+        "id": "<volatile:key>",
+        "name": "a",
+        "version": 2
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/audits",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "note": "debited",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/workflows/debit_twice",
+      "status": 409,
+      "body": {
+        "detail": "Acct {id} was modified by another request",
+        "instance": "/api/workflows/debit_twice",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/accts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 90,
+        "id": "<volatile:key>",
+        "name": "a",
+        "version": 2
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/audits",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "note": "debited",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/audits/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "note": "debited",
+        "version": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/accts/{id}/debit",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/audits",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "note": "debited",
+            "version": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "note": "debited",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/accts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/accts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "balance": 85,
+            "id": "<volatile:key>",
+            "name": "renamed",
+            "version": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/accts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/accts",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 14,
+      "method": "PATCH",
+      "path": "/api/accts",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/accts",
+        "instance": "/api/accts",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/accts",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/accts",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
