@@ -145,6 +145,16 @@ export function renderCreateTableIfNotExists(table: TableShape): string {
   return renderCreateTable(table, true);
 }
 
+/** `CREATE [UNIQUE] INDEX IF NOT EXISTS …` for one shared `IndexShape`, in the
+ *  idempotent form a self-applying bootstrap (the .NET Dapper `DbSchema.cs`)
+ *  re-runs on every startup.  Lets that bootstrap render the MigrationsIR's
+ *  derived indexes (`unique (…)` incl. the softDeletable partial predicate)
+ *  instead of re-deriving them.  `schema` undefined ⇒ an unqualified (public)
+ *  table, which is how the Dapper bootstrap names its tables. */
+export function renderCreateIndexIfNotExists(idx: IndexShape, schema?: string): string {
+  return renderAddIndex(idx, schema, true);
+}
+
 function renderCreateTable(table: TableShape, ifNotExists = false): string {
   const lines: string[] = [];
   // A value-object array's parent stand-in column is skipped on relational
