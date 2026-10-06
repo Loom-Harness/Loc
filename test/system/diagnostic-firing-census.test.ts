@@ -1618,6 +1618,22 @@ system S {
   } }
 }`,
 
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
+  "loom.paged-query-handler-shape": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order { }
+    criterion InRegion(rgn: string) of Order = region == rgn
+    retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+    queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let r = Orders.run(ByRegion(rgn))
+      return r
+    }
+  } }
+}`,
+
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     event Happened { thing: Thing id, label: string }
@@ -3096,6 +3112,39 @@ system S {
   storage pg { type: postgres }
   resource st { for: Shop, kind: state, use: pg }
   deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+
+  // Eval item 22 / ruling D5: the list read served by the injected `find all`.
+  "loom.default-deny-list-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // Eval item 39 / ruling D9: a policy called from a context that does not declare it.
+  "loom.policy-out-of-scope": `
+system S {
+  user { id: guid  role: string }
+  subdomain D {
+    context A {
+      policy IsAdmin(): bool = currentUser.role == "admin"
+      aggregate Foo { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+    context B {
+      aggregate Bar { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: A, kind: state, use: pg }
+  resource st2 { for: B, kind: state, use: pg }
+  deployable api { platform: node contexts: [A, B] dataSources: [st, st2] port: 3000 auth: required }
 }`,
 
   "loom.default-deny-by-id-ungated": `

@@ -110,3 +110,19 @@ export function channelTransportStorageNames(sys: SystemIR): Set<string> {
   }
   return out;
 }
+
+/** Ruling D3 (item 13): where a NEW kafka consumer group starts reading.  A
+ *  work-queue channel (`delivery: queue` / `retention: work`) starts at the
+ *  EARLIEST offset, so an event published before the consuming deployable's
+ *  group first joins is still delivered (envelope-id idempotency makes a
+ *  replay of already-handled records safe).  A `retention: log` broadcast
+ *  channel keeps the LATEST offset — a fresh deployable does not replay the
+ *  whole log (the replay cursor is a separate, unshipped mission).  A group
+ *  with committed offsets resumes from them either way, so this only decides
+ *  the first join (or an offset-expired rejoin).  The single source every
+ *  backend's kafka emitter reads. */
+export function kafkaStartsAtEarliest(
+  b: Pick<BrokerBinding, "transport" | "delivery" | "retention">,
+): boolean {
+  return b.transport === "kafka" && (b.retention === "work" || b.delivery === "queue");
+}

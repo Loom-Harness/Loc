@@ -379,7 +379,8 @@ a \`requires <expr>\` gate, or the build fails with
 
 - The synthesised **list** read is coverable — declare
   \`find all(): <T>[] requires <expr>\` on the repository and the gate lands on
-  \`GET /api/<plural>\`.  The synthesised **by-id** read
+  \`GET /api/<plural>\`; until you do, the build *warns*
+  (\`loom.default-deny-list-ungated\`).  The synthesised **by-id** read
   (\`GET /api/<plural>/{id}\`) has no gate surface yet, so the build *warns*
   about each one (\`loom.default-deny-by-id-ungated\`); a tenancy filter still
   covers it, role separation within a tenant does not.

@@ -147,6 +147,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-query-handler-shape":
+    "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -378,6 +380,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.policy-out-of-scope": "17-auth.md#named-policy-functions",
   "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
