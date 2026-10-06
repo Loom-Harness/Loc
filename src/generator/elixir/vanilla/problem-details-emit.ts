@@ -9,6 +9,7 @@
 // so the frontend ACL's `applyServerErrors` consumes it identically.
 // ---------------------------------------------------------------------------
 
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -66,7 +67,24 @@ export function renderVanillaProblemDetailsModule(
    *  object uses (the caller then passes `bodyValueObjects` too).  False ⇒
    *  byte-identical. */
   domainFloorCodes = false,
+  /** Ruling D4 (#20): true only under the dev-stub verifier
+   *  (`echoesDenialDetail`) — a 403 body then echoes the failed gate.  False
+   *  (the default) ⇒ the forbidden rung's body `detail` is the constant
+   *  `Forbidden`, while the `forbidden` log line above it keeps the gate. */
+  echoForbiddenDetail = false,
 ): string {
+  // Ruling D4 (#20).  Every `requires` denial funnels through
+  // `problem_response/4` (the `denial.ts` forbidden rung), and the classifier
+  // below logs the full `detail` BEFORE the body is built — so the redaction
+  // is one rebinding between the two, keyed on the same resolved forbidden
+  // status the classifier keys on.
+  const forbiddenBodyRedaction = echoForbiddenDetail
+    ? ""
+    : `
+    # Ruling D4: the gate's source text stays in the log line above; a caller
+    # under a real verifier is told only that it was forbidden.
+    detail = if status == ${forbiddenStatus}, do: ${JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)}, else: detail
+`;
   // Optimistic-concurrency 409 (`versioned` capability, D-VERSIONED).  A stale
   // write raises `Ecto.StaleEntryError`, which the repository rescues into
   // `{:error, :conflict}`; the controller maps that onto this responder.  It
@@ -476,7 +494,7 @@ ${classifyArms}
         ])}
         ${renderPhoenixDomainFault("domain_error")}
     end
-
+${forbiddenBodyRedaction}
     body =
       Jason.encode!(%{
         type: "about:blank",

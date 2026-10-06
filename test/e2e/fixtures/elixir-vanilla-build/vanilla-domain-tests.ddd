@@ -83,7 +83,7 @@ system Shop {
           let o = Order.create({ customer: "acme" })
           o.dispatch("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
           expect(o.clerkId).toBe("00000000-0000-0000-0000-000000000002")
-          expect(o.dispatchedAt.year).toBe(2026)
+          expect(o.dispatchedAt).toBe("2026-02-02T12:30:00Z")
         }
         test "an order with a valid price is created" {
           let o = Order.create({ customer: "acme", price: Money { amount: 5.0, currency: "USD" } })

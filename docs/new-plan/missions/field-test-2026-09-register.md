@@ -22,7 +22,7 @@ So the 13 ids below are recorded as **UNKNOWN-DEFINITION** and nothing else. The
 | **M-FT.16** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.17** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.23** | UNKNOWN-DEFINITION | nothing |
-| **M-FT.24** | UNKNOWN-DEFINITION | [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) names it as the owner of the **union wire shape**, and defers review-A D-7 (the OpenAPI union document) to it: *"the same document is re-shaped by the union WIRE change M-FT.24 owns. The two should land together, on all five emitters, in that mission."* |
+| **M-FT.24** | DEFINED 2026-09-29 → [`## M-FT.24`](../T6-backend-parity.md#m-ft24) (the OpenAPI half re-proved by the evaluation-closure review; the union-wire card is still the owner's to write) | [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) names it as the owner of the **union wire shape**, and defers review-A D-7 (the OpenAPI union document) to it: *"the same document is re-shaped by the union WIRE change M-FT.24 owns. The two should land together, on all five emitters, in that mission."* |
 | **M-FT.25** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.28** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.29** | UNKNOWN-DEFINITION | nothing |

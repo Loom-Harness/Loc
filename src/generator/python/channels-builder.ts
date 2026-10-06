@@ -1,8 +1,8 @@
-import type { EventIR } from "../../ir/types/loom-ir.js";
+import type { EventIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
-import type { BrokerBinding } from "../_channels/bindings.js";
-import { fromPayload, toPayload } from "./dispatch-builder.js";
+import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import { fromPayload, type PyVoFields, toPayload } from "./dispatch-builder.js";
 
 // ---------------------------------------------------------------------------
 // `app/channels.py` — the broker transport module (M-T4.4 slices 2b + 7a +
@@ -86,7 +86,11 @@ export function buildPyChannelsFile(
    *  foreign-channel consumer relies on broker ack semantics instead (the
    *  slice-3 stance). */
   hasDurable = false,
+  /** The value objects in scope (hosted + the foreign-event closure) — a
+   *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
+  valueObjects: readonly ValueObjectIR[] = [],
 ): string {
+  const vos: PyVoFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -107,11 +111,11 @@ export function buildPyChannelsFile(
   const carried = carriedEvents.filter((e) => routed.has(e.name));
   const toArms = carried.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type, vos)}`).join(", ")}}`,
   ]);
   const fromArms = carried.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type, vos)}`).join(", ")})`,
   ]);
   const codec = lines(
     "def _event_to_data(event: DomainEvent) -> dict[str, object]:",
@@ -127,26 +131,27 @@ export function buildPyChannelsFile(
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
 
   const eventNames = carried.map((e) => e.name).sort();
-  const idNames = [
-    ...new Set(
-      carried.flatMap((e) =>
-        e.fields
-          .map((f) => (f.type.kind === "optional" ? f.type.inner : f.type))
-          .filter((t): t is Extract<typeof t, { kind: "id" }> => t.kind === "id")
-          .map((t) => t.targetName),
-      ),
-    ),
-  ].sort();
-  const enumNames = [
-    ...new Set(
-      carried.flatMap((e) =>
-        e.fields
-          .map((f) => (f.type.kind === "optional" ? f.type.inner : f.type))
-          .filter((t): t is Extract<typeof t, { kind: "enum" }> => t.kind === "enum")
-          .map((t) => t.name),
-      ),
-    ),
-  ].sort();
+  // The domain names the codec reaches — a top-level field's type, or one
+  // reached through a carried value object the codec rebuilds (its own
+  // enum / id fields are decoded exactly like a top-level field's).
+  const ids = new Set<string>();
+  const enums = new Set<string>();
+  const rebuiltVos = new Set<string>();
+  const visit = (t: TypeIR): void => {
+    const inner = t.kind === "optional" ? t.inner : t;
+    if (inner.kind === "id") ids.add(inner.targetName);
+    else if (inner.kind === "enum") enums.add(inner.name);
+    else if (inner.kind === "valueobject" && !rebuiltVos.has(inner.name)) {
+      const fields = vos.get(inner.name);
+      if (fields) {
+        rebuiltVos.add(inner.name);
+        for (const f of fields) visit(f.type);
+      }
+    }
+  };
+  for (const ev of carried) for (const f of ev.fields) visit(f.type);
+  const idNames = [...ids].sort();
+  const enumNames = [...enums, ...rebuiltVos].sort();
 
   const transportNames = [
     ...(hasRedis ? ["RedisChannelTransport"] : []),
@@ -215,7 +220,7 @@ export function buildPyChannelsFile(
       : "CHANNEL_BINDINGS: list[dict[str, str]] = [",
     ...unique.map(
       (b) =>
-        `    {"cs_name": ${JSON.stringify(b.csName)}, "address": ${JSON.stringify(b.address)}, "env_var": ${JSON.stringify(b.envVar)}, "context": ${JSON.stringify(b.contextName)}, "transport": ${JSON.stringify(b.transport)}, "group": ${JSON.stringify(b.group)}${hasKafka ? `, "key": ${JSON.stringify(b.key ?? "")}` : ""}},`,
+        `    {"cs_name": ${JSON.stringify(b.csName)}, "address": ${JSON.stringify(b.address)}, "env_var": ${JSON.stringify(b.envVar)}, "context": ${JSON.stringify(b.contextName)}, "transport": ${JSON.stringify(b.transport)}, "group": ${JSON.stringify(b.group)}${hasKafka ? `, "key": ${JSON.stringify(b.key ?? "")}, "offset_reset": ${JSON.stringify(kafkaStartsAtEarliest(b) ? "earliest" : "latest")}` : ""}},`,
     ),
     "]",
     "",
@@ -468,14 +473,20 @@ export function buildPyChannelsFile(
           "        address: str,",
           "        group: str,",
           "        handler: ChannelEnvelopeHandler,",
+          '        offset_reset: str = "latest",',
           "    ) -> None:",
           "        await self._ensure_topic(address)",
+          "        # A NEW group's start offset (D3): a work-queue channel starts at",
+          "        # the earliest offset so events published before the group's",
+          "        # first join are not lost; a log channel starts at the latest.",
+          "        # A group with committed offsets resumes from them either way.",
           "        consumer = AIOKafkaConsumer(",
           "            address,",
           "            bootstrap_servers=self._bootstrap,",
           "            **self._sasl,",
           "            group_id=group,",
           "            enable_auto_commit=False,",
+          "            auto_offset_reset=offset_reset,",
           "        )",
           "        await consumer.start()",
           "        self._consumers.append(consumer)",
@@ -698,7 +709,9 @@ export function buildPyChannelsFile(
                 ...(hasKafka
                   ? [
                       "        if isinstance(transport, KafkaChannelTransport):",
-                      '            await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                      "            await transport.subscribe(",
+                      '                binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
+                      "            )",
                       "            continue",
                     ]
                   : []),
@@ -717,8 +730,27 @@ export function buildPyChannelsFile(
             : hasRabbit || hasKafka
               ? [
                   // rabbit and kafka share the (address, group, handler)
-                  // subscribe shape, so mixed rabbit+kafka needs no branch.
-                  '        await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                  // subscribe shape; kafka additionally takes the new-group
+                  // start offset (D3), so a mixed rabbit+kafka deployable
+                  // branches on the driver.
+                  ...(hasKafka && hasRabbit
+                    ? [
+                        "        if isinstance(transport, KafkaChannelTransport):",
+                        "            await transport.subscribe(",
+                        '                binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
+                        "            )",
+                        "            continue",
+                        '        await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                      ]
+                    : hasKafka
+                      ? [
+                          "        await transport.subscribe(",
+                          '            binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
+                          "        )",
+                        ]
+                      : [
+                          '        await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                        ]),
                 ]
               : [
                   "        if id(transport) not in subscribed:",

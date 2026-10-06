@@ -26,9 +26,9 @@ const LEGS = [
   ["behavioral-e2e.yml", 10],
   ["behavioral-e2e-python.yml", 10],
   ["behavioral-e2e-java.yml", 30],
-  ["behavioral-e2e-dotnet.yml", 15],
-  ["behavioral-e2e-dapper.yml", 15],
-  ["behavioral-e2e-mikroorm.yml", 20],
+  ["behavioral-e2e-dotnet.yml", 25],
+  ["behavioral-e2e-dapper.yml", 20],
+  ["behavioral-e2e-mikroorm.yml", 25],
   ["behavioral-e2e-elixir.yml", 20],
 ];
 

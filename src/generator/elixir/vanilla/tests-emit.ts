@@ -13,7 +13,12 @@ import { walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
-import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import {
+  coerceMatcherExpected,
+  coerceTestLiteral,
+  matcherSubjectType,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
 import { pureDerivedAccessorNames } from "./domain-core-emit.js";
@@ -259,17 +264,6 @@ function unwrapOptionalType(t: TypeIR): TypeIR {
   return t.kind === "optional" ? unwrapOptionalType(t.inner) : t;
 }
 
-/** The asserted subject's resolved type, with `.not.` peeled.
- *
- *  `receiverType` is the type of the matcher's RECEIVER, and for a negated
- *  assertion that receiver is the synthetic `.not` member rather than the
- *  value under test — so read the type off the `.not` node's own receiverType
- *  in that case, or the dispatch below sees the wrong type. */
-function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): TypeIR {
-  const recv = expr.receiver;
-  return recv.kind === "member" && recv.member === "not" ? recv.receiverType : expr.receiverType;
-}
-
 export function renderExpect(expr: ExprIR, env: Env): string {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) {
     throw new UnsupportedTestShapeError("expect requires a matcher");
@@ -318,6 +312,12 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   }
 
   if (!op) throw new UnsupportedTestShapeError(`unsupported value matcher '${expr.member}'`);
+
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
+  // compared as instants.  `DateTime.compare/2` raises on a binary, so a value
+  // STORED as the raw string fails the assertion instead of equalling it.
+  const dt = coerceMatcherExpected(expr, expected, EX_TEST_LITERAL);
+  if (dt !== undefined) return verb(`DateTime.compare(${actual}, ${dt}) == :eq`);
 
   if (isMoneyLike(inner, arg)) {
     if (expr.member === "toBe") return verb(`Decimal.equal?(${actual}, ${expected})`);

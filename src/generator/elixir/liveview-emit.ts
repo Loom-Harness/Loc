@@ -35,6 +35,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../ir/util/op-gates.js";
 import {
   classifyPage,
@@ -44,6 +45,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
@@ -149,7 +151,7 @@ export function emitLiveViewPages(args: {
   sourcemap?: SourceMapRecorder;
 }): { files: Map<string, string>; routes: LiveRoute[] } {
   const { contexts, deployable, sys, appName, appModule, sourcemap } = args;
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/elixir/liveview-emit");
   const routes: LiveRoute[] = [];
 
   // True when this deployable runs `auth: required` — `LiveAuth.on_mount`
@@ -406,6 +408,7 @@ export function emitLiveViewPages(args: {
       partContextModule,
       componentInfo,
       authEnabled,
+      echoForbiddenDetail: echoesDenialDetail(deployable, sys),
       i18nEnabled,
     });
     anyChart ||= usesChart;
@@ -548,6 +551,10 @@ interface RenderArgs {
   /** True when the deployable runs `auth: required` — drives currentUser
    *  action-button gating in the page body (off ⇒ byte-identical). */
   authEnabled: boolean;
+  /** Ruling D4 (#20): true only under the dev-stub verifier — a denied
+   *  create's flash then names the failed gate; otherwise it says `Forbidden`,
+   *  the same text the HTTP 403 body carries. */
+  echoForbiddenDetail: boolean;
 }
 
 interface ComponentActionInfo {
@@ -818,6 +825,7 @@ function renderLiveView(a: RenderArgs): {
     partContextModule,
     componentInfo,
     authEnabled,
+    echoForbiddenDetail,
   } = a;
   const webModule = `${appModule}Web`;
 
@@ -930,6 +938,7 @@ function renderLiveView(a: RenderArgs): {
       contextModuleByAggName,
       createSuccessRoute,
       aggregatesByName,
+      echoForbiddenDetail,
     ) +
     renderOperationEventClauses(walked.formBindings, detailBaseRoute, contextModuleByAggName) +
     renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
@@ -1851,6 +1860,8 @@ function renderCreateEventClauses(
    *  (`/customers/new` → `/customers`), navigated to on success. */
   listRoute: string | null,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  /** Ruling D4 (#20) — see `echoesDenialDetail`. */
+  echoForbiddenDetail = false,
 ): string {
   const creates = formBindings.filter((fb) => fb.kind === "aggregate");
   if (creates.length === 0) return "";
@@ -1900,8 +1911,8 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
           gated
             ? `
 
-      {:error, {:forbidden, detail}} ->
-        {:noreply, put_flash(socket, :error, detail)}`
+      {:error, {:forbidden, ${echoForbiddenDetail ? "detail" : "_detail"}}} ->
+        {:noreply, put_flash(socket, :error, ${echoForbiddenDetail ? "detail" : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)})}`
             : ""
         }
     end
