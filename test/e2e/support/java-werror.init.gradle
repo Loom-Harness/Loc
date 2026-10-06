@@ -1,0 +1,16 @@
+// javac at maximum strictness for every generated Java project the java
+// compile legs build: every lint category on, and any warning fails the
+// build -- the java twin of `dotnet build /warnaserror` and
+// `mix compile --warnings-as-errors`.
+//
+// An init script rather than a line in the emitted build.gradle.kts, so the
+// GATE runs at -Werror without forcing a user's generated project onto it.
+// CI installs it into ~/.gradle/init.d/ (java-build.yml, corpus-build.yml);
+// locally, `-I test/e2e/support/java-werror.init.gradle` on a gradle command,
+// or copy it into ~/.gradle/init.d/ for `npm run test:java` (and remove it
+// afterwards -- init.d applies to every Gradle build on the machine).
+allprojects {
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs.addAll(['-Xlint:all', '-Werror'])
+    }
+}

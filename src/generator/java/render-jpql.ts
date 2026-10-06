@@ -86,6 +86,10 @@ const SUBTREE_LIKE_BIND = "subtreeLike:";
  *  a bare claim accessor, or a `subtreeLike:<accessor>` derived pattern.
  *  Prefixed so it cannot collide with a find's own `:param` bindings. */
 export function principalParamName(entry: string): string {
+  if (entry.startsWith(CLAIM_IS_NULL_BIND)) {
+    const accessor = entry.slice(CLAIM_IS_NULL_BIND.length);
+    return `__cuIsNull${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
+  }
   const derived = entry.startsWith(SUBTREE_LIKE_BIND);
   const accessor = derived ? entry.slice(SUBTREE_LIKE_BIND.length) : entry;
   const cap = `${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
@@ -98,6 +102,10 @@ export function principalParamName(entry: string): string {
  *  from drifting: a new derived binding kind adds an arm here rather than
  *  needing every call site to learn about it. */
 export function principalBindExpr(entry: string, principalVar: string): string {
+  if (entry.startsWith(CLAIM_IS_NULL_BIND)) {
+    const accessor = entry.slice(CLAIM_IS_NULL_BIND.length);
+    return `${principalVar} != null && ${principalVar}.${accessor}() == null`;
+  }
   if (entry.startsWith(SUBTREE_LIKE_BIND)) {
     const accessor = entry.slice(SUBTREE_LIKE_BIND.length);
     const read = `${principalVar}.${accessor}()`;
@@ -408,7 +416,81 @@ function renderBinary(e: Extract<ExprIR, { kind: "binary" }>, ctx: JpqlCtx): str
       return idSide === e.left ? `${idPath} ${op} ${spel}` : `${spel} ${op} ${idPath}`;
     }
   }
+  const nullAware = renderNullableComparison(e, op, ctx);
+  if (nullAware !== null) return nullAware;
   return `${render(e.left, ctx)} ${op} ${render(e.right, ctx)}`;
+}
+
+/** Marker prefix for a recorded `principalAccessors` binding that is the
+ *  "an actor is present and its claim is null" TEST for a nullable claim —
+ *  bound as a Boolean by {@link principalBindExpr}. */
+const CLAIM_IS_NULL_BIND = "claimIsNull:";
+
+/** JPQL boolean predicate that is true exactly when a NULLABLE comparison value
+ *  is null — or null when `x` is not one.  A nullable value is a
+ *  `currentUser.<claim>` declared `T?` or a find parameter typed `T?` (the two
+ *  shapes the node twin, `isNullableValue` in `repository-find-predicate.ts`,
+ *  branches on).  The claim test also requires an actor: an absent principal
+ *  stays fail-closed (its `= NULL` comparison matches nothing) instead of
+ *  reading the NULL-column rows.  Spring Data mode evaluates the test in SpEL
+ *  so the bind is a typed Boolean (a bare `:p is null` hands Postgres an
+ *  untyped parameter); the EntityManager mode, which has no SpEL layer, binds
+ *  the claim test as a derived principal parameter and tests a find param
+ *  with `is null`. */
+function isNullableValue(x: ExprIR): boolean {
+  if (x.kind === "paren") return isNullableValue(x.inner);
+  if (x.kind === "member")
+    return (
+      x.receiver.kind === "ref" &&
+      x.receiver.refKind === "current-user" &&
+      x.memberType.kind === "optional"
+    );
+  return x.kind === "ref" && x.refKind === "param" && x.type?.kind === "optional";
+}
+
+function nullValueTest(x: ExprIR, ctx: JpqlCtx): string | null {
+  if (x.kind === "paren") return nullValueTest(x.inner, ctx);
+  if (
+    x.kind === "member" &&
+    x.receiver.kind === "ref" &&
+    x.receiver.refKind === "current-user" &&
+    x.memberType.kind === "optional"
+  ) {
+    if (isEntityManagerMode(ctx)) {
+      const entry = `${CLAIM_IS_NULL_BIND}${x.member}`;
+      ctx.principalAccessors?.add(entry);
+      return `:${principalParamName(entry)} = true`;
+    }
+    const user = `@${CURRENT_USER_BEAN}.user()`;
+    return `:#{${user} != null and ${user}.${x.member}() == null} = true`;
+  }
+  if (x.kind === "ref" && x.refKind === "param" && x.type?.kind === "optional") {
+    return isEntityManagerMode(ctx)
+      ? `:${jid(x.name)} is null`
+      : `:#{#${jid(x.name)} == null} = true`;
+  }
+  return null;
+}
+
+/** Null-aware comparison of a column against a NULLABLE value (eval B-A6b).
+ *  JPQL `e.col = :v` with a null `:v` is `col = NULL` — UNKNOWN, no row — where
+ *  Loom (and the node twin, #3085) reads `==` against null as `IS NULL` and
+ *  `!=` as `IS NOT NULL`.  An ordering against null matches no row on every
+ *  backend, so only `==`/`!=` grow the null arm.  Null for any other shape. */
+function renderNullableComparison(
+  e: Extract<ExprIR, { kind: "binary" }>,
+  op: string,
+  ctx: JpqlCtx,
+): string | null {
+  if (e.op !== "==" && e.op !== "!=") return null;
+  // Exactly one side is the nullable value; a value-vs-value comparison keeps
+  // the plain rendering.
+  const leftIsValue = isNullableValue(e.left);
+  if (leftIsValue === isNullableValue(e.right)) return null;
+  const test = nullValueTest(leftIsValue ? e.left : e.right, ctx)!;
+  const col = render(leftIsValue ? e.right : e.left, ctx);
+  const cmp = `${render(e.left, ctx)} ${op} ${render(e.right, ctx)}`;
+  return `(${cmp} or (${test} and ${col} is ${e.op === "==" ? "" : "not "}null))`;
 }
 
 /** The id TypeIR of a `this.id` member access (the aggregate's own key), or

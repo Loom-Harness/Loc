@@ -31,6 +31,8 @@
  *  precedent) — kept as an independent copy here rather than a shared
  *  export so this debug-only pass has no edge into the layout-relocation
  *  module's own surface. */
+import { rewrite } from "../../util/emission-sink.js";
+
 const RELATIVE_IMPORT_RE = /\b(?:from|import)\s*\(?\s*(['"])(\.[^'"]*)\1/g;
 
 const dirParts = (file: string): string[] => {
@@ -67,6 +69,6 @@ export function addTsExtensionsForNodeDebug(out: Map<string, string>): void {
       }
       return full;
     });
-    if (rewritten !== content) out.set(path, rewritten);
+    if (rewritten !== content) rewrite(out, path, rewritten);
   }
 }

@@ -175,7 +175,7 @@ The document sub-case below is the one feature with a partial story:
 | Feature | `elixir` (vanilla) | Gate (fail-fast) |
 |---|---|---|
 | Event-sourced storage `persistedAs: eventLog` | ✓ emits (incl. every `apply(…)` fold shape²) | — |
-| Event-sourced **workflow** (`eventSourced` saga) | ✓ emits (per-correlation stream + fold) | — (`loom.event-sourced-workflow-unsupported` gates only non-supporting backends) |
+| Event-sourced **workflow** (`eventSourced` saga) | ✓ emits (per-correlation stream + fold) | — (every backend emits it; no per-backend gate) |
 | Provenanced fields (runtime trace) | ✓ emits | — |
 | `shape: document` aggregate | ✓ CRUD + finds/ops/functions/returning-ops; small residual gated¹ | `loom.vanilla-document-unsupported` (sub-case) |
 | `or`-union-returning op with `emit`/`add`/`remove` body | ✓ full bodies | — |

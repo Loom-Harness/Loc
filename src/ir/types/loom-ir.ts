@@ -481,8 +481,8 @@ export interface OperationIR {
    * `GET /{id}/can_<op>` returns `{ allowed }` for UI enablement.
    * Lowered in the aggregate env (operation params are out of scope —
    * `loom.when-references-op-param`); named criteria / aggregate
-   * functions inline like any boolean position.  Emission: Hono +
-   * .NET; gated on elixir (`loom.when-unsupported`). */
+   * functions inline like any boolean position.  Emitted by every
+   * backend. */
   when?: ExprIR;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely

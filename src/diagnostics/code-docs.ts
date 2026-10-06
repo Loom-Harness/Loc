@@ -119,6 +119,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#elixir-enforced-or-reported",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
+  "loom.unknown-primitive-member": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.emit-field-type": "06-behavior-and-statements.md#let--emit",
@@ -145,6 +146,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-query-handler-shape":
+    "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -205,10 +208,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-columnless-source":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.projection-document-source-capability-filtered":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-groupby-unsupported-backend":
-    "10-repositories-and-queries.md#the-source-has-to-have-columns",
-  "loom.projection-whole-table-aggregation-unsupported":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
@@ -330,7 +329,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.ui-multi-backend-unsupported": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-aggregate-unserved": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":
@@ -389,6 +390,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.async-effect-subject-unsupported":
     "15-ui-pages-structure.md#effect-markers-and-match-await",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
+  "loom.test-statement-invalid": "18-testing.md#test---an-in-process-unit-test",
+  "loom.member-unresolved": "05-expressions.md#member-access--calls",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
