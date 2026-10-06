@@ -171,8 +171,11 @@ principal claim takes the same path, for the same reason.
 
 .NET has always done this (`Guid.TryParse`); the other four parsed
 unconditionally and answered a bad token with a stack trace until M-T3.7(c).
-Pinned per backend by the `tenancy-registry-self-scope` generator suites and
-end-to-end by `assertCrossTenantIsolation` (the `tenancy-e2e` matrix, all five
+Pinned on every behavioural leg by `corpus/tenancy-owned` (the harness
+principal's claim is not a uuid, so the registry reads 404 / empty, never 500),
+by the remaining .NET and Java `tenancy-registry-self-scope` generator suites
+for the guid-claim and Criteria arms, and end-to-end by
+`assertCrossTenantIsolation` (the `tenancy-e2e` matrix, all five
 backends × {flat, hierarchy}).
 
 Per-backend registry read scope (all five compile-gated, and all five
