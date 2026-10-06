@@ -48,7 +48,7 @@ describe("elixir standalone (no-broker) outbox (M-T4.3)", () => {
     const files = await build(STANDALONE);
     // The context module's emit site records durable events via the tee.
     expect(file(files, "lib/sales_api/orders.ex")).toContain(
-      "SalesApi.Channels.dispatch(loom_event_0, SalesApi.Orders.Dispatcher)",
+      "SalesApi.Channels.dispatch(loom_event_0, SalesApi.Orders.Dispatcher.AfterCommit)",
     );
     const tee = file(files, "lib/sales_api/channels.ex");
     expect(tee).toContain('@durable MapSet.new(["OrderPlaced"])');
@@ -83,7 +83,7 @@ describe("elixir standalone (no-broker) outbox (M-T4.3)", () => {
     expect(file(files, "lib/sales_api/loom_outbox.ex")).toBe("");
     // The emit seam dispatches straight to the local dispatcher (no tee).
     expect(file(files, "lib/sales_api/orders.ex")).toContain(
-      "SalesApi.Orders.Dispatcher.dispatch(loom_event_0)",
+      "SalesApi.Orders.Dispatcher.AfterCommit.dispatch(loom_event_0)",
     );
   });
 });

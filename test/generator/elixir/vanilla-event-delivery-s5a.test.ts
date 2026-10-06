@@ -123,10 +123,10 @@ describe("vanilla — S5a persist-then-dispatch", () => {
     const body = ctx.slice(ctx.indexOf("def place_order(%"));
 
     // Both the saga seam (Dispatcher) and the raw broadcast fire, both post-commit.
-    expect(body).toContain("Api.Fulfillment.Dispatcher.dispatch(loom_event_0)");
+    expect(body).toContain("Api.Fulfillment.Dispatcher.AfterCommit.dispatch(loom_event_0)");
     expect(body).toContain('Phoenix.PubSub.broadcast(Api.PubSub, "events", loom_event_0)');
     const persistAt = body.indexOf("persist_change(changeset)");
-    const dispatchAt = body.indexOf("Dispatcher.dispatch(loom_event_0)");
+    const dispatchAt = body.indexOf("Dispatcher.AfterCommit.dispatch(loom_event_0)");
     expect(persistAt).toBeGreaterThan(-1);
     expect(persistAt).toBeLessThan(dispatchAt);
   });
@@ -186,7 +186,7 @@ system FulfillmentSys {
     // emit + in-memory return.
     expect(body).toContain("case Api.Fulfillment.OrderRepository.persist_change(changeset) do");
     const persistAt = body.indexOf("persist_change(changeset)");
-    const dispatchAt = body.indexOf("Dispatcher.dispatch(loom_event_0)");
+    const dispatchAt = body.indexOf("Dispatcher.AfterCommit.dispatch(loom_event_0)");
     expect(persistAt).toBeGreaterThan(-1);
     expect(persistAt).toBeLessThan(dispatchAt);
     // Wire projected off the SAVED struct, not the in-memory record.

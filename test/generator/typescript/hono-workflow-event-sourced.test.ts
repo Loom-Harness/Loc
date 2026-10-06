@@ -95,7 +95,7 @@ describe("hono event-sourced workflows", () => {
   it("wires both handlers into the in-process dispatcher", async () => {
     const wf = file(await gen(), "http/workflows.ts");
     expect(wf).toContain("export function createInProcessDispatcher(");
-    expect(wf).toContain("await tallyStartOrderPlaced(db, dispatcher, event);");
-    expect(wf).toContain("await tallyOnPaymentReceived(db, dispatcher, event);");
+    expect(wf).toContain("() => tallyStartOrderPlaced(db, dispatcher, event));");
+    expect(wf).toContain("() => tallyOnPaymentReceived(db, dispatcher, event));");
   });
 });

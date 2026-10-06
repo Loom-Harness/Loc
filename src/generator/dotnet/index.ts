@@ -421,7 +421,7 @@ function emitProjectFromContexts(
     valueObjectInvariant: contexts.some(hasValueObjectInvariants),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
   });
-  emitDispatcher(ns, out, hasSubscriptions);
+  emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
   // Adapter dispatch context — built once per system-mode emit so
   // every per-aggregate call dispatches through the same EmitCtx

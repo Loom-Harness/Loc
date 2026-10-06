@@ -137,6 +137,15 @@ consumer-side idempotency key (a redelivered envelope is a no-op).
 `ephemeral` events publish inline post-dispatch (the tee). Backends without a
 prior outbox tier (java, elixir) gained one with their rabbit legs.
 
+**Reactor failures:** a local reactor that throws on the request path never
+fails the command that raised its event. It is isolated and logged
+`reactor_failed` ([workflow.md § Reactor failures](workflow.md#reactor-failures)),
+and it is not retried there. Retry is the durable tier's job: a `work`/`log`
+event's reactors run from the relay or the consumer, both of which keep the
+raising dispatcher, so a failure is redelivered and finally dead-lettered.
+Pick `retention: work` for a reaction that must eventually happen, such as
+sending a CSAT survey mail.
+
 ## Per-broker topology
 
 Addresses are derived, never configured: channel address

@@ -615,7 +615,7 @@ export function renderDapperOutboxRelay(
     : "IServiceScopeFactory scopes, NpgsqlDataSource db, ILogger<OutboxRelayService> log";
   const ctorAssign = opts.durableBroker ? "\n        _transports = transports;" : "";
   const innerResolve = opts.hasSubscriptions
-    ? "\n            var inner = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();"
+    ? "\n            var inner = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n            // The relay retries / dead-letters on a reactor throw — never isolate here.\n            inner.IsolateReactorFailures = false;"
     : "";
   const localDispatch = `// The row id rides on an AsyncLocal so saga handlers'
                 // idempotent-consumer markers can no-op on redelivery

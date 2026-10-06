@@ -10,6 +10,7 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
+import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 
 export function renderCommon(
   ns: string,
@@ -363,27 +364,79 @@ public sealed class NoopDomainEventDispatcher : IDomainEventDispatcher
  *  event-triggered starter) for it runs.  Uses the non-generic `Publish(object)`
  *  so dispatch is by the event's RUNTIME type (the concrete event), not the
  *  `IDomainEvent` interface.  Registered (replacing the no-op) when the
- *  deployable has channel-routed subscriptions. */
-export function renderInProcessDispatcher(ns: string): string {
+ *  deployable has channel-routed subscriptions.
+ *
+ *  Reactor failure isolation (H-28, workflow.md § "Reactor failures"): the
+ *  request path dispatches AFTER the command's `SaveChangesAsync` committed, so
+ *  a reactor throw must not turn that committed command into a 422/500.  By
+ *  default a failure is logged `reactor_failed` and swallowed; the reactor's
+ *  half-staged EF changes are detached so a later save in the same scope
+ *  cannot commit them.  The outbox relay and the broker consumer resolve this
+ *  concrete type and switch `IsolateReactorFailures` off for their scope — their
+ *  retry / redelivery / dead-letter bookkeeping depends on the throw. */
+export function renderInProcessDispatcher(ns: string, efDbContext = false): string {
+  const detach = efDbContext
+    ? `
+        // Drop whatever the failed reactor staged but did not commit, so the
+        // next SaveChangesAsync in this scope cannot persist half a reaction.
+        if (_services.GetService(typeof(global::${ns}.Infrastructure.Persistence.AppDbContext)) is Microsoft.EntityFrameworkCore.DbContext db)
+        {
+            foreach (var entry in db.ChangeTracker.Entries().Where(e => e.State != Microsoft.EntityFrameworkCore.EntityState.Unchanged).ToList())
+                entry.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+        }`
+    : "";
   return `// Auto-generated.
+using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Mediator;
+using Microsoft.Extensions.Logging;
 using ${ns}.Domain.Common;
 using ${ns}.Domain.Events;
 
 namespace ${ns}.Infrastructure.Events;
 
 /// <summary>Publishes domain events as Mediator notifications to their
-/// reactor / starter handlers.</summary>
+/// reactor / starter handlers.  A handler failure is isolated (logged
+/// <c>reactor_failed</c>, not rethrown) unless <see cref="IsolateReactorFailures"/>
+/// is switched off — the relay / broker consumer do, because they retry on it.</summary>
 public sealed class InProcessDomainEventDispatcher : IDomainEventDispatcher
 {
     private readonly IMediator _mediator;
+    private readonly IServiceProvider _services;
+    private readonly ILogger<InProcessDomainEventDispatcher> _log;
 
-    public InProcessDomainEventDispatcher(IMediator mediator) => _mediator = mediator;
+    public InProcessDomainEventDispatcher(IMediator mediator, IServiceProvider services, ILogger<InProcessDomainEventDispatcher> log)
+    {
+        _mediator = mediator; _services = services; _log = log;
+    }
 
-    public Task DispatchAsync(IDomainEvent ev, CancellationToken cancellationToken = default)
-        => _mediator.Publish((object)ev, cancellationToken).AsTask();
+    /// <summary>On (the request path) by default; the outbox relay and the
+    /// broker consumer turn it off for their own scope.</summary>
+    public bool IsolateReactorFailures { get; set; } = true;
+
+    public async Task DispatchAsync(IDomainEvent ev, CancellationToken cancellationToken = default)
+    {
+        if (!IsolateReactorFailures)
+        {
+            await _mediator.Publish((object)ev, cancellationToken);
+            return;
+        }
+        try
+        {
+            await _mediator.Publish((object)ev, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ${renderDotnetLogCallWithException("reactorFailed", "ex", [
+              { name: "handler", valueExpr: `"dispatch"` },
+              { name: "event_type", valueExpr: "ev.GetType().Name" },
+              { name: "event_id", valueExpr: `Guid.NewGuid().ToString()` },
+              { name: "error", valueExpr: "ex.Message" },
+            ])}${detach}
+        }
+    }
 }
 `;
 }

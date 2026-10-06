@@ -304,9 +304,13 @@ export function buildPyDispatchFile(
   // tier) → ChannelTeeDispatcher (broker tier).  The tee is outermost so a
   // broker-routed ephemeral event publishes without touching the outbox —
   // the two routing sets are disjoint by the compat matrix.
+  // The REQUEST path's in-process dispatcher isolates reactor failures (H-28,
+  // workflow.md § "Reactor failures"); the outbox relay and the broker
+  // consumer build their own `InProcessDispatcher(session)`, which raises —
+  // their retry / redelivery rides the exception.
   const innerCore = hasRealtime
-    ? "RealtimeDispatcher(InProcessDispatcher(session))"
-    : "InProcessDispatcher(session)";
+    ? "RealtimeDispatcher(InProcessDispatcher(session, isolate=True))"
+    : "InProcessDispatcher(session, isolate=True)";
   const innerExpr = hasOutbox ? `OutboxDispatcher(session, ${innerCore})` : innerCore;
   const returnType = hasChannels
     ? '"ChannelTeeDispatcher"'
@@ -319,15 +323,34 @@ export function buildPyDispatchFile(
     "class InProcessDispatcher:",
     '    """Routes each emitted event to its subscribed workflow handlers;',
     "    a handler's own emits re-enter, so choreography chains run.",
+    "",
+    "    With ``isolate`` (the request path) each reaction runs in a SAVEPOINT:",
+    "    a failure rolls back that reaction alone and is logged",
+    "    ``reactor_failed`` instead of failing the command whose event it",
+    "    reacts to.  Without it (relay, broker consumer) a failure raises.",
     '    """',
     "",
-    "    def __init__(self, session: AsyncSession) -> None:",
+    "    def __init__(self, session: AsyncSession, isolate: bool = False) -> None:",
     "        self._session = session",
+    "        self._isolate = isolate",
+    "",
+    "    async def _react(self, handler: str, event: DomainEvent, run: Callable[[], Awaitable[None]]) -> None:",
+    "        if not self._isolate:",
+    "            await run()",
+    "            return",
+    "        try:",
+    "            async with self._session.begin_nested():",
+    "                await run()",
+    "        except Exception as exc:",
+    `            log("error", "reactor_failed", handler=handler, event_type=type(event).__name__, event_id=str(uuid.uuid4()), error=str(exc))`,
     "",
     "    async def dispatch(self, event: DomainEvent) -> None:",
     ...[...handlerByEvent.entries()].flatMap(([event, fns], i) => [
       `        ${i === 0 ? "if" : "elif"} isinstance(event, ${event}):`,
-      ...fns.map((fn) => `            await ${fn}(self._session, self, event)`),
+      ...fns.map(
+        (fn) =>
+          `            await self._react("${fn}", event, lambda: ${fn}(self._session, self, event))`,
+      ),
     ]),
     "",
     "",
@@ -409,6 +432,8 @@ export function buildPyDispatchFile(
     "",
     hasOutbox ? "import asyncio" : null,
     refersTo("math") ? "import math" : null,
+    refersTo("uuid") ? "import uuid" : null,
+    refersTo("Awaitable") ? "from collections.abc import Awaitable, Callable" : null,
     hasOutbox ? "from contextvars import ContextVar" : null,
     refersTo("datetime") ? "from datetime import UTC, datetime" : null,
     refersTo("Decimal") ? "from decimal import Decimal" : null,

@@ -245,8 +245,10 @@ export function renderHttpIndex(
   // events to the table (the relay re-enters through the tee), the tee
   // copies every dispatched event onto the SSE wire, the in-process
   // dispatcher (or Noop) does the actual handler fan-out.
+  // Request-path instance: reactor failures are isolated (H-28) — the command
+  // that raised the event has already committed when its reactors run.
   const inProcessExpr = wireDispatcher
-    ? "createInProcessDispatcher(db)"
+    ? "createInProcessDispatcher(db, { isolateReactorFailures: true })"
     : "NoopDomainEventDispatcher";
   // The projection tee wraps the in-process/Noop base so folds run on every
   // dispatched event before the (workflow) fan-out; realtime + outbox wrap that.
