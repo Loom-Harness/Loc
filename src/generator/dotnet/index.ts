@@ -24,6 +24,7 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
+import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignEventValueTypes,
@@ -53,6 +54,7 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -293,7 +295,7 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/dotnet/index");
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.
@@ -1017,6 +1019,8 @@ function emitProjectFromContexts(
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoForbiddenDetail: echoesDenialDetail(system?.deployable, system?.sys),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
