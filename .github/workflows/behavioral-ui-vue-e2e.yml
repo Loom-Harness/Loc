@@ -1,0 +1,106 @@
+name: Behavioral UI e2e — Vue (headless, no docker)
+
+# The per-PR full-stack round-trip for the Vue frontend — the one non-React
+# frontend gated per PR.  Same runner and topology as behavioral-ui-e2e.yml
+# (the React cell): generate → `vite build` the generated Vue/Vuetify client →
+# serve it and the generated Hono backend (PGlite, in-process) from one origin
+# → run the EMITTED `*.ui.spec.ts` in headless Chromium, plus run-ui.mjs's
+# header-aware numeric LIST probe (corpus.json `numericList`).  The other
+# non-React cells stay nightly / `frontend-fullstack`-labelled in
+# frontend-fullstack-e2e.yml.  A separate workflow, not a job there, because
+# path filters are per-workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'designs/vuetify/**'
+      - 'vue/**'
+      - 'stacks/**'
+      - 'web/src/runtime/ddl.ts'
+      - 'test/behavioral/**'
+      - 'test/e2e/fixtures/vue-fullstack/**'
+      - 'package.json'
+      - '.github/workflows/behavioral-ui-vue-e2e.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'designs/vuetify/**'
+      - 'vue/**'
+      - 'stacks/**'
+      - 'web/src/runtime/ddl.ts'
+      - 'test/behavioral/**'
+      - 'test/e2e/fixtures/vue-fullstack/**'
+      - 'package.json'
+      - '.github/workflows/behavioral-ui-vue-e2e.yml'
+      # Vue client + Hono backend only: another backend's or another
+      # frontend's emitter cannot alter this leg.  push:main stays broad.
+      - '!src/generator/java/**'
+      - '!src/generator/dotnet/**'
+      - '!src/generator/python/**'
+      - '!src/generator/elixir/**'
+      - '!src/generator/react/**'
+      - '!src/generator/svelte/**'
+      - '!src/generator/angular/**'
+      - '!src/generator/feliz/**'
+      - '!src/generator/flutter/**'
+      - '!src/platform/java.ts'
+      - '!src/platform/dotnet.ts'
+      - '!src/platform/dotnet/**'
+      - '!src/platform/python.ts'
+      - '!src/platform/elixir.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  behavioral-ui-vue:
+    # Draft PRs run only the fast lane; this fires when the PR is marked ready
+    # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Build toolchain
+        run: npm run build
+
+      - name: Install behavioral harness deps
+        working-directory: test/behavioral
+        run: npm ci || npm install --no-audit --no-fund
+
+      - name: Run the Vue full-stack round-trip (+ numeric list probe)
+        working-directory: test/behavioral
+        run: node run-ui.mjs sales-system-vue
+
+      # run-ui.mjs rescues `test-results/` into `test/behavioral/.work-ui/<case>/`
+      # before it deletes its temp tree; `.work-ui` is a dot directory, so the
+      # upload must include hidden files or it ships nothing.
+      - name: Upload Playwright evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-vue
+          path: |
+            test/behavioral/.work-ui/**/test-results/**
+            test/behavioral/.work-ui/**/report.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

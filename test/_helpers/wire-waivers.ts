@@ -49,7 +49,7 @@
 import type { WireWaiver } from "./wire-record.js";
 
 // 2026-10-04 — #15d (ruling D10) added the message-LESS rows to
-// `validation-messages` (seq 12 `ship`, seq 13 `retag`) and fixed python; the
+// `validation-messages` (seq 14 `ship`, seq 15 `retag`) and fixed python; the
 // other three backends still send their framework's default text, measured on
 // booted legs.  Mission M-T6.86 closes them and deletes these four entries.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [

@@ -4576,6 +4576,6 @@ only a `loc`, and one field name can carry different bounds on two models.
 
 **Consequences.** Pinned by `test/generator/python/message-less-wire-message.test.ts`
 (derives node's message set and requires each in python's tables) and by the
-`validation-messages` wire golden (seq 12/13). .NET, Java and Elixir still send
+`validation-messages` wire golden (seq 14/15). .NET, Java and Elixir still send
 their own text — mission M-T6.86, held by four waivers in
 `test/_helpers/wire-waivers.ts`.

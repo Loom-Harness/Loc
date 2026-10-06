@@ -50,14 +50,15 @@ const PY_UUID_STR_DEF = [
  *  annotation, so the wire grammar is declared in exactly one place. */
 export const PY_MONEY_STR = "MoneyStr";
 
-/** Python source of the `MoneyStr` alias — the python arm of M-T6.48.
+/** Python source of the `MoneyStr` alias — the python arm of the
+ *  malformed-wire-value refusal.
  *
  *  A `money` request field is a STRING on the wire and the route re-parses it
- *  with `Decimal(...)` (`pyWireToDomain`).  That parse was bare, so
- *  `{"price": "12,50"}` raised `decimal.InvalidOperation` out of the handler
- *  and FastAPI answered **500** — a client error reported as a server fault,
- *  where node answers a typed 4xx and .NET (whose arm landed first) answers
- *  422 with `{pointer, message}`.  Validating at the MODEL puts the refusal
+ *  with `Decimal(...)` (`pyWireToDomain`).  Unvalidated, `{"price": "12,50"}`
+ *  raises `decimal.InvalidOperation` out of the handler and FastAPI answers
+ *  **500** — a client error reported as a server fault, where node answers a
+ *  typed 4xx and .NET answers 422 with `{pointer, message}`.  Validating at the
+ *  MODEL puts the refusal
  *  where pydantic already builds that envelope: the error carries the field's
  *  own `loc`, so `errors[].pointer` is `/price` — and `/best/offer` for a
  *  value-object field — with no pointer plumbing at the raise site.
@@ -67,8 +68,7 @@ export const PY_MONEY_STR = "MoneyStr";
  *  "String should match pattern '…'", while node's `moneySchema` and .NET's
  *  `WireFormatException` both say `Invalid decimal: "12,50"`.  The wire-golden
  *  differential compares bodies across backends, so a divergent message is a
- *  real divergence — and as of M-T9.37 that gate can finally see the numbers
- *  it compares.  `PydanticCustomError` carries the text verbatim; a bare
+ *  real divergence.  `PydanticCustomError` carries the text verbatim; a bare
  *  `ValueError` would prefix it with "Value error, ".
  *
  *  The regex is node's, character for character (`^-?\d+(\.\d+)?$`) — no
@@ -252,7 +252,7 @@ export function wireModelImport(
   const names = [
     ...voModelNames.map((n) => `${n} as ${n}Model`),
     // The `Provenanced[T]` wire carrier, when this module annotates a
-    // provenanced response field (M-T6.12).
+    // provenanced response field.
     ...(refersTo(PY_PROVENANCED) ? [PY_PROVENANCED] : []),
     ...(refersTo(PY_UUID_STR) ? [PY_UUID_STR] : []),
     ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
@@ -323,7 +323,7 @@ function wireFieldType(
           // handler re-parses it into Decimal for the domain
           // (`pyWireToDomain`), and `to_wire` stringifies on the way out.
           //
-          // The REQUEST side carries the format constraint (M-T6.48): the
+          // The REQUEST side carries the format constraint: the
           // downstream `Decimal(...)` is total only for strings this alias
           // admits, so validating here is what turns a 500 into a 422.  The
           // RESPONSE side stays a bare `str` — it is OUR digits going out, the
@@ -345,13 +345,12 @@ function wireFieldType(
         case "File":
           // A `File` field crosses the wire as the shared `FileRef`
           // ({url,key,contentType,size}) on every other backend — .NET's
-          // `FileRef` record, java's `FileRef`, hono's zod object. Python fell
-          // through to the `str` default below, so the DTO was typed `str`
-          // while the DOMAIN attribute is `FileRef`: `mypy --strict` rejected
-          // the handoff (`Argument "doc" … has incompatible type "str"`), and
-          // the published schema said `string` where the other four said
-          // object. No corpus fixture declared a `File` field until
-          // `file-download.ddd` (M-T6.39), so no compile tier ever saw it.
+          // `FileRef` record, java's `FileRef`, hono's zod object. Falling
+          // through to the `str` default below would type the DTO `str` while
+          // the DOMAIN attribute is `FileRef`: `mypy --strict` rejects the
+          // handoff (`Argument "doc" … has incompatible type "str"`), and the
+          // published schema would say `string` where the other four say
+          // object. `file-download.ddd` is the corpus fixture that exercises it.
           return "FileRef";
         default:
           return "str";
@@ -385,7 +384,7 @@ function wireFieldType(
     case "optional":
       return `${wireFieldType(t.inner, ctx, dir, voSuffix)} | None`;
     case "genericInstance":
-      // `Provenanced[int]` (M-T6.12) — the value + lineage wire carrier as a
+      // `Provenanced[int]` — the value + lineage wire carrier as a
       // real generic model, NOT the `object` the default arm below would have
       // silently produced: a freeform `object` would erase the value's type
       // from the published OpenAPI schema, which is exactly the divergence the
@@ -405,7 +404,7 @@ export const PY_PROVENANCED = "Provenanced";
 const PY_PROV_TYPEVAR = "_ProvT";
 
 /** `class Provenanced(BaseModel, Generic[_ProvT])` — the value + lineage
- *  carrier a `provenanced` field ships as (M-T6.12).  A classic `TypeVar` +
+ *  carrier a `provenanced` field ships as.  A classic `TypeVar` +
  *  `Generic[T]` rather than PEP-695 `class Provenanced[T]`, so the model does
  *  not depend on pydantic's newer generic-syntax support.  `lineage` is the
  *  opaque `ProvLineage` audit blob (`json` in the IR — Loom does not model its
@@ -534,13 +533,11 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // its reference-typed request annotations), so its two pydantic pieces are
     // always in the import list.
     "StringConstraints",
-    // `MoneyStr` (M-T6.48) also needs `AfterValidator`, and used to add its own
-    // conditional entry here — but the name became UNCONDITIONAL above when the
-    // always-emitted `WireStr` alias started using it (F20), so a second entry
-    // is now a duplicate import.  Removed rather than re-ordered: the position
-    // that note was defending is the one the name already occupies.
+    // `MoneyStr` also needs `AfterValidator`, which is already UNCONDITIONAL
+    // above (the always-emitted `WireStr` alias uses it), so it needs no
+    // conditional entry here — a second one would be a duplicate import.
     // A messaged single-field rule raises through `ValidationError.
-    // from_exception_data` so the error carries the field's `loc` (M-T1.11).
+    // from_exception_data` so the error carries the field's `loc`.
     uses("ValidationError") ? "ValidationError" : null,
     // A message-less single-field rule re-words its `Field(...)` violation
     // through a wrap `field_validator` (ruling D10, #15d).
