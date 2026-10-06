@@ -94,6 +94,7 @@ import {
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
+  validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
   validateProvenancedStorage,
@@ -234,6 +235,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `// flutter pack: no renderer` comment.  Fail fast instead.
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
+    validatePagedQueryHandlerShape(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
     validateDefaultDeny(sys, diags);
