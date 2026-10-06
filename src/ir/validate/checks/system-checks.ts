@@ -16,7 +16,6 @@ export {
   validateElixirOpSelfCallPosition,
 } from "./backend-syntax-checks.js";
 export {
-  FILTER_BYPASS_FAMILIES,
   validateContextFilterSupport,
   validateFilterBypassSupport,
   validateTenancyFilterBypass,
@@ -35,38 +34,20 @@ export {
   validateStampSupport,
 } from "./principal-guard-checks.js";
 export {
-  PAGED_QH_SUPPORTED,
-  PROJECTION_AGG_SUPPORTED,
-  PROJECTION_GROUPBY_SUPPORTED,
-  PROJECTION_PROJ_SOURCE_SUPPORTED,
-  PROJECTION_QT_SUPPORTED,
-  PROJECTION_WF_SOURCE_SUPPORTED,
   validateColumnlessProjectionSources,
   validateDocumentAggregationFilters,
-  validateGroupedProjectionBackend,
-  validatePagedQueryHandlerBackend,
-  validateProjectionSourceProjectionBackend,
-  validateQueryTimeProjectionBackend,
-  validateWholeTableAggregationBackend,
-  validateWorkflowSourceProjectionBackend,
 } from "./projection-backend-checks.js";
 export { validateReactIdReferences } from "./react-id-reference-checks.js";
 export {
-  REMOTE_API_OP_UNSUPPORTED,
   validateApiResourceBindings,
   validateNeedCapabilities,
-  validateRemoteApiOpSupport,
   validateResourceConfig,
 } from "./resource-capability-checks.js";
 export {
   backendPlatformsHostingEachContext,
-  EVENT_SOURCING_BACKENDS,
-  EVENT_SOURCING_WORKFLOW_BACKENDS,
-  FIELD_MASK_BACKENDS,
   maskLaunderingEvents,
   validateAuditedOperationSupport,
   validateEventSourcedStorage,
-  validateEventSourcedWorkflowStorage,
   validateFieldMask,
   validateInheritanceStorage,
   validateProvenancedStorage,

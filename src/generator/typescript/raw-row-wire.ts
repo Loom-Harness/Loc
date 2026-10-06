@@ -25,8 +25,10 @@
 // still lives in exactly one place in the compiler — a fourth raw read route
 // cannot spell the instant a second way.
 
-import type { TypeIR, WireField } from "../../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { canonicalIsoExpr } from "./repository-wire-builder.js";
+import { isFlattenedValueObject, voLeaves } from "./vo-flatten.js";
 
 /** The emitted helper's name.  `__`-prefixed like `__intWire`, the other
  *  module-level helper the projection emitters write into generated files. */
@@ -53,6 +55,87 @@ export function rawInstantFields(shape: readonly WireField[] | undefined): strin
   return (shape ?? [])
     .filter((f) => f.source !== "id" && isInstantWireType(f.type))
     .map((f) => f.name);
+}
+
+/** One wire field's value, read off a raw row.  A flattened VALUE OBJECT is
+ *  rebuilt as the NESTED object its response DTO declares (its leaves live in
+ *  separate props — see `vo-flatten.ts`); every other field is the prop itself,
+ *  through the instant helper when it carries a `datetime`. */
+function rawWireValue(
+  rowExpr: string,
+  name: string,
+  t: TypeIR,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  if (isFlattenedValueObject(t, ctx)) return voWireExpr(rowExpr, name, t, ctx);
+  return isInstantWireType(t) ? `${RAW_INSTANT_FN}(${rowExpr}.${name})` : `${rowExpr}.${name}`;
+}
+
+/** A flattened value object, rebuilt from its leaf props.  Walks the value
+ *  object's own DECLARATION rather than reconstructing it from the leaf list, so
+ *  each level's optionality is read where it is declared.
+ *
+ *  A field DECLARED optional (`opt: Stamp?`) goes out as `null` when it was never
+ *  written — the shape .NET publishes (`x.St is null ? null : new
+ *  StampResponse(...)`) and what the DTO's `.nullish()` means.  A flat row has no
+ *  object to test, so the probe is a leaf the value object itself REQUIRES: null
+ *  there means the value object was never written.  A REQUIRED field is built
+ *  unconditionally — its leaves reading null is the partial-read-model story
+ *  every scalar column shares (a fold writes only the fields its event carries),
+ *  not something to special-case for a value object. */
+function voWireExpr(
+  rowExpr: string,
+  prop: string,
+  t: TypeIR,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const optional = t.kind === "optional";
+  const inner = optional ? t.inner : t;
+  if (inner.kind !== "valueobject") return `${rowExpr}.${prop}`;
+  const vo = findValueObjectInScope(ctx, inner.name);
+  if (!vo) return `${rowExpr}.${prop}`;
+  const entries = vo.fields.map((f) => {
+    const childProp = `${prop}_${f.name}`;
+    const childType = f.optional && f.type.kind !== "optional" ? optionalOf(f.type) : f.type;
+    return `${f.name}: ${rawWireValue(rowExpr, childProp, childType, ctx)}`;
+  });
+  const obj = `{ ${entries.join(", ")} }`;
+  if (!optional) return obj;
+  // A leaf this value object requires — absent means the whole thing is absent.
+  // With every leaf optional there is nothing to probe and the object stands
+  // (the two states are genuinely indistinguishable on a flat row).
+  const probe = voLeaves(prop, inner, ctx).find((l) => !l.nullable);
+  return probe ? `${rowExpr}.${probe.prop} == null ? null : ${obj}` : obj;
+}
+
+const optionalOf = (t: TypeIR): TypeIR => ({ kind: "optional", inner: t });
+
+/** Does this read model's wire shape carry a flattened value object?  Such a
+ *  shape cannot go out as `{ ...row }`: the row holds the LEAVES, so a spread
+ *  would ship `st_atTime` / `st_who` and no `st` at all.  It needs the explicit
+ *  per-field projection `rawRowWireObject` builds. */
+export function needsWireProjection(
+  shape: readonly WireField[] | undefined,
+  ctx: EnrichedBoundedContextIR,
+): boolean {
+  return (shape ?? []).some((f) => f.source !== "id" && isFlattenedValueObject(f.type, ctx));
+}
+
+/** The FULL per-field wire object for a raw row — every wire field named
+ *  explicitly, values read through `rawWireValue`.  Used when the shape carries
+ *  a flattened value object; otherwise `rawRowWireExpr`'s cheaper spread keeps
+ *  the emitted text it has always had. */
+export function rawRowWireObject(
+  rowExpr: string,
+  shape: readonly WireField[],
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const entries = shape.map((f) =>
+    f.source === "id"
+      ? `${f.name}: ${rowExpr}.${f.name}`
+      : `${f.name}: ${rawWireValue(rowExpr, f.name, f.optional && f.type.kind !== "optional" ? { kind: "optional", inner: f.type } : f.type, ctx)}`,
+  );
+  return `{ ${entries.join(", ")} }`;
 }
 
 /** `rowExpr`, re-spread with each named prop put through the emitted helper —

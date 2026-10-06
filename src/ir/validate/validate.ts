@@ -10,6 +10,7 @@ import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
+import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
   validateMigrationAdapterSupport,
   validateMigrationDataSteps,
@@ -38,20 +39,16 @@ import {
   validateFieldDefaults,
   validateFindNameCollisions,
   validateFunctionBlockBodies,
-  validateGenericInstancesUnimplemented,
   validateLifecycleBodyDropped,
   validateNamedLifecycleDropped,
-  validateOperationReturnsUnimplemented,
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
   validateResourceOpPlacement,
   validateUiPermissionRefs,
   validateUnionFindShapes,
-  validateUnionsUnimplemented,
   validateUniqueColumns,
   validateUnmappedErrorStatuses,
   validateVariantMatch,
-  validateWhenGateSupport,
   validateWorkspaceUniqueness,
 } from "./checks/structural-checks.js";
 import {
@@ -77,7 +74,6 @@ import {
   validateElixirInvariantCoverage,
   validateElixirOpSelfCallPosition,
   validateEventSourcedStorage,
-  validateEventSourcedWorkflowStorage,
   validateFieldMask,
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
@@ -85,21 +81,16 @@ import {
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
   validateFrontendPropTypes,
-  validateGroupedProjectionBackend,
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
-  validatePagedQueryHandlerBackend,
   validatePageGateExprs,
   validatePermissions,
-  validateProjectionSourceProjectionBackend,
   validateProvenancedStorage,
-  validateQueryTimeProjectionBackend,
   validateReactIdReferences,
   validateRelayTargetNotSubscribed,
-  validateRemoteApiOpSupport,
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
@@ -110,16 +101,18 @@ import {
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
   validateVanillaDocumentScope,
-  validateWholeTableAggregationBackend,
-  validateWorkflowSourceProjectionBackend,
 } from "./checks/system-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
   validateAggregateTestBodies,
   validateContextIntegrationTests,
+  validateTestStatementVocabulary,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
-import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
+import {
+  validateUiBackendBindings,
+  validateUiReadsServed,
+} from "./checks/ui-backend-binding-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
@@ -202,7 +195,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
-    validateRemoteApiOpSupport(sys, diags);
     validateDataSourceUnwiredKnobs(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
@@ -212,6 +204,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `targets:`, so a ui whose api handles fan out across several is refused
     // rather than emitted half-wired.
     validateUiBackendBindings(sys, diags);
+    // …and a page reading an aggregate the `targets:` backend does not serve
+    // (typically a `scaffold(subdomains: …)` selecting an unserved subdomain)
+    // is refused here rather than failing on a generated page.
+    validateUiReadsServed(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);
@@ -229,14 +225,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `// flutter pack: no renderer` comment.  Fail fast instead.
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
-    validatePagedQueryHandlerBackend(sys, diags);
-    validateQueryTimeProjectionBackend(sys, diags);
-    validateWholeTableAggregationBackend(sys, diags);
-    validateGroupedProjectionBackend(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
-    validateWorkflowSourceProjectionBackend(sys, diags);
-    validateProjectionSourceProjectionBackend(sys, diags);
     validateDefaultDeny(sys, diags);
     validateAuth(sys, diags);
     validatePermissions(sys, diags);
@@ -287,6 +277,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFindNameCollisions(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
+    validateTestStatementVocabulary(c, diags);
     validateContextIntegrationTests(c, diags);
     // The cross-context-repository gate needs the sibling contexts, so this
     // check takes the model's full context list (like `validateWorkflows`
@@ -320,35 +311,19 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
-    validateGenericInstancesUnimplemented(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
-    validateUnionsUnimplemented(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateUnionFindShapes(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateLifecycleBodyDropped(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateNamedLifecycleDropped(c, diags);
-    validateWhenGateSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateOperationReturnsUnimplemented(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateEventSourcedWorkflowStorage(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);
+  validateMemberResolution(loom, diags);
   // `Agg.create({ … })` CALL SITES against the factory the emitters actually
   // emit — `isConstructible` (no factory at all) + the required create-input
   // set.  Whole-model: the call sites live in tests, workflow bodies, handlers
