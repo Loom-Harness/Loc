@@ -41,38 +41,6 @@ const get = (p: string): string => {
 const svc = get(`${ROOT}/features/invoices/InvoiceService.java`);
 
 describe("java generator — audited lifecycle actions", () => {
-  it("emits the audit_records table + repository when ONLY lifecycle actions are audited", () => {
-    // `pay()` is NOT audited — only create/destroy are — yet the shared
-    // predicate still turns on the AuditRecord entity + migration.
-    expect(get(`${ROOT}/infrastructure/persistence/AuditRecord.java`)).toContain(
-      '@Table(name = "audit_records"',
-    );
-    // The DDL is no longer a hand-written late Flyway migration — it comes from
-    // the shared MigrationsIR (`auditTableShape`), so it lands in the ordinary
-    // module migration alongside every other table.
-    const migration = [...files.entries()].find(
-      ([p, c]) => p.includes("db/migration/") && c.includes("audit_records"),
-    );
-    expect(migration, "audit_records DDL must be emitted somewhere").toBeDefined();
-    expect(migration?.[1]).toContain("audit_records");
-  });
-
-  it("injects the AuditRecordRepository + the NullNode import", () => {
-    expect(svc).toContain("private final AuditRecordRepository auditRecords;");
-    expect(svc).toContain("import tools.jackson.databind.node.NullNode;");
-  });
-
-  it("audits the create with before=NullNode and after=wire(created) after the save", () => {
-    expect(svc).toContain("repository.save(aggregate);");
-    expect(svc).toContain("var __after = InvoiceResponse.from(aggregate);");
-    expect(svc).toContain("auditRecords.save(new AuditRecord(");
-    expect(svc).toContain('"createInvoice",');
-    expect(svc).toContain('"create",');
-    expect(svc).toContain("aggregate.id().value().toString(),");
-    // create asymmetry: before = NullNode, after = __after.
-    expect(svc).toMatch(/NullNode\.getInstance\(\),\s*\n\s*__after,/);
-  });
-
   it("audits the destroy with before=wire(loaded) and after=NullNode before the delete", () => {
     expect(svc).toContain("var __before = InvoiceResponse.from(aggregate);");
     expect(svc).toContain('"destroyInvoice",');

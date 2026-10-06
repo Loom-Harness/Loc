@@ -1,6 +1,8 @@
-// The ONE numeric wire contract the two SELF-HOSTING frontend legs are held to
-// (M-T9.38) — Flutter (`run-ui-flutter.mjs`, accessibility tree) and Feliz
-// (`run-ui.mjs` over the emitted `*.ui.spec.ts`, DOM).
+// The ONE numeric wire contract the numeric frontend legs are held to — the two
+// SELF-HOSTING ones (M-T9.38): Flutter (`run-ui-flutter.mjs`, accessibility
+// tree) and Feliz (`run-ui.mjs` over the emitted `*.ui.spec.ts`, DOM) — and the
+// Vue cell (M-T9.15: `run-ui.mjs`, the emitted spec for create + detail and the
+// harness's `numericListProbe` for the list).
 //
 // Why a shared module rather than literals in each leg: the legs assert a
 // RENDERED value against a SEEDED one, so the seed and the expectation are two
@@ -40,12 +42,22 @@ const BARCODE = 1234567890123456;
  *   Feliz detail cell renders `string (decimal)` and keeps it ("98.7600").  Same
  *   value, same wire, two displays — recorded here rather than smoothed over, so
  *   whichever way it is later unified, this table is what has to change.
+ * - `vue` is MEASURED too (2026-09-28, both the detail cell and the list cell),
+ *   and it sides with Flutter: "98.76".  The backend sends "98.7600" (the list
+ *   probe checks the wire before the page), the generated `formatMoney` prints
+ *   its argument verbatim, and the scale is lost in between — the read schema's
+ *   `moneySchema` transforms the wire string into a decimal.js instance, and
+ *   decimal.js stringifies without trailing zeros.  So M-T1.25's "what the
+ *   database stores is what the screen shows" holds for a money STRING and not
+ *   for the money a page actually reads.  Handed off from wave C3 packet 3b
+ *   (display-only; the value is intact); when it is fixed this cell becomes
+ *   "98.7600" and the Vue leg is what proves it.
  */
 export const NUMERIC_FIELDS = [
-  { field: "listPrice", host: "money", wire: "string", seed: "98.7600", flutter: "98.76", feliz: "98.7600" },
-  { field: "weight", host: "decimal", wire: "number", seed: 1.25, flutter: "1.25", feliz: "1.25" },
-  { field: "stock", host: "int", wire: "number", seed: 4242, flutter: "4242", feliz: "4242" },
-  { field: "barcode", host: "long", wire: "number", seed: BARCODE, flutter: String(BARCODE), feliz: String(BARCODE) },
+  { field: "listPrice", host: "money", wire: "string", seed: "98.7600", flutter: "98.76", feliz: "98.7600", vue: "98.76" },
+  { field: "weight", host: "decimal", wire: "number", seed: 1.25, flutter: "1.25", feliz: "1.25", vue: "1.25" },
+  { field: "stock", host: "int", wire: "number", seed: 4242, flutter: "4242", feliz: "4242", vue: "4242" },
+  { field: "barcode", host: "long", wire: "number", seed: BARCODE, flutter: String(BARCODE), feliz: String(BARCODE), vue: String(BARCODE) },
 ];
 
 /** The numeric half of the seeded product row, as a POST body fragment. */

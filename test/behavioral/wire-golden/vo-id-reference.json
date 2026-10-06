@@ -1,0 +1,270 @@
+{
+  "case": "vo-id-reference",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/ships",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/ships",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/docks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/docks/{id}",
+      "status": 200,
+      "body": {
+        "berth": {
+          "position": 1,
+          "ship": "<uuid>"
+        },
+        "berths": [
+          {
+            "position": 2,
+            "ship": "<uuid>"
+          },
+          {
+            "position": 3,
+            "ship": "<uuid>"
+          }
+        ],
+        "id": "<volatile:key>",
+        "name": "North",
+        "version": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/docks",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.qbn4np",
+            "message": "A berth position starts at 1",
+            "pointer": "/berth/position"
+          }
+        ],
+        "instance": "/api/docks",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/docks",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.qbn4np",
+            "message": "A berth position starts at 1",
+            "pointer": "/berths/{id}/position"
+          }
+        ],
+        "instance": "/api/docks",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/docks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/docks/{id}",
+      "status": 200,
+      "body": {
+        "berth": {
+          "position": 5,
+          "ship": "<uuid>"
+        },
+        "berths": [
+          {
+            "position": 6,
+            "ship": "<uuid>"
+          }
+        ],
+        "id": "<volatile:key>",
+        "name": "North",
+        "version": 2
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/docks",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "berth": {
+              "position": 5,
+              "ship": "<uuid>"
+            },
+            "berths": [
+              {
+                "position": 6,
+                "ship": "<uuid>"
+              }
+            ],
+            "id": "<volatile:key>",
+            "name": "North",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/ships",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Maru",
+            "version": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Vega",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/ships/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "Maru",
+        "version": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/ships/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/docks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/ships/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "DELETE",
+      "path": "/api/ships/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/docks/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Dock {id} not found",
+        "instance": "/api/docks/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "PATCH",
+      "path": "/api/ships",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/ships",
+        "instance": "/api/ships",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/ships",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/ships",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
