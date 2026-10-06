@@ -208,11 +208,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.owner} '${p.ownerName}' field '${p.field}' is an OPTIONAL reference collection ('X id[]?'). ` +
     `A reference collection is a set and the empty set already means "none", so the schema has ` +
     `no optional form of it.  Drop the '?' (declare '${p.field}: X id[]').`,
-  "loom.collection-field-unpersisted#part-reference": (p: {
-    owner: unknown;
-    ownerName: unknown;
-    field: unknown;
-  }) =>
+  "loom.collection-field-unpersisted#part-reference": (p: { ownerName: unknown; field: unknown }) =>
     `entity part '${p.ownerName}' field '${p.field}' is a reference collection ('X id[]'), but a ` +
     `join table is derived only for an aggregate root's own 'X id[]' fields, so no backend would ` +
     `store these ids.  Move '${p.field}' onto the aggregate root, or make the part hold a single ` +
@@ -2757,7 +2753,6 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ui-aggregate-unserved#self-hosted": (p: {
     uiName: unknown;
     dName: unknown;
-    targetName: unknown;
     subdomain: unknown;
     ctx: unknown;
     aggregates: unknown;

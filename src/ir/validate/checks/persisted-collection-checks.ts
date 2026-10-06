@@ -25,6 +25,9 @@
 //   #part-reference          `X id[]` on an entity part — no join table is
 //                            derived for a part (associations are per
 //                            aggregate root), so the ids were never stored.
+//                            MikroORM is the exception: it owns its schema and
+//                            folds a part's collections into jsonb columns, so
+//                            a context hosted ONLY on mikroorm keeps it.
 //   #state-value-collection  `<VO>[]` on a projection / workflow state row —
 //                            no child table is created for a state row.
 //   #nested-in-value-object  a value object reached from persisted state that
@@ -34,7 +37,14 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { BoundedContextIR, FieldIR, TypeIR, ValueObjectIR } from "../../types/loom-ir.js";
+import { descriptorFor } from "../../../platform/metadata.js";
+import type {
+  BoundedContextIR,
+  EnrichedLoomModel,
+  FieldIR,
+  TypeIR,
+  ValueObjectIR,
+} from "../../types/loom-ir.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -82,8 +92,9 @@ function checkField(
   ownerName: string,
   f: FieldIR,
   diags: LoomDiagnostic[],
+  partRefsStored: boolean,
 ): void {
-  const p = { owner, ownerName, field: f.name };
+  const field = f.name;
   const push = (message: string): void => {
     diags.push({
       severity: "error",
@@ -97,7 +108,9 @@ function checkField(
     if (path) {
       push(
         diagMessage("loom.collection-field-unpersisted#nested-in-value-object", {
-          ...p,
+          owner,
+          ownerName,
+          field,
           voName,
           path,
         }),
@@ -107,16 +120,28 @@ function checkField(
   const kind = collectionKind(f.type);
   if (kind === "reference") {
     if (f.type.kind === "optional" || f.optional) {
-      push(diagMessage("loom.collection-field-unpersisted#optional-reference", p));
-    } else if (owner === "part") {
-      push(diagMessage("loom.collection-field-unpersisted#part-reference", p));
+      push(
+        diagMessage("loom.collection-field-unpersisted#optional-reference", {
+          owner,
+          ownerName,
+          field,
+        }),
+      );
+    } else if (owner === "part" && !partRefsStored) {
+      push(diagMessage("loom.collection-field-unpersisted#part-reference", { ownerName, field }));
     }
     return;
   }
   const inner = unwrap(f.type);
   if (kind === "value") {
     if (owner === "projection" || owner === "workflow") {
-      push(diagMessage("loom.collection-field-unpersisted#state-value-collection", p));
+      push(
+        diagMessage("loom.collection-field-unpersisted#state-value-collection", {
+          owner,
+          ownerName,
+          field,
+        }),
+      );
     } else if (inner.kind === "array" && inner.element.kind === "valueobject") {
       nested(inner.element.name);
     }
@@ -125,25 +150,47 @@ function checkField(
   if (inner.kind === "valueobject") nested(inner.name);
 }
 
+/** Context names whose every database-backed host is `persistence:
+ *  mikroorm` — the one adapter that stores an entity part's `X id[]`. */
+export function mikroOrmOnlyContexts(loom: EnrichedLoomModel): Set<string> {
+  const adapters = new Map<string, Set<string>>();
+  for (const sys of loom.systems) {
+    for (const d of sys.deployables) {
+      if (!descriptorFor(d.platform).needsDb) continue;
+      for (const cn of d.contextNames) {
+        const set = adapters.get(cn) ?? new Set<string>();
+        set.add(d.persistence ?? d.platform);
+        adapters.set(cn, set);
+      }
+    }
+  }
+  return new Set(
+    [...adapters].filter(([, s]) => s.size === 1 && s.has("mikroorm")).map(([cn]) => cn),
+  );
+}
+
 export function validatePersistedCollectionPositions(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
+  partRefsStored = false,
 ): void {
   for (const agg of ctx.aggregates) {
-    for (const f of agg.fields) checkField(ctx, "aggregate", agg.name, f, diags);
+    for (const f of agg.fields) checkField(ctx, "aggregate", agg.name, f, diags, partRefsStored);
     for (const part of agg.parts) {
-      for (const f of part.fields) checkField(ctx, "part", part.name, f, diags);
+      for (const f of part.fields) checkField(ctx, "part", part.name, f, diags, partRefsStored);
     }
   }
   for (const proj of ctx.projections) {
     // A query-time projection (`from … select …`) keeps no table.
     if (proj.query) continue;
-    for (const f of proj.stateFields) checkField(ctx, "projection", proj.name, f, diags);
+    for (const f of proj.stateFields)
+      checkField(ctx, "projection", proj.name, f, diags, partRefsStored);
   }
   for (const wf of ctx.workflows) {
     // Only a correlation-bearing, state-row workflow keeps a table; an
     // eventSourced one folds its state from its stream.
     if (wf.eventSourced || !wf.correlationField) continue;
-    for (const f of wf.stateFields ?? []) checkField(ctx, "workflow", wf.name, f, diags);
+    for (const f of wf.stateFields ?? [])
+      checkField(ctx, "workflow", wf.name, f, diags, partRefsStored);
   }
 }

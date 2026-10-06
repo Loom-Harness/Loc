@@ -478,7 +478,7 @@ A collection of references (`X id[]`) or of value objects (`Money[]`) needs a ta
 | Position | `X id[]` | `<VO>[]` |
 |---|---|---|
 | aggregate root field | join table | id-less child table |
-| entity part field | — refused | id-less child table |
+| entity part field | — refused (except under `persistence: mikroorm`, which folds it into jsonb) | id-less child table |
 | projection / workflow state field | one `jsonb` id-array column | — refused |
 | inside a persisted value object | — refused | — refused |
 
