@@ -65,7 +65,6 @@ import {
   type TypeIR,
 } from "../types/loom-ir.js";
 import { lifecycleGates } from "./op-gates.js";
-import { byIdReadFind } from "./read-gates.js";
 import { errorStatuses, UNPROCESSABLE_ENTITY } from "./openapi-errors.js";
 import {
   camelId,
@@ -76,6 +75,7 @@ import {
   opGetById,
   opOperation,
 } from "./openapi-ids.js";
+import { byIdReadFind } from "./read-gates.js";
 import { aggregateIsVersioned } from "./versioned-capability.js";
 
 /** HTTP method, lowercase — the form every backend's route table uses. */

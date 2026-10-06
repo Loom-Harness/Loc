@@ -1033,7 +1033,9 @@ function byIdRoute(agg: EnrichedAggregateIR, apiOp: ApiOperationIR): string {
     `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, ${gateUsesUser ? "request: Request, " : ""}session: SessionDep) -> dict[str, object]:`,
     gateUsesUser ? "    current_user: User = request.state.current_user" : null,
     gate ? `    if ${renderPyNegatedGuard(gate)}:` : null,
-    gate ? `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind!.name}`)})` : null,
+    gate
+      ? `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind!.name}`)})`
+      : null,
     "    repo = _repo(session)",
     `    return ${wireResp(agg, `await repo.get_by_id(${agg.name}Id(id))`)}`,
   );

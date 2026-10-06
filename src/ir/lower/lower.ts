@@ -166,8 +166,8 @@ import type {
 import { lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
-import { isByIdReadShape } from "../util/read-gates.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
+import { isByIdReadShape } from "../util/read-gates.js";
 import { lowerAuth } from "./lower-auth.js";
 import type { ContextLevelCapabilities } from "./lower-capabilities.js";
 import {

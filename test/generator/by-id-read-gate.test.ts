@@ -34,7 +34,7 @@ const system = (platform: string, findClauses: string, aggMods = "") => `system 
     context Orders {
       aggregate Order${aggMods} {
         code: string
-        ${aggMods ? 'create(code: string) { emit OrderOpened { code: code } }\n        apply(e: OrderOpened) { code := e.code }' : ""}
+        ${aggMods ? "create(code: string) { emit OrderOpened { code: code } }\n        apply(e: OrderOpened) { code := e.code }" : ""}
       }
       ${aggMods ? "event OrderOpened { code: string }" : ""}
       repository Orders for Order {

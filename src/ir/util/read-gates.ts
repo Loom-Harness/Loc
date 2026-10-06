@@ -40,7 +40,7 @@ export function listReadFind(repo: RepositoryIR | undefined): FindIR | undefined
  *
  *  `undefined` for the enrichment-injected `all` (which carries no gate — it is
  *  compiler-synthesized and has no author source line — which is why, under
- *  `enforcement: denyByDefault`, `loom.default-deny-list-ungated` refuses the
+ *  `enforcement: denyByDefault`, `loom.default-deny-ungated` (list-read arm) refuses the
  *  build until the author declares one).  The emitted route must evaluate
  *  this BEFORE the query and answer 403 on failure, exactly as a named find's
  *  gate does. */

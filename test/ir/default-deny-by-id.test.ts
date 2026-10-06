@@ -96,7 +96,10 @@ system S {
 
   it("is satisfied by `requires true` — the explicit public escape", async () => {
     const diags = await diagnose(
-      vault({ enforcement: "denyByDefault", byId: "find byId(id: Secret id): Secret? requires true" }),
+      vault({
+        enforcement: "denyByDefault",
+        byId: "find byId(id: Secret id): Secret? requires true",
+      }),
     );
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);
   });
