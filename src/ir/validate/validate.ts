@@ -31,6 +31,7 @@ import {
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
+import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -194,6 +195,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // merits, in every `auth { enforcement: }` mode.
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
+    validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);

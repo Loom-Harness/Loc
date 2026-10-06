@@ -1480,6 +1480,27 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  // --- reserved-field-name-checks.ts ---------------------------------------
+  // Universal: a dunder field (Ecto's `__meta__`), on any backend.
+  "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
+    repository Things for Thing { }`),
+  // Needs an ELIXIR deployable and a RELATIONAL part (the default shape): the
+  // part schema's bundled `timestamps()` already defines `inserted_at`.
+  "loom.elixir-part-timestamp-field": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order with crudish {
+      note: string
+      contains lines: Line[]
+      entity Line { sku: string  inserted_at: string }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for

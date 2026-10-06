@@ -179,7 +179,7 @@ function renderFunction(
   // struct.  Underscore-prefix a param the body never reads so an unused binding
   // never trips `mix compile --warnings-as-errors`.
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? escapeElixirIdent(snake(p.name)) : `_${snake(p.name)}`,
   );
   // Underscore-prefix the receiver when the body never reads it (e.g.
   // `function noop()`), else the struct-guarded clause head trips

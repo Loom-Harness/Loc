@@ -29,7 +29,7 @@
 
 import type { BoundedContextIR, RetrievalIR, SortTermIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -94,7 +94,7 @@ function renderRetrievalModule(
     // `from ... where: ...` macro.
     filterArgs: true,
   };
-  const args = r.params.map((p) => snake(p.name));
+  const args = r.params.map((p) => escapeElixirIdent(snake(p.name)));
   const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   // The retrieval's own `where` predicate (the capability filters apply below,
   // as separately-gated pipe stages so a call-site `ignoring` can skip them).

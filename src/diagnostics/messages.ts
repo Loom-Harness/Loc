@@ -3086,6 +3086,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `generated project would not compile. Move the 'currentUser' read up into ` +
     `'${p.opName}' (the routed operation, which receives the actor), or host this context on ` +
     `a backend with full support (node / dotnet / python / java).`,
+  "loom.dunder-field-name": (p: {
+    what: unknown;
+    owner: unknown;
+    name: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares the field '${p.name}', a '__name__'-shaped identifier ` +
+    `the generated runtimes reserve: Elixir refuses '__struct__' in a struct definition and ` +
+    `Ecto already defines '__meta__' on every schema (the Phoenix project fails to compile), ` +
+    `and Python's pydantic does not treat a dunder annotation as a field at all (the FastAPI ` +
+    `project drops it from every request). Rename the ${p.what} field — e.g. ` +
+    `'${String(p.name).replace(/^_+|_+$/g, "")}Info'.`,
+  "loom.elixir-part-timestamp-field": (p: {
+    owner: unknown;
+    name: unknown;
+    column: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares the field '${p.name}', whose column '${p.column}' is ` +
+    `one of the two columns Ecto's bundled 'timestamps()' macro defines on every relational entity-part ` +
+    `schema, so the generated Phoenix project defines the field twice and fails to compile. ` +
+    `Rename the field (e.g. '${p.name}Value'), or host this context on a non-elixir deployable.`,
   "loom.dotnet-name-collision": (p: {
     what: unknown;
     owner: unknown;

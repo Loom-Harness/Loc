@@ -222,7 +222,7 @@ function renderFoldModule(appModule: string, ctxModule: string, agg: AggregateIR
 
   const clauses = (agg.appliers ?? []).map((ap) => {
     const usesParam = foldStmtsUseParam(ap.statements, ap.param, renderCtx, foldOpts);
-    const bind = usesParam ? snake(ap.param) : `_${snake(ap.param)}`;
+    const bind = usesParam ? escapeElixirIdent(snake(ap.param)) : `_${snake(ap.param)}`;
     const body = ap.statements.map((s) => renderFoldStatement(s, renderCtx, foldOpts)).join("\n");
     return `  def apply_event(state, %${eventsModule}.${upperFirst(ap.event)}{} = ${bind}) do
 ${body}
@@ -425,12 +425,14 @@ end
  *  silent degradation. */
 function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
   const single = isSingleReturn(f.returnType);
   const ctx: RenderCtx = { thisName: "a", contextModule: aggModule };
   const pred = f.filter
     ? renderExpr(f.filter, ctx)
-    : argNames.map((n) => `a.${n} == ${n}`).join(" and ");
+    : f.params
+        .map((p) => `a.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
+        .join(" and ");
   if (pagedReturn(f.returnType)) {
     // Same whitelist the relational/document builders order by; the folded
     // aggregate is a struct, so a whitelisted property reads off it directly
@@ -560,7 +562,9 @@ export function renderEsContextBlock(
             `dir \\\\ "asc"`,
           ]
         : [];
-      const args = [...f.params.map((p) => snake(p.name)), ...pageArgs].join(", ");
+      const args = [...f.params.map((p) => escapeElixirIdent(snake(p.name))), ...pageArgs].join(
+        ", ",
+      );
       return `  defdelegate ${findSnake}_${aggSnake}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 
@@ -802,7 +806,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // by DSL convention, matching the cross-backend wire); the Elixir local is
   // its snake form.
   const paramReads = c.op.params.map(
-    (p) => `    ${snake(p.name)} = Map.get(attrs, ${JSON.stringify(p.name)})`,
+    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(attrs, ${JSON.stringify(p.name)})`,
   );
   if (c.kind === "create") paramReads.push("    id = UUIDv7.generate()");
 

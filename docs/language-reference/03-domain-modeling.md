@@ -515,6 +515,25 @@ exists yet — notably the create-request wire schema*); write a `derived` inste
 
 A `check` on a field is exactly the inline form of a member `invariant` — both lower to the constructor guard shown under `contains` above (`qty: int check qty > 0` → `if (!(this._qty > 0)) throw …`). See [Invariants, derived & functions](07-invariants-derived-functions.md) for the full invariant surface.
 
+### Field names a generated runtime reserves
+
+A field name is any identifier, but a few collide with names a generated runtime
+owns:
+
+- **`__name__`-shaped names** (`__meta__`, `__struct__`, …) are refused on every
+  backend — `loom.dunder-field-name`. Elixir refuses `__struct__` in a struct
+  definition, Ecto defines `__meta__` on every schema, and pydantic does not treat
+  a dunder annotation as a field at all.
+- **`inserted_at` / `updated_at`** (or `insertedAt`) are the columns Ecto's bundled
+  `timestamps()` defines. On an aggregate root the Elixir backend drops
+  `timestamps()` from the schema and its migration, and the declared field owns
+  the column. On a relational entity part hosted on `platform: elixir` the name is
+  refused — `loom.elixir-part-timestamp-field`.
+
+Elixir reserved words (`end`, `after`, `fn`, `do`, …) are fine as field and
+parameter names. The Elixir backend binds the local as `end_` and keeps the wire
+key and column as `end`.
+
 ## Access modifiers
 
 Every field carries an access modifier governing its role across three shapes: the **create** input, the **update** wire, and the **read** projection. `editable` (the default, no keyword) is full client read+write. The five explicit modifiers:
