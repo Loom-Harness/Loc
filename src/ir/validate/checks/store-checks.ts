@@ -594,6 +594,7 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
                   name: dep.name,
                 }),
                 source: where,
+                origin: comp.origin,
               });
             });
           }

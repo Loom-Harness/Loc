@@ -40,9 +40,11 @@ import type {
   BoundedContextIR,
   DerivedIR,
   EnrichedAggregateIR,
+  EntityPartIR,
   ExprIR,
   TypeIR,
   WireField,
+  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -257,12 +259,6 @@ export function renderWireSerialize(
   ctx: BoundedContextIR,
   opts: WireSerializeOpts = {},
 ): WireSerializeResult {
-  const headVar = opts.headVar ?? "record";
-  const idExpr = opts.idExpr ?? "record.id";
-  // Name suffix that scopes EVERY emitted function name (see `nameSuffix`) so
-  // several aggregates' serializers coexist in one module.  Empty by default —
-  // the single-aggregate controllers stay byte-identical.
-  const sfx = opts.nameSuffix ? `_${snake(opts.nameSuffix)}` : "";
   // RS-25 — the API-read projection, NOT the raw wire shape.  `forApiRead`
   // drops `access: internal` / `access: secret` fields; every other backend
   // applies it on the read boundary (and vanilla's own OpenAPI emitter already
@@ -271,9 +267,73 @@ export function renderWireSerialize(
   // multi-tenant aggregate shipped its tenant key to the client on every GET —
   // and the SERVED SPEC said it wouldn't.  A `secret` field (password hash,
   // API key) leaked the same way.
-  const wireShape = forApiRead(wireFieldsForAggregate(agg));
+  return renderShapeSerialize(
+    {
+      wireShape: forApiRead(wireFieldsForAggregate(agg)),
+      parts: agg.parts,
+      derived: agg.derived,
+      agg,
+    },
+    ctx,
+    opts,
+  );
+}
+
+/** The `serialize_<wf>/1` for a workflow's persisted correlation-state row
+ *  (the instance read route) — the same wire-shape serializer the aggregate
+ *  controllers use, rooted at `instanceWireShape`, so an instance read gets the
+ *  same per-type wire coercions: a value object ships camelCase keys, a plain
+ *  `decimal` ships as a JSON number (RS-24) and `money` at its fixed scale
+ *  (RS-12).  The raw `row.<field>` projection this replaces handed Jason
+ *  whatever the row held: a value object written from domain code carries its
+ *  decimal as a `%Decimal{}`, which the jsonb column stores as a JSON STRING, so
+ *  the read shipped `"amount": "1.0"` where every other backend ships `1.0`
+ *  (eval follow-up B-A3b).  The correlation field is the row's primary key and
+ *  a reference collection is a plain jsonb id list, so both read as-is.
+ *  `nameSuffix` scopes every helper per workflow — one controller hosts every
+ *  observable workflow of the context. */
+export function renderWorkflowInstanceSerialize(
+  wf: WorkflowIR,
+  ctx: BoundedContextIR,
+): WireSerializeResult {
+  const shape = forApiRead(wf.instanceWireShape ?? []);
+  const corr = shape.find((f) => f.source === "id");
+  return renderShapeSerialize({ wireShape: shape, parts: [], derived: [] }, ctx, {
+    idExpr: `record.${snake(corr?.name ?? "id")}`,
+    nameSuffix: wf.name,
+    refIdsInline: true,
+  });
+}
+
+/** What {@link renderShapeSerialize} projects: the root wire shape plus the
+ *  parts / derived it reaches.  `agg` is set for an aggregate root (the
+ *  derived-expression render context); a workflow state row has none. */
+interface SerializeRoot {
+  wireShape: WireField[];
+  parts: readonly EntityPartIR[];
+  derived: readonly DerivedIR[];
+  agg?: AggregateIR;
+}
+
+function renderShapeSerialize(
+  root: SerializeRoot,
+  ctx: BoundedContextIR,
+  opts: WireSerializeOpts & {
+    /** A reference collection (`X id[]`) is a plain id list on the row (a
+     *  jsonb column), not a preloaded association — read it as-is rather than
+     *  through the controller's `__ref_ids/1`. */
+    refIdsInline?: boolean;
+  },
+): WireSerializeResult {
+  const headVar = opts.headVar ?? "record";
+  const idExpr = opts.idExpr ?? "record.id";
+  // Name suffix that scopes EVERY emitted function name (see `nameSuffix`) so
+  // several aggregates' serializers coexist in one module.  Empty by default —
+  // the single-aggregate controllers stay byte-identical.
+  const sfx = opts.nameSuffix ? `_${snake(opts.nameSuffix)}` : "";
+  const wireShape = root.wireShape;
   const parts = new Map<string, WireField[]>(
-    agg.parts.map((p) => [p.name, forApiRead(wireFieldsForPart(p))]),
+    root.parts.map((p) => [p.name, forApiRead(wireFieldsForPart(p))]),
   );
   const vos = new Map<string, WireField[]>(
     ctx.valueObjects.map((v) => [v.name, forApiRead(wireFieldsForValueObject(v))]),
@@ -285,15 +345,15 @@ export function renderWireSerialize(
   // `DerivedIR` per shape: the aggregate's own for the root map, each part's for
   // its nested serializer.  Value objects declare no derived, so their helpers
   // get an empty map (unchanged behaviour).
-  const aggDerived = new Map<string, DerivedIR>(agg.derived.map((d) => [d.name, d]));
+  const aggDerived = new Map<string, DerivedIR>(root.derived.map((d) => [d.name, d]));
   const partDerived = new Map<string, Map<string, DerivedIR>>(
-    agg.parts.map((p) => [p.name, new Map(p.derived.map((d) => [d.name, d]))]),
+    root.parts.map((p) => [p.name, new Map(p.derived.map((d) => [d.name, d]))]),
   );
   const emptyDerived = new Map<string, DerivedIR>();
   const derivedRc: RenderCtx = {
     thisName: "record",
     contextModule: opts.contextModule ?? "App",
-    agg: agg as EnrichedAggregateIR,
+    ...(root.agg ? { agg: root.agg as EnrichedAggregateIR } : {}),
   };
 
   const helpers = new Map<string, string>();
@@ -344,7 +404,7 @@ export function renderWireSerialize(
         return `serialize_${snake(t.name)}${sfx}(${col})`;
       case "array": {
         const el = unwrapOptional(t.element);
-        if (el.kind === "id") return `__ref_ids(${col})`;
+        if (el.kind === "id") return opts.refIdsInline ? col : `__ref_ids(${col})`;
         if (el.kind === "valueobject") {
           ensureVoHelper(el.name);
           return `Enum.map(${col} || [], &serialize_${snake(el.name)}${sfx}/1)`;

@@ -4,6 +4,7 @@
 // `jose` dep, automatic verifier registration (replacing the dev stub),
 // and the createApp route mount + middleware bypass.
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
@@ -56,6 +57,34 @@ system Helpdesk {
 }
 `;
 
+// An OPTIONAL scalar claim and an optional id-typed one beside the required
+// set — the H-10 shape (`requires currentUser.agentId != null`).
+const OPTIONAL_CLAIMS = OIDC.replace(
+  "user { id: string role: string email: string permissions: string[] }",
+  "user { id: string role: string email: string permissions: string[] agentId: string? customerId: Ticket id? }",
+).replace('requires currentUser.role == "agent"', "requires currentUser.agentId != null");
+
+/** Run the emitted `toUser` projection (plus the `claim` reader and
+ *  `REQUIRED_CLAIMS` it uses) on a decoded payload.  Transpiled, not
+ *  string-matched: what is under test is the VALUE a missing claim becomes. */
+function emittedToUser(oidc: string): (payload: Record<string, unknown>) => unknown {
+  const pick = (start: string): string => {
+    const at = oidc.indexOf(start);
+    if (at < 0) throw new Error(`oidc.ts has no ${start}`);
+    const end = oidc.indexOf("\n}\n", at);
+    return oidc.slice(at, end + 3);
+  };
+  const required = oidc.slice(
+    oidc.indexOf("const REQUIRED_CLAIMS"),
+    oidc.indexOf("];", oidc.indexOf("const REQUIRED_CLAIMS")) + 2,
+  );
+  const src = `type JWTPayload = Record<string, unknown>; type UserClaims = unknown;\n${pick("function claim(")}\n${required}\n${pick("function toUser(")}\nreturn toUser;`;
+  const js = ts.transpileModule(src, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return new Function(js)() as (payload: Record<string, unknown>) => unknown;
+}
+
 function findFile(files: Map<string, string>, pattern: RegExp): string {
   for (const [k, v] of files) if (pattern.test(k)) return v;
   throw new Error(`no generated file matched ${pattern}`);
@@ -88,6 +117,46 @@ describe("hono OIDC turnkey auth — codegen", () => {
     expect(oidc).toContain('email: claim(payload, "email")');
     expect(oidc).toContain('permissions: claim(payload, "permissions")');
     expect(oidc).toContain("export function registerOidcVerifier()");
+  });
+
+  // H-10: `claim()` answers `undefined` for a claim the token lacks, and a gate
+  // lowers `!= null` to `!== null` — so an optional claim that was simply ABSENT
+  // passed `requires currentUser.agentId != null` (a customer token took an
+  // agent-only action: 204, not 403).
+  it("an absent optional claim is null (not undefined), so a `!= null` gate refuses it", async () => {
+    const files = await generateSystemFiles(OPTIONAL_CLAIMS);
+    const toUser = emittedToUser(findFile(files, /auth\/oidc\.ts$/));
+    const base = { sub: "u1", realm_access: { roles: "agent" }, email: "a@b.c" };
+    const user = toUser(base) as Record<string, unknown>;
+    expect(user.agentId).toBeNull();
+    expect(user.customerId).toBeNull();
+    // The gate the emitter writes for `requires currentUser.agentId != null`.
+    expect(user.agentId !== null).toBe(false);
+    const agent = toUser({ ...base, agentId: "ag-1", customerId: "c-1" }) as Record<
+      string,
+      unknown
+    >;
+    expect(agent.agentId).toBe("ag-1");
+    expect(agent.customerId).toBe("c-1");
+  });
+
+  it("a verified token missing a REQUIRED scalar claim is rejected; a missing required array is not", async () => {
+    const files = await generateSystemFiles(OPTIONAL_CLAIMS);
+    const toUser = emittedToUser(findFile(files, /auth\/oidc\.ts$/));
+    const base: Record<string, unknown> = {
+      sub: "u1",
+      realm_access: { roles: "agent" },
+      email: "a@b.c",
+    };
+    // `permissions` is absent from `base`: an IdP omits an empty list, and the
+    // middleware reads it as `[]` — not a reason to 401.
+    expect(toUser(base)).not.toBeNull();
+    for (const drop of ["sub", "email"]) {
+      const { [drop]: _gone, ...rest } = base;
+      expect(toUser(rest), `without ${drop}`).toBeNull();
+    }
+    expect(toUser({ ...base, realm_access: {} }), "without realm_access.roles").toBeNull();
+    expect(toUser({ ...base, email: null }), "email: null").toBeNull();
   });
 
   it("makes a LITERAL issuer/audience env-overridable (bundled-Keycloak repoint)", async () => {

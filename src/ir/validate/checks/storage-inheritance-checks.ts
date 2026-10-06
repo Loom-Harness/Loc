@@ -91,6 +91,7 @@ export function validateInheritanceStorage(
         how,
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
@@ -139,6 +140,7 @@ export function validateTphFilterExpressibility(sys: SystemIR, diags: LoomDiagno
             root: rootBaseOf(agg, ctx.aggregates).name,
           }),
           source: key,
+          origin: agg.origin,
         });
       }
     }
@@ -165,6 +167,7 @@ export function validateEventSourcedStorage(
       code: "loom.event-sourcing-backend-unsupported",
       message: diagMessage("loom.event-sourcing-backend-unsupported", { name: agg.name }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
@@ -194,6 +197,7 @@ export function validateProvenancedStorage(
         names,
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
@@ -333,6 +337,7 @@ export function validateFieldMask(
             offending,
           }),
           source: `${ctx.name}/${agg.name}.${f.name}`,
+          origin: f.origin,
         });
       }
     }
@@ -343,6 +348,7 @@ export function validateFieldMask(
       code: "loom.field-mask-unsupported",
       message: diagMessage("loom.field-mask-unsupported", { name: agg.name, names }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
   // Query-time projection responses are NOT yet mask-redacted — the shorthand
@@ -365,6 +371,7 @@ export function validateFieldMask(
           code: "loom.field-mask-projection-source",
           message: diagMessage("loom.field-mask-projection-source", { name: proj.name, src }),
           source: `${ctx.name}/projection/${proj.name}`,
+          origin: proj.origin,
         });
         continue;
       }
@@ -384,6 +391,7 @@ export function validateFieldMask(
             via: "join",
           }),
           source: `${ctx.name}/projection/${proj.name}`,
+          origin: proj.origin,
         });
         continue;
       }
@@ -401,6 +409,7 @@ export function validateFieldMask(
             field: launderingEvents.get(laundered.event),
           }),
           source: `${ctx.name}/projection/${proj.name}`,
+          origin: proj.origin,
         });
       }
     }
@@ -438,6 +447,7 @@ export function validateAuditedOperationSupport(
         names: names.join(", "),
       }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   };
   for (const agg of ctx.aggregates) {
