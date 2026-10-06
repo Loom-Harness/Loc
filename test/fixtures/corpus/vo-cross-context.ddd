@@ -60,6 +60,9 @@
 //           exclusion, not a compile-skip, because a cell that only GENERATES is
 //           refused by `gate-ledger.test.ts`.  The key returns when the
 //           resolution lands.
+//           RESOLVED: #3060 (repository builder) + #3111 (the last per-context
+//           callers — `py-columns` and the event-sourced `to_wire`); python's key
+//           is back in `backends:` and `corpus-python-build` gates it.
 //
 // COMPILE-TIER ONLY — no `test e2e` block, for the same reason
 // `find-bypass.ddd` and `projection-agg-filters.ddd` have none.  A recorded
