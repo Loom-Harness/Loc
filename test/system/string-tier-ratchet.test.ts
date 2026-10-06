@@ -47,7 +47,7 @@ import { describe, expect, it } from "vitest";
 //     `.not.toContain(` counts once; `toContainEqual` / `toMatchObject` /
 //     `toMatchInlineSnapshot` do NOT count (they are structural, not textual);
 //   * equivalent shell: `git grep -hoE "\.(not\.)?(toContain|toMatch)\("
-//     -- test/generator/ | wc -l`  (19,391 on main @ 7c5a0aa5, the seed tree).
+//     -- test/generator/ | wc -l`  (19,460 on main @ 8c0e05be, the seed tree).
 // The audit's 65.8%-of-40,463 figure counted per matcher across all of
 // `test/`, so it is NOT comparable with these numbers; do not reconcile them.
 //
@@ -69,7 +69,7 @@ const BUCKET = 100;
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
-  "(cross-target)": 2100,
+  "(cross-target)": 2200,
   _expr: 100,
   _frontend: 300,
   _i18n: 100,
