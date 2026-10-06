@@ -1,5 +1,6 @@
 import type { CodeRefKind, LoomModel, RequirementIR, TraceabilityIR } from "../ir/types/loom-ir.js";
 import { type LinesPart, lines } from "../util/code-builder.js";
+import { emissionSink } from "../util/emission-sink.js";
 
 // ---------------------------------------------------------------------------
 // Traceability documentation — derived views over the
@@ -32,7 +33,7 @@ export function hasTraceability(loom: LoomModel): boolean {
 
 /** path (relative to the output root) → file content. */
 export function renderTraceabilityArtifacts(loom: LoomModel): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("system/traceability");
   if (!hasTraceability(loom)) return out;
   out.set(".loom/traceability.md", renderTraceabilityDoc(loom));
   out.set(".loom/coverage.md", renderCoverageReport(loom));

@@ -1593,6 +1593,16 @@ on the generated repository plus a Mediator query in the .NET backend.
 - **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
   pass through EF Core to SQL.
 
+**Null semantics.** A comparison against a *nullable value* — a
+`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+null-aware on every backend: `this.col == v` with `v` null matches the rows
+whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
+ordering (`<`, `>`, …) against null matches no row.  So
+`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
+returns the unassigned orders for a principal with no `technicianId` rather
+than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
+fail-closed.
+
 A repository `where` clause may use `this.<refColl>.contains(param)` to
 query membership over an `X id[]` reference collection — for example,
 `find holdingInParty(pokemon: Pokemon id): Trainer[] where

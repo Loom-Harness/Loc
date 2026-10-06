@@ -1,5 +1,12 @@
-import type { EventIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type {
+  EventIR,
+  FieldIR,
+  SystemIR,
+  TypeIR,
+  ValueObjectIR,
+} from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
 import {
@@ -108,9 +115,18 @@ function transportPickLine(hasRedis: boolean, hasRabbit: boolean, hasKafka: bool
 /** Java expression serialising one event record component into its
  *  envelope-data value (DSL-keyed JSON; parity with the Hono/Python/.NET
  *  codecs). */
-function toDataExpr(access: string, t: TypeIR): string {
+function toDataExpr(access: string, t: TypeIR, vo?: JavaVoEncode): string {
   const inner = t.kind === "optional" ? t.inner : t;
   const conv = (): string | null => {
+    // A value object crosses as a DSL-keyed record whose leaves use the SAME
+    // wire forms as a top-level field (money as a fixed-scale string, …) —
+    // not Jackson's record serialisation, which writes a `BigDecimal` as a
+    // JSON number the decoders read as a string.  Rendered through a
+    // per-VO `encode<Vo>` helper the codec class declares.
+    if (inner.kind === "valueobject" && vo?.fields.has(inner.name)) {
+      vo.used.add(inner.name);
+      return `encode${inner.name}(${access})`;
+    }
     if (inner.kind === "primitive" && inner.name === "datetime") return javaInstantWire(access);
     // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
     // whatever scale the domain `BigDecimal` happens to carry (the write scale,
@@ -126,6 +142,38 @@ function toDataExpr(access: string, t: TypeIR): string {
   const converted = conv();
   if (converted === null) return access;
   return t.kind === "optional" ? `${access} == null ? null : ${converted}` : converted;
+}
+
+/** The VO field lookup plus the set of VOs whose `encode<Vo>` helper the
+ *  codec must declare (filled as `toDataExpr` reaches them). */
+interface JavaVoEncode {
+  readonly fields: ReadonlyMap<string, readonly FieldIR[]>;
+  readonly used: Set<string>;
+}
+
+/** The `encode<Vo>` helper methods for every VO `toDataExpr` reached —
+ *  transitively, since a helper body may reach a nested VO. */
+function renderVoEncoders(vo: JavaVoEncode): string[] {
+  const out: string[] = [];
+  const done = new Set<string>();
+  for (;;) {
+    const next = [...vo.used].find((n) => !done.has(n));
+    if (next === undefined) break;
+    done.add(next);
+    const fields = vo.fields.get(next) ?? [];
+    out.push(
+      ``,
+      `    private static Map<String, Object> encode${next}(${next} v) {`,
+      `        var m = new LinkedHashMap<String, Object>();`,
+      ...fields.map(
+        (f) =>
+          `        m.put(${JSON.stringify(f.name)}, ${toDataExpr(`v.${jid(f.name)}()`, f.type, vo)});`,
+      ),
+      `        return m;`,
+      `    }`,
+    );
+  }
+  return out;
 }
 
 /** Java's `WireDecodeTarget` — the leaf half of the shared channel wire codec
@@ -173,16 +221,29 @@ function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTa
     enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
     optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
     passthrough: asString,
+    // A value object crosses as a DSL-keyed JSON object (a `Map` after
+    // Jackson) and is rebuilt through its record constructor — never cast to
+    // `String` for the VO-typed component (eval item 11).
+    valueObject: {
+      view: (e) => `((Map<?, ?>) ${e})`,
+      build: (name, fields) => `new ${name}(${fields.map((f) => f.decoded).join(", ")})`,
+    },
   };
 }
 
 /** Java expression reconstructing one event record component from the
  *  envelope's `data` map. */
-function fromDataExpr(name: string, t: TypeIR, idValueTypeOf: (target: string) => string): string {
+function fromDataExpr(
+  name: string,
+  t: TypeIR,
+  idValueTypeOf: (target: string) => string,
+  vos?: ReadonlyMap<string, readonly FieldIR[]>,
+): string {
   return decodeField(
     "data",
     { name, type: t, optional: t.kind === "optional" },
     javaWireDecode(idValueTypeOf),
+    vos,
   );
 }
 
@@ -205,11 +266,22 @@ export function renderJavaChannelFiles(
    *  carry no outbox table; broker ack semantics own redelivery).  The two
    *  packages are the layout-routed homes of the outbox entity/repository
    *  (`renderJavaOutboxFiles`). */
-  opts: { durableBroker: boolean; outboxEntityPkg?: string; outboxRepoPkg?: string } = {
+  opts: {
+    durableBroker: boolean;
+    outboxEntityPkg?: string;
+    outboxRepoPkg?: string;
+    /** The value objects in scope (hosted + the foreign-event closure) — a
+     *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
+    valueObjects?: readonly ValueObjectIR[];
+  } = {
     durableBroker: false,
   },
 ): Map<string, string> {
   const pkg = `${basePkg}.config`;
+  const vos: ReadonlyMap<string, readonly FieldIR[]> = new Map(
+    (opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const),
+  );
+  const voEncode: JavaVoEncode = { fields: vos, used: new Set() };
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -238,7 +310,7 @@ export function renderJavaChannelFiles(
     return "uuid";
   };
 
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/emit/channels");
 
   out.set(
     "LoomEventEnvelope.java",
@@ -859,7 +931,7 @@ export function renderJavaChannelFiles(
   const toArms = carried.map((ev) => {
     const puts = ev.fields.map(
       (f) =>
-        `                m.put(${JSON.stringify(f.name)}, ${toDataExpr(`e.${jid(f.name)}()`, f.type)});`,
+        `                m.put(${JSON.stringify(f.name)}, ${toDataExpr(`e.${jid(f.name)}()`, f.type, voEncode)});`,
     );
     return [
       `            case ${ev.name} e -> {`,
@@ -872,9 +944,12 @@ export function renderJavaChannelFiles(
   const fromArms = carried.map(
     (ev) =>
       `            case ${JSON.stringify(ev.name)} -> new ${ev.name}(${ev.fields
-        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf))
+        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, vos))
         .join(", ")});`,
   );
+  // Rendered before the header: a helper body can reach a nested VO, and
+  // `voEncode.used` (every VO the codec names) decides the package import.
+  const voEncoders = renderVoEncoders(voEncode);
   out.set(
     "ChannelCodec.java",
     lines(
@@ -886,6 +961,7 @@ export function renderJavaChannelFiles(
       `import ${basePkg}.domain.enums.*;`,
       `import ${basePkg}.domain.events.*;`,
       `import ${basePkg}.domain.ids.*;`,
+      voEncode.used.size > 0 ? `import ${basePkg}.domain.valueobjects.*;` : null,
       ``,
       `/** Per-event envelope-data codec over the DSL field names — wire parity`,
       ` *  with the Hono/Python/.NET drivers (datetimes as ISO-8601 round-trip`,
@@ -905,6 +981,7 @@ export function renderJavaChannelFiles(
       `            default -> throw new IllegalStateException("unknown carried event type: " + eventType);`,
       `        };`,
       `    }`,
+      ...voEncoders,
       ``,
       `    private ChannelCodec() {`,
       `    }`,

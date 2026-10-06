@@ -36,6 +36,7 @@
 // by construction: if the call is in the file, the import is too.
 // ---------------------------------------------------------------------------
 
+import { rewrite } from "../../../util/emission-sink.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import type { PyOutputMap } from "../py-output.js";
 
@@ -108,7 +109,7 @@ export function wireNumericHelpers(out: PyOutputMap): void {
       used = true;
       next = next.replace(h.calls, `${h.marker}(`);
     }
-    if (next !== content) out.set(path, withImportSlot(next));
+    if (next !== content) rewrite(out, path, withImportSlot(next));
   }
   if (used) out.set(HELPER_PATH, NUMERIC_PY);
 }
