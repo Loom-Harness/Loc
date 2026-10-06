@@ -172,7 +172,14 @@ describe("the undocumented-codes ratchet", () => {
 //
 // 366 -> 355: eleven undocumented backend-support codes deleted with their
 // five-of-five gates (a support set naming every backend gated nothing).
-const UNDOCUMENTED_BASELINE = 355;
+// 355 -> 356 (eval #30): `loom.migration-ambiguous-rename` was always a code,
+// but its text was an inline literal, so it was not a CATALOG code and this
+// list never saw it.  Moving the text into the catalog surfaces it here with
+// the same problem as the entry above — no language-reference chapter covers
+// migration blocks (its home is docs/migrations.md § Rename detection).  Raised
+// deliberately; #3073's docs-root anchor escape (`../migrations.md#…`) is the
+// way to shrink both once it lands.
+const UNDOCUMENTED_BASELINE = 356;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {
