@@ -110,6 +110,14 @@ describe("the rule stays narrow", () => {
       ),
       /widget\.test\.ts$/i,
     );
-    expect(lineWith(src, OTHER)).toMatch(/\.toBeGreaterThan\("2027-01-01T00:00:00Z"\);$/);
+    // `coerceMatcherExpected` does not fire (no `toEqual`).  The node ORDERING
+    // matcher has its own subject-type arm (banking eval B-01, emit/tests.ts
+    // `renderTypedValueMatcher`): vitest's `toBeGreaterThan` rejects a `Date`
+    // subject outright, so both sides compare as epoch milliseconds.
+    const line = lineWith(src, OTHER);
+    expect(line).not.toContain("toEqual");
+    expect(line).toMatch(
+      /^expect\(\(w\.scheduledAt\)\?\.getTime\(\)\)\.toBeGreaterThan\(new Date\("2027-01-01T00:00:00Z"\)\.getTime\(\)\);$/,
+    );
   });
 });

@@ -247,12 +247,28 @@ export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): s
   // answers that map through the same domain-floor entry sender the body-built
   // value object uses.  Every other denial keeps the plain string detail.
   if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
-    return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
-      messageCode(s.message.text),
-    )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+    return codedPreconditionTerm(s, s.message.text);
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
+}
+
+/** The denial term for a guard in a WORKFLOW / command-handler body.  An
+ *  orchestration precondition never lifts into a request validator, so a
+ *  MESSAGED one always answers the domain floor WITH its `errors[]` entry —
+ *  the same coded map an operation precondition's domain-floor denial carries
+ *  (banking eval B-02).  The workflow controller hands the detail to
+ *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
+ *  (`hasDomainFloorMessages`, which sees workflow preconditions) switches on. */
+export function workflowDenialTerm(s: GuardStmt): string {
+  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.text);
+  return denialTerm(s);
+}
+
+function codedPreconditionTerm(s: GuardStmt, text: string): string {
+  return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
+    messageCode(text),
+  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
 }
 
 // ---------------------------------------------------------------------------

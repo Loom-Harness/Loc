@@ -546,6 +546,9 @@ function lowerWorkflowStatementInner(
         kind: "precondition",
         expr: lowerExpr(stmt.expr, env),
         source: cstText(stmt.expr),
+        // The authored `message "…"` (banking eval B-02) — same shape as an
+        // operation-body precondition (lower-stmt.ts).
+        message: stmt.message ? { text: stmt.message } : undefined,
       },
       envAfter: env,
     };

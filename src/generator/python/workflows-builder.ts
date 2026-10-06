@@ -36,6 +36,7 @@ import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
@@ -984,7 +985,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)})`,
+      `${i}    raise DomainError(${workflowPreconditionThrowArgs(st)})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
