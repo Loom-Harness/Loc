@@ -23,7 +23,9 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { SystemIR } from "../../types/loom-ir.js";
+import { descriptorFor } from "../../../platform/metadata.js";
+import type { ActionIR, DerivedIR, ExprIR, StateFieldIR, SystemIR } from "../../types/loom-ir.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 export function validateUiBackendBindings(sys: SystemIR, diags: LoomDiagnostic[]): void {
@@ -56,5 +58,124 @@ export function validateUiBackendBindings(sys: SystemIR, diags: LoomDiagnostic[]
       source: `${d.name}/${d.uiName ?? "ui"}`,
       origin: d.origin,
     });
+  }
+}
+
+// -------------------------------------------------------------------------
+// A ui page reading an aggregate its `targets:` backend does not serve.
+//
+// The same one-backend fact from the other side.  Enrichment narrows a
+// frontend's `contextNames` to its `targets:` backend's, and every frontend
+// emitter builds its api modules and hooks from that narrowed set.  A page
+// that reads an aggregate from any OTHER context — most often because
+// `with scaffold(subdomains: [A, B])` selected a subdomain the target does
+// not serve — therefore reached the walker with nothing to bind to:
+//
+//   - with no api handle, `Task.all` fell through the api-hook detector and
+//     `generate` failed on the generated page (`loom.method-call-unresolved-
+//     receiver web/src/pages/tasks/list.tsx:24`), naming neither the `.ddd`
+//     scaffold nor `targets:`;
+//   - with one handle bound (`ui: Web { Notes: api }`), the scaffold routed
+//     `Notes.Task.all` through it, `generate` exited 0, and the page imported
+//     `../../api/task` — a module never written (TS2307 at build time).
+//
+// `parse` reported 0 errors both times.  This check makes it a phase-⑦ error
+// naming the ui, the subdomain and the `targets:` deployable, once per
+// (frontend, ui, unserved context).  It reads ONLY what the emitter binds an
+// api read to: a bare aggregate ref (`Task.all`, `CreateForm { of: Task }`) or
+// a handle-rooted one (`Notes.Task.all`).  Locals, params and lambda bindings
+// lower to other `refKind`s and never match.  (The handle-rooted arm is a
+// belt: a HAND-WRITTEN `Notes.Task` is already refused at phase ④ — "Aggregate
+// 'Task' not found in api 'NotesApi'" — and today's scaffold pages always carry
+// a bare `Task` ref beside the handle-rooted read, which the first arm sees.)
+// -------------------------------------------------------------------------
+
+interface ScannedBody {
+  state: StateFieldIR[];
+  derived: DerivedIR[];
+  actions: ActionIR[];
+  body?: ExprIR;
+  title?: ExprIR;
+}
+
+export function validateUiReadsServed(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  // aggregate name → its owning context + subdomain, within this system.
+  const owner = new Map<string, { ctx: string; subdomain: string }>();
+  for (const sd of sys.subdomains) {
+    for (const c of sd.contexts) {
+      for (const a of c.aggregates) owner.set(a.name, { ctx: c.name, subdomain: sd.name });
+    }
+  }
+  for (const d of sys.deployables) {
+    if (!d.targetName || !descriptorFor(d.platform).isFrontend) continue;
+    const target = sys.deployables.find((t) => t.name === d.targetName);
+    // An unknown `targets:` is refused elsewhere; nothing to compare against.
+    if (!target) continue;
+    const served = new Set(d.contextNames);
+    const uiNames = [...new Set([d.uiName, ...(d.hostedUiNames ?? [])])].filter(
+      (n): n is string => !!n,
+    );
+    for (const uiName of uiNames) {
+      const ui = sys.uis.find((u) => u.name === uiName);
+      if (!ui) continue;
+      const handles = new Set(ui.apiParams.map((p) => p.name));
+      // unserved context → the subdomain, the aggregates read, and where.
+      const misses = new Map<
+        string,
+        { subdomain: string; aggregates: Set<string>; sites: Set<string> }
+      >();
+      const note = (aggName: string, site: string): void => {
+        const o = owner.get(aggName);
+        if (!o || served.has(o.ctx)) return;
+        const m = misses.get(o.ctx) ?? {
+          subdomain: o.subdomain,
+          aggregates: new Set<string>(),
+          sites: new Set<string>(),
+        };
+        m.aggregates.add(aggName);
+        m.sites.add(site);
+        misses.set(o.ctx, m);
+      };
+      const scan = (site: string, s: ScannedBody): void => {
+        const visit = (e: ExprIR): void => {
+          if (e.kind === "ref") {
+            if (e.refKind === "unknown") note(e.name, site);
+            return;
+          }
+          if (
+            e.kind === "member" &&
+            e.receiver.kind === "ref" &&
+            e.receiver.refKind === "unknown" &&
+            handles.has(e.receiver.name)
+          ) {
+            note(e.member, site);
+          }
+        };
+        walkExprDeep(s.title, visit);
+        for (const f of s.state) walkExprDeep(f.init, visit);
+        for (const dv of s.derived) walkExprDeep(dv.expr, visit);
+        for (const a of s.actions) for (const st of a.body) walkStmtExprsDeep(st, visit);
+        walkExprDeep(s.body, visit);
+      };
+      for (const p of ui.pages) scan(p.route ? `page ${p.name} (${p.route})` : `page ${p.name}`, p);
+      for (const c of ui.components) scan(`component ${c.name}`, c);
+      for (const [ctx, m] of [...misses].sort(([a], [b]) => a.localeCompare(b))) {
+        diags.push({
+          severity: "error",
+          code: "loom.ui-aggregate-unserved",
+          message: diagMessage("loom.ui-aggregate-unserved", {
+            uiName,
+            dName: d.name,
+            targetName: target.name,
+            subdomain: m.subdomain,
+            ctx,
+            aggregates: [...m.aggregates].sort().join(", "),
+            sites: [...m.sites].sort().join(", "),
+            served: [...served].sort().join(", ") || "(none)",
+          }),
+          source: `${d.name}/${uiName}`,
+        });
+      }
+    }
   }
 }
