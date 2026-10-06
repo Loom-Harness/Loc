@@ -37,6 +37,7 @@ import {
   pageConstructId,
   pageEmitName,
 } from "../../ir/util/page-kind.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
@@ -232,7 +233,7 @@ export function deriveExtraRoutesFromUi(
 }
 
 export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/react/pages-emitter");
   const pageCtx = pageNameCtx(ctx);
 
   // Build the per-ui name→params map the walker uses to resolve
@@ -426,7 +427,7 @@ export function emitPageObjectsForUi(
    *  mode needs no per-option `-option-<id>` testids. */
   selectStyle: SelectStyle = "combobox",
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/react/pages-emitter");
   const pageCtx = pageNameCtx(ctx);
   const seenAggregates = new Set<string>();
   const seenWorkflows = new Set<string>();

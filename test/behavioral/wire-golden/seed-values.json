@@ -129,6 +129,104 @@
     },
     {
       "seq": 8,
+      "method": "GET",
+      "path": "/api/meetups",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "endsAt": "<timestamp>",
+            "id": "<volatile:key>",
+            "startsAt": "<timestamp>",
+            "title": "Kickoff",
+            "venue": {
+              "city": "Springfield",
+              "line1": "1 Main St",
+              "line2": null
+            },
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/meetups",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/meetups/{id}",
+      "status": 200,
+      "body": {
+        "endsAt": null,
+        "id": "<volatile:key>",
+        "startsAt": "<timestamp>",
+        "title": "Talk",
+        "venue": {
+          "city": "Shelbyville",
+          "line1": "2 Side St",
+          "line2": null
+        },
+        "version": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/meetups/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/meetups/{id}",
+      "status": 200,
+      "body": {
+        "endsAt": null,
+        "id": "<volatile:key>",
+        "startsAt": "<timestamp>",
+        "title": "Talk 2",
+        "venue": {
+          "city": "Shelbyville",
+          "line1": "2 Side St",
+          "line2": "Unit 4"
+        },
+        "version": 2
+      }
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/meetups/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/meetups/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Meetup {id} not found",
+        "instance": "/api/meetups/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/parts",
       "status": 405,
@@ -141,7 +239,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -154,7 +252,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 17,
       "method": "POST",
       "path": "/api/parts",
       "status": 400,

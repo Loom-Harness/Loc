@@ -38,8 +38,6 @@ system L {
 }
 `;
 
-const RET_GATE = "loom.operation-return-unsupported";
-
 async function diagnostics() {
   const { model } = await parseString(source(), { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
@@ -48,7 +46,7 @@ async function diagnostics() {
 describe("vanilla — T2.c operation-return gate", () => {
   it("accepts an `or`-union operation return on foundation: vanilla", async () => {
     const diags = await diagnostics();
-    expect(diags.find((d) => d.code === RET_GATE)).toBeUndefined();
+    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
   });
 });
 

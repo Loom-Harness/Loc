@@ -6,10 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import {
-  platformFamily,
-  platformOwnsBackend,
-} from "../../../language/validators/data/platform-rules.js";
+import { platformOwnsBackend } from "../../../language/validators/data/platform-rules.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -74,14 +71,10 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
   // on every read (finding 20 / B16).  Mirrors the `validateStampSupport`
   // precedent with a clear, actionable error.
   //
-  // Scoped to the five DOMAIN backend families (canonical names per
-  // D-NODE-PLATFORM / D-ELIXIR-PLATFORM): a deployable with no database read
-  // path never carries a capability filter to begin with.
-  const DOMAIN_FAMILIES = new Set(["node", "elixir", "java", "python", "dotnet"]);
-
+  // Scoped to backend deployables: a deployable with no database read path
+  // never carries a capability filter to begin with.
   for (const dep of sys.deployables) {
-    const fam = platformFamily(dep.platform);
-    if (!fam || !DOMAIN_FAMILIES.has(fam)) continue;
+    if (!platformOwnsBackend(dep.platform)) continue;
     if (dep.auth?.required && sys.user) continue;
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
@@ -110,7 +103,7 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
 //
 // A read (repository `find`, or inline `Repo.findAll(...)`/`Repo.run`)
 // may carry an `ignoring *` / `ignoring <Cap>, …` clause that bypasses a
-// capability's query-filter(s).  Three fail-fast gates run over the FULLY-
+// capability's query-filter(s).  Two fail-fast gates run over the FULLY-
 // RESOLVED IR (the capability provenance lives on `agg.contextFilterOrigins`):
 //
 //   loom.filter-bypass-unknown-capability — `ignoring X` where the target
@@ -121,42 +114,21 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
 //       filters (only an EXPLICIT named cap errors) — bypassing "all of nothing"
 //       is intent-neutral, whereas naming a specific cap that contributes no
 //       filter is a likely authoring mistake.
-//   loom.filter-bypass-unsupported — the read is served by a deployable whose
-//       backend family is NOT in the supported set.  Honored by dotnet (EF
-//       `IgnoreQueryFilters`), node (Drizzle), elixir (plain Ecto omits the
-//       bypassed `where:`), java (§11.6 @SQLRestriction→bypassable @Filter triage,
-//       disabled per-read via the Hibernate Session), and python (SQLAlchemy
-//       has no global filter, so each read AND-s its predicates explicitly —
-//       a bypassing find/inline-run simply OMITS the named conjunct).
-//       Every honoring family is in the set, so the diagnostic only fires for
-//       a backend with no DB read path (which never carries `ignoring`).
+//
+// Every backend honors the bypass: dotnet (EF `IgnoreQueryFilters`), node
+// (Drizzle omits the bypassed conjunct from the `and(...)` chain), elixir (plain
+// Ecto omits the bypassed `where:`), java (§11.6 hybrid — a bypassed capability
+// leaves the always-on `@SQLRestriction` for a bypassable Hibernate named
+// `@Filter`, which a bypassing read disables via
+// `session.disableFilter`/`enableFilter`; principal filters omit the JPQL
+// conjunct; document repos re-apply promoted caps per-find), and python
+// (SQLAlchemy has no global filter, so each read AND-s its capability
+// predicates explicitly via `contextFilterPredicate`; a bypassing find omits
+// the named conjunct statically, and a shared `run_<retrieval>` omits the union
+// of its inline call-sites' bypasses).  A new backend must OMIT the bypassed
+// predicate before it ships — accepting `ignoring` while silently filtering is
+// the regression `backend-parity-gates.test.ts` pins against.
 // ---------------------------------------------------------------------------
-
-/** Backend families that honor an `ignoring` filter-bypass clause.  `dotnet`
- *  (EF `IgnoreQueryFilters`), `node` (Drizzle — omits the bypassed conjunct
- *  from the `and(...)` chain), `elixir` (plain Ecto omits the
- *  bypassed `where:`), and `java` (§11.6 hybrid — a bypassed capability leaves the
- *  always-on `@SQLRestriction` for a bypassable Hibernate named `@Filter`, which
- *  a bypassing read disables via `session.disableFilter`/`enableFilter`;
- *  principal filters omit the JPQL conjunct; document repos re-apply promoted
- *  caps per-find), and `python` (SQLAlchemy has no global filter, so each read
- *  AND-s its capability predicates explicitly via `contextFilterPredicate`; a
- *  bypassing find omits the named conjunct statically, and a shared
- *  `run_<retrieval>` omits the union of its inline call-sites' bypasses) all
- *  honor it. */
-
-export const FILTER_BYPASS_FAMILIES = new Set(["dotnet", "node", "elixir", "java", "python"]);
-
-/** Whether `dep`'s backend honors `ignoring` filter-bypass.  A backend must
- *  not pass this gate while still silently filtering — a family is supported
- *  only once its emitter actually OMITS the bypassed predicate.  Elixir (plain
- *  Ecto) omits the bypassed `where:` on the reads that `ignoring` it. */
-
-function bypassSupported(dep: { platform: string }): boolean {
-  const fam = platformFamily(dep.platform);
-  if (!fam) return false;
-  return FILTER_BYPASS_FAMILIES.has(fam);
-}
 
 /** A read carrying an `ignoring` clause, plus the aggregate it targets and a
  *  human-readable site label for diagnostics. */
@@ -245,11 +217,9 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
 
   for (const dep of sys.deployables) {
-    const fam = platformFamily(dep.platform);
     // Only backend deployables serve reads; a frontend (react/static/vue/…)
     // owns no repository read path, so it can't bypass a filter.
-    if (!fam || !platformOwnsBackend(dep.platform)) continue;
-    const supported = bypassSupported(dep);
+    if (!platformOwnsBackend(dep.platform)) continue;
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
@@ -261,24 +231,7 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
         const filterOrigins = new Set(
           (agg?.contextFilterOrigins ?? []).filter((o): o is string => o != null),
         );
-        // 1. Unsupported backend — gate FIRST so an `ignoring` read on a
-        //    non-dotnet backend always fails (regardless of cap validity).
-        if (!supported) {
-          diags.push({
-            severity: "error",
-            code: "loom.filter-bypass-unsupported",
-            message: diagMessage("loom.filter-bypass-unsupported", {
-              name: dep.name,
-              platform: dep.platform,
-              site: read.site,
-              ctxName,
-              aggName: read.aggName,
-            }),
-            source: `${sys.name}/${dep.name}`,
-          });
-          continue;
-        }
-        // 2. Per named capability: must be implemented AND contribute a filter.
+        // Per named capability: must be implemented AND contribute a filter.
         //    `ignoring *` skips both checks (it's keyed on nothing specific).
         for (const cap of read.bypassCaps ?? []) {
           if (!caps.has(cap)) {

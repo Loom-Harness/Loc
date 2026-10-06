@@ -395,6 +395,18 @@ export const AUTHZ_LADDERS = {
         body: { reference: "AB" },
         arms: { anonymous: null, unauthorized: 422, authorized: 422 },
       },
+      // The THIRD gate, drained by wave C3 packet 3c: `Shipment.destroy`
+      // (principal AND row — `quantity == 0`, the default).  It was pinned
+      // `R.oneSeededId` because the spec's one `{id}` is the crate's; the
+      // surface now seeds its OWN shipment (`seed`, run right before its
+      // arms), and sits LAST so every recorded ordinal above keeps its place.
+      {
+        label: "guarded destroy (principal AND row, its own seeded shipment)",
+        seed: { path: "/api/shipments", body: { reference: "ladder destroy" } },
+        method: "DELETE",
+        path: "/api/shipments/{id}",
+        arms: { anonymous: null, unauthorized: 403, authorized: 204 },
+      },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 204 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
@@ -475,6 +487,33 @@ export const AUTHZ_LADDERS = {
         method: "DELETE",
         path: "/api/accounts/{id}",
       },
+      // Wave C3 packet 3c: `Ledger`, the aggregate carrying ONLY the tenant
+      // floor (no `policy` stance), refused across tenants on its read AND
+      // write seams — the tenancy predicate's own refusal, next to the policy
+      // carve-outs above.  Each surface seeds its own ledger.
+      {
+        label: "tenant-floored control — a foreign tenant's by-id read",
+        seed: { path: "/api/ledgers", body: { label: "LADDER-L1" } },
+        method: "GET",
+        path: "/api/ledgers/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "tenant-floored control — a foreign tenant's update",
+        seed: { path: "/api/ledgers", body: { label: "LADDER-L2" } },
+        method: "POST",
+        path: "/api/ledgers/{id}/update",
+        body: { label: "LADDER-L2B" },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "tenant-floored control — a foreign tenant's destroy",
+        seed: { path: "/api/ledgers", body: { label: "LADDER-L3" } },
+        method: "DELETE",
+        path: "/api/ledgers/{id}",
+        note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
     ],
     arms: { anonymous: null, unauthorized: 404, authorized: 404 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
@@ -515,6 +554,91 @@ export const AUTHZ_LADDERS = {
         method: "GET",
         path: "/api/invoices/{id}",
         arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      // Wave C3 packet 3c: the WRITE seam.  Every backend's command load reuses
+      // the read scope, so a foreign tenant's update / destroy must match NO
+      // row (404) — the refusal the tenant floor owes on writes, which the
+      // by-id read above cannot show.  Each seeds its own row so neither arm
+      // acts on the other's leftovers.
+      {
+        label: "tenant-scoped update — the command load matches no foreign row",
+        seed: { path: "/api/invoices", body: { number: "LADDER-2", amountDue: 10 } },
+        method: "POST",
+        path: "/api/invoices/{id}/update",
+        body: { number: "LADDER-2B", amountDue: 20 },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "tenant-scoped destroy — a foreign tenant cannot delete",
+        seed: { path: "/api/invoices", body: { number: "LADDER-3", amountDue: 30 } },
+        method: "DELETE",
+        path: "/api/invoices/{id}",
+        note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** A hand-written principal `filter` (not the `tenantOwned` capability) —
+   *  the same cross-tenant refusal on the read and write seams (wave C3 3c). */
+  "tenancy-filter": {
+    seed: { path: "/api/accounts", body: { tenantId: "acme", balance: 1 } },
+    gated: [
+      {
+        label: "principal filter — a foreign tenant's by-id read",
+        method: "GET",
+        path: "/api/accounts/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "principal filter — a foreign tenant's update",
+        seed: { path: "/api/accounts", body: { tenantId: "acme", balance: 2 } },
+        method: "POST",
+        path: "/api/accounts/{id}/update",
+        body: { tenantId: "acme", balance: 3 },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "principal filter — a foreign tenant's destroy",
+        seed: { path: "/api/accounts", body: { tenantId: "acme", balance: 4 } },
+        method: "DELETE",
+        path: "/api/accounts/{id}",
+        note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** The tenant floor keyed on a claim NOT named `tenantId` (`orgId`) — the
+   *  cross-tenant principal varies both, so the refusal is the floor's. */
+  "tenancy-claim-name": {
+    seed: { path: "/api/invoices", body: { number: "LADDER-1", amountDue: 1 } },
+    gated: [
+      {
+        label: "orgId floor — a foreign tenant's by-id read",
+        method: "GET",
+        path: "/api/invoices/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "orgId floor — a foreign tenant's update",
+        seed: { path: "/api/invoices", body: { number: "LADDER-2", amountDue: 2 } },
+        method: "POST",
+        path: "/api/invoices/{id}/update",
+        body: { number: "LADDER-2B", amountDue: 3 },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "orgId floor — a foreign tenant's destroy",
+        seed: { path: "/api/invoices", body: { number: "LADDER-3", amountDue: 4 } },
+        method: "DELETE",
+        path: "/api/invoices/{id}",
+        note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
       },
     ],
     arms: { anonymous: null, unauthorized: 200, authorized: 200 },
