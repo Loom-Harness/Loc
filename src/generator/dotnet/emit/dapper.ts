@@ -2012,7 +2012,8 @@ export function renderDapperRepository(
       // plus any the retrieval's own `where` carries — bound from the ambient
       // request principal (the retrieval method takes no `currentUser` param).
       ...dedupPrincipalRefs([...filterPrincipalRefs, ...collectFilterPrincipalRefs([r.where])]).map(
-        (pr) => `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
+        (pr) =>
+          `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
       ),
     ];
     return lines(
