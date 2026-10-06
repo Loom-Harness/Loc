@@ -545,6 +545,19 @@ Flutter still formats through `intl` (`NumberFormat.decimalPattern()` / `NumberF
 
 `IdLink { o.id, of: Product }` renders the short id as a link to the aggregate's detail route (`<RouterLink to={`/products/${row.id}`}><IdValue id={row.id} /></RouterLink>` on React, `shortId(row.id)` in a `router-link` on Vue, `[routerLink]='"/products/" + row.id'` on Angular).
 
+When the linked aggregate ships a `display` (a `derived display` or a plain `display` field) and the id is a **reference** rather than the row's own `id`, the link text is that record's `display` instead of the short id. The label is read by a small per-cell child — `LoomRefLabel` (`src/lib/ref-label.tsx` on React, `LoomRefLabel.vue` / `.svelte`, the `loom-ref-label` standalone component on Angular, a `LoomRefLabel` module in `App.fs` on Feliz, `lib/ref_label.dart` on Flutter) — so the hook runs inside the child, never once per row in the page, and the framework's query cache issues **one** `GET /<plural>/{id}` per distinct id. The short id stays as the fallback while loading, on error, and when `display` is empty; the link target is unchanged.
+
+```ddd
+aggregate Project with crudish { name: string  derived display: string = name }
+aggregate Task with crudish { title: string  project: Project id }
+ui WebApp with scaffold(subdomains: [Core]) { }
+```
+
+```tsx
+// web_app/src/pages/tasks/list.tsx (React, mantine)
+<RouterLink to={`/projects/${ row.project }`}><LoomRefLabel path="/projects/" id={ row.project }><IdValue id={ row.project } /></LoomRefLabel></RouterLink>
+```
+
 `FileLink { a.attachment }` is a native download anchor over a `File` value (`{ url, key, contentType, size }`), null-guarded for `File?`:
 
 ```ddd

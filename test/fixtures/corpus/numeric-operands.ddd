@@ -24,15 +24,27 @@
 // The decimal literals are BINARY-EXACT (`0.5`, `0.25`) on purpose: the unit
 // assertions then agree on all five backends whatever the still-un-ruled
 // cross-backend decimal-arithmetic representation (audit F11 / M-T5.22) says.
-// No `test e2e` block for the same reason — a wire golden minted here would
-// pre-empt that ruling; the fixture rides the generation gate, the per-backend
-// COMPILE tiers, and every backend's UNIT tier (the `test` block below runs as
-// real ExUnit/vitest/pytest/JUnit/xUnit assertions — the Elixir run is the
-// runtime proof the term-ordering comparison actually flipped).
+// The fixture rides the generation gate, the per-backend COMPILE tiers, and
+// every backend's UNIT tier (the `test` block below runs as real
+// ExUnit/vitest/pytest/JUnit/xUnit assertions — the Elixir run is the runtime
+// proof the term-ordering comparison actually flipped).
+//
+// RUNTIME + COMPILE + UNIT (wave C3 packet 3a, M-T9.13).  This header used to
+// withhold a `test e2e` block because "a wire golden minted here would pre-empt"
+// the decimal ruling.  M-T5.22 is RULED (exact, RS-37 — wave C5 moment 5a), so
+// that reason is gone.  And the unit block cannot see the half that matters
+// most at runtime: it constructs the operands IN MEMORY, while a booted read
+// evaluates the derived getters over values HYDRATED from `numeric` columns
+// (a `%Decimal{}` from Postgrex, a `Decimal` from asyncpg, a string-parsed
+// `Number` on node).  It also never asserts the TRUE arm of `sameAsGoal`, the
+// one native `==` on an int and a Decimal struct always gets wrong.  So
+// `Order` gained `crudish` and the block at the bottom reads all four back
+// after create, after the operation, and after an update that makes the
+// equality hold.
 system NumericOperands {
   subdomain Sales {
     context Sales {
-      aggregate Order {
+      aggregate Order with crudish {
         qty: int
         price: money
         count: int
@@ -89,5 +101,36 @@ system NumericOperands {
     dataSources: [salesState]
     serves: SalesApi
     port: 4000
+  }
+
+  test e2e "right-hand money/decimal operands evaluate over HYDRATED values" against d {
+    let o = api.orders.create({ qty: 3, price: money("2.50"), count: 2, factor: 2.5 })
+    let read = api.orders.getById(o)
+    // int * money
+    expect(decimal(read.lineTotal)).toBe(7.5)
+    // int + decimal
+    expect(read.adjusted).toBe(4.5)
+    // int < decimal — 2 < 2.5
+    expect(read.underTarget).toBe(true)
+    expect(read.sameAsGoal).toBe(false)
+
+    // Through the operation: count 2 → 3, now ABOVE the factor.
+    api.orders.restock(o, { by: 1 })
+    let restocked = api.orders.getById(o)
+    expect(restocked.adjusted).toBe(5.5)
+    expect(restocked.underTarget).toBe(false)
+    expect(restocked.sameAsGoal).toBe(false)
+
+    // int == decimal, the TRUE arm: count 3 against a factor of 3.
+    api.orders.update(o, { qty: 4, price: money("0.25"), count: 3, factor: 3 })
+    let equal = api.orders.getById(o)
+    expect(equal.sameAsGoal).toBe(true)
+    expect(equal.underTarget).toBe(false)
+    expect(decimal(equal.lineTotal)).toBe(1)
+    expect(equal.adjusted).toBe(6)
+
+    expect(api.orders.all().total).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
   }
 }

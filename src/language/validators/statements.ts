@@ -51,6 +51,8 @@ import {
   isRetrieval,
   isRetrievalLiteral,
   isStore,
+  isStringLit,
+  isTestBlock,
   isThisRef,
   isUi,
 } from "../generated/ast.js";
@@ -128,7 +130,7 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
       });
     }
     if (op.private) {
-      // The gate itself DOES still run — since M-T6.38 / D-WHEN-GATE-DOMAIN the
+      // The gate itself DOES still run — per D-WHEN-GATE-DOMAIN the
       // `when` predicate is emitted at the domain-method entry on every
       // backend, so an in-system caller (a workflow step, another domain
       // method) is refused.  What a private operation loses is the HTTP
@@ -426,8 +428,8 @@ export function checkConstructionArgTypes(
 
 /** Arity + type check for calls in EXPRESSION position (`derived x = fee(a)`,
  *  `let y := compute(a, b)`, `precondition check(a)`, `derived t = price.scaled(f)`)
- *  — the expression-walk companion to `checkCallStmt`'s statement-call check
- *  (M-T6.18 gap #2).  Streams every `PostfixChain` reachable from `node` and
+ *  — the expression-walk companion to `checkCallStmt`'s statement-call check.
+ *  Streams every `PostfixChain` reachable from `node` and
  *  covers two call shapes:
  *
  *   - **Free call** (`name(args)` — a bare `NameRef` head with a leading
@@ -451,6 +453,7 @@ export function checkExprCallArgs(
   node: AstNode | undefined,
   env: Env,
   accept: ValidationAcceptor,
+  admit?: ArgAdmit,
 ): void {
   // Same parse-recovery guard as `checkConstructionArgTypes` above.
   if (!node) return;
@@ -469,6 +472,7 @@ export function checkExprCallArgs(
           `Function '${n.head.name}'`,
           first,
           accept,
+          admit,
         );
       } else {
         // Criterion / policy-function predicate (`InRegion(r)`, `CanApprove(c)`).
@@ -483,6 +487,7 @@ export function checkExprCallArgs(
             env,
             `'${n.head.name}'`,
             accept,
+            admit,
           );
         }
       }
@@ -501,6 +506,7 @@ export function checkExprCallArgs(
             `'${s.member}'`,
             s,
             accept,
+            admit,
           );
         }
       }
@@ -509,7 +515,7 @@ export function checkExprCallArgs(
   }
 }
 
-/** M-T6.18 gap #3 — arg-type + construction-value checking at the EXPRESSION
+/** Arg-type + construction-value checking at the EXPRESSION
  *  slots the operation/function/default/invariant/derived walk never reaches:
  *  repository `find … where` / `… requires`, retrieval `where:` (named +
  *  anonymous), criterion / policy-fn bodies, and operation `requires` / `when`
@@ -546,12 +552,12 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
       visit((node as Operation).gate);
       visit((node as Operation).when);
     } else if (isFilterDecl(node)) {
-      // M-T6.18 gap #3, last live piece — a capability `filter` is a
-      // DECLARATION site, not a body: `filter InRegion(42)` against `criterion
-      // InRegion(region: string)` carries no lexical `Env` of its own, so the
-      // predicate call was arity-checked (`loom.criterion-arity`, model-wide)
-      // and never TYPE-checked.  `envForNode` binds the host aggregate as
-      // `this` + its members, which is all a filter predicate can reference.
+      // A capability `filter` is a DECLARATION site, not a body: `filter
+      // InRegion(42)` against `criterion InRegion(region: string)` carries no
+      // lexical `Env` of its own, so the model-wide `loom.criterion-arity`
+      // checks only its arity — this TYPE-checks it.  `envForNode` binds the
+      // host aggregate as `this` + its members, which is all a filter
+      // predicate can reference.
       visit(node.expr);
     } else if (isProjection(node)) {
       // The projection query clauses are declaration sites too — `where`, the
@@ -595,12 +601,12 @@ function resolveStoreAction(
   return undefined;
 }
 
-/** M-T6.18 gap #3 — arity + per-argument type check for a store-action call
+/** Arity + per-argument type check for a store-action call
  *  (`Cart.add(42)`).  Page / component / store `action` bodies are never fed to
- *  the statement walk (that fires only for aggregate operations), so a
- *  store-action call had NEITHER its arity NOR its argument types checked — a
- *  wrong count or a `string` into an `int` action param compiled the .ddd and
- *  only failed the emitted frontend.  Both invocation forms are covered: the bare
+ *  the statement walk (that fires only for aggregate operations), so without
+ *  this a wrong count or a `string` into an `int` action param would compile
+ *  the .ddd and only fail the emitted frontend.  Both invocation forms are
+ *  covered: the bare
  *  call STATEMENT (`Cart.add(42)` — an `AssignOrCallStmt` LValue) and the
  *  expression form (a single-suffix `PostfixChain`, e.g. `x := Cart.add(42)`).
  *  Reuses the shared `checkCallArgs` (arity + positional type, `unknown`
@@ -659,11 +665,11 @@ function resolveComponent(name: string, node: AstNode, model: Model): Component 
   return undefined;
 }
 
-/** M-T6.18 gap #3 — per-prop type check for a page-body COMPONENT invocation
+/** Per-prop type check for a page-body COMPONENT invocation
  *  (`Panel(amount: "x")` / `Panel { amount: "x" }`).  A user `component` declares
- *  typed params, but neither invocation form had its prop VALUES checked — a
- *  `string` into an `int` param compiled the .ddd and only failed the emitted
- *  frontend's tsc.  Both forms are covered: the paren call (`Panel(amount: x)` — a
+ *  typed params; without this a `string` into an `int` param would compile the
+ *  .ddd and only fail the emitted frontend's tsc.  Both forms are covered: the
+ *  paren call (`Panel(amount: x)` — a
  *  single-suffix `PostfixChain` `CallSuffix`, positional or named) and the brace
  *  builder (`Panel { amount: x }` — a `BuilderCall`, which record constructions
  *  also use, so a name resolving to a value object / part / payload is left to
@@ -751,7 +757,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
 }
 
 /** Arg-check ONE bare member-call statement (`recv.method(args)`) in a workflow
- *  body.  A workflow has no `this` aggregate, so — unlike `checkCallStmt` — the
+ *  or unit-`test` body.  Neither has a `this` aggregate, so — unlike `checkCallStmt` — the
  *  receiver is resolved ONLY through the body's typed lets / params (`envForNode`,
  *  with the bounded-context anchor that lets `Agg.create({ … })` type as the
  *  aggregate), with no aggregate-root fallback.  The check FAILS OPEN (returns
@@ -760,7 +766,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
  *  (a repository-loaded receiver types `unknown`), so a miss must never become a
  *  false positive.  When it all resolves, args are arity/type-checked by the
  *  shared `checkCallArgs`. */
-function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): void {
+function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?: ArgAdmit): void {
   const env = envForNode(lv);
   const headSym = env.resolve(lv.head);
   if (!headSym) return; // receiver isn't a typed local (domain service / criterion / …)
@@ -779,13 +785,45 @@ function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): vo
     `'${methodName}'`,
     lv,
     accept,
+    admit,
   );
 }
 
-/** M-T6.18 gap #3 (follow-on to #2238) — bare operation/function-call STATEMENTS
- *  in a workflow create/handle/on/apply body (`o.bump(x)`).  #2238 wired
- *  `checkConstructionArgTypes` / `checkExprCallArgs` / `checkEmit` into workflow
- *  bodies, but a bare call statement is an `AssignOrCallStmt` LValue (not a
+/** Operation/function-call ARGUMENTS inside a unit /
+ *  integration `test` body (`let r = Claim.create({ … })` then `r.bump("x")` on
+ *  `bump(k: int)`).  A `test` body is not an aggregate operation, so neither
+ *  `checkStatement` (which threads `checkExprCallArgs`) nor `checkCallStmt`
+ *  (which needs a `this` aggregate) ever visited it: a wrong-typed or miscounted
+ *  argument reached the emitted test verbatim — `r.bump("x")` in TypeScript,
+ *  `r.bump("x")` in Python — and failed only when the generated suite ran.
+ *
+ *  Runs the same two checks the workflow body gets: `checkExprCallArgs` over
+ *  every expression-position call (`expect(r.bump("x")).toThrow()`), and the
+ *  fail-open member-call-STATEMENT check over bare `r.bump("x")`.  Receivers type
+ *  through the test body's lets (`envForNode`'s `test` arm).  Reuses
+ *  `loom.call-arg-type` / `loom.call-arg-count`; no new code.
+ *
+ *  A raw string literal in an `X id` / `datetime` position is ADMITTED here, and
+ *  only here: every backend's test emitter wraps it (`Ids.ProductId("0000…")`,
+ *  `new Date("…")`) by the one rule in `generator/_test/arg-coercion.ts`, and the
+ *  shipping examples write their tests that way (`order.addLine("0000…", 2)`). */
+export function checkTestBodyCallArgs(model: Model, accept: ValidationAcceptor): void {
+  for (const node of AstUtils.streamAllContents(model)) {
+    if (!isTestBlock(node)) continue;
+    for (const stmt of node.body) {
+      checkExprCallArgs(stmt, envForNode(stmt), accept, admitTestLiteral);
+      if (isAssignOrCallStmt(stmt) && !stmt.op) {
+        const lv = stmt.target;
+        if (lv.call && lv.tail.length >= 1) checkLocalMemberCallStmt(lv, accept, admitTestLiteral);
+      }
+    }
+  }
+}
+
+/** Bare operation/function-call STATEMENTS
+ *  in a workflow create/handle/on/apply body (`o.bump(x)`).  Workflow bodies
+ *  run `checkConstructionArgTypes` / `checkExprCallArgs` / `checkEmit`, but a
+ *  bare call statement is an `AssignOrCallStmt` LValue (not a
  *  PostfixChain), so `checkExprCallArgs` never sees it and `checkCallStmt` only
  *  runs for aggregate operations (it needs a `this` aggregate a workflow lacks).
  *  Streams the workflow member and arg-checks each MEMBER-call statement; a bare
@@ -796,7 +834,7 @@ export function checkWorkflowBodyCallStmts(member: AstNode, accept: ValidationAc
     if (!isAssignOrCallStmt(n)) continue;
     const lv = n.target;
     if (!lv.call || lv.tail.length < 1) continue;
-    checkWorkflowMemberCallStmt(lv, accept);
+    checkLocalMemberCallStmt(lv, accept);
   }
 }
 
@@ -863,8 +901,8 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
 }
 
 /** Arity + per-argument type check for a resolved domain call (`bump("hi")`,
- *  `o.bump(a)`) — the statement-call twin of `checkAsyncEffectArgs` / `checkEmit`
- *  (M-T6.18 gap #2).  The callee is already resolved to an operation / function
+ *  `o.bump(a)`) — the statement-call twin of `checkAsyncEffectArgs` /
+ *  `checkEmit`.  The callee is already resolved to an operation / function
  *  with a fixed, all-required param list (the grammar has no optional/defaulted
  *  params), so the discipline mirrors the sibling gates: strict arity, then
  *  per-arg `isAssignable` with `unknown`-suppression (a typo'd bare arg is
@@ -872,6 +910,20 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
  *  `money`/`decimal` param).  On an arity mismatch we stop before the per-arg
  *  loop — the positions do not line up, so per-arg type errors would be
  *  noise. */
+/** An extra per-argument admission a call site layers over `isAssignable` +
+ *  numeric-literal promotion — the test body's literal coercion, below. */
+type ArgAdmit = (arg: Expression, expected: DddType) => boolean;
+
+/** The language-side mirror of `decideLiteralCoercion`
+ *  (`src/generator/_test/arg-coercion.ts` — not importable here, layering): a
+ *  bare STRING literal in an `X id` / `datetime` position, optional or not, is
+ *  coerced by every backend's test emitter, so it type-checks in a test body. */
+const admitTestLiteral: ArgAdmit = (arg, expected) => {
+  if (!isStringLit(arg)) return false;
+  const t = expected.kind === "optional" ? expected.inner : expected;
+  return t.kind === "id" || (t.kind === "primitive" && t.name === "datetime");
+};
+
 /** Per-argument type check (positional, over the overlap of params/args), shared
  *  by the arity-and-type `checkCallArgs` and the type-ONLY predicate path.  Same
  *  discipline as `checkEmit`: suppress on `unknown`, admit numeric-literal
@@ -882,6 +934,7 @@ function checkArgTypesPositional(
   env: Env,
   label: string,
   accept: ValidationAcceptor,
+  admit?: ArgAdmit,
 ): void {
   const n = Math.min(params.length, args.length);
   for (let i = 0; i < n; i++) {
@@ -891,7 +944,8 @@ function checkArgTypesPositional(
     if (
       actual.kind !== "unknown" &&
       !isAssignable(actual, expected) &&
-      !canPromoteLiteralTo(args[i], expected)
+      !canPromoteLiteralTo(args[i], expected) &&
+      !admit?.(args[i]!, expected)
     ) {
       accept(
         "error",
@@ -914,6 +968,7 @@ function checkCallArgs(
   label: string,
   node: AstNode,
   accept: ValidationAcceptor,
+  admit?: ArgAdmit,
 ): void {
   if (args.length !== params.length) {
     accept(
@@ -928,7 +983,7 @@ function checkCallArgs(
     );
     return;
   }
-  checkArgTypesPositional(params, args, env, label, accept);
+  checkArgTypesPositional(params, args, env, label, accept, admit);
 }
 
 export function checkCallStmt(
