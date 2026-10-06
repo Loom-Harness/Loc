@@ -1,0 +1,124 @@
+// shape: a command-triggered workflow `create(…): T { … return <expr> }` — the
+// starter that ANSWERS its caller (banking eval B-03).
+//
+// Before this, a workflow POST could only answer 204: `openAccount` created the
+// account and the caller had no way to learn its id short of listing every
+// account and guessing.  `create(…): T` is the `commandHandler … : T` shape on a
+// workflow starter — the body ends in `return <expr>`, the route answers 200
+// with that value as its JSON body, and the published schema says so.
+//
+// Three shapes, one per thing that can go wrong on a backend:
+//   - `openAccount` returns an `X id` — the strongly-typed id must cross the
+//     wire as its raw value (`"…uuid…"`), not a record (`{"value": "…"}` on
+//     java/.NET when the id type itself is serialised);
+//   - `transfer` is `transactional` and returns a scalar read AFTER two
+//     operations ran — the value is computed inside the transaction (the
+//     post-`withdraw` balance, which on elixir means rebinding the updated
+//     struct, not the one the `with`-chain loaded) and answered after commit;
+//   - `touch` declares no result and must still answer 204 beside them.
+system WorkflowCreateResult {
+  subdomain Banking {
+    context Banking {
+      aggregate Customer with crudish {
+        name: string
+      }
+      aggregate Account {
+        owner: Customer id
+        number: string
+        balance: int
+
+        operation deposit(amount: int) {
+          precondition amount > 0
+          balance := balance + amount
+        }
+        operation withdraw(amount: int) {
+          precondition amount > 0
+          precondition balance >= amount
+          balance := balance - amount
+        }
+      }
+      repository Customers for Customer { }
+      repository Accounts for Account { }
+
+      workflow openAccount {
+        create(owner: Customer id, number: string, opening: int): Account id {
+          let account = Account.create({ owner: owner, number: number, balance: opening })
+          return account.id
+        }
+      }
+
+      workflow transfer transactional {
+        create(fromAccount: Account id, toAccount: Account id, amount: int): int {
+          let source = Accounts.getById(fromAccount)
+          let target = Accounts.getById(toAccount)
+          source.withdraw(amount)
+          target.deposit(amount)
+          return source.balance
+        }
+      }
+
+      workflow topUp {
+        create(acct: Account id, amount: int) {
+          let a = Accounts.getById(acct)
+          a.deposit(amount)
+        }
+      }
+    }
+  }
+
+  api BankApi from Banking
+  storage primary { type: postgres }
+  resource bankState { for: Banking, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Banking]
+    dataSources: [bankState]
+    serves: BankApi
+    port: 4000
+  }
+
+  // The returned values, over the wire: the id `openAccount` answers is the id
+  // the account is then read back by, and `transfer` answers the balance the
+  // commit left behind.
+  test e2e "a workflow create answers its declared result" against d {
+    let alice = api.customers.create({ name: "Alice" })
+    let a = api.openAccount.run({ owner: alice.id, number: "A-1", opening: 100 })
+    let b = api.openAccount.run({ owner: alice.id, number: "B-1", opening: 5 })
+    let opened = api.accounts.getById(a)
+    expect(opened.number).toBe("A-1")
+    expect(opened.balance).toBe(100)
+
+    let left = api.transfer.run({ fromAccount: a, toAccount: b, amount: 30 })
+    expect(left).toBe(70)
+    let credited = api.accounts.getById(b)
+    expect(credited.balance).toBe(35)
+
+    // No declared result: still the 204 (the client reads an empty body).
+    api.topUp.run({ acct: b, amount: 1 })
+    let topped = api.accounts.getById(b)
+    expect(topped.balance).toBe(36)
+
+    // A failed precondition inside the transaction answers its error, not a
+    // value, and rolls the withdraw back.
+    expect(api.transfer.run({ fromAccount: a, toAccount: b, amount: 1000 })).toThrow(422)
+    let unchanged = api.accounts.getById(a)
+    expect(unchanged.balance).toBe(70)
+
+    // The rest of the derived surface, so every route the fixture serves has a
+    // caller: the account operations a workflow id feeds straight into, and
+    // the customer CRUD.
+    api.accounts.deposit(b, { amount: 4 })
+    api.accounts.withdraw(b, { amount: 10 })
+    let after = api.accounts.getById(b)
+    expect(after.balance).toBe(30)
+    let accounts = api.accounts.all()
+    expect(accounts.items.length).toBe(2)
+    api.customers.update(alice, { name: "Alicia" })
+    let renamed = api.customers.getById(alice)
+    expect(renamed.name).toBe("Alicia")
+    let spare = api.customers.create({ name: "Spare" })
+    api.customers.destroy(spare)
+    let customers = api.customers.all()
+    expect(customers.total).toBe(1)
+  }
+}

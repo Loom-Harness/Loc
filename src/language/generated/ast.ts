@@ -4034,7 +4034,7 @@ export function isTypeAtom(item: unknown): item is TypeAtom {
 }
 
 export interface TypeRef extends langium.AstNode {
-    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FindDecl | FunctionDecl | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | StateField | UiFunction | UserField;
+    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FindDecl | FunctionDecl | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | StateField | UiFunction | UserField | WorkflowCreateDecl;
     readonly $type: 'TypeRef';
     alternatives: Array<TypeAtom>;
     array: boolean;
@@ -4400,6 +4400,7 @@ export interface WorkflowCreateDecl extends langium.AstNode {
     name?: string;
     params: Array<Parameter>;
     private: boolean;
+    returnType?: TypeRef;
     when?: Expression;
 }
 
@@ -4413,6 +4414,7 @@ export const WorkflowCreateDecl = {
     name: 'name',
     params: 'params',
     private: 'private',
+    returnType: 'returnType',
     when: 'when'
 } as const;
 
@@ -8157,6 +8159,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 private: {
                     name: WorkflowCreateDecl.private,
                     defaultValue: false,
+                    optional: true
+                },
+                returnType: {
+                    name: WorkflowCreateDecl.returnType,
                     optional: true
                 },
                 when: {

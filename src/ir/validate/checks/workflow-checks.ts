@@ -166,6 +166,24 @@ export function validateWorkflows(
         source: `${ctx.name}/${wf.name}`,
       });
     }
+    // `create(…): T` on a COMMAND create the POST route does not serve (a named
+    // create beside the unnamed one): its result has no caller.  The
+    // event-triggered twin is refused at phase ④ (`checkWorkflowCreateReturn`),
+    // where the `by` clause is visible; which create the route serves is the
+    // facade rule, an IR fact.
+    const routed = facadeCreate(wf);
+    for (const c of wf.creates) {
+      if (!c.returnType || c.triggerKind !== "command" || c === routed) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.workflow-return-no-caller",
+        message: diagMessage("loom.workflow-return-no-caller#unrouted", {
+          workflow: wf.name,
+          create: c.name ?? "create",
+        }),
+        source: `${ctx.name}/${wf.name}`,
+      });
+    }
     // Runs BEFORE the body check: it reports the boundary violation and returns
     // the let-bindings it poisoned, so the body check can stay quiet about the
     // downstream symptoms instead of adding a second, misleading diagnostic.

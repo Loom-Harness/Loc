@@ -29,7 +29,7 @@ import {
   routedHandlerNeedsUnsendableBody,
 } from "../ir/util/routed-handler.js";
 import { walkExprDeep } from "../ir/util/walk.js";
-import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
+import { commandCreateResult, emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
@@ -115,6 +115,11 @@ interface RenderCtx {
   apis: ApiIR[];
   /** Locals introduced by `let`. */
   locals: Set<string>;
+  /** `let`s bound to a VALUE, not a `{ id, … }` record — today the result of
+   *  `api.<wf>.run(…)` on a workflow whose create declares one
+   *  (`create(…): Account id`).  Such a local already IS the id, so
+   *  `renderIdArg` passes it through instead of appending `.id`. */
+  valueLocals: Set<string>;
   /** `let` names that are actually referenced later in the test body.
    *  A `let` whose binding is unused emits as a bare expression so the
    *  generated test doesn't carry a dead `const` (Biome's noUnusedVariables). */
@@ -190,6 +195,7 @@ export function renderE2EFile(
         contexts,
         apis: apisServedBy(d, sys.apis),
         locals: new Set(),
+        valueLocals: new Set(),
         usedLetNames: collectUsedLetNames(t.statements),
         apiBasePath: apiBasePath(d.platform),
       };
@@ -455,6 +461,7 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
   }
   if (s.kind === "let") {
     ctx.locals.add(s.name);
+    if (isWorkflowResultCall(s.expr, ctx)) ctx.valueLocals.add(s.name);
     // Drop the `const <name> =` binding when nothing in the test body
     // references it — `Sales.Order.create({...})` as a bare seed line
     // shouldn't leave a dead local in the emitted test.
@@ -1005,10 +1012,20 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
   // If the argument is a let-bound name, the user probably bound the
   // result of `api.x.create(...)` which returns `{ id }` — append `.id`.
   const rendered = renderE2EExpr(arg, ctx);
-  if (arg.kind === "ref" && ctx.locals.has(arg.name)) {
+  if (arg.kind === "ref" && ctx.locals.has(arg.name) && !ctx.valueLocals.has(arg.name)) {
     return `${rendered}.id`;
   }
   return rendered;
+}
+
+/** `api.<wf>.run(…)` on a workflow whose create declares a result — the call
+ *  answers the bare value (`create(…): T`), not a record. */
+function isWorkflowResultCall(e: ExprIR, ctx: RenderCtx): boolean {
+  const call = matchApiCall(e);
+  if (call?.method !== "run") return false;
+  if (findAggregateBySlug(call.aggregateSlug, ctx.contexts)) return false;
+  const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
+  return !!wf && !!commandCreateResult(wf);
 }
 
 /**
@@ -1025,7 +1042,9 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
  * so this arm adds no wire surface, it only lets a `test e2e` body reach one.
  *
  * `.run()` answers 204 with an empty body, which `__post` already returns as
- * `{}`; the instance reads answer the persisted correlation row's
+ * `{}` — or, for a `create(…): T`, 200 with the bare declared value (a `let`
+ * bound to it is a `valueLocals` entry, so it is never `.id`-unwrapped); the
+ * instance reads answer the persisted correlation row's
  * `instanceWireShape`, which is what makes a folded saga's scalars assertable
  * (the verb M-T9.12's follow-up said the DSL did not have).
  *

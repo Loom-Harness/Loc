@@ -222,6 +222,85 @@ Two constraints keep the helper a well-formed module/static function:
   there is no `this`.  A body that does is rejected —
   `loom.workflow-function-uses-state`.  Pass the value in as a parameter.
 
+## Returning a result — `create(…): T`
+
+A workflow `POST` answers **204** by default.  A command-triggered `create`
+can instead answer its caller — the `commandHandler … : T` shape: declare a
+result type after the parameter list and end the body in `return <expr>`.
+The route then answers **200** with that value as its JSON body, and the
+published OpenAPI response carries its schema.
+
+```ddd
+workflow openAccount {
+  create(owner: Customer id, number: string): Account id {
+    let account = Account.create({ owner: owner, number: number, balance: 0 })
+    return account.id
+  }
+}
+
+workflow transfer transactional {
+  create(fromAccount: Account id, toAccount: Account id, amount: int): int {
+    let source = Accounts.getById(fromAccount)
+    let target = Accounts.getById(toAccount)
+    source.withdraw(amount)
+    target.deposit(amount)
+    return source.balance          // read inside the tx, answered after commit
+  }
+}
+```
+
+```
+POST /api/workflows/open_account  {"owner": "…", "number": "A-1"}   → 200 "0192f1c4-…"
+POST /api/workflows/transfer      {"fromAccount": "…", "toAccount": "…", "amount": 30} → 200 70
+```
+
+Generated (node, `http/workflows.ts`):
+
+```ts
+responses: { 200: { description: "OK", content: { "application/json": { schema: z.number().int().openapi({ format: "int32" }) } } }, … },
+async (httpCtx) => {
+  …
+  let workflowResult!: number;
+  await db.transaction(async (tx) => {
+    const accounts = new AccountRepository(tx, events);
+    const source = await accounts.getById(fromAccount);
+    const target = await accounts.getById(toAccount);
+    source.withdraw(amount);
+    target.deposit(amount);
+    await accounts.save(source);
+    await accounts.save(target);
+    workflowResult = source.balance;
+  });
+  return httpCtx.json(workflowResult, 200);
+}
+```
+
+The other four: .NET's command becomes `ICommand<T>` and the controller
+answers `Ok(result.Value)` for an id (`[ProducesResponseType(typeof(Guid), 200)]`);
+java's service method returns the wire value (`account.id().value()`) and the
+controller method returns it (`public UUID openAccount(…)`); python's route
+is `status_code=200` with a `-> str` / `-> Int32` annotation; elixir closes
+the `with` chain on `{:ok, account.id}` and the controller answers it through
+`respond_result/2`.  An id always crosses as its raw value — the same JSON
+token the aggregate's own `id` field carries — so it feeds straight into
+`GET /api/accounts/{id}`.  Full per-backend output:
+[`language-reference/13-workflows.md`](language-reference/13-workflows.md#returning-a-result).
+
+Rules (all compile-time errors):
+
+| Rule | Code |
+| --- | --- |
+| Result type is an `X id`, `string`, `int`, `long` or `bool` | `loom.workflow-return-type-unsupported` |
+| The returned value is assignable to `T` | `loom.workflow-return-type-mismatch` |
+| `: T` needs a terminal `return`; a `return` needs `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
+| `return` is the last top-level statement | `loom.workflow-return-not-last` |
+| Only the create the `POST` serves — not `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
+| Not on an `eventSourced` workflow (its create may only `emit`) | `loom.workflow-return-event-sourced` |
+
+Returning an aggregate, a payload or a value object is not supported yet
+(each needs the per-backend wire projection the `commandHandler` route
+has) — return the id and read the record back, or use a `commandHandler`.
+
 ## Save + event drain semantics
 
 - **Fresh aggregates** (`Agg.create`) are always saved at workflow

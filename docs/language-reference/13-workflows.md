@@ -203,6 +203,105 @@ end
 ```
 ::: end
 
+### Returning a result
+
+A command-triggered `create` may answer its caller: declare a result type after the parameter list — the `commandHandler … : T` shape — and end the body in `return <expr>`. The `POST` then answers **200** with that value as its JSON body instead of 204, and the published OpenAPI response says so. Without the annotation nothing changes (the route stays 204, byte-identical).
+
+```ddd
+workflow openAccount {
+  create(owner: Customer id, number: string): Account id {
+    let account = Account.create({ owner: owner, number: number, balance: 0 })
+    return account.id
+  }
+}
+```
+
+`POST /api/workflows/open_account` → `200 "0192f1c4-…"`. An id crosses as its raw value — the same JSON token the account's own `id` field carries — so the caller can `GET /api/accounts/{id}` with it directly. In a `transactional` workflow the value is computed inside the transaction and answered after it commits; a failing step answers its error and returns nothing.
+
+| Rule | Diagnostic |
+|---|---|
+| The result type is an `X id`, `string`, `int`, `long` or `bool` (an aggregate / payload / value object / decimal / money / datetime needs a wire projection the workflow route doesn't have yet — use a `commandHandler`, or return the id and read it back) | `loom.workflow-return-type-unsupported` |
+| The returned value is assignable to the declared type | `loom.workflow-return-type-mismatch` |
+| A `: T` needs a terminal `return`, and a `return` needs a `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
+| `return` is the last top-level statement (not nested in `if` / `for`, not mid-body) | `loom.workflow-return-not-last` |
+| Only the create the `POST` route serves may declare one — not an event-triggered `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
+| An `eventSourced` workflow's create may only `emit`, so it declares no result | `loom.workflow-return-event-sourced` |
+
+::: tabs backend
+== node
+```ts
+// http/workflows.ts — the 200 is typed from the declared result
+responses: { 200: { description: "OK", content: { "application/json": { schema: z.string() } } }, … },
+async (httpCtx) => {
+  …
+  let workflowResult!: string;
+  const accounts = new AccountRepository(db, events);
+  const account = Account.create({ owner: owner, number: number, balance: 0 });
+  await accounts.save(account);
+  workflowResult = account.id;
+  return httpCtx.json(workflowResult, 200);
+}
+```
+== dotnet
+```csharp
+// Application/Workflows/OpenAccountCommand.cs + the handler returns the value
+public sealed record OpenAccountCommand(CustomerId Owner, string Number) : ICommand<AccountId>;
+public async ValueTask<AccountId> Handle(OpenAccountCommand command, CancellationToken cancellationToken)
+{
+    AccountId workflowResult = default!;
+    var account = Account.Create(owner: command.Owner, number: command.Number, balance: 0);
+    await _accounts.SaveAsync(account, cancellationToken);
+    workflowResult = account.Id;
+    return workflowResult;
+}
+// Api/BankingWorkflowsController.cs
+[ProducesResponseType(typeof(Guid), 200)]
+…
+var result = await _mediator.Send(cmd);
+return Ok(result.Value);
+```
+== python
+```python
+# app/http/workflows_routes.py
+@router.post("/open_account", status_code=200, operation_id="openAccountWorkflow", …)
+async def open_account_workflow(body: OpenAccountRequest, session: SessionDep) -> str:
+    …
+    account = Account.create(owner=owner, number=number, balance=0)
+    await accounts.save(account)
+    workflow_result = account.id
+    return workflow_result
+```
+== java
+```java
+// application/workflows/BankingWorkflows.java — the service returns the wire value
+public UUID openAccount(OpenAccountRequest request) {
+    …
+    var account = Account.create(owner, number, 0);
+    accountsRepository.save(account);
+    var workflowResult = account.id().value();
+    return workflowResult;
+}
+// api/BankingWorkflowsController.java
+@PostMapping("/open_account")
+public UUID openAccount(@Valid @RequestBody OpenAccountRequest request) {
+    return workflows.openAccount(request);
+}
+```
+== elixir
+```elixir
+# lib/d/banking/workflows/open_account.ex — the declared result closes the `with` chain
+with {:ok, account} <- Context.create_account(%{owner: owner, number: number, balance: 0}) do
+  {:ok, account.id}
+end
+# lib/d_web/controllers/workflows_controller.ex
+def open_account(conn, params), do: respond_result(conn, D.Banking.Workflows.OpenAccount.run(params))
+def respond_result(conn, {:ok, result}), do: conn |> put_status(200) |> json(result)
+def respond_result(conn, other), do: respond(conn, other)
+```
+::: end
+
+Elixir's operations return the updated struct rather than mutating in place, so on this path an operation whose receiver the result reads rebinds it (`{:ok, source} <- Context.withdraw_account(source, …)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
+
 ## Body vocabulary
 
 The workflow body draws from a narrowed statement set — distinct from an aggregate op body. The validator (`validateWorkflowBody`) classifies each statement and rejects anything outside this list (`loom.workflow-unrecognised-statement`).

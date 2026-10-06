@@ -491,7 +491,71 @@ ${opts.e2eTest}
 }`;
 }
 
+/** A bank context whose `workflow` members are the defect under test — the
+ *  `create(…): T { … return x }` pairing rules (`loom.workflow-return-*`). */
+const workflowResult = (members: string, header = "") => `
+system S {
+  subdomain D { context Bank {
+    aggregate Account with crudish { number: string  balance: int }
+    repository Accounts for Account { }
+    event Opened { account: Account id }
+    workflow w${header} {
+      ${members}
+    }
+  } }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // `create(…): T` — a result needs a caller.  An event-triggered starter has
+  // none (the in-process dispatcher drops whatever it would return).
+  "loom.workflow-return-no-caller": workflowResult(`
+      create(e: Opened): int by e.account {
+        let a = Accounts.getById(e.account)
+        return a.balance
+      }`),
+  // A `return` before the last statement would be lowered apart from the body
+  // and silently answered AFTER the steps that follow it.
+  "loom.workflow-return-not-last": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+        let b = Account.create({ number: n, balance: 1 })
+      }`),
+  // A `return` with no `: T` — the route would answer a body its contract
+  // never published.
+  "loom.workflow-return-untyped": workflowResult(`
+      create(n: string) {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+      }`),
+  // A `: T` with no `return` — nothing to answer the declared 200 with.
+  "loom.workflow-return-missing": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+      }`),
+  // The returned value disagrees with the declared type.
+  "loom.workflow-return-type-mismatch": workflowResult(`
+      create(n: string): int {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.number
+      }`),
+  // An `eventSourced` workflow's create may only `emit` — no state for a
+  // result to read, and the event-sourced route has no result path.
+  "loom.workflow-return-event-sourced": workflowResult(
+    `
+      apply(e: Opened) { }
+      create(n: string): string {
+        emit Opened { account: n }
+        return n
+      }`,
+    " eventSourced",
+  ),
+  // An aggregate result has no workflow-route wire projection yet.
+  "loom.workflow-return-type-unsupported": workflowResult(`
+      create(n: string): Account {
+        let a = Account.create({ number: n, balance: 0 })
+        return a
+      }`),
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
