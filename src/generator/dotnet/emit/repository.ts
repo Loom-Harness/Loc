@@ -79,13 +79,16 @@ export function renderRepositoryInterface(
     const pageExtra = pagedReturn(f.returnType)
       ? ["int page", "int pageSize", "string sort", "string dir"]
       : [];
-    return `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`;
+    return [
+      keywordParamSuppression(f.params),
+      `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`,
+    ];
   });
   // `Run<Name>Async(args, page?, cancellationToken)` per context retrieval (retrieval.md).
-  const retrievalLines = retrievals.map(
-    (r) =>
-      `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
-  );
+  const retrievalLines = retrievals.map((r) => [
+    keywordParamSuppression(r.params),
+    `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
+  ]);
   return (
     lines(
       "// Auto-generated.",
@@ -121,8 +124,8 @@ export function renderRepositoryInterface(
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
         : []),
-      ...findLines,
-      ...retrievalLines,
+      ...findLines.flat(),
+      ...retrievalLines.flat(),
       "}",
     ) + "\n"
   );
@@ -1396,6 +1399,19 @@ export function inMemoryPagedFindLines(
 function findRowsExpr(returnType: TypeIR, result = "result"): string {
   if (returnType.kind === "array") return `${result}.Count`;
   return returnType.kind === "optional" ? `${result} == null ? 0 : 1` : "1";
+}
+
+/** CA1716 (an error under `/warnaserror`) rejects a parameter of an
+ *  INTERFACE member spelled like a language keyword, even escaped — `@static`
+ *  is still the parameter `static` to a caller in another .NET language.  The
+ *  `.ddd` author chose the name (`find byLevel(static: int)`), and renaming it
+ *  would break the implementation's body and every named-argument caller, so
+ *  the port member carries a targeted suppression instead — only when one of
+ *  its parameters needed the verbatim prefix. */
+function keywordParamSuppression(params: ParamIR[]): string | null {
+  return params.some((p) => escapeCsharpIdent(p.name) !== p.name)
+    ? `    [global::System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Parameter name is the .ddd source's own spelling.")]`
+    : null;
 }
 
 function renderParamsWithCt(
