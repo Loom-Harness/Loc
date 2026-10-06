@@ -234,7 +234,7 @@
       "path": "/api/tickets/{id}/take",
       "status": 403,
       "body": {
-        "detail": "Forbidden: currentUser.agentId != null",
+        "detail": "Forbidden",
         "instance": "/api/tickets/{id}/take",
         "status": 403,
         "title": "Forbidden",
