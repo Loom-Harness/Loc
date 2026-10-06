@@ -581,8 +581,10 @@ describe(".NET generator", () => {
       const controller = files.get("Api/OrdersController.cs")!;
       // sales.ddd's Order has `addLine(productId: Id<Product>, qty:
       // int, price: Money)` — three lowerCamel param names.
-      expect(controller).toMatch(
-        /_log\.LogTrace\("\{Event\} keys=\{Keys\}", "wire_in", new\[\] \{ "productId", "qty", "price" \}\);/,
+      // Bound to a local first — an inline constant `new[] { … }` argument
+      // trips CA1861 under /warnaserror.
+      expect(controller).toContain(
+        'var __wireInKeys = new[] { "productId", "qty", "price" };\n        _log.LogTrace("{Event} keys={Keys}", "wire_in", __wireInKeys);',
       );
       // And `confirm()` has zero params — Array.Empty<string>() is
       // the safe empty form (the implicit `new[] { }` is a compile

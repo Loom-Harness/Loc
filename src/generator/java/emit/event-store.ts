@@ -2,6 +2,7 @@ import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-i
 import { lines } from "../../../util/code-builder.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaLocals, localOf } from "../java-ident.js";
 import {
   collectJavaExprImports,
   javaValueTypeForId,
@@ -12,7 +13,9 @@ import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
   declaredFinds,
+  IN_MEMORY_READ_NAMES,
   inMemoryPagedSortLines,
+  inMemoryParamExpr,
   inMemoryRetrievalLines,
   isPagedFind,
   unionFindAsOptionalTwin,
@@ -77,9 +80,15 @@ export function renderJavaEventSourcedRepositoryImpl(
   const findExecutedLog = (name: string, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${name}", "rows", ${rowsExpr});`;
   const findLines = finds.flatMap((f) => {
-    const params = f.params.map((p) => `${renderJavaType(p.type)} ${p.name}`);
+    // Keyword-escaped (`jid`), and moved off the `x` predicate lambda / the
+    // method's own locals on a collision.
+    const locals = javaLocals(
+      f.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
+    const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
     const filter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true })})`
+      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";
     if (isPagedFind(f)) {
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");

@@ -32,7 +32,7 @@ import {
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
-import { lowerFirst, plural } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
@@ -557,7 +557,8 @@ export function lowerToDrizzle(
       // column or a parameter with the wrong type compiled silently),
       // so the cast is gone.
       if (e.refKind === "param" || e.refKind === "let" || e.refKind === "lambda") {
-        return e.name;
+        // Escaped like the binding it names (`class` → `class_`).
+        return escapeTsIdent(e.name);
       }
       // Enum value: render as the literal string.  EF / Drizzle store
       // enums as text columns matching `OrderStatus.Draft` → "Draft".
@@ -717,7 +718,12 @@ export function reifiableCriterion(
 /** Render a criterion-call argument (the value passed at the use-site) — a
  *  parameter/let reference renders as its name, a literal as its value. */
 export function renderCriterionArg(e: ExprIR): string {
-  if (e.kind === "ref") return e.name;
+  if (e.kind === "ref") {
+    // A param / let binding is declared under its escaped spelling.
+    return e.refKind === "param" || e.refKind === "let" || e.refKind === "lambda"
+      ? escapeTsIdent(e.name)
+      : e.name;
+  }
   if (e.kind === "literal") return e.lit === "string" ? JSON.stringify(e.value) : e.value;
   // Criterion call args are values (param refs / literals) in v1.
   return "undefined as never";

@@ -34,15 +34,16 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
-import { jid } from "../java-ident.js";
+import { javaLocals, jid, jsonProp, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
   type JavaRenderContext,
   renderJavaExpr,
   renderJavaType,
+  withLambdaScope,
 } from "../render-expr.js";
-import { renderJavaStatements } from "../render-stmt.js";
+import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
 import { voRecord } from "./dto.js";
 import type { OpFragment } from "./entity.js";
 import {
@@ -294,6 +295,12 @@ export function javaWorkflowStmtTarget(
    *  of `state.setOrderId(order)` (javac: cannot find symbol). */
   fixedKeyField?: string,
 ): WorkflowStmtTarget {
+  // The Java local a body binding (`let` / repo / factory / for-each / if-let
+  // name) is declared under: the keyword-escaped `.ddd` spelling (`jid` —
+  // `let new` → `new_`, the spelling `renderRef` reads it back under), unless
+  // the caller's `withLetLocals` moved it off a name the enclosing method
+  // spells itself.  Use sites follow through the same `letExpr` hook.
+  const bound = (name: string): string => boundLocal(renderCtx, name);
   return {
     indentUnit: "    ",
     precondition: (s, indent) => {
@@ -321,7 +328,7 @@ export function javaWorkflowStmtTarget(
         collectJavaExprImports(v, imports);
         return renderJavaExpr(v, renderCtx);
       });
-      return [`${indent}var ${s.name} = ${s.aggName}.create(${args.join(", ")});`];
+      return [`${indent}var ${bound(s.name)} = ${s.aggName}.create(${args.join(", ")});`];
     },
     repoLet: (s, indent) => {
       for (const a of s.args) collectJavaExprImports(a, imports);
@@ -337,7 +344,7 @@ export function javaWorkflowStmtTarget(
       // and the wrap re-wraps an argument that is ALREADY an `<Agg>Id` whenever
       // the caller passes an `Agg id` param — `getById(new OrderId(orderId))`
       // where `orderId` is an `OrderId`, which does not compile.
-      return [`${indent}var ${s.name} = ${repoField(s.aggName)}.${s.method}(${args});`];
+      return [`${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.${s.method}(${args});`];
     },
     exprLet: (s, indent) => {
       collectJavaExprImports(s.expr, imports);
@@ -349,9 +356,11 @@ export function javaWorkflowStmtTarget(
         s.expr.subject?.kind === "ref" &&
         unionFindLets.has(s.expr.subject.name)
       ) {
-        return [`${indent}var ${s.name} = ${renderJavaOptionalTwinMatch(s.expr, renderCtx)};`];
+        return [
+          `${indent}var ${bound(s.name)} = ${renderJavaOptionalTwinMatch(s.expr, renderCtx)};`,
+        ];
       }
-      return [`${indent}var ${s.name} = ${renderJavaExpr(s.expr, renderCtx)};`];
+      return [`${indent}var ${bound(s.name)} = ${renderJavaExpr(s.expr, renderCtx)};`];
     },
     // `field := value` — own-state mutation.  The persisted correlation row's
     // fields are package-private, so the cross-package dispatcher writes through
@@ -390,7 +399,7 @@ export function javaWorkflowStmtTarget(
         collectJavaExprImports(g.expr, imports);
         const pred = renderJavaExpr(g.expr, {
           ...renderCtx,
-          thisName: s.target,
+          thisName: bound(s.target),
           accessorProps: true,
           paramExpr: (name) => {
             const i = targetOp!.params.findIndex((q) => q.name === name);
@@ -401,7 +410,7 @@ export function javaWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      return [...gateLines, `${indent}${s.target}.${s.op}(${callArgs.join(", ")});`];
+      return [...gateLines, `${indent}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`];
     },
     repoDelete: (s, indent) => {
       // `<Repo>.delete(o)` → `<repo>.delete(<entity>)`.  The Spring Data
@@ -442,7 +451,7 @@ export function javaWorkflowStmtTarget(
         );
       }
       return [
-        `${indent}var ${s.name} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")});`,
+        `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (s, indent, body) => {
@@ -451,10 +460,10 @@ export function javaWorkflowStmtTarget(
       // saves sit at the same depth.
       const inner = `${indent}    `;
       const saves = s.savesPerIteration.map(
-        (save) => `${inner}${repoField(save.aggName)}.save(${save.name});`,
+        (save) => `${inner}${repoField(save.aggName)}.save(${bound(save.name)});`,
       );
       return [
-        `${indent}for (var ${s.var} : ${renderJavaExpr(s.iterable, renderCtx)}) {`,
+        `${indent}for (var ${bound(s.var)} : ${renderJavaExpr(s.iterable, renderCtx)}) {`,
         ...body,
         ...saves,
         `${indent}}`,
@@ -470,14 +479,14 @@ export function javaWorkflowStmtTarget(
       args.push("null", "1"); // offset null, limit 1 — single result
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.map(
-        (sv) => `${inner}${repoField(sv.aggName)}.save(${sv.name});`,
+        (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
       );
       const elseSaves = s.savesInElse.map(
-        (sv) => `${inner}${repoField(sv.aggName)}.save(${sv.name});`,
+        (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
       );
       const out = [
-        `${indent}var ${s.var} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")}).stream().findFirst().orElse(null);`,
-        `${indent}if (${s.var} != null) {`,
+        `${indent}var ${bound(s.var)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")}).stream().findFirst().orElse(null);`,
+        `${indent}if (${bound(s.var)} != null) {`,
         ...thenLines,
         ...thenSaves,
       ];
@@ -505,6 +514,115 @@ export function javaWorkflowStmtTarget(
       return [`${indent}${renderJavaExpr(s.call, renderCtx)};`];
     },
   };
+}
+
+/** Names every generated workflow / reactor / handler METHOD body may spell
+ *  itself regardless of its shape: the per-dispatch child frame, the emit and
+ *  catch temporaries, and the class names a body dereferences by SIMPLE name
+ *  (a local of the same name would win JLS §6.5.2 name classification and turn
+ *  `CatalogLog.event(…)` into a member access on the local). */
+export const WORKFLOW_BODY_FIXED_NAMES: readonly string[] = [
+  "__frame",
+  "__e",
+  "__ev",
+  "CatalogLog",
+  "RequestContext",
+  "DomainException",
+  "ForbiddenException",
+];
+
+/** The bean fields + class names a workflow statement BODY dereferences: the
+ *  `<agg>Repository` field (and `<Agg>` class, for `<Agg>.create(...)`) of every
+ *  repository the bodies touch, plus every domain service the bodies call
+ *  (the injected reading-tier bean field and the static service class).  A
+ *  `.ddd` param bound to a local of one of these names shadows it — the
+ *  collision `javaLocals` steers the param local off. */
+export function workflowBodyDerefNames(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  saves: readonly { aggName: string }[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  const out = [...WORKFLOW_BODY_FIXED_NAMES];
+  for (const a of reposInBodies(bodies, saves, ctx)) out.push(repoField(a), a);
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtExprsDeep(top, (e) => {
+        if (e.kind === "call" && e.callKind === "domain-service" && e.serviceRef) {
+          out.push(e.serviceRef.service, lowerFirst(e.serviceRef.service));
+        }
+      });
+    }
+  }
+  return out;
+}
+
+/** Every name a workflow statement body binds as a Java method local — `let`
+ *  (expr / repo / factory / run), `for-each` and `if-let` variables — in
+ *  first-seen order.  Exhaustive over `WorkflowStmtIR` so a new binding kind is
+ *  a compile error here rather than a binding `withLetLocals` never sees. */
+export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[]): string[] {
+  const out = new Set<string>();
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtsDeep(top, (s) => {
+        switch (s.kind) {
+          case "factory-let":
+          case "repo-let":
+          case "repo-run":
+          case "expr-let":
+            out.add(s.name);
+            break;
+          case "for-each":
+          case "if-let":
+            out.add(s.var);
+            break;
+          case "repo-delete":
+          case "op-call":
+          case "precondition":
+          case "requires":
+          case "emit":
+          case "assign":
+          case "resource-call":
+          case "domain-service-call":
+            break;
+          default: {
+            const _exhaustive: never = s;
+            void _exhaustive;
+          }
+        }
+      });
+    }
+  }
+  return [...out];
+}
+
+/** `base` extended with a `letExpr` that moves each of `names` (a body's
+ *  `let`-style bindings) off `reserved` — the names the enclosing generated
+ *  METHOD spells itself (its parameters, `request`, the saga row `state` /
+ *  `__key`, the bean fields the body dereferences, …).  A `let request = …`
+ *  inside `letW(LetWRequest request)` redeclared the parameter; a
+ *  `let ordersRepository = …` shadowed the field the exit save dereferences.
+ *  Also seeds the lambda scope with all of them (`withLambdaScope`).  Adds no
+ *  `letExpr` when nothing collides, so a non-colliding body is byte-identical. */
+export function withLetLocals(
+  base: JavaRenderContext,
+  names: readonly string[],
+  reserved: ReadonlySet<string>,
+): JavaRenderContext {
+  const locals = javaLocals(names, reserved);
+  // Every one of those names (and the bindings' declared spellings) is a
+  // local of the method — a body lambda may not redeclare it either.
+  const scoped = withLambdaScope(base, [...reserved, ...names.map((n) => localOf(locals, n))]);
+  if (!names.some((n) => movedLocalOrUndefined(locals, n) !== undefined)) return scoped;
+  return { ...scoped, letExpr: (n) => movedLocalOrUndefined(locals, n) ?? base.letExpr?.(n) };
+}
+
+/** A render context's local for a body binding (`withLetLocals`), else the
+ *  keyword-escaped `.ddd` spelling (`jid`) — the one spelling the spine's
+ *  declarations, its uses and the exit saves a caller renders outside it
+ *  share. */
+export function boundLocal(renderCtx: JavaRenderContext, name: string): string {
+  return renderCtx.letExpr?.(name) ?? jid(name);
 }
 
 export function repoField(aggName: string): string {
@@ -786,7 +904,9 @@ export function renderJavaWorkflows(
         if (required) reqImports.add("jakarta.validation.constraints.NotNull");
         const nested = bearsNestedRecord(p.type);
         if (nested) reqImports.add("jakarta.validation.Valid");
-        return `${required ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
+        // A reserved-word param mangles (`case_`) — the `request.<jid>()`
+        // accessor below reads it — and keeps its wire key (`jsonProp`).
+        return `${jsonProp(p.name, reqImports)}${required ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${jid(p.name)}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it
@@ -826,9 +946,38 @@ export function renderJavaWorkflows(
         ),
       });
     }
+    // Each param binds a method local named after it — inside a method that
+    // also spells `request`, the saga row `state` / `__key`, the injected
+    // repository / service fields its body dereferences, …  A param whose
+    // host identifier lands in that set moves to a `_`-suffixed local
+    // (`javaLocals`); the wire accessor `request.<name>()` and the Request
+    // record component keep the `.ddd` spelling, and body refs follow the
+    // local through `paramExpr`.  Identity for every non-colliding name.
+    const methodNames = [
+      ...workflowBodyDerefNames([wf.statements], wf.savesAtExit, ctx),
+      ...(corrParam ? ["__key", "state", stateRepoField(wf)] : []),
+      ...(usesUser && authed ? ["currentUser", "currentUserAccessor"] : []),
+    ];
+    const paramLocals = javaLocals(
+      wf.params.map((p) => p.name),
+      new Set(["request", ...methodNames]),
+    );
+    // The body's own `let` / repo / for-each bindings are locals of the SAME
+    // method: moved off its names — the `request` parameter (when the method
+    // takes one), the param locals bound above, and everything else in
+    // `methodNames` — by `withLetLocals` (identity when nothing collides).
+    const bodyRenderCtx: JavaRenderContext = withLetLocals(
+      { ...wfRenderCtx, paramExpr: (n) => paramLocals.get(n) },
+      workflowBoundNames([wf.statements]),
+      new Set([
+        ...(wf.params.length > 0 ? ["request"] : []),
+        ...methodNames,
+        ...paramLocals.values(),
+      ]),
+    );
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
-      return `            var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
+      return `            var ${localOf(paramLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way
@@ -843,7 +992,7 @@ export function renderJavaWorkflows(
       javaWorkflowStmtTarget(
         ctx,
         imports,
-        wfRenderCtx,
+        bodyRenderCtx,
         undefined,
         collectUnionFindLets(wf.statements),
         corrParam ? wf.correlationField : undefined,
@@ -865,11 +1014,13 @@ export function renderJavaWorkflows(
     // already bound above, so the key is the domain-typed local itself.
     const stateLoad = corrParam
       ? [
-          `            var __key = ${corrParam.name};`,
+          `            var __key = ${localOf(paramLocals, corrParam.name)};`,
           `            var state = ${stateRepoField(wf)}.findById(__key).orElseGet(() -> ${workflowStateClass(wf)}._allocate(__key));`,
         ]
       : [];
-    const saves = wf.savesAtExit.map((s) => `            ${repoField(s.aggName)}.save(${s.name});`);
+    const saves = wf.savesAtExit.map(
+      (s) => `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
+    );
     // Persist the row (a fresh allocation, or a `this.<stateField>` write) so a
     // later `on` reactor for the same key routes instead of dropping the event.
     const stateSave = corrParam ? [`            ${stateRepoField(wf)}.save(state);`] : [];
@@ -921,12 +1072,23 @@ export function renderJavaWorkflows(
     // ordinary workflow render context.  Both the expression form and the pure
     // block form (domain-services.md rev. 4) are supported.
     for (const fn of wf.functions ?? []) {
-      const params = fn.params.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", ");
+      const params = fn.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
       const name = workflowFnCamel(wf.name, fn.name);
+      // The params are method locals a body lambda may not redeclare.
+      const fnCtx = withLambdaScope(
+        renderCtxFor(ctx, wctx),
+        fn.params.map((p) => jid(p.name)),
+      );
+      // The helper's own types / body need their imports too (`List.of` for a
+      // list literal, …) — the shared bean collected only the spine's.
+      for (const p of fn.params) collectJavaTypeImports(p.type, imports);
+      collectJavaTypeImports(fn.returnType, imports);
+      if ("expr" in fn.body) collectJavaExprImports(fn.body.expr, imports);
+      else collectJavaStmtImports(fn.body.stmts, imports);
       const bodyLine =
         "expr" in fn.body
-          ? `        return ${renderJavaExpr(fn.body.expr, renderCtxFor(ctx, wctx))};`
-          : renderJavaStatements(fn.body.stmts, renderCtxFor(ctx, wctx));
+          ? `        return ${renderJavaExpr(fn.body.expr, fnCtx)};`
+          : renderJavaStatements(fn.body.stmts, fnCtx);
       methods.push(
         `    private ${renderJavaType(fn.returnType)} ${name}(${params}) {`,
         bodyLine,

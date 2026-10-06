@@ -1,0 +1,141 @@
+// Member, parameter and enum-value names that are PYTHON reserved words — and
+// one member named after a generated PRIVATE HELPER.
+//
+// The python sibling of `java-reserved-words.ddd` (M-T6.36).  Python has no
+// verbatim identifier either, so `def: string` cannot be spelled `def` on the
+// domain class, the SQLAlchemy row, the pydantic wire model, the repository or
+// the route: every one of those positions is a bare python identifier (a
+// keyword argument, an attribute, a `def` name).  Eval-closure item 6 / ruling
+// D2 escaped them through ONE funnel (`pythonIdent` → `def_`) while keeping
+// the two names the outside world sees:
+//
+//   - the WIRE name — a pydantic `Field(alias="def")`, so the JSON key, the
+//     OpenAPI schema key and a validation error's `loc` still say `def`;
+//   - the DB column — `mapped_column("def", …)`, so the table the migration
+//     created (and every other backend reads) still has a column `def`.
+//
+// `assertInvariants` is the second collision in the same item: it is not a
+// keyword anywhere, but the .NET entity emits a private `AssertInvariants()`
+// helper next to the member's `AssertInvariants` property (CS0102), and the
+// python aggregate's backing field `self._assert_invariants` overwrote its own
+// `_assert_invariants()` method (a `TypeError: 'str' object is not callable`
+// on the first invariant check).  Both helpers now step aside when a member
+// takes their name.
+//
+// THE NAMES ARE CHOSEN TO BE RESERVED IN PYTHON AND NOT IN POSTGRES — `def`,
+// `lambda`, `pass`, `yield`, `nonlocal`, `del`, `except`, `raise`, `elif`
+// are python keywords and none is a Postgres reserved word, so this stays a
+// HOST-IDENTIFIER fixture (`reserved-words.ddd` owns SQL quoting).  `class`
+// (the operation) is reserved in java/C#/TS too, which is the point: it
+// rides the java funnel M-T6.36 already landed and C#'s verbatim `@class`.
+// The row is ALL, so the other four backends are checked to keep compiling
+// the same names; `label` is the control.
+system PythonReservedWords {
+  subdomain Sales {
+    context Things {
+      // An enum whose VALUE is a python keyword: a `StrEnum` member cannot be
+      // named `lambda`, the wire value and the stored column must still be.
+      enum Mode { lambda, plain }
+
+      valueobject Span {
+        yield: int
+        label: string
+      }
+
+      aggregate Thing with crudish {
+        def: string
+        lambda: int
+        pass: bool
+        assertInvariants: string
+        mode: Mode
+        span: Span
+        label: string
+        // A DERIVED member is a python @property and rides the response.
+        derived raise: int = this.lambda + 1
+        // A helper function and its parameter are both bare identifiers.
+        function nonlocal(del: int): int = del + this.lambda
+        // An operation named after a keyword — the method, the route handler
+        // and the request model all carry it.
+        operation class(except: int) {
+          lambda := this.nonlocal(except)
+        }
+        invariant lambda >= 0
+      }
+
+      repository Things for Thing {
+        // A find parameter is a QUERY PARAMETER on the wire and a python
+        // keyword argument on the repository.
+        find byDef(def: string, elif: int): Thing[] where this.def == def && this.lambda >= elif
+      }
+    }
+  }
+
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource thingState { for: Things, kind: state, use: pg, index: [Thing.label] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Things]
+    dataSources: [thingState]
+    serves: SalesApi
+    port: 4000
+  }
+
+  // The compile tier proves the project BUILDS; only a booted backend shows
+  // the wire spelling survived the escape — so each assertion reads a key
+  // back off the wire.
+  test e2e "python-reserved-word members round-trip with the declared wire keys" against d {
+    let a = api.things.create({
+      def: "d1",
+      lambda: 3,
+      pass: true,
+      assertInvariants: "ai",
+      mode: "lambda",
+      span: { yield: 7, label: "s" },
+      label: "alpha"
+    })
+
+    let readBack = api.things.getById(a)
+    expect(readBack.def).toBe("d1")
+    expect(readBack.lambda).toBe(3)
+    expect(readBack.pass).toBe(true)
+    expect(readBack.assertInvariants).toBe("ai")
+    expect(readBack.mode).toBe("lambda")
+    expect(readBack.span.yield).toBe(7)
+    expect(readBack.raise).toBe(4)
+
+    // The operation named `class`, with a keyword parameter, runs the helper
+    // function AND the invariant check (the helper a member used to shadow).
+    api.things.class(a, { except: 4 })
+    expect(api.things.getById(a).lambda).toBe(7)
+
+    api.things.update(a, {
+      def: "d2",
+      lambda: 9,
+      pass: false,
+      assertInvariants: "ai2",
+      mode: "plain",
+      span: { yield: 8, label: "s2" },
+      label: "beta"
+    })
+    let updated = api.things.getById(a)
+    expect(updated.def).toBe("d2")
+    expect(updated.pass).toBe(false)
+    expect(updated.mode).toBe("plain")
+    expect(updated.span.yield).toBe(8)
+    expect(updated.raise).toBe(10)
+
+    // The find's query-parameter names are the `.ddd` spellings.
+    let found = api.things.byDef({ def: "d2", elif: 1 })
+    expect(found.count()).toBe(1)
+    expect(found.first().label).toBe("beta")
+
+    // The LIST read sorted by a keyword column: `?sort=` is the wire key.
+    let sorted = api.things.all({ sort: "lambda", dir: "desc" })
+    expect(sorted.total).toBe(1)
+    expect(sorted.items.first().lambda).toBe(9)
+
+    api.things.destroy(a)
+    expect(api.things.getById(a)).toThrow(404)
+  }
+}

@@ -2,7 +2,7 @@ import type { AggregateIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "./py-type-imports.js";
 import { renderPyType } from "./render-expr.js";
@@ -67,10 +67,10 @@ export function externHookModuleName(aggName: string): string {
 export function externHookCall(aggName: string, op: OperationIR): string {
   const args = [
     "self",
-    ...op.params.map((p) => snake(p.name)),
+    ...op.params.map((p) => pythonIdent(p.name)),
     ...(operationBodyUsesCurrentUser(op) ? ["current_user"] : []),
   ];
-  return `${externHookModuleName(aggName)}.${snake(op.name)}(${args.join(", ")})`;
+  return `${externHookModuleName(aggName)}.${pythonIdent(op.name)}(${args.join(", ")})`;
 }
 
 /** Build the scaffold-once user-owned hook module for an aggregate that
@@ -97,12 +97,12 @@ export function buildPyExternHookModule(agg: AggregateIR): string | null {
   const fns = ops.map((op) => {
     const params = [
       `${aggParam}: ${agg.name}`,
-      ...op.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+      ...op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
       ...(operationBodyUsesCurrentUser(op) ? ["current_user: User"] : []),
     ].join(", ");
     const ret = op.returnType ? renderPyType(op.returnType) : "None";
     return lines(
-      `def ${snake(op.name)}(${params}) -> ${ret}:`,
+      `def ${pythonIdent(op.name)}(${params}) -> ${ret}:`,
       "    raise NotImplementedError(",
       `        "extern operation \`${op.name}\` on ${agg.name} is not implemented — "`,
       `        "fill in ${externHookModulePath(agg.name)}"`,

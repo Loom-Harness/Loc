@@ -150,7 +150,7 @@ export function foldStmtsUseParam(
   ctx: RenderCtx,
   opts: FoldOpts = {},
 ): boolean {
-  const token = new RegExp(`\\b${snake(param)}\\b`);
+  const token = new RegExp(`\\b${escapeElixirIdent(snake(param))}\\b`);
   return stmts.some((s) => {
     const rhs =
       s.kind === "assign" || s.kind === "add" || s.kind === "remove"

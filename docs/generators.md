@@ -1245,6 +1245,53 @@ these).  `shape: document` / `shape: embedded` persistence (all three
 shapes are in `PLATFORM_SAVING_SHAPES.python`) and `when` can-queries
 are **implemented**.
 
+### Names that are Python keywords
+
+The python twin of [Java's reserved words](#names-that-are-java-reserved-words)
+(eval item 6, ruling [D-TARGET-RESERVED-NAMES](decisions.md#d-target-reserved-names--a-member-named-like-a-target-keyword-or-a-generated-helper-is-escaped-per-backend)).
+Python has no verbatim identifier, and every `.ddd` member lands in an
+identifier position — a keyword argument, an attribute, a `def` name — so one
+funnel in `src/util/naming.ts` spells them all: `pythonIdent(name)` (the
+snake_cased domain/ORM spelling, `def` → `def_`) and `pythonWireIdent(name)`
+(the camelCase pydantic spelling, `def` → `def_`).  The two names the outside
+world sees are pinned back on:
+
+```ddd
+aggregate Thing with crudish {
+  def: string
+  operation class(except: int) { … }
+}
+repository Things for Thing { find byDef(def: string): Thing[] where this.def == def }
+```
+
+| position | what is emitted |
+|---|---|
+| domain class | `def __init__(self, *, def_: str, …)`, `@property def def_(self)`, `def class_(self, except_: int)` |
+| row model | `def_: Mapped[str] = mapped_column("def", Text)` — the column stays `def` |
+| pydantic request / response / VO model | `def_: WireStr = Field(alias="def")` — the JSON key, the OpenAPI key and a 422's `loc` stay `def` |
+| a `find` query parameter | `def_: Annotated[WireStr, Query(alias="def")]` — `?def=` |
+| an enum value | `lambda_ = "lambda"` — the stored and wire value stay `lambda` |
+| the `?sort=` whitelist | `{"def": "def_"}` — wire key → ORM attribute |
+
+Emission for a keyword-free model is byte-identical: `pythonIdent` equals
+`snake` for every other name.  **Not yet funnelled:** folded / query-time
+projection read models and the `auth.user` claim record still spell a member
+name bare (a keyword there remains a syntax error, not a silent defect).
+
+**Generated-helper collisions.** A member may also take the name of a private
+helper the entity emitter generates.  The invariant check was the one that
+collided: .NET emitted `private void AssertInvariants()` beside the
+`AssertInvariants` property of a member `assertInvariants` (CS0102), node's
+backing field `private _assertInvariants: string` duplicated the method, and
+python's backing field `self._assert_invariants` overwrote the method (a
+`TypeError` on the first invariant check).  On all three the helper now steps
+aside — `AssertInvariants_` / `_assertInvariants_` / `_assert_invariants_` —
+**only** when a member takes its name.  Java (`_assertInvariants` beside the
+field `assertInvariants`) and Elixir (functions and struct keys are separate
+namespaces) never collided.  Pinned by the `python-reserved-words` corpus row
+(every compile tier + the wire-golden differential) and
+`test/generator/target-reserved-member-names.test.ts`.
+
 ---
 
 ## System orchestration

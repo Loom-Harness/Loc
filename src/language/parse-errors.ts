@@ -138,11 +138,16 @@ export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): st
   // buries the real alternatives under words the author was never choosing
   // between; `<ID>` already stands for all of them.  (The did-you-mean above
   // still sees the full list, so a misspelt soft keyword is still caught.)
-  const shown = terminals.includes("ID") ? keywords.filter((k) => !isSoftKeyword(k)) : keywords;
+  // The colon-guarded soft keywords (`check`, `mask`, …) match through a
+  // custom pattern, so they arrive among the TERMINALS (`<check>`) and need
+  // the same filter.
+  const nameLegal = terminals.includes("ID");
+  const shown = nameLegal ? keywords.filter((k) => !isSoftKeyword(k)) : keywords;
+  const shownTerminals = nameLegal ? terminals.filter((t) => !isSoftKeyword(t)) : terminals;
   return diagMessage("loom.parse-error#unexpected-token", {
     found: actual.image,
     suggestion: suggestion ? ` Did you mean '${suggestion}'?` : "",
-    candidates: renderCandidates(shown, terminals, suggestion),
+    candidates: renderCandidates(shown, shownTerminals, suggestion),
   });
 }
 

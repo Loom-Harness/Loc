@@ -99,7 +99,7 @@ import type { ChildSlot, RenderPosition, WalkerTarget } from "./target.js";
  *  so the seam is optional and defaults to the name unchanged.  Only Feliz
  *  implements it, because F# has ~70 keywords a Loom field or param may legally
  *  be named after (F-022). */
-function targetIdent(ctx: WalkContext, name: string): string {
+export function targetIdent(ctx: WalkContext, name: string): string {
   return ctx.target.escapeIdent?.(name) ?? name;
 }
 
@@ -1447,7 +1447,22 @@ export function storeFieldReadUseSite(ctx: WalkContext, storeName: string, field
   if (ctx.target.framework === "angular") {
     return `this.${storeName[0]!.toLowerCase()}${storeName.slice(1)}.${field}()`;
   }
-  return storeLocalFor(ctx, storeName, field);
+  // A field local named after a target keyword (Dart `class`, F# `member`) is
+  // spelled through `escapeIdent`; the shells' bindings apply the same spelling.
+  return targetIdent(ctx, storeLocalFor(ctx, storeName, field));
+}
+
+/** The use-site spelling of a store ACTION's shell-bound local — the
+ *  store-action twin of `storeFieldReadUseSite`: an action named after a target
+ *  keyword (Dart `while`, F# `fixed`) is spelled through `escapeIdent`, exactly
+ *  as the shells spell the binding.  Every other frontend has no `escapeIdent`,
+ *  so the local is unchanged there. */
+export function storeActionLocalUseSite(
+  ctx: WalkContext,
+  storeName: string,
+  action: string,
+): string {
+  return targetIdent(ctx, storeLocalFor(ctx, storeName, action));
 }
 
 /** The shell-bound local name for a store member referenced from this body
@@ -1526,10 +1541,14 @@ export function renderActionHandlers(
     if (!effectiveUsed.has(action.name)) continue;
     // The single payload param (v1) binds as a lambda param so body refs to
     // it resolve; nullary actions bind nothing.
-    const param = action.params[0]?.name;
-    const handlerCtx: WalkContext = param
-      ? { ...baseCtx, lambdaParams: extendLambdaParams(baseCtx, param, param) }
-      : baseCtx;
+    // Spelled through `escapeIdent` (a Dart-reserved / F#-keyword name) once,
+    // for the declaration and every body ref alike.
+    const srcParam = action.params[0]?.name;
+    const param = srcParam === undefined ? undefined : targetIdent(baseCtx, srcParam);
+    const handlerCtx: WalkContext =
+      srcParam !== undefined && param !== undefined
+        ? { ...baseCtx, lambdaParams: extendLambdaParams(baseCtx, srcParam, param) }
+        : baseCtx;
     const bodyStmts = action.body.map((s) => emitStmt(s, handlerCtx));
     // An action whose body awaits a remote effect (a `variant-match` over
     // `await <op>()` — async-actions-and-effects.md Stage 2) must be `async` so
@@ -1823,7 +1842,11 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         recordStoreUse(ctx, expr.storeName, expr.name);
         return storeFieldReadUseSite(ctx, expr.storeName, expr.name);
       }
-      if (ctx.stateNames.has(expr.name)) {
+      // An `enum-value` ref is never a state read, even when a state cell shares
+      // the member's name (`state { new: … }` + `k := Kind.new`): lowering has
+      // already resolved the qualified member, and `state.new` would silently
+      // read the wrong value.
+      if (ctx.stateNames.has(expr.name) && expr.refKind !== "enum-value") {
         ctx.usesState = true;
         // Delegated to tsxTarget.renderStateRead — expression
         // position (no JSX braces) for handler context.
@@ -1992,7 +2015,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
           {
             storeName: expr.storeAction.store,
             action: expr.storeAction.action,
-            local: storeLocalFor(ctx, expr.storeAction.store, expr.storeAction.action),
+            local: storeActionLocalUseSite(ctx, expr.storeAction.store, expr.storeAction.action),
           },
           callArgs,
         );
@@ -2079,9 +2102,12 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // binding identically); refs to it inside the body resolve through
       // `lambdaParams`.  Flags the body writes (state reads, used params,
       // …) propagate back to the parent sink.
+      // The binder is spelled through `escapeIdent` (Dart `default_`, F#
+      // ``member``) — the same spelling every body ref resolves to.
+      const param = targetIdent(ctx, expr.param);
       const childCtx: WalkContext = {
         ...ctx,
-        lambdaParams: extendLambdaParams(ctx, expr.param, expr.param),
+        lambdaParams: extendLambdaParams(ctx, expr.param, param),
       };
       const rendered = expr.body
         ? emitExpr(expr.body, childCtx)
@@ -2093,7 +2119,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // (`MAP_UNRENDERED_FRAMEWORK`) — a valid `.map(λ)` shipped unbuildable
       // output on that one target.  Dart's arrow is spelled like JS's, so
       // Flutter keeps the default.
-      return ctx.target.exprLambda?.(expr.param, rendered) ?? `(${expr.param}) => ${rendered}`;
+      return ctx.target.exprLambda?.(param, rendered) ?? `(${param}) => ${rendered}`;
     }
     case "object":
       // Object literal: `{ name: name, age: 30 }` — the leaf owns the
@@ -2231,9 +2257,11 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // shell hoists one named function per action.
       if (expr.storeName && ctx.target.renderStoreActionCall) {
         recordStoreUse(ctx, expr.storeName, expr.actionName);
-        return storeLocalFor(ctx, expr.storeName, expr.actionName);
+        return storeActionLocalUseSite(ctx, expr.storeName, expr.actionName);
       }
-      return expr.actionName;
+      // The shell binds the handler under the target's identifier spelling
+      // (Dart `class_`, F# ``member``) — the same one a call site gets.
+      return targetIdent(ctx, expr.actionName);
     }
     case "this":
       // No aggregate instance is in scope on a frontend: a page/component body
@@ -2411,7 +2439,7 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
         // Use-site call form is per-frontend (see the expr-position twin
         // above): React → bound local `clear(args)`; Angular → injected member
         // `this.cart.clear(args)`.
-        return `${ctx.target.renderStoreActionCall({ storeName: stmt.store, action: stmt.name, local: storeLocalFor(ctx, stmt.store, stmt.name) }, callArgs)};`;
+        return `${ctx.target.renderStoreActionCall({ storeName: stmt.store, action: stmt.name, local: storeActionLocalUseSite(ctx, stmt.store, stmt.name) }, callArgs)};`;
       }
       if (ctx.externFunctions?.has(stmt.name)) ctx.usedExternFunctions?.add(stmt.name);
       // `navigate(<Page>)` — the DOCUMENTED home for navigation (docs/actions.md

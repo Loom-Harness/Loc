@@ -36,6 +36,7 @@ import {
   type JavaRenderContext,
   renderJavaExpr,
   renderJavaType,
+  withLambdaScope,
 } from "../render-expr.js";
 import { renderSqlRestriction } from "../render-sql-restriction.js";
 import {
@@ -604,12 +605,17 @@ export function renderJavaEntity(
     // function across aggregates; `private` made each of those a javac
     // "has private access" on a model that validated `0 error(s)`.
     const open = `    public ${renderJavaType(fn.returnType)} ${jid(fn.name)}(${params}) {`;
+    // The params are method locals a body lambda may not redeclare.
+    const fnCtx = withLambdaScope(
+      renderCtx,
+      fn.params.map((p) => jid(p.name)),
+    );
     // Expression form keeps its single `return expr;`; block form
     // (domain-services.md rev. 4) emits its lowered statements.
     const bodyLine =
       "expr" in fn.body
-        ? `        return ${renderJavaExpr(fn.body.expr, renderCtx)};`
-        : renderJavaStatements(fn.body.stmts, renderCtx);
+        ? `        return ${renderJavaExpr(fn.body.expr, fnCtx)};`
+        : renderJavaStatements(fn.body.stmts, fnCtx);
     return [open, bodyLine, `    }`, ``];
   });
 
@@ -621,15 +627,23 @@ export function renderJavaEntity(
   // rather than of one transport, so the `@EventListener` workflow dispatcher,
   // a saga cascade or an extern handler calling `aggregate.<op>()` directly
   // refuses too (M-T6.38).
+  // An operation method's own locals — its params (and the trailing
+  // `currentUser`) — which a body lambda may not redeclare.
+  const opScope = (op: (typeof operations)[number]): JavaRenderContext =>
+    withLambdaScope(renderCtx, [
+      ...op.params.map((p) => jid(p.name)),
+      ...(operationBodyUsesCurrentUser(op) ? ["currentUser"] : []),
+    ]);
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, renderCtx)})) throw new DisallowedException(${JSON.stringify(
+      ? `        if (!(${renderJavaExpr(op.when, opScope(op))})) throw new DisallowedException(${JSON.stringify(
           `operation '${op.name}' is not allowed in the current state of ${entity.name}.`,
         )});`
       : null;
   const opLines: string[] = [];
   for (const op of operations) {
     const usesUser = operationBodyUsesCurrentUser(op);
+    const opCtx = opScope(op);
     // The leading `requires` gates are hoisted to the calling service
     // (op-gates.ts) — the entity renders only what remains.
     const opBody = operationBody(op);
@@ -654,7 +668,7 @@ export function renderJavaEntity(
       opLines.push(`    public void ${jid(op.name)}(${params}) {`);
       const externGate = whenGate(op);
       if (externGate) opLines.push(externGate);
-      const body = renderJavaStatements(opBody, renderCtx, traceCtx);
+      const body = renderJavaStatements(opBody, opCtx, traceCtx);
       if (body.length > 0) opLines.push(body);
       const hookArgs = [
         "this",
@@ -686,7 +700,7 @@ export function renderJavaEntity(
     // lifecycle appliers are out of scope.
     const chunks = renderJavaStatementChunks(
       opBody,
-      retUnion ? { ...renderCtx, returnUnion: retUnion } : renderCtx,
+      retUnion ? { ...opCtx, returnUnion: retUnion } : opCtx,
       traceCtx,
     );
     const body = chunks.join("\n");
@@ -774,7 +788,7 @@ export function renderJavaEntity(
   if (isRoot && eventSourced && appliers.length > 0) {
     for (const ap of appliers) {
       applierLines.push(`    private void _apply${ap.event}(${ap.event} ${ap.param}) {`);
-      const body = renderJavaStatements(ap.statements, renderCtx, {
+      const body = renderJavaStatements(ap.statements, withLambdaScope(renderCtx, [ap.param]), {
         emitTrace,
         aggregate: entity.name,
         op: `apply(${ap.event})`,
@@ -823,12 +837,19 @@ export function renderJavaEntity(
           `    private void _init(${esCreate.params
             .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
             .join(", ")}) {`,
-          renderJavaStatements(esCreate.statements, renderCtx, {
-            emitTrace,
-            aggregate: entity.name,
-            op: esCreate.name,
-            eventSourced,
-          }),
+          renderJavaStatements(
+            esCreate.statements,
+            withLambdaScope(
+              renderCtx,
+              esCreate.params.map((p) => jid(p.name)),
+            ),
+            {
+              emitTrace,
+              aggregate: entity.name,
+              op: esCreate.name,
+              eventSourced,
+            },
+          ),
           `    }`,
           ``,
         ]

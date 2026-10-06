@@ -3,6 +3,7 @@ import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
+import { javaLocals, jid, localOf } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -41,9 +42,16 @@ export function renderJavaExternHook(
   const anyUsesUser = externOps.some(operationBodyUsesCurrentUser);
   const methods = externOps.flatMap((op) => {
     const usesUser = operationBodyUsesCurrentUser(op);
+    // The `.ddd` params sit beside the `<agg>` receiver (and `currentUser`):
+    // keyword-escaped (`jid`) and moved off those two names on a collision
+    // (`static void bump(Order order, int order)` redeclared the receiver).
+    const locals = javaLocals(
+      op.params.map((p) => p.name),
+      new Set([recv, ...(usesUser ? ["currentUser"] : [])]),
+    );
     const params = [
       `${agg.name} ${recv}`,
-      ...op.params.map((p) => `${renderJavaType(p.type)} ${p.name}`),
+      ...op.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`),
       ...(usesUser ? ["User currentUser"] : []),
     ].join(", ");
     const msg =
@@ -54,7 +62,7 @@ export function renderJavaExternHook(
       `     *  and BEFORE ${agg.name} re-asserts its invariants.  Mutate \`${recv}\` (its`,
       `     *  fields are package-private) and raise events via`,
       `     *  \`${recv}._raiseEvent(...)\`; return normally and the framework saves. */`,
-      `    static void ${op.name}(${params}) {`,
+      `    static void ${jid(op.name)}(${params}) {`,
       `        throw new UnsupportedOperationException(${JSON.stringify(msg)});`,
       `    }`,
       ``,

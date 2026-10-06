@@ -24,7 +24,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
 
@@ -115,17 +115,17 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, reassigned: Set<string
         // row) before mutating + re-saving.
         const decl = reassigned.has(s.name) ? "let" : "const";
         return [
-          `${decl} ${s.name} = ${create.agg.name}.${create.method}(${input});`,
-          `await ${repoHandle(create.agg.name)}.save(${s.name});`,
+          `${decl} ${escapeTsIdent(s.name)} = ${create.agg.name}.${create.method}(${input});`,
+          `await ${repoHandle(create.agg.name)}.save(${escapeTsIdent(s.name)});`,
         ];
       }
       const find = findCallOf(s.expr, ctx);
       if (find) {
         const args = find.args.map((a) => renderTsExpr(a)).join(", ");
         const call = `await ${repoHandle(find.aggName)}.${find.method}(${args})`;
-        return [`const ${s.name} = ${find.nullable ? `(${call})!` : call};`];
+        return [`const ${escapeTsIdent(s.name)} = ${find.nullable ? `(${call})!` : call};`];
       }
-      return [`const ${s.name} = ${renderTsExpr(s.expr)};`];
+      return [`const ${escapeTsIdent(s.name)} = ${renderTsExpr(s.expr)};`];
     }
     case "expression": {
       // A mutating operation on a let-bound aggregate instance → RELOAD fresh,

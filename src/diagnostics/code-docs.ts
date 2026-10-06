@@ -112,6 +112,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.derived-type-mismatch":
     "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
+  "loom.dunder-field-name": "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
+  "loom.elixir-part-timestamp-field":
+    "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
   "loom.parameter-default-type-mismatch":
     "06-behavior-and-statements.md#operation--a-mutating-method",
   // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
@@ -146,6 +149,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":

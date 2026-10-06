@@ -2181,7 +2181,12 @@ function renderCardLike(
   // inside it derives a rank one deeper (accessibility.md).
   const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
   const children = bodyExprs.map((c) => renderChild(c, childCtx)).join("\n");
-  const testidAttr = testIdAttr(expr, ctx);
+  // The pack's `card/1` declares `attr :testid` (and spreads it as
+  // `data-testid={@testid}`) with no `:global` rest, so the raw `data-testid=`
+  // the plain-HTML primitives take is an UNDEFINED attribute on it — dropped,
+  // with a compile warning `--warnings-as-errors` turns fatal (the scaffold's
+  // workflows-index cards hit it).
+  const testidAttr = testIdAttr(expr, ctx).replace(/^ data-testid=/, " testid=");
   if (children.length === 0) return `<.card${attrStr}${testidAttr} />`;
   return `<.card${attrStr}${testidAttr}>\n${indent(children, 2)}\n</.card>`;
 }

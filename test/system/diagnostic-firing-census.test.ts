@@ -519,6 +519,18 @@ system TestVocab {
     test "t" { emit Pinged { n: 1 } }
   } }
 }`,
+  // A paged find's own `page` parameter: the paged read adds a `page` query
+  // control of its own, so the key would arrive twice and every generated
+  // repository signature would declare `page` twice.
+  "loom.paged-param-reserved": `
+system PagedParam {
+  subdomain S { context Shop {
+    aggregate Thing with crudish { rank: int }
+    repository Things for Thing {
+      find byRank(page: int): Thing paged where this.rank == page
+    }
+  } }
+}`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
   // `Decimal` has no agreed zero, so node's create factory emitted `total:
@@ -1467,6 +1479,27 @@ system P {
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
+  // --- reserved-field-name-checks.ts ---------------------------------------
+  // Universal: a dunder field (Ecto's `__meta__`), on any backend.
+  "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
+    repository Things for Thing { }`),
+  // Needs an ELIXIR deployable and a RELATIONAL part (the default shape): the
+  // part schema's bundled `timestamps()` already defines `inserted_at`.
+  "loom.elixir-part-timestamp-field": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order with crudish {
+      note: string
+      contains lines: Line[]
+      entity Line { sku: string  inserted_at: string }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.

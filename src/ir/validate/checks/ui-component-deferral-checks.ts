@@ -8,6 +8,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { AggregateIR, ComponentIR, ExprIR, FindIR, UiIR } from "../../types/loom-ir.js";
+import { felizComponentStateInit } from "../../util/feliz-component-state-init.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -31,6 +32,9 @@ interface DeferCtx {
    *  resolves to one is hoisted as a REACTIVE query on Angular (its args are
    *  re-read lazily), which is what exempts it from the input-fed-read arm. */
   findsByAggregate: ReadonlyMap<string, ReadonlyMap<string, FindIR>>;
+  /** The ui hosting the component — the call sites an arm may need to read
+   *  (set per ui by `checkUserComponentSupport`). */
+  ui?: UiIR;
 }
 
 /** The api read a walked expression denotes, mirroring the walker's
@@ -150,6 +154,16 @@ function paramDeferrals(c: ComponentIR, framework: string): ComponentDeferral[] 
 
 function felizDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
   const out = [...paramDeferrals(c, "feliz")];
+  // `componentStateInits` → a `state {}` cell seeded from a param with no single
+  // init-time value (the cell is an app-level Model field `init` seeds).
+  const stateInit = ctx.ui ? felizComponentStateInit(ctx.ui, c) : undefined;
+  if (stateInit?.kind === "unresolved") {
+    out.push({
+      reason: stateInit.reason,
+      emitter:
+        "src/generator/feliz/index.ts `componentStateInits` (`src/ir/util/feliz-component-state-init.ts`)",
+    });
+  }
   // `isCandidate` → `derivedNeedsPageScope`: the route `id` is bound by a PAGE
   // view fn, not by a component function.
   for (const d of c.derived) {
@@ -509,7 +523,7 @@ export function checkUserComponentSupport(
       continue;
     }
     if (c.body === undefined) continue;
-    const deferrals = COMPONENT_DEFERRALS[framework]?.(c, ctx) ?? [];
+    const deferrals = COMPONENT_DEFERRALS[framework]?.(c, { ...ctx, ui }) ?? [];
     for (const d of deferrals) {
       diags.push({
         severity: "error",

@@ -1256,6 +1256,38 @@ export const DIAGNOSTIC_MESSAGES = {
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
+  "loom.paged-param-reserved#find": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    key: unknown;
+    reserved: unknown;
+  }) =>
+    `repository '${p.name}' paged find '${p.findName}': parameter '${p.param}' collides with the ` +
+    `paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would carry ` +
+    `two values for one query key, and every generated repository / controller signature a duplicate ` +
+    `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
+  "loom.paged-param-reserved#criterion": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    key: unknown;
+    reserved: unknown;
+  }) =>
+    `criterion '${p.name}' parameter '${p.param}' becomes a parameter of the paged read ` +
+    `'${p.findName}' a paged queryHandler runs it through, where it collides with the paging query ` +
+    `parameter '${p.key}' (${p.reserved}) — a duplicate parameter in every generated repository ` +
+    `signature.  Rename the criterion parameter (e.g. '${p.param}Filter').`,
+  "loom.paged-param-reserved#query-handler": (p: {
+    name: unknown;
+    param: unknown;
+    key: unknown;
+    reserved: unknown;
+  }) =>
+    `queryHandler '${p.name}' returns a \`paged\` result, and its parameter '${p.param}' collides with ` +
+    `the paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would ` +
+    `carry two values for one query key, and the generated handler / route signature a duplicate ` +
+    `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
   "loom.union-find-shape-unsupported": (p: {
     name: unknown;
     repoName: unknown;
@@ -3056,6 +3088,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `generated project would not compile. Move the 'currentUser' read up into ` +
     `'${p.opName}' (the routed operation, which receives the actor), or host this context on ` +
     `a backend with full support (node / dotnet / python / java).`,
+  "loom.dunder-field-name": (p: {
+    what: unknown;
+    owner: unknown;
+    name: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares the field '${p.name}', a '__name__'-shaped identifier ` +
+    `the generated runtimes reserve: Elixir refuses '__struct__' in a struct definition and ` +
+    `Ecto already defines '__meta__' on every schema (the Phoenix project fails to compile), ` +
+    `and Python's pydantic does not treat a dunder annotation as a field at all (the FastAPI ` +
+    `project drops it from every request). Rename the ${p.what} field — e.g. ` +
+    `'${String(p.name).replace(/^_+|_+$/g, "")}Info'.`,
+  "loom.elixir-part-timestamp-field": (p: {
+    owner: unknown;
+    name: unknown;
+    column: unknown;
+    ctxName: unknown;
+  }) =>
+    `'${p.ctxName}.${p.owner}' declares the field '${p.name}', whose column '${p.column}' is ` +
+    `one of the two columns Ecto's bundled 'timestamps()' macro defines on every relational entity-part ` +
+    `schema, so the generated Phoenix project defines the field twice and fails to compile. ` +
+    `Rename the field (e.g. '${p.name}Value'), or host this context on a non-elixir deployable.`,
   "loom.dotnet-name-collision": (p: {
     what: unknown;
     owner: unknown;

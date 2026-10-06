@@ -5511,5 +5511,782 @@
       }
     ],
     "imports": []
+  },
+  "import": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
+  },
+  "system": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
+  },
+  "enum": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
+  },
+  "extends": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
+  },
+  "aggregate": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
+  },
+  "repository": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
+  },
+  "static": {
+    "$type": "Model",
+    "imports": [
+      {
+        "$type": "ImportStmt",
+        "path": "./other.ddd"
+      }
+    ],
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "EnumDecl",
+            "name": "Kind",
+            "values": [
+              {
+                "$type": "EnumValue",
+                "name": "a"
+              },
+              {
+                "$type": "EnumValue",
+                "name": "b"
+              }
+            ]
+          },
+          {
+            "$type": "Aggregate",
+            "isAbstract": true,
+            "name": "Base",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "kind",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "NamedType",
+                    "target": {
+                      "$ref": "Kind"
+                    }
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "superType": {
+              "$ref": "Base"
+            },
+            "members": [
+              {
+                "$type": "Property",
+                "name": "code",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Repository",
+            "name": "Orders",
+            "aggregate": {
+              "$ref": "Order"
+            },
+            "finds": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "site",
+            "platform": "static",
+            "port": 3002,
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ]
   }
 }

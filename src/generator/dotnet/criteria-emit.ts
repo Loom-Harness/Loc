@@ -17,7 +17,7 @@ import type { BoundedContextIR, CriterionIR, ExprIR } from "../../ir/types/loom-
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { firstNonQueryableNode } from "../../ir/validate/validate.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { BCL_COLLIDING_TYPE_NAMES } from "./bcl-collision.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 
@@ -93,7 +93,9 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
   // CS0169 warning, which `/warnaserror` would turn into a build failure.
   const usedParams = c.params.filter((p) => refsParam(c.body, p.name));
   const className = `${upperFirst(c.name)}Criterion`;
-  const ctorParams = c.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+  const ctorParams = c.params
+    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+    .join(", ");
   // Candidate fields render against `__candidate` (this-prop → `__candidate.Prop`);
   // parameters render as bare names, which resolve to the fields below.  The
   // same rendered body serves both faces — `IsSatisfiedBy(c) => body` and the
@@ -130,10 +132,15 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
     "",
     `public sealed class ${className} : Criterion<${candidate}>`,
     "{",
-    ...usedParams.map((p) => `    private readonly ${renderCsType(p.type)} ${p.name};`),
+    ...usedParams.map(
+      (p) => `    private readonly ${renderCsType(p.type)} ${escapeCsharpIdent(p.name)};`,
+    ),
     c.params.length > 0 ? `    public ${className}(${ctorParams})` : null,
     c.params.length > 0 ? "    {" : null,
-    ...usedParams.map((p) => `        this.${p.name} = ${p.name};`),
+    ...usedParams.map((p) => {
+      const ident = escapeCsharpIdent(p.name);
+      return `        this.${ident} = ${ident};`;
+    }),
     c.params.length > 0 ? "    }" : null,
     c.params.length > 0 ? "" : null,
     `    public override bool IsSatisfiedBy(${candidate} ${CANDIDATE}) => ${body};`,

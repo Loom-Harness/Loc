@@ -14,7 +14,7 @@ import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.j
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import {
@@ -379,7 +379,7 @@ function findMethod(
   // is.  `where` predicates re-render against a domain instance (`x`),
   // reusing the SQLAlchemy lowering's structural walk only for shape.
   void lowerToSqlAlchemy;
-  const params = find.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const usesUser = findUsesCurrentUser(find);
   if (usesUser) params.push("current_user: User");
   const sig = ["self", ...params].join(", ");
@@ -484,7 +484,7 @@ function conventionInline(agg: EnrichedAggregateIR, find: FindIR): string | unde
     const matched = agg.fields.find(
       (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
     );
-    if (matched) clauses.push(`x.${snake(matched.name)} == ${snake(p.name)}`);
+    if (matched) clauses.push(`x.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   return clauses.length > 0 ? clauses.join(" and ") : undefined;
 }
@@ -504,11 +504,11 @@ export function entityToDoc(
   const entries: string[] = ['"id": str(a.id)'];
   if (!isRoot) entries.push('"parent_id": str(a.parent_id)');
   for (const f of entity.fields) {
-    entries.push(`"${snake(f.name)}": ${serialize(f.type, `a.${snake(f.name)}`, ctx)}`);
+    entries.push(`"${snake(f.name)}": ${serialize(f.type, `a.${pythonIdent(f.name)}`, ctx)}`);
   }
   for (const c of entity.contains) {
     const toDoc = `_${snake(c.partName)}_to_doc`;
-    const acc = `a.${snake(c.name)}`;
+    const acc = `a.${pythonIdent(c.name)}`;
     entries.push(
       containsType(c)
         ? `"${snake(c.name)}": [${toDoc}(e) for e in ${acc}]`
@@ -544,17 +544,17 @@ export function entityFromDoc(
       entries.push("version=version");
       continue;
     }
-    entries.push(`${snake(f.name)}=${deserialize(f.type, `d["${snake(f.name)}"]`, ctx)}`);
+    entries.push(`${pythonIdent(f.name)}=${deserialize(f.type, `d["${snake(f.name)}"]`, ctx)}`);
   }
   for (const c of entity.contains) {
     const fromDoc = `_${snake(c.partName)}_from_doc`;
     const acc = `d["${snake(c.name)}"]`;
     entries.push(
       containsType(c)
-        ? `${snake(c.name)}=[${fromDoc}(x) for x in cast(list[object], ${acc})]`
+        ? `${pythonIdent(c.name)}=[${fromDoc}(x) for x in cast(list[object], ${acc})]`
         : c.optional
-          ? `${snake(c.name)}=(None if ${acc} is None else ${fromDoc}(${acc}))`
-          : `${snake(c.name)}=${fromDoc}(${acc})`,
+          ? `${pythonIdent(c.name)}=(None if ${acc} is None else ${fromDoc}(${acc}))`
+          : `${pythonIdent(c.name)}=${fromDoc}(${acc})`,
     );
   }
   // The JSONB column types as `object`; cast each access to the doc dict.
@@ -582,7 +582,9 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
     const fields = vo.fields
-      .map((vf) => `"${snake(vf.name)}": ${serialize(vf.type, `${acc}.${snake(vf.name)}`, ctx)}`)
+      .map(
+        (vf) => `"${snake(vf.name)}": ${serialize(vf.type, `${acc}.${pythonIdent(vf.name)}`, ctx)}`,
+      )
       .join(", ");
     return `{${fields}}`;
   }

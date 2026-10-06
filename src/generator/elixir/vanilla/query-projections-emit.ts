@@ -52,7 +52,7 @@ import {
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, isValueObjectLeaf } from "../../../ir/util/projection-column.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { integralWireRange, numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -945,7 +945,7 @@ end
  *  The declared params LEAD; `current_user` keeps its trailing default-arg
  *  position (a default argument must come last in Elixir). */
 function runHead(proj: ProjectionIR): { spec: string; head: string } {
-  const names = proj.params.map((p) => snake(p.name));
+  const names = proj.params.map((p) => escapeElixirIdent(snake(p.name)));
   const specArgs = [...names.map(() => "any()"), "any()"].join(", ");
   const headArgs = [...names, "current_user \\\\ nil"].join(", ");
   return { spec: `@spec run(${specArgs})`, head: `def run(${headArgs})` };

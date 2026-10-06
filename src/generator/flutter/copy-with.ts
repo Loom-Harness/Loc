@@ -14,6 +14,8 @@
 // It lives in its own leaf because `riverpod-emit.ts` imports `flutter-target.ts`
 // (for `flutterTarget`), so the seam cannot import back without a cycle.
 
+import { dartMember } from "./dart-member.js";
+
 /** Rebuild `receiver` with `path` set to `value`, inside-out.
  *
  *  `copyWithChain("state.order", ["shipping", "zip"], "v")` →
@@ -23,8 +25,8 @@
 export function copyWithChain(receiver: string, path: readonly string[], value: string): string {
   let expr = value;
   for (let i = path.length - 1; i >= 0; i--) {
-    const target = i === 0 ? receiver : `${receiver}.${path.slice(0, i).join(".")}`;
-    expr = `${target}.copyWith(${path[i]}: ${expr})`;
+    const target = i === 0 ? receiver : `${receiver}.${path.slice(0, i).map(dartMember).join(".")}`;
+    expr = `${target}.copyWith(${dartMember(path[i])}: ${expr})`;
   }
   return expr;
 }

@@ -31,10 +31,11 @@ import { discriminatorValue } from "../../ir/util/inheritance.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { indent, lines } from "../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
+import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { associationMapLines, associationsOf } from "./repository-associations-builder.js";
 import {
   hydrateEntityExpr,
@@ -127,7 +128,9 @@ export function renderCriterionFn(
       ctx,
       exprUsesCurrentUser(c.body) ? { principalAccessor: "requireCurrentUser()" } : undefined,
     ) ?? refuseOutOfVocabulary("drizzle-predicate", `body of criterion '${c.name}'`);
-  const params = c.params.map((p) => `${p.name}: ${tsTypeForReturn(p.type)}`).join(", ");
+  const params = c.params
+    .map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`)
+    .join(", ");
   return `const ${criterionFnName(c.name)} = (${params}) => ${lowered.expr};`;
 }
 
@@ -420,7 +423,7 @@ export function findQueryMethod(
   // Drizzle predicate reads from.  Hono routes / workflow handlers
   // thread the user from `c.get("currentUser")` into the call.
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${p.name}: ${tsTypeForReturn(p.type)}`);
+  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on this find drops the named
   // capability filters from its `where` conjunction (other finds keep them).
@@ -456,10 +459,25 @@ export function findQueryMethod(
     const sortCols = sortableFields(agg)
       .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
       .join(", ");
+    // The paged-only locals step aside for a same-named find param.
+    const L = pagedLocalNames(
+      [
+        "offset",
+        "sortColumns",
+        "sortColumn",
+        "orderBy",
+        "countRows",
+        "total",
+        "totalPages",
+        "rootRows",
+        "items",
+      ] as const,
+      findParamBindings(find.params),
+    );
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${ret}> {`,
-      `    const offset = (page - 1) * pageSize;`,
-      `    const sortColumns: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.offset} = (page - 1) * pageSize;`,
+      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the
@@ -468,23 +486,23 @@ export function findQueryMethod(
       // it only guards null/undefined, and an inherited member is neither.
       // The route's zod enum is the outer boundary; this is the one that holds
       // for every OTHER caller of the repository.
-      `    const sortColumn = Object.hasOwn(sortColumns, sort) ? sortColumns[sort]! : schema.${tableName}.id;`,
-      `    const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);`,
-      `    const countRows = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
-      `    const total = Number(countRows[0]?.value ?? 0);`,
-      `    const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;`,
-      `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(orderBy).limit(pageSize).offset(offset);`,
-      `    if (rootRows.length === 0) {`,
+      `    const ${L.sortColumn} = Object.hasOwn(${L.sortColumns}, sort) ? ${L.sortColumns}[sort]! : schema.${tableName}.id;`,
+      `    const ${L.orderBy} = dir === "desc" ? desc(${L.sortColumn}) : asc(${L.sortColumn});`,
+      `    const ${L.countRows} = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
+      `    const ${L.total} = Number(${L.countRows}[0]?.value ?? 0);`,
+      `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
+      `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${L.orderBy}).limit(pageSize).offset(${L.offset});`,
+      `    if (${L.rootRows}.length === 0) {`,
       `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
-      `      return { items: [], page, pageSize, total, totalPages };`,
+      `      return ${pagedEnvelopeLiteral({ ...L, items: "[]" })};`,
       `    }`,
-      needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
+      needsIdsLocal && `    const rootIds = ${L.rootRows}.map((r) => r.id);`,
       ...bulkLoadContainmentLines(eagerContains, agg, ctx),
       associationMapLines(agg, "this.db", "    "),
       ...bulkLoadValueCollectionLines(agg, ctx),
-      `    const items = rootRows.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
-      `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: items.length`)}`,
-      `    return { items, page, pageSize, total, totalPages };`,
+      `    const ${L.items} = ${L.rootRows}.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
+      `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${L.items}.length`)}`,
+      `    return ${pagedEnvelopeLiteral(L)};`,
       `  }`,
     );
   }
@@ -609,7 +627,9 @@ export function runMethod(
   const methodName = `run${upperFirst(retrieval.name)}`;
   // Retrieval params + an optional call-site page argument.  `page` is
   // never part of the declaration (retrieval.md) — it rides here.
-  const baseParams = retrieval.params.map((p) => `${p.name}: ${tsTypeForReturn(p.type)}`);
+  const baseParams = retrieval.params.map(
+    (p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`,
+  );
   const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
 
   // `where` → Drizzle predicate, AND-ed with the TPH `kind` scope.

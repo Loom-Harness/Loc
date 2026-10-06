@@ -9,12 +9,15 @@ import { plural, snake } from "../../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
+import { javaLocals, localOf } from "../java-ident.js";
 import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
   declaredFinds,
+  IN_MEMORY_READ_NAMES,
   inMemoryPagedSortLines,
+  inMemoryParamExpr,
   inMemoryRetrievalLines,
   isPagedFind,
   unionFindAsOptionalTwin,
@@ -178,9 +181,15 @@ export function renderJavaDocumentRepositoryImpl(
   const findExecutedLog = (name: string, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${name}", "rows", ${rowsExpr});`;
   const findLines = finds.flatMap((f) => {
-    const params = f.params.map((p) => `${renderJavaType(p.type)} ${p.name}`);
+    // Keyword-escaped (`jid`), and moved off the `x` predicate lambda / the
+    // method's own locals on a collision.
+    const locals = javaLocals(
+      f.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
+    const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
     const ownFilter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true })})`
+      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";
     // Conjoin the capabilities this find does NOT `ignoring`, over the same `x`
     // — empty in the no-bypass shape, where `findAll()` already applied them.
