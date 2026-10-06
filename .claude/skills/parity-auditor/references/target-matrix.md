@@ -155,18 +155,25 @@ snapshot that will drift.** The membership column is a 2026-09-10 reading.
 
 | Feature axis | Gate set / fn | File | Membership then |
 |---|---|---|---|
-| Event-sourced storage `persistedAs: eventLog` | `EVENT_SOURCING_BACKENDS` | `system-checks.ts` | all 5 |
-| TPH inheritance `inheritanceUsing: sharedTable` | `TPH_CAPABLE` | `system-checks.ts` | all 5 |
+| Event-sourced storage `persistedAs: eventLog` | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
+| TPH inheritance `inheritanceUsing: sharedTable` | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
 | TPC inheritance `inheritanceUsing: ownTable` | (universal — no gate) | — | — |
 | `shape: document` / `shape: embedded` | `PLATFORM_SAVING_SHAPES` → `validateSavingShapeSupport` | `platform-axes.ts` / `system-checks.ts` | per-platform map |
-| Discriminated unions (`A or B` / `T option`) | `SUPPORTED_UNION_BACKENDS` | `structural-checks.ts` | all 5 |
-| Generic carriers (`paged<T>`, `envelope<T>`) | `SUPPORTED_PAGED_BACKENDS` | `structural-checks.ts` | all 5 |
-| `when` canCommand gate + `can_<op>` query | `SUPPORTED_WHEN_BACKENDS` | `structural-checks.ts` | all 5 |
-| Exception-less returns (`op(): X or NotFound`) | `SUPPORTED_RETURN_BACKENDS` | `structural-checks.ts` | all 5 |
-| Capability `filter` (relational / principal / non-relational) | `DOMAIN_FAMILIES` → `validateContextFilterSupport` | `system-checks.ts` | all 5 (`loom.context-filter-no-principal`) |
-| Provenanced fields | `PROVENANCE_BACKENDS` | `system-checks.ts` | all 5 |
-| Per-operation `audited` | `AUDIT_OP_BACKENDS` | `system-checks.ts` | all 5 |
-| Audited **lifecycle** (`audited create`/`destroy`) | `AUDIT_LIFECYCLE_BACKENDS` | `system-checks.ts` | all 5 |
+| Discriminated unions (`A or B` / `T option`) | (universal — no gate) | — | — |
+| Generic carriers (`paged<T>`, `envelope<T>`) | (universal — no gate) | — | — |
+| `when` canCommand gate + `can_<op>` query | (universal — no gate) | — | — |
+| Exception-less returns (`op(): X or NotFound`) | (universal — no gate) | — | — |
+| Capability `filter` (relational / principal / non-relational) | `platformOwnsBackend` → `validateContextFilterSupport` | `context-filter-checks.ts` | every backend (`loom.context-filter-no-principal`) |
+| Provenanced fields | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
+| Per-operation `audited` | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
+| Audited **lifecycle** (`audited create`/`destroy`) | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
+
+The five-of-five backend support SETS (`EVENT_SOURCING_BACKENDS`,
+`SUPPORTED_UNION_BACKENDS`, `PROJECTION_*_SUPPORTED`, `FILTER_BYPASS_FAMILIES`,
+`REMOTE_API_OP_UNSUPPORTED`, …) were deleted by owner decision: a set naming
+every backend is dead weight, and partial support, when it reappears, belongs in
+a live `loom.*-unsupported` code.  `test/platform/backend-parity-gates.test.ts`
+pins per-backend emission for each of these features.
 
 **A full-membership set is a LATENT SEAM, not a shipped feature × target claim.**
 Most of these read "all 5" now, which means the code that names the gap can only

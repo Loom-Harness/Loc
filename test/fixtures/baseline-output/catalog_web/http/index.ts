@@ -163,7 +163,7 @@ export function createApp(
     if (err instanceof ForbiddenError) {
       baseLogger.warn({ event: "forbidden", message: err.message, status: 403 });
       recordDomainFault("forbidden");
-      return problem(403, "Forbidden", err.message);
+      return problem(403, "Forbidden", err.detail);
     }
     if (err instanceof DisallowedError) {
       baseLogger.warn({ event: "disallowed", message: err.message, status: 409 });

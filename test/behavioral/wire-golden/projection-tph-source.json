@@ -1,0 +1,327 @@
+{
+  "case": "projection-tph-source",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "GET",
+      "path": "/api/projections/auto_claim_volume",
+      "status": 200,
+      "body": {
+        "claims": 0
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/auto_claims",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/auto_claims",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/property_claims",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/projections/auto_claim_volume",
+      "status": 200,
+      "body": {
+        "claims": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/projections/{id}",
+      "status": 200,
+      "body": [
+        {
+          "claims": 2,
+          "status": "Intake"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/auto_claims",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "reference": "A-1",
+          "status": "Intake",
+          "vehicleVin": "VIN1",
+          "version": 1
+        },
+        {
+          "id": "<volatile:key>",
+          "reference": "A-2",
+          "status": "Intake",
+          "vehicleVin": "VIN2",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/property_claims",
+      "status": 200,
+      "body": [
+        {
+          "addressLine": "1 Main St",
+          "id": "<volatile:key>",
+          "reference": "P-1",
+          "status": "Intake",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/auto_claims/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/auto_claims/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "A-1",
+        "status": "Intake",
+        "vehicleVin": "VIN9",
+        "version": 2
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/property_claims/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/property_claims/{id}",
+      "status": 200,
+      "body": {
+        "addressLine": "2 Main St",
+        "id": "<volatile:key>",
+        "reference": "P-1",
+        "status": "Intake",
+        "version": 2
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/property_claims/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/projections/auto_claim_volume",
+      "status": 200,
+      "body": {
+        "claims": 2
+      }
+    },
+    {
+      "seq": 14,
+      "method": "DELETE",
+      "path": "/api/auto_claims/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/projections/auto_claim_volume",
+      "status": 200,
+      "body": {
+        "claims": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/projections/bill_totals",
+      "status": 200,
+      "body": {
+        "bills": 0,
+        "total": "0.0000"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/bills",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/bills",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/projections/bill_totals",
+      "status": 200,
+      "body": {
+        "bills": 2,
+        "total": "14.7500"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/bills/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/bills/{id}",
+      "status": 200,
+      "body": {
+        "amount": {
+          "amount": "20.0000",
+          "currency": "EUR"
+        },
+        "id": "<volatile:key>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/projections/bill_totals",
+      "status": 200,
+      "body": {
+        "bills": 2,
+        "total": "24.2500"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/bills",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "amount": {
+              "amount": "20.0000",
+              "currency": "EUR"
+            },
+            "id": "<volatile:key>",
+            "version": 2
+          },
+          {
+            "amount": {
+              "amount": "4.2500",
+              "currency": "EUR"
+            },
+            "id": "<volatile:key>",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 24,
+      "method": "DELETE",
+      "path": "/api/bills/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/projections/bill_totals",
+      "status": 200,
+      "body": {
+        "bills": 1,
+        "total": "20.0000"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "PATCH",
+      "path": "/api/auto_claims",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/auto_claims",
+        "instance": "/api/auto_claims",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/auto_claims",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/auto_claims",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

@@ -18,12 +18,13 @@
 // Two severities, and the split is measured rather than assumed — see
 // `NON_RUNNING_GIVE_UPS`.
 import { describe, expect, it } from "vitest";
+import { validate } from "../../src/api/index.js";
 import {
   collectGiveUps,
   NON_RUNNING_GIVE_UPS,
   partitionGiveUps,
 } from "../../src/system/give-up-report.js";
-import { generateSystemFiles } from "../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 /** `ui Web with scaffold(subdomains: [A, B])` where the target backend hosts
  *  only `A` — so every `B` page is emitted against a receiver that resolves to
@@ -43,12 +44,21 @@ system X {
 }
 `;
 
+/** Phase ⑦ now refuses {@link UNSERVED} (`loom.ui-aggregate-unserved`,
+ *  eval-closure #18), so `ddd generate` never reaches these give-ups on it.
+ *  The REPORTER is still what this file tests — the api toolkit and the
+ *  playground can both hand the generator an unvalidated IR — so the fixture
+ *  is generated unchecked, with the refusal pinned below. */
+const UNSERVED_WHY =
+  "the unserved-subdomain scaffold is the canonical give-up trigger; phase 7 now refuses it (loom.ui-aggregate-unserved)";
+const generateUnserved = () => generateSystemFilesUnchecked(UNSERVED, UNSERVED_WHY);
+
 /** The same system with the ui scaffolding only what the backend hosts. */
 const SERVED = UNSERVED.replace("scaffold(subdomains: [A, B])", "scaffold(subdomains: [A])");
 
 describe("a walker give-up becomes a reported diagnostic", () => {
   it("the unserved-subdomain scaffold is reported, not silent", async () => {
-    const files = await generateSystemFiles(UNSERVED);
+    const files = await generateUnserved();
     const reports = collectGiveUps(files);
     expect(reports.length, "no give-ups collected from a model that emits them").toBeGreaterThan(0);
     expect(reports.map((r) => r.code)).toContain("loom.method-call-unresolved-receiver");
@@ -60,7 +70,7 @@ describe("a walker give-up becomes a reported diagnostic", () => {
   }, 60_000);
 
   it("the reported text is the compiler's sentence, not the code beside it", async () => {
-    const files = await generateSystemFiles(UNSERVED);
+    const files = await generateUnserved();
     const r = collectGiveUps(files).find((x) => x.code === "loom.method-call-unresolved-receiver")!;
     // The walkers inline these comments MID-EXPRESSION, so a capture that runs
     // to end of line drags the emitted code along and the reader cannot tell
@@ -71,7 +81,7 @@ describe("a walker give-up becomes a reported diagnostic", () => {
   }, 60_000);
 
   it("a non-running give-up is an ERROR; a degraded one is a warning", async () => {
-    const files = await generateSystemFiles(UNSERVED);
+    const files = await generateUnserved();
     const { errors, warnings } = partitionGiveUps(collectGiveUps(files));
     // `undefined.data.items.map(…)` throws on render — the page is broken, not
     // degraded.
@@ -80,6 +90,11 @@ describe("a walker give-up becomes a reported diagnostic", () => {
     // mounts and is merely missing that form.  Honest degradation.
     expect(warnings.map((w) => w.code)).toContain("loom.page-ref-unreachable");
     expect(errors.map((e) => e.code)).not.toContain("loom.page-ref-unreachable");
+  }, 60_000);
+
+  it("phase ⑦ refuses the unserved-subdomain scaffold before codegen", async () => {
+    const report = await validate(UNSERVED);
+    expect(report.diagnostics.map((d) => d.code)).toContain("loom.ui-aggregate-unserved");
   }, 60_000);
 
   it("a well-formed system emits NO give-ups", async () => {
