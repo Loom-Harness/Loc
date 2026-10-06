@@ -103,5 +103,22 @@ system WorkflowCreateResult {
     expect(api.transfer.run({ fromAccount: a, toAccount: b, amount: 1000 })).toThrow(422)
     let unchanged = api.accounts.getById(a)
     expect(unchanged.balance).toBe(70)
+
+    // The rest of the derived surface, so every route the fixture serves has a
+    // caller: the account operations a workflow id feeds straight into, and
+    // the customer CRUD.
+    api.accounts.deposit(b, { amount: 4 })
+    api.accounts.withdraw(b, { amount: 10 })
+    let after = api.accounts.getById(b)
+    expect(after.balance).toBe(30)
+    let accounts = api.accounts.all()
+    expect(accounts.items.length).toBe(2)
+    api.customers.update(alice, { name: "Alicia" })
+    let renamed = api.customers.getById(alice)
+    expect(renamed.name).toBe("Alicia")
+    let spare = api.customers.create({ name: "Spare" })
+    api.customers.destroy(spare)
+    let customers = api.customers.all()
+    expect(customers.total).toBe(1)
   }
 }

@@ -677,6 +677,14 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C3 packet 3a: the same WORKFLOW-accessor class, on the command
   // workflow whose primitive params the drained block sends.
   "corpus/workflow-primitive-params": ["api.topUp.run (no such aggregate)"],
+  // B-03 — the workflow `create(…): T` result fixture drives three command
+  // workflows (two answering a value, one the 204 sibling); same not-lifted
+  // workflow-route class.
+  "corpus/workflow-create-result": [
+    "api.openAccount.run (no such aggregate)",
+    "api.topUp.run (no such aggregate)",
+    "api.transfer.run (no such aggregate)",
+  ],
   // M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream,
   // by-key folds one), the same not-lifted workflow-route class as above.
   // …and the plain (state-table) saga's by-key read (M-T9.42 own-state).
