@@ -1,0 +1,26 @@
+// H-10 (node, OIDC): an optional claim that is ABSENT from the token arrives as
+// `undefined`; `currentUser.agentId != null` lowers to `!== null`, so the gate passes.
+//   generated api/auth/oidc.ts:  agentId: claim(payload, "agentId") as Ids.AgentId | null,   // undefined, not null
+//   generated domain:            if (!(currentUser.agentId !== null)) throw new ForbiddenError(...)
+// Repro: get a token for a user WITHOUT an agentId attribute, POST /api/tickets/{id}/take_it  ->  204 (expected 403).
+system Repro {
+  user { id: string  agentId: Agent id?  permissions: string[] }
+  auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: "repro" } }
+  context C {
+    aggregate Agent { name: string }
+    aggregate Ticket with crudish(requires: Anyone) {
+      subject: string
+      assignee: Agent id? immutable
+      operation takeIt() {
+        requires currentUser.agentId != null
+        assignee := currentUser.agentId
+      }
+    }
+    policy Anyone(): bool = true
+    repository Agents for Agent { find all(): Agent paged requires true }
+    repository Tickets for Ticket { find all(): Ticket paged requires true }
+  }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000, auth: required }
+}
