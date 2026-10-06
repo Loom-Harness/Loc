@@ -209,6 +209,17 @@ export interface FlutterFormSpec {
    *  exactly like the JS clients' `ifMatch(undefined)`.  Optional so every
    *  other spec stays byte-identical. */
   ifMatch?: boolean;
+  /** A `when`-gated operation's `can_<op>` probe — `forms.dart` declares the
+   *  `provider` over `GET <path>`, and the widget takes a `blocked` flag that
+   *  disables its submit (the call site watches the provider).  Absent for an
+   *  ungated op: the widget is byte-identical. */
+  gateProbe?: { provider: string; path: string };
+}
+
+/** The Riverpod provider of a `when`-gated op's `can_<op>` probe
+ *  (`Task` + `complete` → `canCompleteTaskProvider`). */
+export function canProbeProviderName(aggregate: string, op: string): string {
+  return `can${upperFirst(op)}${upperFirst(aggregate)}Provider`;
 }
 
 /** Build one LOUD form-field drop marker (M-A) — a Dart line comment shaped so
@@ -615,6 +626,14 @@ export function flutterOperationForm(
     dropped,
     destructive: false,
     ...(agg && sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
+    ...(op.when
+      ? {
+          gateProbe: {
+            provider: canProbeProviderName(aggName, op.name),
+            path: `/${snake(plural(aggName))}/$id/can_${opPath}`,
+          },
+        }
+      : {}),
   };
 }
 
@@ -1556,21 +1575,23 @@ function submitButton(spec: FlutterFormSpec): string {
     : "";
   // The button itself can't be const (its `onPressed` closes over `_submit`), but
   // its literal-text child can.
-  return `ElevatedButton(${style}onPressed: _submitting ? null : _submit, child: const Text(${label}))`;
+  const guard = spec.gateProbe ? "(_submitting || widget.blocked)" : "_submitting";
+  return `ElevatedButton(${style}onPressed: ${guard} ? null : _submit, child: const Text(${label}))`;
 }
 
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
 export function renderFormWidget(spec: FlutterFormSpec): string {
   const w = spec.widgetName;
-  const ctorArgs = !spec.needsId
-    ? "{super.key}"
-    : spec.ifMatch
-      ? "{super.key, required this.id, this.expectedVersion}"
-      : "{super.key, required this.id}";
-  const idField = spec.needsId ? ["  final String id;"] : [];
+  const ctorArgs =
+    spec.needsId || spec.gateProbe
+      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}}`
+      : "{super.key}";
+  const idField = spec.needsId || spec.gateProbe ? ["  final String id;"] : [];
   // The loaded record's `version` (the `versioned` capability's synthetic `int`
   // token), threaded in by the call site for the `If-Match` precondition.
   if (spec.ifMatch) idField.push("  final int? expectedVersion;");
+  // A `when`-gated op: the call site passes the `can_<op>` probe's verdict.
+  if (spec.gateProbe) idField.push("  final bool blocked;");
 
   const errorBanner =
     "        if (_error != null)\n" +
@@ -1671,6 +1692,20 @@ export function renderFormsFile(
   // `FileRef` from `models.dart`; a File-free form set keeps its old import
   // list byte-identical.
   const usesFile = formsUseFilePicker(forms);
+  // `when`-gated ops' `can_<op>` probes.  `autoDispose`, so a page re-entered
+  // after a mutation re-queries rather than reading a stale verdict.
+  const probes = forms.flatMap((f) => (f.gateProbe ? [f.gateProbe] : []));
+  const probeBlocks = probes.map((g) =>
+    [
+      `final ${g.provider} = FutureProvider.autoDispose.family<bool, String>((ref, id) async {`,
+      `  final res = await http.get(apiUri('${g.path}'));`,
+      "  if (res.statusCode != 200) {",
+      `    throw Exception('GET ${g.path} failed (\${res.statusCode})');`,
+      "  }",
+      "  return (jsonDecode(res.body) as Map<String, dynamic>)['allowed'] == true;",
+      "});",
+    ].join("\n"),
+  );
   return `${lines(
     "// Form widgets — one self-contained StatefulWidget per CreateForm /",
     "// OperationForm / DestroyForm a ui hosts.  Each POSTs/DELETEs over",
@@ -1681,11 +1716,12 @@ export function renderFormsFile(
     "",
     ...(usesFile ? ["import 'package:file_picker/file_picker.dart';"] : []),
     "import 'package:flutter/material.dart';",
+    ...(probes.length > 0 ? ["import 'package:flutter_riverpod/flutter_riverpod.dart';"] : []),
     flutterHttpImport(credentialed),
     "",
     "import 'config.dart';",
     ...(usesFile ? ["import 'models.dart';"] : []),
     "",
-    ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
+    ...[...probeBlocks, ...blocks].flatMap((b, i) => (i === 0 ? [b] : ["", b])),
   )}\n`;
 }

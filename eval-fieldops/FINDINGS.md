@@ -142,6 +142,15 @@ is not.
 ---
 
 ### F-005 — `ignoring tenantOwned` is a one-word cross-tenant read bypass, unflagged under the DEFAULT auth mode
+
+> **Status 2026-09-29 (eval-closure review G8-05):** the "LANGUAGE DEFAULT" annotation below is
+> out of date. Since M-T3.1 (2026-09-28) the default is `enforcement: denyByDefault`
+> (`DEFAULT_ENFORCEMENT` in `src/ir/lower/lower-auth.ts`), so this ungated projection is refused
+> with `loom.default-deny-ungated` unless the model spells `enforcement: opt`. The repro as written
+> (explicit `opt`) now also draws the `loom.tenancy-filter-bypass` warning, so the bypass is no longer
+> unflagged; it is still a warning, not a refusal, and `ignoring tenantOwned` + `requires true`
+> still compiles to an unscoped cross-tenant read (re-verified on `main` 2026-09-29).
+
 Severity: **S2** (major — headline security property is opt-in, not default)
 Class: **SILENT** under `enforcement: opt`; **HONEST** under `enforcement: denyByDefault`
 Area: multi-tenancy / authorization / projections
@@ -151,7 +160,7 @@ instead of an incident."
 
 Repro: `eval-fieldops/repro/C4-ignoring-ungated.ddd`
 ```ddd
-auth { enforcement: opt  … }          // ← the LANGUAGE DEFAULT
+auth { enforcement: opt  … }          // ← the LANGUAGE DEFAULT at evaluation time (denyByDefault since M-T3.1)
 tenancy by user.orgId of Org
 aggregate WorkOrder with tenantOwned { ref: string  amount: money }
 projection PlatformRevenue {          // ← no `requires` gate
@@ -928,13 +937,28 @@ were misleading in both directions:
 
 Net: **1 fixed upstream, 3 claimed by others, 17 unclaimed and mine to fix.**
 
+> **Later status (2026-09-29).** The table above is the 2026-09-14 snapshot and is not updated in place.
+> PR #2980 (this evaluation's fix branch) landed commits naming F-001, F-002, F-003, F-005, F-006, F-007,
+> F-009, F-010, F-013 (python half), F-015 (3 of 4, see below), F-018, F-019, F-020, F-021 and F-022; #2911
+> landed the F-008/F-011 claims and #2927 the F-016 claim. F-023, F-024 and F-025 are fixed (#2983, #2981,
+> #2982 — see each entry), and F-026 is fixed on node, elixir and java (#3015, #3045, #3046, #3047 — see its
+> entry). The commit subjects are the evidence for the #2980 list; each finding was not re-run for this note.
+> (PRs #2943, #3048 and #3049 cite "F-022", "F-004" and "F-012" of a DIFFERENT evaluation's register — an enum
+> value collision, a `create` `requires` gate and the drizzle journal order — not the findings of the same
+> numbers here.)
+
 ---
 
 ### F-023 — The SAME operation/workflow name collision breaks React, Vue and Svelte via a different mechanism (found while fixing F-017)
 Severity: **S1** (blocker — output does not compile)   Class: **SILENT** gap
 Area: codegen / `src/generator/_frontend/` request-schema naming
-Discovered by the agent fixing F-017, confirmed with `tsc --strict` on a reduced two-module case, **not fixed**
+Discovered by the agent fixing F-017, confirmed with `tsc --strict` on a reduced two-module case. Deferred at the time
 (fixing it would have blown the minimal-diff mandate on the Feliz change).
+
+**✅ FIXED — PR #2983.** The frontends now mint per-family request names, and Angular's second half (class members
+derived from the raw workflow name, `TS2393` inside one component) is closed too. Gated by
+`test/generator/_frontend/request-name-collision.test.ts` (four legs: no file imports one name from two modules;
+`api/workflows.ts` and the aggregate modules export disjoint names; Angular class bodies declare no member twice).
 
 The model that collides on Feliz (`WorkOrder.schedule` operation + `scheduleWorkOrder` workflow) also breaks
 react/vue/svelte, but in the *api-client* layer rather than the form layer: the operation's request schema lands
@@ -957,16 +981,25 @@ is not lost.
 ### F-024 — `For { each: … }` inside a `QueryView` `data:` lambda emits `yield!` in a non-list context (Feliz)
 Severity: **S2**   Class: **SILENT** gap
 Area: codegen / Feliz walker list rendering
-Also found while building the F-017 repro; **not fixed** (separate emitter path).
+Also found while building the F-017 repro; deferred at the time (separate emitter path).
 `dotnet build` → `error FS0747`. The agent rewrote its repro around the defect rather than widen the change.
+
+**✅ FIXED — PR #2981** (`claude/fix-feliz-for-in-lambda`). A `For` in a lambda's value slot no longer emits
+`yield!` outside a list context; gated by `test/generator/_walker/for-value-slot.test.ts` and the
+`test/generator/_walker/child-slot-ratchet.test.ts` ratchet.
 
 ---
 
 ### F-025 — A workflow parameter named `id` lowers to a `this-prop` ref and emits `self._id` / `this._id` in a module-level function
 Severity: **S1** (blocker — non-compiling on node, runtime `NameError` on python)   Class: **SILENT** gap
 Area: lowering / name resolution (`src/ir/lower/`)
-Found by the agent fixing F-007/F-013, via the new Python scope gate. **Not fixed** — it is neither
+Found by the agent fixing F-007/F-013, via the new Python scope gate. Deferred at the time — it is neither
 F-007 nor F-013 and it touches the lowerer.
+
+**✅ FIXED — PR #2982** (`claude/fix-workflow-param-id-shadow`). Name resolution in `src/ir/lower/lower-expr.ts`
+(with a matching `src/language/type-system.ts` change) now lets a declared parameter named `id` shadow the implicit
+aggregate `id`, so the reference lowers to the parameter, not a `this-prop`. Gated by
+`test/ir/id-binding-shadow.test.ts`.
 
 ```ddd
 workflow x { create(id: WorkOrder id) { let wo = WorkOrders.getById(id) } }

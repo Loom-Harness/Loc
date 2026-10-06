@@ -30,16 +30,12 @@ import { isBoundedContext, isProjection, isProperty } from "../../../language/ge
  *        (`tenantOwned`, `softDeletable`, any `filter`) the tile is refused by
  *        `loom.projection-document-source-capability-filtered` — and BEFORE
  *        that gate existed it was a silent cross-tenant leak on EF Core, which
- *        registers no `HasQueryFilter` for a document aggregate;
- *      * on `platform: java` it is refused outright by
- *        `loom.projection-whole-table-aggregation-unsupported` (and its grouped
- *        twin `loom.projection-groupby-unsupported-backend`), because a document
- *        aggregate has no JPA entity for the JPQL to name.
+ *        registers no `HasQueryFilter` for a document aggregate.
  *
  *    A scaffold whose default output fails `ddd parse` on a supported backend
  *    is worse than one tile short, so the document case is skipped in the macro
  *    rather than gated after it.  A row count over a document aggregate is
- *    still perfectly writable BY HAND on the four backends that emit it — this
+ *    still perfectly writable BY HAND on every backend — this
  *    only decides what the scaffold claims unasked. */
 export function hasDashboardTable(agg: Aggregate): boolean {
   return !agg.isAbstract && agg.persistedAs !== "eventLog" && fieldsAreColumns(agg);
@@ -102,25 +98,6 @@ export function seriesDateField(agg: Aggregate): string | null {
     datetimes.push(m.name);
   }
   return datetimes[0] ?? null;
-}
-
-/** The per-day series a dashboard chart tile binds for `agg`, or `null`.
- *  The series twin of `dashboardFieldsFor`, answering the same two ways for
- *  the same reason (expansion order is source order, so neither half may
- *  assume the other ran). */
-export function dashboardSeriesFor(agg: Aggregate): { projection: string } | null {
-  const ctx = agg.$container;
-  if (!isBoundedContext(ctx)) return null;
-  if (!hasDashboardTable(agg)) return null;
-  const name = dashboardSeriesName(agg.name);
-  const declared = ctx.members.find((m): m is Projection => isProjection(m) && m.name === name);
-  if (declared) {
-    // Only a GROUPED projection is a series — a singleton is one row and has
-    // nothing to plot along an axis.
-    return declared.groupBys.length > 0 && declared.source ? { projection: name } : null;
-  }
-  if (!contextScaffoldsDashboard(ctx)) return null;
-  return seriesDateField(agg) ? { projection: name } : null;
 }
 
 /** The KPI fields a dashboard card row shows for `agg`, or `null` when the

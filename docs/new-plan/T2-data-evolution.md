@@ -162,3 +162,25 @@ widens (D-DAPPER-ALTER, Consequences).
 
 Relates to [M-T2.1](#m-t21) (rename intent), M-T6.35 (the per-adapter capability
 gates), and the phase-⑨ derivation in `src/system/migrations-builder.ts`.
+
+## M-T2.18 — A TPH base with no children still owns an orphan table — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-PERSIST (leftover-waves-2026-09-28).**
+
+Item **P17** (pairwise F17, #2975). An abstract TPH root whose subtypes were all removed (or never declared) still gets its own table emitted and migrated, which no read or write ever touches; on a later `extends` addition the derivation treats it as pre-existing state.
+
+**The fix:** decide the shape (refuse a childless TPH base, or emit it as a concrete single table) and make the migration derivation follow; either way `MigrationsIR` must not carry a table no emitter reads.
+
+**Verification.** A migration-evolution case (add → remove the last child) and the pairwise oracle row flipped from pinned to passing.
+
+## M-T2.19 — Moving an aggregate between contexts has no data-preserving path — `open` · **M** · P3 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#41** (Commons F-009). Re-proved: moving `Note` from context `A` to `B` between two model versions makes `generate system` exit 1 with `migration for module "Sd" contains 1 destructive change(s): - DROP TABLE a.notes … re-run with --allow-destructive`. That is an **honest** refusal (nothing is lost silently), so this is a feature gap, not a defect: `MigrationStep` has no schema-move step and `diffSchema` cannot pair a same-named table across schemas.
+
+**The design question (owner):** what declares the intent. The re-verification's sketch is an explicit `migration` block entry (`A.Note -> B.Note`), because inferring a move from "same name, different schema" repeats the silent-rename class (`loom.migration-rename-inferred`, #3073).
+
+**The fix, once ruled:** a `moveTableSchema` step (`ALTER TABLE a.x SET SCHEMA b`; an Ecto `execute`), paired in `diffSchema` under the declared intent, cascading to owned child tables and join tables. Files: `src/system/migrations-builder.ts`, `src/ir/types/migrations-ir.ts`, `src/generator/sql-pg.ts`, `src/generator/elixir/migrations-emit.ts`.
+
+**Verification.** A `migration-evolution-e2e` case (populate, move, read back the same rows) on the SQL backends and elixir; the destructive-refusal test still fires when the intent is absent.

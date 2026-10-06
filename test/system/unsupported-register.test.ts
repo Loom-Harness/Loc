@@ -412,7 +412,6 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  the claim about who closes them: each needs a change to how a Phoenix body
  *  is BUILT, and two members of the closed branch vocabulary are cross-backend
  *  (`opHasProvSite` is target-neutral; a conditional `emit` is an ordering
- *  question, not a detection one).  `gap` said "a sweep can close this".
  *
  *  16 -> 17 (2026-09-27, the "Assure" dev-experience evaluation):
  *  `loom.ui-multi-backend-unsupported` minted.  A RAISE, and deliberately so —
@@ -425,8 +424,23 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  one base URL per handle).  Landing the easy half alone — the context union,
  *  already measured to make the two-backend fixture typecheck — would be
  *  strictly worse than the refusal, because the tree would then compile and
- *  route every call to the wrong backend. */
-const MAX_OPEN_GAPS = 17;
+ *  route every call to the wrong backend.
+ *
+ *  17 -> 18 (wave CR1 packet CR1-f, audit row P0-2b): `loom.ui-gate-expr-unsupported`.
+ *  The same trade this register exists to record, and the closest twin it has —
+ *  `loom.toast-message-unsupported`, found by the identical method two rows
+ *  above.  The gap is not new: the three closed page-gate renderers
+ *  (`_frontend/gate-expr.ts`, `feliz/auth-gate.ts`, `flutter/auth-gate.ts`) have
+ *  always implemented one narrow currentUser-only subset and THROWN on the rest,
+ *  while `RequiresProp: 'requires' expr=Expression` admits any bool expression.
+ *  What is new is that `page X { requires string(currentUser.role) == "admin" }`
+ *  stopped printing `0 error(s), 0 warning(s)` and then aborting `ddd generate
+ *  system` with `Error: UI gate: expression kind 'convert' is not supported in a
+ *  UI gate` and a bare stack trace.  Drained by the same work that drains
+ *  M-T1.10 — routing the gate through each frontend's own expression emitter
+ *  rather than three hand-written subsets — which deletes the row and lowers
+ *  this back to 17. */
+const MAX_OPEN_GAPS = 18;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
@@ -447,8 +461,17 @@ const MAX_OPEN_GAPS = 17;
  *  26 -> 27 (wave C2 packet 2m): `loom.table-filter-unsupported`, whose last
  *  non-member (phoenixLiveView) joined `TABLE_FILTER_FRAMEWORKS` when the HEEx
  *  engine grew the filter.  Its membership set is named in the row's `what`
- *  and re-derived from the grammar by the firing census. */
-const LATENT_SEAMS = 27;
+ *  and re-derived from the grammar by the firing census.
+ *
+ *  27 -> 14: thirteen BACKEND seams deleted outright, gate and code together —
+ *  every one's support set named all five backends and the gate had no other
+ *  arm, so it fired for nothing (owner decision: a set naming every backend is
+ *  dead weight; partial support, when it reappears, gets a live `-unsupported`
+ *  code).  Gone: paged-query-handler / projection query-time /
+ *  whole-table-aggregation / group-by / workflow-source / projection-source,
+ *  event-sourced-workflow, generic-carrier, union, when, operation-return,
+ *  remote-api-op and filter-bypass. */
+const LATENT_SEAMS = 14;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

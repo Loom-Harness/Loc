@@ -1009,6 +1009,27 @@ export interface OperationFormState extends FormStateBase {
    *  `<Agg>Response`) — the `record` prop annotation.  Present iff
    *  `recordVar` is. */
   recordType?: string;
+  /** Present iff the operation carries a `when` state gate — the trigger
+   *  queries the backend's `GET /{id}/can_<op>` companion and is disabled
+   *  while it answers `allowed: false`.  Absent ⇒ no probe query, output
+   *  byte-identical to an ungated op. */
+  gate?: OpGateState;
+}
+
+/** The `can_<op>` probe wiring of a `when`-gated operation trigger. */
+export interface OpGateState {
+  /** Page-scope local bound to the probe query (`canComplete`). */
+  local: string;
+  /** The api-client hook/function that issues the probe
+   *  (`useCanCompleteTask`), keyed under the record's own query key so every
+   *  mutation that invalidates the record re-queries it. */
+  hook: string;
+  /** Target-native boolean expression — true while the trigger is disabled
+   *  (`canComplete.data?.allowed === false`). */
+  disabledExpr: string;
+  /** Target-native string expression for the disabled trigger's accessible
+   *  reason (`chrome.opNotAllowed`, translated when the UI is). */
+  reasonExpr: string;
 }
 
 /** Rewrite a detected user-FIND hook's rendered args from positional to
@@ -1271,8 +1292,31 @@ export function walk(
       // method-call */` while the visually identical `Text` twin rendered
       // `"abc".toUpperCase()` — the same expression, two outcomes, one page.
       return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
-    default:
+    // The kinds MARKUP-CHILD position cannot render.  Every one degrades
+    // through the catalogued `loom.page-expr-unrenderable` give-up sentinel —
+    // a visible, scannable comment in the emitted page, never a silent drop.
+    // They are enumerated rather than swept into a bare `default` so a NEW
+    // `ExprIR.kind` is a compile error here (the `never` below), on all six
+    // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "this":
+    case "id":
+    case "lambda":
+    case "new":
+    case "object":
+    case "list":
+    case "authz-filter":
+    case "paren":
+    case "unary":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "action-ref":
       return giveUp(ctx.target, "loom.page-expr-unrenderable", `unsupported expr: ${expr.kind}`);
+    default: {
+      const _exhaustive: never = expr;
+      return _exhaustive;
+    }
   }
 }
 
@@ -1543,14 +1587,14 @@ function stmtIsAwaited(s: StmtIR): boolean {
  *  `/<plural-snake>/{id}` detail-page route, with the truncated id
  *  rendered via the pack's `IdValue` helper as the link text.
  *
- *  Link-text choice — IdValue (truncated id) is the deliberate
- *  match to the scaffold's `cell-id-link.hbs` rendering.  Looking
- *  up the aggregate's `display`-marked field would require a per-
- *  row `useXById(id)` hook call from inside the IdLink primitive,
- *  which doesn't compose cleanly when IdLink appears inside a
- *  Table cell (one hook per row violates React's rules-of-hooks).
- *  Detail-page TITLES use the display field — that's where it
- *  belongs.
+ *  Link text — when the target aggregate ships a `display` and the id
+ *  is a reference (not the row's own `.id`), the target wraps the
+ *  pack's truncated id in a per-cell `LoomRefLabel` child that reads
+ *  the record's `display` (the `renderRefLabelWrap` seam).  A
+ *  `useXById(id)` straight in the page would be one hook per Table
+ *  row — a rules-of-hooks violation — but inside a child component
+ *  it is legal, and the query cache dedupes repeated ids.  The
+ *  truncated id stays as the loading / error / no-display fallback.
  *
  *  Aggregates are plumbed through to the walker; we use that to
  *  validate `of:` at emit time — an unresolvable aggregate
@@ -2085,12 +2129,18 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // `/* unresolved: X */ undefined` sentinel gives up instead —
       // emitting `undefined.<method>(...)` would be runtime-broken code.
       //
-      // DEAD on valid `.ddd`: `loom.method-call-unresolved-receiver`
-      // (`ui-action-body-checks.ts` F2) rejects an unresolved method-call
-      // receiver at IR-validate time (phase ⑦), before codegen — proven by
+      // Unreachable on valid `.ddd` through TWO phase-⑦ gates, not one.
+      // `loom.method-call-unresolved-receiver` (`ui-action-body-checks.ts` F2)
+      // rejects a receiver that names nothing — proven by
       // `test/generator/_walker/unresolved-receiver-give-up.test.ts`, which
-      // drives every body position that reaches this arm and asserts the gate
-      // fires first.  So it is defence-in-depth for an UNVALIDATED IR (the api
+      // drives every body position that reaches this arm.  But F2 accepts any
+      // aggregate declared ANYWHERE in the model, while this walker only binds
+      // the aggregates of the frontend's `targets:` backend: a
+      // `scaffold(subdomains: [A, B])` whose target serves only A used to land
+      // here with 0 validate errors (eval-closure item #18).
+      // `loom.ui-aggregate-unserved` (`ui-backend-binding-checks.ts`) closes
+      // that second route (`test/ir/ui-aggregate-unserved.test.ts`).  So this
+      // arm is defence-in-depth for an UNVALIDATED IR (the api
       // toolkit and the playground can both hand the generator one), and it
       // says so by naming the gate rather than leaving a bare `TODO` with
       // nothing to look up.  It stays a give-up rather than a throw for the
@@ -2391,11 +2441,23 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
     }
     case "variant-match":
       return emitVariantMatch(stmt, ctx);
-    default:
+    // The BACKEND-body statement forms.  Refused in a page event handler —
+    // enumerated instead of swept into a bare `default` so a NEW `StmtIR` kind
+    // is a compile error here (the `never` below), on every frontend at once,
+    // and has to be classified rather than silently inheriting the refusal.
+    case "precondition":
+    case "requires":
+    case "return":
+    case "emit":
+    case "if":
       return unsupportedPageStmt(
         `statement '${stmt.kind}'`,
         "it has no meaning in a React page event handler",
       );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 

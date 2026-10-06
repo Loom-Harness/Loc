@@ -1,9 +1,9 @@
 import type { DataSourceIR, StorageIR, SystemIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
 import { resourceEnvBase } from "../../util/resource-env.js";
-import { supportsSurfaceKind } from "../../util/source-types.js";
 
 // ---------------------------------------------------------------------------
 // Python ResourceAdapter — async client modules for the non-persistence
@@ -497,11 +497,6 @@ function pyResourceAdapterFor(sourceType: string): PyResourceAdapter | undefined
   return ADAPTERS.find((a) => a.name === sourceType);
 }
 
-/** Does any Python adapter realize `(sourceType, kind)`? */
-export function pySupportsResource(sourceType: string, kind: DataSourceIR["kind"]): boolean {
-  return !!pyResourceAdapterFor(sourceType) && supportsSurfaceKind(sourceType, kind);
-}
-
 export interface PyResourceEmission {
   /** `app/resources/<sourceType>.py` files keyed by relative path. */
   files: Map<string, string>;
@@ -520,7 +515,7 @@ export function emitPyResourceFiles(
   sys: SystemIR,
   dataSourceNames: readonly string[],
 ): PyResourceEmission {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/python/resource-clients");
   const deps: string[] = [];
   const devDeps: string[] = [];
   const modules: string[] = [];

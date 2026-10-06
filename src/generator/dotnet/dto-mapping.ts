@@ -22,7 +22,7 @@ import {
   findValueObjectInScope,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
@@ -132,10 +132,10 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
  *  digits when the instant has a sub-second part (`…30.120Z`), none on a whole
  *  second (`…30Z`).  The custom `fff` specifier TRUNCATES to the millisecond
  *  (it never rounds, so `.9996` cannot carry into the next second), and the
- *  all-zero `.000` group is then dropped.  The old `@"\.?0+Z$"` trim over the
- *  7-digit `"o"` form stripped EVERY trailing zero — `.120` spelled `.12Z` —
- *  and a microsecond value shipped six or seven digits (ledger `F2-W-06`,
- *  D-ABSENT-JOIN-DATETIME-WIRE).  The emitted `CanonicalInstant.Format` helper
+ *  all-zero `.000` group is then dropped.  Do not trim the 7-digit `"o"` form
+ *  with `@"\.?0+Z$"`: that strips EVERY trailing zero — `.120` spelled `.12Z` —
+ *  and ships a microsecond value with six or seven digits
+ *  (D-ABSENT-JOIN-DATETIME-WIRE).  The emitted `CanonicalInstant.Format` helper
  *  (canonical-instant.ts) applies the same rule to raw-DateTime serialization. */
 export function csCanonicalInstantWire(domainExpr: string): string {
   return `${domainExpr}.ToUniversalTime().ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'", System.Globalization.CultureInfo.InvariantCulture).Replace(".000Z", "Z")`;
@@ -154,12 +154,12 @@ export function wireType(
   let s: string;
   switch (info.refKind) {
     case "primitive":
-      // A plain `decimal` leaves the .NET wire as a `double` (#2563).  RS-24
+      // A plain `decimal` leaves the .NET wire as a `double`.  RS-24
       // fixes it as a JSON NUMBER, and the other four backends all carry that
       // number through an IEEE-754 double — node `Number(...)`, python
       // `float(...)`, java's provider `Double`, elixir `Decimal.to_float` — so
       // a value needing more than `System.Decimal`'s ~15 significant digits
-      // (any non-terminating `avg`) serialized differently on .NET alone:
+      // (any non-terminating `avg`) would serialize differently on .NET alone:
       // `2.33333333333333` against everyone else's `2.3333333333333335`.
       //
       // RESPONSE only.  On the REQUEST side `decimal` stays `decimal`: a
@@ -375,13 +375,13 @@ export function dtoParam(
   return `${attr}${csType} ${name}`;
 }
 
-/** How a wire→command conversion reports a MALFORMED value (M-T6.48).
+/** How a wire→command conversion reports a MALFORMED value.
  *
- *  `money` and `datetime` cross the wire as strings and used to be parsed with
- *  a bare `decimal.Parse` / `DateTime.Parse`.  `{"price": "12,50"}` therefore
- *  threw `FormatException`, which no `DomainExceptionFilter` arm catches — the
- *  caller got a **500** for input the server itself rejected, while node
- *  answered 422 with `errors: [{ pointer, message }]` from `moneySchema`.
+ *  `money` and `datetime` cross the wire as strings.  A bare `decimal.Parse` /
+ *  `DateTime.Parse` would throw `FormatException` on `{"price": "12,50"}`,
+ *  which no `DomainExceptionFilter` arm catches — a **500** for input the
+ *  server itself rejects, where node answers 422 with
+ *  `errors: [{ pointer, message }]` from `moneySchema`.
  *
  *  Both halves are needed at the leaf: `ns` to name the exception the filter
  *  matches (`Domain.Common` is only conditionally imported by the controller,
@@ -397,8 +397,8 @@ export interface WireArgSite {
 /** A C# expression that parses `expr` or throws a typed 422.
  *
  *  `throw` is an expression in C# 7+, and `out var` in an argument position
- *  declares into the enclosing block, so the whole guard fits where the bare
- *  `Parse(...)` used to sit — no statement hoisting, no emitter restructuring:
+ *  declares into the enclosing block, so the whole guard fits in expression
+ *  position — no statement hoisting, no emitter restructuring:
  *
  *      decimal.TryParse(request.NewPrice, NumberStyles.Number,
  *          CultureInfo.InvariantCulture, out var __wp_request_NewPrice)
@@ -420,7 +420,7 @@ function wireParseGuard(
   label: string,
   tryParse: (outVar: string) => string,
   /** An additional, POST-PARSE predicate over the out-variable, with its own
-   *  refusal message.  Money's range check (M-T6.60 divergence 3) is the only
+   *  refusal message.  Money's range check is the only
    *  user: a value can parse and still not fit `NUMERIC(19,4)`, and that is a
    *  magnitude question the COLUMN answers rather than a second format guard —
    *  so it needs its own message, nested INSIDE the successful parse. */
@@ -501,14 +501,13 @@ export function wireToCommandArgument(
       if (info.primitive === "money") {
         // Wire string → System.Decimal.  InvariantCulture so a locale's
         // comma-vs-dot doesn't flip the parse — and TryParse so `"12,50"`
-        // answers 422 like node's `moneySchema` instead of 500 (M-T6.48).
+        // answers 422 like node's `moneySchema` instead of 500.
         // The second guard is RANGE, not format: a value can parse as a
         // `decimal` and still not fit NUMERIC(MONEY_PRECISION, MONEY_WIRE_SCALE),
-        // in which case it reached the DATABASE and came back a 500 for a client
-        // fault (M-T6.60 divergence 3).  `decimal.TryParse` already refuses past
-        // ~29 significant digits, so .NET answered 4xx for the 40-digit probe
-        // that motivated the row — but not for a 16-digit one, which is the same
-        // defect a few digits earlier.
+        // in which case it would reach the DATABASE and come back a 500 for a
+        // client fault.  `decimal.TryParse` alone refuses only past ~29
+        // significant digits — a 40-digit value gets a 4xx, but a 16-digit one
+        // still overflows the column.
         return wireParseGuard(
           expr,
           site,
@@ -547,8 +546,8 @@ export function wireToCommandArgument(
       // explicit-command form (`create(c: FileClaim)`).  Its wire record and
       // its domain record are two distinct types, so the value has to be
       // materialized field by field exactly as a value object is — passing the
-      // wire record straight through was CS1503 the moment the domain record
-      // existed, and CS0246 before that (#2864 D7/T2).  Every OTHER `entity`
+      // wire record straight through is CS1503 (or CS0246 when the domain
+      // record is not emitted).  Every OTHER `entity`
       // here is a containment part, which no command argument carries, so it
       // keeps the pass-through.
       const pl = recordPayloadOf(t, ctx);
@@ -640,16 +639,16 @@ export function projectToResponse(
         // so format to the canonical `NUMERIC(19,4)` scale for a wire value
         // byte-consistent with the other backends.  InvariantCulture pins the
         // decimal separator.  (`CS_NUMERIC.money["dto-map"]`, `_numeric/
-        // target.ts` — M-T9.36.)
+        // target.ts`.)
         return numericEncode(CS_NUMERIC, "money", "dto-map", domainExpr);
       }
       if (info.primitive === "decimal") {
         // The domain keeps `System.Decimal`; the RESPONSE field is a `double`
-        // (#2563 — see `wireType`), so the narrowing happens here, once, at the
+        // (see `wireType`), so the narrowing happens here, once, at the
         // wire boundary.  It must be CORRECTLY ROUNDED — a `(double)` cast is
-        // not (F10/M-T6.47); see `csDecimalToWireDouble` (`./numeric-codec.js`).
-        // Reading the column as `double` at the provider seam (#2631's fix for
-        // the dapper aggregate) is not available here: the DOMAIN property has
+        // not; see `csDecimalToWireDouble` (`./numeric-codec.js`).
+        // Reading the column as `double` at the provider seam (as the dapper
+        // aggregate does) is not available here: the DOMAIN property has
         // to stay `System.Decimal` for domain arithmetic, so the narrowing
         // belongs at the wire boundary, once.
         return numericEncode(CS_NUMERIC, "decimal", "dto-map", domainExpr);
@@ -781,9 +780,9 @@ function csIsValueType(t: TypeIR): boolean {
       // and must be unwrapped with `!` instead:
       //   • `string`
       //   • `File` — the shared `FileRef` RECORD (see the CS_PRIMITIVE map
-      //     above). An optional `File?` field projected `.Value` on it, which
-      //     is CS1061; no fixture had a nullable `File` until `file-download`
-      //     (M-T6.39), so no compile tier had ever reached this arm.
+      //     above). Projecting `.Value` on an optional `File?` field is
+      //     CS1061; the `file-download` fixture is the compile-tier coverage
+      //     for this arm.
       return info.primitive !== "string" && info.primitive !== "File";
     case "id":
     case "enum":
@@ -819,13 +818,13 @@ export function projectEntityArgs(
      *  private one.  See `MaskNamer`. */
     maskNames?: MaskNamer;
     /** Project the raw value for every `mask unless` field instead of the
-     *  redacting wrap (M-T3.9).
+     *  redacting wrap.
      *
-     *  `maskWrap` reads the REQUEST's principal, so a projection that feeds the
-     *  AUDIT TRAIL recorded whatever the writer happened to be allowed to see:
-     *  the same operation, run by two actors, wrote two different `before` /
-     *  `after` snapshots, and the one written by the less-privileged actor
-     *  recorded `null` for the very field the audit exists to evidence.  An
+     *  `maskWrap` reads the REQUEST's principal, so a masked projection feeding
+     *  the AUDIT TRAIL would record whatever the writer happened to be allowed
+     *  to see: the same operation, run by two actors, would write two different
+     *  `before` / `after` snapshots, and the less-privileged actor's would
+     *  record `null` for the very field the audit exists to evidence.  An
      *  audit record is not an API read — it is never returned to the actor who
      *  produced it — so it projects unmasked.  NOT for any wire path. */
     unmasked?: boolean;
@@ -877,7 +876,7 @@ export function projectEntityArgs(
       args.push(opts?.unmasked ? projected : maskWrap(projected, wf, ctx, names));
     }
   }
-  // (M-T6.12) No trailing `<Field>Provenance` args any more: the lineage rides
+  // No trailing `<Field>Provenance` args: the lineage rides
   // inside the provenanced field's own `Provenanced<T>` argument, folded by
   // `projectToResponse`'s `provenanced` arm.
   return args.join(", ");
@@ -907,7 +906,7 @@ export function entityResponseParams(
 }
 
 /** Build the `<Agg>Response` record's positional params from a DECLARED
- *  `response <Agg>Response` payload record (M-T5.10) instead of the aggregate's
+ *  `response <Agg>Response` payload record instead of the aggregate's
  *  `wireShape`.  Byte-identical to `responseRecordParams(agg, ctx)` for a
  *  scaffolded aggregate whose author record mirrors the apiRead matrix — the
  *  read-path replacement for the auto-derivation, keyed on the declared record.
@@ -941,11 +940,11 @@ export function responseParamsFromPayload(
 
 /** C# DTO type for a field of a DECLARED `response` payload record.
  *
- *  Fields are of two shapes (M-T5.10 PR1): a value-object / scalar / enum / id
+ *  Fields are of two shapes: a value-object / scalar / enum / id
  *  field carries its DOMAIN type (`total: Money`), so `wireType` maps it to the
  *  wire form exactly as the wireShape path does; a CONTAINMENT field is ALREADY
  *  the wire name (`lines: LineResponse[]`) — context scope can't reference a raw
- *  entity part, so PR1 rewrote it to the sibling `<Part>Response` record, which
+ *  entity part, so lowering rewrites it to the sibling `<Part>Response` record, which
  *  lowers to an `entity` TypeIR whose name is a declared `response` payload.
  *  That name must be rendered DIRECTLY (peel collection + nullable, re-wrap
  *  `IReadOnlyList<...>` / `?`); running it through `wireType` would append a
@@ -995,7 +994,7 @@ function responseRecordParams(
       parts.push(dtoParam(csType, upperFirst(wf.name)));
     }
   }
-  // (M-T6.12) No trailing `<Field>Provenance` param any more: the provenanced
+  // No trailing `<Field>Provenance` param: the provenanced
   // field's own param is `Provenanced<T>`, carrying the lineage with the value.
   return parts.join(", ");
 }
@@ -1019,12 +1018,9 @@ export function entityExposesProvenance(ent: { fields: FieldIR[] }): boolean {
  *
  *   - `mask unless` — `maskWrap` reads `RequestContext.Current`.
  *   - `provenanced` — the projection CONSTRUCTS the carrier,
- *     `new Provenanced<int>(found.Total, found.TotalProvenance)` (M-T6.12).
- *     Before the carrier this arm was a bare property read
- *     (`found.TotalProvenance`), which named no type and so needed no using —
- *     which is exactly why every read handler over a provenanced aggregate
- *     started failing `CS0246: The type or namespace name 'Provenanced<>'
- *     could not be found`.
+ *     `new Provenanced<int>(found.Total, found.TotalProvenance)`.  Without
+ *     the using, every read handler over a provenanced aggregate fails
+ *     `CS0246: The type or namespace name 'Provenanced<>' could not be found`.
  */
 export function projectionNamesDomainCommon(agg: EnrichedAggregateIR): boolean {
   return (

@@ -1,7 +1,7 @@
 // Carrier-bounded generic payloads (payload-transport-layer.md, P3a) — IR
 // side.  Covers lowering a postfix `paged` / `envelope` instantiation into a
-// `genericInstance` TypeIR, the stdlib shape registry, and the P3a
-// not-implemented gate that blocks emission until P3b.
+// `genericInstance` TypeIR and the stdlib shape registry.  (Every backend emits
+// generic carriers, so there is no per-backend emission gate.)
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -14,7 +14,6 @@ import {
 } from "../../src/ir/stdlib/generics.js";
 import type { PayloadIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
-import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** Enrich (link-free, validation-skipped) and return a context's payloads. */
@@ -227,60 +226,5 @@ describe("generics — monomorphization (P3b)", () => {
         .payloads.map((p) => p.name)
         .sort();
     expect(names(twice)).toEqual(names(once));
-  });
-});
-
-describe("generics — platform-aware emission gate (P3b)", () => {
-  // A paged find served by the named backend platform.
-  const sysWith = (platform: string): string => `
-    system Shop {
-      subdomain Sales {
-        context Shop {
-          aggregate Order { ref: string }
-          repository Orders for Order { find recent(): Order paged }
-        }
-      }
-      storage pg { type: postgres }
-      resource shopState { for: Shop, kind: state, use: pg }
-      deployable api { platform: ${platform}, contexts: [Shop], dataSources: [shopState], port: 4000 }
-    }`;
-
-  const gateDiags = async (platform: string): Promise<string[]> => {
-    const { model } = await parseString(sysWith(platform), { validate: false });
-    return validateLoomModel(enrichLoomModel(lowerModel(model)))
-      .filter((d) => d.code === "loom.generic-carrier-unsupported")
-      .map((d) => d.message);
-  };
-
-  it("does NOT gate a paged find served only by hono (emission implemented)", async () => {
-    expect(await gateDiags("node")).toEqual([]);
-  });
-
-  it("does NOT gate a paged find served by dotnet (emission implemented)", async () => {
-    expect(await gateDiags("dotnet")).toEqual([]);
-  });
-
-  it("does NOT gate a paged find served by phoenix (emission implemented)", async () => {
-    expect(await gateDiags("elixir")).toEqual([]);
-  });
-
-  it("does not fire when no generic carrier is used (hono)", async () => {
-    const { model } = await parseString(
-      `
-      system Shop {
-        subdomain Sales {
-          context Shop {
-            aggregate Order { ref: string }
-            repository Orders for Order { find all(): Order[] }
-          }
-        }
-        storage pg { type: postgres }
-        resource shopState { for: Shop, kind: state, use: pg }
-        deployable api { platform: dotnet, contexts: [Shop], dataSources: [shopState], port: 4000 }
-      }`,
-      { validate: false },
-    );
-    const diags = validateLoomModel(enrichLoomModel(lowerModel(model)));
-    expect(diags.filter((d) => d.code === "loom.generic-carrier-unsupported")).toHaveLength(0);
   });
 });

@@ -17,11 +17,17 @@ import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_TSX, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
@@ -52,6 +58,7 @@ import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { deriveSidebarFromUi } from "./menu-emitter.js";
 import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { REACT_REF_LABEL, REACT_REF_LABEL_PATH, REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import { renderZustandStoreModule } from "./store-builder.js";
 import { defaultNavSections } from "./templating/preparers/app-shell.js";
 import { renderAppShell, renderMain, renderShellFile, renderTheme } from "./templating/render.js";
@@ -109,6 +116,12 @@ export interface GenerateReactOptions {
    *  `emitPagesForUi`'s context so the page/component loop can record
    *  whole-file regions alongside each `out.set(...)`. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 export function generateReactForContexts(
@@ -117,7 +130,7 @@ export function generateReactForContexts(
   deployable: DeployableIR,
   options: GenerateReactOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/react/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Standalone react fetches the API same-origin via the relative
@@ -223,8 +236,17 @@ export function generateReactForContexts(
     i18nEnabled,
   };
   if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/locales/en.json", renderLocaleCatalog(ui, packChrome));
-    out.set("src/i18n.ts", renderI18nModule());
+    const translated = renderTranslatedCatalogs(ui, options.translations, packChrome);
+    for (const [locale, content] of translated) {
+      out.set(`src/locales/${locale}.json`, content);
+    }
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
   }
   const pages = emitPagesForUi(ui, emitCtx);
   for (const [path, content] of pages) out.set(path, content);
@@ -561,6 +583,12 @@ export function generateReactForContexts(
   // `lib-utils` plus the `components-ui-*` glob for its source-
   // imported component library.  Custom packs declare their own
   // file mappings here without touching this file.
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes(REF_LABEL_MARKER))) {
+    out.set(REACT_REF_LABEL_PATH, REACT_REF_LABEL);
+  }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
 
@@ -572,7 +600,7 @@ export function generateReactForContexts(
   // ClientApp/ directory.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/react/index");
   for (const [path, content] of out) {
     prefixed.set(`${pathPrefix}${path}`, content);
   }

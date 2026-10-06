@@ -113,7 +113,7 @@ The back-fill of a feature that shipped **three phases with no mission tracking 
 **Shipped — placement (re-verified on fresh `main` 2026-07-30, not taken from the proposal):**
 - **Phase 1** — `test … for <Aggregate>` hoisted out of its aggregate to `ContextMember` / `ModelMember` (so tests can live in their own `tests/*.ddd`), attached to `AggregateIR.tests`, re-lowered byte-compatibly (#2163).
 - **Phase 2 (partial)** — the extra unit anchors: `valueobject` and `domainService` host `test` blocks (`ddd.langium` `TestBlock` in both member unions; `checkTestPlacement`'s `isAggregate || isValueObject || isDomainService`) (#2179).
-- **Phase 3 — the context-integration rung, on ALL FIVE backends.** `test "…"` nested in a `context` lowers to `BoundedContextIR.tests` and emits an in-process integration test against live repositories, no HTTP (`INTEGRATION_BACKENDS = {node, python, dotnet, java, elixir}` in `src/language/validators/test-placement.ts`; the `loom.context-test-unsupported` warning now suppresses for every backend) (#2188 + the per-backend follow-ons). *Note: `coverage.md` said "Phase 1+2 shipped" — Phase 3 had landed too, on all five.*
+- **Phase 3 — the context-integration rung, on ALL FIVE backends.** `test "…"` nested in a `context` lowers to `BoundedContextIR.tests` and emits an in-process integration test against live repositories, no HTTP (`src/language/validators/test-placement.ts` suppresses the `loom.context-test-unsupported` warning for any backend deployable, via `platformOwnsBackend`) (#2188 + the per-backend follow-ons). *Note: `coverage.md` said "Phase 1+2 shipped" — Phase 3 had landed too, on all five.*
 
 **Open (a) — the `workflow` unit anchor.** Phase 2 named `valueobject` / `workflow` / `domainService`; only two landed. `WorkflowMember` (`ddd.langium:1390`) has no `TestBlock` arm, so a workflow's orchestration has no unit-tier home — it is reachable only through the api/e2e tier or a context integration test. Size **S**: one grammar arm, one `checkTestPlacement` predicate, lower into `WorkflowIR.tests`, route to the existing unit emitters (the pattern the VO/domainService anchors already set).
 
@@ -135,36 +135,6 @@ Design: [`M-T5.21-callable-unification-design.md`](missions/M-T5.21-callable-uni
 
 Sources: language-size review 2026-08-04. `src/language/ddd.langium` (the fifteen rules, line numbers in the design doc), [`docs/customization-gradient.md`](../customization-gradient.md), [`surface-redundancy-cuts.md`](../old/proposals/surface-redundancy-cuts.md) (same "one spelling per concept" principle, previously applied only to trivia). Relates to M-T5.17 (modifier zoo, one layer up), M-T5.18 (soft-keyword sprawl).
 
-## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
-
-Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-docs-audit-findings.md), [F4](../audits/2026-09-03-language-docs-audit-findings.md), both P0). A `match` over a union in a domain body reports `0 error(s)` and then throws `variant-match statement is frontend-only; it must not reach the <X> backend` from `src/generator/_stmt/target.ts:160` on node, dotnet, java, python and elixir alike — no IR check covers `variant-match` outside a page (`src/ir/validate/checks/store-checks.ts` handles only the page case), and non-exhaustive arms are unchecked too. Symmetrically, `src/ir/lower/lower-stmt.ts` has no arm for `ForStmt`/`IfLetStmt` outside a workflow and no validator rejects them: `operation touch() { for n in notes { owner := n } }` reports `0 error(s), 0 warning(s)` and emits `this.<unknown>();`.
-
-**Resolve the fork before coding.** Each shape can be *gated* or *lowered*. The default is **gate** — both are frontend/workflow-only by design per the source comments, and a gate is S where lowering is L. If the design pass concludes lowering is right, that is a `language-feature-developer` mission: split it out and say so rather than widening this one. Mints codes in `src/diagnostics/messages.ts` — the only Wave-3 packet that may.
-
-**Verification when it lands.** Both shapes raise a `loom.*` code with the offending span; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
-
-**Also carries M-T5.27's residue (re-homed 2026-09-10, Wave C0.4).** [#2789](https://github.com/Loom-Harness/Loc/pull/2789) minted `loom.locator-matcher-receiver` in `src/language/validators/match.ts:151`, deliberately re-deriving the ui-e2e renderer's handle rule at the AST layer because `src/ir/validate/checks/**` was another packet's tree. Its proper home is `validateE2ETest` (`src/ir/validate/checks/test-checks.ts:132`), which already walks these statements with the resolved IR and today has no `locator` handling at all. Consolidate it here while in the file. The mutation proof makes the case that gate and renderer are genuinely independent: under the *renderer* mutation the validator still passed the source and the renderer crashed, so neither alone covers F6.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**; M-T5.27's `loom.locator-matcher-receiver` consolidation.
-
-**Landed 2026-09-11 (Wave C1 packet 1b).** All three shapes **re-verified on this head before building** — the `match` still threw on all five backends (`variant-match statement is frontend-only; it must not reach the {TS,.NET,vanilla Elixir,Java,Python} backend`), and `for` / `if let` still emitted the `<unknown>` sentinel: `this.<unknown>()` on node/.NET/Java, `self._<unknown>()` on python, `_ = <unknown>(record)` on elixir. The fork resolved as **gate on all three**, per ruling D-FOR-IN-DOMAIN ([completion-waves-2026-09](completion-waves-2026-09.md) §5 #3), with the honest-gap/permanent-refusal split the ruling asks for: `loom.variant-match-placement` and `loom.if-let-placement` say "permanent placement rule", `loom.for-placement` says "a GAP, not a design rule" and names **M-T5.30** as its successor.
-
-The gate is **phase ④**, not phase ⑦, and that was the one real design call: `for` / `if let` outside a workflow have **no IR node at all** — `lower-stmt.ts`'s fallback has already replaced them with the `<unknown>` call sentinel before an IR check leaf could look — so an IR-level gate could only match on the sentinel, a proxy for the defect rather than the defect. Containment alone decides all three answers, so the check needs nothing lowering would add. One new leaf, `src/language/validators/stmt-placement.ts` (a single `streamAllContents` pass classifying each statement's body owner as frontend / workflow / domain); the `src/generator/_stmt/target.ts` throw survives as an internal-invariant assertion for a caller that generates without validating, with a `default:` arm keeping the `StmtIR.kind` switch exhaustive.
-
-Refusal fixtures live at `test/language/validators/fixtures/stmt-placement-*.ddd` beside their gate, **not** in `test/fixtures/corpus/`: that corpus is a positive matrix (`corpus-coverage.test.ts` requires every `<id>.ddd` to GENERATE on each declared backend) and carries no `expectDiagnostics`-style key in `manifest.ts` or its harnesses, so an expected-diagnostic fixture has no row shape there. A fourth fixture, `stmt-placement-allowed.ddd`, is the over-fire guard — all six legal sites (workflow `create` + `commandHandler` × `for`/`if let`, plus a page `action`'s `match await`) in one source. Four mutation proofs by file copy, each naming its failing assertion, in the hand-off note.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**, hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md).
-
-## M-T5.29 — Two `system` blocks with no top-level members pass validation — `open` · **S** · P2 ⚠ verify-first
-
-Found 2026-09-03 by the language-docs audit ([F36](../audits/2026-09-03-language-docs-audit-findings.md), P3). `composition.ts:120-137` only fires when a top-level member must fold into a system, so a source declaring two member-less `system` blocks validates clean; `generate system` then writes only the root artefacts. There is no direct "exactly one `system`" gate.
-
-**The fix:** a direct arity check in `src/language/validators/composition.ts`, independent of whether anything needs folding.
-
-**Verification when it lands.** A negative validator test for the two-system source; mutation-proved by file-copy revert of the check.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F36, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.2**. Relates to M-T5.13 (the zero-system synthesis decision — the other end of the same arity question).
-
 ## M-T5.30 — `for … in …` in a domain body: lower it, or make the refusal permanent — `open` · **M** · P3
 
 Minted 2026-09-11 by **M-T5.28** as the named successor its `loom.for-placement` message points at — the honest-gap half of ruling D-FOR-IN-DOMAIN ([completion-waves-2026-09](completion-waves-2026-09.md) §5 #3). `for x in xs { … }` is lowered only by `lowerWorkflowStatement` (workflow `create` / `handle` / `on`, plus top-level `commandHandler` / `queryHandler`); in an aggregate `operation` / `create` / `destroy` / `apply`, a `function`, a domain-service operation or a projection `on` fold it is now REFUSED rather than lowered to the `<unknown>` call sentinel. Nothing about a loop is workflow-specific — only the **per-iteration repository save** the workflow lowering owns is, and a domain body has no repository to save through.
@@ -173,7 +143,7 @@ Minted 2026-09-11 by **M-T5.28** as the named successor its `loom.for-placement`
 
 **Verification when it lands.** If lowered: a corpus fixture whose `for` runs in a domain body, generating and COMPILING on all five backends (rule 13 — the fixture is extended until every emitter arm a mutation names goes red). If declined: the message change plus the assertion in `test/language/validators/stmt-placement.test.ts` that currently pins `M-T5.30` in the text, flipped to pin "permanent placement rule" instead.
 
-Sources: [M-T5.28](#m-t528--variant-match-off-a-page-crashes-all-five-backends-forif-let-off-a-workflow-emits-thisunknown--neither-is-gated--done-2026-09-11-wave-c1-packet-1b--m--p1) and its hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md); [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F4.
+Sources: [M-T5.28](archive/T5-done.md#m-t528--variant-match-off-a-page-crashes-all-five-backends-forif-let-off-a-workflow-emits-thisunknown--neither-is-gated--done-2026-09-11-wave-c1-packet-1b--m--p1) and its hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md); [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F4.
 
 ## M-T5.31 — A `retrieval` reaches the repository and stops there: no HTTP route on any backend, and no `requires` clause — `open` · **L** · P1
 
@@ -200,7 +170,12 @@ The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` 
 
 Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
 
-## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` · **M** · P1 · blocked(#2882)
+**Slices added 2026-09-29 (evaluation-closure review; both wait on slice 2 above):**
+
+- **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
+- **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**
+
+## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
 
 The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
 
@@ -208,7 +183,7 @@ Today `POST /<plural>` always takes the **field-derived** create input. A narrow
 
 **The fix:** the declared parameter list becomes the create input — wire schema, route binding, and the frontend `CreateForm`'s field set all derive from it rather than from the aggregate's fields.
 
-**Why blocked.** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
+**Why it was blocked (now cleared).** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
 
 **Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
 
@@ -228,6 +203,8 @@ The collection-op path two hundred lines up does it correctly (`collElem && isLa
 
 This is the enabling change for the formatter work: a per-type formatter table cannot route `Text`'s child while every page-body field types as `string`. #2871's D4 is downstream of it.
 
+**F-041 is closed by an IR backstop (#3133), not by this mission.** Where the lambda's receiver IS typed in the IR (the `of:` form #3050 landed), `loom.member-unresolved` (`src/ir/validate/checks/member-resolution-checks.ts`) refuses an invented member the language layer couldn't see. `eval/repro/broken/b09-page-wrong-aggregate.ddd` (`o.totl`) is now refused and pinned in `ddd-source-census.test.ts`. A bare lambda still types its parameter `string`, so the backstop can't see into it; that part of this mission stands.
+
 **The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`. **The first half landed with #3050 for the `of:` forms the page DSL documents; the remainder this mission now covers is the second half** — the placeholder itself.
 
 **Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
@@ -236,45 +213,7 @@ Claimed by the #2861 author, offered to #2871 first as the enabling half of thei
 
 **Still open after #3050:** the `lower-expr.ts` bare-lambda site keeps its `string` placeholder for the cases nothing supplies a type to (`env.rowElem ?? { kind: "primitive", name: "string" }`), and the mission's "make the no-known-type case a diagnostic rather than a silent `string`" half is untouched.  #3050 removes the erasure for the `of:` forms the page DSL documents; it does not remove the fallback.
 
-## M-T5.34 — the rulings the dev-experience audits deferred, as one diagnostics packet — `done` (2026-09-13) · **M** · P1
-
-Mints three `loom.*` codes in one packet because each one edits the shared catalog (`src/diagnostics/messages.ts`), and separate PRs against that file conflict on every merge. Closes [#2864](https://github.com/Loom-Harness/Loc/pull/2864) findings **D5**, **D6** and **G2**; implements decisions **D-1(c)** and **D-2** of the freight-audit fleet plan (`docs/audits/2026-09-10-freight-fleet-plan.md`, landing with #2864).
-
-**A fourth ruling was drafted and dropped.** The packet also drafted the command-side correlation gate for the case **(B)** that [#2850](https://github.com/Loom-Harness/Loc/pull/2850) deferred. It landed independently on `main` first, as `loom.workflow-create-correlation-unsupplied` (F58 / M-T6.62), with a **better** rule than the draft: it also accepts a `<corr> := <param>` assignment as supplying the key, and fires only when the create body actually touches own state. Nothing was kept from the draft — see the note under "What this packet does not own".
-
-| Code | Refuses | Source |
-|---|---|---|
-| `loom.workflow-handle-unsupported` | a `handle <name>(…)` continuation — emitted by no backend | #2864 D5 / D-1(c) |
-| `loom.entity-part-param-unsupported` | an entity-part-typed parameter on a public action | #2864 D6 / D-2 |
-| `loom.reactor-without-starter` | `on(…)` reactors with no `create(…)` starter | #2864 G2 |
-
-**Why each is a ruling and not an emitter.** D-1(c): the silence is the bug; whether Loom grows multi-command sagas is a feature decision — the emitter half stays with **M-T6.58**, whose option (b) this lands. D-2: materializing an entity-part parameter means answering whether client-supplied parts *replace* the collection (new ids, history orphaned) or *merge* by id, which the DSL has never answered — deferred to a proposal, with the diagnostic pointing at the value-object alternative that is already emitted correctly.
-
-**Two boundaries were verified against the emitters rather than assumed**, and both narrowed the packet: a `private` operation emits no wire contract at all (so the D6 gate is public-only), and a declared `create`'s parameter list is not the request contract (so the create position is out of scope — it is #2861's finding, and the create input already emits `<Part>Response` correctly from the aggregate's fields). **What this packet does not own.** The command-side correlation ruling is `loom.workflow-create-correlation-unsupplied`, landed separately; its rule lives in `src/ir/util/workflow-own-state.ts` so the phase-⑦ gate and the phase-⑧ emitters stay exact complements. The **create-parameter-list** question is `loom.create-params-not-wire` (#2861 slice 4, tracked by **M-T5.32**), which is why the entity-part gate here deliberately skips the `create` position rather than widening onto it.
-
-**Cost paid, named here so it is not rediscovered:** `examples/showcase.ddd` authored a `handle reset()`, so the ruling broke the repo's own conformance fixture. It gave up the member (its contract is "validates with zero errors"), which put `HandleDecl` into the showcase ALLOWLIST, the clause census's `UNAUTHORED_CLAUSES`, and cost `HandleIR.statements` its "arrived over a real example" proof. All three name M-T6.58 as the drain condition. The `*-unsupported` gap pin rose 51 → 52 for the `handle` row — the register's intended trade: a silent five-backend hole became a named, owned, drainable one.
-
-**Audit G4 (the value-object-collection create-input asymmetry) is NOT in this packet** — see M-T5.35.
-
-Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) — `docs/audits/2026-09-10-freight-dev-experience.md` D5/D6/G2 and `docs/audits/2026-09-10-freight-fleet-plan.md` D-1/D-2, both landing with that PR (cited by path, not linked, because they are not on `main` yet); #2850's `create-state.ts` header. Lands M-T6.58's option (b) for `handle`.
-
-## M-T5.35 — a value-object collection is required create input; an entity containment is not — `open` · **M** · P2 ⚠ carries a five-backend wire-contract change
-
-Audit **G4** of [#2864](https://github.com/Loom-Harness/Loc/pull/2864), **split out of M-T5.34** rather than folded into it — see "Why it is its own mission" below.
-
-Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workflow-create-missing-field … missing required field 'legs'`, fixed only by passing `legs: []`. Reproduced on `main @ 58f7c5e`: the entity spelling of the same aggregate validates `0 error(s)`. An empty collection is the natural default and the entity spelling already treats it that way.
-
-**The asymmetry is structural, not a bug in one predicate.** A containment is not a create-input field at all — `buildCreateInput` reads `agg.fields`, and containments live in `agg.contains` / `agg.parts`. A value-object collection *is* a field, so it falls through to `isRequiredCreateInput`, which relaxes only for nullable, explicitly-defaulted, and implicitly-defaulted types — and `hasImplicitDefault` (`src/ir/enrich/wire-projection.ts`) admits `bool` and nothing else.
-
-**Why it is its own mission, not part of M-T5.34.** The fix is one line (`array` → has an implicit default), and applying it locally made the G4 repro pass and broke **nothing** in the fast suite. That understates it. The predicate is the single source every backend's required-set derivation consumes, so the change moves the **wire contract on all five backends** — zod `.default([])`, the Pydantic field initialiser, the record positional default, the Java `RequiredSet` row, the Ecto changeset — and therefore the `required` arrays in the served OpenAPI documents and `.loom/wire-spec.json`. The fast suite covers none of the tiers that would see that: the wire-golden differential, the 5-way OpenAPI parity diff, and the per-backend compile legs. It is also **wider than G4 asks**: it relaxes *every* non-nullable collection field (`tags: string[]`, `Money[]`), not just the value-object case. M-T5.34 was three refusals, which can only reject models that already miscompiled; this can change the contract of models that work today. Different risk class, different proof obligation, different PR.
-
-**Decide first, then build.** Two candidate rules, and the mission should rule between them rather than assume the one-liner: (a) **every collection field is omittable**, defaulting to `[]` — principled, matches the entity spelling, widest blast radius; (b) **only value-object collections**, which fixes the reported asymmetry but leaves `tags: string[]` required for no stated reason. (a) is the recommendation; it needs the wire-contract change named as such, not slipped in.
-
-**Coordinate with [#2861](https://github.com/Loom-Harness/Loc/pull/2861) slice 4**, whose two create-input gates read this same projection — land behind it.
-
-**Verification when it lands.** The G4 repro pair (value-object vs entity spelling of one aggregate, both clean); the required-set asserted per backend rather than inferred from node; the wire-golden differential and the 5-way OpenAPI parity diff run, not skipped; mutation-proved by file-copy revert.
-
-Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
+*Wave L1-V2 (leftover-waves-2026-09-28), item **V12**:* the remainder is the block-lambda form — a typo'd field off an untyped page-body lambda param is still emitted verbatim, and Phoenix answers a `KeyError` (`type-system.ts:2043`, #2911).
 
 ## M-T5.38 — the IR's TWO SPELLINGS of a `this` property read, normalised at lowering — `open` · **M** · P2 ⚠ not byte-identical on three backends
 
@@ -378,3 +317,78 @@ and `return c.json(repo.toWire(found) as z.infer<typeof OrderResponse>, 200)` �
 **Not in scope, by decision.** Moving any consumer off the derived shape onto the records, and retiring `.loom/wire-spec.json` (proposal steps 6–8's remainder): [`D-WIRESHAPE-KEEP`](../decisions.md) — the derived shape stays the source of truth until the records reproduce it AND the implicit `api … from …` form expands through the scaffold, so the records exist for the paths that ship.
 
 Sources: [unfoldable-api-derivation](../old/proposals/unfoldable-api-derivation.md) steps 6–8 + [coordination note](../old/proposals/unfoldable-api-derivation-coordination-note.md) items 1–3; [`D-WIRESHAPE-KEEP`](../decisions.md); wave C4 hand-off [`wave-c4-4e-wireshape.md`](waves/handoffs/wave-c4-4e-wireshape.md); `test/system/wire-contract-divergence.test.ts`.
+
+## M-T5.41 — Unit `test` bodies are never validated (F-105) — `open` · **M–L** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V1 (leftover-waves-2026-09-28).**
+
+Item **V1** (#3031). A wrong-typed `toBe`, an unknown operation and an unknown field inside a unit `test "…" { … }` block all validate `0 error(s)`; the defect reaches the generated test file and fails there (or passes vacuously). `src/language/validators/structural.ts` never dispatches `TestBlock`, so none of the body checks the domain bodies get ever run on a test body.
+
+**The fix:** dispatch `TestBlock` bodies through the same expression/statement checks, with the test-only surface (`expect(…)`, the matcher catalogue from M-T5.37) typed. **Expect corpus breakage** — the repo's own fixtures have never been checked — and fix it in the same PR.
+
+**Verification.** A negative validator case per shape (wrong-typed matcher, unknown op, unknown field); the corpus still validating after the repairs; mutation-proved by removing the dispatch.
+
+## M-T5.42 — The validator batch: silent shapes that validate clean and break codegen — `open` · **M** (a batch of S items + one M) · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (leftover-waves-2026-09-28).**
+
+One tree-fenced packet (`src/ir/validate/checks/`, `src/language/validators/`, `src/diagnostics/messages.ts`, grammar). Sequence after #3040 (domainService param binding) and #2949 (F-040 primitive member read); **#3063 may close V13** — re-check first.
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| V2 | Param **defaults silently dropped** on `domainService` ops and workflow `handle`/`create` (`defaults: false`). Refuse them for now | `src/ir/lower/lower-domain-service.ts:62`, `lower-workflow.ts:271,347,398` (#3011 4d) | S |
+| V3 | An inline repo call inside a **`commandHandler`** is dropped (`Orders` unbound); the gate only runs for workflows | repro, `workflow-checks.ts:179` (#2916) | S |
+| V4 | A local/param **shadowing a field of another type**: `name := name` → TS2322 | repro (#3000) | S |
+| V5 | **Unknown collection op** in a page body (`rows.bogusOp(...)`) is emitted verbatim | repro, not covered by #2949 (#2865) | S |
+| V6 | .NET **entity-member collision**: a field named `assertInvariants`/`create`/`id` vs the generated method → CS0102; only type names are gated. The emitter half, if any, is [M-T6.75](T6-backend-parity.md#m-t675)'s | repro, `backend-syntax-checks.ts:282-345` (#2923) | S |
+| V7 | A VO-typed field in a `Text` slot → TS2322; only money has a gate | `messages.ts` (#2871) | S |
+| V8 | `Button { icon: "nope" }` gives no warning (`Icon` does). Move the icon set to `src/util/` | repro (#2996) | S |
+| V9 | `storage { type: nats \| meilisearch }` binds to no kind, 0 warnings | repro (#2924) | S |
+| V10 | Folded-projection e2e reads (`byKey`/`list`) have no response-field check | `e2e-route-checks.ts:1134` (#3002) | S |
+| V11 | The e2e payload gate's blind spots: find/list/projection args, explicit `null`, `ui.` forms, `extends` subtypes (the sweep's population is in `docs/audits/2026-09-14-p3-e2e-payload-sweep.md`) | header of `e2e-route-checks.ts` (#2958) | M |
+| V13 | Grammar: a param named `from` is declarable but unreadable; `operation deny()/state()/money()` gives a hintless parse error | repro (#2865, #2883) | S |
+| V15 | `loom.locator-matcher-receiver` is re-derived in the AST validator; move it onto the resolved IR | `validators/match.ts:161` (#2789) | S |
+
+**Verification.** One negative validator test per row, every message in the catalog, each gate mutation-proved; the corpus still validating. V11 re-measures its denominator against the P3 sweep's 777 body keys rather than trusting the widening.
+
+## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
+
+Item **V14** (#2838). The expression form of a variant `match` carries its resolved union type; the statement form lowers with `subjectType` left as `string`, so the four shape gates keyed on the subject type (exhaustiveness, unknown variant, binding arity, the error-variant binding) are skipped for it. Pinned as a known gap at `test/ir/variant-match-subject-type.test.ts:70`.
+
+**The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
+
+**Verification.** The pinned case flips; one negative case per gate on the statement form.
+
+## M-T5.44 — Only one `resource` per (context, kind), even for `api` / `objectStore` / `mailer` / `queue` — `open` · **M** · P3 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#42a** (Clearline F-042). Two `kind: api` resources on one context (`ocr`, `fraud`) are refused: `Deployable 'd' has two dataSources for (Sales, kind: api): 'ocr' and 'fraud'. Pick exactly one per (context, kind).` (`loom.datasource-duplicate`, `src/language/validators/deployable.ts:572-586`). The refusal is honest and documented, so this is not a defect. But the rule is right only for the persistence kinds (`state`, `eventLog`, `snapshot`, `cache`, `replica`). The verb-addressed kinds are called by resource name, and the emitters already emit one client per resource name, so two external APIs on one context is a reasonable model the language refuses.
+
+**The fix, once ruled:** keep the duplicate key for the persistence kinds; allow several `api` / `objectStore` / `mailer` / `queue` resources per context. Verify on all five backends that two same-kind resources get distinct clients and distinct env vars.
+
+**Verification.** A compile-tier corpus fixture with two `api` and two `objectStore` resources on one context, on all five backends; the persistence-kind refusal keeps its negative case.
+
+## M-T5.45 — No event, value-object-equality or navigation matcher in `test` / `test e2e` — `open` · **M** · P2 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#43** (testability audit F7-r / F11-r). `src/util/intrinsic-matchers.ts` has 13 matchers (`toBe`, the four comparisons, `toBeSameInstant`, `toHaveText`, `toHaveCount`, `toBeVisible`, `toContain`, `toBeNull`, `toBeAbsent`, `toThrow`). There is no way to assert that an operation **emitted** an event, that two value objects are **equal**, or that a UI action did **not navigate** (`not.` exists for locator matchers only; a ui `toThrow` is refused with `loom.e2e-ui-throw-invalid`). `expect(n).toEmit(Renamed)` and `expect(n).toEqual(n)` are refused at parse ("expect requires a matcher"), which is honest.
+
+The silent half of #43 — `expect(n.events).toContain(Renamed)` and `expect(n.bogus).toBe(1)` validate clean and emit TS2339 / TS2304 — is [M-T5.41](#m-t541)'s (unit `test` bodies are never validated); do not duplicate it here.
+
+**The design:** `expect(x).toEmit(Event)` at the unit tier through the aggregate's `pullEvents()`; `toEqual` for value objects (structural, the wire's equality); a `toHaveURL` / not-navigated locator matcher for `test e2e` against a ui.
+
+**Verification.** A type-system test per matcher; the generated unit-test compile tier on all five backends; one ui e2e case per locator matcher.
+
+## M-T5.46 — ICU `plural` / `select` in backend domain code: render it, not drop it — `open` · **M** · P3
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Follow-up of owner ruling **D8** (eval-closure item **#38**; Clinica F-006, Meridian F-002). An interpolated string in a backend `derived` or operation body drops an ICU `plural` / `select` hole's branch text: `"{n, plural, one {# item} other {# items}}"` emits just the number. The drop of the *format* on the backend is recorded as deliberate (`archive/T1-done.md` §M-T1.11), and wave C6 of the review adds the warning `loom.interp-format-dropped-in-domain` now. This mission is the rendering D8 deferred: the branch text is authored content, and losing it is a wrong string, not a formatting nicety.
+
+**The fix:** a small ICU `plural`/`select` evaluator per backend (or one shared helper in each runtime kernel) over the already-parsed interpolation IR; `number`/`date` formats may stay dropped by the M-T1.11 decision. Once it lands, delete the D8 warning in the same PR.
+
+**Verification.** A wire-golden case whose `derived` returns a `plural` and a `select` string, byte-identical on all five backends.

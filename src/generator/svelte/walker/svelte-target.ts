@@ -167,6 +167,17 @@ export const svelteTarget: WalkerTarget = {
     return renderSvelteDataGridChild(spec, ctx);
   },
 
+  /** `<LoomRefLabel>` (`$lib/components/LoomRefLabel.svelte`) — the pack's
+   *  `formatId` markup becomes its `children` snippet, i.e. the fallback.  The
+   *  page shell imports the component off this tag (the `LoomChart`
+   *  discipline). */
+  renderRefLabelWrap(spec) {
+    return {
+      open: `<LoomRefLabel path=${JSON.stringify(spec.apiPath)} id={ ${spec.idExpr} }>`,
+      close: "</LoomRefLabel>",
+    };
+  },
+
   // --- API binding seam ---------------------------------------------------
 
   /** Identical naming to the TSX target — the svelte api modules

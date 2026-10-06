@@ -15,7 +15,11 @@ import { lines } from "../../../util/code-builder.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
-import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import {
+  coerceMatcherExpected,
+  coerceTestLiteral,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { collectJavaExprImports, collectJavaTypeImports, renderJavaExpr } from "../render-expr.js";
@@ -38,8 +42,21 @@ export function renderJavaTestsFile(
    *  invoked from a test body, a stub test user is materialised with the
    *  dev-stub claim values and threaded as the trailing argument. */
   userFields?: readonly FieldIR[],
+  /** Package holding another aggregate's root class, resolved through the SAME
+   *  layout router this file's own package came from — so the sibling import
+   *  below is correct under `byLayer` and `byFeature` alike. */
+  siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
-  return renderJavaSubjectTests(agg.name, agg.tests, ctx, basePkg, pkg, userFields, false);
+  return renderJavaSubjectTests(
+    agg.name,
+    agg.tests,
+    ctx,
+    basePkg,
+    pkg,
+    userFields,
+    false,
+    siblingPkgFor,
+  );
 }
 
 /** Value-object unit-test class (test-placement.md).  The VO is
@@ -74,11 +91,29 @@ function renderJavaSubjectTests(
   pkg: string,
   userFields: readonly FieldIR[] | undefined,
   includeServices: boolean,
+  siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
   if (tests.length === 0) return null;
   const imports = new Set<string>();
   const state = { usesTestUser: false, userFields, ctx };
   const methods = tests.flatMap((t) => renderTest(t, ctx, imports, state));
+  // Every OTHER aggregate the bodies name.  A test body may legally reach for a
+  // sibling aggregate — the validator admits it, and it is the only way to
+  // exercise a value object holding a CROSS-aggregate reference
+  // (`Berth { ship: Ship id }` needs a `Ship` to get an id from).  The
+  // wildcards below cover the shared `domain.*` packages, but an aggregate ROOT
+  // lives in its own per-aggregate package, so `Ship.create(...)` was
+  // `cannot find symbol`.  Narrowed to names the rendered bodies actually
+  // spell.  Freight audit D3 follow-up.
+  if (siblingPkgFor) {
+    const bodyText = methods.join("\n");
+    for (const a of ctx.aggregates) {
+      if (a.name === name) continue;
+      if (!new RegExp(`\\b${a.name}\\b`).test(bodyText)) continue;
+      const sp = siblingPkgFor(a.name);
+      if (sp && sp !== pkg) imports.add(`${sp}.${a.name}`);
+    }
+  }
   while (methods[methods.length - 1] === "") methods.pop();
   if (state.usesTestUser) {
     for (const f of userFields ?? []) collectJavaTypeImports(f.type, imports);
@@ -288,7 +323,11 @@ export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): strin
   const actual = renderJavaExpr(inner);
   const arg = expr.args[0];
   if (arg) collectJavaExprImports(arg, imports);
-  const expected = arg !== undefined ? renderJavaExpr(arg) : "";
+  const rawExpected = arg !== undefined ? renderJavaExpr(arg) : "";
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
+  // compares as an `Instant`, which never `equals` a `String`.
+  const expected =
+    coerceMatcherExpected(expr, rawExpected, javaTestLiteral(imports)) ?? rawExpected;
   const moneyLike =
     (inner.kind === "member" &&
       inner.memberType.kind === "primitive" &&

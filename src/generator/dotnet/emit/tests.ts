@@ -12,7 +12,11 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
-import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import {
+  coerceMatcherExpected,
+  coerceTestLiteral,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
 
@@ -108,6 +112,20 @@ function renderSubjectTestsFile(
   // import would not compile).
   const methodBlocks = tests.map((t) => renderTest(t, ctx).map((l) => `    ${l}`));
   const usesActor = methodBlocks.some((b) => b.some((l) => l.includes(TEST_ACTOR)));
+  // Every OTHER aggregate the bodies name.  A test body may legally reach for a
+  // sibling aggregate — the validator admits it, and it is the only way to
+  // exercise a value object holding a CROSS-aggregate reference
+  // (`Berth { ship: Ship id }` needs a `Ship` to get an id from).  Each
+  // aggregate has its OWN per-aggregate namespace, so the subject's `using`
+  // alone left `Ship.Create(...)` unresolved: `CS0246`.  Narrowed to names the
+  // rendered bodies actually spell, so a project whose tests touch one
+  // aggregate keeps a using-clean header under `/warnaserror`.  Freight audit
+  // D3 follow-up.
+  const bodyText = methodBlocks.flat().join("\n");
+  const siblingUsings = ctx.aggregates
+    .filter((a) => a.name !== name && new RegExp(`\\b${a.name}\\b`).test(bodyText))
+    .map((a) => `${ns}.Domain.${upperFirst(plural(a.name))}`)
+    .sort();
 
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
@@ -116,6 +134,7 @@ function renderSubjectTestsFile(
   lines.push("using Xunit;");
   lines.push("using AwesomeAssertions;");
   if (ownUsing) lines.push(`using ${ownUsing};`);
+  for (const u of siblingUsings) if (u !== ownUsing) lines.push(`using ${u};`);
   lines.push(`using ${ns}.Domain.Common;`);
   // The ValueObjects / Enums / Ids namespaces only exist when the context
   // actually declares that kind — an unconditional `using` on an absent
@@ -231,7 +250,10 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   // non-hazard emission stays byte-identical.
   const rendered = renderCsExpr(inner);
   const actual = inner.kind === "binary" || inner.kind === "unary" ? `(${rendered})` : rendered;
-  const arg = expr.args[0] !== undefined ? renderCsExpr(expr.args[0]) : "";
+  const rawArg = expr.args[0] !== undefined ? renderCsExpr(expr.args[0]) : "";
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
+  // compares as a `DateTime` — a string argument does not even compile there.
+  const arg = coerceMatcherExpected(expr, rawArg, CS_TEST_LITERAL) ?? rawArg;
   // FluentAssertions/AwesomeAssertions verb (post `.Should().`) — `Not`
   // prefix when negated.
   const VERBS: Record<string, string> = {

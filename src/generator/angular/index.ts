@@ -17,6 +17,7 @@ import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_GATE_ANGULAR, AUTH_SESSION_SERVICE_ANGULAR } from "../_frontend/auth-ui.js";
 import {
@@ -35,7 +36,12 @@ import {
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -64,6 +70,7 @@ import {
   buildAngularRealtimeHandlers,
   buildAngularToastService,
 } from "./realtime-handlers-builder.js";
+import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
 import { angularTargetFor } from "./walker/angular-target.js";
@@ -103,6 +110,12 @@ export interface GenerateAngularOptions {
    *  page regions alongside their `out.set(...)`, and the same for every
    *  walked user-component class (`components-emit.ts`). */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/lib/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 const DEFAULT_DESIGN = "angularMaterial@v1";
@@ -113,7 +126,7 @@ export function generateAngularForContexts(
   deployable: DeployableIR,
   options: GenerateAngularOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/angular/index");
 
   // The angularMaterial pack satisfies the (Angular-specific) required-primitive
   // surface in `required-primitives.ts` — display / layout / input templates;
@@ -233,8 +246,21 @@ export function generateAngularForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   if (i18nEnabled && ui) {
-    out.set("src/lib/i18n.ts", renderI18nModule());
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+    );
+    for (const [locale, content] of translated) {
+      out.set(`src/lib/locales/${locale}.json`, content);
+    }
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
   }
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
@@ -733,12 +759,18 @@ export function generateAngularForContexts(
   out.set("Dockerfile", pack.render("dockerfile", {}));
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
+    out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
+  }
 
   // Fullstack embed: relocate the whole project under the host's prefix
   // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/angular/index");
   for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
   return prefixed;
 }

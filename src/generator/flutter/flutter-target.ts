@@ -43,6 +43,7 @@ import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -60,6 +61,7 @@ import {
   renderDartIntrinsic,
 } from "./dart-expr.js";
 import {
+  canProbeProviderName,
   createFormWidgetName,
   destroyFormWidgetName,
   operationFormWidgetName,
@@ -177,9 +179,9 @@ interface OpFormTarget {
 
 /** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
  *  `expectedVersion:` when the call site holds the loaded record. */
-function opFormWidgetCall(r: OpFormTarget): string {
+function opFormWidgetCall(r: OpFormTarget, extra = ""): string {
   const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
-  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version})`;
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${extra})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or
@@ -189,7 +191,38 @@ function instanceOpFormWidget(
   ctx: WalkContext,
 ): string | undefined {
   const r = instanceOperation(call, ctx);
-  return r ? opFormWidgetCall(r) : undefined;
+  return r ? gatedOpFormWidget(r, ctx) : undefined;
+}
+
+/** `<Op><Agg>Form(id: …)`, or — for a `when`-gated op — the same widget inside
+ *  a `Consumer` that watches its `can_<op>` probe and passes `blocked:` (the
+ *  page may be a plain `StatelessWidget` with no `ref` of its own). */
+function gatedOpFormWidget(r: OpFormTarget, ctx: WalkContext): string {
+  if (!opGateFor(ctx, r.agg, r.op)) return opFormWidgetCall(r);
+  const provider = canProbeProviderName(r.agg.name, r.op.name);
+  return `Consumer(builder: (context, ref, _) => ${opFormWidgetCall(r, `, blocked: ref.watch(${provider}(${r.idExpr})).valueOrNull == false`)})`;
+}
+
+/** A `when`-gated op's dialog trigger: watches the `can_<op>` probe, disables
+ *  (with the reason as a tooltip) while it answers false, and re-queries it once
+ *  the dialog closes — the op form pops it on success. */
+function gatedOpTrigger(
+  agg: AggregateIR,
+  op: AggregateIR["operations"][number],
+  idExpr: string,
+  openDialog: string,
+  labelExpr: string,
+  ctx: WalkContext,
+): string | undefined {
+  const gate = opGateFor(ctx, agg, op);
+  if (!gate) return undefined;
+  const provider = canProbeProviderName(agg.name, op.name);
+  return (
+    `Consumer(builder: (context, ref, _) { ` +
+    `final __blocked = ref.watch(${provider}(${idExpr})).valueOrNull == false; ` +
+    `final __button = ElevatedButton(onPressed: __blocked ? null : () async { await ${openDialog}; if (context.mounted) ref.invalidate(${provider}(${idExpr})); }, child: Text(${labelExpr})); ` +
+    `return __blocked ? Tooltip(message: ${gate.reasonExpr}, child: __button) : __button; })`
+  );
 }
 
 /** A route template (`/products/:id`) → a Dart string with `:param` segments
@@ -662,7 +695,7 @@ export const flutterTarget: WalkerTarget = {
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return null;
     ctx.usesRouteId = true;
-    return `${operationFormWidgetName(agg.name, op.name)}(id: id)`;
+    return gatedOpFormWidget({ agg, op, idExpr: "id" }, ctx);
   },
   // `DestroyForm(of: <Agg>)` → `DeleteAggForm(id: id)` (a confirm→DELETE button).
   renderDestroyForm: (call, ctx) => {
@@ -786,7 +819,7 @@ export const flutterTarget: WalkerTarget = {
         "Modal: OperationForm child must name of: <Agg> and op: <public op>",
       );
     }
-    const { op } = resolved;
+    const { agg, op } = resolved;
     // Trigger label — the Button's first positional string literal, else the op.
     const triggerNames = trigger.argNames ?? [];
     const firstPositional = (trigger.args ?? []).find((_, i) => !triggerNames[i]);
@@ -807,11 +840,13 @@ export const flutterTarget: WalkerTarget = {
     // Dart EXPRESSION either way, so it drops straight into `Text(…)`.
     const title =
       localizedNamedValue(call, ctx, "modalTitle", "title") ?? dartString(humanize(op.name));
-    return (
-      `ElevatedButton(onPressed: () => showDialog(context: context, ` +
+    const openDialog =
+      `showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
-      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)})))), ` +
-      `child: Text(${labelExpr}))`
+      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)}))))`;
+    return (
+      gatedOpTrigger(agg, op, resolved.idExpr, openDialog, labelExpr, ctx) ??
+      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`
     );
   },
 
@@ -1095,6 +1130,15 @@ export const flutterTarget: WalkerTarget = {
   // placeholder never varies.
   renderOptionalSplit: ({ value, bound, present }) =>
     `(switch (${value}) { final ${bound}? => ${present}, _ => const Text(${dartString("—")}) })`,
+  // `LoomRefLabel` (`lib/ref_label.dart`, `flutter/ref-label-runtime.ts`) — the
+  // pack's id `Text` becomes its `fallback`.  The page imports the library off
+  // this call (the `LoomChart(` marker discipline).
+  // The path INTERPOLATES the id (a `+` concat is a `prefer_interpolation_to_
+  // compose_strings` info on every wrapped cell).
+  renderRefLabelWrap: ({ apiPath, idExpr }) => ({
+    open: `LoomRefLabel(path: ${dartString(apiPath).slice(0, -1)}\${${idExpr}}', fallback: `,
+    close: ")",
+  }),
   // Flutter has no CSS `style` attribute — styling is per-widget.  Empty, like
   // Feliz.
   renderStyleAttr: () => "",

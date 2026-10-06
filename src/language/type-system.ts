@@ -50,6 +50,7 @@ import {
   isDecLit,
   isDerivedProp,
   isDomainService,
+  isDomainServiceOperation,
   isEntityPart,
   isEnumDecl,
   isEventDecl,
@@ -84,6 +85,7 @@ import {
   isSystem,
   isTemplateStr,
   isTernaryExpr,
+  isTestBlock,
   isThisRef,
   isUnaryExpr,
   isUserBlock,
@@ -1192,9 +1194,13 @@ export function typeAfterSuffix(recvType: DddType, suffix: PostfixSuffix, env: E
     case "userclaim":
       return lookupUserMember(recvType.ref, memberName);
     case "primitive": {
-      if (recvType.name === "string") {
-        if (memberName === "length") return T.prim("int");
-        if (memberName === "matches" && ms.call) return T.prim("bool");
+      // Field-shaped scalar members (`string.length`) — one shared table with
+      // the completion list and the membership check (`PRIMITIVE_FIELDS`), so
+      // the three cannot drift apart.
+      const field = primitiveFieldType(recvType.name, memberName);
+      if (field) return T.prim(field);
+      if (recvType.name === "string" && memberName === "matches" && ms.call) {
+        return T.prim("bool");
       }
       if (ms.call) {
         // Scalar intrinsics (src/util/intrinsics.ts) — catalogue-driven, so a
@@ -1336,6 +1342,67 @@ export function absentUserClaim(recvType: DddType, name: string): string[] | und
   return t.ref.fields.map((f) => f.name);
 }
 
+/** Field-shaped (non-call) members a PRIMITIVE receiver carries, beyond the
+ *  `src/util/intrinsics.ts` catalogue.  One table, three readers — the member
+ *  TYPING (`typeAfterSuffix`), the completion list (`membersOfType`) and the
+ *  membership judgement (`absentPrimitiveMember`) all consult it, so a future
+ *  scalar field cannot be legal in one and unknown in another.
+ *
+ *  `string.length` is the only entry today: it is the one bare scalar member
+ *  every backend renders (`.length` / `.Length` / `len()` / `String.length/1`).
+ *  Everything else reachable on a scalar is an intrinsic CALL. */
+const PRIMITIVE_FIELDS: ReadonlyMap<PrimitiveName, ReadonlyMap<string, PrimitiveName>> = new Map([
+  ["string", new Map<string, PrimitiveName>([["length", "int"]])],
+]);
+
+/** The type of a primitive's field-shaped member, or `undefined` when the
+ *  primitive has no such field. */
+function primitiveFieldType(recv: PrimitiveName, name: string): PrimitiveName | undefined {
+  return PRIMITIVE_FIELDS.get(recv)?.get(name);
+}
+
+/** For the unknown-member validator: `name` is definitively NOT reachable on a
+ *  primitive receiver.  Returns the receiver's primitive name plus everything
+ *  that IS reachable on it (for the diagnostic's tail); `undefined` when the
+ *  member resolves *or* the receiver isn't a primitive.
+ *
+ *  A primitive is a VALUE, not a record — it has no fields beyond
+ *  `PRIMITIVE_FIELDS` above and no operations beyond the intrinsic catalogue,
+ *  and both are fully enumerable.  Yet a bare member READ on one was the last
+ *  fail-open hole in the member funnel: the CALL form has been gated since the
+ *  stdlib landed (`loom.intrinsic-unknown`), while `s.totallyMadeUp` typed as
+ *  `unknown`, every operand validator suppressed on `unknown`
+ *  (anti-double-reporting), and the invented member reached the emitters
+ *  verbatim.  On node/.NET/Java the generated project then failed its own
+ *  compile; on python/elixir it did not, so an `invariant m.amount > 0` written
+ *  over a `money` field became a business rule that can never fire.
+ *
+ *  Fail-open by construction — `undefined` on every non-primitive receiver
+ *  (record, array, enum, `X id`, slot, `any`, `unknown`), so this never
+ *  competes with `absentRecordMember` / `absentUserClaim`.
+ *
+ *  A single optional level is unwrapped first, exactly as member RESOLUTION
+ *  does everywhere else: `nickname.length` on a `string?` stays a membership
+ *  question, and whether the DEREF is safe is a separate judgement
+ *  (`loom.intrinsic-nullable-receiver`).
+ *
+ *  INTRINSIC NAMES RESOLVE HERE even when written bare (`s.trim`): the name is
+ *  reachable, it is the missing call that is wrong, and that already has its
+ *  own code (`loom.intrinsic-bare`).  One diagnostic per mistake.  The string
+ *  regex `matches` is reachable the same way though it is not a catalogue row. */
+export function absentPrimitiveMember(
+  recvType: DddType,
+  name: string,
+): { prim: PrimitiveName; known: string[] } | undefined {
+  const t = recvType.kind === "optional" ? recvType.inner : recvType;
+  if (t.kind !== "primitive") return undefined;
+  const fields = [...(PRIMITIVE_FIELDS.get(t.name)?.keys() ?? [])];
+  const ops = intrinsicsForReceiver(t.name).map((s) => s.name);
+  const extra = t.name === "string" ? ["matches"] : [];
+  if (fields.includes(name) || ops.includes(name) || extra.includes(name)) return undefined;
+  return { prim: t.name, known: [...fields, ...ops, ...extra] };
+}
+
 /** For the unknown-member validator: when `recvType` is a record we can
  *  fully enumerate (aggregate / entity / value object / event-or-payload, or
  *  an `X id` resolving to one) and `name` is **not** one of its members,
@@ -1354,6 +1421,26 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
   // Member access transparently unwraps a single optional level.
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   switch (t.kind) {
+    // An ARRAY's member surface is exactly the collection-op catalogue
+    // (`COLLECTION_OP_SIGNATURES`) — which is already what `membersOfType`
+    // offers for completion on an array receiver, so this arm only makes
+    // VALIDATION agree with what completion has always claimed.
+    //
+    // Without it `collectionOpType`'s `default` returned `T.unknown` for an
+    // absent member, and `unknown` is the value every downstream check
+    // suppresses on — so a typo'd or invented collection op on an array
+    // receiver was reported NOWHERE and reached the emitters verbatim
+    // (testability audit F1's residue; the same shape in an aggregate
+    // `operation` and in a `domainService` body alike).
+    //
+    // `sum`/`avg`/`min`/`max` in their BARE form are collection ops, so they
+    // pass here and are refused by `loom.bare-collection-accessor` instead —
+    // its message names the lambda form, which is the actionable fix.
+    case "array":
+      // `length` is an alias `collectionOpType` types as `int` (see there); it
+      // is legal on an array but absent from the catalogue, so `isCollectionOp`
+      // alone would reject it.
+      return isCollectionOp(name) || name === "length" ? undefined : typeToString(t);
     case "aggregate": {
       if (name === "id") return undefined;
       return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;
@@ -1415,6 +1502,19 @@ function collectionOpType(
 ): DddType {
   switch (name) {
     case "count":
+    // `<array>.length` — an ALIAS for `count`, not a catalogue op.  The IR has
+    // typed it as `int` all along (`lower-expr.ts`, the `array` arm), and its
+    // comment there claims this is "exactly as the language type-system already
+    // reports it" — which was NOT true: `collectionOpType` had no `length` case,
+    // so the language layer returned `T.unknown` while the IR and every emitter
+    // handled it (java renders `.size()`, and the corpus relies on it).  That is
+    // the same IR/language disagreement shape as F1, found by this PR's own gate
+    // turning a valid fixture red.
+    //
+    // It is deliberately NOT added to COLLECTION_OP_SIGNATURES: that catalogue
+    // drives `collection-op-completeness`, which requires every backend to
+    // RENDER each entry, and `length` is spelled `count` there.
+    case "length":
       return T.prim("int");
     case "sum": {
       // sum returns the lambda's body type when one is given;
@@ -1661,23 +1761,6 @@ function lookupValueObjectByName(name: string, env: Env): ValueObject | undefine
 // and src/util/collection-ops.ts — pure data catalogues that all layers
 // can import without back-edges into language/.
 
-export function lambdaTakesElementOf(t: DddType): DddType {
-  if (t.kind === "array") return t.element;
-  return T.unknown;
-}
-
-// ---------------------------------------------------------------------------
-// Pure-expression check for `function` bodies
-// ---------------------------------------------------------------------------
-
-export function isPureExpression(_expr: Expression): boolean {
-  // Expressions are inherently pure in this DSL — they cannot mutate or
-  // emit.  Purity violations live in statements (`:=`, `+=`, `-=`, `emit`),
-  // which can never appear inside a `function` body because the grammar
-  // only accepts an Expression there.
-  return true;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers for collecting parameters / let-bindings into an Env
 // ---------------------------------------------------------------------------
@@ -1694,17 +1777,6 @@ function typeRefAggregate(t: TypeRef | undefined): Aggregate | undefined {
   const dt = resolveTypeRef(t);
   return dt.kind === "aggregate" ? dt.ref : undefined;
 }
-
-export type SymbolOrigin =
-  | Parameter
-  | { letBinding: import("./generated/ast.js").LetStmt }
-  | FunctionDecl
-  | Operation
-  | ValueObject
-  | EntityPart
-  | Aggregate
-  | EnumDecl
-  | { lambdaParam: Lambda };
 
 export function makeEnv(
   outer: Env | undefined,
@@ -1752,7 +1824,9 @@ const lettingInFlight = new Set<import("./generated/ast.js").LetStmt>();
  */
 function addTypedLets(
   bindings: Map<string, { type: DddType; origin: AstNode }>,
-  stmts: import("./generated/ast.js").Statement[],
+  // `AstNode`, not `Statement`: a unit `test` body is a `TestStatement[]` (it
+  // adds `expect`), and only the `let`s are read.
+  stmts: readonly AstNode[],
   ctx: {
     aggregate?: Aggregate;
     part?: EntityPart;
@@ -1885,10 +1959,10 @@ export function findOperation(agg: Aggregate, name: string): Operation | undefin
 // ---------------------------------------------------------------------------
 // envForNode — builds a `typeOf`-ready Env for any node in the AST.
 //
-// Walks up to the closest scope-bearing container (operation, function,
-// invariant, derived prop, value object, part, aggregate) and assembles
-// bindings + scope context.  The validator constructs equivalent envs
-// inline; LSP services (hover, completion) need the same data without
+// Walks up to the closest scope-bearing container (operation, domain-service
+// operation, function, invariant, derived prop, value object, part, aggregate)
+// and assembles bindings + scope context.  The validator constructs equivalent
+// envs inline; LSP services (hover, completion) need the same data without
 // having to recreate the walk per provider.
 //
 // Bindings come from (in increasing precedence):
@@ -1906,6 +1980,13 @@ export function envForNode(node: AstNode): Env {
   const vo = AstUtils.getContainerOfType(node, isValueObject);
   const fn = AstUtils.getContainerOfType(node, isFunctionDecl);
   const op = AstUtils.getContainerOfType(node, isOperation);
+  // A `domainService` operation is its OWN grammar rule (`DomainServiceOperation`,
+  // `stmts+=Statement*`), NOT an `Operation` — so `isOperation` never matches one and
+  // without this arm a service body bound no params and typed no lets.  Every receiver
+  // in it came back `unknown`, and because each type-based validator suppresses on
+  // `unknown` (the deliberate anti-double-reporting rule), EVERY type gate failed open
+  // inside `domainService` bodies (testability audit F1, language half).
+  const dsop = AstUtils.getContainerOfType(node, isDomainServiceOperation);
   const find = AstUtils.getContainerOfType(node, isFindDecl);
   const _wf = AstUtils.getContainerOfType(node, isWorkflow);
   // UI-side containers — pages and components carry typed params
@@ -1963,6 +2044,7 @@ export function envForNode(node: AstNode): Env {
   const params =
     fn?.params ??
     op?.params ??
+    dsop?.params ??
     find?.params ??
     create?.params ??
     handle?.params ??
@@ -1989,10 +2071,21 @@ export function envForNode(node: AstNode): Env {
   };
   if (op) {
     addTypedLets(bindings, op.body, letCtx);
+  } else if (dsop) {
+    // `stmts`, not `body` — the rule spells its statement list differently.
+    addTypedLets(bindings, dsop.stmts, letCtx);
   } else if (create) {
     addTypedLets(bindings, create.body, letCtx);
   } else if (handle) {
     addTypedLets(bindings, handle.body, letCtx);
+  }
+  // A unit / integration `test` body (`let r = Claim.create({ … })` then
+  // `r.bump("x")`).  Without this arm every test-body let typed `unknown`, so the
+  // call-arg checks the body now runs (`checkTestBodyCallArgs`) had nothing to
+  // resolve a receiver against and failed open.
+  const testBlock = AstUtils.getContainerOfType(node, isTestBlock);
+  if (testBlock && !op && !dsop && !create && !handle) {
+    addTypedLets(bindings, testBlock.body, letCtx);
   }
   // An `on(e: Event) { … }` reactor / `apply(e: Event) { … }` fold bind their
   // event instance as a typed `payload` local (these params are a LooseName +
@@ -2197,9 +2290,10 @@ export function membersOfType(t: DddType): MemberCompletion[] {
         kind: "method",
         detail: s.signature,
       }));
-      return t.name === "string"
-        ? [{ name: "length", kind: "field", detail: "int" }, ...intrinsics]
-        : intrinsics;
+      const fields: MemberCompletion[] = [...(PRIMITIVE_FIELDS.get(t.name) ?? [])].map(
+        ([name, detail]) => ({ name, kind: "field", detail }),
+      );
+      return [...fields, ...intrinsics];
     }
     case "enum":
       return t.ref.values.map((v) => ({ name: v.name, kind: "enum-value", detail: t.ref.name }));

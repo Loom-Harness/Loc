@@ -1,0 +1,139 @@
+// Query-time projections whose DIRECT-TABLE arms read a source that is not a
+// plain one-table-per-aggregate row — the two crossings eval items 10 and 14b
+// found broken, pinned as positive fixtures.
+//
+// 1. A TPH (`sharedTable`) CONCRETE as the source.  `AutoClaim` owns no table:
+//    its rows live in the root's shared `claims` table, discriminated by
+//    `kind`.  node selected `schema.autoClaims` (TS2339 — no such export);
+//    python and elixir read the shared table with NO `kind` conjunct, so a
+//    count over `AutoClaim` silently counted every `PropertyClaim` too — valid
+//    SQL, wrong number.  Every direct-table read now goes through
+//    `projectionSourceTable` (src/ir/util/inheritance.ts): the owner table plus
+//    the discriminator.  dotnet (EF `HasDiscriminator`) and java (JPQL over a
+//    SINGLE_TABLE entity) were already right and stay in the matrix as the
+//    control.
+//
+// 2. A VALUE-OBJECT LEAF as an aggregate argument (`sum(b.amount.amount)`).
+//    Four backends flatten the VO to `amount_amount`; vanilla Ecto stores the
+//    whole VO as ONE `:map` (jsonb) column, and emitted `sum(record.amount)` —
+//    `sum(jsonb)`, a Postgres error at request time.  It now extracts the leaf
+//    and casts it back (`sum(fragment("(?->>'amount')::numeric", record.amount))`).
+//
+// The e2e block asserts the NUMBERS, because the TPH defect compiled clean on
+// two of its three backends: a sibling row must not move a concrete's count.
+system ProjectionTphSource {
+  subdomain Claims {
+    context Claims {
+      enum ClaimStatus { Intake, Closed }
+      valueobject Money { amount: money  currency: string }
+
+      abstract aggregate Claim inheritanceUsing: sharedTable {
+        reference: string
+        status: ClaimStatus = Intake
+      }
+      aggregate AutoClaim extends Claim with crudish {
+        vehicleVin: string
+      }
+      aggregate PropertyClaim extends Claim with crudish {
+        addressLine: string
+      }
+      repository AutoClaims for AutoClaim { }
+      repository PropertyClaims for PropertyClaim { }
+
+      // GROUPED arm over the TPH concrete.
+      projection AutoClaimsByStatus {
+        status: ClaimStatus
+        claims: int
+        from AutoClaim as c
+        group by c.status
+        select status = c.status, claims = count()
+      }
+
+      // WHOLE-TABLE arm over the TPH concrete.
+      projection AutoClaimVolume {
+        claims: int
+        from AutoClaim as c
+        select claims = count()
+      }
+
+      aggregate Bill with crudish {
+        amount: Money
+      }
+      repository Bills for Bill { }
+
+      // WHOLE-TABLE arm summing a value-object leaf.
+      projection BillTotals {
+        bills: int
+        total: money
+        from Bill as b
+        select bills = count(), total = sum(b.amount.amount)
+      }
+    }
+  }
+  api ClaimsApi from Claims
+  storage primary { type: postgres }
+  resource claimsState { for: Claims, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Claims]
+    dataSources: [claimsState]
+    serves: ClaimsApi
+    port: 4000
+  }
+
+  test e2e "a TPH concrete's projection counts only its own rows" against d {
+    let empty = api.autoClaimVolume.list()
+    expect(empty.claims).toBe(0)
+
+    let a1 = api.autoClaims.create({ reference: "A-1", vehicleVin: "VIN1" })
+    let a2 = api.autoClaims.create({ reference: "A-2", vehicleVin: "VIN2" })
+    // A SIBLING concrete's row in the same shared table: a read that forgot the
+    // `kind` conjunct answers 3 below instead of 2.
+    let p1 = api.propertyClaims.create({ reference: "P-1", addressLine: "1 Main St" })
+
+    let volume = api.autoClaimVolume.list()
+    expect(volume.claims).toBe(2)
+    // One status group (every claim defaults to `Intake`), carrying only the
+    // two auto claims.
+    let groups = api.autoClaimsByStatus.list()
+    expect(groups.count()).toBe(1)
+    expect(groups.first().claims).toBe(2)
+
+    // The repository reads over the same shared table agree with the
+    // projection: each concrete lists and reads back only its own rows.
+    expect(api.autoClaims.all().count()).toBe(2)
+    expect(api.propertyClaims.all().count()).toBe(1)
+    api.autoClaims.update(a1, { vehicleVin: "VIN9" })
+    expect(api.autoClaims.getById(a1).vehicleVin).toBe("VIN9")
+    api.propertyClaims.update(p1, { addressLine: "2 Main St" })
+    expect(api.propertyClaims.getById(p1).addressLine).toBe("2 Main St")
+
+    // Deleting the SIBLING must not move the concrete's count; deleting one of
+    // its own must.
+    api.propertyClaims.destroy(p1)
+    expect(api.autoClaimVolume.list().claims).toBe(2)
+    api.autoClaims.destroy(a2)
+    expect(api.autoClaimVolume.list().claims).toBe(1)
+  }
+
+  test e2e "a value-object leaf sums as a number" against d {
+    let empty = api.billTotals.list()
+    expect(empty.bills).toBe(0)
+
+    let b1 = api.bills.create({ amount: { amount: "10.50", currency: "EUR" } })
+    let b2 = api.bills.create({ amount: { amount: "4.25", currency: "EUR" } })
+    let totals = api.billTotals.list()
+    expect(totals.bills).toBe(2)
+    expect(totals.total).toBe("14.7500")
+
+    // The sum follows a rewrite of the jsonb leaf and a delete.
+    api.bills.update(b1, { amount: { amount: "20.00", currency: "EUR" } })
+    expect(api.bills.getById(b1).amount.currency).toBe("EUR")
+    expect(api.billTotals.list().total).toBe("24.2500")
+    let listed = api.bills.all()
+    expect(listed.items.length).toBe(2)
+    expect(listed.total).toBe(2)
+    api.bills.destroy(b2)
+    expect(api.billTotals.list().total).toBe("20.0000")
+  }
+}

@@ -153,7 +153,9 @@ Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-c
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) rows 14–16; §F3 (one ref-walker per IR family) is the durable fix for (3). Relates to §A16 (the three sibling collectors #2667 already migrated onto `src/ir/util/walk.ts`).
 
-## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `open` · **M** · P2 ⚠ verify-first
+## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `partial` · **M** · P2 ⚠ verify-first
+
+*Status → `partial` 2026-09-29 (eval-closure review G8-07c): F16/F60 closed (wave C2 2a), F20 recorded as a DECISION; only the F23/F61 HEEx `WorkflowForm` handler and the function-derived residue remain.*
 
 Found 2026-09-03 by the language-docs audit ([F16](../audits/2026-09-03-language-docs-audit-findings.md), [F20](../audits/2026-09-03-language-docs-audit-findings.md), [F22](../audits/2026-09-03-language-docs-audit-findings.md), [F23](../audits/2026-09-03-language-docs-audit-findings.md); P1/P2). `derivedRenderable` (`src/generator/elixir/vanilla/wire-serialize.ts`) omits a `derived` that reads another `derived` from `serialize/1` while the other four backends ship it — a wire-shape divergence with no gate. On the HEEx side, `renderImage` (`src/generator/elixir/heex-primitives.ts:1510`) and `renderIcon` (`:2151`) read only a named `src:` / a `svg:` literal, ignoring the positional spelling every other target renders (`Image { "/logo.png", alt: … }` emits `<img alt>` with no `src`; `Icon { name: "check" }` an empty span), and the HEEx `WorkflowForm` emits a single `<.input field={@form[:_placeholder]}>` (`heex-primitives.ts:388`) where React emits the real field set.
 
@@ -248,64 +250,6 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > the per-PR set nor the merge queue** — the reason the plan split F61 out. The boot proof above
 > calls the emitted clause directly for exactly that reason.
 
-## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `done` (option B ratified as [D-ENVELOPE-RATIFY](../decisions.md), landed 2026-09-10) · **S** · P0
-
-Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.
-
-**This is NOT a fix mission.** "Five-way inconsistent" is a parity question, not a bug with a known answer: hand it to the `parity-auditor` skill for the who-emits-what matrix and a decision on what `envelope` *should* mean, then file the fix as its own mission. Do not let an agent guess the intended semantics.
-
-**Verification when it lands.** The matrix, the decision recorded where the carrier is documented, and a successor mission ID for the emitter work.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F21, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.4** (`fileTrees: []` — scoping only). Relates to M-T6.14 (DEBT-08 `envelope` carrier, deferred there for "no live use" — this is the evidence that the carrier is not inert).
-
-> **Verified 2026-09-09 (fleet). ESCALATE — this is a P0, not a P2 parity nit (audit F57).**
-> `find audit(): Order envelope` reports `0 error(s), 0 warning(s)` and emits **non-compiling** output
-> on two backends: Java references `Envelope<T>` in three files and declares it in none; .NET's body
-> returns a bare `T` from a signature typed `Task<Envelope<T>>` (CS0029). It is four-way, not five.
-> **It survived because NO `.ddd` in the repo uses the carrier** — zero syntactic hits across corpus,
-> examples, build fixtures and playground — so every compile gate is blind by construction.
-> `docs/generators.md:66` gives generic carriers five ticks; two sit on output that does not build.
-> Scoping is done (see the fleet plan); the A/B/C fork needs user sign-off before any emitter change.
-> The docs correction is true under every option.
-
-> **CLOSED 2026-09-10 — option B ratified by the user and landed.** `envelope` **means a
-> single-row find**: the repository returns `T`, the route returns the bare body, 404 when
-> absent — exactly what node and python already shipped (both reproduced clean; the register's
-> "python 404s on absent" undersells node, which throws `AggregateNotFoundError` on an empty
-> `limit(1)` and 404s too). All five reproduced first: java's three `Envelope<Order>` signatures
-> (port / Spring-Data interface / impl, type declared nowhere, `OrderResponse.from(...)` called on
-> it) — CONFIRMED; dotnet's `Task<Envelope<Order>>` returning a bare `Order` — CONFIRMED (and the
-> query handler then reads `domain.Id.Value` off the carrier); elixir's `Repo.all` + JSON array
-> against a single-object OpenAPI — CONFIRMED. Option A (`{id, ts, body}`) stayed blocked: nothing
-> in the IR can source `ts`.
-> **Fix:** `envelopeReturn` (`src/ir/stdlib/generics.ts`, beside `pagedReturn`) is the one
-> recogniser; java unwraps in `findReturn`, dotnet in the new `domainFindShape` (composed with
-> `unionFindAsOptionalTwin` at all 8 call sites, so the port/impl/dapper adapters cannot diverge)
-> and the dead `Envelope<T>` record is deleted from `dotnet/emit/common.ts`, elixir's four
-> `isSingleReturn`/`isDocSingleReturn` predicates gained the carrier arm. node/python: no change
-> needed, verified.
-> **Fixture:** `test/fixtures/corpus/envelope.ddd` (+ manifest row, `backends: ALL`) — the first
-> `.ddd` in the repo to instantiate the carrier, so the per-PR corpus generation gate and every
-> backend compile tier now see it. Pinned by `test/generator/envelope-carrier.test.ts`
-> (`T envelope` and `T` must emit byte-identically, per backend).
-> **Semantics note for readers:** this REMOVES the distinct meaning the keyword was documented to
-> carry. `envelope` is now documentation-in-the-signature ("this read yields at most one row"),
-> not a wire wrapper. Docs corrected: `generators.md` (the five-tick carriers row, split + noted),
-> `payloads.md` §2, `language-reference/04-type-system.md` § `envelope`.
-> **Fixture tier — compile, not behavioural, and signed as such.** `envelope.ddd` carries no
-> `test e2e` block; it is listed in `E2E_LESS_CORPUS_FIXTURES` and `BEHAVIOURAL_ABSENT`. A block was
-> authored and withdrawn: it mints a wire golden, and the find-miss 404 `detail` is **not uniform** —
-> node answers `"not found"`, dotnet/java/python/elixir answer `"not_found"` (dotnet's own
-> `projectionClauseFor` comment calls `"not_found"` "the canonical find-miss detail token on every
-> backend"). A golden captured on the node leg would redden the other four on `main`.
-> **TWO SPIN-OFFS, both pre-existing and neither envelope-specific:**
-> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it. **CLOSED 2026-09-21 (#2979).** It was worse than 1-vs-4: node answered the token on its `: T?` / `: T option` arms (thrown from `routes-builder.ts`) and the space-spelling on its `: T` / `: T envelope` arms (thrown from `repository-find-builder.ts`) — an INTRA-backend split as well as a cross-backend one. node aligned on `"not_found"`; gated per site across 5 backends x 4 carriers by `test/conformance/find-miss-detail-parity.test.ts`, which also pins RS-27's by-id SENTENCE beside it so the two 404 classes cannot be collapsed. The miss arm of a single-row-find e2e block is no longer blocked;
-> (b) a FILTERLESS single-return find on an EVENT-SOURCED aggregate emits
-> `Enum.find(all, fn a ->  end)` on elixir — an empty lambda body, invalid Elixir (identical for
-> `find pick(): Ev` with no carrier).
-> A third, benign: the `envelope` carrier in a PAYLOAD FIELD (the other position the AST gate
-> admits) is unreachable — the monomorphized `<T>Envelope` payload has no builder, so nothing can
-> construct one.
 ## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `partial` (the `handle` gate landed; named `create` + the emitter remain) · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
 
 Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language-docs-audit-findings.md), P1) — the only finding in the register that is a *missing feature* rather than a defect. `src/ir/lower/lower-workflow.ts:124-174` fills `WorkflowIR.handlers`/`.creates`, `test/ir/workflow-handle.test.ts` pins the lowering, and `loom.duplicate-handler` (`src/diagnostics/messages.ts:310`) promises that a `route -> Ctx.<handle>` is meaningful — yet no emitter reads `wf.handlers`. A workflow with `handle retry(...)` plus `api { route POST "/fulfil/retry" -> C.retry }` produces no route on node or dotnet, and no routes file at all.
@@ -429,7 +373,7 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
-## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `in-flight (#2850 + wave C1 1a)` · **M** · P0
+## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `partial` (#2850 + wave C1 1a landed the CORRELATED spellings; the uncorrelated REMAINING below is unowned — wave L1 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md), item X1) · **M** · P0
 
 *Renumbered 2026-09-10 from `M-T6.60`, which #2840 minted while the numeric-strictness mission above already held that id (two live headings, one id — M-T6.58's "blocked on M-T6.60" was ambiguous). This one is the P0 miscompile; M-T6.60 stays the strictness ruling.*
 
@@ -456,40 +400,10 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 
 ### REMAINING
 
-- **An UNCORRELATED command workflow (state fields, no id-shaped field) is a five-way parity gap.** M-T6.50 (b) made python emit a request-scoped scratch (`self = SimpleNamespace(_total=0)`) for it, and #2850 fixed that scratch's indentation; node/.NET/Java still emit an unbound `this.<field>`, and Elixir's shape needs re-reading. Not refused — refusing would revoke a shipped emission — so this is emitter work to bring the other four onto python's semantics (or a ruling that the shape is a `scope` limit). Repro: `workflow Tally { total: int  create(base: int) { total := base } }`.
+- **An UNCORRELATED command workflow (state fields, no id-shaped field) is a five-way parity gap.** M-T6.50 (b) made python emit a request-scoped scratch (`self = SimpleNamespace(_total=0)`) for it, and #2850 fixed that scratch's indentation; the other four do not compile. **Re-verified 2026-09-29 on `main` @ `cbda9165`** (wave L0) with `workflow Tally { total: int  create(n: int) { total := n } }`, `0 error(s)`, all five generated: node `this.total = n;` in a module-scope route arrow (`http/workflows.ts:43`); .NET `this.Total = command.N;` on `TallyHandler` (no such member); Java `this.setTotal(n);` in `CWorkflows.java:24`; Elixir `with state <- (%{state | total: n})` with `state` unbound (`workflows/tally.ex:17`); python the `SimpleNamespace` scratch (compiles, persists nothing). Not refused — refusing would revoke a shipped emission — so this is emitter work to bring the other four onto python's semantics (or a ruling that the shape is a `scope` limit). This is item **X1** of the leftover plan; its corpus fixture is on M-T9.74's list.
 - **A command create whose body does NOT touch own state still allocates no row**, so an `on` reactor for the same key logs `event_unrouted` forever (the reactor path loads, it does not allocate). Deliberately ungated — refusing it would refuse a legitimately stateless command starter — and it is the half of F58's "never loads or saves" that a receiver-binding fix cannot reach.
-- **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) is [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s.
+- **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) was [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s — **merged** (`7534696f`); the `loom.workflow-create-correlation-unsupplied#payload` refusal above can now be revisited against it.
 - **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
-
-## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `done` (2026-09-10, [#2857](https://github.com/Loom-Harness/Loc/pull/2857); re-verified 2026-09-11) · **M** · P0
-
-Found 2026-09-09 by the verification fleet ([F59](../audits/2026-09-03-language-docs-audit-findings.md)),
-as bycatch while resolving W3.1's gate-vs-lower fork. For a union carrying an `error` variant, the arm
-collapses to `_ =>` (C#) / `case null ->` (Java) and the arm's bound name is left unresolved:
-
-```csharp
-Owner = r switch { Hit h => h.Code, _ => n.Resource, };            // `n` unbound
-```
-```java
-this.owner = switch (r) { case null -> n.resource(); case Hit h -> h.code(); };  // `n` unbound
-```
-
-Node is correct, and two non-error variants are correct on all three — it is specifically the
-error-variant arm. Sites: `src/generator/dotnet/render-expr.ts:324`, `src/generator/java/render-expr.ts:420`.
-
-**Sequencing:** the W3.1 placement gate's message would tell users to switch to exactly this form. Either
-this lands first, or that message must not recommend it on .NET and Java.
-
-**Fixed by [#2857](https://github.com/Loom-Harness/Loc/pull/2857) (`f518e31`, 2026-09-10); re-verified 2026-09-11 by Wave C1 packet 1b BY GENERATING, before building anything on top of it.** Both leaves special-cased "exactly one non-error variant + at least one error variant" as a repository union find's OPTIONAL TWIN — an arity guess that also matches an ordinary `Hit | NotFound` DU, whose carriers do exist. The branch is gone on both. Repro (`payload Hit { code: string }` + `error NotFound { resource: string }`, a `Hit or NotFound` operation, `owner := match r { Hit h => h.code, NotFound n => n.resource }`) now emits the arm's binding on both backends:
-
-```csharp
-Owner = r switch { HitOrNotFound_Hit h => h.Code, HitOrNotFound_NotFound n => n.Resource, _ => throw … };
-```
-```java
-this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFound_NotFound n -> n.resource(); default -> null; };
-```
-
-and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
 
 ## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
 
@@ -530,6 +444,8 @@ explicit `@JsonProperty` / `@RequestParam` / enum converter at every wire site �
 the shape this row could follow if the C# collision ever needs emitting rather
 than refusing) and to
 [M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
+
+*Wave L1-C (leftover-waves-2026-09-28), item P19 — rides [M-T6.75](#m-t675)'s .NET packet.*
 ## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
 
 Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
@@ -554,6 +470,8 @@ Two candidate fixes, and the choice is the mission: teach the harness to honour 
 four other backends declare their own base so the axis is uniform. Until one lands, the elixir cell's
 findings are not statements about the elixir API surface, and it must stay `discovery: true`.
 
+*Wave L1-E (leftover-waves-2026-09-28), item **E9** — rides [M-T6.77](#m-t677)'s elixir packet.*
+
 ## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
 
 Diagnosed 2026-09-11 alongside M-T6.70, statically on the emitted tree (E2 of the elixir schemathesis cell).
@@ -569,59 +487,7 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
 
-## M-T6.73 — An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` is mounted OUTSIDE `/api` on four of five backends, and python wraps its scalar return — `open` · **S–M** · P1
-
-Measured 2026-09-22 by [#2984](https://github.com/Loom-Harness/Loc/pull/2984), which lifted routed
-handlers onto the `test e2e` surface and then booted `corpus/handler-triad` across the behavioural tier
-for the first time. **Not a verify-first mission** — every row below is a booted runtime observation from
-the per-leg CI logs on head `dcd6d329`, re-derived statically from the emitted trees.
-
-Until that lift, no `test e2e` body could ADDRESS a routed handler at all (`api.<x>.<y>(…)` resolved to an
-aggregate, a projection or a workflow only), so **not one of these routes had ever been called on any
-backend**. All five emit and all five compile; four serve nothing at the path the caller uses. That is the
-silent-gap shape the behavioural tier exists to catch, and it stayed invisible because the only oracle that
-could see it did not exist.
-
-| leg | observed | emitted mounting |
-|---|---|---|
-| node, mikroorm | `POST /api/echo/hi` → `"hi"` (the wire-golden oracle) | under `API_BASE_PATH` |
-| dotnet, dapper | `POST /api/echo/hi → 404 "no route for POST /api/echo/hi"` | `[HttpPost("/echo/{text}")]` — a leading slash makes an ASP.NET route ROOT-ABSOLUTE, so the `/api` prefix is ignored |
-| java | same 404 | `@RestController` with **no class-level `@RequestMapping`** + `@PostMapping("/echo/{text}")` |
-| elixir | same 404 | `router.ex` puts them in `scope "/"` while every aggregate route sits in `scope "/api", DWeb` |
-| python | `expected {"result":"hi"} to be "hi"` | path is CORRECT (`include_router(a_router, prefix="/api")`); the divergence is the RESPONSE — it wraps a handler's scalar return in `{"result": …}` |
-
-So there are **two** independent defects, and they want separate treatment:
-
-1. **The prefix (dotnet/dapper, java, elixir).** Every other route class on these backends is mounted under
-   `API_BASE_PATH`; the explicit-route emitter is the one that is not. The five emitters all exist —
-   `src/generator/{dotnet,java,python,elixir/vanilla}/explicit-handlers-emit.ts` and hono's
-   `src/platform/hono/v4/emit.ts` — so this is "emitted at the wrong prefix", **not** "not implemented".
-   Fix is per-emitter and small: .NET drop the leading slash and carry the controller prefix, java add the
-   class-level `@RequestMapping(API_BASE_PATH)`, elixir move the routes into the existing `scope "/api"`.
-2. **The scalar envelope (python).** `{"result": "hi"}` where node answers the bare `"hi"`. This is a
-   runtime-VALUE divergence a spec-vs-spec diff cannot see, so it reads as a **conformance-semantics RS-rule
-   candidate** (`docs/conformance-semantics.md`) rather than a schema gap — the rule would pin "a routed
-   handler returning a scalar answers that scalar, unwrapped". Whether to ratify node's shape or python's is
-   an owner call, not a defect ruling; note that #2984's wire golden was recorded on node.
-
-**This is a wire-contract change to a shipped feature** — anyone calling an explicit route on .NET, java or
-elixir today is calling it at the root. Decide and record the canonical answer before moving the routes.
-
-**Drain, in one PR:** make the five agree; restore the `test e2e` block #2984 wrote and reverted (it is in
-that PR's history at commit `dcd6d329`, `test/fixtures/corpus/handler-triad.ddd`); delete the
-`handler-triad` rows from `E2E_LESS_CORPUS_FIXTURES` (`test/ir/api-caller-census-pins.ts`) and
-`BEHAVIOURAL_ABSENT` (`test/system/gate-ledger.test.ts`); lower the `BEHAVIOURAL_ABSENT` ratchet in
-`test/platform/allowlist-ratchet.test.ts` by one **off whatever main's value is then**; pin the two
-id-taking aggregate routes (`getOrderById`, `cancelOrder`) that the fixture's create-less `Order` genuinely
-blocks; and re-record `test/behavioral/wire-golden/handler-triad.json`.
-
-**Why #2984 did not narrow the drain to node instead.** `gate-ledger.test.ts` asserts, zero-tolerance and
-with no allowlist, that *"a compile-only feature is compile-only on EVERY backend it declares — a split
-would mean a per-backend `BEHAVIOURAL_SKIP` entry is doing the hiding, and the per-feature register above
-would be the wrong shape to describe it"*, and `BEHAVIOURAL_SKIP` is itself ratcheted at `max: 0`. A
-node-only boot is exactly that split. Both gates reject it, so the fixture stays compile-only on every leg
-until this mission lands. Changing that invariant is a decision about the ledger's shape, not part of
-either this mission or #2984.
+*Wave L1-E (leftover-waves-2026-09-28), item **E10** — rides [M-T6.77](#m-t677)'s elixir packet.*
 
 ## M-T6.72 — Move the .NET capability filters that cannot be model-hosted onto the per-read query — `open` · **L** · P3
 
@@ -675,3 +541,185 @@ Sources: [`decisions.md`](../decisions.md) D-TPH-SUBTYPE-FILTER;
 `src/ir/util/inheritance.ts` (`nonRootFilterFields`),
 `src/generator/dotnet/emit/efcore.ts`. Relates to
 [M-T5.7](T5-language-core.md#m-t57) (the inheritance tail).
+
+## M-T6.74 — The node silent-defect batch: foreign-event enums, decimal refine, decimal.js precision, fail-open write scope — `open` · **M** (a batch of S items) · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-N (leftover-waves-2026-09-28).**
+
+One tree-fenced packet (`src/generator/typescript/`, `src/platform/hono/`, `src/generator/zod-refine.ts`). Sequence after #3060 (M-T6.64 test-body imports). X3's node sites are [M-T6.79](#m-t679)'s; take only the ones open PR #3072 (RS-4 `.000Z` on raw-row reads) does not touch.
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| N1 | A foreign event's **enum/VO is never emitted on the consuming deployable**: `import type { Priority }` from an empty `value-objects.ts` | repro (#2944) | S–M |
+| N2 | `zod .refine` evaluates **decimal** cross-field invariants in binary float: `a+b <= 0.3` → 422 on node (and the four JS frontends), 201 elsewhere — the RS-37 residue M-T5.22 handed off | `src/generator/zod-refine.ts:~118` (#3055) | S |
+| N3 | decimal.js runs at its default 20 significant digits; the others use ≥28. Set `Decimal.set({ precision })` | no `Decimal.set` anywhere in `src/` (#3055) | S |
+| N4 | `writeScopePredicate` returns `null` when lowering fails, so **the write-scope guard silently vanishes** (fail-open) — security-relevant | `src/generator/typescript/repository-find-predicate.ts:778-782` (#2770) | S |
+| N5 | `toWire` doubles its optional-VO guard (cosmetic) | repro (#2864) | S |
+
+**Verification.** A corpus fixture per repro compiling under `corpus-tsc-build`; N4 as a refusal (a `loom.*` code) rather than an emitted open write; N2/N3 through the RS-37 conformance cases.
+
+**Added 2026-09-29 (evaluation-closure Wave A follow-up B-A4, found by #3083):**
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| N6 | node **omits** an optional event field the `emit` leaves out (the key is absent rather than `null`), where the other backends serialise `null`; channels-e2e and the corpus have no optional-field row to catch it | found while building #3083 (#11/#12) | S |
+
+## M-T6.75 — The .NET silent-defect batch: `e` param collision, document-store `ignoring`, channel optional fields, unconditional `#line` weaving — `open` · **M** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-C (leftover-waves-2026-09-28).**
+
+One tree-fenced packet (`src/generator/dotnet/`). Also carries V6's emitter half (if the fix is a rename rather than a refusal) and **M-T6.69**. #3043 (BCL type names) has merged, so the sequencing precondition is met.
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| C1 | A create param named `e` collides with the emitted `var e` local → CS0136 | repro, `emit/entity.ts:681,809,904` (#3055) | S |
+| C2 | The document store ignores `ignoring`: scoped, `ignoring X` and `ignoring *` reads all get the same `_CapabilityVisible`, so reads are over-restricted | repro (#2891 1f) | M |
+| C3 | A channel consumer crashes on an absent optional event field (`GetProperty` → `KeyNotFoundException`) | `emit/channels.ts:~108` (#2944) | S |
+| C4 | A private byte-identical copy of `emitsCommandRoute` | `workflow-emit.ts:373` (#3015) | S |
+| C5 | .NET weaves `#line` directives on **every** `generate system` run, not only under `--sourcemap`: the weave is gated on `sourceTexts` alone (`src/generator/dotnet/index.ts:~276`) and the CLI always passes `sourceTexts` (`src/cli/main.ts:~701`), contradicting `docs/debugging.md:5-7`. Fix: gate on `sourcemap && sourceTexts`. (Leftover D13 — its doc comment was corrected in #3076; this is the behaviour half.) | #3017 | S |
+
+**Verification.** Corpus fixtures through `corpus-dotnet-build` (both .NET persistence cells); C2 through the capability-filter tests next to [M-T6.72](#m-t672).
+
+## M-T6.76 — The Java + Python silent-defect batch: sibling-context VOs, decimal `toBe`, partial `ignoring`, channel optional fields, weak ETags — `open` · **M** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-JP (leftover-waves-2026-09-28).**
+
+One packet over `src/generator/{java,python}/`, plus X3's python sites if [M-T6.79](#m-t679) has not taken them. Owner decision **O7** (python mypy `[comparison-overlap]` on an enum progression in unit tests, #2957) lands here; default: re-read via a helper.
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| J1 | Workflow mappers read `ctx.valueObjects` only, so a **sibling-context VO** gives `new Money2()` against a 2-arg record | repro, `java/emit/workflow.ts:530,1007`, `workflow-state.ts:94` (#2925) | S |
+| J2 | A unit test `toBe(3)` on a decimal → `compareTo(3)` does not compile | repro, `java/emit/tests.ts:291` (#3055) | S |
+| J3 | Retrieval with a partial `ignoring` keeps the whole principal scope (over-restricts) | `java/emit/repository.ts:623` (#2891 1f) | M |
+| P1 | A python channel consumer's `payload["f"]` raises `KeyError` on an absent optional field | `python/dispatch-builder.ts:1254` (#2944) | S |
+| P2 | The python `If-Match` parser misses weak tags (`W/"3"` → `None`, falls back silently) | `python/routes-builder.ts:1256` (#2742) | S |
+
+**Verification.** Corpus fixtures through `corpus-java-build` / `corpus-python-build` (mypy strict); the unbound-symbol gate port ([M-T9.67](T9-toolchain-health.md#m-t967)) is what would have caught J1 and should go red on it.
+
+## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `open` · **M–L** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-E (leftover-waves-2026-09-28).**
+
+One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the existing [M-T6.70](#m-t670) and [M-T6.71](#m-t671) and ride the same packet. #3023 (elixir invariant residue) has merged, so the precondition is met.
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| E1 | An event-sourced repo's filterless single-row `find` → `Enum.find(all, fn a ->  end)`: invalid Elixir | repro (#2852) | S |
+| E2 | A `command`-typed workflow create param: `c.cargo` on a string-keyed map → `KeyError` at runtime | repro (#2886) | S |
+| E3 | A query-time projection `sum(b.amount.amount)` → `sum(record.amount)` over jsonb | repro (#2940) | S–M |
+| E4 | `timestamps` / audit `at` are still `:utc_datetime`, so the wire has second precision (RS-38). Owner decision **O5**: move to `utc_datetime_usec` **with** a generated `timestamp(0)` → `timestamptz` migration step (default: do it) | `vanilla/schema-emit.ts:200,360`, `audit-emit.ts:120` (#3057) | M |
+| E5 | The LiveView flash `inspect`s the coded domain-floor map; add a `%{detail: d}` clause | `liveview-emit.ts:1956` (#3057) | S |
+| E6 | HEEx `IdLink` has no nil guard for `X id?` (`~p"/x/#{nil}"`) — check against open PR #2947's unguarded-IdLink fix first | `heex-primitives.ts:1377` (#2885) | S |
+| E7 | A workflow 422 for a missing param has no `errors[]` pointer extension (node has one) | `vanilla/denial.ts:463` (#3017) | M |
+| E8 | A bare `toThrow()` on an invariant-only rejection: `assert_raise GuardError` never fires (from PR analysis, not generated — medium confidence; confirm before fixing) | #2987 | M |
+
+**Verification.** Corpus fixtures through `corpus-elixir-build`; E4 through the migration-evolution leg and the RS-38 conformance row; E7 through the wire-golden differential.
+
+**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080 once it merges):**
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| E9 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
+| E10 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
+
+## M-T6.78 — A query-time projection over a TPH subtype names a table that does not exist — `open` · **M** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L2-X (leftover-waves-2026-09-28).**
+
+Item **X2** (#2940). A query-time `projection` whose source is a TPH subtype emits `schema.autoClaims` (the subtype's would-be table) instead of the base table, and has no discriminator filter — every backend that emits query-time projections is affected. **Must not run beside the per-tree L1 packets** (it touches every backend's projection emitter); it goes first in L2.
+
+**Verification.** A TPH + query-time-projection corpus fixture compiling and booting on every backend that supports both; the discriminator filter asserted in the wire-golden differential.
+
+## M-T6.79 — RS-38 millisecond datetimes are not applied at three wire sites — `open` · **M** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-N / L1-JP (split by backend); after #3072 (leftover-waves-2026-09-28).**
+
+Item **X3** (#3057 closed RS-38 for the main read/write paths). Still second- or microsecond-precision on the wire:
+
+- CloudEvents `time` — `src/generator/typescript/emit/channels.ts:524`, python `channels-builder.ts:571`;
+- the document serializer — `repository-document-builder.ts:661`;
+- `string(datetime)` — node `render-expr.ts:226`, python `render-expr.ts:296`.
+
+Open PR **#3072** (RS-4 `.000Z` on node's raw-row read routes) overlaps the node half — take only the sites it does not touch.
+
+**Verification.** The RS-38 conformance row extended to each site; the channels and document-store cells of the wire-golden differential.
+
+## M-T6.80 — Six `ctx.enums` lookups that should read the cross-context enum pool — `open` · **M** · P1
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L2-X (leftover-waves-2026-09-28).**
+
+Item **X4** (#3033 introduced the cross-context `enumPool`). Six sites still look an enum up in the *current* context only, so an enum declared in a sibling context resolves to `undefined` and falls through to a string/unknown arm:
+
+`src/generator/elixir/vanilla/schema-emit.ts:80`, `src/generator/elixir/vanilla/projections-emit.ts:63`, `src/generator/python/emit/http-models.ts:519`, `src/generator/java/emit/workflow-state.ts:220`, `src/generator/_frontend/workflows-module.ts:241`, `src/generator/_walker/form-fields-vm.ts:96` (all re-confirmed on `cbda9165`).
+
+Touches every backend and the frontend VM; **must not run beside the L1 per-tree packets**.
+
+**Verification.** A two-context fixture where the enum lives in the sibling context, through every backend's compile leg; a census test that no generator reads `ctx.enums` by name outside the pool helper.
+
+## M-T6.81 — `ETag`/`If-Match` parity: only node sends `ETag`, Feliz and Flutter never send `If-Match` — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (backends) + L3-SELF (feliz/flutter) (leftover-waves-2026-09-28).**
+
+Item **P9** (#2742, #2911). Optimistic concurrency on a `versioned` aggregate: node answers reads with an `ETag`; .NET, Java, Python and Elixir do not, and the Feliz and Flutter clients never send `If-Match` (pinned as `DOES_NOT_SEND` in their tests), so their updates always take the no-precondition path. Python's weak-tag parse bug is [M-T6.76](#m-t676) P2.
+
+**Verification.** The versioned-conflict wire-golden case extended to all five backends (412 on a stale tag); the Feliz/Flutter `DOES_NOT_SEND` pins flipped.
+
+**Added 2026-09-29 (evaluation-closure Wave A follow-up B-A9):** #3090 makes Feliz and Flutter send `If-Match` on a versioned update, but the **Flutter Riverpod `match await`** path on a versioned update still sends none (found while building #3090). Add it to the Flutter half here.
+
+## M-T6.82 — .NET never logs `workflow_failed` — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
+
+Item **P12** (#2742). The other four backends emit the log-catalog `workflow_failed` event when a workflow body throws; .NET's Mediator pipeline has no behaviour that catches and logs it, so `dotnet-obs-e2e` cannot assert it and an operator sees only the ASP.NET exception log.
+
+**The fix:** an `IPipelineBehavior` rendering the catalog event through `_obs/`.
+
+**Verification.** The `dotnet-obs-e2e` leg asserts `workflow_failed` on a seeded failure (run it locally — the obs legs are path-scoped).
+
+## M-T6.83 — The default invariant message is `"Invariant violated: <src>"` on every backend — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
+
+Item **P15** (#2736). An `invariant` without an explicit message surfaces the raw source text of the predicate to the API client (and, through the problem detail, to the UI). Not humanised on any backend.
+
+**The fix:** a humanised default derived once (IR-side, alongside the `msg.<hash>` validation catalog of `_i18n/validation-catalog.ts`) and consumed by all five, so the message is also translatable.
+
+**Verification.** The validation-catalog tests plus a wire-golden case asserting the humanised text on all five backends.
+
+## M-T6.84 — A messaged precondition in a `domainService` / `function` / workflow step is a text-only 422 with no `code` — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
+
+Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-floor shape). The same precondition inside a domain-service operation, a top-level `function` or a workflow step still answers a 422 whose body carries only the message, with no stable `code` — so a client cannot branch on it and the LiveView flash (see [M-T6.77](#m-t677) E5) cannot either.
+
+**Verification.** A wire-golden case per placement on all five backends asserting the coded body.
+
+## M-FT.24 — An op returning an error union: the OpenAPI document and the wire disagree, and the union wire shape has no card — `open` · **M** · P2
+
+*Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) named this id the owner of the union wire shape and deferred the OpenAPI union document to it.*
+
+Re-proved on `main` @ `cbda91658` with `operation reserve(): Order or NotFound { return NotFound { … } }`:
+
+- **node** declares `200: OrderOrNotFound`, a discriminated union that *includes* `{type: "NotFound", resource}` (`api/http/order.routes.ts:133`, `:36`), but serves the `NotFound` arm as a **404 `application/problem+json`** (`:149-150`), and the declared 404 is the generic `ProblemDetails`, which lacks `resource`.
+- **.NET** `[ProducesResponseType(typeof(OrderOrNotFound), 200)]`; **python** `_OP_UNION_RESPONSES` is a `oneOf` including `NotFound`; **java** emits `OrderOrNotFoundResponse_{Order,NotFound}`. Elixir is the fifth emitter.
+- The control is correct: a *find* `recent(): Order or NotFound` documents `200 OrderResponse` plus 404.
+
+**Two halves.**
+
+1. **OpenAPI split** (eval-closure wave C7): one helper in `src/generator/_payload/union-wire.ts` splits an op-union into its success arms (the 200 schema) and its error arms (each with its mapped status and a problem schema carrying the arm's fields); all five OpenAPI emitters consume it. Files: `src/platform/hono/v4/routes-builder.ts`, `src/generator/dotnet/index.ts`, `src/generator/java/emit/openapi-customizer.ts`, `src/generator/elixir/vanilla/openapi-emit.ts`, python's `problem.py` emitter.
+2. **The union wire shape** — what an op-union *returns* on the wire in every arm, beyond the OpenAPI document. This half needs the owner's card first; the id stays `open` until it has one.
+
+**Verification.** The cross-backend OpenAPI parity test and the Schemathesis tier (a served 404 must validate against the document).
+
+## M-T6.87 — A message-less rule, and a missing required field, answer each framework's DEFAULT sentence: five wire contracts for one rule — `open` · **S–M** · P2 ⚠ needs a ruling first
+
+Observed by wave C3 (defect D5 of [`waves/handoffs/wave-c3-3a-e2eless.md`](waves/handoffs/wave-c3-3a-e2eless.md), re-measured by packet 3g in [`waves/handoffs/wave-c3-3g-fixes.md`](waves/handoffs/wave-c3-3g-fixes.md)). A bound with no `message` answers node `"Position must be at least 1"`, python `"Input should be greater than or equal to 1"`, .NET `"'Position' must be greater than or equal to '1'."`; a MISSING required payload field answers node `"Invalid input: expected string, received undefined"`, python `"Field required"`, .NET/dapper `"The Amount field is required."`, java `"Invalid decimal: null"`. `src/generator/zod-refine.ts` `singleFieldMessage` calls the node text "node-local" by design, but it is still one `errors[].message` wire field with five values, and it is why every wire golden that probes a 422 has to use a MESSAGED rule (the ruled M-T1.11 contract) — `workflow-command-payload`'s missing-`amount` probe was dropped in 3g for exactly this reason.
+
+Decide first (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): either the default sentence is canonical per rule shape (min / max / length / required / pattern — one table, rendered by every backend's validator adapter), or `message` is declared non-contractual for message-less rules and the wire differential masks it (keeping `pointer` and `code` binding). Then implement across the five and re-add the probe. Relates to M-T1.11 (the messaged contract), M-T6.88 (the java pointer half of the same probe), and [M-T6.83](#m-t683) (the default *invariant* message — a different rule shape, the same "one canonical default sentence" question).
+
+## M-T6.88 — java points a nested payload field's 422 at the leaf, not the path (`/amount` for `c.amount`) — `open` · **S** · P2 ⚠ verify-first
+
+Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `POST /api/workflows/claim_handling` with `{ "c": { …, no "amount" } }` answers 422 on all five backends (good), but java's `errors[0].pointer` is `/amount` where node / python / .NET / dapper / elixir say `/c/amount`, and its message is `"Invalid decimal: null"` — a decimal-coercion failure reported before (or instead of) the required-field check. The pointer is the contract a frontend binds a control to, so this is a wire defect independent of M-T6.87's message ruling.
+
+Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
+

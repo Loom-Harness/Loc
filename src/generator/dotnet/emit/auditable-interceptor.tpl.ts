@@ -6,6 +6,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { inheritanceDepth } from "../../../ir/util/inheritance.js";
+import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { renderCsExpr } from "../render-expr.js";
@@ -194,10 +195,22 @@ function renderArm(
   const createAssigns = onCreate.map((a) => assign(a.field, a.value));
   const updateAssigns = onUpdate.map((a) => assign(a.field, a.value));
 
+  // F-018 — refuse a principal whose claim is absent BEFORE the metadata write.
+  // After it, the null is EF's CurrentValue and the NOT NULL violation surfaces
+  // from SaveChanges as an opaque 500 naming nothing.
+  const claimGuard = (event: "create" | "update"): string[] =>
+    requiredClaimStamps(agg, event).flatMap((stamp) => [
+      `                        if (string.IsNullOrEmpty(RequestContext.Current!.CurrentUser!.${upperFirst(stamp.claim)}))`,
+      "                        {",
+      `                            throw new ForbiddenException(${JSON.stringify(missingClaimMessage(stamp))});`,
+      "                        }",
+    ]);
+
   const arm = [`                case ${agg.name} ${argName}:`];
   if (createAssigns.length) {
     arm.push("                    if (entry.State == EntityState.Added)");
     arm.push("                    {");
+    arm.push(...claimGuard("create"));
     arm.push(...createAssigns);
     arm.push("                    }");
   }
