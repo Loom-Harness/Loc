@@ -1,3 +1,4 @@
+import { diagMessage } from "../../diagnostics/messages.js";
 import type { LoadedPack } from "./loader.js";
 
 // ---------------------------------------------------------------------------
@@ -9,15 +10,18 @@ import type { LoadedPack } from "./loader.js";
 // ---------------------------------------------------------------------------
 
 /** Emit each entry in the pack manifest's `shellFiles` map (logical
- *  template name → output path).  Throws if a declared template name
- *  isn't registered in `emits`, naming the offending key — this keeps
- *  manifest typos loud rather than silently dropping shell files. */
+ *  template name → output path).  A key with no template is a pack defect
+ *  (`pack-defects.ts`, kind `shellfile-not-emitted`) refused at load, so a
+ *  loaded pack has a template for every key. */
 export function emitShellFiles(pack: LoadedPack, out: Map<string, string>): void {
   const entries = Object.entries(pack.manifest.shellFiles ?? {});
   for (const [templateName, outputPath] of entries) {
     if (!pack.templates.has(templateName)) {
       throw new Error(
-        `pack ${pack.manifest.name}: shellFiles entry "${templateName}" → "${outputPath}" not present in emits map.`,
+        diagMessage("loom.design-pack-invalid#load", {
+          pack: pack.rootDir,
+          defects: `shellFiles entry "${templateName}" → "${outputPath}" is not present in the emits map`,
+        }),
       );
     }
     out.set(outputPath, pack.render(templateName, {}));

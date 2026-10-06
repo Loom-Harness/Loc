@@ -1,3 +1,4 @@
+import type { DesignPackInspector } from "../../util/design-pack-defects.js";
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
@@ -9,6 +10,7 @@ import {
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
+import { validateCustomDesignPacks } from "./checks/design-pack-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -155,7 +157,20 @@ export { firstNonQueryableNode } from "./checks/shared.js";
 //     defensive try/catch + descriptive-error logic.
 // ---------------------------------------------------------------------------
 
-export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
+/** What the HOST can offer phase ⑦ beyond the model itself.  Every field is
+ *  optional, and a check that needs one skips when it is absent — so the
+ *  browser playground and the in-memory `src/api/` toolkit validate the same
+ *  model the CLI does, minus only what they cannot see. */
+export interface ValidateLoomModelOptions {
+  /** Reads a custom `design:` pack (the CLI passes the fs-backed
+   *  `fsDesignPackInspector`).  Absent ⇒ custom packs are not inspected. */
+  designPacks?: DesignPackInspector;
+}
+
+export function validateLoomModel(
+  loom: EnrichedLoomModel,
+  options: ValidateLoomModelOptions = {},
+): LoomDiagnostic[] {
   const diags: LoomDiagnostic[] = [];
   // Workspace-scope uniqueness checks — only meaningful once a
   // project may span multiple `.ddd` files (Stage A multi-file).
@@ -174,6 +189,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);
+    // A custom `design:` pack is loaded and checked here, when the host can
+    // read it — the loader would otherwise be the first to find its defects.
+    validateCustomDesignPacks(sys, options.designPacks, diags);
     // Page gates and bodies name permissions too, and `validatePermissionRefs`
     // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
     // `ui` lowered to the sentinel and rendered as a literal no principal can

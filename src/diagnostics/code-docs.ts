@@ -303,6 +303,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
   "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-invalid": "../design-packs.md#2-the-packjson-manifest",
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
   // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------

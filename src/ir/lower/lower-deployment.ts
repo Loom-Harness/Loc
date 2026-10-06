@@ -1,6 +1,8 @@
+import { AstUtils, UriUtils } from "langium";
 import type { Deployable, Ui } from "../../language/generated/ast.js";
 import { defaultsFor } from "../../platform/adapter-metadata.js";
 import { descriptorFor } from "../../platform/metadata.js";
+import { parseBuiltinDesignRef } from "../../util/builtin-formats.js";
 import type { DeployableIR, Platform, UiParamBindingIR } from "../types/loom-ir.js";
 import { qualifyDesign, qualifyPlatform } from "./lower-platform.js";
 
@@ -184,7 +186,26 @@ export function lowerDeployable(d: Deployable): DeployableIR {
     serves,
     uiBindings,
     favicon: d.favicon,
+    ...designBaseDirFor(d, design),
   };
+}
+
+/** The directory a relative custom `design:` path resolves against — the
+ *  directory of the `.ddd` file that declares the deployable, NOT the process
+ *  working directory (so `ddd generate` finds `design: "./my-pack"` from any
+ *  cwd, and a deployable in an imported file resolves against its own file).
+ *  Only a `file:` document has one; an in-memory model (the playground, the
+ *  `src/api/` toolkit) carries none and the loader falls back to its own
+ *  default. */
+function designBaseDirFor(d: Deployable, design: string | undefined): { designBaseDir?: string } {
+  if (design === undefined || parseBuiltinDesignRef(design) !== null) return {};
+  try {
+    const uri = AstUtils.getDocument(d).uri;
+    if (uri.scheme !== "file") return {};
+    return { designBaseDir: UriUtils.dirname(uri).fsPath };
+  } catch {
+    return {};
+  }
 }
 
 /** Look up a platform's default deployable port via `PlatformSurface.defaultPort`.

@@ -112,37 +112,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/_packs/loader-fs.ts
-  "src/generator/_packs/loader-fs.ts#loadPack": {
-    deferred:
-      'A custom design path with no pack.json. Relative paths resolve against the process CWD, not the .ddd directory (resolvePackDir is called without referenceDir at react/index.ts:168 and others). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$2": {
-    deferred:
-      'A custom pack whose pack.json has no emits map. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$3": {
+  // `loadPack` throws `diagMessage("loom.design-pack-invalid#load")` for every
+  // read-time pack defect, auto-guarded by the phase-⑦ check
+  // (design-pack-checks.ts) that inspects the same defect list.
+  "src/generator/_packs/loader-fs.ts#readPackDir": {
     invariant:
-      "Fires only for a path inside <repo>/designs/<family>/<ver>, which holds only the shipped packs (their versions match; tests pin this); custom paths outside designs/ are exempt. (src/generator/_packs/loader-fs.ts:155-161)",
+      "Fires only for a path inside <repo>/designs/<family>/<ver>, which holds only the shipped packs (their versions match; tests pin this); custom paths outside designs/ are exempt. (src/generator/_packs/loader-fs.ts#readPackDir)",
   },
-  "src/generator/_packs/loader-fs.ts#loadPack$4": {
-    deferred:
-      'A custom pack whose emits entry names a .hbs file that does not exist. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$5": {
-    deferred:
-      'A custom pack that declares stack: "v999". Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$6": {
+  "src/generator/_packs/loader-fs.ts#readPackDir$2": {
     invariant:
-      "The shipped stack dirs contain only stack-package-*.hbs, and no shipped shared dir has a template with those names, so no clash is possible. (stacks/*/ (only stack-package-deps/devdeps.hbs))",
+      "The shipped stack dirs contain only stack-package-*.hbs, and no shipped shared dir has a template with those names, so no clash is possible; a pack picks a stack by name and cannot add files to it. (stacks/*/ (only stack-package-deps/devdeps.hbs))",
   },
   "src/generator/_packs/loader-fs.ts#readSharedSources": {
     invariant:
@@ -154,63 +133,27 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/_packs/loader.ts
-  "src/generator/_packs/loader.ts#compilePack": {
-    invariant:
-      "The only caller, loadPack, already throws on a missing or non-object emits before calling compilePack. (src/generator/_packs/loader-fs.ts:146-150)",
-  },
-  "src/generator/_packs/loader.ts#compilePack$2": {
-    invariant:
-      "loadPack fills `sources` for every emits key (or throws first), so sources[logicalName] is never null. (src/generator/_packs/loader-fs.ts:170-178)",
-  },
-  "src/generator/_packs/loader.ts#compilePack$3": {
-    deferred:
-      'A custom pack missing a required primitive (validateRequired defaults to true). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
+  // `compilePack` throws `diagMessage("loom.design-pack-invalid#load")` for
+  // every manifest defect (pack-defects.ts#manifestDefects) — auto-guarded.
   "src/generator/_packs/loader.ts#render": {
     invariant:
-      "Every template name the generators render is in REQUIRED_PRIMITIVES (checked: all literal render/primitive names in react/_walker/_frontend) and so is enforced at load; the optional ones (realtime-toast-setup, primitive-modal-controlled) are checked with templates.has first. (src/generator/_packs/loader.ts:466-475; src/generator/react/realtime-handlers-builder.ts:33; src/generator/_walker/primitives/forms.ts:978)",
+      "Every template name the generators render is in REQUIRED_PRIMITIVES (checked: all literal render/primitive names in react/_walker/_frontend) and so is enforced at load; the optional ones (realtime-toast-setup, primitive-modal-controlled) are checked with templates.has first. A custom pack of the wrong format is refused by loom.design-pack-format-mismatch, so the required set checked is the framework's own. (src/generator/_packs/required-primitives.ts; src/generator/react/realtime-handlers-builder.ts:33; src/generator/_walker/primitives/forms.ts:978)",
   },
 
   // src/generator/_packs/pack-chrome.ts
-  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane": {
-    deferred:
-      'A custom pack with an empty chrome message. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$2": {
-    deferred:
-      'A custom pack whose chrome message contains `<`. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$3": {
-    deferred:
-      'A custom pack whose chrome message has an unbalanced brace. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
   "src/generator/_packs/pack-chrome.ts#bind": {
-    deferred:
-      'A custom heex pack (elixir LiveView) whose template passes an ICU hole value ({{chrome "rowActions" who="x"}}); this fires when the ui is translatable (heexI18nEnabled). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "Every literal chrome role a template passes hash (hole) values to is scanned in a heex pack (pack-defects.ts kind chrome-hole-heex) by the phase-⑦ inspection; every shipped and every inspected template names its role as a string literal.",
   },
   "src/generator/_packs/pack-chrome.ts#declared": {
-    deferred:
-      'A custom pack whose template uses {{chrome "boolTrue"}} with no chrome entry for it. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "Every literal chrome role a template uses is checked against pack.json's chrome map (pack-defects.ts kind chrome-role-undeclared) by the phase-⑦ inspection; built-in packs are inspected clean by test/generator/_packs/pack-defects.test.ts.",
   },
 
   // src/generator/_packs/shell-emits.ts
   "src/generator/_packs/shell-emits.ts#emitShellFiles": {
-    deferred:
-      'A custom pack declaring shellFiles with a key that is not in emits. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "compilePack refuses a shellFiles key with no template (pack-defects.ts kind shellfile-not-emitted) before a LoadedPack exists, and phase ⑦ reports the same defect.",
   },
 
   // src/generator/_stmt/target.ts

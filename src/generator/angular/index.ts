@@ -132,7 +132,9 @@ export function generateAngularForContexts(
   // surface in `required-primitives.ts` — display / layout / input templates;
   // forms render inline via the walker seam, so `form-of` / `field-input-*` /
   // `modal` are deliberately not pack templates.  Required-validation is on.
-  const pack = loadPack(resolvePackDir(deployable.design ?? DEFAULT_DESIGN));
+  const pack = loadPack(
+    resolvePackDir(deployable.design ?? DEFAULT_DESIGN, deployable.designBaseDir),
+  );
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;

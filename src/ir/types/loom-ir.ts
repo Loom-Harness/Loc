@@ -3222,6 +3222,11 @@ export interface DeployableIR {
    *  `ui` a keyword in the deployable block would shadow the test-DSL
    *  accessor and break parsing of existing examples. */
   design?: string;
+  /** For a custom `design:` path: the directory of the `.ddd` file that
+   *  declared this deployable, which a RELATIVE path resolves against
+   *  (`resolvePackDir(design, designBaseDir)`).  Absent for built-in packs
+   *  and for a model with no file location (an in-memory source). */
+  designBaseDir?: string;
   /** Realization axes (D-REALIZATION-AXES).  Each decomposes the
    *  platform bundle into one orthogonal concern.  All optional in the
    *  type but **always concrete on backend deployables post-lowering**

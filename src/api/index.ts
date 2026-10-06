@@ -29,7 +29,11 @@ import { wireFieldsForAggregate } from "../ir/enrich/wire-projection.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
 import type { EnrichedBoundedContextIR } from "../ir/types/loom-ir.js";
 import { typeLabel } from "../ir/util/type-label.js";
-import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
+import {
+  type LoomDiagnostic,
+  type ValidateLoomModelOptions,
+  validateLoomModel,
+} from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { buildOutline } from "../language/print/index.js";
@@ -118,9 +122,13 @@ function hasParseError(diagnostics: Diagnostic[]): boolean {
 
 /** Run the IR phases (lower → enrich → IR-validate) over a parsed model,
  *  surfacing an internal failure as a single diagnostic rather than throwing. */
-function irDiagnosticsFor(model: Model, path: string): LoomDiagnostic[] {
+function irDiagnosticsFor(
+  model: Model,
+  path: string,
+  options: ValidateLoomModelOptions,
+): LoomDiagnostic[] {
   try {
-    return validateLoomModel(enrichLoomModel(mergeLoomModels([lowerModel(model)])));
+    return validateLoomModel(enrichLoomModel(mergeLoomModels([lowerModel(model)])), options);
   } catch (err) {
     return [
       {
@@ -135,18 +143,29 @@ function irDiagnosticsFor(model: Model, path: string): LoomDiagnostic[] {
   }
 }
 
+/** Options shared by `validate()` / `generate()`. */
+export interface ToolkitOptions {
+  /** The path reported as the diagnostics' source. */
+  path?: string;
+  /** Reads a custom `design:` pack so phase ⑦ can check it.  The source is
+   *  parsed in memory, so the toolkit never touches a filesystem itself: a
+   *  Node host passes `fsDesignPackInspector(<the .ddd's dir>)`; without one,
+   *  custom packs are not inspected. */
+  designPacks?: ValidateLoomModelOptions["designPacks"];
+}
+
 /**
  * Validate a `.ddd` source — the `parse --json` / `validate --json` contract.
  * Runs the Langium phases AND the IR validator and returns the full
  * `ValidateReport` (coded, phase-attributed diagnostics + the outline).
  */
-export async function validate(
-  source: string,
-  opts: { path?: string } = {},
-): Promise<ValidateReport> {
+export async function validate(source: string, opts: ToolkitOptions = {}): Promise<ValidateReport> {
   const path = opts.path ?? "<source>";
   const { doc, model, diagnostics } = await parseSource(source);
-  const irDiagnostics = model && !hasParseError(diagnostics) ? irDiagnosticsFor(model, path) : [];
+  const irDiagnostics =
+    model && !hasParseError(diagnostics)
+      ? irDiagnosticsFor(model, path, { designPacks: opts.designPacks })
+      : [];
   return buildValidateReport({
     modelPath: path,
     langiumDiagnostics: diagnostics,
@@ -177,10 +196,7 @@ export async function outline(source: string): Promise<Outline> {
  * deployables (name / platform / port) it produces; it does not write files
  * (use the CLI `generate system -o` to emit a tree).
  */
-export async function generate(
-  source: string,
-  opts: { path?: string } = {},
-): Promise<GenerateReport> {
+export async function generate(source: string, opts: ToolkitOptions = {}): Promise<GenerateReport> {
   const path = opts.path ?? "<source>";
   const { doc, model, diagnostics } = await parseSource(source);
   const langiumJson = diagnostics.map((d) => langiumDiagnosticToJson(d, doc));
@@ -190,7 +206,7 @@ export async function generate(
   }
 
   const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
-  const irJson = validateLoomModel(loom).map(irDiagnosticToJson);
+  const irJson = validateLoomModel(loom, { designPacks: opts.designPacks }).map(irDiagnosticToJson);
   const deployables = loom.systems.flatMap((sys) =>
     sys.deployables.map((d) => ({ name: d.name, platform: d.platform, port: d.port })),
   );
