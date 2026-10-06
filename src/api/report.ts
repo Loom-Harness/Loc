@@ -17,7 +17,11 @@ import type {
   JsonSeverity,
   ValidateReport,
 } from "../diagnostics/contract.js";
-import type { LoomDiagnostic } from "../ir/validate/validate.js";
+import {
+  irDiagnosticSourceRef,
+  type LoomDiagnostic,
+  offsetToPosition,
+} from "../ir/validate/validate.js";
 import { fixHintFor } from "../language/fix-hints.js";
 import type { Model } from "../language/generated/ast.js";
 import { addressOf, buildOutline } from "../language/print/index.js";
@@ -107,21 +111,37 @@ export function langiumDiagnosticToJson(d: Diagnostic, doc: LangiumDocument): Js
   };
 }
 
-export function irDiagnosticToJson(d: LoomDiagnostic): JsonDiagnostic {
+export function irDiagnosticToJson(d: LoomDiagnostic, doc?: LangiumDocument): JsonDiagnostic {
+  const range = doc ? irDiagnosticRange(d, doc) : undefined;
   return {
     code: d.code ?? IR_FALLBACK_CODE,
     severity: d.severity,
     phase: "ir-validate",
     message: d.message,
-    // IR diagnostics run on lowered IR — no CST range.  `source` is the
-    // location handle until CST provenance is threaded through lowering.
+    // `source` stays the location handle; a diagnostic whose check attached
+    // the IR node's `origin` ALSO carries the CST range it resolves to.
     ...(d.source ? { node: d.source } : {}),
+    ...(range ? { range } : {}),
+  };
+}
+
+/** The wire `range` of an IR diagnostic's `origin`, when that origin resolves
+ *  to a span inside `doc` (the model being validated).  Undefined for an
+ *  origin-less diagnostic or one pointing into another document. */
+function irDiagnosticRange(d: LoomDiagnostic, doc: LangiumDocument): JsonDiagnostic["range"] {
+  const ref = irDiagnosticSourceRef(d);
+  if (!ref || ref.path !== doc.uri.path) return undefined;
+  const text = doc.textDocument.getText();
+  return {
+    start: offsetToPosition(text, ref.span.start),
+    end: offsetToPosition(text, ref.span.end),
   };
 }
 
 /**
  * Total, deterministic order (contract §3.4): CST-ranged diagnostics first by
- * (line, character), then rangeless (IR) diagnostics, all tie-broken by
+ * (line, character) — an IR diagnostic with an `origin` counts as ranged —
+ * then rangeless (IR) diagnostics, all tie-broken by
  * (code, node) so two runs over the same model are byte-identical.
  */
 export function sortDiagnostics(diags: JsonDiagnostic[]): JsonDiagnostic[] {
@@ -161,7 +181,7 @@ export function buildValidateReport(args: {
 }): ValidateReport {
   const diagnostics = sortDiagnostics([
     ...args.langiumDiagnostics.map((d) => langiumDiagnosticToJson(d, args.doc)),
-    ...args.irDiagnostics.map(irDiagnosticToJson),
+    ...args.irDiagnostics.map((d) => irDiagnosticToJson(d, args.doc)),
   ]);
   const summary = summarise(diagnostics);
 

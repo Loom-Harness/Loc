@@ -1631,7 +1631,7 @@ function lowerLoadPath(p: LoadPath): LoadSegmentIR[] {
 }
 
 function lowerEnum(e: EnumDecl): EnumIR {
-  return { name: e.name, values: e.values.map((v) => v.name) };
+  return { name: e.name, values: e.values.map((v) => v.name), origin: originFor(e) };
 }
 
 function lowerValueObject(vo: ValueObject, env: Env): ValueObjectIR {
