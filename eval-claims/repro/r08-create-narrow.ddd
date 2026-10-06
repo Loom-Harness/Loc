@@ -1,0 +1,8 @@
+system R { subdomain S { context A {
+  aggregate C { title: string  approved: money?  create(title: string) { }  operation approve(m: money) { approved := m } }
+  repository Cs for C { }
+} }
+  storage primary { type: postgres }
+  resource a { for: A, kind: state, use: primary }
+  deployable api { platform: PLATFORM, contexts: [A], dataSources: [a], port: 3000 }
+}

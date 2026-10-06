@@ -1,0 +1,2 @@
+context A { enum S { D, E } aggregate X { s: S = D managed
+ n: string } repository Xs for X { } }

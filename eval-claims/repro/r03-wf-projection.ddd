@@ -1,0 +1,11 @@
+system R { subdomain S { context A {
+  aggregate P with crudish { name: string  operation go() { emit Went { p: id, at: now() } } }
+  repository Ps for P { }
+  event Went { p: P id, at: datetime }
+  projection Seen keyed by p { p: P id  at: datetime  on(e: Went) { p := e.p  at := e.at } }
+  workflow W { create(p: P id) { let s = Seen.byKey(p)  precondition s.at < now() + days(1) } }
+} }
+  storage primary { type: postgres }
+  resource a { for: A, kind: state, use: primary }
+  deployable api { platform: PLATFORM, contexts: [A], dataSources: [a], port: 3000 }
+}

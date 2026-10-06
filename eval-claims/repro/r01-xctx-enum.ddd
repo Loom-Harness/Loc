@@ -1,0 +1,22 @@
+system R {
+  subdomain S {
+    context A { enum Kind { Fire, Theft } aggregate Pol with crudish { name: string derived display: string = name } repository Pols for Pol { } }
+    context B {
+      aggregate Clm with crudish {
+        kind: Kind
+        title: string
+        derived display: string = title
+        invariant title.length > 2
+        test "neg" { expect(Clm.create({ kind: Fire, title: "x" })).toThrow() }
+        test "pos" { let c = Clm.create({ kind: Fire, title: "abc" })  expect(c.kind).toBe(Fire) }
+      }
+      repository Clms for Clm { find byKind(k: Kind): Clm? where this.kind == k }
+    }
+  }
+  ui W with scaffold(subdomains: [S]) { }
+  storage primary { type: postgres }
+  resource a { for: A, kind: state, use: primary }
+  resource b { for: B, kind: state, use: primary }
+  deployable api { platform: PLATFORM, contexts: [A, B], dataSources: [a, b], port: 3000 }
+  deployable web { platform: react, targets: api, ui: W, port: 3001, design: mantine }
+}
