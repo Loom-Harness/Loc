@@ -518,6 +518,16 @@ const idTarget = (t: TypeIR | undefined): string | undefined =>
 // Applying these uniformly to reactors AND event-creates also subsumes rule 24
 // (create-vs-on correlation agreement): both are checked against the same
 // correlation field, so a `create` and an `on` for one event necessarily agree.
+//
+// An `eventSourced` workflow needs the correlation field even with NO event
+// consumers: it is the key of the workflow's event stream — every backend
+// appends to and folds `stream_id = <correlation field>`, and the instance read
+// surface (`/<wf>/instances/{id}`) is addressed by it.  With no (or more than
+// one) id-shaped field there is no stream key and no instance to address, so
+// nothing sound can be emitted: the .NET / Java / Elixir ES emitters need the
+// key's id class, and a node / python rendering without it would be a plain
+// command route that silently drops the declared state and `apply` blocks.
+// So rules 10 + 19 apply to it uniformly.
 function validateWorkflowCorrelation(
   ctx: BoundedContextIR,
   wf: WorkflowIR,
@@ -541,13 +551,17 @@ function validateWorkflowCorrelation(
         label: `create(${c.eventBinding ?? "_"}: ${c.eventRef})`,
       })),
   ];
-  if (consumers.length === 0) return;
+  const eventSourced = wf.eventSourced === true;
+  if (consumers.length === 0 && !eventSourced) return;
   const src = `${ctx.name}/${wf.name}`;
   const idFields = (wf.stateFields ?? []).filter((f) => f.type.kind === "id");
+  // Which requirement the field serves, for the message: routing inbound
+  // events (any consumer) or keying the event stream (eventSourced only).
+  const why = consumers.length > 0 ? "consumers" : "stream";
   if (idFields.length === 0) {
     diags.push({
       severity: "error",
-      message: diagMessage("loom.workflow-correlation-required", { name: wf.name }),
+      message: diagMessage("loom.workflow-correlation-required", { name: wf.name, why }),
       source: src,
       code: "loom.workflow-correlation-required",
     });
@@ -560,6 +574,7 @@ function validateWorkflowCorrelation(
         name: wf.name,
         length: idFields.length,
         idFields: idFields.map((f) => f.name).join(", "),
+        why,
       }),
       source: src,
       code: "loom.correlation-field-ambiguous",

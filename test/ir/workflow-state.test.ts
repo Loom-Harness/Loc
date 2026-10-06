@@ -105,3 +105,51 @@ describe("workflow correlation — validation", () => {
     expect(diags).toEqual([]);
   });
 });
+
+// An event-sourced workflow keys its event stream by the correlation field, so
+// it needs exactly one id-shaped field even with only a command-triggered
+// create and no `on`: without one there is no stream key, and the .NET / Java
+// / Elixir ES emitters have no id class to key it by.
+describe("workflow correlation — event-sourced, no event consumers", () => {
+  async function esDiags(stateFields: string): Promise<{ code: string; message: string }[]> {
+    const { model } = await parseString(
+      `
+    system S { subdomain M { context C {
+      aggregate Order { total: int }
+      aggregate Payment { amount: int }
+      event Recorded { code: string, count: int }
+      workflow Tracker eventSourced {
+        ${stateFields}
+        archivedCount: int
+        create(c: string) { emit Recorded { code: c, count: 1 } }
+        apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
+      }
+    }}}`,
+      { validate: false },
+    );
+    return validateLoomModel(enrichLoomModel(lowerModel(model)))
+      .filter(
+        (d) =>
+          d.code === "loom.workflow-correlation-required" ||
+          d.code === "loom.correlation-field-ambiguous",
+      )
+      .map((d) => ({ code: d.code ?? "", message: d.message }));
+  }
+
+  it("refuses a command-only eventSourced workflow with no id-shaped field", async () => {
+    const diags = await esDiags(`code: string`);
+    expect(diags.map((d) => d.code)).toEqual(["loom.workflow-correlation-required"]);
+    expect(diags[0].message).toContain("event-sourced workflow 'Tracker' has no correlation field");
+    expect(diags[0].message).toContain("event stream");
+  });
+
+  it("refuses a command-only eventSourced workflow with two id-shaped fields", async () => {
+    const diags = await esDiags(`orderId: Order id\n paymentId: Payment id`);
+    expect(diags.map((d) => d.code)).toEqual(["loom.correlation-field-ambiguous"]);
+    expect(diags[0].message).toContain("keys its event stream");
+  });
+
+  it("accepts a command-only eventSourced workflow with exactly one id-shaped field", async () => {
+    expect(await esDiags(`orderId: Order id`)).toEqual([]);
+  });
+});

@@ -503,10 +503,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/dotnet/workflow-eventsourced-emit.ts
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
-    deferred:
-      "An `eventSourced` workflow with only a command-triggered create (no `on`/event-create) and no id-typed state field has no correlation field and no diagnostic, yet the ES emitter unconditionally requires an id-typed correlation field.",
-    mission: "M-T9.78",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
+    note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
   },
 
   // src/generator/elixir/adapters/by-feature-layout.ts
@@ -1032,10 +1030,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/workflow-eventsourced.ts
   "src/generator/java/emit/workflow-eventsourced.ts#esWorkflowCorrIdClass": {
-    deferred:
-      "An eventSourced workflow with only a command-triggered create and no id-typed state field validates clean, has no correlationField, and renderEsWorkflowFoldClass is still emitted for it.",
-    mission: "M-T9.78",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
+    note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
   },
 
   // src/generator/java/emit/workflow-instances.ts

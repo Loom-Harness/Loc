@@ -492,6 +492,22 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An event-sourced workflow with only a command-triggered create and no
+  // id-shaped state field: its event stream has no key, so it is refused even
+  // though nothing consumes an event (the .NET / Java / Elixir ES emitters
+  // need the key's id class).
+  "loom.workflow-correlation-required": `
+system EsNoKey {
+  subdomain S { context C {
+    event Recorded { code: string, count: int }
+    workflow Tracker eventSourced {
+      code: string
+      archivedCount: int
+      create(c: string) { emit Recorded { code: c, count: 1 } }
+      apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
+    }
+  } }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
