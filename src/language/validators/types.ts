@@ -641,7 +641,7 @@ function shadowingDeclKind(node: AstNode, name: string): string {
  *  Diagnostics attach with `property: "rest"` and the rhs index so
  *  the editor underlines the offending right-hand operand. */
 export function checkSingleBinaryOperands(chain: BinaryChain, accept: ValidationAcceptor): void {
-  // The single typing pass folds the chain (M-T5.44): each step's operand
+  // The single typing pass folds the chain (M-T5.47): each step's operand
   // types are already ELABORATED — a bare literal beside money / long /
   // decimal promoted, an ambiguous enum value retargeted — exactly as
   // lowering stamps them, so the check and the emitted code read one answer.

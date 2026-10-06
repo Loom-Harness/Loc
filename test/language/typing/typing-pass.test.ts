@@ -1,4 +1,4 @@
-// Unit tests for the single typing pass (M-T5.44, `src/language/typing/`):
+// Unit tests for the single typing pass (M-T5.47, `src/language/typing/`):
 // one rule per case, read back through `typeAt`. The fleet-wide comparison
 // against the two old checkers is `test/system/typing-differential.test.ts`.
 

@@ -77,7 +77,7 @@ function firstMeaningfulLine(text: string): string {
 
 /** Every whole `.ddd` document embedded as a template literal in a tracked
  *  test file — the inline half of the fleet (shared by the inline-source
- *  census and the M-T5.44 typing differential). */
+ *  census and the M-T5.47 typing differential). */
 export function inlineDddDocuments(): InlineDoc[] {
   const files = execSync("git ls-files 'test/**/*.ts'", { cwd: REPO_ROOT, encoding: "utf8" })
     .trim()

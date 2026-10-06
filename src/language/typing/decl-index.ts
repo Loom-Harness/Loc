@@ -1,4 +1,4 @@
-// One by-name declaration index over a compilation unit (M-T5.44 design §D5).
+// One by-name declaration index over a compilation unit (M-T5.47 design §D5).
 //
 // Before this, the language layer resolved by-name lookups against the
 // enclosing context only, while lowering added module-global indexes

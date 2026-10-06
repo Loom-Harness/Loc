@@ -1,4 +1,4 @@
-// The THREE-WAY typing differential (M-T5.44 slice 2, shadow mode).
+// The THREE-WAY typing differential (M-T5.47 slice 2, shadow mode).
 //
 // Loom types each expression by hand-kept copies: the language layer
 // (`typeOf` over `envForNode`, read by the validators and the LSP) and the IR
@@ -288,7 +288,7 @@ async function differential(): Promise<Tally> {
   return tally;
 }
 
-describe("M-T5.44 — three-way typing differential (and the unknown ratchet)", () => {
+describe("M-T5.47 — three-way typing differential (and the unknown ratchet)", () => {
   let tally: Tally;
 
   it("runs over the whole fleet", async () => {
@@ -345,7 +345,7 @@ describe("M-T5.44 — three-way typing differential (and the unknown ratchet)", 
     }
   });
 
-  // M-T5.44 slice 4: lowering copies the pass's types, so every `unknown` the
+  // M-T5.47 slice 4: lowering copies the pass's types, so every `unknown` the
   // pass leaves is a node that reaches the IR as the `string` placeholder (or a
   // validator that fails open on it).  Each carries its cause; per cause the
   // count may only SHRINK (same band as above, for fixtures other PRs add).

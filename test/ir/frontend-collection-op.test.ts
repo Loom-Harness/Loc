@@ -93,7 +93,7 @@ describe("loom.frontend-collection-op-unsupported — the gate", () => {
     }
     // `avg` never reaches this IR gate: its AST twin (`checkAvgProjection`,
     // `loom.collection-op-in-ui`) refuses it first, now that the single typing
-    // pass types the QueryView binding as the row array (M-T5.44).
+    // pass types the QueryView binding as the row array (M-T5.47).
     const { errors } = await parseString(wrap(queryViewPage("rows.avg(o => o.tier)")));
     expect(errors.join("\n")).toContain("collection op '.avg' isn't available in a page body");
   });

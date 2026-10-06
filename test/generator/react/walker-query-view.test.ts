@@ -186,7 +186,7 @@ describe("QueryView macro", () => {
   // `items` is deliberately NOT re-rooted: on an unwrapped binding `rows` IS
   // the array, so re-rooting it would silently repair the author's own mistake
   // into something that looks right and reads a different value.  Since the
-  // single typing pass types the binding (M-T5.44), the mistake is refused at
+  // single typing pass types the binding (M-T5.47), the mistake is refused at
   // the AST instead of reaching the walker as `orderAll.data.items.items`.
   it("auto-paged: `rows.items` is refused — the binding is already the row array", async () => {
     const { errors } = await parseString(

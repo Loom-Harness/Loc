@@ -16,7 +16,7 @@ import { generateSystemFilesUnchecked } from "../../_helpers/index.js";
 
 /** `filter` is NOT a Loom collection op (Loom spells it `where`), so the AST
  *  refuses `[1, 2, 3].filter(…)` now that the single typing pass types the
- *  list literal (M-T5.44).  It is used here on purpose: the subject is the
+ *  list literal (M-T5.47).  It is used here on purpose: the subject is the
  *  walker's VERBATIM `<recv>.<member>(<lambda>)` fall-through, which only a
  *  method off the catalogue reaches. */
 const OFF_CATALOGUE =

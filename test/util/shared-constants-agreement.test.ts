@@ -460,7 +460,7 @@ describe("(d) principal — the member names every backend spells", () => {
   });
 
   it("the typing pass and the validators gate derived members through the constants", () => {
-    // Lowering no longer types a member itself (M-T5.44): it copies the single
+    // Lowering no longer types a member itself (M-T5.47): it copies the single
     // typing pass's answer, so the pass is the member-typing site to pin.
     for (const file of [
       "src/language/typing/elaborate.ts",

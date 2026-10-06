@@ -1,5 +1,5 @@
 // `StmtIR.variant-match.subjectType` — audit finding F56, CLOSED by the single
-// typing pass (M-T5.44 cutover 3b).
+// typing pass (M-T5.47 cutover 3b).
 //
 // The field's own doc comment calls it "Resolved `or`-union TypeIR of the
 // subject — the variant set", and the four type-grounded `match` gates in

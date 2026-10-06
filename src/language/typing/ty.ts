@@ -1,5 +1,5 @@
-// The single typing pass's type representation (M-T5.44, design:
-// docs/new-plan/missions/M-T5.44-single-typing-pass-design.md §D2–D3).
+// The single typing pass's type representation (M-T5.47, design:
+// docs/new-plan/missions/M-T5.47-single-typing-pass-design.md §D2–D3).
 //
 // `Ty` is AST-anchored like the language layer's `DddType`, because the LSP,
 // go-to-definition and sensitivity all need the declaration rather than its

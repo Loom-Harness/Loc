@@ -151,7 +151,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
     // `method-call` over `{kind:"this"}` — the fourth spelling, and the one the
     // `helper-fn` allowlist used to wave through.  The AST layer once refused it
     // too, but only by accident (the old checker typed the call `unknown`, so
-    // `'requires' must be of type 'bool'`); the single typing pass (M-T5.44)
+    // `'requires' must be of type 'bool'`); the single typing pass (M-T5.47)
     // types it `bool`, so this gate is the refusal.
     const src = `
       aggregate Order {

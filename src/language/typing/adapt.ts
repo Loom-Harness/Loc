@@ -1,5 +1,5 @@
 // `toDddType` — the single pass's answer, in the language layer's legacy
-// `DddType` vocabulary (M-T5.44 §D2). A validator not yet migrated keeps the
+// `DddType` vocabulary (M-T5.47 §D2). A validator not yet migrated keeps the
 // exact view it has today: a union reads as its head variant and a generic
 // carrier as its argument (what `resolveTypeRef` gives), and the record shapes
 // `DddType` cannot express (workflow / projection state, resource handles,

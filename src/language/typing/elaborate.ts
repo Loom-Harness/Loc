@@ -1,4 +1,4 @@
-// The single typing pass: one elaboration over the AST (M-T5.44 design §D4–D8).
+// The single typing pass: one elaboration over the AST (M-T5.47 design §D4–D8).
 //
 // One walk per compilation unit visits EVERY node by reflection, so no
 // container can be missed: there is no hand-kept list of "body roots" to

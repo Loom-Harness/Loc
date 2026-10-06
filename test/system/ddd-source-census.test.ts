@@ -202,7 +202,7 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b07-bad-enum-value.ddd",
   // `b09` was this corpus's F-041 — a typo'd field (`o.totl`) read off a page
   // `QueryView`'s `data:` row validated clean, because the language layer never
-  // typed the row.  The single typing pass (M-T5.44 cutover 3b) types it, and
+  // typed the row.  The single typing pass (M-T5.47 cutover 3b) types it, and
   // `loom.unknown-member` now refuses it — so, per the note above, its pin.
   "eval/repro/broken/b09-page-wrong-aggregate.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",

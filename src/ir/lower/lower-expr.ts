@@ -196,7 +196,7 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
   // `??` is its own precedence band (`CoalesceExpr`), so a chain carrying it
   // carries NOTHING else — desugar the whole chain before the arithmetic fold.
   if (chain.ops[0] === "??") return lowerCoalesceChain(chain, env);
-  // The fold's types are the single typing pass's (M-T5.44): each step's
+  // The fold's types are the single typing pass's (M-T5.47): each step's
   // operand and result types, ELABORATED — a bare literal beside a money /
   // long / decimal operand already promoted, an ambiguous enum value already
   // retargeted against the other side.  Lowering only applies the matching
@@ -220,7 +220,7 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
     // `convert` IR so backends emit `String(x)` / `x.ToString()` /
     // `to_string(x)` per their existing renderConvert dispatch —
     // identical to what the explicit `string(x)` form would produce.
-    // Two REPRESENTATION rules (M-T5.44 §D7) decide when no conversion is
+    // Two REPRESENTATION rules (M-T5.47 §D7) decide when no conversion is
     // needed: a text-context concatenation (a toast message renders every part
     // as text), and an `X id` in a ui body (on every frontend the id IS its
     // wire string).
@@ -298,7 +298,7 @@ const STRING_T: TypeIR = { kind: "primitive", name: "string" };
 
 /** The type the single typing pass recorded for `node` — a postfix suffix (the
  *  receiver type AFTER it), an assignment target, or any expression — copied
- *  into the IR.  Lowering infers nothing itself (M-T5.44); the pass's
+ *  into the IR.  Lowering infers nothing itself (M-T5.47); the pass's
  *  `unknown` and a node it never reached both carry the `string` placeholder,
  *  which the single-typing-pass census pins shrink-only. */
 export function passType(node: AstNode, env?: Env): TypeIR {
@@ -1198,7 +1198,7 @@ export function lowerExpr(expr: Expression | undefined, env: Env): ExprIR {
   return out;
 }
 
-/** Shadow-mode observer (M-T5.44): sees every expression `lowerExpr` lowers,
+/** Shadow-mode observer (M-T5.47): sees every expression `lowerExpr` lowers,
  *  with the lowering `Env` it was lowered in, so the typing differential can
  *  ask `inferExprType` the same question at the same point. Unset (and so
  *  free) outside that test; it never changes what is lowered. */

@@ -1083,7 +1083,7 @@ export function checkCallStmt(
 }
 
 export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
-  // The target's receiver chain as the single typing pass typed it (M-T5.44):
+  // The target's receiver chain as the single typing pass typed it (M-T5.47):
   // `this`, then the type after each segment.  The head resolves lexically
   // (param, let, …) before the enclosing record's members — except under an
   // EXPLICIT `this.`, the whole point of which is to skip a same-named

@@ -420,7 +420,7 @@ export function sensitivityNarrows(value: DddType, target: DddType): Sensitivity
 
 export function resolveTypeRef(ref: TypeRef | undefined): DddType {
   if (!ref?.base) return T.unknown;
-  // Type references resolve through the single typing pass (M-T5.44, 3b) —
+  // Type references resolve through the single typing pass (M-T5.47, 3b) —
   // including the macro-built ones whose cross-reference never linked, which
   // the pass finds by name.  A union reads as its head variant and a generic
   // carrier as its argument: the view this layer has always had.
@@ -612,7 +612,7 @@ export function typeOf(expr: Expression | undefined, env: Env): DddType {
 
 function typeOfExpr(expr: Expression | undefined, _env: Env): DddType {
   if (!expr) return T.unknown;
-  // Literals and operators are typed by the single typing pass (M-T5.44,
+  // Literals and operators are typed by the single typing pass (M-T5.47,
   // cutover family 3a) — the same answer lowering reads.
   if (
     isStringLit(expr) ||
@@ -886,7 +886,7 @@ export function isDurationBuiltinCall(name: string, env: Env): boolean {
 // `stepInto` and `stepIntoNode` answer "what does `<receiver>.<name>` denote?"
 // along a dotted path (an lvalue, a projection source), returning the member's
 // type and the member's AST node.  The POSTFIX walk (`recv.member` in an
-// expression) was a third such walker; since M-T5.44 it is the single typing
+// expression) was a third such walker; since M-T5.47 it is the single typing
 // pass's, read through `suffixType`.  They were written as `if (t.kind === …)`
 // chains falling through to a silent `unknown` / `undefined` — the shape
 // M-T5.16 (a) names: **a new `DddType` kind resolves on one walker, silently
@@ -917,7 +917,7 @@ export const MEMBER_RESOLVING_KINDS = {
 } as const satisfies Record<string, ReadonlyArray<DddType["kind"]>>;
 
 /** The receiver type AFTER `suffix` — what the single typing pass recorded
- *  for it (M-T5.44): the one member-access walk validators and the LSP read. */
+ *  for it (M-T5.47): the one member-access walk validators and the LSP read. */
 export function suffixType(suffix: PostfixSuffix): DddType {
   const t = typingFor(suffix).synthAt(suffix);
   return t ? toDddType(t) : T.unknown;
@@ -1357,7 +1357,7 @@ export function envForNode(node: AstNode): Env {
     (crit ? typeRefAggregate(crit.target) : undefined) ??
     (retr ? typeRefAggregate(retr.target) : undefined);
 
-  // One environment model (M-T5.44 cutover 3e): a name resolves through the
+  // One environment model (M-T5.47 cutover 3e): a name resolves through the
   // single typing pass's scope at `node` — params, lets, lambda / for / match
   // / if-let bindings and event params bound lexically, then the enclosing
   // record's members — not through a second, hand-assembled binding map.

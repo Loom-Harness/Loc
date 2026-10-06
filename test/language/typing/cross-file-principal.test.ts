@@ -56,7 +56,7 @@ const MONEY = `valueobject Money {
 }
 `;
 
-describe("M-T5.44 — the principal resolves across the import closure", () => {
+describe("M-T5.47 — the principal resolves across the import closure", () => {
   let tmp: string;
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-principal-"));

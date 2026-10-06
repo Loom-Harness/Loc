@@ -97,7 +97,7 @@ describe("F2 — a guarded optional receiver keeps its intrinsic lowering (IR)",
   });
 
   it("types a bare member under the guard as the NARROWED receiver", async () => {
-    // Since names read the single typing pass (M-T5.44 cutover 3b) a guarded
+    // Since names read the single typing pass (M-T5.47 cutover 3b) a guarded
     // read is typed as narrowed — `note2` is `string` inside
     // `note2 != null ? … : …`, for a bare member exactly as for a call.  It
     // used to keep the `optional` wrapper here, so `.length` missed the

@@ -9,7 +9,7 @@ import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 // Before it, every model below was `0 error(s), 0 warning(s)` and node emitted
 // `(…)[0].nope` into domain/task.ts. The receivers are typed `unknown` by the
 // language layer (a `let` bound from a list literal / a collection-op result),
-// so the AST member check stood down.  Since the single typing pass (M-T5.44)
+// so the AST member check stood down.  Since the single typing pass (M-T5.47)
 // the language layer types those receivers too, so the AST check refuses them
 // first; the backstop still fires behind it, and stays the net for whatever
 // the pass leaves `unknown`.

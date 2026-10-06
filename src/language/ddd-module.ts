@@ -158,7 +158,7 @@ export function createDddServices(context: DefaultSharedModuleContext): {
   // was deleted when `scaffold` migrated to a stdlib macro.
   bootMacros(shared);
   // The single typing pass memoises a session per document; any workspace
-  // change drops them all (M-T5.44 §D8).
+  // change drops them all (M-T5.47 §D8).
   shared.workspace.DocumentBuilder.onUpdate(() => invalidateTyping());
   // A session reads the project's `user { }` block across the import closure.
   registerTypingWorkspace(shared, (root) => {

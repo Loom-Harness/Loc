@@ -1,8 +1,8 @@
-// The single typing pass (M-T5.44) — public surface.
+// The single typing pass (M-T5.47) — public surface.
 //
 // `typingSession(models)` elaborates a whole compilation unit once and
 // answers `typeAt(node)` for every expression in it. Design:
-// docs/new-plan/missions/M-T5.44-single-typing-pass-design.md.
+// docs/new-plan/missions/M-T5.47-single-typing-pass-design.md.
 
 import type { AstNode } from "langium";
 import type { Aggregate, BinaryChain, Model, TypeRef } from "../generated/ast.js";

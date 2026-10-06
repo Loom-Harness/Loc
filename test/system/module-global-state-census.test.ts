@@ -92,7 +92,7 @@ const PINNED: Record<string, Pin> = {
   "src/ir/lower/lower-expr.ts:lowerExprObserver": {
     discipline: "scoped-restore",
     reason:
-      "M-T5.44 shadow-mode observer: unset outside the typing differential, which installs it per document and clears it in a `finally`.",
+      "M-T5.47 shadow-mode observer: unset outside the typing differential, which installs it per document and clears it in a `finally`.",
   },
   "src/ir/lower/lower-expr.ts:uiEnumIndexByRoot": {
     discipline: "keyed-cache",

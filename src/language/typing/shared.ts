@@ -1,4 +1,4 @@
-// The one place a consumer gets the typing session for a node (M-T5.44 §D8).
+// The one place a consumer gets the typing session for a node (M-T5.47 §D8).
 //
 // Sessions are a MEMO of a pure function of the linked AST: keyed by the AST
 // root, so a reparsed document (a fresh root object) can never read a stale

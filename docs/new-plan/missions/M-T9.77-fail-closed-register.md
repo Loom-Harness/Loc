@@ -850,7 +850,7 @@ A page action using a collection/string method outside the small F# set (reverse
 
 Crash: `Error: feliz: method 'reverse' is not implemented on the F# action/update path — ...`
 
-*Since M-T5.44 (single typing pass) this repro no longer reaches the emitter: page `state` is typed, so `xs.reverse()` on an `int[]` is refused upstream with `loom.unknown-member` (pinned in `first-run-examples-parse.test.ts`). The site stays deferred until it is shown that no CATALOGUE op outside the F# set can reach it.*
+*Since M-T5.47 (single typing pass) this repro no longer reaches the emitter: page `state` is typed, so `xs.reverse()` on an `int[]` is refused upstream with `loom.unknown-member` (pinned in `first-run-examples-parse.test.ts`). The site stays deferred until it is shown that no CATALOGUE op outside the F# set can reach it.*
 
 <details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
 

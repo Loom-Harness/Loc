@@ -1,6 +1,6 @@
 // The type-system's parallel member-resolution walkers (M-T5.16 (a)).  There
 // were three; the postfix one (`typeAfterSuffix`) is the single typing pass's
-// since M-T5.44, so the two dotted-path walkers remain.
+// since M-T5.47, so the two dotted-path walkers remain.
 //
 // `typeAfterSuffix`, `stepInto` and `stepIntoNode` all answer the same
 // question — "what does `<receiver>.<name>` denote?" — and differ only in what
@@ -144,7 +144,7 @@ describe("type-system member-resolution walkers are exhaustive over DddType", ()
   it("the AST-node walker tracks its type twin exactly", () => {
     // Or go-to-definition and hover disagree about what a member IS.  (The
     // postfix walk that used to be the third walker here is the single typing
-    // pass's since M-T5.44 — `suffixType` reads it.)
+    // pass's since M-T5.47 — `suffixType` reads it.)
     expect([...MEMBER_RESOLVING_KINDS.stepIntoNode].sort()).toEqual(
       [...MEMBER_RESOLVING_KINDS.stepInto].sort(),
     );

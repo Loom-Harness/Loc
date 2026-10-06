@@ -3,7 +3,7 @@ import { generateSystemFilesUnchecked } from "../../_helpers/index.js";
 
 /** `filter` is NOT a Loom collection op (Loom spells it `where`), so the AST
  *  refuses `[1, 2, 3].filter(…)` now that the single typing pass types the
- *  list literal (M-T5.44).  The subject here is the HEEx engine's rendering of
+ *  list literal (M-T5.47).  The subject here is the HEEx engine's rendering of
  *  that off-catalogue op, which only a model the AST refuses still reaches. */
 const generateSystemFiles = (src: string) =>
   generateSystemFilesUnchecked(

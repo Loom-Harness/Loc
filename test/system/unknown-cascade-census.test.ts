@@ -83,7 +83,7 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
 /** The band the measured `unknown` share must stay inside.  Measured at
  *  **60.9 %** (28 333 of 46 492) on the day this census landed, and at
  *  **29.3 %** (13 643 of 46 498) once names and member chains read the single
- *  typing pass (M-T5.44 cutover 3b), and at **23.8 %** (11 044) once the
+ *  typing pass (M-T5.47 cutover 3b), and at **23.8 %** (11 044) once the
  *  test e2e api handles are typed too (cutover 3f).  Pinned BOTH
  *  ways on purpose: a rise means the validators stopped checking more of the
  *  corpus (a name-resolution or env regression), and a fall means the drain

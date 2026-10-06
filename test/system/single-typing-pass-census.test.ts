@@ -1,9 +1,9 @@
-// M-T5.44 slice 4 — the ratchet against a second type-inference path.
+// M-T5.47 slice 4 — the ratchet against a second type-inference path.
 //
 // Every expression is typed ONCE, by the single typing pass in
 // `src/language/typing/`.  The validators read its results (through `typeOf`
 // / `suffixType` / `envForNode`, which delegate), and lowering COPIES them
-// into `TypeIR` (through `passType` / `inferExprType`).  Before M-T5.44 there
+// into `TypeIR` (through `passType` / `inferExprType`).  Before M-T5.47 there
 // were two whole checkers — `type-system.ts`'s `typeOf`/`typeAfterSuffix` and
 // `lower-expr.ts`'s `inferExprType`/`memberType` — that disagreed on 60 % of
 // the fleet's expressions; the census below keeps a third one from growing
@@ -100,7 +100,7 @@ function bodyOf(src: string, name: string): string {
   return src.slice(open, end);
 }
 
-describe("M-T5.44 — one typing pass: no second type-inference path", () => {
+describe("M-T5.47 — one typing pass: no second type-inference path", () => {
   const found = scan();
 
   it("the scan reaches the real code", () => {
@@ -114,7 +114,7 @@ describe("M-T5.44 — one typing pass: no second type-inference path", () => {
     expect(
       extra,
       "A function that types an AST node outside src/language/typing/ is a second inference " +
-        "path — the shape M-T5.44 removed.  Put the rule in the typing pass (elaborate.ts) and " +
+        "path — the shape M-T5.47 removed.  Put the rule in the typing pass (elaborate.ts) and " +
         "read it with typingFor(node), or, if it is a pure read, add it to ALLOWED with why.",
     ).toEqual([]);
   });
