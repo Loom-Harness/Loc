@@ -44,7 +44,7 @@ app is broken:
 | `hono-build` → `generated-build.test.ts` | none | `tsc --noEmit` + `npm run build` (tsup) | strict tsc | project | ✅ stricter than the image, which runs tsup only. Fixed by #3085 for v4 **and** v5 (same emitter) |
 | `corpus-build` (tsc) → `corpus-tsc-build.test.ts` | none | `tsc --noEmit` only | strict | project | ⚠️ no bundle |
 | `dotnet-build` / corpus dotnet + dapper | none | Debug `dotnet build /warnaserror` | **yes**, as a CLI flag only. The csproj never sets it, and the image's `publish -c Release` has no flag | – | ⚠️ Release config never built |
-| `java-build` / corpus java | none | `gradle testClasses bootJar` | **no** | – | ⚠️ W-as-E |
+| `java-build` / corpus java | none | `gradle testClasses bootJar` | **yes** since f4fbce47: `-Xlint:all -Werror` via `test/e2e/support/java-werror.init.gradle` | – | ✅ |
 | `python-build` / corpus python | none | `uv sync`, ruff, `mypy --strict`, pytest | lint as errors | – | ✅ stricter |
 | `elixir-vanilla-build` | none | `mix deps.get --only prod && mix compile --warnings-as-errors` | yes. But `_build` is cache-restored, so an unrecompiled module's warning is not re-emitted | – | ⚠️ cache |
 | `corpus-elixir-build` → `corpus-elixir-build.test.ts` | **was none: migrations compiled, never applied** (#3060). Now applied (#3147) | `mix compile --warnings-as-errors` | yes | – | ❌ → ✅ |
