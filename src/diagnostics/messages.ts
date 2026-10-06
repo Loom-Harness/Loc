@@ -128,6 +128,21 @@ export const DIAGNOSTIC_MESSAGES = {
     actual: unknown;
   }) =>
     `'${p.name}.create' field '${p.name2}' expects a ${p.expFam} value ('${p.expected}') but got '${p.actual}'.`,
+  "loom.create-field-type#nullable": (p: {
+    name: unknown;
+    name2: unknown;
+    expected: unknown;
+    actual: unknown;
+    src: unknown;
+  }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got '${p.actual}' — a ` +
+    `nullable value is not usable where a non-null one is required, and a \`requires\` / ` +
+    `\`precondition\` null test does not narrow it. Narrow it at the use with a ternary on ` +
+    `the same path (\`${p.src} != null ? ${p.src} : <fallback>\`) or \`${p.src} ?? <fallback>\`, ` +
+    `take the value as a non-optional parameter, or declare '${p.name2}' optional.`,
+  "loom.create-field-type#null": (p: { name: unknown; name2: unknown; expected: unknown }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got 'null' — the field ` +
+    `is not optional. Pass a value, or declare '${p.name2}' optional.`,
   "loom.create-field-id-target": (p: {
     name: unknown;
     name2: unknown;
