@@ -22,9 +22,13 @@ export class AggregateNotFoundError extends Error {
 /** Authorization failure — raised by `requires` expressions in
  *  operation / workflow bodies when the resolved currentUser
  *  doesn't satisfy the gate.  The per-route catch maps this to
- *  HTTP 403 (Forbidden). */
+ *  HTTP 403 (Forbidden).
+ *
+ *  `message` names the failed gate and goes to the `forbidden` log line;
+ *  `detail` is the 403 body's `detail` — the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log. */
 export class ForbiddenError extends Error {
-  constructor(message: string) { super(message); this.name = "ForbiddenError"; }
+  readonly detail: string;
+  constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = "Forbidden"; }
 }
 /** State-gate failure — raised when an operation's 'when' predicate
  *  (the canCommand gate, criterion.md use site 2) evaluates false

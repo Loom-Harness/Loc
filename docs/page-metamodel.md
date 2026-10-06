@@ -210,8 +210,12 @@ deployables, and on `platform: elixir` it renders as Phoenix LiveView
 - The host must be able to *run* the ui's framework: a `framework: phoenixLiveView`
   ui only mounts on `platform: elixir`, and a JS-bundle framework only on a host
   that serves bundles (`loom.ui-framework-unhostable`).
-- Every `scaffold` selector and every page-data binding inside the `ui` must
-  resolve to a subdomain reachable through the deployable's `targets` chain.
+- Every aggregate a page (or component) of the `ui` reads — bare (`Task.all`,
+  `CreateForm { of: Task }`) or through an api handle (`Notes.Task.all`) — must
+  belong to a context the frontend deployable's `targets:` backend serves
+  (`loom.ui-aggregate-unserved`, phase ⑦).  The frontend is generated against
+  that ONE backend, so a `scaffold(subdomains: [A, B])` whose target serves only
+  `A` is refused at `parse` rather than failing on the generated `B` pages.
 
 ---
 
@@ -1265,7 +1269,11 @@ Three layered scales of override, all the same mechanism — explicit
 ### Validator obligations
 
 - Each selector entry resolves to an existing declaration of that kind
-  (`loom.macro-arg-kind-mismatch`), reachable through the deployable's `targets`.
+  (`loom.macro-arg-kind-mismatch`).
+- Every aggregate the scaffolded pages read must be served by the hosting
+  frontend deployable's `targets:` backend (`loom.ui-aggregate-unserved` — the
+  check is on the pages' reads after expansion, so it covers hand-written pages
+  too; see §3).
 - A `with scaffold(...)` clause that survives into lowering unexpanded is
   `loom.scaffold-unexpanded`.
 - Stacked `scaffold` directives may not double-scaffold the same construct.

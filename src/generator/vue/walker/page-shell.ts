@@ -486,6 +486,13 @@ export function renderVuePage(input: VuePageShellInput): string {
       opFormLines.push(`const ${opCamel} = reactive(${hookName}(${state.idExpr}));`);
       vueImports.add("reactive");
       names.add(hookName);
+      // `when`-gated op: its `can_<op>` probe, against the same id.
+      if (state.gate) {
+        opFormLines.push(
+          `const ${state.gate.local} = reactive(${state.gate.hook}(${state.idExpr}));`,
+        );
+        names.add(state.gate.hook);
+      }
     }
     const openFn = `open${opPascal}Modal`;
     if (seenVars.has(openFn)) {
@@ -713,6 +720,13 @@ export function renderVuePage(input: VuePageShellInput): string {
   // file and its import from ever dangling apart.
   if (result.tsx.includes("<LoomChart")) {
     script.push(`import LoomChart from "${adjustDepth("../components/LoomChart.vue", input)}";`);
+  }
+  // The `IdLink` reference-label child — same marker discipline, same reason
+  // (`vue/ref-label-runtime.ts`).
+  if (result.tsx.includes("<LoomRefLabel")) {
+    script.push(
+      `import LoomRefLabel from "${adjustDepth("../components/LoomRefLabel.vue", input)}";`,
+    );
   }
   for (const line of storeWiring.imports) script.push(line);
   script.push("");
@@ -1279,6 +1293,13 @@ export function renderVueComponentFile(
       formLines.push(`const ${opCamel} = reactive(${hookName}(${rewriteScript(st.idExpr)}));`);
       vueImports.add("reactive");
       names.add(hookName);
+      // `when`-gated op: its `can_<op>` probe, against the same id.
+      if (st.gate) {
+        formLines.push(
+          `const ${st.gate.local} = reactive(${st.gate.hook}(${rewriteScript(st.idExpr)}));`,
+        );
+        names.add(st.gate.hook);
+      }
     }
     const openFn = `open${opPascal}Modal`;
     if (seenVars.has(openFn)) {
@@ -1391,6 +1412,10 @@ export function renderVueComponentFile(
   }
   if (usesLoomForm) {
     script.push(`import { useLoomForm } from "../lib/form";`);
+  }
+  // A component is a sibling of the reference-label SFC in `src/components/`.
+  if (result.tsx.includes("<LoomRefLabel")) {
+    script.push(`import LoomRefLabel from "./LoomRefLabel.vue";`);
   }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);

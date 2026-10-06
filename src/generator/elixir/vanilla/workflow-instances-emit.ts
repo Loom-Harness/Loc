@@ -6,9 +6,10 @@
 // `platform: elixir` a correlation-bearing workflow is observable as a
 // plain Ecto read:
 //
-//   - saga-state Ecto schema — reused verbatim from `dispatch-emit.ts`
-//     (`emitWorkflowStateSchemas`); plain Ecto that agrees byte-for-byte
-//     with the saga table the migrations builder derives.
+//   - saga-state Ecto schema — `dispatch-emit.ts`'s
+//     `emitWorkflowStateSchemas`, called by the orchestrator (not here); plain
+//     Ecto that agrees byte-for-byte with the saga table the migrations
+//     builder derives.
 //   - `<App>Web.WorkflowInstancesController` — `GET /workflows/<snake>/
 //     instances` (list) + `.../instances/:id` (by-id) reading that schema
 //     via `<App>.Repo.all` / `.get`, projecting the cross-backend
@@ -31,7 +32,7 @@ import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loo
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
-import { emitWorkflowStateSchemas, stateModule } from "../dispatch-emit.js";
+import { stateModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
@@ -47,10 +48,12 @@ export function emitVanillaWorkflowInstances(
   ctx: EnrichedBoundedContextIR,
   out: Map<string, string>,
 ): ApiRoute[] {
-  // Saga-state Ecto schemas — reused.  Emitted for every
-  // correlation-bearing workflow (idempotent with the future vanilla dispatch
-  // slice, same path / same content).
-  emitWorkflowStateSchemas(appName, ctx, appModule, out);
+  // The saga-state Ecto schemas this controller reads are NOT emitted here:
+  // the orchestrator (`vanilla/index.ts`) emits them for every
+  // correlation-bearing workflow WITH the context's `@schema_prefix`.  This
+  // used to re-emit them without the prefix — a different file at the same
+  // path, correct only because the prefixed write happened to run second
+  // (surfaced by the write-once `EmissionSink`).
 
   const observable = ctx.workflows.filter((wf) => wf.instanceWireShape);
   if (observable.length === 0) return [];

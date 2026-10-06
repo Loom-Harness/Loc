@@ -55,6 +55,7 @@ on:
       - 'test/e2e/corpus-dotnet-dapper-build.test.ts'
       - 'test/e2e/corpus-java-build.test.ts'
       - 'test/e2e/support/gradle.ts'
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/corpus-python-build.test.ts'
       - 'package.json'
       - 'package-lock.json'
@@ -81,6 +82,7 @@ on:
       - 'test/e2e/corpus-dotnet-dapper-build.test.ts'
       - 'test/e2e/corpus-java-build.test.ts'
       - 'test/e2e/support/gradle.ts'
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/corpus-python-build.test.ts'
       - 'package.json'
       - 'package-lock.json'
@@ -218,6 +220,10 @@ jobs:
         run: npm ci
       - name: Build toolchain
         run: npm run build
+      # javac at `-Xlint:all -Werror` on every corpus feature — the same init
+      # script java-build.yml installs (test/system/java-compile-strictness.test.ts).
+      - name: javac -Xlint:all -Werror for every generated project
+        run: install -D -m 0644 test/e2e/support/java-werror.init.gradle ~/.gradle/init.d/java-werror.gradle
       - name: gradle build against every corpus feature
         run: npm run test:java-corpus
 

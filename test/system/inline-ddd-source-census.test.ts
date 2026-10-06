@@ -135,6 +135,15 @@ function inlineDocuments(): InlineDoc[] {
 // ---------------------------------------------------------------------------
 const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why: string }[] = [
   {
+    file: "test/language/parsing/misplaced-declaration.test.ts",
+    why: "every fixture puts a declaration in the wrong scope — the parse error's rewrite is the subject",
+  },
+  {
+    file: "test/language/parsing/reserved-name-diagnostic.test.ts",
+    contains: "deployable {\n",
+    why: "a deployable with its name deleted, pinning the parse error's candidate list (keyword-sweep review)",
+  },
+  {
     file: "test/playground/builder-recovered-ast.test.ts",
     why: "its subject IS parse recovery — every fixture is a source mid-edit, and a parseable one would test nothing",
   },
@@ -211,6 +220,11 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     file: "test/system/diagnostic-firing-census.test.ts",
     contains: "design: mantinee",
     why: "the mistyped design pack that makes `loom.parse-error` fire, proving the closed-set 'did you mean mantine?' message replaced chevrotain's token-sequence dump (F6)",
+  },
+  {
+    file: "test/cli/parse-error-no-lowering.test.ts",
+    contains: "apply Opened {",
+    why: "the `apply Opened {` missing its `(e: Opened)` parameter list IS the subject — it recovers to an `Apply` with no `event` ref, and the test proves the CLI reports the syntax error instead of lowering the recovered AST and crashing in `lowerApply`",
   },
 ];
 

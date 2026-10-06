@@ -35,6 +35,7 @@ import {
 } from "../../ir/util/realtime-rooms.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
@@ -78,6 +79,7 @@ import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
 import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
+import { FELIZ_REF_LABEL, FELIZ_REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import {
   felizPersistedStores,
   renderStorePersistModule,
@@ -1272,7 +1274,7 @@ function renderAppFs(
   const reads: FelizRead[] = readsForUi(ui, contexts);
   const readFields = new Set(reads.map((r) => r.field));
   for (const target of fkTargets) {
-    const r = felizAllRead(target);
+    const r = felizAllRead(target, { bcByAggregate: bcByAggregateOf(contexts) });
     if (!readFields.has(r.field)) {
       readFields.add(r.field);
       reads.push(r);
@@ -1287,7 +1289,7 @@ function renderAppFs(
   const hasRealtime = backendRealtime && (ui.notifications?.length ?? 0) > 0;
   if (hasRealtime) {
     for (const agg of felizRealtimeRefetchAggregates(ui)) {
-      const r = felizAllRead(agg);
+      const r = felizAllRead(agg, { bcByAggregate: bcByAggregateOf(contexts) });
       if (!readFields.has(r.field)) {
         readFields.add(r.field);
         reads.push(r);
@@ -1557,6 +1559,11 @@ function renderAppFs(
   // (the claims-fallback element).
   const gatedViews = pageGate ? [FORBIDDEN_VIEW, "", ...rootViews] : rootViews;
   const views = authUi ? [...gatedViews, "", renderAuthGate()] : gatedViews;
+  // The `IdLink` reference-label module — only when a view or a walked
+  // component actually calls it (`feliz/ref-label-runtime.ts`).
+  const usesRefLabel = [...views, ...walkedComponents.decls].some((v) =>
+    v.includes(FELIZ_REF_LABEL_MARKER),
+  );
 
   // `open` one line per DISTINCT extern module actually referenced by the page
   // walks (components + functions), so bare `OrderChart {| … |}` /
@@ -1723,6 +1730,9 @@ function renderAppFs(
     // call these.  Declared in a nested `Components` module (then `open`ed) so a
     // component named after a wire record / `Model` / `Api` can't collide with an
     // App.fs member — see `renderFelizComponentModule`.
+    // The reference-label child, ahead of the components and views that call it.
+    usesRefLabel ? "" : false,
+    usesRefLabel ? FELIZ_REF_LABEL : false,
     ...renderFelizComponentModule(walkedComponents.decls),
     "",
     views.join("\n"),
@@ -2003,7 +2013,7 @@ export function generateFelizForContexts(
   // reaches the host backend without a baked base.  `basePath` (Phoenix `/app`)
   // threads into vite's `base`; `pathPrefix` relocates the whole project.
   const basePath = options.basePath ?? "";
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/feliz/index");
   if (!deployable.uiName) {
     throw new Error(
       `Feliz deployable '${deployable.name}' has no ui binding (uiName). A frontend deployable must target a ui.`,
@@ -2142,7 +2152,7 @@ export function generateFelizForContexts(
   // (`ClientApp/` or Phoenix `assets/`).  Mirrors react/angular's post-pass.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/feliz/index");
   for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
   return prefixed;
 }
