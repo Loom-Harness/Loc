@@ -68,6 +68,7 @@ import {
   collectPageWorkflowForms,
   formsUseFilePicker,
   renderFormsFile,
+  renderGatesFile,
 } from "./forms-emit.js";
 import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
@@ -250,6 +251,11 @@ export function generateFlutterForContexts(
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
   }
+  const gates = renderGatesFile(
+    contexts.flatMap((c) => c.aggregates),
+    credentialed,
+  );
+  if (gates) out.set("lib/gates.dart", gates);
 
   // The aggregates reachable through this deployable — used for the fallback
   // home page when the ui declares no pages of its own.
@@ -1031,6 +1037,7 @@ function renderStatelessPage(
     imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
   }
   if (opts.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   // The controlled-Modal bridge, imported only where a page actually opens one
   // (an unused Dart import is an analyzer warning, and `flutter analyze` is a
   // per-PR gate).  Same content-sniff as `apiUri(` below.
@@ -1213,6 +1220,7 @@ function renderConsumerPage(
   if (b.pageGate) imports.push("import '../auth.dart';");
   if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   if (b.usesComponent) imports.push("import '../components.dart';");
   if (b.usedStores.size > 0) imports.push("import '../stores.dart';");
   // The controlled-Modal bridge (the state-bearing page path — its stateless
@@ -1961,4 +1969,10 @@ function indentContinuation(widget: string, spaces: number): string {
   const [first, ...rest] = widget.split("\n");
   if (rest.length === 0) return first;
   return [first, ...rest.map((line) => (line ? pad + line : line))].join("\n");
+}
+
+/** Whether a page body watches a `can_<op>` probe (`gates.dart`) — the same
+ *  content-sniff the page shells use for every on-demand import. */
+function usesGateProbe(bodyWidget: string): boolean {
+  return /\bcan[A-Z]\w*Provider\(/.test(bodyWidget);
 }

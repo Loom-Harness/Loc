@@ -58,7 +58,7 @@ const SENDS: Record<string, { file: RegExp; call: RegExp }> = {
   },
   vue: {
     file: /src\/api\/doc\.ts$/,
-    call: /api\.post\(`\/docs\/\$\{seg\(id\)\}\/update`, input, ifMatch\(loaded\?\.version\)\)/,
+    call: /api\.post\(`\/docs\/\$\{seg\(toValue\(id\)\)\}\/update`, input, ifMatch\(loaded\?\.version\)\)/,
   },
   svelte: {
     file: /api\/doc\.ts$/,

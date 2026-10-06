@@ -99,7 +99,7 @@ describe("Vue variant-`match await` (MVU Stage 2)", () => {
     expect(api).toBeDefined();
 
     // The union-returning op hook parses + RETURNS the discriminated union.
-    expect(api).toContain("export function usePlaceOrderOrder(id: string) {");
+    expect(api).toContain("export function usePlaceOrderOrder(id: MaybeRefOrGetter<string>) {");
     expect(api).toContain("return PlaceOrderOrderResponse.parse(r);");
     // The discriminated-union DTO: success variant extends its response schema,
     // the error variant is its own tagged object.

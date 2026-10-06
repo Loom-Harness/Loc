@@ -569,14 +569,16 @@ export function renderVuePage(input: VuePageShellInput): string {
     }
   }
   // `Action(<inst>.<op>)` mutation hoists — same reactive() wrapper.  The
-  // hook targets a specific instance, so it takes the instance id
-  // (`use<Op><Agg>(<idExpr>)` — matches React/Svelte); `scriptArgs` applies
-  // the page's state `.value` rewrite to the idExpr, as for find hooks above.
+  // hook targets a specific instance, so it takes the instance id as a GETTER
+  // (`use<Op><Agg>(() => <idExpr>)`): `setup` runs once, and the instance is
+  // usually an async QueryView record whose id only exists after it loads.
+  // `scriptArgs` applies the page's state `.value` rewrite to the idExpr, as
+  // for find hooks above.
   for (const m of result.actionMutations) {
     if (seenVars.has(m.localVar)) continue;
     seenVars.add(m.localVar);
     hookLines.push(
-      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => scriptArgs([id]))}));`,
+      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${scriptArgs([id])}`)}));`,
     );
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
@@ -1199,11 +1201,12 @@ export function renderVueComponentFile(
     if (seenVars.has(m.localVar)) continue;
     seenVars.add(m.localVar);
     // The mutation hook targets a specific instance, so it takes the
-    // instance id (`use<Op><Agg>(<idExpr>)` — matches React/Svelte).  The
-    // raw `idExpr` (`order.id`) is rewritten to `props.order.id` by the
-    // `rewriteScript` map below, since the instance is a component prop.
+    // instance id as a getter (`use<Op><Agg>(() => <idExpr>)`), read when the
+    // mutation runs rather than once at `setup`.  The raw `idExpr`
+    // (`order.id`) is rewritten to `props.order.id` by the `rewriteScript`
+    // map below, since the instance is a component prop.
     hookLines.push(
-      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => id)}));`,
+      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)}));`,
     );
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
