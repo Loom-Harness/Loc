@@ -59,6 +59,7 @@ export {
   checkRetrievalLiteral,
   checkStatement,
   checkStoreActionCallArgs,
+  checkTestBodyCallArgs,
 } from "./statements.js";
 export { checkStatementPlacement } from "./stmt-placement.js";
 export {

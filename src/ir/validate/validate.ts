@@ -1,7 +1,11 @@
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
-import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
+import {
+  validateApplicationHandlers,
+  validateRoutes,
+  validateUnservedApis,
+} from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -109,7 +113,10 @@ import {
   validateTestStatementVocabulary,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
-import { validateUiBackendBindings } from "./checks/ui-backend-binding-checks.js";
+import {
+  validateUiBackendBindings,
+  validateUiReadsServed,
+} from "./checks/ui-backend-binding-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
@@ -165,6 +172,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
+    validateUnservedApis(sys, diags);
     // Page gates and bodies name permissions too, and `validatePermissionRefs`
     // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
     // `ui` lowered to the sentinel and rendered as a literal no principal can
@@ -201,6 +209,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `targets:`, so a ui whose api handles fan out across several is refused
     // rather than emitted half-wired.
     validateUiBackendBindings(sys, diags);
+    // …and a page reading an aggregate the `targets:` backend does not serve
+    // (typically a `scaffold(subdomains: …)` selecting an unserved subdomain)
+    // is refused here rather than failing on a generated page.
+    validateUiReadsServed(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);

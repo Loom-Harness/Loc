@@ -42,6 +42,7 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
@@ -116,7 +117,7 @@ const INDENT = "        ";
  *  at generate time.  Both legs derive the map the same way, from the same
  *  function, so they cannot disagree about which resources are routable. */
 export function buildResourceClasses(sys: SystemIR | undefined): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/dotnet/workflow-emit");
   if (!sys) return out;
   const storeType = new Map(sys.storages.map((s) => [s.name, s.type] as const));
   for (const r of sys.dataSources) {
@@ -300,7 +301,7 @@ function renderWorkflowPayloadDomainRecords(
   ctx: EnrichedBoundedContextIR,
   ns: string,
 ): Map<string, string> {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/dotnet/workflow-emit");
   for (const pl of workflowParamPayloads(ctx)) {
     const params = pl.fields
       // `renderCsType` already renders an `optional(T)` as `T?`, so the
