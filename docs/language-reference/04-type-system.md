@@ -471,6 +471,37 @@ field :tags, {:array, :string}        # migration: add :tags, {:array, :text}, n
 
 An array of **references** — `X id[]` — is different: enrichment derives a join-table association for it rather than an inline array column. See [`../payloads.md`](../payloads.md) and the association derivation in enrichment (phase ⑥). A `contains … : Part[]` is a child table, not an array ([Domain modeling](03-domain-modeling.md#entity-parts--contains)).
 
+### Where a collection of references or value objects can live
+
+A collection of references (`X id[]`) or of value objects (`Money[]`) needs a table of its own, so it is accepted only where the schema gives it one:
+
+| Position | `X id[]` | `<VO>[]` |
+|---|---|---|
+| aggregate root field | join table | id-less child table |
+| entity part field | — refused | id-less child table |
+| projection / workflow state field | one `jsonb` id-array column | — refused |
+| inside a persisted value object | — refused | — refused |
+
+`X id[]?` is refused everywhere: a reference collection is a set, and the empty set already means "none". Each refusal is `loom.collection-field-unpersisted`:
+
+```ddd
+aggregate Order {
+  tags: Tag id[]?          // error: drop the '?'
+  contains lines: Line[]
+  entity Line { refs: Tag id[] }   // error: no join table for a part
+}
+```
+
+```text
+loom.collection-field-unpersisted: aggregate 'Order' field 'tags' is an OPTIONAL reference collection ('X id[]?'). …
+```
+
+A projection or workflow state field `refs: Order id[]` is stored as one `jsonb` array of the ids:
+
+```sql
+"refs" JSONB NULL,
+```
+
 ## Options — `T?`
 
 A trailing `?` makes the field nullable: a `NULL`-able column and an optional/nullable host member and wire field. (`T?` is distinct from the `option` *carrier* below.) A `token` field may not be nullable (`loom.token-nullable`).

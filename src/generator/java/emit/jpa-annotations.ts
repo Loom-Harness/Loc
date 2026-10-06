@@ -36,6 +36,10 @@ export interface JpaOpts {
    *  the entity emitter) fold into jsonb columns instead of join /
    *  part tables (the EF owned-types `.ToJson()` analog). */
   embedded?: boolean;
+  /** A projection / workflow STATE row (one table row, no join or child
+   *  tables): a reference collection is one jsonb id-array column, exactly as
+   *  under `shape: embedded` (the shared migration's `JSONB` column). */
+  stateRow?: boolean;
   /** M-T6.36 — enums with at least one Java-reserved-word VALUE, whose java
    *  constants are therefore mangled.  Their columns map through the generated
    *  `<Enum>.Codec` `AttributeConverter` instead of `@Enumerated(STRING)`, so
@@ -162,20 +166,14 @@ export function jpaFieldAnnotations(
   // Reference collection (`Target id[]`) → the association's join table
   // (relational), or a jsonb id-array column under `shape: embedded`.
   if (t.kind === "array" && t.element.kind === "id") {
-    const assoc = associationFor(owner, f.name);
-    if (!assoc) {
-      throw new Error(
-        `java jpa: no AssociationIR for reference collection '${owner.name}.${f.name}' — enrichment derives one per aggregate-level Id[] field.`,
-      );
-    }
-    if (opts.embedded) {
+    if (opts.embedded || opts.stateRow) {
       // The `List<TargetId>` can't ride `@JdbcTypeCode(JSON)` alone — the
       // @Embeddable id triggers Hibernate's structured-JSON aggregate path,
       // which bypasses the FormatMapper.  A per-target `AttributeConverter`
       // (emitted in domain.ids) unwraps the list to bare `value`s so the
       // FormatMapper serialises `["v1","v2"]` — the cross-backend jsonb shape.
       return [
-        `    @Convert(converter = ${assoc.targetAgg}IdJsonListConverter.class)`,
+        `    @Convert(converter = ${t.element.targetName}IdJsonListConverter.class)`,
         `    @JdbcTypeCode(SqlTypes.JSON)`,
         `    @Column(name = "${hbIdent(col)}"${f.optional ? "" : ", nullable = false"})`,
       ];
@@ -185,6 +183,15 @@ export function jpaFieldAnnotations(
     // target) PK is the whole row.  Deterministic read-back order is a
     // read-time projection: `@OrderBy` (no argument) sorts by the element
     // value, i.e. the target FK id — matching every other backend.
+    // `loom.collection-field-unpersisted` refuses every `X id[]` that is not an
+    // aggregate root's own non-optional field, and enrichment derives one
+    // association per such field.
+    const assoc = associationFor(owner, f.name);
+    if (!assoc) {
+      throw new Error(
+        `java jpa: no AssociationIR for reference collection '${owner.name}.${f.name}' — enrichment derives one per aggregate-level Id[] field.`,
+      );
+    }
     return [
       `    @ElementCollection(fetch = FetchType.EAGER)`,
       `    @CollectionTable(name = "${assoc.joinTable}"${schemaAttr(opts.schema)}, joinColumns = @JoinColumn(name = "${assoc.ownerFk}"))`,

@@ -678,12 +678,30 @@ export const mikroWorkflowRowClass = (wf: WorkflowIR): string => `${upperFirst(w
  *  string PK (an id column), every other declared saga state field maps through
  *  the shared `fieldColumns` — mirroring the drizzle `emitWorkflowStateTable`. */
 
+/** A state row's (workflow / projection) columns for one non-key field.  A
+ *  reference collection is one jsonb id-string array column — the shared
+ *  migration's `JSONB` (a state row has no pivot table); everything else
+ *  maps through the shared `fieldColumns`. */
+function stateFieldColumns(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
+  if (!isRefCollection(f.type)) return fieldColumns(f, ctx);
+  return [
+    {
+      prop: f.name,
+      mikroType: "json",
+      tsType: "string[]",
+      nullable: f.optional ?? false,
+      primary: false,
+      columnType: "jsonb",
+    },
+  ];
+}
+
 function workflowStateColumns(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
   const corr = wf.correlationField;
   const cols: MikroColumn[] = (wf.stateFields ?? []).flatMap((f) =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
-      : fieldColumns(f, ctx),
+      : stateFieldColumns(f, ctx),
   );
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3) — the twin
   // of the drizzle `emitWorkflowStateTable`'s `last_event_id`.  Under a durable
@@ -711,7 +729,7 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
   return proj.stateFields.flatMap((f): MikroColumn[] =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
-      : fieldColumns(f, ctx).map((c) => ({ ...c, nullable: true })),
+      : stateFieldColumns(f, ctx).map((c) => ({ ...c, nullable: true })),
   );
 }
 

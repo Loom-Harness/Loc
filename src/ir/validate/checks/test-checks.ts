@@ -28,6 +28,7 @@ import {
   resolveRoutedHandler,
   routedHandlerCallHints,
 } from "../../util/routed-handler.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
@@ -58,7 +59,7 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
       checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
         checkThrowKindReadable(stmt, agg, ctx, test.name, diags);
-        const reason = testStmtRefusal(stmt, UNIT_TEST_STMT_KINDS);
+        const reason = testStmtRefusal(stmt, UNIT_TEST_STMT_KINDS) ?? partBuilderRefusal(stmt);
         if (!reason) continue;
         diags.push({
           severity: "error",
@@ -73,6 +74,23 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
       }
     }
   }
+}
+
+/** An entity-part builder (`Line { qty: 1 }`) anywhere in a unit-test
+ *  statement.  A part is minted by its aggregate's factory with the PARENT's
+ *  id, and an aggregate test has no aggregate instance to supply one — every
+ *  backend that renders the builder reaches for an ambient `this` id that a
+ *  test body does not have. */
+function partBuilderRefusal(stmt: TestStmtIR): string | undefined {
+  let part: string | undefined;
+  const visit = (e: ExprIR): void => {
+    if (e.kind === "new" && part === undefined) part = e.partName;
+  };
+  if (stmt.kind === "expect" || stmt.kind === "expect-throws") walkExprDeep(stmt.expr, visit);
+  else walkStmtExprsDeep(stmt, visit);
+  return part === undefined
+    ? undefined
+    : `the entity-part builder '${part} { … }' needs the owning aggregate's id, which a test body does not have.`;
 }
 
 /** `toThrow(<kind>)` against a rule that carries an authored `message "..."`.

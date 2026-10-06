@@ -732,7 +732,7 @@ export function mikroContextFilters(agg: EnrichedAggregateIR, bypass?: FilterByp
     // A crash at generation is the strictly safer failure.  With
     // `authzFilterEntry` rendering the subtree sentinel there is no known
     // shape left to crash on.
-    out.push(whereToMikroFilter(pred));
+    out.push(whereToMikroFilter(pred, AMBIENT_PRINCIPAL, agg.associations));
   });
   return out;
 }
@@ -769,7 +769,7 @@ export function withContextFilters(base: string, caps: string[]): string {
 
 function mikroWriteScopeFilter(agg: EnrichedAggregateIR): string | null {
   if (!agg.writeScopeFilter) return null;
-  return whereToMikroFilter(agg.writeScopeFilter);
+  return whereToMikroFilter(agg.writeScopeFilter, AMBIENT_PRINCIPAL, agg.associations);
 }
 
 /** The `getById` body lines for a QUERYABLE-COLUMN shape (relational /

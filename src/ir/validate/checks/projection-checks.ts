@@ -382,6 +382,22 @@ function validateQueryComprehension(
       checkAggregateDeclaredType(ctx, proj, s, diags);
       continue;
     }
+    // A select-only row takes each field's type from its expression, and
+    // `datetime - datetime` is a `duration` — a type with no column and no
+    // wire form on any backend (it has no field syntax for the same reason).
+    const selType = s.type?.kind === "optional" ? s.type.inner : s.type;
+    if (selType?.kind === "primitive" && selType.name === "duration") {
+      diags.push({
+        severity: "error",
+        code: "loom.projection-select-duration",
+        message: diagMessage("loom.projection-select-duration", {
+          name: proj.name,
+          field: s.field,
+        }),
+        source: `${ctx.name}/${proj.name}`,
+      });
+      continue;
+    }
     const unresolved = firstUnresolvedRefName(s.expr);
     if (!unresolved) continue;
     const hint = WHOLE_TABLE_AGGREGATIONS.has(unresolved)
@@ -635,11 +651,14 @@ function validateHandlers(
     seen.add(h.event);
 
     // Routability: with no explicit `by`, the event must carry the key field
-    // by name so the runtime can route by `e.<key>`.
-    if (!h.correlation) {
+    // by name so the runtime can route by `e.<key>`.  With no `keyed by` at
+    // all there is no key column to route to, so an explicit `by` does not
+    // help either — the row has nowhere to store the routed key.
+    const keyless = proj.correlationField === undefined;
+    if (!h.correlation || keyless) {
       const event = ctx.events.find((e) => e.name === h.event);
-      const carriesKey = event?.fields.some((f) => f.name === proj.correlationField);
-      if (event && !carriesKey) {
+      const carriesKey = !keyless && event?.fields.some((f) => f.name === proj.correlationField);
+      if ((event || keyless) && !carriesKey) {
         diags.push({
           severity: "error",
           code: "loom.projection-event-unkeyed",

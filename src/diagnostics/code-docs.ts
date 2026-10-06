@@ -53,6 +53,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unconstructible-server-field":
     "03-domain-modeling.md#a-server-owned-field-must-have-a-value",
   "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
+  "loom.collection-field-unpersisted":
+    "04-type-system.md#where-a-collection-of-references-or-value-objects-can-live",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
@@ -188,6 +190,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
   "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
+  "loom.projection-select-duration": "04-type-system.md#duration--expression-only",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",

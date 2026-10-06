@@ -20,6 +20,7 @@ import {
   validateMigrationDataSteps,
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
+import { validatePersistedCollectionPositions } from "./checks/persisted-collection-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validateFindGates,
@@ -323,6 +324,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
+    validatePersistedCollectionPositions(c, diags);
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
