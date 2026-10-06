@@ -10,6 +10,7 @@ import type {
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
+import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -20,6 +21,7 @@ import {
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { dapperAggregateTable } from "./emit/dapper.js";
 import { renderCsType } from "./render-expr.js";
@@ -66,6 +68,7 @@ export function emitAuthFiles(
   // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
   const orgContext = !!orgPathClaimExpr && systemReadsOrgContext(sys);
   out.set("Auth/User.cs", renderUserRecord(sys.user, ns, orgPathClaim, !!registry, orgContext));
+  out.set("Auth/EventOrigin.cs", renderEventOrigin(ns));
   out.set("Auth/IUserVerifier.cs", renderVerifierInterface(ns));
   out.set("Auth/ICurrentUserAccessor.cs", renderAccessorInterface(ns));
   out.set("Auth/HttpContextCurrentUserAccessor.cs", renderAccessorImpl(ns));
@@ -774,21 +777,40 @@ function renderSystemPrincipalMembers(
   orgContext: boolean,
 ): string {
   const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
+  const tenantField = tenantClaim ? user.fields.find((f) => f.name === tenantClaim) : undefined;
   const args = user.fields
-    .map((f) =>
-      f.name === tenantClaim
-        ? `origin is null ? ${systemCsharpValueFor(f)} : origin.${upperFirst(f.name)}`
-        : systemCsharpValueFor(f),
-    )
+    .map((f) => {
+      if (f !== tenantField) return systemCsharpValueFor(f);
+      const rebuilt = claimFromOriginString(f.type, "t", "csharp");
+      return rebuilt === null
+        ? systemCsharpValueFor(f)
+        : `origin?.Tenant is { Length: > 0 } t ? ${rebuilt} : ${systemCsharpValueFor(f)}`;
+    })
     .join(", ");
-  const causedBy = idField
-    ? `origin is null ? null : origin.IsSystem ? origin.CausedBy : origin.${upperFirst(idField.name)}.ToString()`
-    : "origin?.CausedBy";
+  // The claim as the origin's string: an id is its wrapped Value (a record
+  // struct's own ToString is `XId { Value = … }`, not the id).
+  const asString = (f: { name: string; type: TypeIR; optional: boolean }): string => {
+    const member = `user.${upperFirst(f.name)}`;
+    const value =
+      f.type.kind === "id" ? (f.optional ? `${member}?.Value` : `${member}.Value`) : member;
+    return f.optional || f.type.kind !== "primitive" || f.type.name === "string"
+      ? `${value}?.ToString()`
+      : `${value}.ToString()`;
+  };
+  const tenantOf = tenantField ? `NullIfEmpty(${asString(tenantField)})` : "null";
+  const orgPathOf = tenantClaim ? "NullIfEmpty(user.OrgPath)" : "null";
+  const causedByOf = idField
+    ? `user.IsSystem ? user.CausedBy : ${asString(idField)}`
+    : "user.CausedBy";
   const inits = [
     "IsSystem = true",
-    `CausedBy = ${causedBy}`,
-    ...(tenantClaim && readsRegistry ? ["OrgPath = origin?.OrgPath ?? string.Empty"] : []),
-    ...(tenantClaim && orgContext ? ["OrgContextPath = origin?.OrgPath ?? string.Empty"] : []),
+    "CausedBy = origin?.CausedBy",
+    ...(tenantClaim && readsRegistry
+      ? ["OrgPath = origin?.OrgPath ?? origin?.Tenant ?? string.Empty"]
+      : []),
+    ...(tenantClaim && orgContext
+      ? ["OrgContextPath = origin?.OrgPath ?? origin?.Tenant ?? string.Empty"]
+      : []),
   ];
   return `
     /// <summary><c>currentUser.isSystem</c> — true only on the system principal
@@ -801,14 +823,99 @@ function renderSystemPrincipalMembers(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CausedBy { get; init; }
 
+    /// <summary>The event origin of a principal (ruling D1): its tenant claim,
+    /// materialized path, and originating user id.  A system principal
+    /// propagates its own origin, so an event a reactor raises keeps the first
+    /// user as <c>CausedBy</c>.</summary>
+    public static EventOrigin? OriginOf(User? user) => user is null
+        ? null
+        : new EventOrigin(${tenantOf}, ${orgPathOf}, ${causedByOf});
+
+    /// <summary>The ambient frame's event origin — captured onto the outbox row
+    /// and the channel envelope.  Null outside any principal (a timer tick).</summary>
+    public static EventOrigin? CurrentEventOrigin() => OriginOf(RequestContext.Current?.CurrentUser);
+
     /// <summary>The principal an event reactor runs as: no claims,
     /// <c>IsSystem</c>, the dispatching principal's tenant.  Gates are evaluated
     /// against it normally — one that admits it says
     /// <c>currentUser.isSystem || …</c>.</summary>
-    public static User SystemPrincipal(User? origin) => new User(${args})
+    public static User SystemPrincipal(User? origin) => SystemPrincipalFor(OriginOf(origin));
+
+    /// <summary>The system principal of an event origin.  No origin (a timer
+    /// tick) ⇒ an empty tenant, which matches no tenant-owned row.</summary>
+    public static User SystemPrincipalFor(EventOrigin? origin) => new User(${args})
     {
         ${inits.join(",\n        ")},
     };
+
+    /// <summary>Make the system principal of <paramref name="origin"/> the
+    /// ambient principal until the handle is disposed — the outbox relay and
+    /// the channel consumer open one per delivered event, so the reactor (and
+    /// every ambient-principal reader under it) sees the triggering event's
+    /// tenant.  No origin ⇒ nothing changes (tenant-less, fail-closed).</summary>
+    public static System.IDisposable EnterEventOrigin(EventOrigin? origin)
+    {
+        if (origin is null) return NoFrame.Instance;
+        var frame = RequestContext.OpenRoot(System.Guid.NewGuid().ToString(), "en", System.DateTimeOffset.UtcNow);
+        frame.CurrentUser = SystemPrincipalFor(origin);
+        return RequestContext.Enter(frame);
+    }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private sealed class NoFrame : System.IDisposable
+    {
+        public static readonly NoFrame Instance = new();
+        public void Dispose() { }
+    }
+`;
+}
+
+/** `Auth/EventOrigin.cs` — the event origin record (ruling D1) and the
+ *  outbox-payload codec that carries it under the reserved key. */
+function renderEventOrigin(ns: string): string {
+  return `// Auto-generated.
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+
+namespace ${ns}.Auth;
+
+/// <summary>Where an event came from (ruling D1): the raising principal's
+/// tenant claim and materialized path, and the originating user id (audit
+/// only).  Captured onto the outbox row and the channel envelope
+/// (<c>tenantid</c> / <c>loomorgpath</c> / <c>loomcausedby</c>) so a reactor
+/// that runs after the request is gone still runs as the system principal OF
+/// THAT TENANT.</summary>
+public sealed record EventOrigin(
+    [property: JsonPropertyName("tenant")] string? Tenant,
+    [property: JsonPropertyName("orgPath")] string? OrgPath,
+    [property: JsonPropertyName("causedBy")] string? CausedBy);
+
+/// <summary>The outbox row payload: the event's JSON plus its origin under the
+/// reserved <c>${LOOM_OUTBOX_ORIGIN_KEY}</c> key (event deserialization ignores it).</summary>
+public static class EventOriginPayload
+{
+    public const string Key = "${LOOM_OUTBOX_ORIGIN_KEY}";
+
+    /// <summary>Serialize <paramref name="ev"/> with the ambient frame's origin.</summary>
+    public static string Capture(object ev)
+    {
+        var node = JsonSerializer.SerializeToNode(ev)!.AsObject();
+        var origin = User.CurrentEventOrigin();
+        if (origin is not null) node[Key] = JsonSerializer.SerializeToNode(origin);
+        return node.ToJsonString();
+    }
+
+    /// <summary>The origin a drained row's payload carries, or null.</summary>
+    public static EventOrigin? Read(string payload)
+    {
+        var node = JsonNode.Parse(payload) as JsonObject;
+        return node is not null && node.TryGetPropertyValue(Key, out var origin) && origin is not null
+            ? origin.Deserialize<EventOrigin>()
+            : null;
+    }
+}
 `;
 }
 
@@ -909,6 +1016,7 @@ ${rootOrgProp}${orgContext ? orgContextProp : ""}
 ${rootOrgProp}${systemMembers}
 }`;
   return `// Auto-generated.
+using ${ns}.Domain.Common;
 using ${ns}.Domain.Enums;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;

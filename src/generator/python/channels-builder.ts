@@ -89,6 +89,11 @@ export function buildPyChannelsFile(
   /** The value objects in scope (hosted + the foreign-event closure) — a
    *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
   valueObjects: readonly ValueObjectIR[] = [],
+  /** The deployable carries auth: every envelope carries the raising frame's
+   *  EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`, ruling D1)
+   *  and the consumer delivers each event inside the system principal of
+   *  that origin (`app.auth.user.event_origin_frame`). */
+  carriesOrigin = false,
 ): string {
   const vos: PyVoFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
@@ -201,6 +206,11 @@ export function buildPyChannelsFile(
     hasChannelConsumers ? "from sqlalchemy.ext.asyncio import AsyncSession" : null,
     "from uuid6 import uuid7",
     "",
+    carriesOrigin
+      ? hasChannelConsumers
+        ? "from app.auth.user import current_event_origin, event_origin_frame"
+        : "from app.auth.user import current_event_origin"
+      : null,
     hasChannelConsumers ? "from app.db.engine import engine" : null,
     `from app.domain.events import ${["DomainEvent", ...eventNames].join(", ")}`,
     idNames.length > 0
@@ -553,6 +563,31 @@ export function buildPyChannelsFile(
     "    _transports.clear()",
     "",
     "",
+    ...(carriesOrigin
+      ? [
+          "# Envelope extension attribute -> event-origin key (ruling D1).",
+          "_ORIGIN_ATTRIBUTES: tuple[tuple[str, str], ...] = (",
+          '    ("tenantid", "tenant"),',
+          '    ("loomorgpath", "orgPath"),',
+          '    ("loomcausedby", "causedBy"),',
+          ")",
+          "",
+          "",
+          ...(hasChannelConsumers
+            ? [
+                "def _origin_of(envelope: dict[str, object]) -> dict[str, object] | None:",
+                '    """The event origin a received envelope names, or None (a producer',
+                '    without auth, a timer-raised event)."""',
+                "    origin: dict[str, object] = {",
+                "        key: envelope[attr] for attr, key in _ORIGIN_ATTRIBUTES if isinstance(envelope.get(attr), str)",
+                "    }",
+                "    return origin or None",
+                "",
+                "",
+              ]
+            : []),
+        ]
+      : []),
     "def _envelope_for(",
     '    event: DomainEvent, address: str, event_id: "str | None" = None',
     ") -> dict[str, object]:",
@@ -565,7 +600,7 @@ export function buildPyChannelsFile(
         ]
       : [
           '    context = next((b["context"] for b in CHANNEL_BINDINGS if b["address"] == address), "")',
-          "    return {",
+          carriesOrigin ? "    envelope: dict[str, object] = {" : "    return {",
         ]),
     '        "specversion": "1.0",',
     "        # Relay-published (durable) events reuse their outbox row id — the",
@@ -586,9 +621,21 @@ export function buildPyChannelsFile(
           "    key_value = data.get(key_field) if key_field else None",
           "    if key_value is not None:",
           '        envelope["loomkey"] = str(key_value)',
-          "    return envelope",
         ]
       : []),
+    ...(carriesOrigin
+      ? [
+          "    # The raising frame's event origin (ruling D1) — the consumer's",
+          "    # reactor runs as the system principal of this tenant.",
+          "    origin = current_event_origin()",
+          "    if origin is not None:",
+          "        for attr, key in _ORIGIN_ATTRIBUTES:",
+          "            value = origin.get(key)",
+          "            if value is not None:",
+          "                envelope[attr] = value",
+        ]
+      : []),
+    ...(hasKafka || carriesOrigin ? ["    return envelope"] : []),
     "",
     "",
     "async def _publish_to(address: str, envelope: dict[str, object], event_type: str) -> None:",
@@ -652,14 +699,24 @@ export function buildPyChannelsFile(
                 '    token = _current_event_id.set(cast(str, envelope["id"]))',
                 "    try:",
                 "        async with AsyncSession(engine) as session:",
-                "            await InProcessDispatcher(session).dispatch(event)",
+                ...(carriesOrigin
+                  ? [
+                      "            with event_origin_frame(_origin_of(envelope)):",
+                      "                await InProcessDispatcher(session).dispatch(event)",
+                    ]
+                  : ["            await InProcessDispatcher(session).dispatch(event)"]),
                 "            await session.commit()",
                 "    finally:",
                 "        _current_event_id.reset(token)",
               ]
             : [
                 "    async with AsyncSession(engine) as session:",
-                "        await InProcessDispatcher(session).dispatch(event)",
+                ...(carriesOrigin
+                  ? [
+                      "        with event_origin_frame(_origin_of(envelope)):",
+                      "            await InProcessDispatcher(session).dispatch(event)",
+                    ]
+                  : ["        await InProcessDispatcher(session).dispatch(event)"]),
                 "        await session.commit()",
               ]),
           "    log(",

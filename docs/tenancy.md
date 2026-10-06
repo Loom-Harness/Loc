@@ -345,10 +345,12 @@ workflow sweepRun {
 }
 ```
 
-**Not yet:** an event that crosses a broker or the transactional outbox does
-not yet carry its tenant in the envelope, so a relay- or broker-fed reactor has
-no origin and runs tenant-less (fail-closed) until that slice lands
-([`channels.md`](channels.md#not-yet)).
+An event that crosses the transactional outbox or a broker carries its
+**origin** — tenant, `orgPath`, `causedBy` — on the outbox row and as the
+envelope's `tenantid` / `loomorgpath` / `loomcausedby` attributes, and the
+relay / consumer delivers it as the system principal of that tenant, so a
+relay- or broker-fed reactor reads and writes in the event's tenant too
+([`channels.md` § Event origin](channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)).
 
 ## Hierarchy — the registry tree (`implements tenantRegistry`, Phase 2)
 

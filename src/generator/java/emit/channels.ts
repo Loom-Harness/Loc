@@ -285,6 +285,11 @@ export function renderJavaChannelFiles(
     /** The value objects in scope (hosted + the foreign-event closure) — a
      *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
     valueObjects?: readonly ValueObjectIR[];
+    /** The deployable carries auth: every envelope carries the raising
+     *  thread's EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`,
+     *  ruling D1), the outbox row records it, and the consumer dispatches each
+     *  event as the system principal of that origin (`auth/EventOrigin.java`). */
+    carriesOrigin?: boolean;
   } = {
     durableBroker: false,
   },
@@ -294,6 +299,7 @@ export function renderJavaChannelFiles(
     (opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const),
   );
   const voEncode: JavaVoEncode = { fields: vos, used: new Set() };
+  const carriesOrigin = opts.carriesOrigin ?? false;
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -334,6 +340,8 @@ export function renderJavaChannelFiles(
       ``,
       `import tools.jackson.databind.json.JsonMapper;`,
       ``,
+      carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
+      carriesOrigin ? `` : null,
       `/** CloudEvents 1.0 JSON envelope — the cross-backend wire contract`,
       ` *  (loom envelope pin, src/util/channels.ts). */`,
       `public record LoomEventEnvelope(`,
@@ -349,6 +357,17 @@ export function renderJavaChannelFiles(
             `        /** The channel's key: field value — kafka's partition key`,
             `         *  (loomkey ?? id, design §4); null off the kafka path. */`,
             `        String loomKey,`,
+          ]
+        : []),
+      ...(carriesOrigin
+        ? [
+            `        /** The raising principal's tenant (ruling D1) — the consuming`,
+            `         *  reactor runs as the system principal OF this tenant. */`,
+            `        String tenantId,`,
+            `        /** That tenant's materialized path (hierarchical tenancy). */`,
+            `        String loomOrgPath,`,
+            `        /** The originating user id — audit and logs only. */`,
+            `        String loomCausedBy,`,
           ]
         : []),
       `        Map<String, Object> data) {`,
@@ -379,6 +398,19 @@ export function renderJavaChannelFiles(
       ...(hasKafka
         ? [`        if (loomKey != null) {`, `            m.put("loomkey", loomKey);`, `        }`]
         : []),
+      ...(carriesOrigin
+        ? [
+            `        if (tenantId != null) {`,
+            `            m.put("tenantid", tenantId);`,
+            `        }`,
+            `        if (loomOrgPath != null) {`,
+            `            m.put("loomorgpath", loomOrgPath);`,
+            `        }`,
+            `        if (loomCausedBy != null) {`,
+            `            m.put("loomcausedby", loomCausedBy);`,
+            `        }`,
+          ]
+        : []),
       `        m.put("data", data);`,
       `        return JSON.writeValueAsString(m);`,
       `    }`,
@@ -395,8 +427,27 @@ export function renderJavaChannelFiles(
       `                (String) m.get("datacontenttype"),`,
       `                (String) m.get("loomchannel"),`,
       ...(hasKafka ? [`                (String) m.get("loomkey"),`] : []),
+      ...(carriesOrigin
+        ? [
+            `                (String) m.get("tenantid"),`,
+            `                (String) m.get("loomorgpath"),`,
+            `                (String) m.get("loomcausedby"),`,
+          ]
+        : []),
       `                (Map<String, Object>) m.get("data"));`,
       `    }`,
+      ...(carriesOrigin
+        ? [
+            ``,
+            `    /** The event origin this envelope names, or null (a producer`,
+            `     *  without auth, a timer-raised event). */`,
+            `    public EventOrigin origin() {`,
+            `        return tenantId == null && loomOrgPath == null && loomCausedBy == null`,
+            `                ? null`,
+            `                : new EventOrigin(tenantId, loomOrgPath, loomCausedBy);`,
+            `    }`,
+          ]
+        : []),
       `}`,
       ``,
     ),
@@ -1065,6 +1116,8 @@ export function renderJavaChannelFiles(
       `import java.util.Map;`,
       `import java.util.concurrent.atomic.AtomicLong;`,
       ``,
+      carriesOrigin ? `import ${basePkg}.auth.User;` : null,
+      carriesOrigin ? `` : null,
       `/** Envelope construction shared by the inline tee and the outbox relay`,
       ` *  publisher.  Relay-published (durable) events pass their outbox row`,
       ` *  id — the stable consumer-side idempotency key; inline (ephemeral)`,
@@ -1088,6 +1141,12 @@ export function renderJavaChannelFiles(
       `                : Long.toHexString(System.currentTimeMillis()) + "-"`,
       `                        + Long.toHexString(ProcessHandle.current().pid()) + "-"`,
       `                        + Long.toHexString(COUNTER.incrementAndGet());`,
+      ...(carriesOrigin
+        ? [
+            `        // The raising thread's event origin (ruling D1).`,
+            `        var origin = User.currentEventOrigin();`,
+          ]
+        : []),
       ...(hasKafka
         ? [
             `        // The channel's key: field value rides as loomkey — kafka's`,
@@ -1098,12 +1157,12 @@ export function renderJavaChannelFiles(
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
-            `                address, loomKey, data);`,
+            `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
-            `                address, data);`,
+            `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]),
       `    }`,
       ``,
@@ -1125,6 +1184,7 @@ export function renderJavaChannelFiles(
       `import ${basePkg}.domain.events.DomainEvent;`,
       opts.durableBroker ? `import ${opts.outboxEntityPkg}.LoomOutboxMessage;` : null,
       opts.durableBroker ? `import ${opts.outboxRepoPkg}.LoomOutboxRepository;` : null,
+      opts.durableBroker && carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
       ``,
       `/** Producer tee — the delivery-uniformity rule (design §4): an event`,
       ` *  carried by a broker-bound channel is PUBLISHED and not fanned out`,
@@ -1161,7 +1221,9 @@ export function renderJavaChannelFiles(
           ? [
               `        if (ChannelBindings.DURABLE_ROUTING.containsKey(type)) {`,
               `            // Design §5: durable events ride the outbox — the relay publishes.`,
-              `            outbox.save(new LoomOutboxMessage(type, ChannelCodec.toData(event)));`,
+              carriesOrigin
+                ? `            outbox.save(new LoomOutboxMessage(type, EventOrigin.capture(ChannelCodec.toData(event))));`
+                : `            outbox.save(new LoomOutboxMessage(type, ChannelCodec.toData(event)));`,
               `            return;`,
               `        }`,
             ]
@@ -1293,6 +1355,7 @@ export function renderJavaChannelFiles(
         ...dispatchers
           .filter((h) => h.dispatcherPkg !== pkg)
           .map((h) => `import ${h.dispatcherPkg}.${h.dispatcherClass};`),
+        carriesOrigin ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
         opts.durableBroker ? `import ${basePkg}.domain.common.OutboxDelivery;` : null,
         `import ${basePkg}.domain.events.*;`,
         ``,
@@ -1334,7 +1397,17 @@ export function renderJavaChannelFiles(
         ),
         `    }`,
         ``,
-        `    private void dispatch(LoomEventEnvelope envelope) {`,
+        ...(carriesOrigin
+          ? [
+              `    private void dispatch(LoomEventEnvelope envelope) {`,
+              `        // The reactor runs as the system principal of the envelope's`,
+              `        // event origin — the tenant that raised it (ruling D1).`,
+              `        CurrentUserAccessor.runAsEventOrigin(envelope.origin(), () -> dispatchAsOrigin(envelope));`,
+              `    }`,
+              ``,
+              `    private void dispatchAsOrigin(LoomEventEnvelope envelope) {`,
+            ]
+          : [`    private void dispatch(LoomEventEnvelope envelope) {`]),
         `        var bare = envelope.type().contains(".")`,
         `                ? envelope.type().substring(envelope.type().indexOf('.') + 1)`,
         `                : envelope.type();`,
@@ -1455,6 +1528,10 @@ export function renderJavaOutboxFiles(pkgs: {
   configPkg: string;
   entityPkg: string;
   repoPkg: string;
+  /** The deployable carries auth: the relay publishes each drained row as
+   *  the system principal of its recorded EVENT ORIGIN (ruling D1). */
+  carriesOrigin?: boolean;
+  basePkg?: string;
 }): {
   name: string;
   category: "infra-persistence" | "spring-data-repository" | "config";
@@ -1573,6 +1650,8 @@ export function renderJavaOutboxFiles(pkgs: {
         `import org.springframework.context.SmartLifecycle;`,
         `import org.springframework.stereotype.Component;`,
         ``,
+        pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.CurrentUserAccessor;` : null,
+        pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.EventOrigin;` : null,
         `import ${pkgs.repoPkg}.LoomOutboxRepository;`,
         ``,
         `/** Drains __loom_outbox to the broker at-least-once (design §5) —`,
@@ -1625,8 +1704,16 @@ export function renderJavaOutboxFiles(pkgs: {
         `                // envelope carries the row id — the consumer-side idempotency`,
         `                // key).  A non-broker durable row has no local redelivery path`,
         `                // on java; either way the row completes.`,
-        `                ChannelRelayPublisher.tryPublish(transports, row.getType(), row.getPayload(),`,
-        `                        row.getId().toString());`,
+        ...(pkgs.carriesOrigin
+          ? [
+              `                CurrentUserAccessor.runAsEventOrigin(EventOrigin.of(row.getPayload()),`,
+              `                        () -> ChannelRelayPublisher.tryPublish(transports, row.getType(),`,
+              `                                EventOrigin.strip(row.getPayload()), row.getId().toString()));`,
+            ]
+          : [
+              `                ChannelRelayPublisher.tryPublish(transports, row.getType(), row.getPayload(),`,
+              `                        row.getId().toString());`,
+            ]),
         `                row.setDispatchedAt(Instant.now());`,
         `                outbox.save(row);`,
         `            } catch (RuntimeException e) {`,
@@ -1687,8 +1774,12 @@ export function renderJavaStandaloneOutboxFiles(
     configPkg: string;
     entityPkg: string;
     repoPkg: string;
+    /** The deployable carries auth: rows record the EVENT ORIGIN and the
+     *  relay delivers each as its system principal (ruling D1). */
+    carriesOrigin?: boolean;
   },
 ): { name: string; category: "config"; content: string }[] {
+  const carriesOrigin = opts.carriesOrigin ?? false;
   const durable = [...opts.durableEvents].sort();
   const byEvent = new Map<string, ChannelConsumerHandler[]>();
   for (const h of opts.handlers) {
@@ -1725,6 +1816,7 @@ export function renderJavaStandaloneOutboxFiles(
         `import tools.jackson.databind.ObjectMapper;`,
         `import tools.jackson.databind.json.JsonMapper;`,
         ``,
+        carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
         `import ${basePkg}.domain.events.DomainEvent;`,
         `import ${opts.entityPkg}.LoomOutboxMessage;`,
         `import ${opts.repoPkg}.LoomOutboxRepository;`,
@@ -1757,7 +1849,9 @@ export function renderJavaStandaloneOutboxFiles(
         `        }`,
         `        @SuppressWarnings("unchecked")`,
         `        var payload = (Map<String, Object>) mapper.convertValue(event, Map.class);`,
-        `        outbox.save(new LoomOutboxMessage(type, payload));`,
+        carriesOrigin
+          ? `        outbox.save(new LoomOutboxMessage(type, EventOrigin.capture(payload)));`
+          : `        outbox.save(new LoomOutboxMessage(type, payload));`,
         `    }`,
         `}`,
         ``,
@@ -1780,6 +1874,8 @@ export function renderJavaStandaloneOutboxFiles(
         `import tools.jackson.databind.ObjectMapper;`,
         `import tools.jackson.databind.json.JsonMapper;`,
         ``,
+        carriesOrigin ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
+        carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
         `import ${basePkg}.domain.common.OutboxDelivery;`,
         `import ${basePkg}.domain.events.*;`,
         `import ${opts.repoPkg}.LoomOutboxRepository;`,
@@ -1842,7 +1938,9 @@ export function renderJavaStandaloneOutboxFiles(
         `            try {`,
         `                OutboxDelivery.setCurrentEventId(row.getId().toString());`,
         `                try {`,
-        `                    deliver(row.getType(), row.getPayload());`,
+        carriesOrigin
+          ? `                    CurrentUserAccessor.runAsEventOrigin(EventOrigin.of(row.getPayload()),\n                            () -> deliver(row.getType(), EventOrigin.strip(row.getPayload())));`
+          : `                    deliver(row.getType(), row.getPayload());`,
         `                } finally {`,
         `                    OutboxDelivery.clear();`,
         `                }`,

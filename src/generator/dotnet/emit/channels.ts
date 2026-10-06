@@ -179,9 +179,16 @@ export function renderDotnetChannels(
     /** The value objects in scope (hosted + the foreign-event closure) — a
      *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
     valueObjects?: readonly ValueObjectIR[];
+    carriesOrigin?: boolean;
   } = { hasOutbox: false, durableBroker: false },
 ): string {
   const vos: VoFields = new Map((opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const));
+  // `carriesOrigin`: the deployable carries auth — every envelope carries the
+  // raising frame's EVENT ORIGIN (`tenantid` / `loomorgpath` /
+  // `loomcausedby`, ruling D1) and the consumer delivers each event inside the
+  // system principal of that origin (`Auth/EventOrigin.cs`).
+  const carriesOrigin = opts.carriesOrigin ?? false;
+  const authUser = `global::${ns}.Auth.User`;
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -807,7 +814,12 @@ public sealed class ChannelConsumerService : BackgroundService
         var bare = envelope.Type.Contains('.')
             ? envelope.Type[(envelope.Type.IndexOf('.') + 1)..]
             : envelope.Type;
-        var ev = ChannelCodec.FromData(bare, envelope.Data);
+        var ev = ChannelCodec.FromData(bare, envelope.Data);${
+          carriesOrigin
+            ? `
+        using var __origin = ${authUser}.EnterEventOrigin(envelope.ToOrigin());`
+            : ""
+        }
         using var scope = _scopes.CreateScope();
         var dispatcher = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();
 ${consumerMarkedDispatch}
@@ -860,7 +872,32 @@ public sealed record LoomEventEnvelope(
     [property: JsonPropertyName("loomkey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey,`
         : ""
     }
-    [property: JsonPropertyName("data")] JsonElement Data);
+    [property: JsonPropertyName("data")] JsonElement Data)${
+      carriesOrigin
+        ? `
+{
+    /// <summary>The raising principal's tenant (ruling D1) — the consuming
+    /// reactor runs as the system principal OF this tenant.</summary>
+    [JsonPropertyName("tenantid"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TenantId { get; init; }
+
+    /// <summary>That tenant's materialized path (hierarchical tenancy).</summary>
+    [JsonPropertyName("loomorgpath"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LoomOrgPath { get; init; }
+
+    /// <summary>The originating user id — audit and logs only.</summary>
+    [JsonPropertyName("loomcausedby"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LoomCausedBy { get; init; }
+
+    /// <summary>The event origin this envelope names, or null (a producer
+    /// without auth, a timer-raised event).</summary>
+    public global::${ns}.Auth.EventOrigin? ToOrigin()
+        => TenantId is null && LoomOrgPath is null && LoomCausedBy is null
+            ? null
+            : new global::${ns}.Auth.EventOrigin(TenantId, LoomOrgPath, LoomCausedBy);
+}`
+        : ";"
+    }
 
 /// <summary>The publish/subscribe seam every transport implements — the
 /// in-process dispatcher, every broker driver, and the realtime relay
@@ -954,6 +991,12 @@ public static class ChannelEnvelopes
             ?? $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds():x}-{Environment.ProcessId:x}-{Interlocked.Increment(ref _counter):x}";
         var raw = ChannelCodec.ToData(ev);
         var data = JsonSerializer.SerializeToElement(raw);${
+          carriesOrigin
+            ? `
+        // The raising frame's event origin (ruling D1).
+        var origin = ${authUser}.CurrentEventOrigin();`
+            : ""
+        }${
           hasKafka
             ? `
         // The channel's key: field value rides as loomkey — kafka's
@@ -965,11 +1008,29 @@ public static class ChannelEnvelopes
         }
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"/loom/{bound.Context}",
-            DateTime.UtcNow.ToString("o"), "application/json", address, loomKey, data);`
+            DateTime.UtcNow.ToString("o"), "application/json", address, loomKey, data)${
+              carriesOrigin
+                ? `
+        {
+            TenantId = origin?.Tenant,
+            LoomOrgPath = origin?.OrgPath,
+            LoomCausedBy = origin?.CausedBy,
+        }`
+                : ""
+            };`
             : `
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"/loom/{bound.Context}",
-            DateTime.UtcNow.ToString("o"), "application/json", address, data);`
+            DateTime.UtcNow.ToString("o"), "application/json", address, data)${
+              carriesOrigin
+                ? `
+        {
+            TenantId = origin?.Tenant,
+            LoomOrgPath = origin?.OrgPath,
+            LoomCausedBy = origin?.CausedBy,
+        }`
+                : ""
+            };`
         }
     }
 }

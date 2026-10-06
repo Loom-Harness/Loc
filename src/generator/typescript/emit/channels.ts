@@ -69,6 +69,12 @@ export function renderChannelsModule(
   /** The value objects in scope for the deployable (hosted + foreign
    *  closure) — lets a decoder rebuild a carried VO field-by-field. */
   valueObjects: readonly ValueObjectIR[] = [],
+  /** The deployable carries auth: every envelope carries the raising frame's
+   *  EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`, ruling D1)
+   *  and the consumer delivers each event inside the system principal of
+   *  that origin (`auth/middleware.ts` `runAsEventOrigin`), so a reactor in
+   *  this deployable runs in the tenant that raised the event elsewhere. */
+  carriesOrigin = false,
 ): string {
   const vos: WireValueObjectFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
@@ -145,6 +151,9 @@ export function renderChannelsModule(
         : domainTypeImports.length > 0
           ? `import type { ${domainTypeImports.join(", ")} } from "../domain/value-objects";`
           : null,
+      carriesOrigin
+        ? 'import { currentEventOrigin, type EventOrigin, runAsEventOrigin } from "../auth/middleware";'
+        : null,
       'import { baseLogger } from "../obs/log";',
       "",
       "/** CloudEvents 1.0 JSON envelope — the cross-backend wire contract",
@@ -165,6 +174,17 @@ export function renderChannelsModule(
             "   * (`loomkey` ?? `id`, design §4), so one aggregate's events keep",
             "   * per-partition order. */",
             "  loomkey?: string;",
+          ]
+        : []),
+      ...(carriesOrigin
+        ? [
+            "  /** The raising principal's tenant (ruling D1) — this deployable's",
+            "   * reactor runs as the system principal OF this tenant. */",
+            "  tenantid?: string;",
+            "  /** That tenant's materialized path (hierarchical tenancy). */",
+            "  loomorgpath?: string;",
+            "  /** The originating user id — audit and logs only. */",
+            "  loomcausedby?: string;",
           ]
         : []),
       "  data: Record<string, unknown>;",
@@ -515,6 +535,31 @@ export function renderChannelsModule(
       ...[...durableRouting.entries()].map(([ev, addr]) => `  ${ev}: ${JSON.stringify(addr)},`),
       "};",
       "",
+      ...(carriesOrigin
+        ? [
+            "/** The event origin as envelope extension attributes — an absent slot",
+            " * is omitted, never sent as null (CloudEvents extensions are strings). */",
+            "function originAttributes(",
+            "  origin: EventOrigin | null,",
+            '): Pick<LoomEventEnvelope, "tenantid" | "loomorgpath" | "loomcausedby"> {',
+            "  if (origin === null) return {};",
+            "  return {",
+            "    ...(origin.tenant === null ? {} : { tenantid: origin.tenant }),",
+            "    ...(origin.orgPath === null ? {} : { loomorgpath: origin.orgPath }),",
+            "    ...(origin.causedBy === null ? {} : { loomcausedby: origin.causedBy }),",
+            "  };",
+            "}",
+            "",
+            "/** The inverse: the origin a received envelope names, or null when it",
+            " * names none (a producer without auth, a timer-raised event). */",
+            "function originOf(envelope: LoomEventEnvelope): EventOrigin | null {",
+            "  const { tenantid, loomorgpath, loomcausedby } = envelope;",
+            "  if (tenantid === undefined && loomorgpath === undefined && loomcausedby === undefined) return null;",
+            "  return { tenant: tenantid ?? null, orgPath: loomorgpath ?? null, causedBy: loomcausedby ?? null };",
+            "}",
+            "",
+          ]
+        : []),
       "let counter = 0;",
       // F-046: the event is destructured as the type it IS — no
       // `as unknown as` erasing it (the double-cast shape that hid F-019).
@@ -547,6 +592,7 @@ export function renderChannelsModule(
       "    time: new Date().toISOString(),",
       '    datacontenttype: "application/json",',
       "    loomchannel: address,",
+      ...(carriesOrigin ? ["    ...originAttributes(currentEventOrigin()),"] : []),
       ...(hasKafka
         ? [
             "    ...(keyValue === undefined || keyValue === null ? {} : { loomkey: String(keyValue) }),",
@@ -723,7 +769,9 @@ export function renderChannelsModule(
       "          });",
       "          return;",
       "        }",
-      "        await dispatcher.dispatch(event);",
+      carriesOrigin
+        ? "        await runAsEventOrigin(originOf(envelope), () => dispatcher.dispatch(event));"
+        : "        await dispatcher.dispatch(event);",
       "        baseLogger.info({",
       '          event: "channel_consumed",',
       "          address: b.address,",

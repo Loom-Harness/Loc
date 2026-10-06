@@ -618,6 +618,10 @@ function emitProjectFromContexts(
   // The `User` property the SSE endpoint reads the room key off — the bound
   // `tenancy by user.<claim>`, never the row column `TenantId`.
   const realtimeTenantClaim = realtimeTenantClaimProperty(realtimeRoomPlan);
+  // The deployable carries auth: durable events record their EVENT ORIGIN on
+  // the outbox row, every envelope carries it, and the relay / consumer
+  // deliver inside its system principal (ruling D1, `Auth/EventOrigin.cs`).
+  const deployableCarriesAuth = !!(system?.deployable.auth?.required && system.sys.user);
   if (hasChannels && system) {
     out.set(
       "Infrastructure/Channels/ChannelTransport.cs",
@@ -638,6 +642,7 @@ function emitProjectFromContexts(
           hasOutbox: hasOutboxTier,
           durableBroker: durableBrokerEvents.size > 0,
           valueObjects: [...valueObjectPool(mergedBase), ...foreignValueTypes.valueObjects],
+          carriesOrigin: deployableCarriesAuth,
         },
       ),
     );
@@ -670,12 +675,16 @@ function emitProjectFromContexts(
     const outboxInner = hasSubscriptions
       ? "InProcessDomainEventDispatcher"
       : "NoopDomainEventDispatcher";
-    const relayOpts = { durableBroker: durableBrokerEvents.size > 0, hasSubscriptions };
+    const relayOpts = {
+      durableBroker: durableBrokerEvents.size > 0,
+      hasSubscriptions,
+      carriesOrigin: deployableCarriesAuth,
+    };
     out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -685,7 +694,7 @@ function emitProjectFromContexts(
       out.set("Infrastructure/Persistence/OutboxMessage.cs", renderOutboxMessage(ns));
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",

@@ -971,6 +971,7 @@ export function generateTypeScriptForContexts(
       workflowOpFragments,
       resolveStreamContext,
       usingMikro,
+      authRequired,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
@@ -1462,7 +1463,7 @@ export function generateTypeScriptForContexts(
   if (hasChannels) {
     out.set(
       "http/channels.ts",
-      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged)),
+      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged), authRequired),
     );
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
