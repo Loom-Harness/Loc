@@ -7,6 +7,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
 import { ORG_CONTEXT_ACCESSOR } from "../../util/principal.js";
+import { valueObjectEqualsSignature } from "../../util/value-object-intrinsics.js";
 import type {
   Aggregate,
   BinaryChain,
@@ -61,6 +62,7 @@ import {
   type Env,
   envForNode,
   isAssignable,
+  isValueObjectEqualsIntrinsic,
   makeEnv,
   resolveTypeRef,
   T,
@@ -439,6 +441,77 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
   }
 }
 
+/** `<vo>.equals(other)` (src/util/value-object-intrinsics.ts) — the same
+ *  call-shape judgements `checkIntrinsicCalls` makes for a scalar intrinsic,
+ *  under the same `loom.intrinsic-*` codes: a call (not a bare member), on a
+ *  non-null receiver, with exactly one positional argument of the SAME value
+ *  object type.  Fail-open on an `unknown` argument.  Returns true when it
+ *  reported (the caller stops walking the chain). */
+function checkValueObjectEquals(
+  ms: MemberSuffix,
+  recvType: DddType,
+  vo: Extract<DddType, { kind: "valueobject" }>,
+  env: Env,
+  accept: ValidationAcceptor,
+): boolean {
+  const signature = valueObjectEqualsSignature(vo.ref.name);
+  if (!ms.call) {
+    accept(
+      "error",
+      diagMessage("loom.intrinsic-bare", {
+        member: ms.member,
+        signature: signature.split("):")[0],
+      }),
+      { node: ms, property: "member", code: "loom.intrinsic-bare" },
+    );
+    return true;
+  }
+  if (recvType.kind === "optional") {
+    accept(
+      "error",
+      diagMessage("loom.intrinsic-nullable-receiver", {
+        member: ms.member,
+        recv: typeToString(recvType),
+      }),
+      { node: ms, property: "member", code: "loom.intrinsic-nullable-receiver" },
+    );
+    return true;
+  }
+  if (ms.args.length !== 1) {
+    accept(
+      "error",
+      diagMessage("loom.intrinsic-arity", { member: ms.member, expected: "1", signature }),
+      { node: ms, property: "args", code: "loom.intrinsic-arity" },
+    );
+    return true;
+  }
+  const argWrap = ms.args[0]!;
+  if (argWrap.name) {
+    accept("error", diagMessage("loom.intrinsic-named-arg", { member: ms.member }), {
+      node: argWrap,
+      property: "name",
+      code: "loom.intrinsic-named-arg",
+    });
+    return true;
+  }
+  const actual = typeOf(argWrap.value, env);
+  if (actual.kind !== "unknown" && !isAssignable(actual, vo)) {
+    accept(
+      "error",
+      diagMessage("loom.intrinsic-arg-type", {
+        member: ms.member,
+        i: 1,
+        actual: typeToString(actual),
+        signature,
+        expected: typeToString(vo),
+      }),
+      { node: argWrap, property: "value", code: "loom.intrinsic-arg-type" },
+    );
+    return true;
+  }
+  return false;
+}
+
 /** Validate scalar-intrinsic calls (src/util/intrinsics.ts) against their
  *  catalogue signature — call form, arity, no named args, and argument
  *  primitive types.  Fail-open everywhere the receiver or an argument
@@ -467,7 +540,13 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
       // deref is legal is a separate judgement, made below.
       const bare = recvType.kind === "optional" ? recvType.inner : recvType;
       const nullableReceiver = recvType.kind === "optional";
-      if (isMemberSuffix(suffix) && bare.kind === "primitive") {
+      if (
+        isMemberSuffix(suffix) &&
+        bare.kind === "valueobject" &&
+        isValueObjectEqualsIntrinsic(bare.ref, (suffix as MemberSuffix).member)
+      ) {
+        if (checkValueObjectEquals(suffix as MemberSuffix, recvType, bare, env, accept)) break;
+      } else if (isMemberSuffix(suffix) && bare.kind === "primitive") {
         const ms = suffix as MemberSuffix;
         const sig = intrinsicFor(bare.name, ms.member);
         // `matches` is the string regex operation — not a catalogue row, but

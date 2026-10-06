@@ -596,9 +596,31 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const temporal = renderTemporalBinary(left, right, e);
     if (temporal !== null) return temporal;
   }
+  // VALUE equality on value objects.  A VO is a class instance here, so `===`
+  // compares REFERENCES — `berth == Berth { … }` was always false, while every
+  // other backend compares by value (python dataclass `==`, java
+  // `Objects.equals`, .NET record `==`, elixir struct `==`).  Route it through
+  // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
+  // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
+  // same `binary ==` node.  A nullable operand keeps the native comparison
+  // (`equals` takes a non-null VO; the null test is what `===` answers).
+  if ((e.op === "==" || e.op === "!=") && isValueObjectEquality(e)) {
+    const recv = /^[\w$.]+$/.test(left) ? left : `(${left})`;
+    const eq = `${recv}.equals(${right})`;
+    return e.op === "==" ? eq : `!${eq}`;
+  }
   // Equality comparisons in TS: prefer === / !==
   const opPrint = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
   return `${left} ${opPrint} ${right}`;
+}
+
+/** True iff a `==` / `!=` compares two NON-null value objects — the left
+ *  operand typed as a (non-optional) value object, the right neither an
+ *  optional nor the `null` literal. */
+function isValueObjectEquality(e: Extract<ExprIR, { kind: "binary" }>): boolean {
+  if (e.leftType?.kind !== "valueobject") return false;
+  if (e.rightType?.kind === "optional") return false;
+  return !(e.right.kind === "literal" && e.right.lit === "null");
 }
 
 /** The datetime-involving `+`/`-` arms (A5 temporal), or null to fall

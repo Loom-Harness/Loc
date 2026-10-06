@@ -455,7 +455,8 @@ describe("structured expression editor — type-directed member candidates", () 
     expect(m.get("f0")).toEqual(expect.arrayContaining(["count", "sum", "all"]));
     // Inside the lambda: `l` binds to OrderLine, `l.subtotal` is Money.
     expect(m.get("f0a0br")).toEqual(expect.arrayContaining(["subtotal", "quantity", "id"]));
-    expect(m.get("f0a0b")).toEqual(["amount", "currency"]);
+    // …plus `equals`, the value-equality intrinsic every value object answers.
+    expect(m.get("f0a0b")).toEqual(["amount", "currency", "equals"]);
   });
 
   it("types a `this`-rooted receiver in a find filter", async () => {
