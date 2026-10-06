@@ -79,6 +79,7 @@ import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
 import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
+import { FELIZ_REF_LABEL, FELIZ_REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import {
   felizPersistedStores,
   renderStorePersistModule,
@@ -1558,6 +1559,11 @@ function renderAppFs(
   // (the claims-fallback element).
   const gatedViews = pageGate ? [FORBIDDEN_VIEW, "", ...rootViews] : rootViews;
   const views = authUi ? [...gatedViews, "", renderAuthGate()] : gatedViews;
+  // The `IdLink` reference-label module — only when a view or a walked
+  // component actually calls it (`feliz/ref-label-runtime.ts`).
+  const usesRefLabel = [...views, ...walkedComponents.decls].some((v) =>
+    v.includes(FELIZ_REF_LABEL_MARKER),
+  );
 
   // `open` one line per DISTINCT extern module actually referenced by the page
   // walks (components + functions), so bare `OrderChart {| … |}` /
@@ -1724,6 +1730,9 @@ function renderAppFs(
     // call these.  Declared in a nested `Components` module (then `open`ed) so a
     // component named after a wire record / `Model` / `Api` can't collide with an
     // App.fs member — see `renderFelizComponentModule`.
+    // The reference-label child, ahead of the components and views that call it.
+    usesRefLabel ? "" : false,
+    usesRefLabel ? FELIZ_REF_LABEL : false,
     ...renderFelizComponentModule(walkedComponents.decls),
     "",
     views.join("\n"),
