@@ -744,6 +744,12 @@ Item **G6**, plus the fixtures other leftover missions defer here. Each is a sha
 - a Flutter fixture that reaches [M-T1.36](T1-ui-frontend.md#m-t136) F9's `CreateForm` drop arms;
 - a behavioural case that OMITS a value-object collection on create and reads back `[]` (the named follow-up of M-T5.35 / #2918).
 
+**Added 2026-09-29 (evaluation-closure item G8-10e — FieldOps-audit FIX-PLAN §5.7's two-line fixtures, which no mission named):**
+
+- `validation-messages.ddd` gains a message-less `matches(...)` rule and a `toThrow(422)` case;
+- a fixture combining `requires true`, a `currentUser.<claim>` find filter, and a `for` × `if-let` workflow body;
+- a ts-build fixture with a value object holding an `X id`, an enum-stated workflow, and a managed default.
+
 ## M-T9.75 — 199 test files still import `generateSystems` directly — `open` · **L** · P2
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L4-TESTS (leftover-waves-2026-09-28).**
@@ -801,3 +807,38 @@ One-off crashes with no shared root: JPA's optional / entity-part reference coll
 *Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
 
 `design: "<path>"` on a deployable is accepted with only the `loom.design-pack-custom-unchecked` warning, and every way the pack can be malformed then crashes generate with a descriptive but uncoded `Error`. The cases: no `pack.json`, no `emits`, an `emits` entry naming a missing `.hbs`, an unknown `stack`, a required primitive missing, an empty / `<`-carrying / brace-unbalanced chrome message, an undeclared chrome role used by a template, an ICU hole passed by a HEEx pack template, and a `shellFiles` key not in `emits` (`_packs/loader-fs.ts`, `loader.ts`, `pack-chrome.ts`, `shell-emits.ts`). Load and check the pack in phase ⑦ and raise a `loom.design-pack-invalid` error naming the defect. **Side bug, same mission:** a relative `design:` path resolves against the process working directory, not the `.ddd` file's directory (`resolvePackDir` is called without `referenceDir`, e.g. `react/index.ts:168`).
+
+## M-T9.89 — Widen `ir-walk-census` to independent `if (x.kind === …)` statements — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **G8-10b** (FieldOps-audit FIX-PLAN §5.8, which asked for it to be "minted as its own mission"). `test/system/ir-walk-census.test.ts` detects a hand-rolled `switch (x.kind)` and an `if … else if` chain over `ExprIR` / `StmtIR` / `WorkflowStmtIR`, but not a run of **independent** `if (x.kind === …)` statements in one function body, which is the same partial-dispatch shape (the plan counted ~76 sites across ~12 files). A kind the run forgets is invisible exactly as it is in an unchecked chain.
+
+**The fix:** a third detector shape (two or more non-chained kind tests on the same receiver within one function), then triage every hit into migrate onto `walk.ts` / make exhaustive with a `never`-check / waive with a reason, as the existing shapes do. **Sequence after #3065** (Wave CR1), which reshapes the same test's waiver register.
+
+**Verification.** The census fails on a seeded independent-`if` run over `ExprIR` and passes after the triage; mutation-proved by deleting one waiver.
+
+## M-T9.90 — Promote the Clinica evaluation model into the compile corpus — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **G8-10g**. `eval-clinica/FIX-PLAN.md:82-100` planned a wave-0 gate: a bespoke `test/system/generated-compiles.test.ts` plus a realistic multi-feature app (`eval-clinica/clinica/main.ddd`). The test never landed and no mission named it. The bespoke gate is now superseded by the per-backend corpus compile legs (`python-build`, `java`, `dotnet`, `elixir`, `ts`), but those legs only reach what `test/fixtures/corpus/` holds, and no realistic multi-context app is in it.
+
+**The fix:** trim `eval-clinica/clinica/main.ddd` into a corpus fixture (keep its cross-context events, workflows, tenancy and projections; drop what the fixtures already cover), with an `e2e` block (the E2E-less count must not grow; coordinate with #3058's `E2E_LESS_CORPUS_FIXTURES`). No new bespoke gate.
+
+**Verification.** The fixture compiles on every backend its manifest row declares; any shape it breaks is filed against the owning mission rather than waived.
+
+## M-T9.91 — Residue of the ported 2026-09 evaluation registers — `open` · **S** (a batch) · P3
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+The small open items the ported registers (`docs/audits/2026-09-13-council-fieldops-evaluation.md`, `2026-09-20-clearline-fieldops-evaluation.md`, `2026-09-22-platform-orderly-evaluation.md`, `2026-09-22-cargo-meridian-evaluation.md`, `2026-09-28-claims-assure-evaluation.md`) carry that no wave, PR or other mission owns:
+
+| id | Item | Source | Sz |
+|---|---|---|---|
+| R1 | A cross-aggregate `X id` naming an **entity part** of another aggregate: a backend-only system accepts it and emits `Ids.SiteId`; with a UI deployable it is refused as `loom.ui-id-ref-unknown-aggregate … no aggregate 'Site' is declared` about a declared entity. Pick one rule, word the message for the part case, and document the part-vs-aggregate trade-off | council F-003 | S |
+| R2 | The Feliz project and its Dockerfile target `dotnet/sdk:8.0` / `net8.0` beside a `net10.0` .NET backend (consistent, so not a build break; net8 leaves support 2026-11). Route through the `dependency-upgrade` skill | platform M-2 | S |
+| R3 | `ddd parse <file>.txt` (any non-`.ddd` input) dies with `The service registry contains no services for the extension '.txt'` and a raw stack trace; refuse with a one-line message instead | eval-clinica G8-09d | S |
+| R4 | A register's header tally drifted from its own `### F-` headings in five registers. A `test/system` gate that every `eval*/FINDINGS.md` (and ported `docs/audits/*-evaluation.md`) header count equals its heading count would make that impossible | eval-closure review §5.5 | S |
+
+**Verification.** Per row: R1 a validator case each way; R3 a CLI test on a `.txt` path; R4 the gate mutation-proved on a seeded miscount.

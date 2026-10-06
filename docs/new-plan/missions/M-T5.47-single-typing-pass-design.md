@@ -1,4 +1,4 @@
-# M-T5.44 — One typing pass (design)
+# M-T5.47 — One typing pass (design)
 
 > **Status: DESIGN — slice 1 of 4.** Claim PR [#3148](https://github.com/Loom-Harness/Loc/pull/3148).
 > Measuring instruments: [#3125](https://github.com/Loom-Harness/Loc/pull/3125) (the let-binding

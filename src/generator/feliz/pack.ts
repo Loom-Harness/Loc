@@ -439,7 +439,14 @@ function primitiveIdLink(c: Ctx): string {
   const idExpr = String(c.idExpr ?? '""');
   const prefix = String(c.pathPrefix ?? "/");
   // Plain `link` (not `link-primary`) for AA colour contrast — see primitiveAnchor.
-  return `Html.a [ prop.className "link"; prop.href ("${prefix}" + ${idExpr}); prop.text (string (${idExpr})) ]`;
+  const href = `Html.a [ prop.className "link"; prop.href ("${prefix}" + ${idExpr}); `;
+  // A referenced record with a `display` is labelled by the `LoomRefLabel`
+  // child the target wraps around the id text (its loading / error fallback).
+  const open = String(c.refOpen ?? "");
+  if (open !== "") {
+    return `${href}prop.children [ ${open}Html.text (string (${idExpr}))${String(c.refClose ?? "")} ] ]`;
+  }
+  return `${href}prop.text (string (${idExpr})) ]`;
 }
 
 /** Modal(trigger, form) — SUPERSEDED for Feliz by `felizTarget.renderModal`

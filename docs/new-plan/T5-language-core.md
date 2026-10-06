@@ -170,6 +170,11 @@ The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` 
 
 Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
 
+**Slices added 2026-09-29 (evaluation-closure review; both wait on slice 2 above):**
+
+- **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
+- **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**
+
 ## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
 
 The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
@@ -356,7 +361,39 @@ Item **V14** (#2838). The expression form of a variant `match` carries its resol
 
 **Verification.** The pinned case flips; one negative case per gate on the statement form.
 
-## M-T5.44 — One typing pass: each expression typed once, validators read it, lowering copies it — `in-flight` (slice 1, design) · **L** · P1 ⭐ cost-of-growth
+## M-T5.44 — Only one `resource` per (context, kind), even for `api` / `objectStore` / `mailer` / `queue` — `open` · **M** · P3 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#42a** (Clearline F-042). Two `kind: api` resources on one context (`ocr`, `fraud`) are refused: `Deployable 'd' has two dataSources for (Sales, kind: api): 'ocr' and 'fraud'. Pick exactly one per (context, kind).` (`loom.datasource-duplicate`, `src/language/validators/deployable.ts:572-586`). The refusal is honest and documented, so this is not a defect. But the rule is right only for the persistence kinds (`state`, `eventLog`, `snapshot`, `cache`, `replica`). The verb-addressed kinds are called by resource name, and the emitters already emit one client per resource name, so two external APIs on one context is a reasonable model the language refuses.
+
+**The fix, once ruled:** keep the duplicate key for the persistence kinds; allow several `api` / `objectStore` / `mailer` / `queue` resources per context. Verify on all five backends that two same-kind resources get distinct clients and distinct env vars.
+
+**Verification.** A compile-tier corpus fixture with two `api` and two `objectStore` resources on one context, on all five backends; the persistence-kind refusal keeps its negative case.
+
+## M-T5.45 — No event, value-object-equality or navigation matcher in `test` / `test e2e` — `open` · **M** · P2 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#43** (testability audit F7-r / F11-r). `src/util/intrinsic-matchers.ts` has 13 matchers (`toBe`, the four comparisons, `toBeSameInstant`, `toHaveText`, `toHaveCount`, `toBeVisible`, `toContain`, `toBeNull`, `toBeAbsent`, `toThrow`). There is no way to assert that an operation **emitted** an event, that two value objects are **equal**, or that a UI action did **not navigate** (`not.` exists for locator matchers only; a ui `toThrow` is refused with `loom.e2e-ui-throw-invalid`). `expect(n).toEmit(Renamed)` and `expect(n).toEqual(n)` are refused at parse ("expect requires a matcher"), which is honest.
+
+The silent half of #43 — `expect(n.events).toContain(Renamed)` and `expect(n.bogus).toBe(1)` validate clean and emit TS2339 / TS2304 — is [M-T5.41](#m-t541)'s (unit `test` bodies are never validated); do not duplicate it here.
+
+**The design:** `expect(x).toEmit(Event)` at the unit tier through the aggregate's `pullEvents()`; `toEqual` for value objects (structural, the wire's equality); a `toHaveURL` / not-navigated locator matcher for `test e2e` against a ui.
+
+**Verification.** A type-system test per matcher; the generated unit-test compile tier on all five backends; one ui e2e case per locator matcher.
+
+## M-T5.46 — ICU `plural` / `select` in backend domain code: render it, not drop it — `open` · **M** · P3
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Follow-up of owner ruling **D8** (eval-closure item **#38**; Clinica F-006, Meridian F-002). An interpolated string in a backend `derived` or operation body drops an ICU `plural` / `select` hole's branch text: `"{n, plural, one {# item} other {# items}}"` emits just the number. The drop of the *format* on the backend is recorded as deliberate (`archive/T1-done.md` §M-T1.11), and wave C6 of the review adds the warning `loom.interp-format-dropped-in-domain` now. This mission is the rendering D8 deferred: the branch text is authored content, and losing it is a wrong string, not a formatting nicety.
+
+**The fix:** a small ICU `plural`/`select` evaluator per backend (or one shared helper in each runtime kernel) over the already-parsed interpolation IR; `number`/`date` formats may stay dropped by the M-T1.11 decision. Once it lands, delete the D8 warning in the same PR.
+
+**Verification.** A wire-golden case whose `derived` returns a `plural` and a `select` string, byte-identical on all five backends.
+
+## M-T5.47 — One typing pass: each expression typed once, validators read it, lowering copies it — `in-flight` (slice 1, design) · **L** · P1 ⭐ cost-of-growth
 
 The front end types each expression **two to three times**, by hand-kept copies:
 - `typeOf` / `envForNode` in `src/language/type-system.ts`, used by the validators and the LSP;
@@ -384,4 +421,4 @@ Slices:
 
 Coordinates with #3125 (let census, the measuring instrument) and #3133 (fail-closed owns the `unknown` refusal policy).
 
-Design: [`M-T5.44-single-typing-pass-design.md`](missions/M-T5.44-single-typing-pass-design.md). Claim: [#3148](https://github.com/Loom-Harness/Loc/pull/3148).
+Design: [`M-T5.47-single-typing-pass-design.md`](missions/M-T5.47-single-typing-pass-design.md). Claim: [#3148](https://github.com/Loom-Harness/Loc/pull/3148).
