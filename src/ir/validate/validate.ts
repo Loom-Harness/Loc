@@ -31,6 +31,7 @@ import {
 } from "./checks/query-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
+import { validateResourceOpPlacement } from "./checks/resource-op-positions.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
@@ -47,7 +48,6 @@ import {
   validateNamedLifecycleDropped,
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
-  validateResourceOpPlacement,
   validateUiPermissionRefs,
   validateUnionFindShapes,
   validateUniqueColumns,

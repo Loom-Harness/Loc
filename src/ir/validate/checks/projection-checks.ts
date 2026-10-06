@@ -34,7 +34,7 @@ import {
 } from "../../types/loom-ir.js";
 import { type GroupKey, groupKeyOf, sameGroupKey } from "../../util/projection-aggregate.js";
 import { typeLabel } from "../../util/type-label.js";
-import { walkExprDeep } from "../../util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonQueryablePredicate } from "./shared.js";
 
@@ -702,7 +702,11 @@ function foldImpurity(stmt: StmtIR): string | undefined {
     case "add":
     case "remove":
     case "let":
-      return undefined;
+      // Pure by KIND, but a value is an expression, and an expression can
+      // reach outside the event: `blob := files.get(k)` reads a bucket on
+      // every replay.  No fold emitter has a resource client in scope either
+      // (.NET / Java / Phoenix threw mid-generation).
+      return outboundCallIn(stmt);
     case "emit":
       return "emits an event";
     case "call":
@@ -734,6 +738,21 @@ function foldImpurity(stmt: StmtIR): string | undefined {
       return _exhaustive;
     }
   }
+}
+
+/** The impurity phrase for the first resource / remote-api call anywhere
+ *  under a fold statement's expressions, or `undefined` when there is none. */
+function outboundCallIn(stmt: StmtIR): string | undefined {
+  let found: string | undefined;
+  walkStmtExprsDeep(stmt, (e) => {
+    if (found || e.kind !== "call") return;
+    if (e.callKind === "resource-op" && e.resourceOp) {
+      found = `${e.resourceOp.resourceName}.${e.resourceOp.verb}`;
+    } else if (e.callKind === "remote-api-op" && e.remoteApiOp) {
+      found = `${e.remoteApiOp.resourceName}.${e.remoteApiOp.operationId}`;
+    }
+  });
+  return found ? `calls the resource operation '${found}(...)'` : undefined;
 }
 
 /** Best-effort name of the call a bare expression-statement performs, for the

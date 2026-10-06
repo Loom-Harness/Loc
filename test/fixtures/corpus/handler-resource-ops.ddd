@@ -22,9 +22,30 @@
 system HandlerResourceOps {
   subdomain D {
     context Sales {
-      aggregate Order with crudish { name: string }
+      aggregate Order with crudish {
+        name: string
+        operation archive() { emit OrderArchived { orderRef: id, name: name } }
+        operation touch() { emit OrderTouched { orderRef: id, name: name } }
+      }
       repository Orders for Order {
         find byName(name: string): Order[] where this.name == name
+      }
+      event OrderArchived { orderRef: Order id  name: string }
+      event OrderTouched { orderRef: Order id  name: string }
+
+      // dispatcher leg: an EVENT-triggered starter and an `on(e)` reactor are
+      // rendered by each backend's event dispatcher, not its workflow service,
+      // so they reach the resource clients through a different emitter.
+      workflow ArchiveTrail {
+        orderRef: Order id
+        create(e: OrderArchived) by e.orderRef {
+          orderRef := e.orderRef
+          salesFiles.put("trail/" + e.name, e.name)
+        }
+        on(e: OrderTouched) by e.orderRef {
+          salesJobs.enqueue(e.name)
+          mail.send(e.name, "Order touched", "Your order " + e.name + " was touched.")
+        }
       }
 
       // command leg: three resource kinds (objectStore / queue / mailer) in

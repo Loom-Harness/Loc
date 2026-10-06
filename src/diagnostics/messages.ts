@@ -4644,6 +4644,13 @@ export const DIAGNOSTIC_MESSAGES = {
     resourceKind2: unknown;
   }) =>
     `workflow '${p.name}': '${p.resourceName}.${p.verb}(...)' — '${p.verb}' is not a valid verb for a ${p.resourceKind} resource.  Available: ${p.resourceKind2}.`,
+  "loom.resource-verb-invalid#api-bound": (p: {
+    location: unknown;
+    resourceName: unknown;
+    verb: unknown;
+    apiName: unknown;
+  }) =>
+    `${p.location}: '${p.resourceName}.${p.verb}(...)' — '${p.resourceName}' is bound to the in-system api '${p.apiName}', so its client is derived from that api's operations and has no raw '${p.verb}' verb.  Call one of the operations of '${p.apiName}' by its id instead (e.g. '${p.resourceName}.<operationId>(...)'), or bind the resource to a 'storage' (an external HTTP endpoint) to call it by raw verb.`,
   "loom.resource-op-in-transaction": (p: { name: unknown; resourceName: unknown; verb: unknown }) =>
     `workflow '${p.name}': resource operation '${p.resourceName}.${p.verb}(...)' cannot run inside a transactional workflow — external effects don't roll back with the database transaction.  Move it out of the transactional span, or publish through an outbox.`,
   "loom.resource-op-outside-workflow": (p: {
@@ -4651,7 +4658,7 @@ export const DIAGNOSTIC_MESSAGES = {
     resourceName: unknown;
     verb: unknown;
   }) =>
-    `resource operation '${p.resourceName}.${p.verb}(...)' is only available inside a workflow or a command/query handler — no backend has the resource client in scope anywhere else, a domainService included (.NET/Java/Phoenix fail codegen outright; TS/Python emit an unimported helper call). Found in ${p.location}; move the call into a workflow and have this member work on the value it produces.`,
+    `resource operation '${p.resourceName}.${p.verb}(...)' is only available inside a workflow body or a command/query handler body — no backend has the resource client in scope anywhere else, a domainService or a workflow 'function' included (.NET/Java/Phoenix fail codegen outright; TS/Python emit an unimported helper call). Found in ${p.location}; move the call into a workflow and have this member work on the value it produces.`,
 
   // ----------------------------------------------------------------------
   // src/language/ddd-validator.ts

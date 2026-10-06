@@ -3672,6 +3672,11 @@ export type ExprIR =
         verb: string;
         capability: string;
         interface?: LoomInterface;
+        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
+         *  Such a resource has no raw-verb vocabulary — its calls lower to
+         *  `remote-api-op` — so a resource-op carrying this is always refused
+         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
+        boundApi?: string;
       };
       /** Populated when `callKind === "remote-api-op"` (M-T4.8) — a typed call
        *  on a resource that binds an in-system `api`.  Fully resolved at

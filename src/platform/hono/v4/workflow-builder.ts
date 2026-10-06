@@ -687,7 +687,7 @@ export function buildWorkflowsFile(
   // lose its import and fail `tsc`.
   const apiHelpers = new Set<string>();
   for (const wf of ctx.workflows) {
-    for (const st of wf.statements) {
+    for (const st of workflowBodyStmts(wf)) {
       walkWorkflowStmtExprsDeep(st, (e) => {
         if (e.kind === "call" && e.callKind === "remote-api-op" && e.remoteApiOp) {
           apiHelpers.add(`${e.remoteApiOp.resourceName}$${e.remoteApiOp.operationId}`);
@@ -708,15 +708,28 @@ export function buildWorkflowsFile(
   return [...imports, "", ...instantHelper, ...body].join("\n") + "\n";
 }
 
-/** Every resource-op call in a workflow's statements (bare or let-bound). */
+/** Every statement list a workflow renders into this file: each `create`
+ *  (command- AND event-triggered — `wf.statements` is only a facade over the
+ *  primary), each `on(e)` reactor and each `handle`. */
+function workflowBodyStmts(wf: WorkflowIR): WorkflowStmtIR[] {
+  const creates = wf.creates ?? [];
+  return [
+    ...(creates.length > 0 ? creates.flatMap((c) => c.statements) : wf.statements),
+    ...(wf.subscriptions ?? []).flatMap((o) => o.statements),
+    ...(wf.handlers ?? []).flatMap((h) => h.statements),
+  ];
+}
+
+/** Every resource-op call anywhere in a workflow's bodies — deep, so one
+ *  nested in a `for` / `if let` or inside another expression keeps its import. */
 function resourceOpsIn(wf: WorkflowIR): { resourceName: string; verb: string }[] {
   const out: { resourceName: string; verb: string }[] = [];
-  for (const st of wf.statements) {
-    const call =
-      st.kind === "resource-call" ? st.call : st.kind === "expr-let" ? st.expr : undefined;
-    if (call?.kind === "call" && call.callKind === "resource-op" && call.resourceOp) {
-      out.push({ resourceName: call.resourceOp.resourceName, verb: call.resourceOp.verb });
-    }
+  for (const st of workflowBodyStmts(wf)) {
+    walkWorkflowStmtExprsDeep(st, (e) => {
+      if (e.kind === "call" && e.callKind === "resource-op" && e.resourceOp) {
+        out.push({ resourceName: e.resourceOp.resourceName, verb: e.resourceOp.verb });
+      }
+    });
   }
   return out;
 }

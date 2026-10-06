@@ -203,12 +203,18 @@ workflow ArchiveOrder(order: Order id) {
 
 The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
 
-- **workflows only** — resource-ops are legal in a `workflow` body and a
-  command/query handler body, and nowhere else
-  (`loom.resource-op-outside-workflow`). An aggregate `operation` / `create` /
-  `destroy` body, a lifecycle `requires` guard, an invariant, a `derived`, an
-  aggregate `function`, a repository `find` filter **and a `domainService`
-  operation body** are all rejected: only the two application-layer render
+- **workflows only** — resource-ops are legal in a `workflow` body (a
+  command `create`, an event-triggered `create(e) by …` starter, an `on(e)`
+  reactor) and a command/query handler body's statements, and nowhere else
+  (`loom.resource-op-outside-workflow`). The legal positions are one declared
+  list (`RESOURCE_OP_SITES` in `src/ir/validate/checks/resource-op-positions.ts`)
+  and any position it does not name is refused. An aggregate `operation` /
+  `create` / `destroy` body, a lifecycle `requires` guard, an invariant, a
+  `derived`, any `function` (an aggregate's **or a workflow's**), a repository
+  `find` filter, a handler's `return` value **and a `domainService` operation
+  body** are all rejected; a projection `on(e)` fold is rejected by
+  `loom.projection-fold-impure`, even inside an assignment's value. Only the
+  application-layer render
   sites have the resource client in scope, so elsewhere .NET/Java/Phoenix fail
   codegen outright and TS/Python emit an `await` on a helper the file never
   imports, from a function that isn't even async. A domain service is a
@@ -231,7 +237,9 @@ When the callee is **another deployable in this same system**, don't use them:
 bind the `api` instead of a `storage` and you get a typed call surface with
 named operations and a derived request/response — see
 [Calling another Loom service](#calling-another-loom-service--use-api) below.
-The untyped verbs remain the escape hatch for spec-less external APIs. (A
+The untyped verbs remain the escape hatch for spec-less external APIs — and
+only for them: an `api` resource bound to an in-system `api` has no raw-verb
+client, so `orders.get("/orders")` on one is `loom.resource-verb-invalid`. (A
 typed surface over an *external* OpenAPI spec is still only proposed —
 [`proposals/contract-typed-resources.md`](old/proposals/contract-typed-resources.md).)
 

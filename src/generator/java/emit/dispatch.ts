@@ -16,7 +16,12 @@ import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
-import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  API_CLIENT_CLASS,
+  collectJavaExprImports,
+  renderJavaExpr,
+  renderJavaType,
+} from "../render-expr.js";
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
 import { javaWorkflowStmtTarget, reactorReposUsed, repoField } from "./workflow.js";
@@ -74,6 +79,26 @@ export interface DispatchCtx {
    *  the LocalOutboxRelay invokes these methods post-commit (crash-safe,
    *  at-least-once), never inline. */
   localDurableEvents?: ReadonlySet<string>;
+  /** Resource name → generated client class (`S3Resources`) — the same map
+   *  the workflow service renders with, so a resource-op in a reactor or an
+   *  event-triggered `create` body reaches its client exactly as one in a
+   *  command `create` body does. */
+  resourceClasses?: Map<string, string>;
+  /** The resource-client package (`…resources`) — imported when a handler
+   *  calls a resource client or the typed in-system api client. */
+  resourcesPkg?: string;
+}
+
+/** The resource map each handler's render context reads, keyed by the context
+ *  being rendered.  Set once per `renderJavaDispatcher` call so the per-handler
+ *  renderers need no extra parameter. */
+const resourcesByCtx = new WeakMap<object, Map<string, string>>();
+
+function reactorResources(ctx: EnrichedBoundedContextIR): {
+  resourceClasses?: Map<string, string>;
+} {
+  const resourceClasses = resourcesByCtx.get(ctx);
+  return resourceClasses?.size ? { resourceClasses } : {};
 }
 
 interface ResolvedHandler {
@@ -309,6 +334,7 @@ export function renderJavaDispatcher(
     ctx.projections,
   );
   if (subs.length === 0) return null;
+  resourcesByCtx.set(ctx, dctx.resourceClasses ?? new Map());
 
   const className = `${ctx.name}Dispatcher`;
   const imports = new Set<string>();
@@ -416,6 +442,14 @@ export function renderJavaDispatcher(
     );
   }
   if (methods.length === 0) return null;
+  // A handler body calling a resource client (`S3Resources.salesFilesPut(…)`)
+  // or the typed in-system api client needs the resources package — derived
+  // from the rendered text so an unused import is never emitted.
+  const clientClasses = [...new Set(dctx.resourceClasses?.values() ?? []), API_CLIENT_CLASS];
+  const callsResourceClient =
+    !!dctx.resourcesPkg &&
+    dctx.resourcesPkg !== dctx.pkg &&
+    methods.some((m) => clientClasses.some((c) => m.includes(`${c}.`)));
 
   // Injected collaborators: every aggregate repo the handler bodies touch +
   // one saga-state repo per subscribed correlation workflow.
@@ -545,6 +579,7 @@ export function renderJavaDispatcher(
       `import ${dctx.basePkg}.domain.ids.*;`,
       `import ${dctx.basePkg}.domain.valueobjects.*;`,
       `import ${dctx.basePkg}.config.CatalogLog;`,
+      callsResourceClient ? `import ${dctx.resourcesPkg}.*;` : null,
       ``,
       `@Component`,
       `@Transactional`,
@@ -581,7 +616,7 @@ function renderHandler(
   // arm spells `state.setAttempts(...)` directly).  `accessorProps` only affects
   // `this-prop` refs, so the `by <expr>` correlation key (an event-param member)
   // is unchanged.
-  const renderCtx = { thisName: "state", accessorProps: true };
+  const renderCtx = { thisName: "state", accessorProps: true, ...reactorResources(ctx) };
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule).
   const keyExpr = resolved.correlation
@@ -712,7 +747,7 @@ function renderEsHandler(
   // (unlike the cross-package mutable saga row in `renderHandler`).  Event-
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
-  const renderCtx = { thisName: "state" };
+  const renderCtx = { thisName: "state", ...reactorResources(ctx) };
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
@@ -873,7 +908,7 @@ function esMergedBranchLines(
     javaWorkflowStmtTarget(
       ctx,
       imports,
-      { thisName: "state" },
+      { thisName: "state", ...reactorResources(ctx) },
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
     ),
@@ -943,7 +978,7 @@ function renderEsMergedHandler(
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
-  const renderCtx = { thisName: "state" };
+  const renderCtx = { thisName: "state", ...reactorResources(ctx) };
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
