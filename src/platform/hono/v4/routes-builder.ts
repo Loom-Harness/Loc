@@ -124,6 +124,7 @@ import {
   collectReachableTypes,
   enumPool,
   findValueObjectInScope,
+  orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
@@ -2874,7 +2875,12 @@ function collectUsedValueObjects(
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order, not pool order: each VO becomes a `const <Vo>Schema` in
+  // one module, and the pool lists context-local VOs before the root-level
+  // (shared-kernel) ones folded in at enrichment.  A local VO that wraps a
+  // root VO must come after it, or its initialiser reads the root schema in
+  // its temporal dead zone (TS2448/TS2454) and the module throws on load.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 function collectUsedEnums(

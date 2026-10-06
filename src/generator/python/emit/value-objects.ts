@@ -1,4 +1,5 @@
 import type { BoundedContextIR, EnumIR, StmtIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
@@ -63,7 +64,10 @@ export function renderPyEnumsAndValueObjects(ctx: BoundedContextIR): string {
 
   const bodyParts = [
     ...ctx.enums.flatMap(renderPyEnum),
-    ...ctx.valueObjects.flatMap(renderPyValueObject),
+    // Dependency order: `ctx.valueObjects` lists context-local VOs before the
+    // root-level (shared-kernel) ones folded in at enrichment, and a class
+    // annotated with another VO must be defined after it (ruff F821).
+    ...orderValueObjectsByDependency(ctx.valueObjects).flatMap(renderPyValueObject),
   ];
   // `UTC` is only reached when a body actually stamps `datetime.now(UTC)`; a
   // plain `datetime` FIELD uses the type and never the constant, so importing
