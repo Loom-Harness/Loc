@@ -4650,3 +4650,46 @@ language decision. It is a separate mission.
 `src/language/validators/policy-fn.ts`, `src/language/type-system.ts`,
 `src/diagnostics/messages.ts`, `docs/auth.md`,
 `docs/language-reference/17-auth.md`, `docs/language.md`.
+
+## D-TARGET-RESERVED-NAMES — a member named like a target keyword, or a generated helper, is escaped per backend
+
+**Status:** DECIDED (owner ruling D2, 2026-09-29 eval-closure review; implemented
+by wave C2).
+
+**Question.** A `.ddd` member, parameter, operation or enum value may be named
+`def`, `lambda`, `pass`, `class` — the `.ddd` grammar admits them, `generate
+system` answered `0 error(s)`, and the python project did not parse. A member
+named `assertInvariants` broke .NET (CS0102), node (duplicate class member) and
+python (a backing field overwriting its own method). Refuse such names with a
+validator, or escape them per backend?
+
+**Decision.** **Escape per backend; never refuse.** The target spelling is a
+host concern and the user's domain vocabulary should not have to know five
+languages' keyword lists.
+
+- **Python** gets ONE identifier funnel (`pythonIdent` / `pythonWireIdent` in
+  `src/util/naming.ts`, `def` → `def_`) at every identifier position, and keeps
+  the two outward names: the DB column via `mapped_column("def", …)`, the wire
+  key via a pydantic `alias` / `Query(alias=…)`. This mirrors Java's M-T6.36
+  (`@JsonProperty` / `@Column`).
+- **.NET, node, python** rename the generated private invariant helper — and
+  only when a member actually takes its name, so every other model's output is
+  byte-identical (the conservative sub-choice: a fixed rename would have moved
+  every generated entity on three backends for a collision that needs a
+  specific member name).
+- The wire, the OpenAPI document and the stored data never differ between
+  backends; the escape is visible only in the generated host source.
+
+**Consequences.** `test/fixtures/corpus/python-reserved-words.ddd` (row `ALL`)
+is the ratchet on all five compile tiers and the wire-golden differential;
+`test/generator/target-reserved-member-names.test.ts` takes the python keyword
+list from the interpreter itself. The remaining unfunnelled python positions
+(projection read models, the `auth.user` record) and the OTHER helper-state
+collisions (`_events`, `pull_events`, `create`, `inspect` against a member of
+that name) are recorded in `docs/generators.md` § "Names that are Python
+keywords" as follow-ups — they fail loudly (a syntax/compile error), not
+silently.
+
+**Sources.** `docs/audits/2026-09-28-eval-closure-review/` item 6;
+[`generators.md`](generators.md) § "Names that are Python keywords" and
+§ "Names that are Java reserved words".

@@ -228,6 +228,27 @@ export function csClaimStampsFor(
     .map((a) => ({ field: a.field, value: a.value }));
 }
 
+/** The name of the generated private invariant-check method.  It is
+ *  `AssertInvariants` unless a member already takes that C# name — a field
+ *  `assertInvariants` is the property `AssertInvariants`, and a class cannot
+ *  declare both (CS0102).  On a collision the helper steps aside with
+ *  trailing underscores (eval item 6, ruling D2); every other entity keeps the
+ *  unchanged name. */
+function invariantHelperName(entity: EnrichedAggregateIR | EnrichedEntityPartIR): string {
+  const ops = "operations" in entity ? entity.operations : [];
+  const taken = new Set<string>([
+    ...entity.fields.map((f) => upperFirst(f.name)),
+    ...entity.fields.map((f) => `${upperFirst(f.name)}Provenance`),
+    ...entity.contains.map((c) => upperFirst(c.name)),
+    ...entity.derived.map((d) => upperFirst(d.name)),
+    ...entity.functions.map((fn) => upperFirst(fn.name)),
+    ...ops.flatMap((op) => [upperFirst(op.name), `${upperFirst(op.name)}Core`]),
+  ]);
+  let name = "AssertInvariants";
+  while (taken.has(name)) name += "_";
+  return name;
+}
+
 export function renderEntity(
   entity: EnrichedAggregateIR | EnrichedEntityPartIR,
   isRoot: boolean,
@@ -276,6 +297,7 @@ export function renderEntity(
    *  passes it (entity parts carry no operations). */
   sourceTexts?: ReadonlyMap<string, string>,
 ): string {
+  const assertName = invariantHelperName(entity);
   // `operations` is the discriminator between EnrichedAggregateIR and
   // EnrichedEntityPartIR — wrapped in a type predicate so the union
   // narrows in every downstream consumer without per-site casts.
@@ -559,7 +581,7 @@ export function renderEntity(
       } else {
         opLines.push(`        ${hookName}(${callArgs});`);
         opLines.push(
-          emitTrace ? `        AssertInvariants("${op.name}");` : "        AssertInvariants();",
+          emitTrace ? `        ${assertName}("${op.name}");` : `        ${assertName}();`,
         );
       }
       opLines.push("    }");
@@ -617,9 +639,7 @@ export function renderEntity(
     if (body.length > 0) opLines.push(body);
     if (woven?.wove) opLines.push("#line default");
     if (!op.returnType) {
-      opLines.push(
-        emitTrace ? `        AssertInvariants("${op.name}");` : "        AssertInvariants();",
-      );
+      opLines.push(emitTrace ? `        ${assertName}("${op.name}");` : `        ${assertName}();`);
     }
     opLines.push("    }");
     opLines.push("");
@@ -682,7 +702,7 @@ export function renderEntity(
     applierLines.push("        e.Id = id;");
     applierLines.push("        foreach (var ev in events) e._Apply(ev);");
     applierLines.push(
-      emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+      emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
     );
     applierLines.push("        return e;");
     applierLines.push("    }");
@@ -833,7 +853,7 @@ export function renderEntity(
   // `"<init>"` so the invariant_evaluated lines for ctor / hydration
   // runs are distinguishable from in-operation evaluations.
   createInternalLines.push(
-    emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+    emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
   );
   createInternalLines.push("        return e;");
   createInternalLines.push("    }");
@@ -909,7 +929,7 @@ export function renderEntity(
           ...createAssignments,
           ...createDefaultSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
-          emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+          emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
           "        return e;",
           "    }",
         ]
@@ -999,7 +1019,7 @@ export function renderEntity(
       }
     }
     snapshotLines.push(
-      emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+      emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
       "        return e;",
       "    }",
     );
@@ -1044,7 +1064,7 @@ export function renderEntity(
       ...partialHookLines,
       "",
       ...pullEventsLines,
-      `    private void AssertInvariants(${emitTrace ? 'string __op = "<init>"' : ""})`,
+      `    private void ${assertName}(${emitTrace ? 'string __op = "<init>"' : ""})`,
       "    {",
       // When no invariants are declared the body is empty, which trips CA1822
       // ("can be marked as static").  AssertInvariants is intentionally kept

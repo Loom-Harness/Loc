@@ -66,7 +66,14 @@ import {
   errorTypeUri,
   resolveErrorStatus,
 } from "../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import {
+  plural,
+  pythonIdent,
+  pythonWireIdent,
+  pythonWireNeedsAlias,
+  snake,
+  upperFirst,
+} from "../../util/naming.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -560,7 +567,7 @@ function responseModel(
     const idWf = forApiRead(wireFieldsFor(ent)).find((wf) => wf.source === "id");
     return lines(
       `class ${name}Response(BaseModel):`,
-      idWf ? `    ${idWf.name}: ${responsePyType(idWf.type, ctx)}` : [],
+      idWf ? withFieldConstraint(idWf.name, responsePyType(idWf.type, ctx), undefined) : [],
       declared.fields.map((f) => {
         const t = payloadFieldPyType(
           provenanced.has(f.name)
@@ -571,7 +578,7 @@ function responseModel(
         const optional = f.optional || f.type.kind === "optional";
         const suffix =
           optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
-        return `    ${f.name}: ${t}${suffix}`;
+        return withFieldConstraint(f.name, `${t}${suffix}`, undefined);
       }),
       "",
       "",
@@ -591,7 +598,7 @@ function responseModel(
       const optional = wf.optional || wf.type.kind === "optional" || wf.maskUnless !== undefined;
       const suffix =
         optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
-      return `    ${wf.name}: ${t}${suffix}`;
+      return withFieldConstraint(wf.name, `${t}${suffix}`, undefined);
     }),
     "",
     "",
@@ -644,7 +651,9 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
     return lines(
       `class Create${agg.name}Request(BaseModel):`,
       esCreate.params.length > 0
-        ? esCreate.params.map((p) => `    ${p.name}: ${requestPyType(p.type, ctx)}`)
+        ? esCreate.params.map((p) =>
+            withFieldConstraint(p.name, requestPyType(p.type, ctx), undefined),
+          )
         : ["    pass"],
       "",
       "",
@@ -791,7 +800,7 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
       const vo = findValueObjectInScope(ctx, t.name);
       if (!vo) return expr;
       const args = vo.fields
-        .map((vf) => pyWireToDomain(`${expr}.${vf.name}`, vf.type, ctx))
+        .map((vf) => pyWireToDomain(`${expr}.${pythonWireIdent(vf.name)}`, vf.type, ctx))
         .join(", ");
       return `${t.name}(${args})`;
     }
@@ -827,7 +836,7 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
       const pl = ctx.payloads.find((x) => x.name === t.name && !x.variants);
       if (!pl) return expr;
       const args = pl.fields
-        .map((pf) => pyWireToDomain(`${expr}.${pf.name}`, pf.type, ctx))
+        .map((pf) => pyWireToDomain(`${expr}.${pythonWireIdent(pf.name)}`, pf.type, ctx))
         .join(", ");
       return `${t.name}(${args})`;
     }
@@ -889,7 +898,10 @@ function createRoute(
   const esCreate = agg.persistedAs === "eventLog" ? agg.creates?.[0] : undefined;
   if (esCreate) {
     const args = esCreate.params
-      .map((p) => `${snake(p.name)}=${pyWireToDomain(`body.${p.name}`, p.type, ctx)}`)
+      .map(
+        (p) =>
+          `${pythonIdent(p.name)}=${pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)}`,
+      )
       .join(", ");
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", status_code=201, response_model=Create${agg.name}Response, operation_id="${camelId(opCreate(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
@@ -911,11 +923,11 @@ function createRoute(
   // request-scoped local — authoritative server-side, not frozen at import.
   const args = inputs
     .map((f) => {
-      const wire = pyWireToDomain(`body.${f.name}`, f.type, ctx);
+      const wire = pyWireToDomain(`body.${pythonWireIdent(f.name)}`, f.type, ctx);
       if (f.default !== undefined && isServerSourcedDefault(f.default)) {
-        return `${snake(f.name)}=${wire} if body.${f.name} is not None else ${renderPyExpr(f.default)}`;
+        return `${pythonIdent(f.name)}=${wire} if body.${pythonWireIdent(f.name)} is not None else ${renderPyExpr(f.default)}`;
       }
-      return `${snake(f.name)}=${wire}`;
+      return `${pythonIdent(f.name)}=${wire}`;
     })
     .join(", ");
   // Lifecycle stamps (audit / softDelete): apply onCreate stamps right before
@@ -1162,7 +1174,7 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
       // wire-read expression the call is about to pass.
       paramExpr: (name) => {
         const p = op.params.find((q) => q.name === name);
-        return p ? pyWireToDomain(`body.${p.name}`, p.type, ctx) : undefined;
+        return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
       },
     });
     return [
@@ -1304,7 +1316,9 @@ function operationRoute(
     // Update stamps apply right before the persist; a principal-referencing
     // stamp needs `current_user` bound (the route already takes `request`).
     const stampUpdateUsesUser = stampUsesUser(agg, "update");
-    const callArgs = [...op.params.map((p) => pyWireToDomain(`body.${p.name}`, p.type, ctx))];
+    const callArgs = [
+      ...op.params.map((p) => pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)),
+    ];
     if (usesUser) callArgs.push("current_user");
     const vsave = versionedSave(agg);
     return lines(
@@ -1323,7 +1337,7 @@ function operationRoute(
       ...requiresGate(op, ctx),
       ...whenGate(agg, op),
       op.audited ? "    __before = repo.to_wire(found)" : null,
-      `    result = found.${snake(op.name)}(${callArgs.join(", ")})`,
+      `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
       hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
       ...vsave.ifMatch,
       vsave.save,
@@ -1349,7 +1363,9 @@ function operationRoute(
     ...(needsRequest ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
-  const callArgs = [...op.params.map((p) => pyWireToDomain(`body.${p.name}`, p.type, ctx))];
+  const callArgs = [
+    ...op.params.map((p) => pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)),
+  ];
   if (usesUser) callArgs.push("current_user");
   const vsave = versionedSave(agg);
   // A scalar (non-void, non-union) return type — `operation describe(): string`.
@@ -1372,7 +1388,7 @@ function operationRoute(
       ...requiresGate(op, ctx),
       ...whenGate(agg, op),
       op.audited ? "    __before = repo.to_wire(found)" : null,
-      `    result = found.${snake(op.name)}(${callArgs.join(", ")})`,
+      `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
       hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
       ...vsave.ifMatch,
       vsave.save,
@@ -1394,7 +1410,7 @@ function operationRoute(
     ...requiresGate(op, ctx),
     ...whenGate(agg, op),
     op.audited ? "    __before = repo.to_wire(found)" : null,
-    `    found.${snake(op.name)}(${callArgs.join(", ")})`,
+    `    found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
     hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
     ...vsave.ifMatch,
     vsave.save,
@@ -1404,13 +1420,22 @@ function operationRoute(
   );
 }
 
+/** A find's query parameter in a route signature.  The parameter NAME is the
+ *  wire query key, so a key that is a python keyword (`def`) binds under the
+ *  escaped identifier with the key restored by `Query(alias=…)` (eval item 6,
+ *  ruling D2); every other parameter is byte-identical. */
+function pyQueryParam(name: string, type: string): string {
+  if (!pythonWireNeedsAlias(name)) return `${name}: ${type}`;
+  return `${pythonWireIdent(name)}: Annotated[${type}, Query(alias=${JSON.stringify(name)})]`;
+}
+
 function findRoute(
   agg: EnrichedAggregateIR,
   find: import("../../ir/types/loom-ir.js").FindIR,
   ctx: EnrichedBoundedContextIR,
   apiOp: ApiOperationIR,
 ): string {
-  const findSnake = snake(find.name);
+  const findSnake = pythonIdent(find.name);
   const isList = find.returnType.kind === "array";
   // A currentUser-scoped find (`where … == currentUser.x`) reads the
   // actor off the request scope and passes it as the trailing repo arg.
@@ -1430,12 +1455,12 @@ function findRoute(
         `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)})`,
       ]
     : null;
-  const params = find.params.map((p) => `${p.name}: ${paramPyType(p.type, ctx)}`);
+  const params = find.params.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx)));
   const sig = [...params, ...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(
     ", ",
   );
   const args = [
-    ...find.params.map((p) => pyWireToDomain(p.name, p.type, ctx)),
+    ...find.params.map((p) => pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)),
     ...(usesUser ? ["current_user"] : []),
   ].join(", ");
   const opId = camelId(opFind(agg.name, find.name));
@@ -1503,7 +1528,7 @@ function findRoute(
       `dir: str = "asc"`,
     ].join(", ");
     const callArgs = [
-      ...find.params.map((p) => pyWireToDomain(p.name, p.type, ctx)),
+      ...find.params.map((p) => pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)),
       ...(usesUser ? ["current_user"] : []),
       "page",
       "pageSize",

@@ -19,7 +19,7 @@ import {
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { pySubtreeLikePattern } from "../_expr/subtree-like.js";
@@ -428,16 +428,16 @@ function lower(
       // `this.<col>` → the row column; everything else (params, lets,
       // enum values, currentUser) renders as a plain bind value.
       if (e.refKind === "this-prop" || e.refKind === "this-vo-prop") {
-        return `${row}.${snake(e.name)}`;
+        return `${row}.${pythonIdent(e.name)}`;
       }
       return renderPyExpr(e);
     case "member": {
       // `this.<col>` and `this.<vo>.<sub>` (flattened VO column).
       if (e.receiver.kind === "this") {
-        return `${row}.${snake(e.member)}`;
+        return `${row}.${pythonIdent(e.member)}`;
       }
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this") {
-        return `${row}.${snake(`${e.receiver.member}_${e.member}`)}`;
+        return `${row}.${pythonIdent(`${e.receiver.member}_${e.member}`)}`;
       }
       // `currentUser.<claim>` — bind the principal's claim as a plain value.
       // The accessor is the source: a per-find `where` passes the threaded
