@@ -4,6 +4,7 @@ import type {
   EventIR,
   EventSubscriptionIR,
   ExprIR,
+  FieldIR,
   ProjectionIR,
   ProjectionOnIR,
   StmtIR,
@@ -1246,12 +1247,34 @@ function buildRealtimeOnlyDispatch(): string {
 
 /** Domain-event field → its JSON-safe payload value (DSL-keyed, mirrors
  *  the event-sourcing store's `_event_to_data`). */
-export function toPayload(expr: string, t: TypeIR): string {
+export function toPayload(expr: string, t: TypeIR, vos: PyVoFields = new Map()): string {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive" && inner.name === "datetime") return `${expr}.isoformat()`;
-  if (inner.kind === "primitive" && inner.name === "money") return `str(${expr})`;
+  const converted = toPayloadValue(expr, inner, vos);
+  // An optional's conversion runs only on a present value — `None.isoformat()`
+  // would raise inside the publish path (eval item 12's encode twin).
+  return t.kind === "optional" && converted !== expr
+    ? `(None if ${expr} is None else ${converted})`
+    : converted;
+}
+
+function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
+  if (t.kind === "primitive" && t.name === "datetime") return `${expr}.isoformat()`;
+  if (t.kind === "primitive" && t.name === "money") return `str(${expr})`;
+  const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
+  if (t.kind === "valueobject" && fields) {
+    // A value object crosses as a DSL-keyed JSON object — the frozen
+    // dataclass itself is not JSON-serialisable (`json.dumps` raises).  A
+    // self-referential VO stops at its first level.
+    const rest = new Map(vos);
+    rest.delete(t.name);
+    return `{${fields.map((f) => `"${f.name}": ${toPayload(`${expr}.${snake(f.name)}`, f.type, rest)}`).join(", ")}}`;
+  }
   return expr;
 }
+
+/** A value object's declared fields by name — what the codec needs to
+ *  encode / rebuild a carried VO. */
+export type PyVoFields = ReadonlyMap<string, readonly FieldIR[]>;
 
 /** Python's `WireDecodeTarget` — the leaf half of the shared channel wire
  *  codec (`src/generator/_channels/wire-codec.ts`).
@@ -1278,14 +1301,31 @@ const PY_WIRE_DECODE: WireDecodeTarget = {
   },
   id: (e, targetName) => `${targetName}Id(cast(str, ${e}))`,
   enumValue: (e, name) => `${name}(cast(str, ${e}))`,
-  // No `optional` leaf and no `array` leaf: neither existed before the port.
-  // They are absent rather than invented here so the refactor changes no
-  // bytes — the gaps are now named in ONE dispatcher instead of hidden in
-  // four `default:` arms.
+  // An optional field may arrive as JSON `null` or be omitted: `.get` reads
+  // an absent key as `None` (a `[...]` subscript raises KeyError), and the
+  // guard runs before the leaf — `datetime.fromisoformat(None)` raises
+  // TypeError (eval item 12).
+  readOptional: (payload, field) => `${payload}.get("${field}")`,
+  optional: (e, decoded) => `(None if ${e} is None else ${decoded})`,
+  // No `array` leaf: none existed before the port — the gap is named in ONE
+  // dispatcher instead of hidden in four `default:` arms.
   passthrough: (e) => `cast(str, ${e})`,
+  // A value object crosses as a DSL-keyed JSON object and is rebuilt through
+  // its dataclass constructor (snake_case keywords) — never handed to the
+  // VO-typed field as a string (eval item 11).
+  valueObject: {
+    view: (e) => `cast("dict[str, object]", ${e})`,
+    build: (name, fields) =>
+      `${name}(${fields.map((f) => `${snake(f.name)}=${f.decoded}`).join(", ")})`,
+  },
 };
 
 /** Payload value → typed domain-event field (mirror of `toPayload`). */
-export function fromPayload(name: string, t: TypeIR): string {
-  return decodeField("payload", { name, type: t, optional: t.kind === "optional" }, PY_WIRE_DECODE);
+export function fromPayload(name: string, t: TypeIR, vos?: PyVoFields): string {
+  return decodeField(
+    "payload",
+    { name, type: t, optional: t.kind === "optional" },
+    PY_WIRE_DECODE,
+    vos,
+  );
 }
