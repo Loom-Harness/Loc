@@ -334,7 +334,7 @@ export function renderJavaDispatcher(
     ctx.projections,
   );
   if (subs.length === 0) return null;
-  if (dctx.resourceClasses) resourcesByCtx.set(ctx, dctx.resourceClasses);
+  resourcesByCtx.set(ctx, dctx.resourceClasses ?? new Map());
 
   const className = `${ctx.name}Dispatcher`;
   const imports = new Set<string>();

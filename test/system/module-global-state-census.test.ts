@@ -66,6 +66,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",
   },
+  "src/generator/java/emit/dispatch.ts:resourcesByCtx": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakMap keyed by the context being rendered; `renderJavaDispatcher` overwrites the entry (unconditionally) before any handler reads it, so a second deployable rendering the same context never sees the first one's resource map.",
+  },
   "src/ir/lower/lower-expr.ts:aggregatesByDocument": {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the AST `Model` root whose aggregates it indexes.",
