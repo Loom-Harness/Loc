@@ -593,7 +593,7 @@ describe("typescript generator", () => {
       expect(routes).toMatch(
         /"content-type": "application\/problem\+json", "x-request-id": trace_id/,
       );
-      expect(routes).toMatch(/return problem\(403, "Forbidden", err\.message\)/);
+      expect(routes).toMatch(/return problem\(403, "Forbidden", err\.detail\)/);
       // M-T5.1 — a value-object breach answers first when the project has one.
       expect(routes).toMatch(
         /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message\)/,
@@ -1436,7 +1436,9 @@ describe("typescript generator", () => {
         /const currentUser = \(httpCtx as unknown as \{ get\(k: "currentUser"\): import\("\.\.\/auth\/user-types"\)\.User \}\)\.get\("currentUser"\);/,
       );
       expect(wf).toMatch(/if \(!\(currentUser\.role === "admin"\)\) throw new ForbiddenError\(/);
-      expect(wf).toMatch(/if \(err instanceof ForbiddenError\) return problem\(403,/);
+      expect(wf).toMatch(
+        /if \(err instanceof ForbiddenError\) \{ .*? return problem\(403, "Forbidden", err\.detail\); \}/,
+      );
       // The binding is conditional: only the guarded workflow's handler
       // gets it — `touchOne` never references currentUser.
       expect((wf.match(/\.get\("currentUser"\)/g) ?? []).length).toBe(1);
@@ -1696,7 +1698,7 @@ describe("typescript generator", () => {
       // The onError arm logs the catalog event, then returns an RFC 7807
       // problem body (403 Forbidden) via the shared `problem(...)` responder.
       expect(route).toMatch(/if \(err instanceof ForbiddenError\) \{/);
-      expect(route).toMatch(/return problem\(403, "Forbidden", err\.message\);/);
+      expect(route).toMatch(/return problem\(403, "Forbidden", err\.detail\);/);
     });
   });
 

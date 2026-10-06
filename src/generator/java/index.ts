@@ -31,6 +31,7 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
+import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignEventValueTypes,
@@ -51,6 +52,7 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -288,7 +290,7 @@ export function generateJavaForContexts(
   system?: SystemArgs,
   options: { emitTrace?: boolean; sourcemap?: SourceMapRecorder } = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/index");
   emitProjectFromContexts(contexts, ns, out, system, !!options.emitTrace, options.sourcemap);
   return out;
 }
@@ -555,6 +557,8 @@ function emitProjectFromContexts(
       // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
       // rule the same way.
       contexts.some(hasDomainFloorMessages),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(system?.deployable, system?.sys),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

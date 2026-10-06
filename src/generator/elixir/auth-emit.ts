@@ -10,10 +10,15 @@ import type {
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { claimPathFor } from "../_auth/claim-types.js";
-import { devClaimFields } from "../_auth/dev-claims.js";
+import {
+  DEV_CLAIMS_HEADER,
+  devClaimFields,
+  MALFORMED_DEV_CLAIMS_DETAIL,
+} from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
@@ -80,7 +85,7 @@ export interface AuthEmitResult {
 
 export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   const { sys, deployable, appName, appModule } = args;
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/elixir/auth-emit");
 
   if (!deployable.auth?.required) {
     return { files, enabled: false };
@@ -480,6 +485,60 @@ ${indentElixir(authedTail, 4)}
 `
     : "";
 
+  // Ruling D6 (#23), DEV STUB only: a present-but-undecodable
+  // `x-loom-dev-claims` header answers 400 instead of being silently ignored
+  // (which ran the request as the built-in identity).  Checked ahead of
+  // authentication by a thin `call/2` that delegates to the unchanged body,
+  // now `authenticate/2`; a stub with no carryable claim checks it too.
+  const callHead = auth
+    ? `  @impl Plug
+  def call(conn, _opts) do`
+    : `  @impl Plug
+  def call(conn, opts) do
+    if dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do
+      send_malformed_dev_claims(conn)
+    else
+      authenticate(conn, opts)
+    end
+  end
+
+  defp authenticate(conn, _opts) do`;
+  const malformedDevClaimsDefs = auth
+    ? ""
+    : `
+  # DEV STUB only: true when the \`${DEV_CLAIMS_HEADER}\` header is present but is
+  # not a base64-encoded JSON object.  An absent or empty header is not malformed.
+  defp dev_claims_malformed?(conn) do
+    case get_req_header(conn, "${DEV_CLAIMS_HEADER}") do
+      [raw | _] when raw != "" ->
+        case Base.decode64(raw) do
+          {:ok, json} -> not match?({:ok, %{}}, Jason.decode(json))
+          :error -> true
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  # The 400 a malformed dev-claims header answers with — a malformed REQUEST,
+  # not missing credentials.
+  defp send_malformed_dev_claims(conn) do
+    body =
+      Jason.encode!(%{
+        type: "about:blank",
+        title: "Bad Request",
+        status: 400,
+        detail: ${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)},
+        instance: conn.request_path
+      })
+
+    conn
+    |> put_resp_content_type("application/problem+json")
+    |> send_resp(400, body)
+    |> halt()
+  end
+`;
   // OIDC: header-or-cookie extraction helper (the dev stub inlines header-only).
   const extractTokenDef = auth
     ? `
@@ -526,8 +585,7 @@ defmodule ${webModule}.Auth do
   @impl Plug
   def init(opts), do: opts
 
-  @impl Plug
-  def call(conn, _opts) do
+${callHead}
     if bypass_path?(conn.request_path) do
       conn
     else
@@ -569,7 +627,7 @@ ${extractTokenDef}
     |> send_resp(401, body)
     |> halt()
   end
-${devUserFn}${sessionUserFn}
+${malformedDevClaimsDefs}${devUserFn}${sessionUserFn}
 ${verifierSection}
   # ---------------------------------------------------------------------------
   # Maps verified JWT claims onto the system's user { } shape.  OIDC walks

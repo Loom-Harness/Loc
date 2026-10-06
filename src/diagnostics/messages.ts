@@ -1777,6 +1777,9 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/api-checks.ts
   // ----------------------------------------------------------------------
+  /** An `api` no backend deployable `serves:` — dead declaration (#29). */
+  "loom.api-unserved": (p: { name: unknown; backends: unknown }) =>
+    `api '${p.name}' is declared but no backend deployable serves it, so no deployable mounts its routes or carries its contract. Add it to a backend deployable's 'serves:' list (backends: ${p.backends}), or remove the declaration.`,
   "loom.handler-param-reserved-id": (p: { name: unknown; kind: unknown; hName: unknown }) =>
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
@@ -1954,6 +1957,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/system/migrations-builder.ts — phase ⑨ (migration derivation)
   // ----------------------------------------------------------------------
+  /** A same-table drop+add the rename heuristic could not collapse (a rename
+   *  that also changed type, or two renames at once).  The remedy is a
+   *  `migration` block, which is a TOP-LEVEL declaration — placed inside
+   *  `system { }` it is a parse error — so the text says where it goes. */
+  "loom.migration-ambiguous-rename": (p: { module: unknown; renames: unknown }) =>
+    `migration for module "${p.module}" drops and adds column(s) on the same table that look like an unannotated rename — emitting them as drop+add would DESTROY the renamed column's data:\n${p.renames}\n` +
+    `If this is a rename, declare it explicitly so the data is preserved. Add this block at the TOP LEVEL of the .ddd file — outside \`system { … }\`, as a sibling of it (inside it is a parse error):\n` +
+    `  migration "<name>" { <Aggregate>.<oldField> -> <newField> }\n` +
+    `(one line per renamed field; this handles both a rename that also changes type and two renames at once.)\n` +
+    `If you really mean to drop the old column and add a new empty one — losing the data — re-run \`generate system\` with --allow-destructive.`,
+
   /** A declared backfill whose column is arriving in THIS migration, yet no
    *  step consumed it — the silent-discard shape (F-018). A backfill is
    *  legitimately inert once its column is in the baseline; this fires only
@@ -2508,6 +2522,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `no route arguments in scope, so the navigation is DROPPED rather than emitted as Dart ` +
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
+  "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion>(args)); return r\`, so no backend can generate it. ${p.hint}`,
   "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
@@ -2671,6 +2687,25 @@ export const DIAGNOSTIC_MESSAGES = {
     `to typecheck), and every request it does make goes to '${p.targetName}', which does not ` +
     `serve that contract. Point every handle at one backend, or split the ui — one frontend ` +
     `deployable per backend — until per-handle clients land.`,
+  "loom.ui-aggregate-unserved": (p: {
+    uiName: unknown;
+    dName: unknown;
+    targetName: unknown;
+    subdomain: unknown;
+    ctx: unknown;
+    aggregates: unknown;
+    sites: unknown;
+    served: unknown;
+  }) =>
+    `ui '${p.uiName}' reads ${p.aggregates} from subdomain '${p.subdomain}' (context ` +
+    `'${p.ctx}') in ${p.sites}, but frontend deployable '${p.dName}' is generated against ` +
+    `'${p.targetName}' (its 'targets:'), which serves only [${p.served}]. Those pages have no api ` +
+    `client to read through: generate either fails on the generated page or emits an import of ` +
+    `an api module that is never written. Fix one of: add '${p.ctx}' to '${p.targetName}' ` +
+    `(its 'contexts:' and a served api); drop '${p.subdomain}' from the ui's ` +
+    `'scaffold(subdomains: …)' or remove the pages reading it; or host those pages in a ` +
+    `separate ui on a frontend deployable whose 'targets:' serves '${p.ctx}'. One frontend ` +
+    `reading several backends is not supported yet (M-T1.35).`,
   "loom.current-user-needs-auth-ui": (p: { what: unknown; uiName: unknown; dName: unknown }) =>
     `${p.what} on ui '${p.uiName}' reads 'currentUser', but deployable '${p.dName}' binds no verified session user, so the read emits a dangling reference (react 'undefined.<claim>', invalid Dart on flutter, an unbound match on feliz). Add the auth guard: 'auth: ui' on a frontend deployable, or 'auth: required' on a fullstack deployable that mounts the ui itself.`,
   "loom.auth-ui-unsupported-framework": (p: {

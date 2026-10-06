@@ -195,6 +195,25 @@ The derived filter is provenance-tagged `tenancy` in
 only an explicit `ignoring *` read — the same authored escape hatch that
 drops `tenantOwned`'s filter — bypasses it.
 
+### The bundled dev Keycloak's demo tenant
+
+Because the self-scope matches only a uuid claim, the demo user of the bundled
+dev Keycloak (an `auth { oidc … }` block with a self-hosted provider) is seeded
+with a **uuid** tenancy claim, `00000000-0000-4000-8000-00000000de40`
+(`DEMO_TENANT_ID`, `src/ir/util/demo-tenant.ts`) — not `demo-<claim>`, which
+matched no registry row ever (eval-closure #26). A matching first-boot registry
+row ships through the ordinary seed path: enrichment appends a `raw` seed row
+(`id` = that uuid, `dataKey` = the same uuid when the registry is a
+`tenantRegistry` root, a synthetic value for every other required scalar
+column) in its own dataset, `loomDemoTenant`, and the generated dev compose
+sets `LOOM_SEED: "loomDemoTenant"` on the backend hosting the registry. Like
+every non-`default` dataset it runs only when `LOOM_SEED` names it, so a
+production boot never inserts a demo tenant. A registry whose required columns
+have no obvious synthetic value (a value object, an `X id` reference, a list),
+or that is inherited, event-sourced, non-relational or not on Postgres, gets no
+row — the realm claim is still the uuid. The demo user's `permissions` are
+deliberately not seeded, so denial stays demonstrable.
+
 ## `ignoring` and the tenant filter
 
 `ignoring tenantOwned` (and `ignoring *` on a tenant-scoped aggregate, which

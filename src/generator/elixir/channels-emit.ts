@@ -1,5 +1,6 @@
 import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import type { BrokerBinding } from "../_channels/bindings.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -299,7 +300,7 @@ export function emitElixirStandaloneOutbox(
    *  delivers each as its system principal (ruling D1). */
   carriesOrigin = false,
 ): ElixirChannelFiles {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/elixir/channels-emit");
   const webModule = `${appModule}Web`;
   const children: string[] = [];
   const durableNames = [...new Set(durable.map((d) => d.ev.name))].sort();
@@ -584,7 +585,7 @@ export function emitElixirChannelFiles(
       ? `transmit(transport, conn, address, Map.get(envelope, "loomkey", ${idVar}), Jason.encode!(envelope))`
       : "transmit(transport, conn, address, Jason.encode!(envelope))";
 
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/elixir/channels-emit");
   files.set(
     `lib/${appName}/channels.ex`,
     `# Auto-generated.  Broker channel tee (channels.md).

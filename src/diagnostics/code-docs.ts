@@ -146,6 +146,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-query-handler-shape":
+    "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -327,7 +329,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.ui-multi-backend-unsupported": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-aggregate-unserved": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":

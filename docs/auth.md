@@ -480,6 +480,24 @@ public cancel(reason: string): void {
 }
 ```
 
+**What the 403 says (ruling D4, eval-closure #20).** The thrown message names
+the failed gate, and every backend writes it to its `forbidden` log line. Whether
+the RFC 7807 **body** repeats it depends on the verifier the deployable ships:
+
+| Verifier | 403 `detail` | Server log `forbidden` line |
+|---|---|---|
+| dev stub (`auth: required`, a `user { … }` block, no `auth { oidc … }`) | `Forbidden: currentUser.role == "manager" && reason != ""` | same text |
+| a real verifier (`auth { oidc … }`), or no verifier at all | `Forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
+
+So a production caller learns that it was forbidden, not which predicate it
+failed; the dev stub keeps the echo because naming the gate is the useful answer
+while you are wiring claims. One helper per backend decides it from the same two
+facts that pick the verifier (`echoesDenialDetail`, `src/ir/util/denial-detail.ts`):
+node's `ForbiddenError.detail` (read by every `onError` arm), .NET's
+`DomainExceptionFilter`, Java's `ApiExceptionAdvice`, Python's
+`install_error_handlers`, and Phoenix's `ProblemDetails.problem_response/4` (plus
+the LiveView create form's flash).
+
 Consequences worth knowing:
 
 - The aggregate method **drops its `currentUser: User` parameter** when the gate
@@ -1116,10 +1134,21 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
   http://localhost:8080/api/orders
 ```
 
-> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
-> falls back to the built-in identity, so a **raw-JSON** header does not fail —
-> it is silently ignored, and the request runs as the built-in `admin`. A gate
-> that then passes looks like your claims were applied when they never were.
+> **The encoding is load-bearing.** A header that is **present but does not
+> decode to a JSON object** — raw JSON, broken base64, a JSON array or string —
+> is refused on all five backends with **400**, before any route runs
+> (ruling D6, eval-closure #23):
+>
+> ```json
+> { "type": "about:blank", "title": "Bad Request", "status": 400,
+>   "detail": "malformed x-loom-dev-claims header: expected a base64-encoded JSON object",
+>   "instance": "/api/orders" }
+> ```
+>
+> It used to be silently ignored, running the request as the built-in `admin`,
+> so a permission test that sent a typo'd header could pass as the broad
+> principal it never meant to be. An absent or empty header still means the
+> built-in identity.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid

@@ -7,7 +7,6 @@
 // only the framework-neutral helpers (render-expr/stmt, templates,
 // zod-refine) in core.
 
-// Hono-framework builders now live in this package (P2b) — siblings.
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
@@ -103,6 +102,7 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
+import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
   foreignEventValueTypes,
@@ -131,6 +131,8 @@ import { hasValueObjectInvariants } from "../../../ir/util/value-object-invarian
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
+// Hono-framework builders now live in this package (P2b) — siblings.
+import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -265,7 +267,19 @@ function errorsTs(
   emitNotImplemented: boolean,
   emitValueObjectInvariant = false,
   emitDomainFloorCodes = false,
+  /** Ruling D4 (#20): true only under the dev-stub verifier — see
+   *  `src/ir/util/denial-detail.ts`. */
+  echoForbiddenDetail = false,
 ): string {
+  // `message` names the failed gate and feeds the `forbidden` log line every
+  // onError arm writes; `detail` is what the 403 BODY says.  Under a real
+  // verifier the body must not tell the caller which predicate it failed.
+  const forbiddenDetailInit = echoForbiddenDetail
+    ? "message"
+    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
+  const forbiddenDetailDoc = echoForbiddenDetail
+    ? "the same text: this deployable runs the dev-stub verifier, where naming the gate is the useful answer"
+    : "the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log";
   return `// Auto-generated.
 ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectInvariantErrorTs(emitDomainFloorCodes) : ""}export class AggregateNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "AggregateNotFoundError"; }
@@ -273,9 +287,13 @@ ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectIn
 /** Authorization failure — raised by \`requires\` expressions in
  *  operation / workflow bodies when the resolved currentUser
  *  doesn't satisfy the gate.  The per-route catch maps this to
- *  HTTP 403 (Forbidden). */
+ *  HTTP 403 (Forbidden).
+ *
+ *  \`message\` names the failed gate and goes to the \`forbidden\` log line;
+ *  \`detail\` is the 403 body's \`detail\` — ${forbiddenDetailDoc}. */
 export class ForbiddenError extends Error {
-  constructor(message: string) { super(message); this.name = "ForbiddenError"; }
+  readonly detail: string;
+  constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = ${forbiddenDetailInit}; }
 }
 /** State-gate failure — raised when an operation's 'when' predicate
  *  (the canCommand gate, criterion.md use site 2) evaluates false
@@ -665,7 +683,7 @@ export function generateTypeScriptForContexts(
 ): Map<string, string> {
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
-  const out = new Map<string, string>();
+  const out = emissionSink("platform/hono/v4/emit");
   const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the
@@ -808,7 +826,14 @@ export function generateTypeScriptForContexts(
   const emitDomainFloorCodes = hasDomainFloorMessages(merged);
   out.set(
     "domain/errors.ts",
-    errorsTs(emitConcurrency, emitNotImplemented, emitVoInvariant, emitDomainFloorCodes),
+    errorsTs(
+      emitConcurrency,
+      emitNotImplemented,
+      emitVoInvariant,
+      emitDomainFloorCodes,
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(system?.deployable, system?.sys),
+    ),
   );
   // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
   // SERVER-side against this project's catalog, so a localised client is no

@@ -14,10 +14,15 @@ import {
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
-import { devClaimFields } from "../../_auth/dev-claims.js";
+import {
+  DEV_CLAIMS_HEADER,
+  devClaimFields,
+  MALFORMED_DEV_CLAIMS_DETAIL,
+} from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../../_auth/origin-claim.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -64,7 +69,7 @@ export function renderAuthFiles(
    *  flat tenancy — the claim-copy accessor stands. */
   orgPathRegistry?: OrgPathRegistry,
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/emit/auth");
   const fields = sys.user?.fields ?? [];
   const pkg = `${basePkg}.auth`;
   // OIDC turnkey auth (D-AUTH-OIDC): an `auth { oidc }` block turns on the
@@ -274,22 +279,34 @@ export function renderAuthFiles(
       ` *  REPLACE for production by providing your own @Primary UserVerifier. */`,
       `@Component`,
       `public class DevStubUserVerifier implements UserVerifier {`,
+      `    private static final tools.jackson.databind.ObjectMapper MAPPER =`,
+      `        tools.jackson.databind.json.JsonMapper.builder().build();`,
+      ``,
+      // Ruling D6 (#23): a present-but-undecodable header is refused — the
+      // stub throws, UserFilter answers 400 — instead of silently running the
+      // request as the built-in identity.  Both stub shapes decode through it,
+      // so a stub with no carryable claim refuses a malformed header too.
+      `    /** Decode the header as a base64 JSON OBJECT, or throw`,
+      `     *  {@link MalformedDevClaimsException} (UserFilter answers it 400). */`,
+      `    private static tools.jackson.databind.JsonNode decodeDevClaims(String injected) {`,
+      `        tools.jackson.databind.JsonNode claims;`,
+      `        try {`,
+      `            claims = MAPPER.readTree(java.util.Base64.getDecoder().decode(injected));`,
+      `        } catch (RuntimeException e) {`,
+      `            throw new MalformedDevClaimsException();`,
+      `        }`,
+      `        if (claims == null || !claims.isObject()) throw new MalformedDevClaimsException();`,
+      `        return claims;`,
+      `    }`,
+      ``,
       ...(stubStringFields.length > 0
         ? [
-            `    private static final tools.jackson.databind.ObjectMapper MAPPER =`,
-            `        tools.jackson.databind.json.JsonMapper.builder().build();`,
-            ``,
             `    @Override`,
             `    public User verify(HttpServletRequest request) {`,
-            `        String injected = request.getHeader("x-loom-dev-claims");`,
+            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
             `        if (injected != null && !injected.isEmpty()) {`,
-            `            try {`,
-            `                tools.jackson.databind.JsonNode claims =`,
-            `                    MAPPER.readTree(java.util.Base64.getDecoder().decode(injected));`,
-            `                return new User(${overrideArgs});`,
-            `            } catch (Exception e) {`,
-            `                // Malformed dev-claims header → fall back to the built-in identity.`,
-            `            }`,
+            `            tools.jackson.databind.JsonNode claims = decodeDevClaims(injected);`,
+            `            return new User(${overrideArgs});`,
             `        }`,
             `        return new User(${stubArgs});`,
             `    }`,
@@ -316,9 +333,28 @@ export function renderAuthFiles(
         : [
             `    @Override`,
             `    public User verify(HttpServletRequest request) {`,
+            `        // No declared claim is carryable, but a malformed header still refuses.`,
+            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
+            `        if (injected != null && !injected.isEmpty()) decodeDevClaims(injected);`,
             `        return new User(${stubArgs});`,
             `    }`,
           ]),
+      `}`,
+      ``,
+    ),
+  );
+  out.set(
+    "MalformedDevClaimsException.java",
+    lines(
+      `package ${pkg};`,
+      ``,
+      `/** A present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header (dev stub only).`,
+      ` *  UserFilter answers it 400 — refused rather than ignored, because ignoring`,
+      ` *  it ran the request as the built-in identity (ruling D6). */`,
+      `public class MalformedDevClaimsException extends RuntimeException {`,
+      `    public MalformedDevClaimsException() {`,
+      `        super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});`,
+      `    }`,
       `}`,
       ``,
     ),
@@ -466,6 +502,11 @@ export function renderAuthFiles(
       `        User user;`,
       `        try {`,
       `            user = verifier.verify(request);`,
+      // Dev stub only (ruling D6): a present-but-undecodable dev-claims header
+      // is a malformed REQUEST, not missing credentials.
+      `        } catch (MalformedDevClaimsException e) {`,
+      `            malformedDevClaims(request, response, e.getMessage());`,
+      `            return;`,
       `        } catch (Exception e) {`,
       `            user = null;`,
       `        }`,
@@ -530,6 +571,18 @@ export function renderAuthFiles(
       `        response.setHeader("WWW-Authenticate", "Bearer realm=\\"api\\", error=\\"invalid_token\\"");`,
       `        response.getWriter().write(`,
       `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Unauthorized\\",\\"status\\":401,\\"detail\\":\\""`,
+      `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
+      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
+      `    }`,
+      ``,
+      `    /** RFC 7807 400 for a present-but-undecodable dev-claims header. */`,
+      `    private static void malformedDevClaims(HttpServletRequest request, HttpServletResponse response, String detail)`,
+      `            throws java.io.IOException {`,
+      `        response.setStatus(400);`,
+      `        response.setCharacterEncoding("UTF-8");`,
+      `        response.setContentType("application/problem+json");`,
+      `        response.getWriter().write(`,
+      `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Bad Request\\",\\"status\\":400,\\"detail\\":\\""`,
       `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
       `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
       `    }`,
