@@ -15462,6 +15462,34 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "write"
+          },
+          {
+            "$type": "Keyword",
+            "value": "enum"
+          },
+          {
+            "$type": "Keyword",
+            "value": "import"
+          },
+          {
+            "$type": "Keyword",
+            "value": "extends"
+          },
+          {
+            "$type": "Keyword",
+            "value": "static"
+          },
+          {
+            "$type": "Keyword",
+            "value": "system"
+          },
+          {
+            "$type": "Keyword",
+            "value": "repository"
+          },
+          {
+            "$type": "Keyword",
+            "value": "aggregate"
           }
         ]
       },
@@ -17174,10 +17202,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "as"
-          },
-          {
-            "$type": "Keyword",
-            "value": "extends"
           },
           {
             "$type": "Keyword",

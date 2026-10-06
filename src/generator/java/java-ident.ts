@@ -163,7 +163,7 @@ export function javaLocals(
   names: readonly string[],
   reserved: ReadonlySet<string>,
 ): ReadonlyMap<string, string> {
-  const out = new Map<string, string>();
+  const locals = new Map<string, string>();
   const used = new Set<string>(names.map(jid));
   for (const n of names) {
     let local = jid(n);
@@ -172,9 +172,9 @@ export function javaLocals(
       while (reserved.has(local) || used.has(local));
       used.add(local);
     }
-    out.set(n, local);
+    locals.set(n, local);
   }
-  return out;
+  return locals;
 }
 
 /** Lookup into a `javaLocals` map, falling back to `jid` for a name the map

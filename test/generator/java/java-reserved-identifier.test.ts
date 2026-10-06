@@ -252,6 +252,11 @@ describe("M-T6.36 — a java reserved word is emitted, mangled, with the wire pi
   // The other four backends are untouched — the mangle lives in the java
   // emitters, not in the IR.
   // -------------------------------------------------------------------------
+  it("the leak marker below is a real java mangle", async () => {
+    const files = await generateSystemFiles(SOURCE("java"));
+    expect([...files.values()].join("\n")).toContain("native_");
+  });
+
   for (const [platform, marker] of [
     ["node", "case"],
     ["python", "case"],
@@ -262,7 +267,10 @@ describe("M-T6.36 — a java reserved word is emitted, mangled, with the wire pi
       const files = await generateSystemFiles(SOURCE(platform));
       const all = [...files.values()].join("\n");
       expect(all).toContain(marker);
-      expect(all, "no java-style mangle leaked onto another backend").not.toContain("case_(");
+      // `native` is reserved in Java only (not TS / Python / C# / Elixir), so a
+      // `native_` here can only be the java mangle leaking.  (`case_` is not
+      // that signal: Python escapes its own soft keyword `case` the same way.)
+      expect(all, "no java-style mangle leaked onto another backend").not.toContain("native_");
     });
   }
 });
