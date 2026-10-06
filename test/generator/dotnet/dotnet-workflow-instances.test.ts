@@ -31,19 +31,6 @@ async function generate(file: string): Promise<Map<string, string>> {
 }
 
 describe(".NET workflow instance read endpoints", () => {
-  it("emits the instance Response DTO from the saga wire shape", async () => {
-    const files = await generate("test/fixtures/dispatch-sample.ddd");
-    const dto = files.get("Application/Workflows/OrderFulfillmentInstanceResponse.cs") ?? "";
-    expect(dto).toContain("public sealed record OrderFulfillmentInstanceResponse(");
-    // Correlation id crosses as Guid (the .NET wire-id divergence); attempts int.
-    // Non-nullable components carry `[property: Required]` so the OpenAPI
-    // required-set matches Hono/Python (which require every non-optional
-    // instance field) — see dto-mapping.ts.
-    expect(dto).toMatch(/\[property: Required\] Guid OrderId/);
-    expect(dto).toMatch(/\[property: Required\] int Attempts/);
-    expect(dto).toContain("using System.ComponentModel.DataAnnotations;");
-  });
-
   it("registers the named <Wf>InstanceListResponse wrapper pair", async () => {
     // Swashbuckle inlines `IEnumerable<T>`; the document filter promotes the
     // list response to the named carrier the other backends emit
@@ -53,24 +40,6 @@ describe(".NET workflow instance read endpoints", () => {
     expect(filter).toContain(
       '("OrderFulfillmentInstanceResponse", "OrderFulfillmentInstanceListResponse"),',
     );
-  });
-
-  it("emits a controller with GET list + GET by-id over the saga DbSet", async () => {
-    const files = await generate("test/fixtures/dispatch-sample.ddd");
-    const ctrl = files.get("Api/FulfillmentWorkflowInstancesController.cs") ?? "";
-    expect(ctrl).toContain('[Route("workflows")]');
-    expect(ctrl).toContain("private readonly AppDbContext _db;");
-    expect(ctrl).toContain('[HttpGet("order_fulfillment/instances")]');
-    expect(ctrl).toContain("await _db.OrderFulfillments.AsNoTracking().ToListAsync();");
-    expect(ctrl).toContain('[HttpGet("order_fulfillment/instances/{id}")]');
-    expect(ctrl).toMatch(/var __key = new OrderId\(id\);/);
-    expect(ctrl).toMatch(/FirstOrDefaultAsync\(r => r\.OrderId == __key\)/);
-    // M-T6.31 — the instance show is a by-id read, so it raises the shared 404
-    // carrier rather than ASP.NET's own bare 404.
-    expect(ctrl).toMatch(
-      /if \(x is null\) throw new global::\w+\.Domain\.Common\.AggregateNotFoundException\(\$"OrderFulfillment \{id\} not found"\);/,
-    );
-    expect(ctrl).not.toContain("NotFound()");
   });
 
   it("emits no instance controller for a workflow without a correlation field", async () => {

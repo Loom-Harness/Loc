@@ -100,7 +100,7 @@ jobs:
     # harness) + the toolchain build.
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
     # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
-    # Measured 2026-09-10, n=15 successful runs: p95 3m24s, max 3m25s.
+    # Measured 2026-10-05, n=20 successful runs: p95 3m57s, max 4m05s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
     timeout-minutes: 10
     steps:

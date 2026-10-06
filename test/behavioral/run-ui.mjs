@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import {
   buildFrontend,
   buildServerModule,
@@ -88,6 +89,115 @@ async function rollup(genDir, workDir, outcomes) {
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
+/**
+ * The LIST half of a case's numeric round-trip (M-T9.15), for a case that
+ * declares `numericList` in corpus.json.
+ *
+ * The emitted `*.ui.spec.ts` covers CREATE (through the real form) and the
+ * DETAIL read, but all it asks of a list page is that the list container
+ * mounted — `ListPage.goto()` waits for `<slug>-list`, which renders before
+ * (and whether or not) the list's own read resolves.  So a paged envelope the
+ * client cannot decode, a column reading the wrong wire key, or a column the
+ * emitter dropped would leave every emitted test green.  This probe closes
+ * that: seed one row over `/api` with the numeric half taken from
+ * `numeric-ui-contract.mjs` (the table the fast-suite ratchet holds this case
+ * to), check the backend spells it the way the contract says — so a red probe
+ * names WHICH side broke — then load the app's own list page and require that
+ * row's cells to read exactly the contract's rendered text for this frontend
+ * (`cfg.render` names the contract column).
+ *
+ * Exact cell equality, not substring: a bare number is found inside a UUID
+ * often enough to matter, and a cell is the unit a dropped column removes.
+ */
+async function numericListProbe(origin, cfg) {
+  const name = `numeric list probe: ${cfg.route} renders every numeric host type as the '${cfg.render}' contract column spells it`;
+  const why = [];
+  const seedRes = await fetch(`${origin}${cfg.api}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...cfg.seed, ...numericSeedBody() }),
+  });
+  const seedText = await seedRes.text();
+  if (seedRes.status >= 300) {
+    return {
+      tier: "ui-probe",
+      name,
+      status: "fail",
+      error: `seed POST ${cfg.api} -> ${seedRes.status}: ${seedText}`,
+    };
+  }
+  const id = JSON.parse(seedText).id;
+
+  // The backend half first: when the WIRE is wrong, say so, instead of letting
+  // the browser half report a rendering failure that is not the frontend's.
+  const wire = await fetch(`${origin}${cfg.api}/${id}`).then((r) => r.json());
+  for (const f of NUMERIC_FIELDS) {
+    const v = wire[f.field];
+    const type = f.wire === "string" ? "string" : "number";
+    if (typeof v !== type || String(v) !== String(f.seed)) {
+      why.push(
+        `backend wire ${f.field}=${JSON.stringify(v)} (contract: ${type} ${JSON.stringify(f.seed)})`,
+      );
+    }
+  }
+
+  // The browser build THIS harness's playwright expects — the emitted e2e dir
+  // installed its own, possibly a different revision (run-ui-flutter.mjs does
+  // the same).  A no-op once cached.
+  execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
+    cwd: HERE,
+    stdio: "pipe",
+  });
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const api = [];
+    const errors = [];
+    page.on("response", (r) => {
+      const u = new URL(r.url());
+      if (u.pathname.startsWith("/api/")) {
+        api.push(`${r.request().method()} ${u.pathname} -> ${r.status()}`);
+      }
+    });
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    await page.goto(`${origin}${cfg.route}`);
+    const row = page.getByTestId(`${cfg.row}${id}`);
+    try {
+      await row.waitFor({ timeout: 30_000 });
+      const cells = (await row.locator("td").allInnerTexts()).map((t) => t.trim());
+      // Column-aware: each value must sit under ITS OWN header.  A bare
+      // "does some cell read 4242" passes a list whose `stock` and `weight`
+      // cells read each other's wire keys — the swapped-alias defect this
+      // probe exists for.  Headers are the humanised field name ("List
+      // Price"), compared letters-only so sort arrows and case do not matter.
+      const headers = (
+        await page.locator("table").filter({ has: row }).locator("thead th").allInnerTexts()
+      ).map((t) => t.toLowerCase().replace(/[^a-z]/g, ""));
+      for (const f of NUMERIC_FIELDS) {
+        const want = f[cfg.render];
+        const col = headers.indexOf(f.field.toLowerCase());
+        if (col < 0) why.push(`${f.field}: the list has no '${f.field}' column`);
+        else if (cells[col] !== want) {
+          why.push(`${f.field}: its column reads ${JSON.stringify(cells[col])}, contract ${JSON.stringify(want)}`);
+        }
+      }
+      if (why.length) why.push(`headers ${JSON.stringify(headers)}, row cells ${JSON.stringify(cells)}`);
+    } catch (err) {
+      why.push(`row ${cfg.row}${id} never rendered (${String(err?.message ?? err).split("\n")[0]})`);
+      const shown = await page.locator("body").innerText().catch(() => "");
+      why.push(`page text: ${JSON.stringify(shown.slice(0, 300))}`);
+    }
+    if (!api.some((a) => a.startsWith(`GET ${cfg.api} -> 2`))) {
+      why.push(`the app's own list read never answered 2xx (saw: ${api.join(", ") || "nothing"})`);
+    }
+    if (errors.length) why.push(errors.slice(0, 3).join(" | "));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return { tier: "ui-probe", name, status: why.length ? "fail" : "pass", error: why.join("; ") };
+}
+
 async function runCase(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-bhui-${c.name}-`));
   const workDir = join(WORK, c.name);
@@ -100,6 +210,15 @@ async function runCase(c) {
       { stdio: "pipe" },
     );
     const frontendDir = findFrontendDeployable(genDir);
+    // Mutation-proof seam (CLAUDE.md → "Mutation-prove a new gate"): a module
+    // named by LOOM_UI_MUTATE receives the GENERATED tree before anything is
+    // built, so a proof can seed a defect into the emitted app itself — a wrong
+    // wire key, a dropped list column — without touching an emitter.  Never set
+    // in CI; unset, this is a no-op.
+    if (process.env.LOOM_UI_MUTATE) {
+      const mutate = await import(pathToFileURL(resolve(process.env.LOOM_UI_MUTATE)).href);
+      await mutate.default({ genDir, frontendDir, caseName: c.name });
+    }
     const e2eDir = join(frontendDir, "e2e");
     const uiSpecs = walk(e2eDir, (p) => p.endsWith(".ui.spec.ts"));
     if (uiSpecs.length === 0) return { skipped: "no .ui.spec.ts emitted" };
@@ -150,6 +269,20 @@ async function runCase(c) {
       workDir,
       results.map((r) => ({ name: r.name, status: r.status })),
     );
+    // The list half of the numeric round-trip, for a case that declares it —
+    // after the emitted suite, on the same live stack.  Kept OUT of the rollup
+    // above: it verifies no `.ddd` requirement, it is the harness's own probe
+    // of a surface the emitted page objects cannot address.
+    if (c.numericList) {
+      results.push(
+        await numericListProbe(`http://127.0.0.1:${server.port}`, c.numericList).catch((err) => ({
+          tier: "ui-probe",
+          name: "numeric list probe",
+          status: "fail",
+          error: String(err?.message ?? err),
+        })),
+      );
+    }
     return { results, verification };
   } finally {
     if (server) await server.close().catch(() => {});
