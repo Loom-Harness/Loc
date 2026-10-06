@@ -57,6 +57,7 @@ export function validateAuth(sys: SystemIR, diags: LoomDiagnostic[]): void {
         code: "loom.auth-no-user-block",
         message: diagMessage("loom.auth-no-user-block", { name: d.name, sysName: sys.name }),
         source: `${sys.name}/${d.name}`,
+        origin: d.origin,
       });
     }
   }
