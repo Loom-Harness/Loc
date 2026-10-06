@@ -1613,6 +1613,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' over a collection needs a lambda — write '<collection>.${p.member}(x => …)'. A bare '.${p.member}' has no renderable form.`,
   "loom.unknown-member": (p: { member: unknown; record: unknown }) =>
     `'${p.member}' is not a member of '${p.record}'.`,
+  // A value-object / part FUNCTION called in a ui body.  The function exists
+  // in the domain, but a frontend holds the record's WIRE shape — fields only —
+  // so every frontend would emit a call to a method its record type lacks.
+  "loom.unknown-member#ui-record-function": (p: { member: unknown; record: unknown }) =>
+    `'${p.member}' is a function of '${p.record}', but a page, component or store holds ` +
+    `'${p.record}' as its wire record, which carries fields only — no frontend can call ` +
+    `'${p.member}()' on it.  Expose the value as a \`derived\` field (derived fields ship on ` +
+    `the wire), or compute it in the ui from the record's fields.`,
   "loom.rule-expr-impure#unaddressable": (p: { where: unknown; name: unknown; kind: unknown }) =>
     `This ${p.where} references '${p.name}', which is a ${p.kind} — not something a rule expression can reach. ` +
     `An invariant / check / derived is a PURE predicate over the instance: it runs in the per-instance floor with only 'this' in scope, ` +
@@ -2421,6 +2429,56 @@ export const DIAGNOSTIC_MESSAGES = {
     `conditional VALUE (a ternary, or \`match { cond => …, else => … }\`) and let the ` +
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-body-vocabulary-checks.ts — the frontend body
+  // vocabulary.  The first three are modelling errors no frontend can render;
+  // the fourth is the per-target table (`UI_BODY_FEATURE_RENDERERS`).
+  // ----------------------------------------------------------------------
+  "loom.ui-this-unbound": (p: { where: unknown; uiName: unknown }) =>
+    `\`this\` is used in ${p.where} on ui '${p.uiName}'.  A page, component or store has ` +
+    `no aggregate instance in scope, so \`this\` names nothing there and no frontend can ` +
+    `render it.  Read the value from \`state\`, a param, a store field, or the record a ` +
+    `QueryView \`data:\` lambda (or a \`match await\` arm) binds.`,
+  "loom.ui-assign-not-state": (p: {
+    where: unknown;
+    uiName: unknown;
+    op: unknown;
+    target: unknown;
+    root: unknown;
+    host: unknown;
+    known: unknown;
+  }) =>
+    `\`${p.target} ${p.op} …\` in ${p.where} on ui '${p.uiName}' writes '${p.root}', which is ` +
+    `not a \`state\` field of this ${p.host}${p.known}.  An action mutates only its own ` +
+    `${p.host}'s declared state — a \`let\`, a param, a \`derived\` and another host's ` +
+    `fields are read-only here, and every frontend renders the write as a state setter.  ` +
+    `Declare '${p.root}' in \`state { … }\`, or call the owning store's action ` +
+    `(\`Cart.set(…)\`) to change a store field.`,
+  "loom.ui-find-call-arity": (p: {
+    where: unknown;
+    uiName: unknown;
+    read: unknown;
+    got: unknown;
+    expected: unknown;
+    params: unknown;
+  }) =>
+    `${p.where} on ui '${p.uiName}' reads \`${p.read}\` with ${p.got} argument(s), but the ` +
+    `find declares ${p.expected} parameter(s)${p.params}.  Every frontend generates the read's ` +
+    `request from the declaration, so a missing or extra argument has nowhere to go — the ` +
+    `JS clients fail their own typecheck and Feliz cannot build the query.  Pass one ` +
+    `argument per declared parameter, in order.`,
+  "loom.ui-body-feature-unsupported": (p: {
+    where: unknown;
+    uiName: unknown;
+    feature: unknown;
+    fw: unknown;
+    dName: unknown;
+    why: unknown;
+    renderedBy: unknown;
+    hint: unknown;
+  }) =>
+    `${p.where} on ui '${p.uiName}' uses ${p.feature}, which the ${p.fw} frontend does not ` +
+    `render (deployable '${p.dName}') — ${p.why}.  ${p.renderedBy}${p.hint}`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;

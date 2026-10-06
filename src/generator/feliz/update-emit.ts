@@ -46,6 +46,10 @@ import {
   wfHasForm,
 } from "./wire.js";
 
+/** The module-level binding a named action's `toast(…)` calls from `update`;
+ *  `renderAppFs` declares it (`renderFelizUpdateToast`) when `update` uses it. */
+export const FELIZ_UPDATE_TOAST = "updateToast";
+
 /** The F# Model type for a `state {}` field.  A `File`-typed field holds the
  *  uploaded reference (`FileRef option`, `None` before/when cleared) — the
  *  standalone `FileUpload(bind:)` writes it via the upload result Msg — not the
@@ -671,8 +675,20 @@ function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): Updat
             : "/";
         return { cmd: `Cmd.navigatePath(${felizRouteSegments(route).join(", ")})` };
       }
-      // `private-operation`: a backend concept with no frontend arm.  Fail fast
-      // rather than silently dropping it.
+      // `toast(<message>)` — the other view effect every frontend renders.
+      // MVU keeps `update` pure, so the DOM write runs as a `Cmd` effect after
+      // the new model is returned, through the module-level `updateToast`
+      // binding `renderAppFs` declares ahead of `update` when this emits it
+      // (`FELIZ_UPDATE_TOAST`).  `string (…)` coerces a non-string message the
+      // way the JS frontends' template literals and Flutter's `Object?` bridge
+      // do.
+      if (stmt.name === "toast") {
+        const message = stmt.args[0] ? renderFsExpr(stmt.args[0], ctx) : '""';
+        return { cmd: `Cmd.ofEffect (fun _ -> ${FELIZ_UPDATE_TOAST} (string (${message})))` };
+      }
+      // `private-operation`: a backend concept with no frontend arm.  Every
+      // other bare call is refused before codegen (`loom.unresolved-action-ref`
+      // covers page, component and store action bodies).
       throw new Error(
         `feliz: unsupported '${stmt.target}' call '${stmt.name}' in the MVU update arm — ` +
           `the Feliz frontend dispatches sibling/store actions and ui functions here. ` +

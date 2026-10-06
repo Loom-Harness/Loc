@@ -46,6 +46,11 @@ import {
   classifyFelizAsyncEffect,
   type FelizAsyncEffectShape,
 } from "../../ir/util/feliz-async-effect.js";
+import {
+  felizFindArgRefResolvable,
+  felizFindParamSupported,
+  felizFindReturnDecodable,
+} from "../../ir/util/feliz-find-read.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
@@ -393,6 +398,23 @@ const FIND_UNSUPPORTED_HINT =
  *  something no backend parses. */
 function findParamQueryValue(t: TypeIR, aggregate: string, findName: string, name: string): string {
   const base = t.kind === "optional" ? t.inner : t;
+  // `felizFindParamSupported` is the validator's half of this contract
+  // (`loom.ui-body-feature-unsupported`, feature `find-read-composite-param`);
+  // asking it first means a type the gate admits but the switch below cannot
+  // spell still fails here, loudly, instead of emitting a value no backend parses.
+  const spelling = felizFindParamSupported(t) ? scalarQuerySpelling(base, name) : undefined;
+  if (spelling !== undefined) return spelling;
+  throw new Error(
+    `feliz: repository find '${aggregate}.${findName}' has a parameter '${name}' of an ` +
+      `unsupported type (${base.kind}${base.kind === "primitive" ? ` ${base.name}` : ""}) — ` +
+      `${FIND_UNSUPPORTED_HINT} Give the find a scalar parameter, or drop the read from ` +
+      `the Feliz ui.`,
+  );
+}
+
+/** The F# query-string spelling of a scalar find parameter, or undefined when
+ *  the type has none. */
+function scalarQuerySpelling(base: TypeIR, name: string): string | undefined {
   switch (base.kind) {
     case "primitive":
       switch (base.name) {
@@ -425,12 +447,7 @@ function findParamQueryValue(t: TypeIR, aggregate: string, findName: string, nam
     default:
       break;
   }
-  throw new Error(
-    `feliz: repository find '${aggregate}.${findName}' has a parameter '${name}' of an ` +
-      `unsupported type (${base.kind}${base.kind === "primitive" ? ` ${base.name}` : ""}) — ` +
-      `${FIND_UNSUPPORTED_HINT} Give the find a scalar parameter, or drop the read from ` +
-      `the Feliz ui.`,
-  );
+  return undefined;
 }
 
 /** Build the `FelizRead` for a user-declared repository find of `aggregate`.
@@ -464,8 +481,7 @@ export function felizFindRead(
   // `Doc paged` carries the AGGREGATE as its argument (the envelope supplies the
   // collection), so a paged find is list-shaped whatever `arg` says.
   const listShaped = paged !== null || inner.kind === "array";
-  const elem = inner.kind === "array" ? inner.element : inner;
-  if (elem.kind !== "entity" || upperFirst(elem.name) !== agg) {
+  if (!felizFindReturnDecodable(find, aggregate)) {
     throw new Error(
       `feliz: repository find '${agg}.${find.name}' returns a shape the Feliz frontend ` +
         `cannot decode (${find.returnType.kind}) — ${FIND_UNSUPPORTED_HINT} Declare the ` +
@@ -1923,9 +1939,7 @@ function assertFindArgsRenderable(
   const findName = read.find?.name ?? "";
   const walk = (e: ExprIR): void => {
     if (e.kind === "ref") {
-      const resolvable =
-        e.refKind === "store-field" || e.refKind === "enum-value" || stateNames.has(e.name);
-      if (!resolvable) {
+      if (!felizFindArgRefResolvable(e, stateNames)) {
         throw new Error(
           `feliz: the argument '${e.name}' passed to repository find ` +
             `'${upperFirst(aggregate)}.${findName}' is not resolvable where the Feliz ` +

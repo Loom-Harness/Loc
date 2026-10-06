@@ -298,3 +298,17 @@ function renderFsToastMessage(e: ExprIR, bind: string): string {
       throw new Error(`Feliz realtime: unsupported expression kind '${e.kind}' in toast message.`);
   }
 }
+
+/** The toast a named `action`'s `toast(…)` statement calls from the MVU
+ *  `update` (`Cmd.ofEffect (fun _ -> updateToast …)`, `update-emit.ts`).  The
+ *  realtime toast's DOM host under an `action-toast` testid, declared ahead of
+ *  `update` (F# is order-sensitive) with fully-qualified `Fable.Core` names so
+ *  it needs no `open` of its own. */
+export function renderFelizUpdateToast(name: string): string {
+  const js = TOAST_EMIT_JS.replaceAll("channel-toast", "action-toast");
+  return lines(
+    "// `toast(…)` in a named action — a transient built-in toast.",
+    `[<Fable.Core.Emit("${js}")>]`,
+    `let ${name} (message: string) : unit = Fable.Core.Util.jsNative`,
+  );
+}

@@ -857,7 +857,7 @@ export function pageWhere(p: PageIR): string {
  *  wrote an `unresolved` marker plus `undefined` into the page and still exited
  *  0.  `checkOfReadBinds` below is that missing gate. */
 
-function resolveOfRead(
+export function resolveOfRead(
   of: ExprIR,
   apiParamNames: ReadonlySet<string>,
   aggNames: ReadonlySet<string>,

@@ -439,8 +439,17 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  UI gate` and a bare stack trace.  Drained by the same work that drains
  *  M-T1.10 — routing the gate through each frontend's own expression emitter
  *  rather than three hand-written subsets — which deletes the row and lowers
- *  this back to 17. */
-const MAX_OPEN_GAPS = 18;
+ *  this back to 17.
+ *
+ *  18 -> 19: `loom.ui-body-feature-unsupported`, the per-target frontend body
+ *  vocabulary (`UI_BODY_FEATURE_RENDERERS`).  The same trade once more: every
+ *  refused cell either crashed `ddd generate system` with an uncoded `Error`
+ *  (the Feliz MVU renderer, the Flutter notifier, the Feliz find-read builder)
+ *  or emitted code that does not compile (`s.matches(…)`, `xs.filter(…)`
+ *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
+ *  the census then asks for the table row to grow — and the row goes when the
+ *  table names every frontend in every row. */
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

@@ -22,6 +22,7 @@
 // the old `All<Plural>` binding.
 
 import { describe, expect, it } from "vitest";
+import { validate } from "../../../src/api/index.js";
 import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 /** A list-returning find, its argument bound to a page `state {}` cell that a
@@ -70,6 +71,14 @@ async function appFs(src = SRC): Promise<string> {
   const hit = [...files].find(([p]) => p.endsWith("App.fs"));
   if (!hit) throw new Error(`no App.fs emitted; got ${[...files.keys()].join(", ")}`);
   return hit[1];
+}
+
+/** The `loom.ui-body-feature-unsupported` messages `ddd parse` reports. */
+async function featureRefusals(src: string): Promise<string[]> {
+  const report = await validate(src);
+  return report.diagnostics
+    .filter((d) => d.code === "loom.ui-body-feature-unsupported")
+    .map((d) => d.message);
 }
 
 /** The `.ddd` above with its find declaration and its call site rewritten. */
@@ -244,30 +253,34 @@ describe("feliz user-find read — unsupported shapes fail LOUDLY", () => {
     ).rejects.toThrow(/is neither a lifecycle read/);
   });
 
-  it("throws when a find parameter has no query-string spelling", async () => {
+  it("refuses a find parameter with no query-string spelling (codegen keeps its throw)", async () => {
+    const src = withFind(
+      'find byTags(tags: string[]): Doc[] where this.title != ""',
+      "K.Doc.byTags(picked)",
+    ).replace(
+      'state { chosen: string = "public" }',
+      'state {\n        chosen: string = "public"\n        picked: string[] = []\n      }',
+    );
+    expect(await featureRefusals(src)).toEqual([
+      expect.stringContaining("a read of a find with a non-scalar parameter"),
+    ]);
     await expect(
-      appFs(
-        withFind(
-          'find byTags(tags: string[]): Doc[] where this.title != ""',
-          "K.Doc.byTags(picked)",
-        ).replace(
-          'state { chosen: string = "public" }',
-          'state {\n        chosen: string = "public"\n        picked: string[] = []\n      }',
-        ),
-      ),
+      generateSystemFilesUnchecked(src, "the subject IS the codegen backstop behind the gate"),
     ).rejects.toThrow(/unsupported type \(array\)/);
   });
 
   it("throws when an argument is not resolvable where the query is issued", async () => {
     // A find read's fetch is built in `init` / an `update` arm, where a lambda
     // binding from the surrounding view is not in scope.
+    const src = SRC.replace(
+      "data: rows => For { each: rows, d => Text { d.title } }",
+      'data: rows => For { each: rows, d => Stack { QueryView { of: K.Doc.byVis(d.title), data: r2 => Text { "x" } } } }',
+    );
+    expect(await featureRefusals(src)).toEqual([
+      expect.stringContaining("whose argument is not a `state` cell"),
+    ]);
     await expect(
-      appFs(
-        SRC.replace(
-          "data: rows => For { each: rows, d => Text { d.title } }",
-          'data: rows => For { each: rows, d => Stack { QueryView { of: K.Doc.byVis(d.title), data: r2 => Text { "x" } } } }',
-        ),
-      ),
+      generateSystemFilesUnchecked(src, "the subject IS the codegen backstop behind the gate"),
     ).rejects.toThrow(/not resolvable where the Feliz frontend issues the query/);
   });
 });
