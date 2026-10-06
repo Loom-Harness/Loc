@@ -38,7 +38,7 @@ system Sys {
   subdomain Sales { context Sales {
     aggregate Order { name: string }
     workflow Archive { create(salesFiles: string) {
-      let blob = salesFiles.size
+      let blob = salesFiles.length
       let out = salesFiles
     } }
     workflow Keep { create(name: string) { salesFiles.put("k/" + name, name) } }
