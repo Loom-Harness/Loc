@@ -5,6 +5,7 @@
   "chrome.deleteEntity": "Delete {entity}",
   "chrome.next": "Next",
   "chrome.notFound": "Not found",
+  "chrome.opNotAllowed": "Not available in the current state",
   "chrome.openMenu": "Open menu",
   "chrome.pageOf": "Page {page} of {pages}",
   "chrome.prev": "Prev",

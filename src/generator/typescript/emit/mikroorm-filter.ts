@@ -23,6 +23,7 @@ import { snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../../_expr/subtree-like.js";
 import { isReservedIdent } from "../../sql-reserved.js";
+import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
 import { documentWriteScopeBody, writeScopeDeniesAll } from "../repository-document-builder.js";
 import { GUID_CLAIM_RE_LITERAL } from "../repository-find-predicate.js";
 
@@ -300,6 +301,17 @@ function comparisonEntry(e: Extract<ExprIR, { kind: "binary" }>, acc: string): s
   // comparison lowers to one raw fragment.
   const temporal = temporalComparisonEntry(e, acc);
   if (temporal !== null) return temporal;
+  // Column vs column (`this.qty > this.cap`): a FilterQuery value is always a
+  // bound value, never another column, so the whole comparison becomes one
+  // `raw()` entry with both columns inlined, the shape the temporal arm uses.
+  {
+    const params: string[] = [];
+    const l = mikroColumnSql(e.left, params, acc);
+    const r = l === null ? null : mikroColumnSql(e.right, params, acc);
+    const rawOp = RAW_COMPARE_OP[e.op];
+    if (l !== null && r !== null && rawOp)
+      return rawEntry({ sql: `${l} ${rawOp} ${r}`, params }, "[]");
+  }
   // FilterQuery keys are entity PROPERTY names (== field names), not DB
   // columns — or, for an intrinsic over a column, a `raw()` SQL fragment.
   // Either spelling counts as a column position for orientation purposes.
@@ -344,6 +356,27 @@ function filterValue(e: ExprIR, acc: string): string {
       if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user")
         return `${acc}.${e.member}`;
       throw new Error("mikroorm: unsupported member value in find");
+    // `(2)` — grouping only; the value is its inner expression.
+    case "paren":
+      return filterValue(e.inner, acc);
+    // A queryable intrinsic over bound values (`"x".toUpper()`, `q.trim()`)
+    // is a VALUE: computed in JS before the query, through the same snippet
+    // table drizzle's `renderValue` uses. An intrinsic over a COLUMN never
+    // gets here; it is a column side (`mikroColumnSql`).
+    case "method-call": {
+      if (e.receiverType.kind !== "primitive") {
+        throw new Error("mikroorm: unsupported value 'method-call' in find");
+      }
+      const sig = intrinsicFor(e.receiverType.name, e.member);
+      const snippet = TS_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
+      if (!sig?.queryable || !snippet) {
+        throw new Error("mikroorm: unsupported value 'method-call' in find");
+      }
+      return snippet(
+        filterValue(e.receiver, acc),
+        e.args.map((a) => filterValue(a, acc)),
+      );
+    }
     case "literal":
       switch (e.lit) {
         case "string":
@@ -355,6 +388,15 @@ function filterValue(e: ExprIR, acc: string): string {
         case "decimal":
         case "money":
           return e.value;
+        // `{ col: null }` / `{ col: { $ne: null } }` — MikroORM renders a null
+        // operand as `IS NULL` / `IS NOT NULL`, the same SQL the drizzle and
+        // EF Core lowerings emit for `== null` / `!= null`.
+        case "null":
+          return "null";
+        // The filter object is built per query, so `new Date()` is read at
+        // query time, as drizzle's `now()` binding is.
+        case "now":
+          return "new Date()";
         default:
           throw new Error("mikroorm: unsupported literal in find");
       }
@@ -365,14 +407,12 @@ function filterValue(e: ExprIR, acc: string): string {
     case "this":
     case "id":
     case "call":
-    case "method-call":
     case "new":
     case "object":
     case "list":
     case "lambda":
     case "action-ref":
     case "authz-filter":
-    case "paren":
     case "unary":
     case "binary":
     case "ternary":

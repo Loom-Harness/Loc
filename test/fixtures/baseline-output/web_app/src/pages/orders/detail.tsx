@@ -5,6 +5,7 @@ import { useAllProducts } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { DateTimeValue, IdValue, KeyValueRow } from "../../lib/format";
+import { LoomRefLabel } from "../../lib/ref-label";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, NumberInput, Select, Skeleton, Stack, Table, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
@@ -209,7 +210,7 @@ export default function OrderDetail() {
                   <Table.Tbody>
                     { orderById.data.lines.map((row, idx) => (
                       <Table.Tr key={ idx }>
-                        <Table.Td><RouterLink to={`/products/${ row.productId }`}><IdValue id={ row.productId } /></RouterLink></Table.Td>
+                        <Table.Td><RouterLink to={`/products/${ row.productId }`}><LoomRefLabel path="/products/" id={ row.productId }><IdValue id={ row.productId } /></LoomRefLabel></RouterLink></Table.Td>
                         <Table.Td><Text>{row.quantity}</Text></Table.Td>
                       </Table.Tr>
                     )) }

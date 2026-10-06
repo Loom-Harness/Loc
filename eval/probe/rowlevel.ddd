@@ -1,0 +1,19 @@
+system S {
+  subdomain D { context C {
+    enum Visibility { Public, MembersOnly, GroupOnly }
+    aggregate Member { displayName: string  derived display: string = displayName }
+    aggregate Post {
+      author: Member id
+      visibility: Visibility
+      title: string
+      derived display: string = title
+      filter this.visibility == Public || this.author == currentUser.id
+    }
+    repository Posts for Post { }
+    repository Members for Member { }
+  } }
+  user { id: string  role: string }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], auth: required, port: 3300 }
+}
