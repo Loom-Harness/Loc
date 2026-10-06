@@ -1,0 +1,114 @@
+// The emitted xUnit project (`Tests/Api.Tests/`) must COMPILE and PASS. This
+// fixture gates the .NET unit-test emitter (`src/generator/dotnet/emit/tests.ts`).
+// It is generated in SYSTEM mode because the legacy `generate dotnet` path
+// emits no value-object test class.
+//
+// 1. `Agg.create({…})` omitting create inputs (testability re-audit
+//    2026-10-04, N4).  The domain factory gives a defaultable input a
+//    trailing `T? x = null` parameter: a declared `= default`, a bare `bool`,
+//    a non-nullable collection.  A PLAIN optional (`T?` with no default) and
+//    a server-sourced default (`now()`) have nothing for the factory to
+//    materialise, so they stay REQUIRED parameters.  The test emitter named
+//    only the fields the author wrote, so it emitted
+//    `Ticket.Create(code: "T-1")` against
+//    `Create(string code, string? note, …, DateTime openedAt, Severity? severity = null, …)`:
+//      CS7036: There is no argument given that corresponds to the required
+//      parameter 'note' of 'Ticket.Create(…)'
+//    That is FieldOps' `WorkOrder`, ×3.
+//
+// 2. `expect(<VO literal>).toThrow()`.  A value object's invariant throws
+//    `ValueObjectInvariantException`, which is a sibling of `DomainException`,
+//    and xUnit's `Assert.Throws<T>` matches the exact type.  That test
+//    compiled and FAILED at run time, so the gate has to run the tests as well
+//    as build them.
+//
+// The root-project build cannot see either: `Api.csproj` carries
+// `<Compile Remove="Tests/**" />`.
+system UnitTestOmission {
+  subdomain Support {
+    context Desk {
+
+      enum Severity { Low, Normal, High }
+
+      valueobject Window {
+        hours: int
+        invariant hours > 0
+
+        test "a non-positive window is refused" {
+          expect(Window { hours: 0 }).toThrow()
+        }
+
+        test "the refusal names the invariant rung" {
+          expect(Window { hours: 0 }).toThrow(invariant)
+        }
+
+        test "a positive window keeps its hours" {
+          let w = Window { hours: 4 }
+          expect(w.hours).toBe(4)
+        }
+      }
+
+      aggregate Agent with crudish {
+        name: string
+      }
+
+      aggregate Ticket with crudish {
+        code: string
+        // plain optionals: no factory default (the N4 shape)
+        note: string?
+        assignee: Agent id?
+        dueAt: datetime?
+        // defaultable: the factory materialises these itself
+        severity: Severity = Normal
+        escalated: bool
+        tags: string[]
+        // server-sourced default: coalesced per request, not by the factory
+        openedAt: datetime = now()
+        // No `window: Window?`.  An optional VO-typed field fails the ROOT
+        // build under /warnaserror (CS8620 in the emitted FluentValidation
+        // `SetValidator`), which is a separate validator-emitter defect.
+
+        invariant code.length > 0
+
+        test "omitting every optional input still constructs" {
+          let t = Ticket.create({ code: "T-1" })
+          expect(t.code).toBe("T-1")
+        }
+
+        test "an omitted declared default is applied by the factory" {
+          let t = Ticket.create({ code: "T-2", note: "n" })
+          expect(t.severity).toBe(Normal)
+        }
+
+        test "an omitted bool is false" {
+          let t = Ticket.create({ code: "T-3" })
+          expect(t.escalated).toBe(false)
+        }
+
+        test "a supplied optional survives" {
+          let t = Ticket.create({ code: "T-4", note: "kept" })
+          expect(t.note).toBe("kept")
+        }
+
+        test "an empty code is refused" {
+          expect(Ticket.create({ code: "" })).toThrow()
+        }
+      }
+
+      repository Agents for Agent {}
+      repository Tickets for Ticket {}
+    }
+  }
+
+  api DeskApi from Support
+  storage pg { type: postgres }
+  resource deskState { for: Desk, kind: state, use: pg }
+
+  deployable api {
+    platform: dotnet
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 8080
+  }
+}
