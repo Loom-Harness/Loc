@@ -195,9 +195,14 @@ function buildTenantRegistry(): Capability {
  * (`migrations-builder.ts`), keeps the schema add non-destructive.  Enforcement
  * (guarded write + 409 on version mismatch) is per-backend, gated on
  * `aggregateIsVersioned` (`src/ir/util/versioned-capability.ts`). */
+/** The name of the one field `versioned` contributes — the optimistic-concurrency
+ *  counter.  Exported so consumers that must recognise that field (the scaffold
+ *  list/detail bodies hide it) key on the capability's own declaration. */
+export const VERSIONED_TOKEN_FIELD = "version";
+
 function buildVersioned(): Capability {
   return capability("versioned", [
-    field("version", primType("int"), { access: "token", default: intLit(1) }),
+    field(VERSIONED_TOKEN_FIELD, primType("int"), { access: "token", default: intLit(1) }),
   ] as CapabilityMember[]);
 }
 
