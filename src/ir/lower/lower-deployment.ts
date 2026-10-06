@@ -3,6 +3,7 @@ import { defaultsFor } from "../../platform/adapter-metadata.js";
 import { descriptorFor } from "../../platform/metadata.js";
 import type { DeployableIR, Platform, UiParamBindingIR } from "../types/loom-ir.js";
 import { qualifyDesign, qualifyPlatform } from "./lower-platform.js";
+import { originFor } from "./origin.js";
 
 export function lowerDeployable(d: Deployable): DeployableIR {
   const { family: platform, ref: platformRef } = qualifyPlatform(d.platform);
@@ -184,6 +185,7 @@ export function lowerDeployable(d: Deployable): DeployableIR {
     serves,
     uiBindings,
     favicon: d.favicon,
+    origin: originFor(d),
   };
 }
 

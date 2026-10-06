@@ -808,14 +808,22 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
  *  map cleanly onto string / string[] user fields). */
 function javaClaimRead(f: FieldIR, auth: AuthIR): string {
   const path = JSON.stringify(claimPathFor(f.name, auth));
-  const t = f.type;
+  // An optional field's `type` carries the `optional` wrapper, so the string
+  // test below must see the inner type — read off the bare `f.type`, every
+  // optional `string?` claim fell through to `stubValue` (`null`) and was null
+  // for every token, the claim never read.
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return `claimStringList(payload, ${path})`;
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return f.optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
+    return optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
   }
-  return stubValue(t);
+  // An unmapped OPTIONAL claim is null — never the stub default: the zero id
+  // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
+  // for every token.
+  return optional ? "null" : stubValue(t);
 }
 
 function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {
