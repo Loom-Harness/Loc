@@ -268,8 +268,8 @@ describe("M-T6.36 — a java reserved word is emitted, mangled, with the wire pi
       const all = [...files.values()].join("\n");
       expect(all).toContain(marker);
       // `native` is reserved in Java only (not TS / Python / C# / Elixir), so a
-      // `native_` here can only be the java mangle leaking.  (`case_` is not
-      // that signal: Python escapes its own soft keyword `case` the same way.)
+      // `native_` here can only be the java mangle leaking — unlike `case_`,
+      // which a backend escaping its own `case` keyword could legitimately emit.
       expect(all, "no java-style mangle leaked onto another backend").not.toContain("native_");
     });
   }
