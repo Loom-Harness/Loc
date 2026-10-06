@@ -348,6 +348,7 @@ export function renderAuthFiles(
       ` *  UserFilter answers it 400 — refused rather than ignored, because ignoring`,
       ` *  it ran the request as the built-in identity (ruling D6). */`,
       `public class MalformedDevClaimsException extends RuntimeException {`,
+      `    private static final long serialVersionUID = 1L;`,
       `    public MalformedDevClaimsException() {`,
       `        super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});`,
       `    }`,
