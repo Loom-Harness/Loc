@@ -179,12 +179,10 @@ const DELIBERATELY_INVALID = [
   // `eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
-  // they belong here rather than being fixed or untracked.  Only the seven
-  // that fail at the AST layer are listed, plus `b05` — see below. `b09` (a
-  // typo'd field in a page body, F-041) is still AST-clean, so it stays in the
-  // positive population above, but it is now refused one phase later by the IR
-  // backstop `loom.member-unresolved` (#3133, pinned in
-  // `test/ir/member-unresolved.test.ts`). This census is AST-only.
+  // they belong here rather than being fixed or untracked.  The ones that fail
+  // at the AST layer are listed — `b05` and `b09` joined when their gates
+  // landed (see their entries); the day another starts being refused, its pin
+  // is what should be added, not a comment.
   //
   // Listing them here also puts them under the negative control below, which
   // turns the corpus into a standing ratchet: a gate that stops firing fails
@@ -202,6 +200,11 @@ const DELIBERATELY_INVALID = [
   "eval/repro/broken/b05-cyclic-containment.ddd",
   "eval/repro/broken/b06-duplicate-names.ddd",
   "eval/repro/broken/b07-bad-enum-value.ddd",
+  // `b09` was this corpus's F-041 — a typo'd field (`o.totl`) read off a page
+  // `QueryView`'s `data:` row validated clean, because the language layer never
+  // typed the row.  The single typing pass (M-T5.47 cutover 3b) types it, and
+  // `loom.unknown-member` now refuses it — so, per the note above, its pin.
+  "eval/repro/broken/b09-page-wrong-aggregate.ddd",
   "eval/repro/broken/b10-money-decimal-mix.ddd",
   // The Commons register's (`eval/FINDINGS.md`) repro sources, ported from the
   // evaluation branch (`loom-dsl-evaluation-bxc2c6`) on 2026-09-29 so the

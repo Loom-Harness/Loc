@@ -66,14 +66,7 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",
   },
-  "src/ir/lower/lower-expr.ts:aggregatesByDocument": {
-    discipline: "keyed-cache",
-    reason: "WeakMap keyed by the AST `Model` root whose aggregates it indexes.",
-  },
-  "src/ir/lower/lower-expr.ts:projectionsByDocument": {
-    discipline: "keyed-cache",
-    reason: "WeakMap keyed by the AST `Model` root whose projections it indexes.",
-  },
+
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
@@ -81,6 +74,25 @@ const PINNED: Record<string, Pin> = {
   "src/ir/lower/lower-expr.ts:topLevelFnIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setTopLevelFnIndex` before lowering any body (lower.ts:293).",
+  },
+  "src/language/typing/shared.ts:sessions": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakMap keyed by the AST root it types; reassigned empty by `invalidateTyping` on every `DocumentBuilder.onUpdate`.",
+  },
+  "src/language/typing/shared.ts:workspaces": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakRefs to the registered Langium workspaces (one per `createDddServices`); dead refs are pruned on each registration, and a lookup only answers for a root its own workspace holds.",
+  },
+  "src/language/typing/shared.ts:composedRootsOf": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by a registered workspace's shared services object.",
+  },
+  "src/ir/lower/lower-expr.ts:lowerExprObserver": {
+    discipline: "scoped-restore",
+    reason:
+      "M-T5.47 shadow-mode observer: unset outside the typing differential, which installs it per document and clears it in a `finally`.",
   },
   "src/ir/lower/lower-expr.ts:uiEnumIndexByRoot": {
     discipline: "keyed-cache",
@@ -113,12 +125,6 @@ const PINNED: Record<string, Pin> = {
   "src/language/stdlib.ts:cached": {
     discipline: "build-once-cache",
     reason: "Parsed stdlib decls, built once; consumers only read.",
-  },
-  "src/language/type-system.ts:lettingInFlight": {
-    discipline: "scoped-restore",
-    reason:
-      "Re-entrancy guard for let-type inference; the `add` is paired with a " +
-      "`finally { delete }`, so a throwing initializer cannot leave the node latched.",
   },
   "src/macros/api/factories-internals.ts:_activeOrigin": {
     discipline: "scoped-restore",

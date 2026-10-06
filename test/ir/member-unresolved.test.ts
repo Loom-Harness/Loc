@@ -9,7 +9,10 @@ import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 // Before it, every model below was `0 error(s), 0 warning(s)` and node emitted
 // `(…)[0].nope` into domain/task.ts. The receivers are typed `unknown` by the
 // language layer (a `let` bound from a list literal / a collection-op result),
-// so the AST member check stood down.
+// so the AST member check stood down.  Since the single typing pass (M-T5.47)
+// the language layer types those receivers too, so the AST check refuses them
+// first; the backstop still fires behind it, and stays the net for whatever
+// the pass leaves `unknown`.
 
 const wrap = (ops: string): string => `
 system Tasks {
@@ -46,9 +49,10 @@ describe("loom.member-unresolved", () => {
           title := xs.first().nope
         }`),
     );
-    expect(errs.map((e) => e.code)).toEqual(["loom.member-unresolved"]);
-    expect(errs[0]?.message).toContain("'nope' is not a member of 'Addr'");
-    expect(errs[0]?.message).toContain("street");
+    expect(errs.map((e) => e.code)).toEqual(["loom.unknown-member", "loom.member-unresolved"]);
+    const backstop = errs.find((e) => e.code === "loom.member-unresolved");
+    expect(backstop?.message).toContain("'nope' is not a member of 'Addr'");
+    expect(backstop?.message).toContain("street");
   });
 
   it("refuses an invented member read through a second let", async () => {
@@ -60,7 +64,7 @@ describe("loom.member-unresolved", () => {
           title := a.nope
         }`),
     );
-    expect(errs.map((e) => e.code)).toEqual(["loom.member-unresolved"]);
+    expect(errs.map((e) => e.code)).toEqual(["loom.unknown-member", "loom.member-unresolved"]);
   });
 
   it("accepts the declared member through the same receivers", async () => {

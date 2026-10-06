@@ -26,6 +26,8 @@ import { DddSemanticTokenProvider } from "./lsp/ddd-semantic-tokens.js";
 import { DddSignatureHelpProvider } from "./lsp/ddd-signature-help.js";
 import { DddParserErrorMessageProvider } from "./parse-errors.js";
 import { DddTokenBuilder, DddValueConverter } from "./template-support.js";
+import { invalidateTyping, registerTypingWorkspace } from "./typing/shared.js";
+import { composedRoots } from "./validators/composition.js";
 
 export type DddAddedServices = {
   validation: {
@@ -155,5 +157,16 @@ export function createDddServices(context: DefaultSharedModuleContext): {
   // written.  Replaces the legacy scaffold AST expander, which
   // was deleted when `scaffold` migrated to a stdlib macro.
   bootMacros(shared);
+  // The single typing pass memoises a session per document; any workspace
+  // change drops them all (M-T5.47 §D8).
+  shared.workspace.DocumentBuilder.onUpdate(() => invalidateTyping());
+  // A session reads the project's `user { }` block across the import closure.
+  registerTypingWorkspace(shared, (root) => {
+    const uri = root.$document?.uri;
+    if (!uri || shared.workspace.LangiumDocuments.getDocument(uri)?.parseResult.value !== root) {
+      return undefined;
+    }
+    return composedRoots(root, Ddd);
+  });
   return { shared, Ddd };
 }

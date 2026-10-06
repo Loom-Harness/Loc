@@ -10,7 +10,7 @@ import {
   isPostfixChain,
   type Model,
 } from "../generated/ast.js";
-import { envForNode, stepIntoNode, typeAfterSuffix, typeOf } from "../type-system.js";
+import { envForNode, stepIntoNode, suffixType, typeOf } from "../type-system.js";
 
 /** The capability name a CST token names — the `with <name>` macro-call name or
  *  the `implements <name>` typed reference — or undefined.  Capability refs
@@ -115,7 +115,7 @@ export class DddDefinitionProvider extends DefaultDefinitionProvider {
     const env = envForNode(ast);
     let receiverType = typeOf(chain.head, env);
     for (let i = 0; i < idx; i++) {
-      receiverType = typeAfterSuffix(receiverType, chain.suffixes[i]!, env);
+      receiverType = suffixType(chain.suffixes[i]!);
     }
     const targetNode = stepIntoNode(receiverType, ast.member);
     if (!targetNode) return undefined;

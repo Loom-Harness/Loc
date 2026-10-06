@@ -1,22 +1,18 @@
-// `StmtIR.variant-match.subjectType` — audit finding F56.
+// `StmtIR.variant-match.subjectType` — audit finding F56, CLOSED by the single
+// typing pass (M-T5.47 cutover 3b).
 //
 // The field's own doc comment calls it "Resolved `or`-union TypeIR of the
 // subject — the variant set", and the four type-grounded `match` gates in
-// `variant-match-shape.ts` are written against exactly that promise.  It does
-// not hold: `lowerMatchStmt` fills it from `inferExprType`, whose catch-all is
-// `{ kind: "primitive", name: "string" }`, so an api-handle operation call —
-// the ONLY subject shape Stage 2 `match await` is for — silently types as
+// `variant-match-shape.ts` are written against exactly that promise.  It did
+// not hold: `lowerMatchStmt` filled it from `inferExprType`, whose catch-all
+// was `{ kind: "primitive", name: "string" }`, so an api-handle operation call
+// — the ONLY subject shape Stage 2 `match await` is for — silently typed as
 // `string`, indistinguishable from a genuine string.
 //
-// That is why the statement form cannot be gated the way the expression form
-// is, and why `match await <plain state field>` reaches the four SPA walkers
-// and makes them emit
-// `await Promise.reject(new Error("no remote op for variant-match"))`.
-//
-// This test pins the DEFECT, not the desired behaviour, so it fails loudly the
-// day `inferExprType` learns to resolve an api-handle call and the gate becomes
-// buildable.  Delete it then, and wire `checkVariantMatchShape` to the three
-// `ActionIR` carriers (PageIR / ComponentIR / StoreIR).
+// The pass types an operation invoked through the api handle as its declared
+// return type, and lowering copies it, so the subject now carries the union.
+// What this unblocks — wiring `checkVariantMatchShape` to the three `ActionIR`
+// carriers (PageIR / ComponentIR / StoreIR) — is a follow-up, not this file.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -67,28 +63,13 @@ async function subjectTypeOfFirstAction() {
 }
 
 describe("variant-match subjectType (F56)", () => {
-  it("is NOT the resolved union for an api-handle op — it is the inferExprType string fallback", async () => {
-    const t = await subjectTypeOfFirstAction();
-    // What the field's doc comment promises, and what the gates need:
-    //   { kind: "union", variants: [Order, Failed] }
-    // What lowering actually produces:
-    expect(t).toEqual({ kind: "primitive", name: "string" });
-  });
-
-  it("so an AWAITED-CALL subject is indistinguishable from a plain string one", async () => {
-    // The exact reason `checkVariantMatchShape` cannot be wired to the
-    // statement form yet: this subject and a `state { message: string }` one
-    // carry byte-identical `subjectType`, so any type-grounded gate would
-    // either miss both or reject both.
-    //
-    // SCOPED DELIBERATELY.  The collapse is NOT universal — a `let`-bound
-    // subject (`let r = Svc.probe(k)` then `match r`) is a `ref`, takes the
-    // `subject.type` branch of `lowerMatchStmt`, and resolves to the real
-    // union.  It is the METHOD-CALL branch that falls through to
-    // `inferExprType`'s `string` catch-all, and an awaited api-handle call is
-    // the only subject shape Stage 2 `match await` exists for — so the
-    // canonical page form is exactly the one that cannot be discriminated.
-    const t = await subjectTypeOfFirstAction();
-    expect(t?.kind).not.toBe("union");
+  it("is the resolved `or`-union for an awaited api-handle operation", async () => {
+    expect(await subjectTypeOfFirstAction()).toEqual({
+      kind: "union",
+      variants: [
+        { kind: "entity", name: "Order" },
+        { kind: "entity", name: "Failed" },
+      ],
+    });
   });
 });

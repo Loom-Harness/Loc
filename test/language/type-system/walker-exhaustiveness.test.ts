@@ -1,4 +1,6 @@
-// The type-system's THREE parallel member-resolution walkers (M-T5.16 (a)).
+// The type-system's parallel member-resolution walkers (M-T5.16 (a)).  There
+// were three; the postfix one (`typeAfterSuffix`) is the single typing pass's
+// since M-T5.47, so the two dotted-path walkers remain.
 //
 // `typeAfterSuffix`, `stepInto` and `stepIntoNode` all answer the same
 // question — "what does `<receiver>.<name>` denote?" — and differ only in what
@@ -94,7 +96,7 @@ function isNonResolving(groupBody: string): boolean {
   return stripped === "return T.unknown;" || stripped === "return undefined;";
 }
 
-const WALKERS = ["typeAfterSuffix", "stepInto", "stepIntoNode"] as const;
+const WALKERS = ["stepInto", "stepIntoNode"] as const;
 
 describe("type-system member-resolution walkers are exhaustive over DddType", () => {
   const kinds = dddTypeKinds();
@@ -139,25 +141,12 @@ describe("type-system member-resolution walkers are exhaustive over DddType", ()
     ).toEqual(declared);
   });
 
-  it("the declared divergence is the one the language actually has", () => {
-    // `stepInto` is the dotted-path walk: a strict subset of the postfix walk.
-    for (const k of MEMBER_RESOLVING_KINDS.stepInto) {
-      expect(
-        MEMBER_RESOLVING_KINDS.typeAfterSuffix as readonly string[],
-        `${k} resolves on stepInto but not on typeAfterSuffix — the postfix walker ` +
-          "is meant to be the widest of the three",
-      ).toContain(k);
-    }
-    // The AST-node twin must track its type twin exactly, or go-to-definition
-    // and hover disagree about what a member IS.
+  it("the AST-node walker tracks its type twin exactly", () => {
+    // Or go-to-definition and hover disagree about what a member IS.  (The
+    // postfix walk that used to be the third walker here is the single typing
+    // pass's since M-T5.47 — `suffixType` reads it.)
     expect([...MEMBER_RESOLVING_KINDS.stepIntoNode].sort()).toEqual(
       [...MEMBER_RESOLVING_KINDS.stepInto].sort(),
     );
-    // And the divergence that exists today is real, not an artefact: four
-    // kinds resolve on the postfix walker only.
-    const onlyPostfix = MEMBER_RESOLVING_KINDS.typeAfterSuffix.filter(
-      (k) => !(MEMBER_RESOLVING_KINDS.stepInto as readonly string[]).includes(k),
-    );
-    expect(onlyPostfix.sort()).toEqual(["array", "id", "primitive", "userclaim"]);
   });
 });

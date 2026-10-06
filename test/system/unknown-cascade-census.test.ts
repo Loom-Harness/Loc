@@ -62,7 +62,7 @@ import { REPO_ROOT, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 const SUPPRESSION_BASELINE: Record<string, number> = {
   // The statement validator is the big one — lvalue walks, call-arg checks and
   // assignment all stop on an unknown receiver.
-  "src/language/validators/statements.ts": 8,
+  "src/language/validators/statements.ts": 7,
   // Binary-operand folding, ternary branch agreement, and the `match`
   // subject/arm check.
   "src/language/validators/types.ts": 7,
@@ -81,13 +81,16 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
 };
 
 /** The band the measured `unknown` share must stay inside.  Measured at
- *  **60.9 %** (28 333 of 46 492) on the day this census landed.  Pinned BOTH
+ *  **60.9 %** (28 333 of 46 492) on the day this census landed, and at
+ *  **29.3 %** (13 643 of 46 498) once names and member chains read the single
+ *  typing pass (M-T5.47 cutover 3b), and at **23.8 %** (11 044) once the
+ *  test e2e api handles are typed too (cutover 3f).  Pinned BOTH
  *  ways on purpose: a rise means the validators stopped checking more of the
  *  corpus (a name-resolution or env regression), and a fall means the drain
  *  worked and the band should be lowered in the same change — the anti-slack
  *  rule that keeps a baseline believable. */
-const UNKNOWN_SHARE_MAX = 0.66;
-const UNKNOWN_SHARE_MIN = 0.5;
+const UNKNOWN_SHARE_MAX = 0.29;
+const UNKNOWN_SHARE_MIN = 0.19;
 
 function suppressionSites(rel: string): number {
   const text = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");

@@ -459,9 +459,11 @@ describe("(d) principal — the member names every backend spells", () => {
     expect(read("src/generator/elixir/auth-emit.ts")).toContain(":org_path");
   });
 
-  it("lowering and the type system gate BOTH derived members through the constants", () => {
+  it("the typing pass and the validators gate derived members through the constants", () => {
+    // Lowering no longer types a member itself (M-T5.47): it copies the single
+    // typing pass's answer, so the pass is the member-typing site to pin.
     for (const file of [
-      "src/ir/lower/lower-expr.ts",
+      "src/language/typing/elaborate.ts",
       "src/language/type-system.ts",
       "src/language/validators/tenancy.ts",
     ]) {

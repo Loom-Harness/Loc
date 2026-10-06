@@ -88,14 +88,14 @@ describe("loom.frontend-collection-op-unsupported — the gate", () => {
     // `avg` desugars at lowering into `count == 0 ? null : sum(λ) / count`, so
     // it is refused via its `sum` — which is why it belongs in this group and
     // not with the reshaping ops its `count` half now renders.
-    for (const op of [
-      "rows.sum(o => o.tier)",
-      "rows.min(o => o.tier)",
-      "rows.max(o => o.tier)",
-      "rows.avg(o => o.tier)",
-    ]) {
+    for (const op of ["rows.sum(o => o.tier)", "rows.min(o => o.tier)", "rows.max(o => o.tier)"]) {
       expect(await codes(queryViewPage(op)), `expected ${op} to be gated`).toContain(CODE);
     }
+    // `avg` never reaches this IR gate: its AST twin (`checkAvgProjection`,
+    // `loom.collection-op-in-ui`) refuses it first, now that the single typing
+    // pass types the QueryView binding as the row array (M-T5.47).
+    const { errors } = await parseString(wrap(queryViewPage("rows.avg(o => o.tier)")));
+    expect(errors.join("\n")).toContain("collection op '.avg' isn't available in a page body");
   });
 
   it("flags the PARTIAL / optional-returning ops — `undefined` here, a raise on F#/Dart", async () => {
