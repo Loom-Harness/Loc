@@ -132,6 +132,7 @@ export function validateUpdateGateSuggestions(
               opName: gated.name,
             }),
             source: `${ctx.name}/${agg.name}`,
+            origin: agg.origin,
           });
         }
       }

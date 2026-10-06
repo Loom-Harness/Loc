@@ -422,8 +422,9 @@ export function renderAuthFiles(
       `        "/swagger",`,
       // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
       // surface, so an auth-bearing system's e2e suite need not mint a
-      // principal just to empty a table.  The handler itself answers 404
-      // unless the switch is on, so bypassing the filter exposes nothing.
+      // principal just to empty a table.  Not an auth bypass: the handler
+      // answers 404 unless LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN are
+      // set, and 403 to a request without that secret.
       `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable
       // without a verified principal; /auth/me stays protected (it is the
@@ -807,14 +808,22 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
  *  map cleanly onto string / string[] user fields). */
 function javaClaimRead(f: FieldIR, auth: AuthIR): string {
   const path = JSON.stringify(claimPathFor(f.name, auth));
-  const t = f.type;
+  // An optional field's `type` carries the `optional` wrapper, so the string
+  // test below must see the inner type — read off the bare `f.type`, every
+  // optional `string?` claim fell through to `stubValue` (`null`) and was null
+  // for every token, the claim never read.
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return `claimStringList(payload, ${path})`;
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return f.optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
+    return optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
   }
-  return stubValue(t);
+  // An unmapped OPTIONAL claim is null — never the stub default: the zero id
+  // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
+  // for every token.
+  return optional ? "null" : stubValue(t);
 }
 
 function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {

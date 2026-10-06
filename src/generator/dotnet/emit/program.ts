@@ -3,17 +3,21 @@ import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/a
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
+import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
+  TEST_RESET_HEADER,
   TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import {
   DEBIAN_CERTS_BLOCK,
   NODE_CERTS_BLOCK,
   NPM_INSTALL_BLOCK,
 } from "../../_docker/node-stage.js";
+import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
@@ -33,6 +37,57 @@ function asLifecycleExpr(rendered: string): string {
 // becomes the locally-created `migrationLog.`.
 function asMigrationStmt(rendered: string): string {
   return rendered.replace("_log.", "migrationLog.");
+}
+
+/** The boot-time DB-connect wait (`BOOT_DB_RETRY`, eval item #24) — a
+ *  top-level local function in Program.cs.  It retries the caller's connect
+ *  probe with capped exponential backoff while Npgsql reports the failure as
+ *  transient (connection refused / DNS / "starting up"); anything else, and
+ *  the last attempt, rethrow.  The probe opens a RAW connection so EF's
+ *  execution strategy never re-wraps the transient error, but the inner chain
+ *  is walked regardless. */
+function renderDotnetBootDbWait(): string {
+  const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
+  return lines(
+    "// Boot-time DB-connect retry: a database that is not reachable YET is",
+    `// retried up to ${maxAttempts} attempts with capped exponential backoff before the`,
+    "// schema step, so a late db no longer kills the container on first boot.",
+    "static async Task LoomWaitForDbAsync(Func<Task> probe, Microsoft.Extensions.Logging.ILogger _log)",
+    "{",
+    `    const int maxAttempts = ${maxAttempts};`,
+    "    for (var attempt = 1; ; attempt++)",
+    "    {",
+    "        try",
+    "        {",
+    "            await probe();",
+    "            return;",
+    "        }",
+    "        catch (Exception dbError) when (attempt < maxAttempts && IsTransientDbError(dbError))",
+    "        {",
+    `            var delayMs = Math.Min(${baseDelayMs} * (1 << (attempt - 1)), ${maxDelayMs});`,
+    `            ${renderDotnetLogCall("dbConnectRetry", [
+      { name: "attempt", valueExpr: "attempt" },
+      { name: "max_attempts", valueExpr: "maxAttempts" },
+      { name: "delay_ms", valueExpr: "delayMs" },
+      { name: "error", valueExpr: "dbError.Message" },
+    ])}`,
+    "            await Task.Delay(delayMs);",
+    "        }",
+    "    }",
+    "",
+    "    static bool IsTransientDbError(Exception error)",
+    "    {",
+    "        for (var e = error; e is not null; e = e.InnerException)",
+    "        {",
+    "            if (e is Npgsql.NpgsqlException { IsTransient: true } || e is System.Net.Sockets.SocketException)",
+    "            {",
+    "                return true;",
+    "            }",
+    "        }",
+    "        return false;",
+    "    }",
+    "}",
+  );
 }
 
 // Program.cs hosting + DI registration, plus the project + Dockerfile +
@@ -411,27 +466,40 @@ using (var seedScope = app.Services.CreateScope())
     : "";
   // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
   //
-  // The endpoint is mapped inside a runtime `if`, so outside a dev profile the
-  // route does not exist at all and a request falls through to ASP.NET's own
-  // not-found handling having touched nothing.  `IsProduction()` reads
-  // ASPNETCORE_ENVIRONMENT, which an operator already sets and the generated
-  // Dockerfile leaves at its Production default; the generated compose file,
-  // which is the LOCAL dev stack, opts in with LOOM_TEST_RESET=1.
+  // The endpoint is mapped inside a runtime `if`, so unless an operator sets
+  // BOTH LOOM_TEST_RESET=1 and a LOOM_TEST_RESET_TOKEN the route does not exist
+  // and a request falls through to ASP.NET's own not-found handling having
+  // touched nothing.  Nothing is inferred from ASPNETCORE_ENVIRONMENT (finding
+  // H-30: an implied default exposed an unauthenticated truncate), and the
+  // generated compose file does not opt in.  Each request must carry the token
+  // in `x-loom-test-reset`, compared with FixedTimeEquals; otherwise 403.
   //
   // Both persistence adapters reach the same ADO.NET connection: EF Core hands
   // one over through `Database.GetDbConnection()`, the Dapper path opens one
   // off the NpgsqlDataSource.  Only those two lines diverge, so the handler
   // body below is shared.
-  const testResetBlock = `// Dev-only state reset for the emitted e2e suite.  Mapped ONLY outside a
-// production profile (or with ${TEST_RESET_ENV}=1), so this surface does not
-// exist in a real deployment.  See docs/tools.md.
-var loomTestReset = System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}");
-if (loomTestReset == "1" || (loomTestReset != "0" && !app.Environment.IsProduction()))
+  const testResetBlock = `// Dev-only state reset for the emitted e2e suite.  Mapped ONLY with an
+// explicit ${TEST_RESET_ENV}=1 AND a ${TEST_RESET_TOKEN_ENV}, so this surface
+// does not exist in a real deployment.  See docs/tools.md.
+var loomTestResetToken = System.Environment.GetEnvironmentVariable("${TEST_RESET_TOKEN_ENV}") ?? "";
+if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loomTestResetToken.Length == 0)
 {
-    app.MapPost("${TEST_RESET_PATH}", async (${
+    app.Logger.LogWarning("${TEST_RESET_ENV}=1 but ${TEST_RESET_TOKEN_ENV} is unset; ${TEST_RESET_PATH} is NOT mapped.");
+}
+if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loomTestResetToken.Length > 0)
+{
+    app.MapPost("${TEST_RESET_PATH}", async (HttpRequest request, ${
       usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
     }, IServiceProvider sp, CancellationToken cancellationToken) =>
     {
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(request.Headers["${TEST_RESET_HEADER}"].ToString()),
+                System.Text.Encoding.UTF8.GetBytes(loomTestResetToken)))
+        {
+            return Results.Json(
+                new { status = "forbidden", detail = "missing or wrong reset token" },
+                statusCode: 403);
+        }
 ${
   usingDapper
     ? "        await using var conn = await db.OpenConnectionAsync(cancellationToken);"
@@ -1042,6 +1110,14 @@ var app = builder.Build();
 ${hangfireRecurringBlock}${
   usingDapper
     ? `
+${renderDotnetBootDbWait()}
+await LoomWaitForDbAsync(
+    async () =>
+    {
+        await using var probe = await app.Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
+    },
+    app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
+
 // Dapper persistence: apply the self-contained schema (CREATE TABLE IF NOT
 // EXISTS) before serving traffic.  Idempotent; no migration history table.
 await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
@@ -1049,6 +1125,7 @@ await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
 `
     : hasMigrations
       ? `
+${renderDotnetBootDbWait()}
 // Apply pending EF Core migrations before serving traffic.  Idempotent —
 // EF tracks applied versions in the __EFMigrationsHistory table.  Runs
 // synchronously at startup so the schema is current on first request.
@@ -1062,6 +1139,14 @@ using (var migrationScope = app.Services.CreateScope())
     var migrationLog = migrationScope.ServiceProvider
         .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
         .CreateLogger("Migrations");
+    await LoomWaitForDbAsync(
+        async () =>
+        {
+            var probe = db.Database.GetDbConnection();
+            await probe.OpenAsync();
+            await probe.CloseAsync();
+        },
+        migrationLog);
     var pendingMigrations = db.Database.GetPendingMigrations().ToList();
     ${asMigrationStmt(
       renderDotnetLogCall("migrationsStarting", [

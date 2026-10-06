@@ -1,0 +1,15 @@
+// H-15: a declared `find all(): Parent[]` (non-paged) breaks the Parent id-picker
+// on Child's create form: the picker reads `.data?.items` from an array hook.
+system Repro {
+  context C {
+    aggregate Parent with crudish { name: string  derived display: string = name }
+    aggregate Child with crudish { parent: Parent id  label: string }
+    repository Parents for Parent { find all(): Parent[] }
+    repository Children for Child { }
+  }
+  ui Web with scaffold(contexts: [C]) { }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+}

@@ -286,7 +286,13 @@ export const AUTHZ_LADDERS = {
   },
   "auth-oidc": {
     seed: { path: "/api/tickets", body: { subject: "authz ladder probe", open: true } },
-    gated: { method: "POST", path: "/api/tickets/{id}/close", body: {} },
+    gated: [
+      { label: "role gate", method: "POST", path: "/api/tickets/{id}/close", body: {} },
+      // H-10: the unauthorized token OMITS the optional `agentId` claim, so this
+      // arm is "an absent optional claim fails `!= null`" — 204 here is the
+      // bypass node shipped (`undefined !== null`).
+      { label: "absent optional claim", method: "POST", path: "/api/tickets/{id}/take", body: {} },
+    ],
     arms: { anonymous: 401, unauthorized: 403, authorized: 204 },
   },
 
