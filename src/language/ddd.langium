@@ -2254,7 +2254,7 @@ VariantStmtArm:
 // trailing `{ }` block from being swallowed by a `BuilderCall` the way the
 // loop iterable does.
 IfLetStmt:
-    'if' 'let' var=(ID | 'write') '=' source=ForIterable '{'
+    'if' 'let' var=(ID | CommonSoftKeywords) '=' source=ForIterable '{'
         thenBody+=Statement*
     '}' ('else' '{'
         elseBody+=Statement*
@@ -2293,7 +2293,7 @@ ReturnStmt:
 // `for` is already a hard keyword elsewhere (`repository X for Agg`); the
 // leading statement position disambiguates the loop.
 ForStmt:
-    'for' var=ID 'in' iterable=ForIterable '{'
+    'for' var=(ID | CommonSoftKeywords) 'in' iterable=ForIterable '{'
         body+=Statement*
     '}';
 
@@ -2318,8 +2318,11 @@ PreconditionStmt:
 RequiresStmt:
     'requires' expr=Expression;
 
+// A binding a body can READ back, so it admits exactly the words a bare
+// name-ref does (`NameRefIdent`'s shared core): `let event = …` then
+// `event.amount`.
 LetStmt:
-    'let' name=(ID | 'write') '=' expr=Expression;
+    'let' name=(ID | CommonSoftKeywords) '=' expr=Expression;
 
 EmitStmt:
     'emit' event=[EventDecl:ID] '{'

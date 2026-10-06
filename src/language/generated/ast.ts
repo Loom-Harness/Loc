@@ -1534,7 +1534,7 @@ export interface ForStmt extends langium.AstNode {
     readonly $type: 'ForStmt';
     body: Array<Statement>;
     iterable: Expression;
-    var: string;
+    var: CommonSoftKeywords | string;
 }
 
 export const ForStmt = {
@@ -1679,7 +1679,7 @@ export interface IfLetStmt extends langium.AstNode {
     elseBody: Array<Statement>;
     source: Expression;
     thenBody: Array<Statement>;
-    var: 'write' | string;
+    var: CommonSoftKeywords | string;
 }
 
 export const IfLetStmt = {
@@ -1926,7 +1926,7 @@ export interface LetStmt extends langium.AstNode {
     readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'LetStmt';
     expr: Expression;
-    name: 'write' | string;
+    name: CommonSoftKeywords | string;
 }
 
 export const LetStmt = {
