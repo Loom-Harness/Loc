@@ -74,6 +74,11 @@ export interface DispatchCtx {
    *  the LocalOutboxRelay invokes these methods post-commit (crash-safe,
    *  at-least-once), never inline. */
   localDurableEvents?: ReadonlySet<string>;
+  /** Resource-client classes by resource name (`ResourceAdapter` emission),
+   *  and their package.  A reactor body's resource verb (`mail.send(…)`) is a
+   *  STATIC call on its class, exactly as in a command workflow, so the
+   *  handlers need only the mapping and the import. */
+  resources?: { classes: Map<string, string>; pkg: string };
 }
 
 interface ResolvedHandler {
@@ -391,6 +396,7 @@ export function renderJavaDispatcher(
           dctx.contextSchema,
           construct,
           opFragments,
+          dctx.resources?.classes,
         ),
       );
       continue;
@@ -411,8 +417,18 @@ export function renderJavaDispatcher(
             construct,
             dctx.contextSchema,
             opFragments,
+            dctx.resources?.classes,
           )
-        : renderHandler(ctx, wf, sub, resolved, imports, construct, opFragments),
+        : renderHandler(
+            ctx,
+            wf,
+            sub,
+            resolved,
+            imports,
+            construct,
+            opFragments,
+            dctx.resources?.classes,
+          ),
     );
   }
   if (methods.length === 0) return null;
@@ -519,6 +535,16 @@ export function renderJavaDispatcher(
   if (methods.some((m) => m.includes("ForbiddenException"))) {
     imports.add(`${dctx.basePkg}.domain.common.ForbiddenException`);
   }
+  // A resource verb renders as `<Class>.<resource><Verb>(…)` on the client
+  // class in the resources package.
+  const res = dctx.resources;
+  if (
+    res &&
+    res.pkg !== dctx.pkg &&
+    [...res.classes.values()].some((cls) => methods.some((m) => m.includes(`${cls}.`)))
+  ) {
+    imports.add(`${res.pkg}.*`);
+  }
   // The idempotent-consumer marker preamble (renderHandler, above) references
   // OutboxDelivery only for non-event-sourced sagas under a durable channel.
   if (durableEventTypes(ctx).size > 0 && stateWfs.length > 0) {
@@ -571,6 +597,7 @@ function renderHandler(
   construct: string,
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
+  resourceClasses?: Map<string, string>,
 ): string[] {
   const corr = wf.correlationField as string;
   const param = sub.param;
@@ -581,7 +608,7 @@ function renderHandler(
   // arm spells `state.setAttempts(...)` directly).  `accessorProps` only affects
   // `this-prop` refs, so the `by <expr>` correlation key (an event-param member)
   // is unchanged.
-  const renderCtx = { thisName: "state", accessorProps: true };
+  const renderCtx = { thisName: "state", accessorProps: true, ...resourcesOf(resourceClasses) };
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule).
   const keyExpr = resolved.correlation
@@ -703,6 +730,7 @@ function renderEsHandler(
   schema?: string,
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
+  resourceClasses?: Map<string, string>,
 ): string[] {
   const corr = wf.correlationField as string;
   const param = sub.param;
@@ -712,7 +740,7 @@ function renderEsHandler(
   // (unlike the cross-package mutable saga row in `renderHandler`).  Event-
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
-  const renderCtx = { thisName: "state" };
+  const renderCtx = { thisName: "state", ...resourcesOf(resourceClasses) };
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
@@ -937,13 +965,14 @@ function renderEsMergedHandler(
   /** Source-map — forwarded to `esMergedBranchLines` for BOTH
    *  branches, so a merged handler records two `OpFragment`s (create + on). */
   opFragments?: OpFragment[],
+  resourceClasses?: Map<string, string>,
 ): string[] {
   const corr = wf.correlationField as string;
   const param = createSub.param;
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
-  const renderCtx = { thisName: "state" };
+  const renderCtx = { thisName: "state", ...resourcesOf(resourceClasses) };
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
@@ -1003,6 +1032,14 @@ function renderEsMergedHandler(
     `    }`,
     ``,
   ];
+}
+
+/** The render-context slice that routes a resource verb to its client class —
+ *  empty when the deployable wires no resource, so the context is unchanged. */
+function resourcesOf(classes: Map<string, string> | undefined): {
+  resourceClasses?: Map<string, string>;
+} {
+  return classes?.size ? { resourceClasses: classes } : {};
 }
 
 function bodyHasEmit(statements: WorkflowStmtIR[]): boolean {

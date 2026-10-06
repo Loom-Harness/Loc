@@ -5,6 +5,7 @@ import type {
   EnrichedBoundedContextIR,
   EnumIR,
   ExprIR,
+  FunctionIR,
   IdValueType,
   OnIR,
   ProjectionIR,
@@ -18,19 +19,30 @@ import type {
 import type { OriginRef } from "../../ir/types/origin.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
-import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import {
+  walkExprDeep,
+  walkStmtExprsDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../ir/util/walk.js";
 import { escapeElixirIdent, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
-import { internalCreateFn } from "./lifecycle-seam.js";
+import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { stateDefault } from "./state-default.js";
 import { LOOM_DATETIME_MODULE, normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
+import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
+import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
-import { lookupOp, opCallParamFields } from "./vanilla/workflow-execution-emit.js";
+import {
+  lookupOp,
+  opCallParamFields,
+  resolveInlinedServiceClauses,
+} from "./vanilla/workflow-execution-emit.js";
 
 /** M13 — a handler-render result: the module's final content plus one
  *  statement-granular `fragment()` anchor per rendered statement — the
@@ -543,10 +555,53 @@ ${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? 
     ${appModule}.RequestContext.with_child_frame(fn ->
 ${inner}
     end)
-  end
+  end${workflowFnHelpers(wf, sub.statements, { ...renderCtx, paramRenames: {} })}
 end
 `;
   return { content, regions };
+}
+
+/** The workflow `function` helpers a reactor body calls — directly or through
+ *  another helper — as `defp`s in the reactor's own module.  A workflow-fn
+ *  call renders as a bare module-local `label(…)`, and the command path's
+ *  per-workflow module (which defines them there) is a different module, so
+ *  each reactor carries the ones it reaches.  Only those: an unused `defp`
+ *  fails `mix compile --warnings-as-errors`. */
+function workflowFnHelpers(
+  wf: WorkflowIR,
+  statements: readonly WorkflowStmtIR[],
+  renderCtx: RenderCtx,
+): string {
+  const fns = new Map((wf.functions ?? []).map((f) => [f.name, f] as const));
+  if (fns.size === 0) return "";
+  const called = new Set<string>();
+  const visit = (e: ExprIR): void => {
+    if (e.kind !== "call" || e.callKind !== "workflow-fn" || called.has(e.name)) return;
+    const fn = fns.get(e.name);
+    if (!fn) return;
+    called.add(e.name);
+    for (const root of functionBodyExprs(fn.body)) walkExprDeep(root, visit);
+  };
+  for (const s of statements) walkWorkflowStmtExprsDeep(s, visit);
+  return [...fns.values()]
+    .filter((fn) => called.has(fn.name))
+    .map((fn) => {
+      const params = fn.params
+        .map((p) => (bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`))
+        .join(", ");
+      const body = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
+      return `\n\n  defp ${snake(fn.name)}(${params}) do\n${body}\n  end`;
+    })
+    .join("");
+}
+
+/** Every expression a function body holds — its one expression, or each
+ *  block statement's expressions. */
+function functionBodyExprs(body: FunctionIR["body"]): ExprIR[] {
+  if ("expr" in body) return [body.expr];
+  const out: ExprIR[] = [];
+  for (const s of body.stmts) walkStmtExprsDeep(s, (e) => out.push(e));
+  return out;
 }
 
 /** Prefix every non-empty physical line of a 0-indented block with `n`
@@ -1149,11 +1204,77 @@ function renderStmt(
         },
       ];
     }
-    default:
-      // repo-delete / if-let / resource-call / domain-service-call don't appear
-      // in validated reactor / starter bodies today; guard against silently
-      // emitting nothing.
-      throw new Error(`dispatch-emit: unsupported reactor statement kind '${st.kind}'`);
+    case "repo-delete": {
+      // `Orders.delete(o)` → `{:ok, _} <- <Ctx>.delete_<agg>(o)` — the same
+      // in-process delete entry the command path calls
+      // (`vanilla/workflow-execution-emit.ts`): it takes the loaded struct and
+      // answers `{:ok, struct} | {:error, changeset}`, so a failure threads up
+      // the handler's with-chain like any other clause.  That entry exists only
+      // when the aggregate has a delete surface (`emitsRestDelete`); without
+      // one, delete through `Repo.delete/1` directly — exactly what the
+      // repository's `delete/1` would have done, with the same return shape.
+      const agg = ctx.aggregates.find((a) => a.name === st.aggName);
+      const entity = renderExpr(st.entity, renderCtx);
+      const call =
+        agg && emitsRestDelete(agg)
+          ? `${contextModule}.${internalDeleteFn(st.aggName, agg)}(${entity})`
+          : `${contextModule.split(".").slice(0, -1).join(".")}.Repo.delete(${entity})`;
+      return [{ kind: "with-clause", text: `{:ok, _} <- ${call}` }];
+    }
+    case "resource-call":
+      // `mail.send(…)` (bare statement form) — a fire-and-forget side effect in
+      // the do-branch, so a failed with-chain skips it exactly as it skips an
+      // `emit`.  `renderExpr` routes the verb through `renderCtx.resourceModules`.
+      return [{ kind: "dispatch", text: `_ = ${renderExpr(st.call, renderCtx)}` }];
+    case "domain-service-call": {
+      // `Mover.bump(o)` — a bare call into a `mutating` domainService.  Phoenix
+      // has no service unit: the call expands into the with-chain of the
+      // service body's param-op calls, exactly as on the command path, so a
+      // reactor and a command workflow run the same context mutating fns.
+      const clauses = resolveInlinedServiceClauses(st, renderCtx, contextModule, ctx);
+      if (clauses.length > 0) {
+        return clauses.map((c) => ({ kind: "with-clause", text: c.text, bindName: c.bindName }));
+      }
+      // No mutating param-op in the body: the call is a plain side effect.
+      return [{ kind: "dispatch", text: `_ = ${renderExpr(st.call, renderCtx)}` }];
+    }
+    case "if-let": {
+      // `if let o = Orders.find(<Criterion>) { … } else { … }` → one with-clause
+      // wrapping a parenthesised block, the command path's shape
+      // (`vanilla/workflow-execution-emit.ts`): the shared `run_<ret>_<agg>`
+      // retrieval capped at one row, its head-or-nil bound to the variable,
+      // then an `if` over the two branches.  Each branch is rendered by this
+      // reactor's own `renderStmt` (so an `emit` re-enters the Dispatcher) and
+      // ends in `{:ok, _}`, or in its first `{:error, _}`, which threads up the
+      // handler's with-chain.
+      const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
+      const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
+      const v = loopBindUsed(st.var, st.thenBody) ? snake(st.var) : `_${snake(st.var)}`;
+      const branch = (body: WorkflowStmtIR[]): string[] =>
+        renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
+          ok: () => "{:ok, nil}",
+          err: "err",
+        })
+          .flatMap((l) => l.split("\n"))
+          .map((l) => `                 ${l}`);
+      // Continuation lines carry absolute indentation, as the `for-each` arm's
+      // do: the with-chain assembler prefixes only a clause's FIRST line.
+      const lines = [
+        `{:ok, _} <- (case ${contextModule}.${action}(${runArgs.join(", ")}) do`,
+        `               {:ok, [${v} | _]} ->`,
+        ...branch(st.thenBody),
+        `               _ ->`,
+        ...branch(st.elseBody ?? []),
+        `             end)`,
+      ];
+      return [{ kind: "with-clause", text: lines.join("\n") }];
+    }
+    default: {
+      const _exhaustive: never = st;
+      throw new Error(
+        `dispatch-emit: unsupported reactor statement kind '${(_exhaustive as WorkflowStmtIR).kind}'`,
+      );
+    }
   }
 }
 
@@ -1219,7 +1340,25 @@ function renderReactorLoopBody(
   contextModule: string,
   channels?: ElixirChannelsCfg,
 ): string[] {
-  if (body.length === 0) return ["{:cont, {:ok, nil}}"];
+  return renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
+    ok: (v) => `{:cont, {:ok, ${v}}}`,
+    err: "{:halt, err}",
+  });
+}
+
+/** A nested reactor body (a loop body, an `if let` branch) as one block of
+ *  lines: its fallible statements become a `with`-chain, its side effects run
+ *  in the do-branch, and the block ends in `shape.ok(<last bind>)` — or, on the
+ *  first failure, `shape.err` (bound to `err`). */
+function renderReactorNestedBody(
+  body: WorkflowStmtIR[],
+  ctx: EnrichedBoundedContextIR,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  channels: ElixirChannelsCfg | undefined,
+  shape: { ok: (bind: string) => string; err: string; okBind?: string },
+): string[] {
+  if (body.length === 0) return [shape.ok(shape.okBind ?? "nil")];
   const rendered = body.flatMap((s) => renderStmt(s, ctx, renderCtx, contextModule, channels));
   // `_`-discard a bind nothing LATER in the loop body reads, the same rule
   // `renderBody` applies at the top level — an unused plain bind fails
@@ -1270,16 +1409,17 @@ function renderReactorLoopBody(
     }
   }
 
+  const result = shape.ok(shape.okBind ?? lastBind);
   if (clauses.length === 0) {
     // Pure side-effect body (emit only) — nothing fallible to gate on.
-    return [...doLines, `{:cont, {:ok, ${lastBind}}}`];
+    return [...doLines, result];
   }
   return [
     `with ${clauses.join(",\n     ")} do`,
     ...doLines.map((l) => `  ${l}`),
-    `  {:cont, {:ok, ${lastBind}}}`,
+    `  ${result}`,
     `else`,
-    `  err -> {:halt, err}`,
+    `  err -> ${shape.err}`,
     `end`,
   ];
 }

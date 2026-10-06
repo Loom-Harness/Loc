@@ -152,6 +152,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-call-missing-field":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.applier-stmt-invalid":
+    "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",

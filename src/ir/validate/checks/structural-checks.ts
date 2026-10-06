@@ -500,10 +500,12 @@ export function validateExternOperations(ctx: BoundedContextIR, diags: LoomDiagn
 //      `this.x` would bypass the stream and desync the fold.
 //   3. Every event a command emits needs a matching applier, or the
 //      fold silently drops that transition.
-//   4. Applier bodies are pure folds: assignments / collection mutations
-//      and `let` bindings only.  No `emit` (an applier reacts to an
-//      event, it doesn't raise one), and no side-effecting calls (the
-//      fold must be deterministic and replayable).
+//   4. Applier bodies are pure folds: assignments / collection mutations,
+//      `let` bindings and branches only.  No `emit` (an applier reacts to an
+//      event, it doesn't raise one), no side-effecting calls (the fold must
+//      be deterministic and replayable), no `return` (it yields nothing).
+//      Checked by `validateApplierBodies` in `body-stmt-vocabulary.ts`, which
+//      applies the same rule to an `eventSourced` workflow's appliers.
 //   5. At most one applier per event type — two folds for one event are
 //      ambiguous.
 //
@@ -645,62 +647,8 @@ export function validateEventSourcedDiscipline(
       }
     }
 
-    // Rule 4 — applier bodies are pure folds.  Deep, for the same reason.
-    for (const ap of appliers) {
-      for (const stmt of deepStmts(ap.statements)) {
-        switch (stmt.kind) {
-          case "emit":
-            diags.push({
-              severity: "error",
-              code: "loom.applier-emits",
-              message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
-              source: `${ctx.name}/${agg.name}`,
-            });
-            break;
-          case "call":
-            diags.push({
-              severity: "error",
-              code: "loom.applier-impure-call",
-              message: diagMessage("loom.applier-impure-call", {
-                name: agg.name,
-                event: ap.event,
-                stmtName: stmt.name,
-              }),
-              source: `${ctx.name}/${agg.name}`,
-            });
-            break;
-          case "precondition":
-          case "requires":
-            diags.push({
-              severity: "error",
-              code: "loom.applier-guard",
-              message: diagMessage("loom.applier-guard", {
-                name: agg.name,
-                event: ap.event,
-                kind: stmt.kind,
-              }),
-              source: `${ctx.name}/${agg.name}`,
-            });
-            break;
-          // A fold's legitimate vocabulary: state writes, bindings, the
-          // trailing expression, `return`, and the branch statements whose
-          // bodies `deepStmts` already flattened into this list.
-          case "assign":
-          case "add":
-          case "remove":
-          case "expression":
-          case "if":
-          case "let":
-          case "return":
-          case "variant-match":
-            break;
-          default: {
-            const _exhaustive: never = stmt;
-            void _exhaustive;
-          }
-        }
-      }
-    }
+    // Rule 4 — applier bodies are pure folds — is `validateApplierBodies`
+    // (`body-stmt-vocabulary.ts`), which holds it for workflow appliers too.
   }
 }
 

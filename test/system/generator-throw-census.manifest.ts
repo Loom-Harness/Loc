@@ -545,10 +545,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
   },
   "src/generator/elixir/dispatch-emit.ts#renderStmt": {
-    deferred:
-      "A workflow on(e) reactor body containing `Orders.delete(o)` lowers to a repo-delete WorkflowStmtIR, which the elixir reactor renderer has no arm for; no validator refuses it (likely also if-let/resource-call/domain-service-call in reactor bodies).",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "Exhaustive-switch `never` default: the reactor renderer has an arm for every WorkflowStmtIR kind, measured per kind by test/system/body-statement-census.test.ts. (src/generator/elixir/dispatch-emit.ts renderStmt; src/ir/types/loom-ir.ts WorkflowStmtIR)",
   },
 
   // src/generator/elixir/domain-service-emit.ts
@@ -647,10 +645,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/eventsourced-emit.ts
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
-    deferred:
-      "An `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate, yet the create is rendered through the ES command runner.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.elixir-if-stmt-unsupported"],
+    note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
   },
 
   // src/generator/elixir/vanilla/explicit-handlers-emit.ts
@@ -663,24 +659,25 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap": {
-    deferred:
-      "An eventSourced workflow `apply` that constructs a contained entity part of an aggregate in the same context (`let l = Line { sku: a.sku }`) validates clean, but the workflow fold has no part resolver.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.cross-aggregate-entity-part"],
+    note: "validatePartConstructionOwner (body-stmt-vocabulary.ts) refuses an entity-part construction outside the aggregate that owns it, so an aggregate fold only builds its own parts (which resolvePart finds) and a workflow fold builds none.",
   },
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
-    deferred:
-      "A `return` in an event-sourced aggregate `apply` body passes both applier-discipline validators but the elixir fold renderer has no `return` arm (an `if` in an eventSourced WORKFLOW apply is likely also unguarded).",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.applier-stmt-invalid",
+      "loom.applier-emits",
+      "loom.applier-impure-call",
+      "loom.applier-guard",
+      "loom.elixir-if-stmt-unsupported",
+      "loom.variant-match-placement",
+    ],
+    note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS; the fold renders all of it but `if`, which validateElixirIfSupport refuses in every elixir-hosted applier. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
   },
 
   // src/generator/elixir/vanilla/function-emit.ts
   "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
-    deferred:
-      "A workflow `function` with a non-tail `return` inside an `if` is never checked by the elixir if-gate but is rendered through renderFunctionBodyLines.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.elixir-if-stmt-unsupported"],
+    note: 'validateElixirIfSupport classifies every block-bodied `function` — aggregate AND workflow — with the same elixirIfRefusal("value") predicate this throw asserts.',
   },
 
   // src/generator/elixir/vanilla/integration-tests-emit.ts
@@ -1158,10 +1155,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "esWorkflowFoldBlock is only emitted when wf.correlationField is set, and that field is always the unique id-typed state field (unlike Java, verified with g5-es-wf-nocorr-python.ddd which generates cleanly). (src/generator/python/dispatch-builder.ts:271-275; src/ir/lower/lower-workflow.ts:151-152)",
   },
   "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt": {
-    deferred:
-      "A workflow applier containing a `let` binding (`apply(pr: PaymentRegistered) { let x = pr.amount  paid := paid + x }`) validates clean, but the Python ES-workflow applier renderer only handles assign/add/remove.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.applier-stmt-invalid",
+      "loom.applier-emits",
+      "loom.applier-impure-call",
+      "loom.applier-guard",
+      "loom.variant-match-placement",
+    ],
+    note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
   // src/generator/react/index.ts
@@ -1447,10 +1448,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/platform/hono/v4/workflow-eventsourced-builder.ts
   "src/platform/hono/v4/workflow-eventsourced-builder.ts#renderApplierStmt": {
-    deferred:
-      "The applier purity rules (loom.applier-emits/-impure-call/-guard) cover aggregate appliers and explicitly allow let/if/expression/return; an eventSourced workflow `apply(r) { let a = r.at  firedAt := a }` (or an `if`) validates clean and the hono ES-workflow applier refuses it.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.applier-stmt-invalid",
+      "loom.applier-emits",
+      "loom.applier-impure-call",
+      "loom.applier-guard",
+      "loom.variant-match-placement",
+    ],
+    note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
   // src/platform/metadata.ts

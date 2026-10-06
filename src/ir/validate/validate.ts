@@ -6,6 +6,10 @@ import {
   validateRoutes,
   validateUnservedApis,
 } from "./checks/api-checks.js";
+import {
+  validateApplierBodies,
+  validatePartConstructionOwner,
+} from "./checks/body-stmt-vocabulary.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -297,6 +301,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateStampReadsBeforeFlush(c, diags);
     validateServerInitialisedFields(c, diags);
     validateEventSourcedDiscipline(c, diags);
+    validateApplierBodies(c, diags);
+    validatePartConstructionOwner(c, diags);
     validateProjections(c, diags);
     validateAggregateConstructible(c, diags);
     validateWorkflowUnusedParams(c, diags);

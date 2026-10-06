@@ -511,6 +511,49 @@ system MemberBackstop {
 }`,
   // An `emit` in a CONTEXT integration test: no backend's integration-test
   // renderer has an arm for it, and before #3133 every one crashed generate.
+  // A `return` in an applier: a fold yields nothing, and the Phoenix fold
+  // renderer has no arm for it (it crashed generate before the gate).
+  "loom.applier-stmt-invalid": `
+system Ledger {
+  subdomain Core { context Accounts {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) {
+        owner := e.owner
+        return owner
+      }
+    }
+    repository Accounts for Account { }
+  } }
+}`,
+  // A workflow fold constructing an entity part of an aggregate: nothing
+  // outside the owning aggregate can hold one (the IR arm; the AST arm — a part
+  // TYPE named outside its aggregate — never links, see `ddd-scope.ts`).
+  "loom.cross-aggregate-entity-part": `
+system WFN {
+  subdomain F { context F {
+    aggregate Order {
+      create(status: string) { }
+      status: string
+      entity Line { sku: string }
+      lines: Line[]
+    }
+    repository Orders for Order { }
+    event Started { order: Order id }
+    event Added { order: Order id, sku: string }
+    workflow Track eventSourced {
+      orderId: Order id
+      last: string
+      create(p: Started) by p.order { emit Added { order: p.order, sku: "x" } }
+      apply(a: Added) {
+        let l = Line { sku: a.sku }
+        last := a.sku
+      }
+    }
+  } }
+}`,
   "loom.test-statement-invalid": `
 system TestVocab {
   subdomain S { context C {
@@ -3367,12 +3410,6 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "ungating `isolation:` in `ddd.langium`.",
 
   // --- the last three singletons -------------------------------------------
-  "loom.cross-aggregate-entity-part":
-    "The arm needs a RESOLVED entity-part owned by a different aggregate, and `ddd-scope.ts` " +
-    "restricts containment part types to entity parts declared in the SAME aggregate (the rule " +
-    "CLAUDE.md states as `cross-aggregate references must use X id`).  So the name never links " +
-    "and the source reports `loom.linking-error` instead.  Driven and confirmed.  Re-test by " +
-    "widening the containment part-type scope to sibling aggregates.",
   "loom.platform-knob-style-layout-mismatch":
     "Every platform's LAYOUT menu is a subset of what its style declares in `styleSupportedLayouts`, " +
     "so a layout that would mismatch is already out-of-menu and `loom.platform-knob-out-of-menu` " +
