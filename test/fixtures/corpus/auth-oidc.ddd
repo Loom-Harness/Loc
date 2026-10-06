@@ -6,6 +6,9 @@ system Helpdesk {
     role: string
     email: string
     permissions: string[]
+    // OPTIONAL: a principal may simply not carry it.  A token WITHOUT the claim
+    // must read as null — `take()` below is gated on it (H-10).
+    agentId: string?
   }
   auth {
     enforcement: opt
@@ -25,6 +28,14 @@ system Helpdesk {
         operation close() {
           requires currentUser.role == "agent"
           open := false
+        }
+        // H-10: node projected an ABSENT optional claim as `undefined`, and
+        // `!= null` lowers to `!== null` — so a token without `agentId` passed
+        // this gate (204 where 403 was due).  The ladder's `unauthorized` token
+        // carries no `agentId` at all; the authorized one does.
+        operation take() {
+          requires currentUser.agentId != null
+          open := true
         }
       }
       repository Tickets for Ticket { }
@@ -56,6 +67,13 @@ system Helpdesk {
     api.tickets.close(t)
     let read = api.tickets.getById(t)
     expect(read.open).toBe(false)
+
+    // The agent token CARRIES the optional `agentId` claim, so `take()`'s
+    // `!= null` gate admits it — the present-claim half of H-10 (the ladder's
+    // unauthorized token, which omits the claim, proves the 403 half).
+    api.tickets.take(t)
+    let taken = api.tickets.getById(t)
+    expect(taken.open).toBe(true)
 
     // The canonical `update` is UNGUARDED — no `requires` clause — but it still
     // sits behind `auth: required`, so it exercises the other half of the

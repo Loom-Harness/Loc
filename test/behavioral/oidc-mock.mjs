@@ -70,6 +70,10 @@ export async function startMockIssuer() {
     realm_access: { roles: "agent" },
     email: "agent@example.com",
     permissions: ["close"],
+    // The optional claim `take()` is gated on (`auth-oidc.ddd`).  The
+    // unauthorized token below OMITS it — absent, not null — which is the H-10
+    // shape: an absent optional claim must read as null and be refused.
+    agentId: "agent-1",
   })
     .setProtectedHeader({ alg: "RS256", kid })
     .setSubject("00000000-0000-0000-0000-000000000000")
